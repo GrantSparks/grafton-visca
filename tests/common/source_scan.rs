@@ -1,21 +1,14 @@
-//! Source-text scanners shared by the closed-inventory integration gates.
+//! Source-text scanner for the closed-inventory integration gates.
 //!
 //! These gates read crate sources as text, which is only sound if the reading
-//! is anchored and delimiter-aware.  Two failure modes motivated this module:
+//! is delimiter-aware.  A surface file can name its own items as string
+//! literals inside its in-file tests, so `source.contains("surface_entry")`
+//! could be satisfied by test data after the item itself is gone.
+//! [`declarations`] blanks every `#[cfg(test)]` item so a positive gate reads
+//! the declaration region only.
 //!
-//! * *Self-satisfying gates.*  A surface file names its own accessors and
-//!   method spellings as string literals inside its in-file inventory tests, so
-//!   `source.contains("PowerAccessor")` can be satisfied by the test data after
-//!   the accessor itself is gone.  [`declarations`] blanks every
-//!   `#[cfg(test)]` item so a positive gate reads the declaration region only.
-//! * *Ambiguous needles.*  A scan that counts entries must anchor on exactly
-//!   one block and read it by delimiter depth, so it tolerates re-indentation
-//!   and fails loudly rather than counting the wrong list.
-//!
-//! This is the integration-test twin of the scanner in `src/noun_parity.rs`;
-//! the crate's own gate cannot be reached from an integration test binary.
-
-#![allow(dead_code)]
+//! This is the integration-test twin of the scanner in `src/facade_parity.rs`;
+//! the crate's own scanner cannot be reached from an integration test binary.
 
 /// Blanks comments and literal contents while preserving the line structure.
 ///

@@ -212,17 +212,6 @@ const fn registry_class(command: BuiltinCommand, kind: BuiltinRequestKind) -> Bu
     }
 }
 
-/// Human-readable closed-inventory totals for the built-in surface.
-///
-/// There are 149 command IDs: 146 target-facing noun rows and three protocol
-/// exceptions (the two broadcast handshakes and internal cancellation).
-#[allow(dead_code)]
-pub(crate) const BUILTIN_COMMAND_COUNT: usize = 149;
-#[allow(dead_code)]
-pub(crate) const TARGET_FACING_COMMAND_COUNT: usize = 146;
-#[allow(dead_code)]
-pub(crate) const NON_NOUN_COMMAND_COUNT: usize = 3;
-
 /// Maps a command row's kind keyword to its [`BuiltinRequestKind`].
 macro_rules! registry_class {
     (plain) => {
@@ -423,17 +412,6 @@ mod tests {
             "the semantic class distribution of the closed ledger changed",
         );
         assert_eq!(seen.len(), BuiltinCommand::ALL.len());
-        assert_eq!(BuiltinCommand::ALL.len(), BUILTIN_COMMAND_COUNT);
-        assert_eq!(
-            seen.iter()
-                .filter(|command| surface_entry(**command).is_target_facing())
-                .count(),
-            TARGET_FACING_COMMAND_COUNT,
-        );
-        assert_eq!(
-            BuiltinCommand::ALL.len() - TARGET_FACING_COMMAND_COUNT,
-            NON_NOUN_COMMAND_COUNT,
-        );
     }
 
     /// Issue #651: paired on/off rows agree on their capability gate.

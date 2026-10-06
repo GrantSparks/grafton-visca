@@ -9,14 +9,181 @@
 //! `Camera` getters are not compared here: one consumer
 //! (`crate::noun_facade::static_noun_facade!`) generates both facades' copies.
 //!
-//! The reader is the declaration scanner of [`crate::noun_parity`]: comments,
-//! literals and test modules are blanked before anything is matched.
+//! The reader below is a declaration scanner, intentionally not a Rust parser:
+//! comments, literals, test modules and macro bodies are blanked before
+//! anything is matched.
 
 #![allow(clippy::panic)]
 
 use std::collections::BTreeMap;
 
-use crate::noun_parity::{block_end, declaration_lines};
+/// Blanks comments and literal contents while retaining line structure.
+fn clean_source(source: &str, label: &str) -> String {
+    let chars: Vec<char> = source.chars().collect();
+    let mut output = Vec::with_capacity(chars.len());
+    let mut index = 0;
+
+    fn blank(character: char) -> char {
+        if character == '\n' {
+            '\n'
+        } else {
+            ' '
+        }
+    }
+
+    while index < chars.len() {
+        let current = chars[index];
+        let next = chars.get(index + 1).copied();
+        match (current, next) {
+            ('/', Some('/')) => {
+                while index < chars.len() && chars[index] != '\n' {
+                    output.push(' ');
+                    index += 1;
+                }
+            }
+            ('/', Some('*')) => {
+                let mut depth = 1_usize;
+                output.push(' ');
+                output.push(' ');
+                index += 2;
+                while index < chars.len() && depth != 0 {
+                    if chars[index] == '/' && chars.get(index + 1) == Some(&'*') {
+                        depth += 1;
+                        output.push(' ');
+                        output.push(' ');
+                        index += 2;
+                    } else if chars[index] == '*' && chars.get(index + 1) == Some(&'/') {
+                        depth -= 1;
+                        output.push(' ');
+                        output.push(' ');
+                        index += 2;
+                    } else {
+                        output.push(blank(chars[index]));
+                        index += 1;
+                    }
+                }
+                assert_eq!(depth, 0, "{label}: unterminated block comment");
+            }
+            ('"', _) => {
+                output.push('"');
+                index += 1;
+                let mut closed = false;
+                while index < chars.len() {
+                    let character = chars[index];
+                    if character == '\\' {
+                        output.push(' ');
+                        index += 1;
+                        if index < chars.len() {
+                            output.push(blank(chars[index]));
+                            index += 1;
+                        }
+                    } else {
+                        output.push(if character == '"' {
+                            '"'
+                        } else {
+                            blank(character)
+                        });
+                        index += 1;
+                        if character == '"' {
+                            closed = true;
+                            break;
+                        }
+                    }
+                }
+                assert!(closed, "{label}: unterminated string literal");
+            }
+            ('\'', _) => {
+                // A lifetime starts with `'name`; a character literal closes
+                // with another quote and must be blanked like a string.
+                let literal = match next {
+                    Some('\\') => true,
+                    Some(_) => chars.get(index + 2) == Some(&'\''),
+                    None => false,
+                };
+                if literal {
+                    output.push(' ');
+                    index += 1;
+                    while index < chars.len() {
+                        let character = chars[index];
+                        output.push(blank(character));
+                        index += 1;
+                        if character == '\'' {
+                            break;
+                        }
+                    }
+                } else {
+                    output.push('\'');
+                    index += 1;
+                }
+            }
+            _ => {
+                output.push(current);
+                index += 1;
+            }
+        }
+    }
+
+    output.into_iter().collect()
+}
+
+/// Returns the index just past a brace-delimited item.
+fn block_end(lines: &[&str], start: usize, label: &str) -> usize {
+    let mut depth = 0_i32;
+    let mut opened = false;
+    for (line_index, line) in lines.iter().enumerate().skip(start) {
+        for character in line.chars() {
+            match character {
+                '{' => {
+                    depth += 1;
+                    opened = true;
+                }
+                '}' => depth -= 1,
+                _ => {}
+            }
+        }
+        if opened && depth <= 0 {
+            return line_index + 1;
+        }
+    }
+    panic!("{label}:{}: unterminated block", start + 1);
+}
+
+/// Marks test and macro bodies in a cleaned source file.
+fn masked_lines(lines: &[&str], label: &str, macros: bool) -> Vec<bool> {
+    let mut masked = vec![false; lines.len()];
+    let mut index = 0;
+    while index < lines.len() {
+        let trimmed = lines[index].trim();
+        if trimmed == "#[cfg(test)]" || (macros && trimmed.starts_with("macro_rules!")) {
+            let end = block_end(lines, index, label);
+            for item in masked.iter_mut().take(end).skip(index) {
+                *item = true;
+            }
+            index = end;
+        } else {
+            index += 1;
+        }
+    }
+    masked
+}
+
+/// Returns cleaned declaration lines, optionally excluding macro definitions.
+fn declaration_lines(source: &str, label: &str, macros: bool) -> Vec<String> {
+    let cleaned = clean_source(source, label);
+    let lines: Vec<&str> = cleaned.lines().collect();
+    let masked = masked_lines(&lines, label, macros);
+    lines
+        .into_iter()
+        .zip(masked)
+        .map(|(line, is_masked)| {
+            if is_masked {
+                String::new()
+            } else {
+                line.to_owned()
+            }
+        })
+        .collect()
+}
 
 const BLOCKING: &[(&str, &str)] = &[("src/blocking.rs", include_str!("blocking.rs"))];
 const ASYNC: &[(&str, &str)] = &[
@@ -256,4 +423,38 @@ impl<K> fmt::Debug for Operation<K> {
             ),
         ])
     );
+}
+
+/// Self-tests of the declaration scanner.
+mod scanner {
+    use super::*;
+
+    #[test]
+    fn comments_and_literals_cannot_steer_the_scanner() {
+        let cleaned = clean_source(
+            "let needle = format!(\"pub fn {method}(\"); // }} not a brace\n",
+            "fixture",
+        );
+        assert!(!cleaned.contains('{'));
+        assert!(!cleaned.contains('}'));
+        assert_eq!(cleaned.lines().count(), 1);
+    }
+
+    #[test]
+    fn declaration_scan_drops_in_file_test_data() {
+        let source = concat!(
+            "pub struct RealAccessor;\n",
+            "#[cfg(test)]\n",
+            "mod tests {\n",
+            "    struct GhostAccessor;\n",
+            "}\n",
+            "pub struct LaterAccessor;\n",
+        );
+        let declarations = declaration_lines(source, "fixture", false);
+        assert_eq!(declarations.len(), source.lines().count());
+        let declarations = declarations.join("\n");
+        assert!(declarations.contains("RealAccessor"));
+        assert!(declarations.contains("LaterAccessor"));
+        assert!(!declarations.contains("GhostAccessor"));
+    }
 }

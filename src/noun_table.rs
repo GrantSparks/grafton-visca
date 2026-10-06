@@ -1,11 +1,21 @@
 //! The typed noun registry behind the static surface metadata and all three
 //! noun facades.
 //!
-//! [`crate::command::surface`], [`crate::async_nouns`],
-//! [`crate::blocking::nouns`] and [`crate::dynapi::nouns`] are generated from
-//! this registry.  Every noun method is written here once — name, arguments,
-//! capability bound, return class and rustdoc — so the type system relates
-//! the copies.
+//! Every noun method is written here once — name, arguments, capability
+//! gate, return class, request and rustdoc — and everything else is expanded
+//! from it:
+//!
+//! * the blocking and async accessors and methods (`crate::blocking_nouns` and
+//!   [`crate::async_nouns`], both through `crate::noun_facade`), the `Dyn*`
+//!   traits ([`crate::dynapi::nouns`]) and the re-export lists
+//!   ([`reexport_nouns!`]);
+//! * [`crate::command::surface`]: `StaticNoun`, the exhaustive
+//!   `surface_entry` match and the runtime gate of every built-in inquiry
+//!   (`BuiltinInquiryGate`);
+//! * the typed-request inventory in [`crate::request::builtin`].
+//!
+//! Adding a built-in command is described in `CONTRIBUTING.md` ("Adding a
+//! Built-in Command"): one row here is the only surface edit it needs.
 //!
 //! [`noun_table!`] is a continuation-passing macro: it takes the name of a
 //! consumer macro, plus optional fixed-shape leading arguments, and hands
@@ -33,12 +43,14 @@
 //!   ID.
 //! * `-> <type>` is the request type of a command row and the decoded response
 //!   of an inquiry row; it is always written.
-//! * `where <Marker>` is the compile-time capability bound the static facades
-//!   put on their profile parameter.  It is a bare marker-trait name; the
-//!   parity gate checks that every facade resolves that name to the real
-//!   `crate::capabilities` trait.  The erased facade carries no bounds at all
-//!   (its capability enforcement is the runtime `validate_for_profile` check),
-//!   so its consumers ignore this clause.
+//! * `where <Marker>` is the row's typed-support gate.  It is a bare marker
+//!   name: the static facades bound their profile parameter with
+//!   `$crate::capabilities::<Marker>`, so the compiler resolves it, and the
+//!   surface registry maps it to its `TypedSupportSurface` with
+//!   `typed_surface!`, which has no arm for a marker without a typed-support
+//!   registry row.  The erased facade carries no bounds; it enforces the same
+//!   gate at runtime through `validate_for_profile` (a command through its
+//!   request type's ledger row, an inquiry through its `BuiltinInquiryGate`).
 //! * `<request>` is the command or inquiry value to send.  Three forms exist,
 //!   and only `noun_request!` (in `crate::noun_facade`) parses them:
 //!   * `<expr>` — an infallible constructor.
@@ -69,10 +81,15 @@
 //!
 //! `gate` is the noun's base capability gate: `[always]` needs none,
 //! `[domain M]` names a profile domain marker and `[typed M]` a typed-support
-//! marker.  A row's own `where` clause narrows it.  The surface registry, the
-//! static facades and the dynamic facade all read the headers: the accessor,
-//! getter and `Dyn*` trait names and the one doc of every surface of the noun
-//! come from here.
+//! marker.  A `[typed M]` gate bounds the static accessor itself; a
+//! `[domain M]` gate bounds only its getter.  A row's own `where` clause
+//! replaces the base gate for that row, so a row's gate is its `where` marker,
+//! else its header gate; the surface registry derives it once per row
+//! (`RowGate`).  A `[domain M]` gate that some row inherits needs a
+//! `DomainGate` with its runtime check.  The surface registry, the static
+//! facades and the dynamic facade all read the headers: the accessor, getter
+//! and `Dyn*` trait names and the one doc of every surface of the noun come
+//! from here.
 //!
 //! # The motion view
 //!

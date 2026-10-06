@@ -77,16 +77,16 @@ dependency.
 The async dynamic surface is `DynSessionCamera` plus the object-safe
 `DynSessionCameraControl`, `DynSessionCameraNouns`, the 14 `Dyn*` noun traits,
 and `DynMotion`. It also exposes `DynTargetedOperation` and
-`DynAppliedOperation`. Its checked inventory covers
-146 target-facing command methods and 62 typed inquiry methods, with the same
-semantic classes as the static surface. Dynamic projection erases profile and
-request types only; it does not introduce another runtime, owner, cancellation,
-deadline, outcome, or settling policy. Because it carries no compile-time
+`DynAppliedOperation`. It is generated from the same noun-table rows as the
+static surface, so it has exactly the static surface's target-facing command
+methods and typed inquiry methods, with the same semantic classes. Dynamic
+projection erases profile and request types only; it does not introduce
+another runtime, owner, cancellation, deadline, outcome, or settling policy. Because it carries no compile-time
 marker bounds, it reproduces the static surface's capability gates at runtime
 through `validate_for_profile`, admitting exactly the operations the static
 `<noun>()` accessor could name — including the base-domain inquiries, which are
-gated on the same base marker as their noun accessor. A `noun_parity` test pins
-the erased and static command/inquiry gate sets equal so the two cannot drift.
+gated on the same base marker as their noun accessor. Both gates are derived
+from the same noun-table row, so the erased and static gates cannot drift.
 
 ## Connection paths
 

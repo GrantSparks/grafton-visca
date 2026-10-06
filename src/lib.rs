@@ -1019,9 +1019,6 @@ pub(crate) mod noun_facade;
 
 #[cfg(all(test, feature = "async", feature = "blocking"))]
 mod facade_parity;
-/// Cross-surface parity gate for the table-driven noun facades.
-#[cfg(test)]
-mod noun_parity;
 
 #[cfg(feature = "async")]
 pub(crate) mod executor;

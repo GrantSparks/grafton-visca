@@ -218,6 +218,43 @@ impl Inquiry for MyInquiry {
 }
 ```
 
+### 4. Adding a Built-in Command
+
+A built-in command is declared in four places, and every other projection is
+generated from them:
+
+1. **Ledger row** (`src/command/semantics.rs`): one `builtin_command_ledger!`
+   row gives the command its `BuiltinCommand` identity and its class
+   (`plain`, `applied(<AXES>)` or `targeted(<AXES>)`), plus any write-only
+   state effect.
+2. **Wire encoder** (`src/command/<domain>.rs`): the request type and its
+   `WireEncode` implementation, written through `FrameWriter`.
+3. **Request entry** (`src/request/builtin.rs`): one `builtin_request!` entry
+   names the request type's ledger row and its policy; its encoded size is
+   measured from the encoder. Add the per-value checks to its
+   `BuiltinValidation` implementation; a typed capability gate comes from the
+   ledger row through `validate_static_typed_command`.
+4. **Noun row** (`src/noun_table.rs`): one row under the owning `@noun` header
+   gives the method name, arguments, rustdoc, capability `where` marker and
+   request. The blocking, async and `Dyn*` methods, the static surface entry
+   and the typed-request inventory are all expanded from it.
+
+The compiler rejects a ledger row without a noun row, a noun row whose kind
+disagrees with the ledger class, and a request type whose rows disagree on
+their capability gate (unless its entry is `gate_by_value`, in which case its
+validator must name each value's own ledger row). A typed built-in inquiry is added to
+`define_builtin_inquiries!` in `src/command/inquiry_structs.rs` and gets its
+runtime gate from its noun row in the same way.
+
+Then:
+
+- extend the wire golden (`src/issue_715_wire_golden.rs` and
+  `tests/fixtures/issue_715_wire_golden.txt`);
+- update the semantic class tripwire in `src/command/surface.rs`
+  (`surface_ledger_is_exhaustive_unique_and_class_balanced`) and name the class
+  the row landed in in the commit message;
+- regenerate the public API snapshots (see [Public API Snapshots](#public-api-snapshots)).
+
 ## Camera Profile Support
 
 Camera profiles are part of the public type-safety contract. Before adding or

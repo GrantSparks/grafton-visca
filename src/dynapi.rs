@@ -49,10 +49,7 @@ crate::noun_table::noun_table!(reexport_nouns, [dyn_trait], [nouns]);
 #[cfg(feature = "async")]
 crate::noun_table::motion_table!(reexport_nouns, [dyn_trait], [nouns]);
 #[cfg(feature = "async")]
-pub use nouns::{
-    DynSessionCameraNouns, DYN_NOUN_CONVENIENCE_METHODS, DYN_NOUN_CONVENIENCE_METHOD_COUNT,
-    DYN_NOUN_COUNT, DYN_NOUN_INQUIRY_METHOD_COUNT, DYN_NOUN_TARGET_METHOD_COUNT,
-};
+pub use nouns::DynSessionCameraNouns;
 #[cfg(feature = "async")]
 pub use owner_projection::{
     DynAppliedOperation, DynSessionCamera, DynSessionCameraControl, DynTargetedOperation,

@@ -10761,11 +10761,6 @@ impl core::marker::Unpin for grafton_visca::DynTargetedOperation
 impl core::marker::UnsafeUnpin for grafton_visca::DynTargetedOperation
 impl !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::DynTargetedOperation
 impl !core::panic::unwind_safe::UnwindSafe for grafton_visca::DynTargetedOperation
-pub const grafton_visca::dynapi::DYN_NOUN_CONVENIENCE_METHODS: &[(&str, &str)]
-pub const grafton_visca::dynapi::DYN_NOUN_CONVENIENCE_METHOD_COUNT: usize
-pub const grafton_visca::dynapi::DYN_NOUN_COUNT: usize
-pub const grafton_visca::dynapi::DYN_NOUN_INQUIRY_METHOD_COUNT: usize
-pub const grafton_visca::dynapi::DYN_NOUN_TARGET_METHOD_COUNT: usize
 pub trait grafton_visca::dynapi::DynAdvanced: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::dynapi::DynAdvanced::auto_trace_enabled(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
 pub fn grafton_visca::dynapi::DynAdvanced::broadcast_domain(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::BroadcastDomain, grafton_visca::Error>>
@@ -14944,11 +14939,6 @@ impl<'view, P> core::marker::Unpin for grafton_visca::ZoomAccessor<'view, P> whe
 impl<'view, P> core::marker::UnsafeUnpin for grafton_visca::ZoomAccessor<'view, P> where &'view grafton_visca::Camera<P>: core::marker::UnsafeUnpin
 impl<'view, P> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::ZoomAccessor<'view, P>
 impl<'view, P> !core::panic::unwind_safe::UnwindSafe for grafton_visca::ZoomAccessor<'view, P>
-pub const grafton_visca::prelude::async::DYN_NOUN_CONVENIENCE_METHODS: &[(&str, &str)]
-pub const grafton_visca::prelude::async::DYN_NOUN_CONVENIENCE_METHOD_COUNT: usize
-pub const grafton_visca::prelude::async::DYN_NOUN_COUNT: usize
-pub const grafton_visca::prelude::async::DYN_NOUN_INQUIRY_METHOD_COUNT: usize
-pub const grafton_visca::prelude::async::DYN_NOUN_TARGET_METHOD_COUNT: usize
 pub trait grafton_visca::prelude::async::DynAdvanced: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::prelude::async::DynAdvanced::auto_trace_enabled(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
 pub fn grafton_visca::prelude::async::DynAdvanced::broadcast_domain(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::BroadcastDomain, grafton_visca::Error>>
@@ -15816,11 +15806,6 @@ impl core::marker::Unpin for grafton_visca::DynTargetedOperation
 impl core::marker::UnsafeUnpin for grafton_visca::DynTargetedOperation
 impl !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::DynTargetedOperation
 impl !core::panic::unwind_safe::UnwindSafe for grafton_visca::DynTargetedOperation
-pub const grafton_visca::prelude::dyn_api::DYN_NOUN_CONVENIENCE_METHODS: &[(&str, &str)]
-pub const grafton_visca::prelude::dyn_api::DYN_NOUN_CONVENIENCE_METHOD_COUNT: usize
-pub const grafton_visca::prelude::dyn_api::DYN_NOUN_COUNT: usize
-pub const grafton_visca::prelude::dyn_api::DYN_NOUN_INQUIRY_METHOD_COUNT: usize
-pub const grafton_visca::prelude::dyn_api::DYN_NOUN_TARGET_METHOD_COUNT: usize
 pub trait grafton_visca::prelude::dyn_api::DynAdvanced: core::marker::Send + core::marker::Sync
 pub fn grafton_visca::prelude::dyn_api::DynAdvanced::auto_trace_enabled(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<bool, grafton_visca::Error>>
 pub fn grafton_visca::prelude::dyn_api::DynAdvanced::broadcast_domain(&self) -> grafton_visca::DynFuture<'_, grafton_visca::Result<grafton_visca::types::BroadcastDomain, grafton_visca::Error>>
@@ -25195,11 +25180,6 @@ impl core::marker::UnsafeUnpin for grafton_visca::types::ZoomSpeed
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::types::ZoomSpeed
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::types::ZoomSpeed
 pub const grafton_visca::DEFAULT_ADMISSION_CAPACITY: core::num::nonzero::NonZeroUsize
-pub const grafton_visca::DYN_NOUN_CONVENIENCE_METHODS: &[(&str, &str)]
-pub const grafton_visca::DYN_NOUN_CONVENIENCE_METHOD_COUNT: usize
-pub const grafton_visca::DYN_NOUN_COUNT: usize
-pub const grafton_visca::DYN_NOUN_INQUIRY_METHOD_COUNT: usize
-pub const grafton_visca::DYN_NOUN_TARGET_METHOD_COUNT: usize
 pub trait grafton_visca::CompileTimeProfile: grafton_visca::capabilities::Profile
 pub const grafton_visca::CompileTimeProfile::AMBIGUITY_TIMEOUT: core::time::Duration
 pub const grafton_visca::CompileTimeProfile::CANCELLATION_TIMEOUT: core::time::Duration

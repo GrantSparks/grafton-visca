@@ -328,17 +328,10 @@ fn static_noun_and_control_inventory_is_closed() {
     let surface = declarations(include_str!("../src/command/surface.rs"));
     assert!(surface.contains("pub(crate) const fn surface_entry"));
     assert!(surface.contains("BuiltinCommand::ALL"));
-
-    // The command registry is intentionally readable at a glance: 149 IDs,
-    // of which 146 are target-facing and three are protocol exceptions.
-    assert!(surface.contains("BUILTIN_COMMAND_COUNT: usize = 149"));
-    assert!(surface.contains("TARGET_FACING_COMMAND_COUNT: usize = 146"));
-    assert!(surface.contains("NON_NOUN_COMMAND_COUNT: usize = 3"));
 }
 
 #[test]
 fn dynamic_control_inventory_is_closed() {
-    let nouns = declarations(include_str!("../src/dynapi/nouns.rs"));
     let whole_nouns = include_str!("../src/dynapi/nouns.rs");
 
     // The trait names are compile-time facts (`dyn_trait_inventory!`); this
@@ -347,21 +340,6 @@ fn dynamic_control_inventory_is_closed() {
     sorted.sort_unstable();
     sorted.dedup();
     assert_eq!(sorted, EXPECTED_DYN_TRAITS);
-
-    // Keep the six public totals visible without making the test a second
-    // registry. The crate's compiled tests derive the same totals from the
-    // command/inquiry registries.
-    for (name, value) in [
-        ("DYN_NOUN_TARGET_METHOD_COUNT", "146"),
-        ("DYN_NOUN_INQUIRY_METHOD_COUNT", "62"),
-        ("DYN_NOUN_CONVENIENCE_METHOD_COUNT", "8"),
-        ("DYN_NOUN_COUNT", "14"),
-    ] {
-        assert!(
-            nouns.contains(&format!("{name}: usize = {value}")),
-            "missing readable dynamic inventory total {name}={value}"
-        );
-    }
 
     // The forbidden-token gates below are negative, so they read the whole
     // file: a legacy spelling hiding in a test module is still a legacy

@@ -504,9 +504,11 @@ cargo test --no-default-features --test issue_542_semantic_inventory
 # Profile/transport pair rejection before any socket work.
 cargo test --no-default-features --features blocking --test issue_527_transport_compatibility
 
-# Cross-surface noun parity: async, blocking, and the dynamic projection must
-# agree on name, semantic class, and capability bound.
-cargo test --no-default-features --features blocking --lib noun_parity
+# Blocking/async facade parity: `Session`, `CameraSession`, `Camera` and
+# `Operation` expose the same methods in both modes. The noun accessors and
+# the dynamic projection need no parity test: one noun-table row generates all
+# three surfaces and their capability gates.
+cargo test --no-default-features --features blocking,async --lib facade_parity
 
 # The compile-fail contract for the typed request and marker gates.
 cargo test --no-default-features --test issue_551_compile_contract

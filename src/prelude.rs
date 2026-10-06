@@ -114,8 +114,6 @@ pub mod r#async {
         submit_applied, submit_targeted, DynAppliedOperation, DynAppliedRequest,
         DynCustomOperations, DynFuture, DynSessionCamera, DynSessionCameraControl,
         DynSessionCameraNouns, DynTargetedOperation, DynTargetedRequest,
-        DYN_NOUN_CONVENIENCE_METHODS, DYN_NOUN_CONVENIENCE_METHOD_COUNT, DYN_NOUN_COUNT,
-        DYN_NOUN_INQUIRY_METHOD_COUNT, DYN_NOUN_TARGET_METHOD_COUNT,
     };
     // The noun traits and the motion trait, one per noun-table header.
     #[cfg(feature = "dyn-api")]
