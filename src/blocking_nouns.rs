@@ -98,7 +98,7 @@ macro_rules! accessor {
 /// handles, and the free `execute` / `inquire` / `submit` hops onto the owner
 /// core.
 macro_rules! blocking_noun_methods {
-    (@noun $noun:ident;
+    (@noun $noun:ident { $($header:tt)* };
         $(
             $(#[$doc:meta])*
             $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
@@ -295,7 +295,8 @@ impl<P: CompileTimeProfile> Camera<P> {
 
 /// Expands [`motion_table!`] rows into the synchronous motion methods.
 macro_rules! blocking_motion_methods {
-    ($(
+    (@motion { $($header:tt)* };
+    $(
         $(#[$doc:meta])*
         fn $name:ident(&self $(, $arg:ident: $ty:ty)*) -> $value:ty => $core:ident($($call:expr),*);
     )*) => {

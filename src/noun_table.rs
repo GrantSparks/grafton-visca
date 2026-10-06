@@ -50,9 +50,26 @@
 //! type>;`.
 //!
 //! Rustdoc is a per-row attribute, so the three surfaces cannot document the
-//! same method differently.  The `@noun` marker is an internal callback
-//! context used by the all-rows projection; ordinary consumers strip it before
-//! expanding their rows.
+//! same method differently.
+//!
+//! # Noun headers
+//!
+//! Each noun's rows follow one header that declares every per-noun fact once:
+//!
+//! ```text
+//! @noun <Noun> {
+//!     accessor: <static accessor type>,
+//!     getter: <camera getter>,
+//!     dyn_trait: <object-safe trait>,
+//!     gate: [always] | [domain <ProfileMarker>] | [typed <TypedMarker>],
+//!     doc: "<rustdoc shared by every surface of the noun>",
+//! };
+//! ```
+//!
+//! `gate` is the noun's base capability gate: `[always]` needs none,
+//! `[domain M]` names a profile domain marker and `[typed M]` a typed-support
+//! marker.  A row's own `where` clause narrows it.  The static surface
+//! registry reads the headers; the facade consumers strip them.
 //!
 //! # The motion view
 //!
@@ -61,6 +78,8 @@
 //! `is_moving_axes` and `wait_until_idle` — reach the owner core directly and
 //! share no shape with a command row. [`motion_table!`] lists them, with their
 //! one rustdoc, for the same per-facade consumers (#816).
+//! The rows follow an `@motion { .. };` header in the noun-header shape,
+//! without a gate: the view needs no capability.
 
 // With no facade feature selected there is no consumer for this table: only
 // the blocking and async facades (and the dyn-api projection, which requires
@@ -94,7 +113,13 @@ macro_rules! noun_table {
     (@collect $consumer:ident; [$($acc:tt)*]; Power $($rest:tt)*) => {
         noun_table! { @collect $consumer; [
             $($acc)*
-            @noun Power;
+            @noun Power {
+                accessor: PowerAccessor,
+                getter: power,
+                dyn_trait: DynPower,
+                gate: [domain HasPower],
+                doc: "Power commands and the power-state inquiry.",
+            };
             /// Returns the camera's current power state.
             inquiry [] state() -> bool = [command::PowerInquiry];
             /// Powers the camera on.
@@ -111,7 +136,13 @@ macro_rules! noun_table {
     (@collect $consumer:ident; [$($acc:tt)*]; Zoom $($rest:tt)*) => {
         noun_table! { @collect $consumer; [
             $($acc)*
-            @noun Zoom;
+            @noun Zoom {
+                accessor: ZoomAccessor,
+                getter: zoom,
+                dyn_trait: DynZoom,
+                gate: [domain HasZoom],
+                doc: "Optical and digital zoom commands and the zoom-position inquiry.",
+            };
             /// Returns the current optical/digital zoom position.
             inquiry [] position() -> types::ZoomPosition
                 = [command::ZoomPositionInquiry];
@@ -169,7 +200,13 @@ macro_rules! noun_table {
     (@collect $consumer:ident; [$($acc:tt)*]; System $($rest:tt)*) => {
         noun_table! { @collect $consumer; [
             $($acc)*
-            @noun System;
+            @noun System {
+                accessor: SystemAccessor,
+                getter: system,
+                dyn_trait: DynSystem,
+                gate: [always],
+                doc: "Settings persistence and the version inquiry.",
+            };
             /// Returns the camera's Sony-format `CAM_VersionInq` reply: vendor,
             /// model, ROM revision and maximum socket.
             ///
@@ -193,7 +230,13 @@ macro_rules! noun_table {
     (@collect $consumer:ident; [$($acc:tt)*]; PanTilt $($rest:tt)*) => {
         noun_table! { @collect $consumer; [
             $($acc)*
-            @noun PanTilt;
+            @noun PanTilt {
+                accessor: PanTiltAccessor,
+                getter: pan_tilt,
+                dyn_trait: DynPanTilt,
+                gate: [domain HasPanTilt],
+                doc: "Pan/tilt movement, limits, and the position inquiry.",
+            };
             /// Returns the current pan/tilt position.
             inquiry [] position() -> crate::camera::PanTiltPosition
                 = [command::PanTiltPositionInquiry];
@@ -259,7 +302,13 @@ macro_rules! noun_table {
     (@collect $consumer:ident; [$($acc:tt)*]; Focus $($rest:tt)*) => {
         noun_table! { @collect $consumer; [
             $($acc)*
-            @noun Focus;
+            @noun Focus {
+                accessor: FocusAccessor,
+                getter: focus,
+                dyn_trait: DynFocus,
+                gate: [domain HasFocus],
+                doc: "Focus movement, modes, and focus inquiries.",
+            };
             /// Returns the current focus position.
             inquiry [] position() -> types::FocusPosition
                 = [command::FocusPositionInquiry];
@@ -347,7 +396,13 @@ macro_rules! noun_table {
     (@collect $consumer:ident; [$($acc:tt)*]; Presets $($rest:tt)*) => {
         noun_table! { @collect $consumer; [
             $($acc)*
-            @noun Presets;
+            @noun Presets {
+                accessor: PresetsAccessor,
+                getter: presets,
+                dyn_trait: DynPresets,
+                gate: [domain HasPresets],
+                doc: "Preset recall, store, clear, and recall-speed commands.",
+            };
             /// Recalls a stored preset as a targeted operation.
             targeted [PresetRecall] recall(preset: command::PresetNumber)
                 -> builtin::PresetRecall
@@ -373,7 +428,13 @@ macro_rules! noun_table {
     (@collect $consumer:ident; [$($acc:tt)*]; Exposure $($rest:tt)*) => {
         noun_table! { @collect $consumer; [
             $($acc)*
-            @noun Exposure;
+            @noun Exposure {
+                accessor: ExposureAccessor,
+                getter: exposure,
+                dyn_trait: DynExposure,
+                gate: [domain HasExposure],
+                doc: "Exposure, iris, shutter, brightness, and gain commands and inquiries.",
+            };
             /// Returns the active exposure mode.
             inquiry [] mode() -> command::ExposureMode
                 where HasExposureMode
@@ -530,7 +591,13 @@ macro_rules! noun_table {
     (@collect $consumer:ident; [$($acc:tt)*]; WhiteBalance $($rest:tt)*) => {
         noun_table! { @collect $consumer; [
             $($acc)*
-            @noun WhiteBalance;
+            @noun WhiteBalance {
+                accessor: WhiteBalanceAccessor,
+                getter: white_balance,
+                dyn_trait: DynWhiteBalance,
+                gate: [domain HasWhiteBalance],
+                doc: "White-balance, color-temperature, and color-channel commands and inquiries.",
+            };
             /// Returns the active white-balance mode.
             inquiry [] mode() -> command::WhiteBalanceMode
                 = [command::WhiteBalanceModeInquiry];
@@ -648,9 +715,13 @@ macro_rules! noun_table {
     (@collect $consumer:ident; [$($acc:tt)*]; Image $($rest:tt)*) => {
         noun_table! { @collect $consumer; [
             $($acc)*
-            // The base image noun is gated by `HasImageProcessing` on the
-            // accessor; narrower rows add their own markers below.
-            @noun Image;
+            @noun Image {
+                accessor: ImageAccessor,
+                getter: image,
+                dyn_trait: DynImage,
+                gate: [domain HasImageProcessing],
+                doc: "Image-processing, noise-reduction, flip, and freeze commands and inquiries.",
+            };
             /// Returns image saturation.
             inquiry [] saturation() -> types::SaturationLevel
                 where HasSaturationControl
@@ -809,7 +880,13 @@ macro_rules! noun_table {
     (@collect $consumer:ident; [$($acc:tt)*]; Tally $($rest:tt)*) => {
         noun_table! { @collect $consumer; [
             $($acc)*
-            @noun Tally;
+            @noun Tally {
+                accessor: TallyAccessor,
+                getter: tally,
+                dyn_trait: DynTally,
+                gate: [typed HasTally],
+                doc: "Tally-light commands and inquiries.",
+            };
             /// Returns PTZOptics packed tally-light state.
             inquiry [] status() -> command::TallyStatusState
                 where HasPtzOpticsTally = [command::TallyStatusInquiry];
@@ -855,7 +932,13 @@ macro_rules! noun_table {
     (@collect $consumer:ident; [$($acc:tt)*]; NdFilter $($rest:tt)*) => {
         noun_table! { @collect $consumer; [
             $($acc)*
-            @noun NdFilter;
+            @noun NdFilter {
+                accessor: NdFilterAccessor,
+                getter: nd_filter,
+                dyn_trait: DynNdFilter,
+                gate: [typed HasNdFilter],
+                doc: "Neutral-density filter commands and inquiries.",
+            };
             /// Returns the current ND-filter position.
             inquiry [] position() -> command::NdFilterPosition
                 = [command::NdFilterInquiry];
@@ -898,7 +981,13 @@ macro_rules! noun_table {
     (@collect $consumer:ident; [$($acc:tt)*]; MotionSync $($rest:tt)*) => {
         noun_table! { @collect $consumer; [
             $($acc)*
-            @noun MotionSync;
+            @noun MotionSync {
+                accessor: MotionSyncAccessor,
+                getter: motion_sync,
+                dyn_trait: DynMotionSync,
+                gate: [typed HasMotionSync],
+                doc: "Motion-sync commands and inquiries.",
+            };
             /// Returns the motion-sync mode.
             inquiry [] mode() -> command::MotionSyncMode
                 = [command::MotionSyncModeInquiry];
@@ -927,7 +1016,13 @@ macro_rules! noun_table {
     (@collect $consumer:ident; [$($acc:tt)*]; Menu $($rest:tt)*) => {
         noun_table! { @collect $consumer; [
             $($acc)*
-            @noun Menu;
+            @noun Menu {
+                accessor: MenuAccessor,
+                getter: menu,
+                dyn_trait: DynMenu,
+                gate: [domain HasMenuControl],
+                doc: "On-screen menu display and navigation commands and the menu-status inquiry.",
+            };
             /// Returns whether the on-screen menu is open.
             inquiry [] status() -> bool = [command::MenuOpenCloseInquiry];
             /// Displays or hides the on-screen menu.
@@ -963,7 +1058,13 @@ macro_rules! noun_table {
     (@collect $consumer:ident; [$($acc:tt)*]; Advanced $($rest:tt)*) => {
         noun_table! { @collect $consumer; [
             $($acc)*
-            @noun Advanced;
+            @noun Advanced {
+                accessor: AdvancedAccessor,
+                getter: advanced,
+                dyn_trait: DynAdvanced,
+                gate: [always],
+                doc: "Streaming, USB-audio, variable-speed, and vendor status commands and inquiries.",
+            };
             /// Returns night/day mode.
             inquiry [] night_day_mode() -> bool
                 = [command::NightDayModeInquiry];
@@ -1044,6 +1145,13 @@ pub(crate) use noun_table;
 macro_rules! motion_table {
     ($consumer:ident) => {
         $consumer! {
+            @motion {
+                accessor: MotionAccessor,
+                getter: motion,
+                dyn_trait: DynMotion,
+                doc: "Motion safety and observation: stopping all motion, movement queries, and idle waits.",
+            };
+
             /// Orders a halt of supported pan/tilt, zoom, and focus movement.
             ///
             /// The owner fences older declared motion at acceptance and

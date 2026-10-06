@@ -214,7 +214,7 @@ pub(crate) fn table_surface() -> BTreeMap<String, BTreeMap<String, TableRow>> {
 
         (
             $(
-                @noun $noun:ident;
+                @noun $noun:ident { $($header:tt)* };
                 $(
                     $(#[$doc:meta])*
                     $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
@@ -295,7 +295,7 @@ fn inquiry_static_gates() -> BTreeMap<String, Option<String>> {
 
         (
             $(
-                @noun $noun:ident;
+                @noun $noun:ident { $($header:tt)* };
                 $(
                     $(#[$doc:meta])*
                     $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty

@@ -16,40 +16,6 @@ use super::semantics::{BuiltinCommand, BuiltinRequestClass, BuiltinRequestKind};
 // allowances to this ledger (and only its genuinely unused marker variants)
 // instead of disabling dead-code diagnostics for the module.
 
-/// Static noun containing one target-facing built-in request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(dead_code)]
-pub(crate) enum StaticNoun {
-    /// Power controls.
-    Power,
-    /// Zoom controls.
-    Zoom,
-    /// System controls.
-    System,
-    /// Pan/tilt controls.
-    PanTilt,
-    /// Focus controls.
-    Focus,
-    /// Exposure and iris controls.
-    Exposure,
-    /// White-balance and channel controls.
-    WhiteBalance,
-    /// Image-processing controls.
-    Image,
-    /// Preset controls.
-    Presets,
-    /// Tally controls.
-    Tally,
-    /// Neutral-density filter controls.
-    NdFilter,
-    /// Motion-sync controls.
-    MotionSync,
-    /// Menu controls.
-    Menu,
-    /// Advanced and vendor controls.
-    Advanced,
-}
-
 /// Profile or typed-capability marker required by a static surface row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum StaticMarkerRequirement {
@@ -107,51 +73,6 @@ impl StaticSurfaceEntry {
     pub(crate) const fn is_target_facing(self) -> bool {
         matches!(self.disposition, StaticSurfaceDisposition::Noun { .. })
     }
-}
-
-macro_rules! noun_marker {
-    (Power) => {
-        StaticMarkerRequirement::Profile("HasPower")
-    };
-    (Zoom) => {
-        StaticMarkerRequirement::Profile("HasZoom")
-    };
-    (System) => {
-        StaticMarkerRequirement::None
-    };
-    (PanTilt) => {
-        StaticMarkerRequirement::Profile("HasPanTilt")
-    };
-    (Focus) => {
-        StaticMarkerRequirement::Profile("HasFocus")
-    };
-    (Exposure) => {
-        StaticMarkerRequirement::Profile("HasExposure")
-    };
-    (WhiteBalance) => {
-        StaticMarkerRequirement::Profile("HasWhiteBalance")
-    };
-    (Image) => {
-        StaticMarkerRequirement::Profile("HasImageProcessing")
-    };
-    (Presets) => {
-        StaticMarkerRequirement::Profile("HasPresets")
-    };
-    (Tally) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::Tally)
-    };
-    (NdFilter) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::NdFilter)
-    };
-    (MotionSync) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::MotionSync)
-    };
-    (Menu) => {
-        StaticMarkerRequirement::Profile("HasMenuControl")
-    };
-    (Advanced) => {
-        StaticMarkerRequirement::None
-    };
 }
 
 /// Resolve a noun-table row kind against the authoritative semantic
@@ -512,10 +433,17 @@ pub(crate) use surface_marker;
 pub(crate) use typed_surface_for_marker;
 
 macro_rules! noun_entry {
-    ($kind:ident, $command:ident, $noun:ident, $method:expr, []) => {
-        noun_entry!(@entry $kind, $command, $noun, $method, noun_marker!($noun))
+    ($kind:ident, $command:ident, $noun:ident, $method:expr, [], [always]) => {
+        noun_entry!(@entry $kind, $command, $noun, $method, StaticMarkerRequirement::None)
     };
-    ($kind:ident, $command:ident, $noun:ident, $method:expr, [$gate:ident]) => {
+    ($kind:ident, $command:ident, $noun:ident, $method:expr, [], [domain $marker:ident]) => {
+        noun_entry!(@entry $kind, $command, $noun, $method,
+            StaticMarkerRequirement::Profile(stringify!($marker)))
+    };
+    ($kind:ident, $command:ident, $noun:ident, $method:expr, [], [typed $marker:ident]) => {
+        noun_entry!(@entry $kind, $command, $noun, $method, surface_marker!($marker))
+    };
+    ($kind:ident, $command:ident, $noun:ident, $method:expr, [$gate:ident], $base:tt) => {
         noun_entry!(@entry $kind, $command, $noun, $method, surface_marker!($gate))
     };
     (@entry $kind:ident, $command:ident, $noun:ident, $method:expr, $marker:expr) => {
@@ -548,66 +476,72 @@ macro_rules! exception_entry {
     };
 }
 
-/// Project every noun row and protocol exception into one exhaustive match.
+/// Project the noun headers, every noun row and the protocol exceptions into
+/// [`StaticNoun`] and the exhaustive [`surface_entry`] match.
 ///
-/// The first arm normalizes each row to its noun, kind, optional command,
-/// method and a bracketed gate token; the second emits one match arm per row
-/// that names a command and one per exception.  Inquiry and convenience rows
-/// (`[]`) emit nothing.  The match therefore has no wildcard and no second
-/// hand-written inventory: a missing row is a non-exhaustive match and a
-/// duplicate one an unreachable pattern.
-macro_rules! surface_rows {
-    (@entries $input:ident;
-        $( $noun:ident [ $( $kind:ident [$($command:ident)?] $method:ident $gate:tt; )* ] )*
+/// The first arm normalizes each noun to its name, doc, base gate and rows
+/// (kind, optional command, method and a bracketed row gate); the second
+/// emits the items.  Inquiry and convenience rows (`[]`) emit no match arm.
+/// The match therefore has no wildcard and no second hand-written inventory:
+/// a missing row is a non-exhaustive match and a duplicate one an unreachable
+/// pattern.
+macro_rules! surface_registry {
+    (@items
+        $( $noun:ident $doc:literal $base:tt [ $( $kind:ident [$($command:ident)?] $method:ident $gate:tt; )* ] )*
         @exceptions; $( $exkind:ident [$excommand:ident] $exmethod:ident; )*
     ) => {
-        match $input {
-            $( $( $(
-                BuiltinCommand::$command =>
-                    noun_entry!($kind, $command, $noun, stringify!($method), $gate),
-            )? )* )*
-            $(
-                BuiltinCommand::$excommand =>
-                    exception_entry!($exkind, $excommand, stringify!($exmethod)),
-            )*
+        /// Static noun containing one target-facing built-in request.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub(crate) enum StaticNoun {
+            $( #[doc = $doc] $noun, )*
+        }
+
+        /// Derive the one surface row for a semantic command.
+        ///
+        /// This match is generated from the noun table, is exhaustive and
+        /// contains no default arm, so adding a command requires adding its
+        /// explicit owner row there.  `BuiltinCommand` remains the semantic
+        /// authority for classification.
+        #[must_use]
+        #[deny(unreachable_patterns)]
+        pub(crate) const fn surface_entry(command: BuiltinCommand) -> StaticSurfaceEntry {
+            match command {
+                $( $( $(
+                    BuiltinCommand::$command =>
+                        noun_entry!($kind, $command, $noun, stringify!($method), $gate, $base),
+                )? )* )*
+                $(
+                    BuiltinCommand::$excommand =>
+                        exception_entry!($exkind, $excommand, stringify!($exmethod)),
+                )*
+            }
         }
     };
 
-    ($input:ident;
+    (
         $(
-            @noun $noun:ident;
+            @noun $noun:ident {
+                accessor: $accessor:ident,
+                getter: $getter:ident,
+                dyn_trait: $dyn_trait:ident,
+                gate: $base:tt,
+                doc: $doc:literal $(,)?
+            };
             $(
-                $(#[$doc:meta])*
+                $(#[$row_doc:meta])*
                 $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
                     $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
             )*
         )*
         @exceptions; $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
     ) => {
-        surface_rows!(@entries $input;
-            $( $noun [ $( $kind [$($command)?] $method [$($gate)?]; )* ] )*
-            @exceptions; $( $exkind [$excommand] $exmethod; )*)
+        surface_registry!(@items
+            $( $noun $doc $base [ $( $kind [$($command)?] $method [$($gate)?]; )* ] )*
+            @exceptions; $( $exkind [$excommand] $exmethod; )*);
     };
 }
 
-/// Derive the one surface row for a semantic command.
-///
-/// This match is intentionally exhaustive and contains no default arm.  The
-/// row list is supplied by noun_table!(All => surface_rows), so adding a
-/// command requires adding its explicit owner row there.  BuiltinCommand
-/// remains the semantic authority for classification.
-#[must_use]
-#[deny(unreachable_patterns)]
-#[allow(dead_code)]
-pub(crate) const fn surface_entry(command: BuiltinCommand) -> StaticSurfaceEntry {
-    macro_rules! surface_rows_for_entry {
-        ($($rows:tt)*) => {
-            surface_rows!(command; $($rows)*)
-        };
-    }
-
-    noun_table!(All => surface_rows_for_entry)
-}
+noun_table!(All => surface_registry);
 
 /// Returns the runtime typed-support surface carried by one static command row.
 ///

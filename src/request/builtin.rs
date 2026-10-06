@@ -1529,7 +1529,7 @@ macro_rules! typed_request_inventory {
 
     (
         $(
-            @noun $noun:ident;
+            @noun $noun:ident { $($header:tt)* };
             $(
                 $(#[$doc:meta])*
                 $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty

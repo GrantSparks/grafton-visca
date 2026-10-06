@@ -68,7 +68,7 @@ pub const DYN_NOUN_CONVENIENCE_METHODS: &[(&str, &str)] = &[
 /// `validate_for_profile` check inside [`crate::prepared::prepare_command`] —
 /// so this consumer drops the row's `where` clause and keeps only the shape.
 macro_rules! dyn_noun_declarations {
-    (@noun $noun:ident;
+    (@noun $noun:ident { $($header:tt)* };
         $(
             $(#[$doc:meta])*
             $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
@@ -102,7 +102,7 @@ macro_rules! dyn_noun_declarations {
 /// build the request from the row through [`noun_request!`], then reach
 /// `DynSessionCamera`'s generic preparation and admission methods.
 macro_rules! dyn_noun_impls {
-    (@noun $noun:ident;
+    (@noun $noun:ident { $($header:tt)* };
         $(
             $(#[$doc:meta])*
             $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
@@ -215,7 +215,8 @@ pub trait DynAdvanced: Send + Sync {
 
 /// Expands [`motion_table!`] rows into object-safe declarations.
 macro_rules! dyn_motion_declarations {
-    ($(
+    (@motion { $($header:tt)* };
+    $(
         $(#[$doc:meta])*
         fn $name:ident(&self $(, $arg:ident: $ty:ty)*) -> $value:ty => $core:ident($($call:expr),*);
     )*) => {
@@ -228,7 +229,8 @@ macro_rules! dyn_motion_declarations {
 
 /// Expands [`motion_table!`] rows into the owner-backed implementation.
 macro_rules! dyn_motion_impls {
-    ($(
+    (@motion { $($header:tt)* };
+    $(
         $(#[$doc:meta])*
         fn $name:ident(&self $(, $arg:ident: $ty:ty)*) -> $value:ty => $core:ident($($call:expr),*);
     )*) => {

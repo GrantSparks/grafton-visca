@@ -103,7 +103,7 @@ macro_rules! accessor {
 /// `Operation<Kind>` handles without a session lifetime, and the `self.camera`
 /// owner hop.
 macro_rules! async_noun_methods {
-    (@noun $noun:ident;
+    (@noun $noun:ident { $($header:tt)* };
         $(
             $(#[$doc:meta])*
             $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
@@ -284,7 +284,8 @@ impl std::fmt::Debug for MotionAccessor<'_> {
 
 /// Expands [`motion_table!`] rows into the async motion methods.
 macro_rules! async_motion_methods {
-    ($(
+    (@motion { $($header:tt)* };
+    $(
         $(#[$doc:meta])*
         fn $name:ident(&self $(, $arg:ident: $ty:ty)*) -> $value:ty => $core:ident($($call:expr),*);
     )*) => {
