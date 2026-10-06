@@ -933,11 +933,9 @@ impl<P: CompileTimeProfile> Camera<P> {
 #[path = "blocking_nouns.rs"]
 mod blocking_nouns;
 
-pub use blocking_nouns::{
-    AdvancedAccessor, ExposureAccessor, FocusAccessor, ImageAccessor, MenuAccessor, MotionAccessor,
-    MotionSyncAccessor, NdFilterAccessor, PanTiltAccessor, PowerAccessor, PresetsAccessor,
-    SystemAccessor, TallyAccessor, WhiteBalanceAccessor, ZoomAccessor,
-};
+use crate::noun_table::reexport_nouns;
+crate::noun_table::noun_table!(reexport_nouns, [accessor], [blocking_nouns]);
+crate::noun_table::motion_table!(reexport_nouns, [accessor], [blocking_nouns]);
 
 #[cfg(all(test, feature = "test-utils"))]
 #[allow(clippy::expect_used, clippy::unwrap_used)]

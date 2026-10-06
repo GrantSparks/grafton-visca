@@ -88,14 +88,15 @@ pub mod dyn_api {
 pub mod r#async {
     // Common enums for camera settings
     pub use crate::{
-        AdvancedAccessor, AutoWhiteBalanceSensitivity, Camera, CancellationOutcome, Error,
-        ExposureAccessor, ExposureMode, FocusAccessor, ImageAccessor, MenuAccessor, MotionAccessor,
-        MotionSyncAccessor, NdFilterAccessor, NdFilterMode, Operation, OperationId,
-        PanTiltAccessor, PanTiltDirection, PanTiltLimitCorner, PanTiltLimitUpdate, PowerAccessor,
-        PresetNumber, PresetsAccessor, Session, SessionConfig, StateCache, StateEntry, StateKey,
-        StateValue, SystemAccessor, TallyAccessor, WhiteBalanceAccessor, WhiteBalanceMode,
-        ZoomAccessor,
+        AutoWhiteBalanceSensitivity, Camera, CancellationOutcome, Error, ExposureMode,
+        NdFilterMode, Operation, OperationId, PanTiltDirection, PanTiltLimitCorner,
+        PanTiltLimitUpdate, PresetNumber, Session, SessionConfig, StateCache, StateEntry, StateKey,
+        StateValue, WhiteBalanceMode,
     };
+    // The noun accessors and the motion view, one per noun-table header.
+    use crate::noun_table::reexport_nouns;
+    crate::noun_table::noun_table!(reexport_nouns, [accessor], [crate]);
+    crate::noun_table::motion_table!(reexport_nouns, [accessor], [crate]);
     // High-level camera construction and configuration
     pub use crate::camera::{CameraConfig, IdleWait, MotionQuery};
     pub use crate::Connect;
@@ -110,14 +111,17 @@ pub mod r#async {
     // Owner-backed dynamic noun and custom-operation projections.
     #[cfg(feature = "dyn-api")]
     pub use crate::dynapi::{
-        submit_applied, submit_targeted, DynAdvanced, DynAppliedOperation, DynAppliedRequest,
-        DynCustomOperations, DynExposure, DynFocus, DynFuture, DynImage, DynMenu, DynMotion,
-        DynMotionSync, DynNdFilter, DynPanTilt, DynPower, DynPresets, DynSessionCamera,
-        DynSessionCameraControl, DynSessionCameraNouns, DynSystem, DynTally, DynTargetedOperation,
-        DynTargetedRequest, DynWhiteBalance, DynZoom, DYN_NOUN_CONVENIENCE_METHODS,
-        DYN_NOUN_CONVENIENCE_METHOD_COUNT, DYN_NOUN_COUNT, DYN_NOUN_INQUIRY_METHOD_COUNT,
-        DYN_NOUN_TARGET_METHOD_COUNT,
+        submit_applied, submit_targeted, DynAppliedOperation, DynAppliedRequest,
+        DynCustomOperations, DynFuture, DynSessionCamera, DynSessionCameraControl,
+        DynSessionCameraNouns, DynTargetedOperation, DynTargetedRequest,
+        DYN_NOUN_CONVENIENCE_METHODS, DYN_NOUN_CONVENIENCE_METHOD_COUNT, DYN_NOUN_COUNT,
+        DYN_NOUN_INQUIRY_METHOD_COUNT, DYN_NOUN_TARGET_METHOD_COUNT,
     };
+    // The noun traits and the motion trait, one per noun-table header.
+    #[cfg(feature = "dyn-api")]
+    crate::noun_table::noun_table!(reexport_nouns, [dyn_trait], [crate::dynapi]);
+    #[cfg(feature = "dyn-api")]
+    crate::noun_table::motion_table!(reexport_nouns, [dyn_trait], [crate::dynapi]);
 
     // Runtime support for async operations
     #[cfg(feature = "runtime-smol")]
@@ -148,12 +152,11 @@ pub mod blocking {
         WhiteBalanceMode,
     };
     // High-level owner-backed blocking session facade and camera view.
-    pub use crate::blocking::{
-        AdvancedAccessor, Camera, ExposureAccessor, FocusAccessor, ImageAccessor, MenuAccessor,
-        MotionAccessor, MotionSyncAccessor, NdFilterAccessor, Operation, OperationId,
-        PanTiltAccessor, PowerAccessor, PresetsAccessor, Session, SessionConfig, SystemAccessor,
-        TallyAccessor, WhiteBalanceAccessor, ZoomAccessor,
-    };
+    pub use crate::blocking::{Camera, Operation, OperationId, Session, SessionConfig};
+    // The noun accessors and the motion view, one per noun-table header.
+    use crate::noun_table::reexport_nouns;
+    crate::noun_table::noun_table!(reexport_nouns, [accessor], [crate::blocking]);
+    crate::noun_table::motion_table!(reexport_nouns, [accessor], [crate::blocking]);
     #[cfg(feature = "dyn-api")]
     pub use crate::dynapi::BlockingDynSessionCamera;
     // Final owner-backed construction in the blocking-only feature build.

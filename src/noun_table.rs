@@ -1074,3 +1074,54 @@ macro_rules! motion_table {
 }
 
 pub(crate) use motion_table;
+
+/// Re-exports one name per noun header from a facade module.
+///
+/// The noun table names every accessor and `Dyn*` trait once, in its headers;
+/// the crate root, the facade modules and the preludes re-export them through
+/// this consumer instead of restating the list.  Invoke it as
+/// `noun_table!(reexport_nouns, [accessor], [crate::async_nouns])` or with
+/// `[dyn_trait]`, and `motion_table!(reexport_nouns, [accessor], [..])` for
+/// the motion view.
+macro_rules! reexport_nouns {
+    (@use [accessor] [$($path:tt)*] $([$accessor:ident $dyn_trait:ident])*) => {
+        pub use $($path)*::{$($accessor),*};
+    };
+    (@use [dyn_trait] [$($path:tt)*] $([$accessor:ident $dyn_trait:ident])*) => {
+        pub use $($path)*::{$($dyn_trait),*};
+    };
+
+    ($name:tt $path:tt
+        @motion {
+            accessor: $accessor:ident,
+            getter: $getter:ident,
+            dyn_trait: $dyn_trait:ident,
+            doc: $doc:literal $(,)?
+        };
+        $($rows:tt)*
+    ) => {
+        $crate::noun_table::reexport_nouns!(@use $name $path [$accessor $dyn_trait]);
+    };
+
+    ($name:tt $path:tt
+        $(
+            @noun $noun:ident {
+                accessor: $accessor:ident,
+                getter: $getter:ident,
+                dyn_trait: $dyn_trait:ident,
+                gate: $gate:tt,
+                doc: $doc:literal $(,)?
+            };
+            $(
+                $(#[$row_doc:meta])*
+                $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
+                    $(where $rgate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
+            )*
+        )*
+        @exceptions; $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
+    ) => {
+        $crate::noun_table::reexport_nouns!(@use $name $path $([$accessor $dyn_trait])*);
+    };
+}
+
+pub(crate) use reexport_nouns;

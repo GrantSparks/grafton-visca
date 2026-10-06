@@ -1102,25 +1102,23 @@ mod async_nouns;
 #[cfg(feature = "async")]
 mod async_session;
 #[cfg(feature = "async")]
-pub use async_nouns::{
-    AdvancedAccessor, ExposureAccessor, FocusAccessor, ImageAccessor, MenuAccessor, MotionAccessor,
-    MotionSyncAccessor, NdFilterAccessor, PanTiltAccessor, PowerAccessor, PresetsAccessor,
-    SystemAccessor, TallyAccessor, WhiteBalanceAccessor, ZoomAccessor,
-};
+use noun_table::reexport_nouns;
+#[cfg(feature = "async")]
+noun_table::noun_table!(reexport_nouns, [accessor], [async_nouns]);
+#[cfg(feature = "async")]
+noun_table::motion_table!(reexport_nouns, [accessor], [async_nouns]);
 #[cfg(feature = "async")]
 pub use async_session::{Camera, CameraSession, Session};
 #[cfg(feature = "async")]
 pub mod session {
     //! Profile-generic async session facade.
     pub use crate::camera::{CameraConfig, Connect};
+    use crate::noun_table::reexport_nouns;
     pub use crate::{
         async_session::Camera, async_session::CameraSession, async_session::Session, SessionConfig,
     };
-    pub use crate::{
-        AdvancedAccessor, ExposureAccessor, FocusAccessor, ImageAccessor, MenuAccessor,
-        MotionAccessor, MotionSyncAccessor, NdFilterAccessor, PanTiltAccessor, PowerAccessor,
-        PresetsAccessor, SystemAccessor, TallyAccessor, WhiteBalanceAccessor, ZoomAccessor,
-    };
+    crate::noun_table::noun_table!(reexport_nouns, [accessor], [crate]);
+    crate::noun_table::motion_table!(reexport_nouns, [accessor], [crate]);
 }
 
 // Final construction names are available at the crate root in canonical
