@@ -127,7 +127,9 @@ impl From<AffectedAxes> for MotionQuery {
 pub struct IdleWait {
     /// Axes to sample. Unselected axes are never queried.
     pub axes: AffectedAxes,
-    /// Absolute observation budget.
+    /// Absolute observation budget. It bounds every sample, the first
+    /// included: a wait whose budget elapses before its first inquiry is
+    /// admitted sends nothing and fails with the same observation timeout.
     pub timeout: Duration,
     /// Maximum stable delta for each selected axis.
     pub tolerance: MovementTolerance,

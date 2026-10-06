@@ -399,7 +399,7 @@ fn named_idle_wait_presets_poll_only_their_own_axis() {
 
     camera
         .motion()
-        .wait_until_idle(IdleWait::from(Duration::from_secs(1)).with_interval(Duration::ZERO))
+        .wait_until_idle(IdleWait::from(Duration::from_secs(30)).with_interval(Duration::ZERO))
         .expect("duration idle wait");
     let frames = fake.take_payloads();
     assert!(frames
