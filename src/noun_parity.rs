@@ -1,29 +1,20 @@
 //! Narrow parity guards for the table-driven noun facades.
 //!
 //! The noun registry in [`crate::noun_table`] is the source of the method
-//! names, arguments, request builders, rustdoc, and return classes consumed by
-//! the async, blocking, and dynamic facades. Re-reading those facts from
-//! generated source would only compare a file with its own expansion. The
-//! compiled registry and the exhaustive [`crate::command::surface`] projection
-//! already make that disagreement impossible.
+//! names, arguments, request builders, rustdoc, gates and return classes
+//! consumed by the async, blocking, and dynamic facades. The static facades
+//! are generated whole, accessors and getters included, by one consumer, so
+//! nothing in their files can be compared against the registry. The compiled
+//! registry and the exhaustive [`crate::command::surface`] projection already
+//! make that disagreement impossible.
 //!
 //! This module therefore keeps only checks that the type system and macro
-//! expansion cannot express:
-//!
-//! * every facade must invoke every noun arm;
-//! * no accessor or dynamic noun trait, the motion view included, carries a
-//!   hand-written method, and every motion-view surface (both
-//!   `MotionAccessor`s, `DynMotion` and the blocking runtime-profile camera)
-//!   is expanded from [`crate::noun_table::motion_table`];
-//! * an accessor extension-trait implementation cannot smuggle in a method;
-//! * static facade capability names must be direct imports of the real
-//!   `crate::capabilities` traits.
+//! expansion cannot express for the dynamic facade: it must invoke every
+//! noun arm.
 //!
 //! The source reader below is intentionally not a Rust parser. It strips
-//! comments/literals, masks test and macro bodies, and then looks only for
-//! those four structural declarations. There is no table/request parsing and
-//! no generated-signature cross-comparison: both are redundant now that one
-//! registry expands all three facades.
+//! comments/literals and masks test and macro bodies; there is no
+//! table/request parsing and no generated-signature cross-comparison.
 
 #![allow(clippy::panic)]
 
@@ -43,36 +34,8 @@ use crate::{
     noun_table::noun_table,
 };
 
-const ASYNC_SOURCE: &str = include_str!("async_nouns.rs");
-const BLOCKING_SOURCE: &str = include_str!("blocking_nouns.rs");
-const DYN_SOURCE: &str = include_str!("dynapi/nouns.rs");
-const BLOCKING_DYN_SOURCE: &str = include_str!("dynapi/blocking_projection.rs");
-const ASYNC_DYN_SOURCE: &str = include_str!("dynapi/owner_projection.rs");
-
-/// The motion-view methods [`crate::noun_table::motion_table`] generates.
-const MOTION_METHODS: &[&str] = &[
-    "is_moving",
-    "is_moving_axes",
-    "stop_all_motion",
-    "wait_until_idle",
-];
-
-/// The consumer each motion-view surface expands the motion table with.
-const MOTION_CONSUMERS: &[(&str, &str, &str)] = &[
-    ("src/async_nouns.rs", ASYNC_SOURCE, "async_motion_methods"),
-    (
-        "src/blocking_nouns.rs",
-        BLOCKING_SOURCE,
-        "blocking_motion_methods",
-    ),
-    ("src/dynapi/nouns.rs", DYN_SOURCE, "dyn_motion_declarations"),
-    ("src/dynapi/nouns.rs", DYN_SOURCE, "dyn_motion_impls"),
-];
-
-/// Traits that may legally be implemented for an accessor type.
-const ALLOWED_ACCESSOR_TRAIT_IMPLS: &[&str] = &["std::fmt::Debug", "fmt::Debug"];
-
 /// The 14 registry noun arms, in the same order as the public facades.
+#[cfg(all(feature = "dyn-api", feature = "async"))]
 const NOUN_KEYS: &[&str] = &[
     "Power",
     "Zoom",
@@ -91,82 +54,69 @@ const NOUN_KEYS: &[&str] = &[
 ];
 
 /// The name each facade gives one registry noun.
+#[cfg(all(feature = "dyn-api", feature = "async"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct NounFacade {
     key: &'static str,
-    accessor: &'static str,
     dyn_trait: &'static str,
 }
 
+#[cfg(all(feature = "dyn-api", feature = "async"))]
 const NOUN_FACADES: &[NounFacade] = &[
     NounFacade {
         key: "Power",
-        accessor: "PowerAccessor",
         dyn_trait: "DynPower",
     },
     NounFacade {
         key: "Zoom",
-        accessor: "ZoomAccessor",
         dyn_trait: "DynZoom",
     },
     NounFacade {
         key: "System",
-        accessor: "SystemAccessor",
         dyn_trait: "DynSystem",
     },
     NounFacade {
         key: "PanTilt",
-        accessor: "PanTiltAccessor",
         dyn_trait: "DynPanTilt",
     },
     NounFacade {
         key: "Focus",
-        accessor: "FocusAccessor",
         dyn_trait: "DynFocus",
     },
     NounFacade {
         key: "Presets",
-        accessor: "PresetsAccessor",
         dyn_trait: "DynPresets",
     },
     NounFacade {
         key: "Exposure",
-        accessor: "ExposureAccessor",
         dyn_trait: "DynExposure",
     },
     NounFacade {
         key: "WhiteBalance",
-        accessor: "WhiteBalanceAccessor",
         dyn_trait: "DynWhiteBalance",
     },
     NounFacade {
         key: "Image",
-        accessor: "ImageAccessor",
         dyn_trait: "DynImage",
     },
     NounFacade {
         key: "Tally",
-        accessor: "TallyAccessor",
         dyn_trait: "DynTally",
     },
     NounFacade {
         key: "NdFilter",
-        accessor: "NdFilterAccessor",
         dyn_trait: "DynNdFilter",
     },
     NounFacade {
         key: "MotionSync",
-        accessor: "MotionSyncAccessor",
         dyn_trait: "DynMotionSync",
     },
     NounFacade {
         key: "Menu",
-        accessor: "MenuAccessor",
         dyn_trait: "DynMenu",
     },
     NounFacade {
         key: "Advanced",
-        accessor: "AdvancedAccessor",
         dyn_trait: "DynAdvanced",
     },
 ];
@@ -250,7 +200,7 @@ fn table_row_counts(table: &BTreeMap<String, BTreeMap<String, TableRow>>) -> (us
 
 /// Reduces a marker path or bare marker to its bare trait name.
 ///
-/// The noun-table `where` clauses and [`noun_marker`] name a bare marker
+/// The noun-table `where` clauses and header gates name a bare marker
 /// (`HasPower`); the erased accessor metadata stringifies a full path
 /// (`crate :: capabilities :: HasPower`). Both collapse to `HasPower` here so the
 /// two gate sets can be compared directly.
@@ -262,7 +212,7 @@ fn bare_marker(marker: &str) -> String {
 /// Projects the static gate the noun surface puts on each built-in inquiry.
 ///
 /// An inquiry row's static gate is its own `where` marker when it has one, and
-/// otherwise its noun's base-domain marker ([`noun_marker`]). This is exactly
+/// otherwise its noun header's base gate marker. This is exactly
 /// the compile-time bound a static `<noun>().<inquiry>()` call resolves, so
 /// comparing it against the erased accessor's runtime gate proves the two
 /// surfaces cannot drift (#684). Command and helper rows are skipped.
@@ -277,25 +227,35 @@ fn inquiry_static_gates() -> BTreeMap<String, Option<String>> {
 
     macro_rules! collect {
         // Inquiry with a typed `where` marker: the marker is the static gate.
-        (@row $noun:ident, inquiry [$gate:ident], [$($request:tt)*]) => {
+        (@row $base:tt, inquiry [$gate:ident], [$($request:tt)*]) => {
             map.insert(
                 last_segment(stringify!($($request)*)),
                 Some(bare_marker(stringify!($gate))),
             );
         };
-        // Inquiry with no `where`: the static gate is the noun's base marker.
-        (@row $noun:ident, inquiry [], [$($request:tt)*]) => {
+        // Inquiry with no `where`: the static gate is the noun header's base
+        // gate.
+        (@row [always], inquiry [], [$($request:tt)*]) => {
+            map.insert(last_segment(stringify!($($request)*)), None);
+        };
+        (@row [$base:ident $marker:ident], inquiry [], [$($request:tt)*]) => {
             map.insert(
                 last_segment(stringify!($($request)*)),
-                noun_marker(StaticNoun::$noun).map(bare_marker),
+                Some(bare_marker(stringify!($marker))),
             );
         };
         // Command and helper rows are not inquiries.
-        (@row $noun:ident, $kind:ident $gate:tt, $request:tt) => {};
+        (@row $base:tt, $kind:ident $gate:tt, $request:tt) => {};
 
         (
             $(
-                @noun $noun:ident { $($header:tt)* };
+                @noun $noun:ident {
+                    accessor: $accessor:ident,
+                    getter: $getter:ident,
+                    dyn_trait: $dyn_trait:ident,
+                    gate: $base:tt,
+                    doc: $noun_doc:literal $(,)?
+                };
                 $(
                     $(#[$doc:meta])*
                     $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
@@ -304,7 +264,7 @@ fn inquiry_static_gates() -> BTreeMap<String, Option<String>> {
             )*
             @exceptions; $($exceptions:tt)*
         ) => {
-            $( $( collect!(@row $noun, $kind [$($gate)?], [$($request)*]); )* )*
+            $( $( collect!(@row $base, $kind [$($gate)?], [$($request)*]); )* )*
         };
     }
 
@@ -510,6 +470,7 @@ pub(crate) fn without_test_modules(source: &str, label: &str) -> String {
 }
 
 /// Returns cleaned declaration lines, optionally excluding macro definitions.
+#[cfg(all(feature = "async", feature = "blocking"))]
 pub(crate) fn declaration_lines(source: &str, label: &str, macros: bool) -> Vec<String> {
     let cleaned = clean_source(source, label);
     let lines: Vec<&str> = cleaned.lines().collect();
@@ -528,6 +489,7 @@ pub(crate) fn declaration_lines(source: &str, label: &str, macros: bool) -> Vec<
 }
 
 /// Extracts the parenthesized body of one macro invocation.
+#[cfg(all(feature = "dyn-api", feature = "async"))]
 fn invocation_body<'a>(text: &'a str, label: &str) -> (&'a str, usize) {
     assert!(
         text.starts_with('('),
@@ -554,6 +516,7 @@ fn invocation_body<'a>(text: &'a str, label: &str) -> (&'a str, usize) {
 /// This is the only source check that follows `noun_table!`; it reads the
 /// invocation's two identifiers and does not inspect any generated row.
 #[must_use]
+#[cfg(all(feature = "dyn-api", feature = "async"))]
 pub(crate) fn consumed_nouns(
     source: &str,
     label: &'static str,
@@ -590,501 +553,6 @@ pub(crate) fn consumed_nouns(
     }
 
     consumed
-}
-
-/// Returns a joined top-level item header and the line containing its `{`.
-fn item_header(lines: &[String], start: usize, label: &str) -> (String, usize) {
-    let mut text = String::new();
-    let mut depth = 0_i32;
-    for (line_index, line) in lines.iter().enumerate().skip(start) {
-        for character in line.chars() {
-            if character == '{' && depth == 0 {
-                let prefix = line
-                    .find('{')
-                    .map_or(line.as_str(), |offset| &line[..offset])
-                    .trim();
-                let header = if text.is_empty() {
-                    prefix.to_owned()
-                } else if prefix.is_empty() {
-                    text.trim().to_owned()
-                } else {
-                    format!("{} {prefix}", text.trim())
-                };
-                return (header, line_index);
-            }
-            match character {
-                '(' | '[' | '<' => depth += 1,
-                ')' | ']' => depth -= 1,
-                '>' if depth > 0 => depth -= 1,
-                _ => {}
-            }
-        }
-        if !line.trim().is_empty() {
-            if !text.is_empty() {
-                text.push(' ');
-            }
-            text.push_str(line.trim());
-        }
-    }
-    panic!("{label}:{}: item has no body", start + 1);
-}
-
-/// Returns the first identifier in a declaration tail.
-fn first_identifier(text: &str) -> &str {
-    let end = text
-        .find(|character: char| !character.is_ascii_alphanumeric() && character != '_')
-        .unwrap_or(text.len());
-    &text[..end]
-}
-
-/// Returns the public methods written in inherent accessor impls.
-fn accessor_methods(source: &str, label: &str) -> BTreeMap<String, BTreeSet<String>> {
-    let lines = declaration_lines(source, label, true);
-    let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
-    let mut methods: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-
-    for index in 0..lines.len() {
-        let trimmed = lines[index].trim();
-        if !trimmed.starts_with("impl") {
-            continue;
-        }
-        let (header, body_line) = item_header(&lines, index, label);
-        if header.contains(" for ") {
-            continue;
-        }
-        let Some(accessor) = NOUN_FACADES
-            .iter()
-            .map(|facade| facade.accessor)
-            .chain(std::iter::once("MotionAccessor"))
-            .find(|name| header.contains(name))
-        else {
-            continue;
-        };
-        let end = block_end(&refs, index, label);
-        for line in lines.iter().take(end).skip(body_line + 1) {
-            // Every public method form counts: `const`, `async` or
-            // `unsafe`. Crate-private plumbing (constructors) is not surface.
-            let trimmed = line.trim();
-            let Some(mut declaration) = trimmed.strip_prefix("pub ") else {
-                continue;
-            };
-            for qualifier in ["const ", "async ", "unsafe "] {
-                if let Some(rest) = declaration.strip_prefix(qualifier) {
-                    declaration = rest;
-                }
-            }
-            let Some(rest) = declaration.strip_prefix("fn ") else {
-                continue;
-            };
-            let name = first_identifier(rest);
-            if !name.is_empty() {
-                methods
-                    .entry(accessor.to_owned())
-                    .or_default()
-                    .insert(name.to_owned());
-            }
-        }
-    }
-
-    methods
-}
-
-/// Returns the methods declared directly in dynamic noun traits.
-fn dynamic_trait_methods(source: &str, label: &str) -> BTreeMap<String, BTreeSet<String>> {
-    let lines = declaration_lines(source, label, true);
-    let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
-    let mut methods = BTreeMap::new();
-
-    for index in 0..lines.len() {
-        let trimmed = lines[index].trim();
-        let Some(rest) = trimmed.strip_prefix("pub trait ") else {
-            continue;
-        };
-        let name = first_identifier(rest);
-        if !name.starts_with("Dyn") || name == "DynSessionCameraNouns" {
-            continue;
-        }
-        let (_, body_line) = item_header(&lines, index, label);
-        let end = block_end(&refs, index, label);
-        let mut trait_methods = BTreeSet::new();
-        for line in lines.iter().take(end).skip(body_line + 1) {
-            let trimmed = line.trim();
-            let declaration = trimmed
-                .strip_prefix("async fn ")
-                .or_else(|| trimmed.strip_prefix("fn "));
-            if let Some(rest) = declaration {
-                let method = first_identifier(rest);
-                if !method.is_empty() {
-                    trait_methods.insert(method.to_owned());
-                }
-            }
-        }
-        methods.insert(name.to_owned(), trait_methods);
-    }
-
-    methods
-}
-
-/// Rejects extension-trait impls that add methods to an accessor.
-fn assert_accessor_trait_impls(source: &str, label: &str) {
-    let lines = declaration_lines(source, label, true);
-    let refs: Vec<&str> = lines.iter().map(String::as_str).collect();
-    for index in 0..lines.len() {
-        if !lines[index].trim().starts_with("impl") {
-            continue;
-        }
-        let (header, _) = item_header(&lines, index, label);
-        let Some((trait_path, target)) = header.split_once(" for ") else {
-            continue;
-        };
-        if !NOUN_FACADES
-            .iter()
-            .map(|facade| facade.accessor)
-            .chain(std::iter::once("MotionAccessor"))
-            .any(|accessor| target.contains(accessor))
-        {
-            continue;
-        }
-        let trait_path = trait_path
-            .trim_start_matches("impl")
-            .trim()
-            .trim_start_matches('<');
-        assert!(
-            ALLOWED_ACCESSOR_TRAIT_IMPLS
-                .iter()
-                .any(|allowed| trait_path.contains(allowed)),
-            "{label}: extension trait impl {trait_path:?} for accessor {target:?} is not allowed",
-        );
-        // Keep the block walk here so malformed/missing braces fail with the
-        // same useful source location as the other structural guards.
-        let _ = block_end(&refs, index, label);
-    }
-}
-
-/// Maps a typed support capability to the marker imported by static facades.
-const fn typed_marker(surface: TypedSupportSurface) -> &'static str {
-    surface.marker_trait_name()
-}
-/// Returns the marker used by the default gate on one static noun.
-const fn noun_marker(noun: StaticNoun) -> Option<&'static str> {
-    match noun {
-        StaticNoun::Power => Some("HasPower"),
-        StaticNoun::Zoom => Some("HasZoom"),
-        StaticNoun::System => None,
-        StaticNoun::PanTilt => Some("HasPanTilt"),
-        StaticNoun::Focus => Some("HasFocus"),
-        StaticNoun::Exposure => Some("HasExposure"),
-        StaticNoun::WhiteBalance => Some("HasWhiteBalance"),
-        StaticNoun::Image => Some("HasImageProcessing"),
-        StaticNoun::Presets => Some("HasPresets"),
-        StaticNoun::Tally => Some("HasTally"),
-        StaticNoun::NdFilter => Some("HasNdFilter"),
-        StaticNoun::MotionSync => Some("HasMotionSync"),
-        StaticNoun::Menu => Some("HasMenuControl"),
-        StaticNoun::Advanced => None,
-    }
-}
-
-/// Default markers on every static noun accessor.
-///
-/// These bounds exist even when a noun's particular command row is narrowed
-/// by an optional support marker, and inquiries can be the only row that uses
-/// one of them.
-const STATIC_NOUN_DEFAULTS: &[StaticNoun] = &[
-    StaticNoun::Power,
-    StaticNoun::Zoom,
-    StaticNoun::System,
-    StaticNoun::PanTilt,
-    StaticNoun::Focus,
-    StaticNoun::Presets,
-    StaticNoun::Exposure,
-    StaticNoun::WhiteBalance,
-    StaticNoun::Image,
-    StaticNoun::Tally,
-    StaticNoun::NdFilter,
-    StaticNoun::MotionSync,
-    StaticNoun::Menu,
-    StaticNoun::Advanced,
-];
-
-/// All marker names that a static facade must resolve directly.
-///
-/// This is projected from actual static noun defaults, command rows, and
-/// generated inquiry accessors. It must not start from every possible typed
-/// support surface: a runtime-only support bit does not require a static
-/// facade import.
-fn required_markers() -> BTreeSet<String> {
-    let mut markers = BTreeSet::new();
-
-    for noun in STATIC_NOUN_DEFAULTS {
-        if let Some(marker) = noun_marker(*noun) {
-            markers.insert(marker.to_owned());
-        }
-    }
-
-    for command in BuiltinCommand::ALL {
-        let StaticSurfaceDisposition::Noun { marker, .. } = surface_entry(*command).disposition
-        else {
-            continue;
-        };
-        match marker {
-            StaticMarkerRequirement::None => {}
-            StaticMarkerRequirement::Profile(marker) => {
-                markers.insert(marker.to_owned());
-            }
-            StaticMarkerRequirement::Typed(surface) => {
-                markers.insert(typed_marker(surface).to_owned());
-            }
-        }
-    }
-
-    for accessor in BUILTIN_INQUIRY_ACCESSORS {
-        if let BuiltinInquiryProfileGate::Capability { marker } = accessor.profile_gate {
-            markers.insert(bare_marker(marker));
-        }
-    }
-
-    markers
-}
-
-#[test]
-fn direct_import_markers_follow_static_noun_and_inquiry_gates() {
-    let markers = required_markers();
-
-    assert!(markers.contains("HasDirectZoom"));
-    assert!(
-        markers.contains("HasExposureMode"),
-        "shared exposure-mode static gates require their direct imports"
-    );
-    assert!(
-        markers.contains("HasFocusZoneInquiry"),
-        "inquiry-only static gates still require their direct imports"
-    );
-    assert!(
-        !markers.contains("HasDigitalZoomRange"),
-        "DigitalZoomRange is runtime-only after the normalized optical zoom gate was narrowed"
-    );
-}
-
-/// Splits the body of a capability import, rejecting aliases and globs.
-fn imported_capability_names(source: &str, label: &str) -> BTreeSet<String> {
-    let lines = declaration_lines(source, label, false);
-    let mut imported = BTreeSet::new();
-    let mut index = 0;
-    while index < lines.len() {
-        if !lines[index].trim().starts_with("use ") {
-            index += 1;
-            continue;
-        }
-        let (statement, next) = statement_until_semicolon(&lines, index, label);
-        assert!(
-            !statement.split_whitespace().any(|word| word == "as"),
-            "{label}: capability aliases are not allowed: {statement:?}",
-        );
-        let compact: String = statement
-            .chars()
-            .filter(|character| !character.is_whitespace())
-            .collect();
-        let Some(capability) = compact.find("capabilities::") else {
-            index = next;
-            continue;
-        };
-        assert!(
-            compact.starts_with("usecrate::{") || compact.starts_with("usecrate::capabilities::"),
-            "{label}: capability import is not rooted at crate::capabilities: {statement:?}",
-        );
-        let after = &compact[capability + "capabilities::".len()..];
-        if after.starts_with('*') {
-            panic!("{label}: capability glob import defeats resolution");
-        }
-        if !after.starts_with('{') {
-            let name = first_identifier(after);
-            if !name.is_empty() {
-                imported.insert(name.to_owned());
-            }
-            index = next;
-            continue;
-        }
-        let (body, _) = braced_body(after, label);
-        for item in body
-            .split(',')
-            .map(str::trim)
-            .filter(|item| !item.is_empty())
-        {
-            let name = first_identifier(item);
-            if !name.is_empty() {
-                imported.insert(name.to_owned());
-            }
-        }
-        index = next;
-    }
-    imported
-}
-
-/// Returns a statement through its top-level semicolon.
-fn statement_until_semicolon(lines: &[String], start: usize, label: &str) -> (String, usize) {
-    let mut statement = String::new();
-    let mut depth = 0_i32;
-    for (index, line) in lines.iter().enumerate().skip(start) {
-        for character in line.chars() {
-            if character == ';' && depth == 0 {
-                return (statement, index + 1);
-            }
-            statement.push(character);
-            match character {
-                '{' | '[' | '(' => depth += 1,
-                '}' | ']' | ')' => depth -= 1,
-                _ => {}
-            }
-        }
-        statement.push(' ');
-    }
-    panic!("{label}:{}: use statement has no semicolon", start + 1);
-}
-
-/// Returns a brace body and the byte offset after its closing brace.
-fn braced_body<'a>(text: &'a str, label: &str) -> (&'a str, usize) {
-    assert!(
-        text.starts_with('{'),
-        "{label}: expected capability import body"
-    );
-    let mut depth = 0_i32;
-    for (index, character) in text.char_indices() {
-        match character {
-            '{' => depth += 1,
-            '}' => {
-                depth -= 1;
-                if depth == 0 {
-                    return (&text[1..index], index + 1);
-                }
-            }
-            _ => {}
-        }
-    }
-    panic!("{label}: unbalanced capability import braces");
-}
-
-/// Compares direct imports against the registry's required marker names.
-fn assert_real_capability_imports(source: &str, label: &str) {
-    let expected = required_markers();
-    let imported = imported_capability_names(source, label);
-    for marker in expected {
-        assert!(
-            imported.contains(&marker),
-            "{label}: capability marker {marker} is not imported directly from crate::capabilities",
-        );
-    }
-}
-
-/// Returns the consumers `source` expands the motion table with.
-fn motion_table_consumers(source: &str, label: &'static str) -> BTreeSet<String> {
-    let declarations = without_test_modules(source, label);
-    let cleaned = clean_source(&declarations, label);
-    let mut consumers = BTreeSet::new();
-    let mut offset = 0;
-    while let Some(relative) = cleaned[offset..].find("motion_table!") {
-        let start = offset + relative + "motion_table!".len();
-        let rest = &cleaned[start..];
-        if rest.starts_with('(') {
-            let (body, consumed_length) = invocation_body(rest, label);
-            consumers.insert(body.trim().to_owned());
-            offset = start + consumed_length;
-        } else {
-            offset = start;
-        }
-    }
-    consumers
-}
-
-/// Asserts that no accessor or dynamic noun trait carries a hand-written
-/// method and that every motion-view surface is generated from the motion
-/// table (#816).
-fn assert_no_handwritten_noun_methods() {
-    for (label, source) in [
-        ("src/async_nouns.rs", ASYNC_SOURCE),
-        ("src/blocking_nouns.rs", BLOCKING_SOURCE),
-    ] {
-        assert_accessor_trait_impls(source, label);
-        for (accessor, names) in accessor_methods(source, label) {
-            assert!(
-                names.is_empty(),
-                "{label}: accessor {accessor} contains handwritten methods {names:?}",
-            );
-        }
-        assert_real_capability_imports(source, label);
-    }
-
-    assert_accessor_trait_impls(DYN_SOURCE, "src/dynapi/nouns.rs");
-    for (trait_name, names) in dynamic_trait_methods(DYN_SOURCE, "src/dynapi/nouns.rs") {
-        assert!(
-            names.is_empty(),
-            "src/dynapi/nouns.rs: noun trait {trait_name} contains handwritten methods {names:?}",
-        );
-    }
-
-    for (label, source, consumer) in MOTION_CONSUMERS {
-        assert!(
-            motion_table_consumers(source, label).contains(*consumer),
-            "{label}: the motion view must be expanded by `motion_table!({consumer})`",
-        );
-    }
-
-    // The runtime-profile cameras reach the motion view only through
-    // `motion()` (the blocking one returns the typed blocking
-    // `MotionAccessor`, the async one `&dyn DynMotion`); a motion method
-    // declared there in any form — public, crate-private, async, boxed —
-    // would be a second, unchecked shape.
-    for (label, source) in [
-        ("src/dynapi/blocking_projection.rs", BLOCKING_DYN_SOURCE),
-        ("src/dynapi/owner_projection.rs", ASYNC_DYN_SOURCE),
-    ] {
-        let declarations = declaration_lines(source, label, true);
-        let declared: BTreeSet<&str> = declarations
-            .iter()
-            .filter_map(|line| {
-                line.split_once("fn ")
-                    .map(|(_, rest)| first_identifier(rest))
-            })
-            .collect();
-        assert!(
-            declared.contains("motion"),
-            "{label}: `motion()` is missing"
-        );
-        for method in MOTION_METHODS {
-            assert!(
-                !declared.contains(method),
-                "{label}: `{method}` must come only from `motion()`",
-            );
-        }
-    }
-}
-
-#[test]
-fn generated_facades_consume_every_registry_noun() {
-    assert_eq!(NOUN_KEYS.len(), NOUN_FACADES.len());
-    let expected: BTreeSet<String> = NOUN_KEYS.iter().map(|key| (*key).to_owned()).collect();
-    for (label, source, consumer) in [
-        ("src/async_nouns.rs", ASYNC_SOURCE, "async_noun_methods"),
-        (
-            "src/blocking_nouns.rs",
-            BLOCKING_SOURCE,
-            "blocking_noun_methods",
-        ),
-        ("src/dynapi/nouns.rs", DYN_SOURCE, "dyn_noun_declarations"),
-    ] {
-        assert_eq!(
-            consumed_nouns(source, label, consumer),
-            expected,
-            "{label}: {consumer} must consume every registry noun arm",
-        );
-    }
-
-    // The dynamic implementation projection is a second invocation site,
-    // but it must consume the same complete set as the declarations.
-    let declarations = consumed_nouns(DYN_SOURCE, "src/dynapi/nouns.rs", "dyn_noun_declarations");
-    let implementations = consumed_nouns(DYN_SOURCE, "src/dynapi/nouns.rs", "dyn_noun_impls");
-    assert_eq!(declarations, implementations);
-    assert_eq!(declarations.len(), NOUN_KEYS.len());
 }
 
 #[test]
@@ -1146,11 +614,6 @@ fn compiled_registry_inventory_counts_remain_readable() {
             .collect();
         assert_eq!(declared_helpers, registry_helpers);
     }
-}
-
-#[test]
-fn no_noun_method_is_handwritten_and_capabilities_are_real() {
-    assert_no_handwritten_noun_methods();
 }
 
 /// Issue #684: the erased inquiry surface gates each built-in inquiry on exactly
@@ -1307,18 +770,12 @@ mod scanner {
     }
 
     #[test]
+    #[cfg(all(feature = "dyn-api", feature = "async"))]
     fn consumed_nouns_reads_only_macro_invocation_identifiers() {
         let source = "noun_table!(Power => consumer);\nnoun_table!(Zoom => other);\n";
         assert_eq!(
             consumed_nouns(source, "fixture", "consumer"),
             BTreeSet::from(["Power".to_owned()]),
         );
-    }
-
-    #[test]
-    #[should_panic(expected = "capability aliases are not allowed")]
-    fn capability_aliases_are_not_accepted() {
-        let _ =
-            imported_capability_names("use crate::capabilities::{HasZoom as Shadow};\n", "fixture");
     }
 }

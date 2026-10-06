@@ -3,9 +3,11 @@
 //! The two facades are written per execution mode because their `open`,
 //! `close` and waiting styles legitimately differ, but they must expose the
 //! same public surface: every public method on `Session`, `CameraSession`,
-//! `Camera` (including its noun accessors) and `Operation` exists on both,
-//! with the same generics, parameters and return type, and both expand the
-//! same shared method macros. Only the `async` keyword may differ.
+//! `Camera` and `Operation` exists on both, with the same generics,
+//! parameters and return type, and both expand the same shared method
+//! macros. Only the `async` keyword may differ. The noun accessors and their
+//! `Camera` getters are not compared here: one consumer
+//! (`crate::noun_facade::static_noun_facade!`) generates both facades' copies.
 //!
 //! The reader is the declaration scanner of [`crate::noun_parity`]: comments,
 //! literals and test modules are blanked before anything is matched.
@@ -16,14 +18,10 @@ use std::collections::BTreeMap;
 
 use crate::noun_parity::{block_end, declaration_lines};
 
-const BLOCKING: &[(&str, &str)] = &[
-    ("src/blocking.rs", include_str!("blocking.rs")),
-    ("src/blocking_nouns.rs", include_str!("blocking_nouns.rs")),
-];
+const BLOCKING: &[(&str, &str)] = &[("src/blocking.rs", include_str!("blocking.rs"))];
 const ASYNC: &[(&str, &str)] = &[
     ("src/async_session.rs", include_str!("async_session.rs")),
     ("src/operation.rs", include_str!("operation.rs")),
-    ("src/async_nouns.rs", include_str!("async_nouns.rs")),
 ];
 
 /// The public facade types both modes must expose identically.

@@ -54,12 +54,13 @@ fn static_and_dynamic_ledgers_reference_the_same_command_rows() {
     // string literals inside its in-file inventory tests, so scanning the whole
     // file would let the test data satisfy the gate.
     let surface = declarations(&source("src/command/surface.rs"));
-    let async_nouns = declarations(&source("src/async_nouns.rs"));
-    let blocking_nouns = declarations(&source("src/blocking_nouns.rs"));
+    // One consumer generates both static facades (blocking and async), so
+    // its expansion is where their owner hops are spelled.
+    let static_nouns = declarations(&source("src/noun_facade.rs"));
     let dynamic_nouns = declarations(&source("src/dynapi/nouns.rs"));
     let inquiry_structs = declarations(&source("src/command/inquiry_structs.rs"));
 
-    for text in [&async_nouns, &blocking_nouns, &dynamic_nouns] {
+    for text in [&static_nouns, &dynamic_nouns] {
         assert!(text.contains("execute"));
         assert!(text.contains("inquire"));
         assert!(text.contains("submit"));

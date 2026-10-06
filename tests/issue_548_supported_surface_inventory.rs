@@ -107,22 +107,57 @@ const EXPECTED_TYPED_GATES: &[&str] = &[
     "NoiseReduction2DMode",
 ];
 
-const EXPECTED_ACCESSORS: &[&str] = &[
-    "AdvancedAccessor",
-    "ExposureAccessor",
-    "FocusAccessor",
-    "ImageAccessor",
-    "MenuAccessor",
-    "MotionSyncAccessor",
-    "NdFilterAccessor",
-    "PanTiltAccessor",
-    "PowerAccessor",
-    "PresetsAccessor",
-    "SystemAccessor",
-    "TallyAccessor",
-    "WhiteBalanceAccessor",
-    "ZoomAccessor",
-];
+/// Pins the public static accessor names and makes each one a compile-time
+/// fact: every name must resolve in each enabled facade, so a renamed or
+/// missing accessor fails to build rather than relying on a source scan.
+macro_rules! static_accessor_inventory {
+    ($($accessor:ident),* $(,)?) => {
+        const EXPECTED_ACCESSORS: &[&str] = &[$(stringify!($accessor)),*];
+
+        #[cfg(feature = "async")]
+        #[allow(dead_code)]
+        fn async_accessors_resolve<P>()
+        where
+            P: grafton_visca::CompileTimeProfile
+                + grafton_visca::capabilities::HasTally
+                + grafton_visca::capabilities::HasNdFilter
+                + grafton_visca::capabilities::HasMotionSync
+                + 'static,
+        {
+            $( let _: Option<grafton_visca::$accessor<'static, P>> = None; )*
+        }
+
+        #[cfg(feature = "blocking")]
+        #[allow(dead_code)]
+        fn blocking_accessors_resolve<P>()
+        where
+            P: grafton_visca::CompileTimeProfile
+                + grafton_visca::capabilities::HasTally
+                + grafton_visca::capabilities::HasNdFilter
+                + grafton_visca::capabilities::HasMotionSync
+                + 'static,
+        {
+            $( let _: Option<grafton_visca::blocking::$accessor<'static, P>> = None; )*
+        }
+    };
+}
+
+static_accessor_inventory!(
+    AdvancedAccessor,
+    ExposureAccessor,
+    FocusAccessor,
+    ImageAccessor,
+    MenuAccessor,
+    MotionSyncAccessor,
+    NdFilterAccessor,
+    PanTiltAccessor,
+    PowerAccessor,
+    PresetsAccessor,
+    SystemAccessor,
+    TallyAccessor,
+    WhiteBalanceAccessor,
+    ZoomAccessor,
+);
 
 const EXPECTED_DYN_TRAITS: &[&str] = &[
     "DynAdvanced",
@@ -290,28 +325,16 @@ fn typed_capability_gate_inventory_is_closed() {
 
 #[test]
 fn static_noun_and_control_inventory_is_closed() {
-    let async_nouns = declarations(include_str!("../src/async_nouns.rs"));
-    let blocking_nouns = declarations(include_str!("../src/blocking_nouns.rs"));
-    let surface = declarations(include_str!("../src/command/surface.rs"));
+    // The accessor names are compile-time facts (`static_accessor_inventory!`);
+    // this keeps the closed list itself readable and duplicate-free.
+    let mut sorted = EXPECTED_ACCESSORS.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted, EXPECTED_ACCESSORS);
 
-    for accessor in EXPECTED_ACCESSORS {
-        assert!(async_nouns.contains(accessor), "missing async {accessor}");
-        assert!(
-            blocking_nouns.contains(accessor),
-            "missing blocking {accessor}"
-        );
-    }
+    let surface = declarations(include_str!("../src/command/surface.rs"));
     assert!(surface.contains("pub(crate) const fn surface_entry"));
     assert!(surface.contains("BuiltinCommand::ALL"));
-
-    // The generated facades each consume one invocation per one of the 14
-    // registry noun arms. The compiled parity test checks the actual names;
-    // this integration gate keeps the count visible to reviewers.
-    assert_eq!(async_nouns.matches("=> async_noun_methods);").count(), 14);
-    assert_eq!(
-        blocking_nouns.matches("=> blocking_noun_methods);").count(),
-        14
-    );
 
     // The command registry is intentionally readable at a glance: 149 IDs,
     // of which 146 are target-facing and three are protocol exceptions.

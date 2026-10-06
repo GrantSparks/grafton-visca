@@ -92,17 +92,20 @@
     allow(unused_macros, unused_imports)
 )]
 
-/// Hands one noun's rows to a consumer macro.
+/// Hands one noun's rows, or with `All` the whole table, to a consumer macro.
 ///
 /// See the module documentation for the row grammar.  Invoke it as
-/// `noun_table!(Zoom => my_consumer);`.
+/// `noun_table!(Zoom => my_consumer);` or `noun_table!(All => my_consumer);`.
+/// `All` takes optional fixed-shape leading arguments
+/// (`noun_table!(All => my_consumer, [async], [.await])`), which the consumer
+/// receives as single token trees before the first `@noun` header.
 macro_rules! noun_table {
     // The flat projection deliberately reuses every noun arm instead of
     // carrying a second command list.  Consumers that need noun context (the
     // static surface registry) handle the internal `@noun` marker; the public
     // facade consumers strip it in one forwarding arm.
-    (All => $consumer:ident) => {
-        noun_table! { @collect $consumer; []; Power Zoom System PanTilt Focus Presets
+    (All => $consumer:ident $(, $arg:tt)*) => {
+        noun_table! { @collect $consumer; [$($arg)*]; Power Zoom System PanTilt Focus Presets
             Exposure WhiteBalance Image Tally NdFilter MotionSync Menu Advanced @exceptions }
     };
 
@@ -1136,6 +1139,10 @@ pub(crate) use noun_table;
 
 /// Hands the four motion-view methods to a consumer macro (#816).
 ///
+/// Optional fixed-shape leading arguments
+/// (`motion_table!(my_consumer, [async], [.await], CoreType)`) reach the
+/// consumer as single token trees before the `@motion` header.
+///
 /// Each row is `fn <name>(&self[, <arg>: <type>]) -> <value> =>
 /// <core method>(<core arguments>);`: the public method, the value its
 /// `Result` carries, and the owner-core call that implements it. Every facade
@@ -1143,8 +1150,9 @@ pub(crate) use noun_table;
 /// expands these rows, so all of them expose the same names, arities and
 /// contracts.
 macro_rules! motion_table {
-    ($consumer:ident) => {
+    ($consumer:ident $(, $arg:tt)*) => {
         $consumer! {
+            $($arg)*
             @motion {
                 accessor: MotionAccessor,
                 getter: motion,
