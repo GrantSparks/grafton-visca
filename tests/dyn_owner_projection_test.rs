@@ -240,7 +240,7 @@ where
     for position in [midpoint, UnitInterval::ONE] {
         let error = partial_camera
             .zoom()
-            .set_normalized_in_domain(position, ZoomDomain::OpticalPlusDigital)
+            .set_normalized(position, ZoomDomain::OpticalPlusDigital)
             .await
             .expect_err("combined normalized zoom requires typed digital-range permission");
         assert!(matches!(
@@ -256,8 +256,8 @@ where
         "rejected dynamic nouns must not reach the transport"
     );
 
-    // Explicit raw positions and both optical-normalization entry points remain
-    // direct zoom controls, so the partial profile still admits all of them.
+    // Explicit raw positions and optical-domain normalization remain direct
+    // zoom controls, so the partial profile still admits both.
     partial_camera
         .zoom()
         .set_position(ZoomPosition::new(0x3800).expect("optical raw target"))
@@ -268,15 +268,7 @@ where
         .expect("explicit optical target applied");
     partial_camera
         .zoom()
-        .set_normalized(midpoint)
-        .await
-        .expect("ordinary optical normalization")
-        .applied()
-        .await
-        .expect("ordinary optical target applied");
-    partial_camera
-        .zoom()
-        .set_normalized_in_domain(midpoint, ZoomDomain::Optical)
+        .set_normalized(midpoint, ZoomDomain::Optical)
         .await
         .expect("explicit optical-domain normalization")
         .applied()
@@ -284,8 +276,8 @@ where
         .expect("explicit optical-domain target applied");
     assert_eq!(
         partial_fake.write_count(),
-        3,
-        "only the three direct/optical positive controls reach the transport"
+        2,
+        "only the two direct/optical positive controls reach the transport"
     );
     partial_session
         .shutdown()
@@ -309,7 +301,7 @@ where
     for position in [midpoint, UnitInterval::ONE] {
         supported_camera
             .zoom()
-            .set_normalized_in_domain(position, ZoomDomain::OpticalPlusDigital)
+            .set_normalized(position, ZoomDomain::OpticalPlusDigital)
             .await
             .expect("combined normalized zoom with typed permission")
             .applied()

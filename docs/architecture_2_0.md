@@ -1167,9 +1167,8 @@ its conclusion rather than a caller-side timeout.
 
 Use the noun view for ordinary controls and `submit` when a caller needs an
 explicit operation lifecycle. `motion().stop_all_motion()`,
-`motion().is_moving()`, `motion().is_moving_axes(...)`, and
-`motion().wait_until_idle(...)` are the only camera-level motion
-safety/observation entry points. A dropped handle is not an automatic STOP;
+`motion().is_moving(...)`, and `motion().wait_until_idle(...)` are the only
+camera-level motion safety/observation entry points. A dropped handle is not an automatic STOP;
 emergency stopping is an explicit STOP or motion operation.
 
 `stop_all_motion()` is one bounded owner transaction returning `HaltReport`.

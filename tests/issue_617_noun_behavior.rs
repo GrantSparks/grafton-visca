@@ -81,6 +81,7 @@ mod blocking_surface {
         blocking::{Session, SessionConfig},
         command::{
             ExposureCommand, ExposureMode, ExposureModeInquiry, FocusZone, IrisControlInquiry,
+            PanTiltDirection,
         },
         profile::ProfileSpec,
         profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300, SonyFR7},
@@ -177,7 +178,7 @@ mod blocking_surface {
     }
 
     #[test]
-    fn blocking_pan_tilt_delegates_and_normalized_zoom_use_profile_values() {
+    fn blocking_pan_tilt_directions_and_normalized_zoom_use_profile_values() {
         let (session, fake) = open();
         let camera = session.camera::<SonyFR7>().expect("camera");
         let pan_speed = PanSpeed::new(0x0a).expect("pan speed");
@@ -185,14 +186,14 @@ mod blocking_surface {
 
         camera
             .pan_tilt()
-            .up(pan_speed, tilt_speed)
+            .move_direction(PanTiltDirection::Up, pan_speed, tilt_speed)
             .expect("pan/tilt up")
             .applied()
             .expect("up applied");
         assert_eq!(fake.take_only_payload(), PAN_TILT_UP);
         camera
             .pan_tilt()
-            .down(pan_speed, tilt_speed)
+            .move_direction(PanTiltDirection::Down, pan_speed, tilt_speed)
             .expect("pan/tilt down")
             .applied()
             .expect("down applied");
@@ -201,14 +202,14 @@ mod blocking_surface {
         let half = UnitInterval::new(0.5).expect("unit interval");
         camera
             .zoom()
-            .set_normalized(half)
+            .set_normalized(half, ZoomDomain::Optical)
             .expect("optical normalized zoom")
             .applied()
             .expect("optical target applied");
         assert_eq!(fake.take_only_payload(), ZOOM_NORMALIZED_OPTICAL_HALF);
         camera
             .zoom()
-            .set_normalized_in_domain(half, ZoomDomain::OpticalPlusDigital)
+            .set_normalized(half, ZoomDomain::OpticalPlusDigital)
             .expect("combined normalized zoom")
             .applied()
             .expect("combined target applied");
@@ -400,7 +401,10 @@ mod blocking_surface {
 #[cfg(all(feature = "async", feature = "runtime-tokio"))]
 mod async_surface {
     use grafton_visca::{
-        command::{ExposureCommand, ExposureMode, ExposureModeInquiry, IrisControlInquiry},
+        command::{
+            ExposureCommand, ExposureMode, ExposureModeInquiry, IrisControlInquiry,
+            PanTiltDirection,
+        },
         profile::ProfileSpec,
         profiles::{PtzOpticsG3, SonyBRC300, SonyFR7},
         transport::AddressingMode,
@@ -516,7 +520,7 @@ mod async_surface {
     }
 
     #[tokio::test]
-    async fn async_pan_tilt_delegates_and_normalized_zoom_use_profile_values() {
+    async fn async_pan_tilt_directions_and_normalized_zoom_use_profile_values() {
         let fake = probe_camera();
         let session = open_session(
             &fake,
@@ -529,7 +533,7 @@ mod async_surface {
 
         camera
             .pan_tilt()
-            .up(pan_speed, tilt_speed)
+            .move_direction(PanTiltDirection::Up, pan_speed, tilt_speed)
             .await
             .expect("pan/tilt up")
             .applied()
@@ -538,7 +542,7 @@ mod async_surface {
         assert_eq!(fake.take_only_payload(), PAN_TILT_UP);
         camera
             .pan_tilt()
-            .down(pan_speed, tilt_speed)
+            .move_direction(PanTiltDirection::Down, pan_speed, tilt_speed)
             .await
             .expect("pan/tilt down")
             .applied()
@@ -549,7 +553,7 @@ mod async_surface {
         let half = UnitInterval::new(0.5).expect("unit interval");
         camera
             .zoom()
-            .set_normalized(half)
+            .set_normalized(half, ZoomDomain::Optical)
             .await
             .expect("optical normalized zoom")
             .applied()
@@ -558,7 +562,7 @@ mod async_surface {
         assert_eq!(fake.take_only_payload(), ZOOM_NORMALIZED_OPTICAL_HALF);
         camera
             .zoom()
-            .set_normalized_in_domain(half, ZoomDomain::OpticalPlusDigital)
+            .set_normalized(half, ZoomDomain::OpticalPlusDigital)
             .await
             .expect("combined normalized zoom")
             .applied()

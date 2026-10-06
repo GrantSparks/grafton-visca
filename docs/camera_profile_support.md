@@ -68,9 +68,9 @@ declarative vocabulary rather than this marked region.
 <!-- BEGIN GENERATED TYPED SUPPORT VOCABULARY -->
 | Area | Marker | Typed surface |
 | ---- | ------ | ------------- |
-| Zoom | `HasDirectZoom` | Static gate for `camera.zoom().set_position`, `.set_normalized`, and `.set_normalized_in_domain` |
+| Zoom | `HasDirectZoom` | Static gate for `camera.zoom().set_position` and `.set_normalized` |
 | Zoom | `HasDigitalZoomToggle` | `camera.zoom().set_digital_zoom` |
-| Zoom | `HasDigitalZoomRange` | `TypedSupportSet` runtime gate when `.set_normalized_in_domain(..., ZoomDomain::OpticalPlusDigital)` is chosen; also requires a documented digital maximum |
+| Zoom | `HasDigitalZoomRange` | `TypedSupportSet` runtime gate when `.set_normalized(..., ZoomDomain::OpticalPlusDigital)` is chosen; also requires a documented digital maximum |
 | Exposure | `HasIrisControl` | iris reset/up/down/direct control and `IrisInquiryControl` (`09 04 4B` position) |
 | Focus | `HasOnePushFocus` | `OnePushFocusControl` |
 | Focus | `HasPtzOpticsSnapFocus` | `SnapFocusControl` |

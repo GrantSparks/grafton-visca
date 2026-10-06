@@ -5,7 +5,7 @@ use grafton_visca::{blocking::Camera, profiles::SonyBRC300, units::UnitInterval,
 fn optical_normalized_zoom(camera: &Camera<SonyBRC300>) {
     let _ = camera
         .zoom()
-        .set_normalized_in_domain(UnitInterval::ZERO, ZoomDomain::Optical);
+        .set_normalized(UnitInterval::ZERO, ZoomDomain::Optical);
 }
 
 fn main() {

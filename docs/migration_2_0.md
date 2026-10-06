@@ -203,9 +203,9 @@ the async `Session` / `CameraSession<P>` rows above.
 | 1.x category | 2.0 destination |
 | --- | --- |
 | Root control-trait calls that duplicate noun views | `camera.power()`, `zoom()`, `system()`, `pan_tilt()`, `focus()`, `exposure()`, `white_balance()`, `image()`, `presets()`, `tally()`, `nd_filter()`, `motion_sync()`, `menu()`, and `advanced()`. |
-| 1.x `is_moving` / `stop_all_motion`, and the movement waits `await_idle` / `await_pan_tilt_idle` / `await_zoom_idle` / `await_focus_idle` / `await_axes_idle` (each taking a `Duration`) | `camera.motion().is_moving()` (no argument, samples `AffectedAxes::MOVEMENT`), `is_moving_axes(MotionQuery)` for an explicit axis set, `wait_until_idle(IdleWait)`, and `stop_all_motion()` returning a per-axis `HaltReport`. Inspect the report or explicitly collapse it with `into_result()`. There was **no** 1.x `wait_until_idle`; that name is 2.0's. |
+| 1.x `is_moving` / `stop_all_motion`, and the movement waits `await_idle` / `await_pan_tilt_idle` / `await_zoom_idle` / `await_focus_idle` / `await_axes_idle` (each taking a `Duration`) | `camera.motion().is_moving(MotionQuery)` (`MotionQuery::default()` samples `AffectedAxes::MOVEMENT`; `MotionQuery::new(axes)` selects an explicit axis set), `wait_until_idle(IdleWait)`, and `stop_all_motion()` returning a per-axis `HaltReport`. Inspect the report or explicitly collapse it with `into_result()`. There was **no** 1.x `wait_until_idle`; that name is 2.0's. |
 | 2.0.0-rc.2 `MotionQuery { axes, tolerance }` and an `is_moving`/`is_moving_axes` verdict from two back-to-back snapshots | `MotionQuery::new(axes)`, optionally `.with_tolerance(..)` and `.with_window(..)`. `MotionQuery` and `IdleWait` are `#[non_exhaustive]`, so struct literals no longer compile; use the constructors and `with_*` methods. The second snapshot now starts at least `window` (default 100 ms) after the first, so each call takes at least that long. `false` means no movement detected over the window. A zero window returns `Error::InvalidParameter`, and a window that cannot fit the deadline returns `Error::Timeout`. Raise the window to detect slower creep (#781). |
-| 1.x `AwaitConfig` and `await_with_config(&AwaitConfig)` (`for_pan_tilt`/`for_zoom`/`for_focus`/`for_preset_recall`, `poll_interval`, `tolerance`, `debug`) | `camera::IdleWait` (same `for_*` presets plus `with_interval`/`with_tolerance`/`with_timeout`) passed to `wait_until_idle`, or `camera::MotionQuery` for `is_moving_axes`. The `debug` field has no counterpart — use `tracing`. |
+| 1.x `AwaitConfig` and `await_with_config(&AwaitConfig)` (`for_pan_tilt`/`for_zoom`/`for_focus`/`for_preset_recall`, `poll_interval`, `tolerance`, `debug`) | `camera::IdleWait` (same `for_*` presets plus `with_interval`/`with_tolerance`/`with_timeout`) passed to `wait_until_idle`, or `camera::MotionQuery` for `is_moving`. The `debug` field has no counterpart — use `tracing`. |
 | Noun-specific idle/wait aliases | The separate `motion()` safety/observation view. |
 | 1.x `Axes::ALL` as "everything that moves" | `AffectedAxes::MOVEMENT`. The 1.x `Axes` type is renamed `AffectedAxes` **and** `ALL` changed meaning — see [`Axes` → `AffectedAxes`: rename and `ALL` meaning change](#axes--affectedaxes-rename-and-all-meaning-change) below. |
 | `DynCameraControl` | `DynSessionCameraControl` plus `DynSessionCameraNouns`. |
@@ -215,7 +215,10 @@ the async `Session` / `CameraSession<P>` rows above.
 | Duplicate `NdFilterInquiry` accessor vocabulary | `nd_filter().position()` only. |
 | Separate focus `lock()`/`unlock()` twins | One parameterized `focus().set_lock(FocusLock)`. |
 | Root `toggle_menu()` (the 1.x `DirectMenuControl` method on the camera) | `menu().toggle_display()` is the direct replacement. Prefer `menu().display(true)` / `menu().display(false)` when the intended state is known; `menu().status()`, `navigate(...)`, and `select()` cover the remaining menu operations. |
-| Zoom `set_normalized(UnitInterval)` / `set_normalized_in_domain(UnitInterval, ZoomDomain)` | Same names on `zoom()`: `zoom().set_normalized(UnitInterval)` and `zoom().set_normalized_in_domain(UnitInterval, ZoomDomain)`. They are now **targeted operations** returning an `Operation<Targeted>`; await it with `applied()`/`settled()` instead of getting a bare `Result<()>`. |
+| Zoom `set_normalized(UnitInterval)` / `set_normalized_in_domain(UnitInterval, ZoomDomain)` (1.x and 2.0.0-rc.3) | One method, `zoom().set_normalized(position, domain)`: pass `ZoomDomain::Optical` for the former one-argument form and the domain directly for the former `set_normalized_in_domain`. It is a **targeted operation** returning an `Operation<Targeted>`; await it with `applied()`/`settled()` instead of getting a bare `Result<()>`. |
+| `pan_tilt().up/down/left/right(pan_speed, tilt_speed)` (1.x and 2.0.0-rc.3) | `pan_tilt().move_direction(PanTiltDirection::Up, pan_speed, tilt_speed)`, and likewise `Down`, `Left` and `Right`. The frame is identical. The same applies to `DynPanTilt`. |
+| `nd_filter().set_value(u16)` / `set_stops(f32)` (2.0.0-rc.3) | `nd_filter().set_value(NdFilterValue)`, building the value with `command::NdFilterValue::new(raw)?` or `NdFilterValue::from_stops(stops)?`. An out-of-range raw value or stop count is now rejected by the constructor, before any noun call. |
+| `motion().is_moving()` / `is_moving_axes(MotionQuery)` (2.0.0-rc.3) | `motion().is_moving(MotionQuery)`. Pass `MotionQuery::default()` for the former no-argument form, which samples `AffectedAxes::MOVEMENT`. |
 
 The **async** dynamic views are object-safe and erase profile/request types;
 the blocking dynamic projection is native and has no futures. Both share the
@@ -411,7 +414,7 @@ A motion observation only queries the axes it is given, and preparation
 requires the profile to declare a position inquiry for every selected axis.
 `AffectedAxes::ALL` therefore now demands iris **and** ND-filter position
 inquiries. No built-in profile declares both, so
-`motion().is_moving_axes(MotionQuery::new(AffectedAxes::ALL))`,
+`motion().is_moving(MotionQuery::new(AffectedAxes::ALL))`,
 `wait_until_idle(IdleWait::new(AffectedAxes::ALL, ..))`, and any operation
 declaring `ALL` fail on all nine built-in profiles with
 `Error::FeatureNotSupported` before a frame is sent. The port compiles; it just

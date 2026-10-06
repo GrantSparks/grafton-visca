@@ -904,9 +904,9 @@
 //!     use std::time::Duration;
 //!
 //!     let axes = AffectedAxes::PAN_TILT.union(AffectedAxes::ZOOM);
-//!     // `is_moving()` takes no argument and samples `AffectedAxes::MOVEMENT`;
-//!     // `is_moving_axes` is the axis-selecting form.
-//!     let moving = camera.motion().is_moving_axes(MotionQuery::new(axes)).await?;
+//!     // `MotionQuery::default()` samples `AffectedAxes::MOVEMENT`; this query
+//!     // selects pan/tilt and zoom only.
+//!     let moving = camera.motion().is_moving(MotionQuery::new(axes)).await?;
 //!     camera
 //!         .motion()
 //!         .wait_until_idle(IdleWait::new(axes, Duration::from_secs(30)))

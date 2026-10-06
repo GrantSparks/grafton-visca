@@ -147,7 +147,7 @@ facade_matrix! {
             .expect("camera");
         assert!(!wait!(camera
             .motion()
-            .is_moving_axes(MotionQuery::new(AffectedAxes::ZOOM)))
+            .is_moving(MotionQuery::new(AffectedAxes::ZOOM)))
         .expect("zoom motion query"));
         wait!(camera.motion().wait_until_idle(
             IdleWait::new(AffectedAxes::ZOOM, SETTLE_BUDGET).with_interval(Duration::ZERO),
@@ -169,7 +169,7 @@ facade_matrix! {
         assert!(matches!(
             wait!(camera
                 .motion()
-                .is_moving_axes(MotionQuery::new(AffectedAxes::ND_FILTER))),
+                .is_moving(MotionQuery::new(AffectedAxes::ND_FILTER))),
             Err(Error::FeatureNotSupported { .. })
         ));
         assert!(matches!(

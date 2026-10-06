@@ -8,7 +8,7 @@ use grafton_visca::{
     command::{
         AntiFlickerMode, AutoFocusSensitivity, AutoWhiteBalanceSensitivity, FocusLock, FocusMode,
         FocusRange, FocusZone, ImageFlipMode, MenuDirection, MotionSyncMode, MotionSyncPreset,
-        NdFilterMode, PanTiltDirection, PanTiltLimitCorner, PictureEffectMode, PresetNumber,
+        NdFilterMode, NdFilterValue, PanTiltDirection, PanTiltLimitCorner, PictureEffectMode, PresetNumber,
         SharpnessMode, TallyStatusState, VariableSpeedMode, WhiteBalanceMode,
     },
     dynapi::{
@@ -36,9 +36,8 @@ fn camera_surface(camera: &dyn DynSessionCameraControl) {
 
 fn motion_surface(motion: &dyn DynMotion) {
     let _: DynFuture<'_, Result<grafton_visca::HaltReport, Error>> = motion.stop_all_motion();
-    let _: DynFuture<'_, Result<bool, Error>> = motion.is_moving();
     let _: DynFuture<'_, Result<bool, Error>> =
-        motion.is_moving_axes(MotionQuery::new(AffectedAxes::ZOOM));
+        motion.is_moving(MotionQuery::new(AffectedAxes::ZOOM));
     let _: DynFuture<'_, Result<(), Error>> = motion.wait_until_idle(IdleWait::new(
         AffectedAxes::ZOOM,
         std::time::Duration::from_secs(1),
@@ -64,9 +63,7 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
         zoom.set_position(ZoomPosition::MIN);
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
-        zoom.set_normalized(UnitInterval::ZERO);
-    let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
-        zoom.set_normalized_in_domain(UnitInterval::ONE, ZoomDomain::Optical);
+        zoom.set_normalized(UnitInterval::ONE, ZoomDomain::Optical);
     let _: DynFuture<'_, Result<(), Error>> = zoom.set_digital_zoom(false);
 
     let system = camera.system();
@@ -83,14 +80,6 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
         PanSpeed::new(1).unwrap(),
         TiltSpeed::new(1).unwrap(),
     );
-    let _: DynFuture<'_, Result<DynAppliedOperation, Error>> =
-        pan_tilt.up(PanSpeed::new(1).unwrap(), TiltSpeed::new(1).unwrap());
-    let _: DynFuture<'_, Result<DynAppliedOperation, Error>> =
-        pan_tilt.down(PanSpeed::new(1).unwrap(), TiltSpeed::new(1).unwrap());
-    let _: DynFuture<'_, Result<DynAppliedOperation, Error>> =
-        pan_tilt.left(PanSpeed::new(1).unwrap(), TiltSpeed::new(1).unwrap());
-    let _: DynFuture<'_, Result<DynAppliedOperation, Error>> =
-        pan_tilt.right(PanSpeed::new(1).unwrap(), TiltSpeed::new(1).unwrap());
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> = pan_tilt.stop();
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
         pan_tilt.absolute(Degrees::new(0.0), Degrees::new(0.0), SpeedLevel::Medium);
@@ -283,8 +272,10 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<grafton_visca::command::NdFilterPosition, Error>> = nd.position();
     let _: DynFuture<'_, Result<NdFilterPreset, Error>> = nd.preset();
     let _: DynFuture<'_, Result<(), Error>> = nd.set_mode(NdFilterMode::Preset);
-    let _: DynFuture<'_, Result<DynTargetedOperation, Error>> = nd.set_value(1);
-    let _: DynFuture<'_, Result<DynTargetedOperation, Error>> = nd.set_stops(2.0);
+    let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
+        nd.set_value(NdFilterValue::new(1).unwrap());
+    let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
+        nd.set_value(NdFilterValue::from_stops(2.0).unwrap());
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> = nd.step_up();
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> = nd.step_down();
     let _: DynFuture<'_, Result<(), Error>> = nd.auto_on();

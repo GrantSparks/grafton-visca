@@ -358,12 +358,12 @@ Static cameras expose the same 14 noun views in blocking and async forms:
 `image`, `presets`, `tally`, `nd_filter`, `motion_sync`, `menu`, and
 `advanced`. Profile-gated methods are available only when the profile's
 `Has*` marker permits them. `motion()` separately owns
-`stop_all_motion`, `is_moving`, `is_moving_axes`, and `wait_until_idle`, with
+`stop_all_motion`, `is_moving`, and `wait_until_idle`, with
 the same names, arities and contracts on the blocking and async cameras, the
 blocking runtime-profile camera (whose `motion()` returns the same blocking
 view) and the object-safe `DynMotion`.
-`is_moving()` takes no argument and samples `AffectedAxes::MOVEMENT`;
-`is_moving_axes(MotionQuery)` is the axis-selecting form.
+`is_moving(MotionQuery)` samples the query's axes; `MotionQuery::default()`
+selects `AffectedAxes::MOVEMENT`.
 
 `stop_all_motion()` returns `HaltReport` under one end-to-end deadline. At owner
 acceptance it fences older declared queued motion and future retries, then
@@ -430,7 +430,7 @@ async fn dynamic_views(
 
     let camera = session.camera_dyn()?;
     camera.zoom().stop().await?.applied().await?;
-    camera.motion().is_moving_axes(query).await?;
+    camera.motion().is_moving(query).await?;
     Ok(())
 }
 ```

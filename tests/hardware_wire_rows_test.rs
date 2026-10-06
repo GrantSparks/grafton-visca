@@ -78,7 +78,7 @@ use grafton_visca::{
     command::{FocusZone, NoiseReduction2DMode},
     types::{NoiseReduction2DLevel, NoiseReduction3DLevel, SpeedLevel, ZoomPosition},
     units::{Degrees, UnitInterval},
-    Certainty, CompileTimeProfile, Error, ErrorKind, PresetNumber,
+    Certainty, CompileTimeProfile, Error, ErrorKind, PresetNumber, ZoomDomain,
 };
 
 const TCP_PORT: u16 = 5678;
@@ -853,7 +853,9 @@ fn direct_zoom_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Ch
     let normalized = UnitInterval::new(NORMALIZED_ZOOM_TARGET)?;
     #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
     let expected_raw = (f64::from(NORMALIZED_ZOOM_TARGET) * f64::from(optical_max)).round() as u16;
-    let mut normalized_op = camera.zoom().set_normalized(normalized)?;
+    let mut normalized_op = camera
+        .zoom()
+        .set_normalized(normalized, ZoomDomain::Optical)?;
     hw!(
         hw,
         "zoom.normalized_target={NORMALIZED_ZOOM_TARGET} domain=Optical \

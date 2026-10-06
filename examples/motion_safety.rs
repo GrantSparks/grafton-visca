@@ -1,5 +1,5 @@
-//! Blocking motion safety and observation: `is_moving`, `is_moving_axes`,
-//! `wait_until_idle`, and the `stop_all_motion` owner halt.
+//! Blocking motion safety and observation: `is_moving`, `wait_until_idle`,
+//! and the `stop_all_motion` owner halt.
 //!
 //! `camera.motion()` is the one camera-level motion safety/observation view.
 //! `stop_all_motion()` attempts pan/tilt, zoom, and focus STOP even when an
@@ -14,8 +14,7 @@
 //! shows that rejection but does not fail on it; in manual focus a focus STOP
 //! failure is treated as an error like the other axes. With manual focus all
 //! three axes are `Applied`.
-//! `is_moving`/`is_moving_axes`/`wait_until_idle` observe *only* the axes they
-//! are given; they never settle a submitted operation.
+//! `is_moving`/`wait_until_idle` observe *only* the axes they are given; they never settle a submitted operation.
 //!
 //! This example only observes and then stops motion. Set `VISCA_CAMERA_ADDR` or
 //! pass an address on the command line.
@@ -46,19 +45,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 fn observe_and_stop(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
-    // `is_moving()` takes no argument and samples `AffectedAxes::MOVEMENT`
+    // `MotionQuery::default()` samples `AffectedAxes::MOVEMENT`
     // (pan/tilt + zoom + focus).
     println!(
         "moving (any movement axis): {}",
-        camera.motion().is_moving()?
+        camera.motion().is_moving(MotionQuery::default())?
     );
 
-    // `is_moving_axes` queries exactly the selected axes. Pan/tilt and zoom both
+    // `is_moving` queries exactly the selected axes. Pan/tilt and zoom both
     // have position inquiries on every built-in profile.
     let query = MotionQuery::new(AffectedAxes::PAN_TILT.union(AffectedAxes::ZOOM));
     println!(
         "moving (pan/tilt + zoom): {}",
-        camera.motion().is_moving_axes(query)?
+        camera.motion().is_moving(query)?
     );
 
     // Wait for pan/tilt to come to rest, bounded by an explicit timeout. This is

@@ -136,7 +136,7 @@ facade_matrix! {
             .camera::<MotionOwnerCompileTimeProfile>()
             .expect("camera")
             .motion()
-            .is_moving_axes(creeping_zoom_query(WINDOW)))
+            .is_moving(creeping_zoom_query(WINDOW)))
         .expect("motion query");
         zoom.assert_sampled_across(WINDOW);
         assert!(moving, "creep over the window is movement");
@@ -150,7 +150,7 @@ facade_matrix! {
             .camera::<MotionOwnerCompileTimeProfile>()
             .expect("camera")
             .motion()
-            .is_moving_axes(creeping_zoom_query(WINDOW)))
+            .is_moving(creeping_zoom_query(WINDOW)))
         .expect("motion query");
         zoom.assert_sampled_across(WINDOW);
         assert!(!moving);
@@ -164,7 +164,7 @@ facade_matrix! {
             .camera::<MotionOwnerCompileTimeProfile>()
             .expect("camera")
             .motion()
-            .is_moving_axes(creeping_zoom_query(Duration::ZERO)));
+            .is_moving(creeping_zoom_query(Duration::ZERO)));
         assert_zero_window_rejected(result, &zoom);
         session.shutdown().expect("shutdown");
     }
@@ -177,7 +177,7 @@ facade_matrix! {
             .camera_dyn()
             .expect("dynamic camera")
             .motion()
-            .is_moving_axes(creeping_zoom_query(WINDOW)))
+            .is_moving(creeping_zoom_query(WINDOW)))
         .expect("motion query");
         zoom.assert_sampled_across(WINDOW);
         assert!(moving);

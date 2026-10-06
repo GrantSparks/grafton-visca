@@ -20,7 +20,7 @@ use grafton_visca::{
         HasSaturationControl, HasSharpnessControl, HasSonyAutoSlowShutter, HasSonySpotlight,
         HasTally, HasUsbAudio, HasVersionInquiry, HasWhiteBalance, HasWideDynamicRange, HasZoom,
     },
-    command::MotionSyncMode,
+    command::{MotionSyncMode, NdFilterValue},
     completion::{AppliedOnly, Targeted},
     profiles::{
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
@@ -190,7 +190,11 @@ where
 fn sony_optional(camera: &Camera<SonyFR7>) {
     plain(camera.tally().red_on());
     plain(camera.tally().green_off());
-    targeted(camera.nd_filter().set_value(1));
+    targeted(
+        camera
+            .nd_filter()
+            .set_value(NdFilterValue::new(1).expect("ND value")),
+    );
     targeted(camera.nd_filter().step_up());
     applied(camera.zoom().tele());
 }

@@ -405,9 +405,10 @@ close the session on every path and bound movement with a stop-on-exit guard.
 ### Checked normalized input
 
 `UnitInterval` is the checked `0.0..=1.0` value the zoom noun accepts directly.
-`set_normalized` always maps across the profile's documented optical range;
-`set_normalized_in_domain` selects the domain explicitly and refuses
-`OpticalPlusDigital` on a profile with no documented digital maximum.
+`set_normalized(position, domain)` maps it across the selected `ZoomDomain`:
+`Optical` spans the profile's documented optical range, and
+`OpticalPlusDigital` is refused on a profile with no documented digital maximum
+rather than falling back to the optical range.
 
 ```rust
 use grafton_visca::blocking::Connect;
@@ -421,13 +422,13 @@ fn half_zoom() -> Result<(), grafton_visca::Error> {
 
     camera
         .zoom()
-        .set_normalized(UnitInterval::new(0.5)?)?
+        .set_normalized(UnitInterval::new(0.5)?, ZoomDomain::Optical)?
         .settled()?;
 
     session.close()
 }
 
-// `set_normalized_in_domain` requires `HasDirectZoom`; only
+// `set_normalized` requires `HasDirectZoom`; only
 // `OpticalPlusDigital` additionally requires `HasDigitalZoomRange` at runtime.
 fn full_range_zoom() -> Result<(), grafton_visca::Error> {
     let session = Connect::open_udp::<SonyFR7>("192.168.0.110")?;
@@ -435,7 +436,7 @@ fn full_range_zoom() -> Result<(), grafton_visca::Error> {
 
     camera
         .zoom()
-        .set_normalized_in_domain(UnitInterval::ONE, ZoomDomain::OpticalPlusDigital)?
+        .set_normalized(UnitInterval::ONE, ZoomDomain::OpticalPlusDigital)?
         .settled()?;
 
     session.close()
@@ -464,7 +465,7 @@ fn full_range_zoom() -> Result<(), grafton_visca::Error> {
   low-level extensions and may supply their own validation.
 - Use `UnitInterval::new(value)?` or `UnitInterval::try_from(value)?` for the
   checked `0.0..=1.0` values taken by `camera.zoom().set_normalized(..)` and
-  `set_normalized_in_domain(..)`, and by the inquiry conversion helpers such as
+  by the inquiry conversion helpers such as
   `ZoomPosition::normalize_with_max` and `zoom_from_normalized`. Other typed
   control input uses `Degrees`, `SpeedLevel`, and the profile-checked `types`
   values.

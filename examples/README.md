@@ -54,7 +54,7 @@ If you're new to the library, start with these examples in order:
 - **[preset_demo.rs](preset_demo.rs)** - Single preset set, recall, or clear operation
 - **[operation_handles.rs](operation_handles.rs)** - Blocking applied/settled waits, explicit detach, and a session closed on every path
 - **[operation_handles_async.rs](operation_handles_async.rs)** - Tokio applied/settled waits, explicit detach, and a session closed on every path
-- **[motion_safety.rs](motion_safety.rs)** - Blocking `motion()` view: `is_moving`, `is_moving_axes`, `wait_until_idle`, and the `stop_all_motion` owner halt with per-axis outcomes (a G2 in auto focus reports a focus STOP failure that is not a motion hazard)
+- **[motion_safety.rs](motion_safety.rs)** - Blocking `motion()` view: `is_moving`, `wait_until_idle`, and the `stop_all_motion` owner halt with per-axis outcomes (a G2 in auto focus reports a focus STOP failure that is not a motion hazard)
 - **[type_safe_commands.rs](type_safe_commands.rs)** - Compile-time profile and capability safety (no camera required)
 
 ### Connection, Transport, and Configuration

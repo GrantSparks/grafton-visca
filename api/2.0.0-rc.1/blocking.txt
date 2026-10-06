@@ -319,8 +319,7 @@ impl<'view, P> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::blocki
 impl<'view, P> core::panic::unwind_safe::UnwindSafe for grafton_visca::blocking::MenuAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::blocking::MotionAccessor<'view>
 impl grafton_visca::blocking::MotionAccessor<'_>
-pub fn grafton_visca::blocking::MotionAccessor<'_>::is_moving(&self) -> grafton_visca::Result<bool>
-pub fn grafton_visca::blocking::MotionAccessor<'_>::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::Result<bool>
+pub fn grafton_visca::blocking::MotionAccessor<'_>::is_moving(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::Result<bool>
 pub fn grafton_visca::blocking::MotionAccessor<'_>::stop_all_motion(&self) -> grafton_visca::Result<grafton_visca::HaltReport>
 pub fn grafton_visca::blocking::MotionAccessor<'_>::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::Result<()>
 impl core::fmt::Debug for grafton_visca::blocking::MotionAccessor<'_>
@@ -354,8 +353,7 @@ pub fn grafton_visca::blocking::NdFilterAccessor<'view, P>::auto_on(&self) -> gr
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, P>::position(&self) -> grafton_visca::Result<grafton_visca::NdFilterPosition>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, P>::preset(&self) -> grafton_visca::Result<grafton_visca::types::NdFilterPreset>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, P>::set_mode(&self, grafton_visca::command::NdFilterMode) -> grafton_visca::Result<()>
-pub fn grafton_visca::blocking::NdFilterAccessor<'view, P>::set_stops(&self, f32) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>>
-pub fn grafton_visca::blocking::NdFilterAccessor<'view, P>::set_value(&self, u16) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>>
+pub fn grafton_visca::blocking::NdFilterAccessor<'view, P>::set_value(&self, grafton_visca::command::NdFilterValue) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, P>::step_down(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, P>::step_up(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>>
 impl<P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasNdFilter> core::fmt::Debug for grafton_visca::blocking::NdFilterAccessor<'_, P>
@@ -418,18 +416,14 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::OperationId
 pub struct grafton_visca::blocking::PanTiltAccessor<'view, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::PanTiltAccessor<'view, P>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::absolute(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>>
-pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::down(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::home(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>>
-pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::left(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::limit_clear(&self, grafton_visca::command::PanTiltLimitCorner) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::limit_set(&self, grafton_visca::command::PanTiltLimitCorner, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::move_direction(&self, grafton_visca::command::PanTiltDirection, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::position(&self) -> grafton_visca::Result<grafton_visca::camera::PanTiltPosition>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::relative(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::reset(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>>
-pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::right(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::stop(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::AppliedOnly>>
-pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::up(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::AppliedOnly>>
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::PanTiltAccessor<'_, P>
 pub fn grafton_visca::blocking::PanTiltAccessor<'_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, P> core::marker::Freeze for grafton_visca::blocking::PanTiltAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::marker::Freeze
@@ -604,8 +598,7 @@ pub struct grafton_visca::blocking::ZoomAccessor<'view, P: grafton_visca::profil
 impl<'view, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::ZoomAccessor<'view, P>
 pub fn grafton_visca::blocking::ZoomAccessor<'view, P>::position(&self) -> grafton_visca::Result<grafton_visca::types::ZoomPosition>
 pub fn grafton_visca::blocking::ZoomAccessor<'view, P>::set_digital_zoom(&self, bool) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasDigitalZoomToggle
-pub fn grafton_visca::blocking::ZoomAccessor<'view, P>::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
-pub fn grafton_visca::blocking::ZoomAccessor<'view, P>::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
+pub fn grafton_visca::blocking::ZoomAccessor<'view, P>::set_normalized(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
 pub fn grafton_visca::blocking::ZoomAccessor<'view, P>::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
 pub fn grafton_visca::blocking::ZoomAccessor<'view, P>::stop(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::ZoomAccessor<'view, P>::tele(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::AppliedOnly>>
@@ -12493,8 +12486,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::observability::M
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::observability::MetricsSnapshot
 pub struct grafton_visca::prelude::blocking::MotionAccessor<'view>
 impl grafton_visca::blocking::MotionAccessor<'_>
-pub fn grafton_visca::blocking::MotionAccessor<'_>::is_moving(&self) -> grafton_visca::Result<bool>
-pub fn grafton_visca::blocking::MotionAccessor<'_>::is_moving_axes(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::Result<bool>
+pub fn grafton_visca::blocking::MotionAccessor<'_>::is_moving(&self, grafton_visca::camera::MotionQuery) -> grafton_visca::Result<bool>
 pub fn grafton_visca::blocking::MotionAccessor<'_>::stop_all_motion(&self) -> grafton_visca::Result<grafton_visca::HaltReport>
 pub fn grafton_visca::blocking::MotionAccessor<'_>::wait_until_idle(&self, grafton_visca::camera::IdleWait) -> grafton_visca::Result<()>
 impl core::fmt::Debug for grafton_visca::blocking::MotionAccessor<'_>
@@ -12557,8 +12549,7 @@ pub fn grafton_visca::blocking::NdFilterAccessor<'view, P>::auto_on(&self) -> gr
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, P>::position(&self) -> grafton_visca::Result<grafton_visca::NdFilterPosition>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, P>::preset(&self) -> grafton_visca::Result<grafton_visca::types::NdFilterPreset>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, P>::set_mode(&self, grafton_visca::command::NdFilterMode) -> grafton_visca::Result<()>
-pub fn grafton_visca::blocking::NdFilterAccessor<'view, P>::set_stops(&self, f32) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>>
-pub fn grafton_visca::blocking::NdFilterAccessor<'view, P>::set_value(&self, u16) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>>
+pub fn grafton_visca::blocking::NdFilterAccessor<'view, P>::set_value(&self, grafton_visca::command::NdFilterValue) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, P>::step_down(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>>
 pub fn grafton_visca::blocking::NdFilterAccessor<'view, P>::step_up(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>>
 impl<P: grafton_visca::profile::CompileTimeProfile + grafton_visca::capabilities::HasNdFilter> core::fmt::Debug for grafton_visca::blocking::NdFilterAccessor<'_, P>
@@ -12802,18 +12793,14 @@ impl core::panic::unwind_safe::UnwindSafe for grafton_visca::types::PanSpeed
 pub struct grafton_visca::prelude::blocking::PanTiltAccessor<'view, P: grafton_visca::profile::CompileTimeProfile>
 impl<'view, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::PanTiltAccessor<'view, P>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::absolute(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>>
-pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::down(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::home(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>>
-pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::left(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::limit_clear(&self, grafton_visca::command::PanTiltLimitCorner) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::limit_set(&self, grafton_visca::command::PanTiltLimitCorner, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>) -> grafton_visca::Result<()>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::move_direction(&self, grafton_visca::command::PanTiltDirection, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::position(&self) -> grafton_visca::Result<grafton_visca::camera::PanTiltPosition>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::relative(&self, grafton_visca::units::Degrees<f32>, grafton_visca::units::Degrees<f32>, grafton_visca::types::SpeedLevel) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::reset(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>>
-pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::right(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::stop(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::AppliedOnly>>
-pub fn grafton_visca::blocking::PanTiltAccessor<'view, P>::up(&self, grafton_visca::types::PanSpeed, grafton_visca::types::TiltSpeed) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::AppliedOnly>>
 impl<P: grafton_visca::profile::CompileTimeProfile> core::fmt::Debug for grafton_visca::blocking::PanTiltAccessor<'_, P>
 pub fn grafton_visca::blocking::PanTiltAccessor<'_, P>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<'view, P> core::marker::Freeze for grafton_visca::blocking::PanTiltAccessor<'view, P> where &'view grafton_visca::blocking::Camera<P>: core::marker::Freeze
@@ -14374,8 +14361,7 @@ pub struct grafton_visca::prelude::blocking::ZoomAccessor<'view, P: grafton_visc
 impl<'view, P: grafton_visca::profile::CompileTimeProfile> grafton_visca::blocking::ZoomAccessor<'view, P>
 pub fn grafton_visca::blocking::ZoomAccessor<'view, P>::position(&self) -> grafton_visca::Result<grafton_visca::types::ZoomPosition>
 pub fn grafton_visca::blocking::ZoomAccessor<'view, P>::set_digital_zoom(&self, bool) -> grafton_visca::Result<()> where P: grafton_visca::capabilities::HasDigitalZoomToggle
-pub fn grafton_visca::blocking::ZoomAccessor<'view, P>::set_normalized(&self, grafton_visca::units::UnitInterval) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
-pub fn grafton_visca::blocking::ZoomAccessor<'view, P>::set_normalized_in_domain(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
+pub fn grafton_visca::blocking::ZoomAccessor<'view, P>::set_normalized(&self, grafton_visca::units::UnitInterval, grafton_visca::inquiry_conversions::ZoomDomain) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
 pub fn grafton_visca::blocking::ZoomAccessor<'view, P>::set_position(&self, grafton_visca::types::ZoomPosition) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::Targeted>> where P: grafton_visca::capabilities::HasDirectZoom
 pub fn grafton_visca::blocking::ZoomAccessor<'view, P>::stop(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::AppliedOnly>>
 pub fn grafton_visca::blocking::ZoomAccessor<'view, P>::tele(&self) -> grafton_visca::Result<grafton_visca::blocking::Operation<grafton_visca::completion::AppliedOnly>>

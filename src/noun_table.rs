@@ -94,10 +94,10 @@
 //! # The motion view
 //!
 //! `MotionAccessor`/`DynMotion` is a safety and observation view rather than a
-//! ledger noun: its four methods — `stop_all_motion`, `is_moving`,
-//! `is_moving_axes` and `wait_until_idle` — reach the owner core directly and
-//! share no shape with a command row. [`motion_table!`] lists them, with their
-//! one rustdoc, for the same per-facade consumers (#816).
+//! ledger noun: its three methods — `stop_all_motion`, `is_moving` and
+//! `wait_until_idle` — reach the owner core directly and share no shape with
+//! a command row. [`motion_table!`] lists them, with their one rustdoc, for the
+//! same per-facade consumers (#816).
 //! The rows follow an `@motion { .. };` header in the noun-header shape,
 //! without a gate: the view needs no capability.
 
@@ -165,22 +165,14 @@ macro_rules! noun_table {
             targeted [ZoomPosition] set_position(position: types::ZoomPosition)
                 -> builtin::ZoomTarget where HasDirectZoom
                 = [builtin::ZoomTarget::new(position)];
-            /// Moves to a normalized position across the optical zoom range.
-            ///
-            /// `0.0` is the wide end and `1.0` the telephoto end of the profile's
-            /// documented optical range.
-            targeted [] set_normalized(position: UnitInterval) -> builtin::ZoomTarget
-                where HasDirectZoom
-                = [with_profile |profile| builtin::ZoomTarget::from_normalized(
-                    position,
-                    ZoomDomain::Optical,
-                    profile,
-                )];
             /// Moves to a normalized position across a documented zoom domain.
             ///
-            /// [`ZoomDomain::OpticalPlusDigital`] requires the profile to document a
-            /// digital maximum and never falls back to the optical range.
-            targeted [] set_normalized_in_domain(position: UnitInterval, domain: ZoomDomain)
+            /// `0.0` is the wide end and `1.0` the telephoto end of the selected
+            /// domain. [`ZoomDomain::Optical`] spans the profile's documented
+            /// optical range; [`ZoomDomain::OpticalPlusDigital`] requires the
+            /// profile to document a digital maximum and never falls back to the
+            /// optical range.
+            targeted [] set_normalized(position: UnitInterval, domain: ZoomDomain)
                 -> builtin::ZoomTarget where HasDirectZoom
                 = [with_profile |profile| builtin::ZoomTarget::from_normalized(
                     position,
@@ -233,18 +225,6 @@ macro_rules! noun_table {
                 pan_speed: types::PanSpeed,
                 tilt_speed: types::TiltSpeed
             ) -> builtin::PanTiltDrive = [checked builtin::PanTiltDrive::new(direction, pan_speed, tilt_speed)];
-            /// Starts an upward pan/tilt drive.
-            applied [] up(pan_speed: types::PanSpeed, tilt_speed: types::TiltSpeed) -> builtin::PanTiltDrive
-                = [checked builtin::PanTiltDrive::new(command::PanTiltDirection::Up, pan_speed, tilt_speed)];
-            /// Starts a downward pan/tilt drive.
-            applied [] down(pan_speed: types::PanSpeed, tilt_speed: types::TiltSpeed) -> builtin::PanTiltDrive
-                = [checked builtin::PanTiltDrive::new(command::PanTiltDirection::Down, pan_speed, tilt_speed)];
-            /// Starts a leftward pan/tilt drive.
-            applied [] left(pan_speed: types::PanSpeed, tilt_speed: types::TiltSpeed) -> builtin::PanTiltDrive
-                = [checked builtin::PanTiltDrive::new(command::PanTiltDirection::Left, pan_speed, tilt_speed)];
-            /// Starts a rightward pan/tilt drive.
-            applied [] right(pan_speed: types::PanSpeed, tilt_speed: types::TiltSpeed) -> builtin::PanTiltDrive
-                = [checked builtin::PanTiltDrive::new(command::PanTiltDirection::Right, pan_speed, tilt_speed)];
             /// Stops pan/tilt movement using profile-safe stop speeds.
             applied [PanTiltStop] stop() -> builtin::PanTiltStop
                 = [with_profile |profile| crate::stop_request::pan_tilt_stop_request(profile)];
@@ -869,16 +849,13 @@ macro_rules! noun_table {
             plain [NdFilterMode] set_mode(mode: command::NdFilterMode)
                 -> command::NdFilterModeCommand = [command::NdFilterModeCommand::new(mode)];
             /// Sets a direct variable ND-filter value.
-            targeted [NdFilterDirect] set_value(value: u16) -> builtin::NdFilterDirect
-                = [checked command::NdFilterValue::new(value).map(builtin::NdFilterDirect::new)];
-            /// Sets a direct variable ND-filter value in photographic stops.
             ///
-            /// `stops` is the light reduction in stops and must lie in `2.0..=7.0`.
-            /// Each raw unit is a quarter stop, so `2.0` maps to the minimum density
-            /// and `7.0` to the maximum.
-            targeted [] set_stops(stops: f32) -> builtin::NdFilterDirect
-                = [checked command::NdFilterValue::from_stops(stops)
-                    .map(builtin::NdFilterDirect::new)];
+            /// Build the value with [`NdFilterValue::new`](command::NdFilterValue::new)
+            /// from a raw density or
+            /// [`NdFilterValue::from_stops`](command::NdFilterValue::from_stops)
+            /// from photographic stops.
+            targeted [NdFilterDirect] set_value(value: command::NdFilterValue)
+                -> builtin::NdFilterDirect = [builtin::NdFilterDirect::new(value)];
             /// Increases ND-filter density by one step.
             targeted [NdFilterStepUp] step_up() -> builtin::NdFilterStepUp
                 = [builtin::NdFilterStepUp::new()];
@@ -1018,7 +995,7 @@ macro_rules! noun_table {
 
 pub(crate) use noun_table;
 
-/// Hands the four motion-view methods to a consumer macro (#816).
+/// Hands the three motion-view methods to a consumer macro (#816).
 ///
 /// Optional fixed-shape leading arguments
 /// (`motion_table!(my_consumer, [async], [.await], CoreType)`) reach the
@@ -1055,28 +1032,21 @@ macro_rules! motion_table {
             /// control.
             fn stop_all_motion(&self) -> crate::HaltReport => stop_all_motion();
 
-            /// Reports whether protocol position samples indicate movement on
-            /// any mechanical movement axis.
-            ///
-            /// This samples [`AffectedAxes::MOVEMENT`](crate::AffectedAxes::MOVEMENT)
-            /// with the default tolerance and observation window; use
-            /// `is_moving_axes` to pick the axes, the tolerance, or the
-            /// window. `false` means no movement was detected over the window,
-            /// not that the camera is physically at rest.
-            fn is_moving(&self) -> bool => is_moving(crate::camera::MotionQuery::default());
-
             /// Reports whether two protocol position samples, separated by at
             /// least [`MotionQuery::window`](crate::camera::MotionQuery::window),
             /// indicate movement on the selected axes.
             ///
-            /// `false` means no movement was detected over the window, not
-            /// that the camera is physically at rest. A zero window fails with
+            /// [`MotionQuery::default()`](crate::camera::MotionQuery::default)
+            /// samples [`AffectedAxes::MOVEMENT`](crate::AffectedAxes::MOVEMENT)
+            /// with the default tolerance and observation window. `false` means
+            /// no movement was detected over the window, not that the camera is
+            /// physically at rest. A zero window fails with
             /// [`Error::InvalidParameter`](crate::Error::InvalidParameter)
             /// before any inquiry, and a window that cannot elapse within the
             /// observation deadline fails with
             /// [`Error::Timeout`](crate::Error::Timeout) rather than reporting
             /// no movement.
-            fn is_moving_axes(&self, query: crate::camera::MotionQuery) -> bool => is_moving(query);
+            fn is_moving(&self, query: crate::camera::MotionQuery) -> bool => is_moving(query);
 
             /// Waits until the selected axes meet the protocol idle condition:
             /// two consecutive position samples, taken every

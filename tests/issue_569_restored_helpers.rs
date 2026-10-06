@@ -17,8 +17,8 @@ use grafton_visca::{
     blocking::{Session, SessionConfig},
     camera::{IdleWait, MotionQuery},
     command::{
-        FlipState, FocusLock, ImageFlipMode, NdFilterMode, PanTiltDirection, PanTiltLimitCorner,
-        PresetRecallSpeed, VariableSpeedMode,
+        FlipState, FocusLock, ImageFlipMode, NdFilterMode, NdFilterValue, PanTiltDirection,
+        PanTiltLimitCorner, PresetRecallSpeed, VariableSpeedMode,
     },
     profile::ProfileSpec,
     profiles::{PtzOpticsG2, SonyEVIH100, SonyFR7},
@@ -74,38 +74,29 @@ fn motion_sync_session() -> (Session, FakeCamera) {
 }
 
 #[test]
-fn directional_pan_tilt_helpers_encode_their_explicit_drive() {
+fn directional_pan_tilt_drive_encodes_each_direction() {
     let (session, fake) = ptz_session();
     let camera = session.camera::<PtzOpticsG2>().expect("camera");
     let pan = PanSpeed::new(6).expect("pan speed");
     let tilt = TiltSpeed::new(5).expect("tilt speed");
 
-    for (direction, helper) in [
-        (PanTiltDirection::Up, 0_u8),
-        (PanTiltDirection::Down, 1),
-        (PanTiltDirection::Left, 2),
-        (PanTiltDirection::Right, 3),
+    // `81 01 06 01 vv ww 0p 0t FF`: pan speed, tilt speed, then the direction.
+    for (direction, pan_byte, tilt_byte) in [
+        (PanTiltDirection::Up, 0x03, 0x01),
+        (PanTiltDirection::Down, 0x03, 0x02),
+        (PanTiltDirection::Left, 0x01, 0x03),
+        (PanTiltDirection::Right, 0x02, 0x03),
     ] {
-        let accessor = camera.pan_tilt();
-        let mut explicit = accessor
+        let mut operation = camera
+            .pan_tilt()
             .move_direction(direction, pan, tilt)
-            .expect("explicit drive");
-        explicit.applied().expect("explicit applied");
-        let explicit_frame = fake.take_only_payload();
-
-        let mut operation = match helper {
-            0 => accessor.up(pan, tilt),
-            1 => accessor.down(pan, tilt),
-            2 => accessor.left(pan, tilt),
-            _ => accessor.right(pan, tilt),
-        }
-        .expect("directional helper");
-        operation.applied().expect("helper applied");
-        let helper_frame = fake.take_only_payload();
+            .expect("directional drive");
+        operation.applied().expect("drive applied");
 
         assert_eq!(
-            helper_frame, explicit_frame,
-            "directional helper for {direction:?} must encode its explicit drive",
+            fake.take_only_payload(),
+            vec![0x81, 0x01, 0x06, 0x01, 0x06, 0x05, pan_byte, tilt_byte, 0xff],
+            "{direction:?} must encode its drive bytes",
         );
     }
 
@@ -134,21 +125,14 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
 
     let mut normalized = camera
         .zoom()
-        .set_normalized(UnitInterval::ONE)
-        .expect("normalized zoom target");
-    normalized.applied().expect("normalized applied");
+        .set_normalized(UnitInterval::ONE, ZoomDomain::Optical)
+        .expect("optical-domain zoom target");
+    normalized.applied().expect("optical domain applied");
     assert_eq!(
         fake.take_only_payload(),
         optical_frame,
-        "set_normalized always normalizes across the optical range",
+        "the optical domain normalizes across the optical range",
     );
-
-    let mut in_optical = camera
-        .zoom()
-        .set_normalized_in_domain(UnitInterval::ONE, ZoomDomain::Optical)
-        .expect("optical-domain zoom target");
-    in_optical.applied().expect("optical domain applied");
-    assert_eq!(fake.take_only_payload(), optical_frame);
 
     let mut explicit_digital = camera
         .zoom()
@@ -161,7 +145,7 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
 
     let mut in_digital = camera
         .zoom()
-        .set_normalized_in_domain(UnitInterval::ONE, ZoomDomain::OpticalPlusDigital)
+        .set_normalized(UnitInterval::ONE, ZoomDomain::OpticalPlusDigital)
         .expect("digital-domain zoom target");
     in_digital.applied().expect("digital domain applied");
     assert_eq!(fake.take_only_payload(), digital_frame);
@@ -169,7 +153,7 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
 
     let mut wide = camera
         .zoom()
-        .set_normalized(UnitInterval::ZERO)
+        .set_normalized(UnitInterval::ZERO, ZoomDomain::Optical)
         .expect("wide zoom target");
     wide.applied().expect("wide applied");
     let wide_frame = fake.take_only_payload();
@@ -201,7 +185,7 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
 
     let mut normalized_half = camera
         .zoom()
-        .set_normalized(midpoint)
+        .set_normalized(midpoint, ZoomDomain::Optical)
         .expect("normalized midpoint");
     normalized_half
         .applied()
@@ -209,7 +193,7 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
     assert_eq!(
         fake.take_only_payload(),
         half_optical_frame,
-        "the default domain's midpoint is half the optical range",
+        "the optical domain's midpoint is half the optical range",
     );
 
     let mut explicit_half_digital = camera
@@ -224,7 +208,7 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
 
     let mut normalized_half_digital = camera
         .zoom()
-        .set_normalized_in_domain(midpoint, ZoomDomain::OpticalPlusDigital)
+        .set_normalized(midpoint, ZoomDomain::OpticalPlusDigital)
         .expect("normalized digital midpoint");
     normalized_half_digital
         .applied()
@@ -265,16 +249,24 @@ fn nd_filter_stops_map_onto_the_raw_direct_value() {
 
     // 2.0 stops is the minimum density and each raw unit is a quarter stop,
     // so 4.5 stops is raw 10.
-    let mut explicit = camera.nd_filter().set_value(10).expect("explicit nd value");
+    let mut explicit = camera
+        .nd_filter()
+        .set_value(NdFilterValue::new(10).expect("raw nd value"))
+        .expect("explicit nd value");
     explicit.applied().expect("explicit applied");
     let explicit_frame = fake.take_only_payload();
 
-    let mut by_stops = camera.nd_filter().set_stops(4.5).expect("nd stops");
+    let mut by_stops = camera
+        .nd_filter()
+        .set_value(NdFilterValue::from_stops(4.5).expect("nd stops"))
+        .expect("nd value from stops");
     by_stops.applied().expect("stops applied");
     assert_eq!(fake.take_only_payload(), explicit_frame);
 
-    assert!(camera.nd_filter().set_stops(1.5).is_err());
-    assert!(camera.nd_filter().set_stops(8.0).is_err());
+    // The bound lives in the argument type, so an out-of-range stop count
+    // cannot be constructed and therefore cannot reach the wire.
+    assert!(NdFilterValue::from_stops(1.5).is_err());
+    assert!(NdFilterValue::from_stops(8.0).is_err());
     assert!(
         fake.take_payloads().is_empty(),
         "a rejected stop count writes nothing"
@@ -325,19 +317,19 @@ fn motion_sync_speed_helper_drives_its_explicit_preset() {
 }
 
 #[test]
-fn no_argument_is_moving_samples_every_mechanical_movement_axis() {
+fn default_motion_query_samples_every_mechanical_movement_axis() {
     let (session, fake) = ptz_session();
     let camera = session.camera::<PtzOpticsG2>().expect("camera");
 
     assert!(!camera
         .motion()
-        .is_moving()
-        .expect("no-argument motion query"));
+        .is_moving(MotionQuery::default())
+        .expect("default motion query"));
     let default_frames = fake.take_payloads();
 
     assert!(!camera
         .motion()
-        .is_moving_axes(MotionQuery::new(AffectedAxes::MOVEMENT))
+        .is_moving(MotionQuery::new(AffectedAxes::MOVEMENT))
         .expect("explicit motion query"));
     let explicit_frames = fake.take_payloads();
 
