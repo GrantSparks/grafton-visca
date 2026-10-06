@@ -13,60 +13,30 @@
 #![cfg(feature = "blocking")]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+
 use std::time::Duration;
 
 use grafton_visca::{
     blocking::Session,
-    command::{CommandKind, PowerOn},
+    command::PowerOn,
     completion::AppliedOnly,
     profile::ProfileSpec,
     profiles::{PtzOpticsG2, SonyFR7},
     request::builtin::ZoomDrive,
-    transport::{
-        AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
-        TransportConfig,
-    },
+    transport::AddressingMode,
     DiagnosticDeadline, DiagnosticEvent, Error, OperationalTuning, SessionConfig,
 };
 
-/// A camera that takes every frame and never answers one.
-#[derive(Debug, Default)]
-struct SilentCamera {
-    config: TransportConfig,
-}
+use fake_camera::FakeCamera;
 
-impl HasTransportConfig for SilentCamera {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
-}
-
-impl BlockingTransport for SilentCamera {
-    fn send_with_timeout(
-        &mut self,
-        _bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn recv_into_with_timeout(
-        &mut self,
-        _dst: &mut [u8],
-        _timeout: Duration,
-    ) -> Result<ReceiveOutcome, Error> {
-        // A read that found nothing, not a transport fault.
-        Err(Error::io_timeout())
-    }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        Some(AddressingMode::Ip)
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
-    }
+/// A camera that takes every frame and never answers one, on an IP-addressed
+/// datagram wire.
+fn silent_wire() -> fake_camera::BlockingWire {
+    FakeCamera::silent()
+        .blocking_wire()
+        .with_addressing(AddressingMode::Ip)
 }
 
 fn silent_session() -> Session {
@@ -75,7 +45,7 @@ fn silent_session() -> Session {
     let config = SessionConfig::new(
         ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("built-in G2 profile"),
     );
-    Session::open(SilentCamera::default(), config).expect("session opens over a silent camera")
+    Session::open(silent_wire(), config).expect("session opens over a silent camera")
 }
 
 /// A silent camera under a *caller-configured* retry budget.
@@ -96,7 +66,7 @@ fn retrying_silent_session(retry_limit: u32) -> Session {
                 Duration::from_secs(30),
             ),
     );
-    Session::open(SilentCamera::default(), config).expect("session opens over a silent camera")
+    Session::open(silent_wire(), config).expect("session opens over a silent camera")
 }
 
 /// The counter exists, and every expiry carries the retry decision that the

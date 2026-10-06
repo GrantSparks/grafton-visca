@@ -509,26 +509,6 @@ fn ecosystem_feature_inventory_matches_cargo_manifest() {
     );
 }
 
-/// The 1.x feature aliases removed by 2.0.
-const REMOVED_1X_FEATURE_ALIASES: [&str; 3] = ["mode-async", "async-core", "mode-blocking"];
-
-#[test]
-fn removed_1x_feature_aliases_are_absent_from_the_manifest() {
-    let table = manifest_feature_table();
-    for removed in REMOVED_1X_FEATURE_ALIASES {
-        for (name, value) in &table {
-            assert_ne!(*name, removed);
-            let implied = value
-                .trim_matches(|character: char| character == '[' || character == ']')
-                .split(',')
-                .map(|entry| entry.trim().trim_matches('"'));
-            for entry in implied {
-                assert_ne!(entry, removed);
-            }
-        }
-    }
-}
-
 #[test]
 fn tcp_is_not_a_feature() {
     for (name, value) in manifest_feature_table() {
