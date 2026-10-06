@@ -1207,34 +1207,6 @@ silence during the sampled interval; the application owns the number of
 unanswered heartbeats or wall-clock duration that triggers replacement. The
 library sends no background heartbeat.
 
-**Behavior change (issue #713).** A partial raw response straddling a
-correlation-release boundary no longer consumes an implementation-specific
-poll-count budget or poisons merely because its tail is late. Both facades wait
-for the same engine-owned grace (at most 100 ms and never longer than the
-configured read timeout), then discard and diagnose an orphaned prefix while
-leaving the session usable. `StreamPoisoned` remains reserved for an
-unrecoverable stream position, such as overflow or a failed discard.
-
-**Behavior change (issue #712).** A matched raw inquiry reply now releases its
-single-flight lane immediately; it no longer installs the profile's one-second
-pre-ACK ambiguity hold or delays an urgent stop. Only inquiry timeout, terminal
-error, or retry release can retain a late reply. That remaining hold uses the
-new `ProfileTiming::raw_inquiry_reply_skew` fact (required by
-`ProfileTimingBuilder`, defaulted by compile-time profiles to no more than their
-minimum inquiry spacing) and blocks only another inquiry for the same target.
-ACK-bearing commands remain eligible. An inquiry also no longer starts the
-urgent command-spacing clock, while consecutive commands and cancellations
-still honor physical command pacing.
-
-**Behavior change (issue #714).** A raw predecessor whose ACK was lost remains
-quarantined only to its known ambiguity deadline. Ordinary work queues to that
-bounded correlation release on both facades. An intrinsically `Urgent` stop
-takes the safety-lane exception immediately (subject to command pacing and
-actual socket capacity). While the predecessor and stop are both
-open, unsequenced ACK/error traffic is ambiguous and binds to neither. Treat a
-later `UnsequencedCommandUnconfirmed` from either handle as uncertainty about
-the reply, not evidence that the urgent stop failed to reach the camera.
-
 A fatal receive closure is normalized to `ConnectionClosed`, with the
 underlying transport error's text retained in its reason. `StreamPoisoned` is
 reserved for a stream whose framing or write position became unknowable (for
