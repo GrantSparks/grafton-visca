@@ -126,6 +126,14 @@ leg_args() {
     return 1
 }
 
+# A designated leg that names no leg would make every leg skip the engine
+# model tests and pass, so a renamed or misspelled leg fails every mode,
+# `list-json` included, before any leg starts.
+if ! leg_args "$ENGINE_MODEL_TEST_LEG" >/dev/null 2>&1; then
+    echo "ENGINE_MODEL_TEST_LEG names no feature leg: \"$ENGINE_MODEL_TEST_LEG\"" >&2
+    exit 1
+fi
+
 # Prints the `cargo doc` arguments of one leg's command, and fails when the
 # leg documents nothing. Rustdoc takes no target selectors, so `--all-targets`
 # and `--test <name>` are dropped, and `--workspace` is dropped so every leg

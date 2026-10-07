@@ -369,6 +369,14 @@ bash .github/scripts/test-all-features.sh slowest 15 --all-features
 
 - No single test should need more than a few seconds of wall time; the
   parallel summary lists any test libtest reports as running for over 60 s.
+  The known exception is `api_stability_test::canonical_compile_contracts`,
+  which compiles about 96 contract fixtures for the leg's features: about
+  3-15 s on a warm nested target, and over 60 s in a cold, fully loaded
+  parallel run, when it first builds the crate for its fixtures.
+- Each parallel job keeps its own target directory, so a full `test`,
+  `clippy` and `doc` run holds about 66 GB under `target/matrix` (91
+  directories, measured on Linux with line-tables-only debug info). Delete it
+  when you need the space; the next run rebuilds it.
 - Wait on deadlines in virtual time where the owner allows it: write the
   scenario as `facade_matrix! { paused: ... }` so its Tokio case runs on paused
   time. The blocking and smol owners read the real clock.

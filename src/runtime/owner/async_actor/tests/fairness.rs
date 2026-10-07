@@ -513,57 +513,59 @@ fn tokio_current_thread_malformed_stream_batches_yield_to_all_boundaries() {
 fn smol_current_thread_malformed_stream_batches_yield_to_boundaries() {
     let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let worker_reads = Arc::clone(&reads);
-    let local = async_executor::LocalExecutor::new();
-    let outcome: Result<(), String> = future::block_on(local.run(async {
-        let (handle, actor) = AsyncOwnerActor::new(policy(1), SmolRuntime::new())
-            .map_err(|error| error.to_string())?;
-        let actor_task = local.spawn(actor.run(CountingBabblingDriver {
-            reads: Arc::clone(&worker_reads),
-            empty_batches: true,
-        }));
+    let outcome = run_with_hang_backstop("discarded malformed stream frames", move || {
+        let local = async_executor::LocalExecutor::new();
+        future::block_on(local.run(async {
+            let (handle, actor) = AsyncOwnerActor::new(policy(1), SmolRuntime::new())
+                .map_err(|error| error.to_string())?;
+            let actor_task = local.spawn(actor.run(CountingBabblingDriver {
+                reads: Arc::clone(&worker_reads),
+                empty_batches: true,
+            }));
 
-        while worker_reads.load(Ordering::Acquire) == 0 {
-            future::yield_now().await;
-        }
+            while worker_reads.load(Ordering::Acquire) == 0 {
+                future::yield_now().await;
+            }
 
-        let caller_handle = handle.clone();
-        let caller = local.spawn(async move {
-            caller_handle
-                .submit(command())
-                .await
-                .map_err(|error| error.to_string())
-        });
-        let control_handle = handle.clone();
-        let control = local.spawn(async move {
-            control_handle
-                .snapshot()
-                .await
-                .map_err(|error| error.to_string())
-        });
-        let timer = local.spawn(async {
-            smol::Timer::after(Duration::from_millis(1)).await;
-        });
+            let caller_handle = handle.clone();
+            let caller = local.spawn(async move {
+                caller_handle
+                    .submit(command())
+                    .await
+                    .map_err(|error| error.to_string())
+            });
+            let control_handle = handle.clone();
+            let control = local.spawn(async move {
+                control_handle
+                    .snapshot()
+                    .await
+                    .map_err(|error| error.to_string())
+            });
+            let timer = local.spawn(async {
+                smol::Timer::after(Duration::from_millis(1)).await;
+            });
 
-        drop(caller.await?);
-        let snapshot = control.await?;
-        timer.await;
-        if snapshot.state != SessionState::Running {
-            return Err(format!(
-                "control observed an unexpected owner state: {:?}",
-                snapshot.state
-            ));
-        }
+            drop(caller.await?);
+            let snapshot = control.await?;
+            timer.await;
+            if snapshot.state != SessionState::Running {
+                return Err(format!(
+                    "control observed an unexpected owner state: {:?}",
+                    snapshot.state
+                ));
+            }
 
-        handle.shutdown().map_err(|error| error.to_string())?;
-        let terminal = actor_task.await;
-        if terminal.state != SessionState::Shutdown {
-            return Err(format!(
-                "actor ended in an unexpected state: {:?}",
-                terminal.state
-            ));
-        }
-        Ok(())
-    }));
+            handle.shutdown().map_err(|error| error.to_string())?;
+            let terminal = actor_task.await;
+            if terminal.state != SessionState::Shutdown {
+                return Err(format!(
+                    "actor ended in an unexpected state: {:?}",
+                    terminal.state
+                ));
+            }
+            Ok(())
+        }))
+    });
     if let Err(error) = babbling_reads_within_budget(
         &reads,
         "discarded malformed stream frames",

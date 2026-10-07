@@ -23,10 +23,11 @@
 //!
 //! The Tokio cases run on paused (virtual) time, so the G2 ACK deadline, the
 //! ambiguity hold and every `pause!` lapse at once and exactly. A
-//! step that waits for a write waits for that write (`wait_for_writes!`), not
-//! for a fixed time; the remaining real-time pauses on the blocking and smol
-//! facades either outlive a production window or prove that nothing happens
-//! in one, which no event can signal.
+//! step that waits for a write waits for that write (`wait_for_writes!`), and
+//! a step whose count assertion must also exclude a later duplicate keeps a
+//! 150 ms observation window after it; the remaining real-time pauses on the
+//! blocking and smol facades either outlive a production window or prove that
+//! nothing happens in one, which no event can signal.
 
 #![cfg(any(
     feature = "blocking",
@@ -384,6 +385,9 @@ facade_matrix! {
         let mut stop = wait!(camera.focus().stop()).expect("focus stop admitted");
         // The stalled tele and then the STOP.
         wait_for_writes!(link.camera, 2);
+        // Observation window: a duplicate STOP or a late write would land
+        // here (free on paused Tokio time, 150 ms on blocking and smol).
+        pause!(Duration::from_millis(150));
         assert_eq!(
             link.count(FOCUS_STOP),
             1,
@@ -458,6 +462,9 @@ facade_matrix! {
         // The stalled tele and then the STOP; the rejected wide was never
         // written.
         wait_for_writes!(link.camera, 2);
+        // Observation window: a duplicate STOP or a late write would land
+        // here (free on paused Tokio time, 150 ms on blocking and smol).
+        pause!(Duration::from_millis(150));
         assert_eq!(link.count(FOCUS_STOP), 1);
         assert_eq!(link.count(ZOOM_WIDE), 0);
 

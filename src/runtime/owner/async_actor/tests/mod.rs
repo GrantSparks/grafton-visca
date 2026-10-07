@@ -2227,6 +2227,43 @@ impl RetainedStreamInput for CountingBabblingDriver {}
 /// monopolizing actor fails the scenario instead of hanging the binary.
 const BABBLING_READ_BUDGET: u64 = 1_000_000;
 
+/// Wall-clock backstop for the single-thread fairness scenarios, never their
+/// verdict: [`BABBLING_READ_BUDGET`] decides fairness. It fires only when a
+/// scenario stops making progress altogether (a deadlock in which the peer is
+/// no longer read, so the budget cannot end it), and host load cannot make a
+/// progressing scenario take this long.
+const FAIRNESS_HANG_BACKSTOP: Duration = Duration::from_secs(60);
+
+/// Runs `scenario` on its own thread and returns its outcome, panicking with
+/// a distinct "hung" message if it makes no progress within
+/// [`FAIRNESS_HANG_BACKSTOP`]. A hung worker is left detached.
+fn run_with_hang_backstop(
+    name: &str,
+    scenario: impl FnOnce() -> Result<(), String> + Send + 'static,
+) -> Result<(), String> {
+    let (finished, result) = flume::bounded(1);
+    let worker = std::thread::spawn(move || {
+        let _ = finished.send(scenario());
+    });
+    match result.recv_timeout(FAIRNESS_HANG_BACKSTOP) {
+        Ok(outcome) => {
+            worker
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+            outcome
+        }
+        Err(flume::RecvTimeoutError::Timeout) => {
+            panic!("{name} hung (no progress for {FAIRNESS_HANG_BACKSTOP:?})")
+        }
+        Err(flume::RecvTimeoutError::Disconnected) => {
+            worker
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+            Err(format!("{name} worker exited without a result"))
+        }
+    }
+}
+
 /// Fails when the peer's read budget ran out: the boundary work completed, or
 /// failed, only because the babbling peer closed, not because the actor
 /// yielded.
@@ -2617,81 +2654,83 @@ fn tokio_current_thread_ready_receive_yields_to_boundaries(
 ) {
     let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
     let worker_reads = Arc::clone(&reads);
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    let outcome: Result<(), String> = runtime.block_on(async move {
-        let actor_runtime = TokioRuntime::from_current().map_err(|error| error.to_string())?;
-        let owner_policy = policy(1);
-        let fairness_ceiling = owner_policy.limits.frames_per_receive.max(1) as u64;
-        let ready_reads = if empty_batches { 1 } else { fairness_ceiling };
-        let (handle, actor) =
-            AsyncOwnerActor::new(owner_policy, actor_runtime).map_err(|error| error.to_string())?;
-        let actor_task = tokio::spawn(actor.run(CountingBabblingDriver {
-            reads: Arc::clone(&worker_reads),
-            empty_batches,
-        }));
+    let outcome = run_with_hang_backstop(scenario, move || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        runtime.block_on(async move {
+            let actor_runtime = TokioRuntime::from_current().map_err(|error| error.to_string())?;
+            let owner_policy = policy(1);
+            let fairness_ceiling = owner_policy.limits.frames_per_receive.max(1) as u64;
+            let ready_reads = if empty_batches { 1 } else { fairness_ceiling };
+            let (handle, actor) = AsyncOwnerActor::new(owner_policy, actor_runtime)
+                .map_err(|error| error.to_string())?;
+            let actor_task = tokio::spawn(actor.run(CountingBabblingDriver {
+                reads: Arc::clone(&worker_reads),
+                empty_batches,
+            }));
 
-        // Do not enqueue boundary work until the actor has reached its
-        // first forced (valid batch) or boundary-first (empty batch)
-        // turn. Before the cooperative yield this loop is never polled
-        // again; after it, all work queues on the same executor.
-        while worker_reads.load(Ordering::Acquire) < ready_reads {
-            tokio::task::yield_now().await;
-        }
+            // Do not enqueue boundary work until the actor has reached its
+            // first forced (valid batch) or boundary-first (empty batch)
+            // turn. Before the cooperative yield this loop is never polled
+            // again; after it, all work queues on the same executor.
+            while worker_reads.load(Ordering::Acquire) < ready_reads {
+                tokio::task::yield_now().await;
+            }
 
-        let caller_handle = handle.clone();
-        let caller = tokio::spawn(async move {
-            caller_handle
-                .submit(command())
+            let caller_handle = handle.clone();
+            let caller = tokio::spawn(async move {
+                caller_handle
+                    .submit(command())
+                    .await
+                    .map_err(|error| error.to_string())
+            });
+            let control_handle = handle.clone();
+            let control = tokio::spawn(async move {
+                control_handle
+                    .snapshot()
+                    .await
+                    .map_err(|error| error.to_string())
+            });
+            let timer = tokio::spawn(async {
+                tokio::time::sleep(Duration::from_millis(1)).await;
+            });
+
+            let (caller, control, timer) = tokio::join!(caller, control, timer);
+            let receipt = caller.map_err(|error| format!("caller task failed: {error}"))??;
+            let snapshot = control.map_err(|error| format!("control task failed: {error}"))??;
+            timer.map_err(|error| format!("timer task failed: {error}"))?;
+            if snapshot.state != SessionState::Running {
+                return Err(format!(
+                    "control observed an unexpected owner state: {:?}",
+                    snapshot.state
+                ));
+            }
+
+            if include_cancellation {
+                let cancellation = handle
+                    .cancel_test(&receipt)
+                    .await
+                    .map_err(|error| format!("{error:?}"))?;
+                drop(cancellation);
+                drop(receipt);
+            } else {
+                drop(receipt);
+            }
+
+            handle.shutdown().map_err(|error| error.to_string())?;
+            let terminal = actor_task
                 .await
-                .map_err(|error| error.to_string())
-        });
-        let control_handle = handle.clone();
-        let control = tokio::spawn(async move {
-            control_handle
-                .snapshot()
-                .await
-                .map_err(|error| error.to_string())
-        });
-        let timer = tokio::spawn(async {
-            tokio::time::sleep(Duration::from_millis(1)).await;
-        });
-
-        let (caller, control, timer) = tokio::join!(caller, control, timer);
-        let receipt = caller.map_err(|error| format!("caller task failed: {error}"))??;
-        let snapshot = control.map_err(|error| format!("control task failed: {error}"))??;
-        timer.map_err(|error| format!("timer task failed: {error}"))?;
-        if snapshot.state != SessionState::Running {
-            return Err(format!(
-                "control observed an unexpected owner state: {:?}",
-                snapshot.state
-            ));
-        }
-
-        if include_cancellation {
-            let cancellation = handle
-                .cancel_test(&receipt)
-                .await
-                .map_err(|error| format!("{error:?}"))?;
-            drop(cancellation);
-            drop(receipt);
-        } else {
-            drop(receipt);
-        }
-
-        handle.shutdown().map_err(|error| error.to_string())?;
-        let terminal = actor_task
-            .await
-            .map_err(|error| format!("actor task failed: {error}"))?;
-        if terminal.state != SessionState::Shutdown {
-            return Err(format!(
-                "actor ended in an unexpected state: {:?}",
-                terminal.state
-            ));
-        }
-        Ok(())
+                .map_err(|error| format!("actor task failed: {error}"))?;
+            if terminal.state != SessionState::Shutdown {
+                return Err(format!(
+                    "actor ended in an unexpected state: {:?}",
+                    terminal.state
+                ));
+            }
+            Ok(())
+        })
     });
     if let Err(error) =
         babbling_reads_within_budget(&reads, scenario, "Tokio's current-thread runtime")
