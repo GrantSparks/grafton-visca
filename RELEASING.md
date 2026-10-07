@@ -6,7 +6,8 @@ Software release gates, the exact release tag, and CI on that exact release
 commit are required for every publication. Physical-camera evidence is a
 separate claim: an RC may be published while hardware remains explicitly
 unverified, while a stable release with major version 2 or higher requires a
-targeted representative hardware pass.
+targeted representative hardware pass on HW-01, HW-04 and HW-05 (HW-02 and
+HW-03 may instead be accepted known limitations).
 
 ## Version and changelog
 
@@ -55,11 +56,15 @@ with the hardware checklist still marked `Pending (Not run)` or `Unverified`,
 provided the release notes and checklist make that status plain and do not
 describe hardware support as verified.
 
-For a stable release whose major version is 2 or higher, run the five targeted
+For a stable release whose major version is 2 or higher, run the targeted
 representative scenarios in
 [`docs/hardware_release_checklist.md`](docs/hardware_release_checklist.md).
-Record the exact firmware and transcript or capture link for each scenario,
-plus the operator and date for the pass. A neighboring model, firmware, or
+HW-01, HW-04 and HW-05 must be `Pass`. HW-02 (Raw serial) and HW-03 (Sony UDP)
+must be `Pass` or `Not verified — accepted known limitation (<reason>)` with a
+dated maintainer decision (2026-10-07, superseding #753's five-row
+requirement), and the release notes must name any such limitation. Record the
+exact firmware and transcript or capture link for each passed scenario, plus
+the operator and date for the pass. A neighboring model, firmware, or
 software-only test does not substitute for the representative hardware pass.
 
 Before that stable hardware pass, finalize the Rust sources, Cargo manifests,

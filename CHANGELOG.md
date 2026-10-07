@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Physical-camera verification remains pending; the hardware release checklist
-records the representative scenarios required before a stable release (#753).
+Hardware status: checklist rows HW-01, HW-04 and HW-05 passed on a PTZOptics
+G2 bench (PT30X-NDI G2, PT20X-NDI G2 and PT12X-NDI G2; firmware in
+`docs/hardware_release_checklist.md`) over Raw VISCA TCP and UDP. Raw serial
+and Sony UDP are implemented and covered by software tests but are not verified
+on hardware; both are accepted known limitations.
 
 ### Changed
 
@@ -615,6 +618,12 @@ records the representative scenarios required before a stable release (#753).
 - The `cancellation` example drives an EVI-H100 over RS-232C (both its
   transport and socket cancel are documented) and needs
   `transport-serial-tokio`.
+- Stable hardware policy (supersedes #753's five-row requirement): a stable
+  2.0+ release requires `Pass` on HW-01, HW-04 and HW-05; HW-02 (Raw serial)
+  and HW-03 (Sony UDP) may instead be `Not verified — accepted known
+  limitation (<reason>)` with a dated maintainer decision, and the release
+  validator enforces that. The 2026-10-07 bench evidence is published under
+  `.github/hardware-evidence/` (#795).
 
 ### Removed
 

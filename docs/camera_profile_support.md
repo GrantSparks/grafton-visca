@@ -377,26 +377,39 @@ shutter position is refused for them; the raw command path remains.
   empty) and `ShutterSpeed` positions are refused before any I/O.
 - **BRC-H900 shutter codes (R11).** The shutter table of the BRC-H900 command
   list could not be read, so `SonyBRCH900` advertises no shutter codes either.
-- **PTZOptics G2-family shutter table.** The PTZOptics sources document only
-  `pq = Shutter Position`, not a code-to-time table. `PtzOpticsG2`,
-  `PtzOpticsG3` and `PtzOptics30X` keep the table they have always shipped
-  (`01` 1/30 s through `11` 1/10000 s) pending a shutter set/inquire round trip
-  on the PTZOptics G2 bench (`hw05_shutter_round_trip` in
-  `tests/hardware_wire_rows_test.rs`).
 - **Pan/tilt direction of PTZOptics, FR7 and BRC-H900.** Degrees are positive
   right and positive up for every profile. R8 (EVI-H100) documents increasing
   raw pan as right and increasing raw tilt as up, and R12/R21 (BRC-300, Nearus)
   document increasing raw pan as left and increasing raw tilt as up. The
   PTZOptics, FR7 and BRC-H900 sources give degree ranges but no raw direction,
-  so those profiles follow the R8 convention unverified; PTZOptics G2 tilt
-  polarity is pending bench verification (`hw05_tilt_polarity` in
-  `tests/hardware_wire_rows_test.rs`). `tests/pan_tilt_polarity.rs` pins
-  the encoded direction of +45° for every built-in profile.
+  so those profiles follow the R8 convention. Only PTZOptics G2 tilt has been
+  verified on hardware (below); pan direction, `PtzOpticsG3`, FR7 and BRC-H900
+  remain unverified. `tests/pan_tilt_polarity.rs` pins the encoded direction of
+  +45° for every built-in profile.
 
-The shutter entries are gaps in the evidence, not statements that the cameras
-lack shutter control. Send the shutter command as a `raw::Plain` request until a source-backed
-table is recorded in [VISCA reference](visca_reference.md) and added to the
-profile.
+The FR7 and BRC-H900 shutter entries are gaps in the evidence, not statements
+that the cameras lack shutter control. Send the shutter command as a
+`raw::Plain` request until a source-backed table is recorded in
+[VISCA reference](visca_reference.md) and added to the profile.
+
+### Facts verified on the PTZOptics G2 bench
+
+These were verified on 2026-10-07 on PT30X-NDI G2, PT20X-NDI G2 and
+PT12X-NDI G2 cameras; models, firmware and run evidence are in the
+[hardware release checklist](hardware_release_checklist.md) (row HW-05).
+
+- **PTZOptics G2-family shutter codes.** The PTZOptics sources document only
+  `pq = Shutter Position`, not a code-to-time table, so `PtzOpticsG2`,
+  `PtzOpticsG3` and `PtzOptics30X` ship the table `01` (1/30 s) through `11`
+  (1/10000 s). `hw05_shutter_round_trip` (`tests/hardware_wire_rows_test.rs`)
+  set codes `01`, `06`, `09` and `11` in shutter-priority mode and read each
+  back unchanged on all five cameras, with `PtzOptics30X` on the PT30X-NDI G2
+  and `PtzOpticsG2` on the others. The bench did not measure exposure time, so
+  the fraction attached to each code is still the shipped table's.
+- **PTZOptics G2 tilt polarity.** `hw05_tilt_polarity` passed on all five
+  cameras: a typed tilt UP increased raw tilt and tilt degrees, DOWN decreased
+  them, and pan did not change. A separate visible ~9° UP move was confirmed
+  physically up on every camera by the operator.
 
 Sony EVI-H100 (R8) also documents `CAM_ColorGain` `8x 01 04 49 00 00 00 0p FF`
 and `CAM_ColorHue` `8x 01 04 4F 00 00 00 0p FF` (`0h`..`Eh`) with their

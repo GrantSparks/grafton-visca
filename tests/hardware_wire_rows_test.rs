@@ -1,7 +1,7 @@
 #![cfg(feature = "blocking")]
 //! Hardware tests for the high-risk corrected and profile-specific wire rows
-//! (#715) and the PTZOptics G2 bench facts still recorded as unverified in
-//! `docs/camera_profile_support.md` (#795: the G2 shutter table and G2 tilt
+//! (#715) and the PTZOptics G2 bench facts recorded in
+//! `docs/camera_profile_support.md` (#795: the G2 shutter codes and G2 tilt
 //! polarity), run against a real PTZOptics camera by an operator who can see
 //! it.
 //!

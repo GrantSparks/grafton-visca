@@ -11,10 +11,14 @@ A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports
 > keeps one protocol owner per session and exposes typed static, blocking, async,
 > and dynamic views over that owner.
 >
-> **Hardware status** — No physical hardware validation has been performed, and
-> no hardware support has been verified for this release candidate. Software
-> contract coverage is not physical-camera evidence; see the
-> [hardware release checklist](docs/hardware_release_checklist.md).
+> **Hardware validation status** — Verified on a PTZOptics G2 bench
+> (PT30X-NDI G2, SOC 6.3.32 / ARM 6.3.51THI; PT20X-NDI G2, SOC 6.3.22 /
+> ARM 6.3.76THI; PT12X-NDI G2, SOC 6.3.62 / ARM 6.4.18SHI) for Raw VISCA over
+> TCP and UDP: commands, inquiries, motion stop, owner halt, disconnect
+> recovery, the corrected wire rows, and concurrent use of five cameras. Raw
+> serial and Sony UDP are implemented and tested in software but **not verified
+> on hardware**; this is a known limitation. Evidence and firmware details are
+> in the [hardware release checklist](docs/hardware_release_checklist.md).
 
 ---
 
@@ -58,9 +62,9 @@ transports.
 | Profile family | Protocol | 2.0 support |
 | -------------- | -------- | ----------- |
 | `GenericVisca` | Raw VISCA | Supported baseline profile with conservative capabilities |
-| `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` | Raw VISCA | Supported by the software/profile registry; all physical profile/transport validation remains pending, including G2, G3, and 30X (every [hardware release checklist](docs/hardware_release_checklist.md) row is `Pending (Not run)`) |
-| `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` | Raw VISCA | Supported through profile capability gates and protocol tests |
-| `SonyBRCH900`, `SonyFR7` | Sony encapsulation | Supported through Sony encapsulation, profile capability gates, and protocol tests |
+| `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` | Raw VISCA | `PtzOpticsG2` verified over TCP and UDP on the PTZOptics G2 bench; `PtzOptics30X` verified for the corrected wire rows on a PT30X-NDI G2; `PtzOpticsG3` not verified on hardware (see the [hardware release checklist](docs/hardware_release_checklist.md)) |
+| `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` | Raw VISCA | Supported through profile capability gates and protocol tests; not verified on hardware |
+| `SonyBRCH900`, `SonyFR7` | Sony encapsulation | Supported through Sony encapsulation, profile capability gates, and protocol tests; not verified on hardware (known limitation) |
 
 ### Profile-Gated Vendor Controls
 
