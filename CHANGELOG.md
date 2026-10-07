@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- `test-utils`: `testkit::ManualClock`, a virtual clock for owner deadline tests. A
+- `test-utils` (#832): `testkit::ManualClock`, a virtual clock for owner deadline tests. A
   blocking session opened with `ManualClock::open_blocking_session` or
   `open_blocking_camera_session`, and an async session run on the new
   `testkit::ManualClockExecutor`, measure every deadline on virtual time, which
@@ -19,11 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **BREAKING**: The minimum supported Rust version is now 1.98 (was 1.88 in
+- **BREAKING** (#829): The minimum supported Rust version is now 1.98 (was 1.88 in
   2.0.0-rc.3). The project builds and tests on one stable toolchain, 1.98.0;
   CI no longer runs a separate MSRV job or Miri.
-- With no facade feature (`--no-default-features`, or only `serde`, `schemars`,
-  `ts-rs` or `test-utils`) the crate now compiles only the domain vocabulary:
+- **BREAKING** (#830): With no facade feature (`--no-default-features`, or only
+  `serde`, `schemars`, `ts-rs` or `test-utils`) the crate now compiles only the domain vocabulary:
   the protocol engine, the owner and request preparation are no longer built.
   `StateCache` and `DiagnosticSubscription`, which only a running session can
   produce, are now available only with `blocking` or `async`, alongside the
