@@ -1,0 +1,30 @@
+
+running 1 test
+test hw04_recover_after_disconnect ... HW|t=0|connect.tcp=cam4:5678
+HW|t=88|inquiry.before_fault=Ok(true)
+HW|t=88|READY_FOR_FAULT flag=bench/fault-p3-hw04-recover-drop-cam4.flag
+HW|t=288|fault.flag_seen
+HW|t=1300|inquiry.during_fault[0]=Err(Timeout { context: FailureContext { stage: Terminal, certainty: FailedConclusively } })
+HW|t=1300|inquiry.during_fault[0].error kind=Timeout requires_new_session=false unconfirmed=false display="Operation timed out (in the protocol lifecycle)"
+HW|t=2301|inquiry.during_fault[1]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=2301|inquiry.during_fault[1].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=2807|inquiry.during_fault[2]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=2807|inquiry.during_fault[2].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=3313|inquiry.during_fault[3]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=3313|inquiry.during_fault[3].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=3819|inquiry.during_fault[4]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=3819|inquiry.during_fault[4].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=4325|inquiry.during_fault[5]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=4325|inquiry.during_fault[5].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=4831|inquiry.during_fault[6]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=4831|inquiry.during_fault[6].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=5337|inquiry.during_fault[7]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=5337|inquiry.during_fault[7].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=5337|fault.observation_ended trigger=flag_removed
+HW|t=5348|session.close=Ok(())
+HW|t=5419|recovery.inquiry[0]=Ok(true)
+HW|t=5430|recovery.close[0]=Ok(())
+HW|t=5430|RECOVERED attempts=1
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 5.43s

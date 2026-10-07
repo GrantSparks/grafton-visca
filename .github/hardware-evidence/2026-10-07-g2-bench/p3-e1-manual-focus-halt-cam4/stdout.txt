@@ -1,0 +1,12 @@
+
+running 1 test
+test e1_manual_focus_halt ... HW|t=54|focus_mode.original=Ok(Auto)
+HW|t=156|focus_manual.applied=Ok(())
+HW|t=306|focus_mode.during=Ok(Manual)
+HW|t=575|halt.elapsed_ms=269 report=Ok(HaltReport { pan_tilt: Applied, zoom: Applied, focus: Applied })
+HW|t=667|restore.focus_auto=Ok(())
+HW|t=815|RESTORED focus_mode=Ok(Auto)
+HW|t=978|session.close=Ok(())
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.98s

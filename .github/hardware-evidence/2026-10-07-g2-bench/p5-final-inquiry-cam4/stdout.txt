@@ -1,0 +1,120 @@
+
+running 27 tests
+test test_all_inquiries_succeed ... Connecting to camera at cam4:5678...
+
+=== PTZOptics G2 Full Inquiry Validation ===
+
+  OK             pan_tilt_position                        = PanTiltPosition { pan: 814, tilt: 0 }
+  OK             zoom_position                            = ZoomPosition(0)
+  OK             focus_position                           = FocusPosition(2735)
+  OK             focus_mode                               = Auto
+  OK             focus_zone                               = Zone03
+  OK             exposure_mode                            = Auto
+  OK             shutter                                  = ShutterSpeed(5)
+  OK             gain                                     = GainLevel(2)
+  OK             gain_limit                               = GainLimit(3)
+  OK             exposure_compensation                    = ExposureCompensationLevel(-7)
+  OK             exposure_compensation_enabled            = false
+  OK             exposure_compensation_position           = ExposureCompensationPosition(0)
+  OK             backlight_enabled                        = false
+  OK             white_balance_mode                       = Auto
+  OK             red_gain                                 = RedChannel(175)
+  OK             blue_gain                                = BlueChannel(255)
+  OK             color_temperature                        = ColorTemp(40)
+  OK             brightness                               = BrightnessLevel(7)
+  OK             sharpness_mode                           = Manual
+  OK             saturation                               = SaturationLevel(4)
+  OK             hue                                      = HueLevel(7)
+  OK             noise_reduction_2d                       = NoiseReduction2DLevel(1)
+  OK             noise_reduction_3d                       = NoiseReduction3DLevel(3)
+  OK             image_flip                               = FlipState { horizontal: true, vertical: true }
+  OK             gamma                                    = GammaLevel(2)
+  OK             contrast                                 = ContrastLevel(8)
+  OK             luminance                                = LuminanceLevel(6)
+  OK             flip_mode                                = FlipState { horizontal: true, vertical: true }
+  OK             power_state                              = true
+  OK             menu_status                              = false
+
+=== Results: 30 passed, 0 unexpected failures ===
+
+ok
+test test_backlight_enabled ... Connecting to camera at cam4:5678...
+  backlight = false
+ok
+test test_brightness ... Connecting to camera at cam4:5678...
+  brightness = BrightnessLevel(7)
+ok
+test test_contrast ... Connecting to camera at cam4:5678...
+  contrast = ContrastLevel(8)
+ok
+test test_exposure_compensation ... Connecting to camera at cam4:5678...
+  compensation = ExposureCompensationLevel(-7)
+ok
+test test_exposure_compensation_enabled ... Connecting to camera at cam4:5678...
+  compensation_enabled = false
+ok
+test test_exposure_compensation_position ... Connecting to camera at cam4:5678...
+  compensation_position = ExposureCompensationPosition(0)
+ok
+test test_exposure_mode ... Connecting to camera at cam4:5678...
+  mode = Auto
+ok
+test test_focus_mode ... Connecting to camera at cam4:5678...
+  mode = Auto
+ok
+test test_focus_position ... Connecting to camera at cam4:5678...
+  position = FocusPosition(2735)
+ok
+test test_focus_zone ... Connecting to camera at cam4:5678...
+  zone = Zone03
+ok
+test test_gain ... Connecting to camera at cam4:5678...
+  gain = GainLevel(2)
+ok
+test test_gain_limit ... Connecting to camera at cam4:5678...
+  gain_limit = GainLimit(3)
+ok
+test test_gamma ... Connecting to camera at cam4:5678...
+  gamma = GammaLevel(2)
+ok
+test test_hue ... Connecting to camera at cam4:5678...
+  hue = HueLevel(7)
+ok
+test test_image_flip ... Connecting to camera at cam4:5678...
+  flip = FlipState { horizontal: true, vertical: true }
+ok
+test test_luminance ... Connecting to camera at cam4:5678...
+  luminance = LuminanceLevel(6)
+ok
+test test_menu_status ... Connecting to camera at cam4:5678...
+  status = false
+ok
+test test_noise_reduction_2d ... Connecting to camera at cam4:5678...
+  noise_reduction_2d = NoiseReduction2DLevel(1)
+ok
+test test_noise_reduction_3d ... Connecting to camera at cam4:5678...
+  noise_reduction_3d = NoiseReduction3DLevel(3)
+ok
+test test_pan_tilt_position ... Connecting to camera at cam4:5678...
+  position = PanTiltPosition { pan: 814, tilt: 0 }
+ok
+test test_power_state ... Connecting to camera at cam4:5678...
+  state = true
+ok
+test test_saturation ... Connecting to camera at cam4:5678...
+  saturation = SaturationLevel(4)
+ok
+test test_sharpness_mode ... Connecting to camera at cam4:5678...
+  sharpness_mode = Manual
+ok
+test test_shutter ... Connecting to camera at cam4:5678...
+  shutter = ShutterSpeed(5)
+ok
+test test_white_balance_mode ... Connecting to camera at cam4:5678...
+  mode = Auto
+ok
+test test_zoom_position ... Connecting to camera at cam4:5678...
+  position = ZoomPosition(0)
+ok
+
+test result: ok. 27 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.29s

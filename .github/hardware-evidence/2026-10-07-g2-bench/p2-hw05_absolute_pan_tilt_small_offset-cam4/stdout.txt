@@ -1,0 +1,27 @@
+
+running 1 test
+test hw05_absolute_pan_tilt_small_offset ... HW|t=0|profile.selected=G2 VISCA_PROFILE="g2"
+HW|t=0|profile.type=grafton_visca::camera::profiles::PtzOpticsG2 model_name="PtzOptics G2"
+HW|t=0|connect.tcp=cam4:5678
+HW|t=147|pan_tilt.p0=Ok(PanTiltPosition { pan: 814, tilt: 0 })
+HW|t=147|profile.pan_tilt pan_range=-2448..=2448 tilt_range=-432..=1296 pan_speed_range=1..=24 tilt_speed_range=1..=20 pan_degrees_to_units=14.4 tilt_degrees_to_units=14.4
+HW|t=147|pan_tilt.target raw=(834,0) degrees=(57.916668,0) speed_level=Slowest pan_speed=1 tilt_speed=1
+HW|t=147|pan_tilt.expected_wire=81 01 06 02 01 01 00 03 04 02 00 00 00 00 FF
+HW|t=157|pan_tilt.absolute.submitted id=OperationId(2)
+HW|t=1354|pan_tilt.absolute.settled=Ok(ProfileCompletion { axes: AffectedAxes { pan_tilt: true, zoom: false, focus: false, iris: false, nd_filter: false } })
+HW|t=1484|pan_tilt.readback=Ok(PanTiltPosition { pan: 834, tilt: 0 })
+HW|t=1484|observation.pan_tilt.p0=(814,0) target=(834,0) readback=(834,0) delta=(0,0)
+HW|t=2214|restore.preset1.settled=Ok(ProfileCompletion { axes: AffectedAxes { pan_tilt: true, zoom: true, focus: true, iris: false, nd_filter: false } })
+HW|t=2406|restored.pan_tilt=Ok(PanTiltPosition { pan: 814, tilt: 0 })
+HW|t=2406|restored.zoom=Ok(ZoomPosition(0))
+HW|t=2406|RESTORED pan=814 tilt=0 zoom=0
+HW|t=2406|check.absolute_settled_ok=true
+HW|t=2406|check.readback_ok=true
+HW|t=2406|guard.begin
+HW|t=2445|guard.pan_tilt_stop=Ok(())
+HW|t=2546|guard.zoom_stop=Ok(())
+HW|t=2546|guard.end
+HW|t=2556|session.close=Ok(())
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 2.56s

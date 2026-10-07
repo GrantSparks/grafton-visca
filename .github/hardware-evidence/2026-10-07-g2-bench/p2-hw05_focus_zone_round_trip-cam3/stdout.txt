@@ -1,0 +1,19 @@
+
+running 1 test
+test hw05_focus_zone_round_trip ... HW|t=0|profile.selected=G2 VISCA_PROFILE="g2"
+HW|t=0|profile.type=grafton_visca::camera::profiles::PtzOpticsG2 model_name="PtzOptics G2"
+HW|t=0|connect.tcp=cam3:5678
+HW|t=80|original.focus_zone=Ok(Zone03)
+HW|t=80|check.original_focus_zone_readable=true
+HW|t=80|focus_zone.target=Top
+HW|t=173|focus_zone.set=Ok(())
+HW|t=720|focus_zone.after_set=Ok(Top)
+HW|t=720|observation.focus_zone_readback_equals_target=true
+HW|t=841|restore.focus_zone.set=Ok(())
+HW|t=1401|restored.focus_zone=Ok(Zone03)
+HW|t=1401|RESTORED focus_zone=Zone03
+HW|t=1401|check.restored_focus_zone_equals_original=true
+HW|t=1411|session.close=Ok(())
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 1.41s

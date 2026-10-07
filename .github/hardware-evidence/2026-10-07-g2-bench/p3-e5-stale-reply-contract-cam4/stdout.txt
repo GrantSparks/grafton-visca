@@ -1,0 +1,49 @@
+
+running 1 test
+test e5_stale_stream_reply_binding ... HW|t=109|truth.white_balance_mode=Ok(Auto)
+HW|t=198|before_fault.white_balance_mode=Ok(Auto)
+HW|t=198|READY_FOR_FAULT
+HW|t=248|fault.flag_seen
+HW|t=1289|during_fault.power elapsed_ms=1040 result=Err(Timeout { context: FailureContext { stage: Terminal, certainty: FailedConclusively } })
+HW|t=1289|POWER_INQUIRY_DONE
+HW|t=8248|fault.flag_removed
+HW|t=8249|after_fault.white_balance_mode[0] elapsed_ms=0 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=8502|after_fault.white_balance_mode[1] elapsed_ms=2 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=8762|after_fault.white_balance_mode[2] elapsed_ms=9 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=9016|after_fault.white_balance_mode[3] elapsed_ms=3 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=9269|after_fault.white_balance_mode[4] elapsed_ms=2 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=9523|after_fault.white_balance_mode[5] elapsed_ms=3 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=9776|after_fault.white_balance_mode[6] elapsed_ms=2 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=10030|after_fault.white_balance_mode[7] elapsed_ms=3 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=10284|after_fault.white_balance_mode[8] elapsed_ms=3 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=10537|after_fault.white_balance_mode[9] elapsed_ms=2 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=10790|after_fault.white_balance_mode[10] elapsed_ms=2 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=11044|after_fault.white_balance_mode[11] elapsed_ms=3 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=11297|after_fault.white_balance_mode[12] elapsed_ms=2 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=11550|after_fault.white_balance_mode[13] elapsed_ms=2 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=11803|after_fault.white_balance_mode[14] elapsed_ms=2 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=12056|after_fault.white_balance_mode[15] elapsed_ms=2 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=12311|after_fault.white_balance_mode[16] elapsed_ms=4 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=12564|after_fault.white_balance_mode[17] elapsed_ms=2 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=12817|after_fault.white_balance_mode[18] elapsed_ms=2 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=13071|after_fault.white_balance_mode[19] elapsed_ms=3 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=13324|after_fault.white_balance_mode[20] elapsed_ms=2 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=13578|after_fault.white_balance_mode[21] elapsed_ms=3 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=13834|after_fault.white_balance_mode[22] elapsed_ms=5 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=14088|after_fault.white_balance_mode[23] elapsed_ms=3 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=14342|after_fault.white_balance_mode[24] elapsed_ms=3 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=14597|after_fault.white_balance_mode[25] elapsed_ms=4 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=14850|after_fault.white_balance_mode[26] elapsed_ms=2 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) outcome=correlation_refused
+HW|t=15147|after_fault.white_balance_mode[27] elapsed_ms=47 result=Ok(Auto) outcome=correct
+HW|t=15310|after_fault.white_balance_mode[28] elapsed_ms=162 result=Ok(Auto) outcome=correct
+HW|t=15447|after_fault.white_balance_mode[29] elapsed_ms=137 result=Ok(Auto) outcome=correct
+HW|t=15611|after_fault.white_balance_mode[30] elapsed_ms=164 result=Ok(Auto) outcome=correct
+HW|t=15771|after_fault.white_balance_mode[31] elapsed_ms=159 result=Ok(Auto) outcome=correct
+HW|t=15910|after_fault.white_balance_mode[32] elapsed_ms=138 result=Ok(Auto) outcome=correct
+HW|t=16071|after_fault.white_balance_mode[33] elapsed_ms=161 result=Ok(Auto) outcome=correct
+HW|t=16211|after_fault.white_balance_mode[34] elapsed_ms=139 result=Ok(Auto) outcome=correct
+HW|t=16222|session.close=Ok(())
+HW|t=16222|SUMMARY wrong_values=0 correlation_refusals=27 other_errors=0 correct_after_recovery=8
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 16.22s

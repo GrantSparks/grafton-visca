@@ -1,0 +1,23 @@
+
+running 1 test
+test hw04_async_g2_cancel_refused_then_stop ... HW|t=0|connect.tcp=cam3:5678
+HW|t=26|zoom.tele.submitted id=OperationId(1)
+HW|t=128|zoom.tele.cancel=Ok(Completed)
+HW|t=128|zoom.tele.cancel.class=CONCLUDED
+HW|t=128|zoom.drive_wall_ms_before_stop_submitted=102
+HW|t=184|zoom.stop.applied=Ok(())
+HW|t=184|zoom.tele.final=Ok(())
+HW|t=491|zoom.wait_until_idle=Ok(())
+HW|t=890|restore.preset1.settled=Ok(ProfileCompletion { axes: AffectedAxes { pan_tilt: true, zoom: true, focus: true, iris: false, nd_filter: false } })
+HW|t=1094|restored.pan_tilt=Ok(PanTiltPosition { pan: -856, tilt: -233 })
+HW|t=1094|restored.zoom=Ok(ZoomPosition(0))
+HW|t=1094|RESTORED pan=-856 tilt=-233 zoom=0
+HW|t=1094|check.zoom_stop_applied=true
+HW|t=1094|guard.begin
+HW|t=1144|guard.pan_tilt_stop=Ok(())
+HW|t=1236|guard.zoom_stop=Ok(())
+HW|t=1236|guard.end
+HW|t=1236|session.close=Ok(())
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 1.24s

@@ -1,0 +1,1 @@
+2026-10-07T06:07:47Z OPERATOR CONFIRMATION: Grant Sparks observed all five cameras; first move (VISCA 03 01, library PanTiltDirection::Up) was physically UP on cam1-cam5; tilt position increased on UP.

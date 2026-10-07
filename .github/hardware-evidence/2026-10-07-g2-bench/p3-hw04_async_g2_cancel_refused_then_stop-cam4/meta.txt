@@ -1,0 +1,11 @@
+run_id: p3-hw04_async_g2_cancel_refused_then_stop-cam4
+camera: cam4
+tested_commit: cc1ab8f1f752ee6c946bed11365e60b8d321ab36
+tree_clean: yes
+host: Linux 6.8.0-139-generic x86_64; Debian GNU/Linux 12 (bookworm)
+toolchain: rustc 1.95.0 (59807616e 2026-04-14)
+operator: maintainer-supervised automated run (Grant Sparks)
+start_utc: 2026-10-07T06:08:42.229Z
+command: target/release/deps/hardware_motion_test-e3b780de9d7f1352 --ignored --nocapture --test-threads=1 --exact hw04_async_g2_cancel_refused_then_stop
+exit_code: 0
+end_utc: 2026-10-07T06:08:45.398Z

@@ -1,0 +1,6 @@
+camera: cam5
+model: PT12X-NDI G2
+source: HTTP get_device_conf; device-unique fields removed
+devtype="V61"
+versioninfo="SOC v6.3.62 - ARM 6.4.18SHI"
+device_model=" F5.HI  "

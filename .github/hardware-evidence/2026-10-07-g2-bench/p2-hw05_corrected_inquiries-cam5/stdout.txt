@@ -1,0 +1,19 @@
+
+running 1 test
+test hw05_corrected_inquiries ... HW|t=0|profile.selected=G2 VISCA_PROFILE="g2"
+HW|t=0|profile.type=grafton_visca::camera::profiles::PtzOpticsG2 model_name="PtzOptics G2"
+HW|t=0|connect.tcp=cam5:5678
+HW|t=57|inquiry.focus_zone=Ok(Zone03)
+HW|t=228|inquiry.picture_effect=Ok(Off)
+HW|t=359|inquiry.nr2d_level=Ok(NoiseReduction2DLevel(1))
+HW|t=527|inquiry.nr2d_mode=Ok(Manual)
+HW|t=697|inquiry.nr3d_level=Ok(NoiseReduction3DLevel(3))
+HW|t=707|session.close=Ok(())
+HW|t=707|check.focus_zone_inquiry_ok=true
+HW|t=707|check.picture_effect_inquiry_ok=true
+HW|t=707|check.nr2d_level_inquiry_ok=true
+HW|t=707|check.nr2d_mode_inquiry_ok=true
+HW|t=707|check.nr3d_level_inquiry_ok=true
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.71s

@@ -1,0 +1,11 @@
+run_id: p2-hw05_shutter_round_trip-cam4
+camera: cam4
+tested_commit: cc1ab8f1f752ee6c946bed11365e60b8d321ab36
+tree_clean: yes
+host: Linux 6.8.0-139-generic x86_64; Debian GNU/Linux 12 (bookworm)
+toolchain: rustc 1.95.0 (59807616e 2026-04-14)
+operator: maintainer-supervised automated run (Grant Sparks)
+start_utc: 2026-10-07T06:01:39.307Z
+command: target/release/deps/hardware_wire_rows_test-9cc44f3a41b84fe6 --ignored --nocapture --test-threads=1 --exact hw05_shutter_round_trip
+exit_code: 0
+end_utc: 2026-10-07T06:01:47.444Z

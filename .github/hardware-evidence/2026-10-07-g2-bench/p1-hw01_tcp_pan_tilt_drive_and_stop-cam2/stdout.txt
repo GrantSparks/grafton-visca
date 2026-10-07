@@ -1,0 +1,29 @@
+
+running 1 test
+test hw01_tcp_pan_tilt_drive_and_stop ... HW|t=0|connect.tcp=cam2:5678
+HW|t=165|pan_tilt.before=Ok(PanTiltPosition { pan: 413, tilt: -154 })
+HW|t=176|pan_tilt.right.submitted id=OperationId(2)
+HW|t=427|pan_tilt.drive_wall_ms_before_stop_submitted=262
+HW|t=455|pan_tilt.stop.applied=Ok(())
+HW|t=455|pan_tilt.right.applied=Ok(())
+HW|t=945|pan_tilt.wait_until_idle=Ok(())
+HW|t=1046|pan_tilt.sample[0]=Ok(PanTiltPosition { pan: 419, tilt: -154 })
+HW|t=1385|pan_tilt.sample[1]=Ok(PanTiltPosition { pan: 419, tilt: -154 })
+HW|t=1725|pan_tilt.sample[2]=Ok(PanTiltPosition { pan: 419, tilt: -154 })
+HW|t=2055|pan_tilt.sample[3]=Ok(PanTiltPosition { pan: 419, tilt: -154 })
+HW|t=2345|pan_tilt.sample[4]=Ok(PanTiltPosition { pan: 419, tilt: -154 })
+HW|t=2345|pan_tilt.rest_stable=true
+HW|t=3815|restore.preset1.settled=Ok(ProfileCompletion { axes: AffectedAxes { pan_tilt: true, zoom: true, focus: true, iris: false, nd_filter: false } })
+HW|t=4025|restored.pan_tilt=Ok(PanTiltPosition { pan: 208, tilt: -207 })
+HW|t=4025|restored.zoom=Ok(ZoomPosition(0))
+HW|t=4025|RESTORED pan=208 tilt=-207 zoom=0
+HW|t=4025|check.pan_tilt_stop_applied=true
+HW|t=4025|check.pan_tilt_rest_stable=true
+HW|t=4025|guard.begin
+HW|t=4075|guard.pan_tilt_stop=Ok(())
+HW|t=4203|guard.zoom_stop=Ok(())
+HW|t=4203|guard.end
+HW|t=4214|session.close=Ok(())
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 4.21s

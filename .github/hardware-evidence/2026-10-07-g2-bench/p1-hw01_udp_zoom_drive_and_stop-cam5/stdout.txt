@@ -1,0 +1,29 @@
+
+running 1 test
+test hw01_udp_zoom_drive_and_stop ... HW|t=0|connect.udp=cam5:1259
+HW|t=53|zoom.before=Ok(ZoomPosition(0))
+HW|t=64|zoom.tele.submitted id=OperationId(2)
+HW|t=317|zoom.drive_wall_ms_before_stop_submitted=263
+HW|t=367|zoom.stop.applied=Ok(())
+HW|t=367|zoom.tele.applied=Ok(())
+HW|t=668|zoom.wait_until_idle=Ok(())
+HW|t=825|zoom.sample[0]=Ok(ZoomPosition(438))
+HW|t=1066|zoom.sample[1]=Ok(ZoomPosition(438))
+HW|t=1305|zoom.sample[2]=Ok(ZoomPosition(438))
+HW|t=1565|zoom.sample[3]=Ok(ZoomPosition(438))
+HW|t=1803|zoom.sample[4]=Ok(ZoomPosition(438))
+HW|t=1803|zoom.rest_stable=true
+HW|t=2284|restore.preset1.settled=Ok(ProfileCompletion { axes: AffectedAxes { pan_tilt: true, zoom: true, focus: true, iris: false, nd_filter: false } })
+HW|t=2499|restored.pan_tilt=Ok(PanTiltPosition { pan: 1000, tilt: -239 })
+HW|t=2499|restored.zoom=Ok(ZoomPosition(0))
+HW|t=2499|RESTORED pan=1000 tilt=-239 zoom=0
+HW|t=2499|check.zoom_stop_applied=true
+HW|t=2499|check.zoom_rest_stable=true
+HW|t=2499|guard.begin
+HW|t=2565|guard.pan_tilt_stop=Ok(())
+HW|t=2670|guard.zoom_stop=Ok(())
+HW|t=2670|guard.end
+HW|t=2680|session.close=Ok(())
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 2.68s

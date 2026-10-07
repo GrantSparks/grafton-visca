@@ -1,0 +1,27 @@
+
+running 1 test
+test hw04_recover_after_disconnect ... HW|t=0|connect.tcp=cam4:5678
+HW|t=69|inquiry.before_fault=Ok(true)
+HW|t=69|READY_FOR_FAULT flag=bench/fault-p3-hw04-recover-reset-cam4.flag
+HW|t=269|fault.flag_seen
+HW|t=277|inquiry.during_fault[0]=Err(ConnectionClosed { reason: Some("IO error: Connection reset by peer (os error 104)") })
+HW|t=277|inquiry.during_fault[0].error kind=IoClosed requires_new_session=true unconfirmed=false display="Connection closed: IO error: Connection reset by peer (os error 104)"
+HW|t=277|fault.observation_ended trigger=requires_new_session
+HW|t=278|session.close=Err(ConnectionClosed { reason: Some("IO error: Connection reset by peer (os error 104)") })
+HW|t=278|session.close.error kind=IoClosed requires_new_session=true unconfirmed=false display="Connection closed: IO error: Connection reset by peer (os error 104)"
+HW|t=278|recovery.open[0]=Err(ConnectionFailed { addr: "cam4:5678", source: Os { code: 111, kind: ConnectionRefused, message: "Connection refused" } })
+HW|t=278|recovery.open[0].error kind=IoRefused requires_new_session=false unconfirmed=false display="Connection failed to cam4:5678: Connection refused (os error 111)"
+HW|t=1278|recovery.open[1]=Err(ConnectionFailed { addr: "cam4:5678", source: Os { code: 111, kind: ConnectionRefused, message: "Connection refused" } })
+HW|t=1278|recovery.open[1].error kind=IoRefused requires_new_session=false unconfirmed=false display="Connection failed to cam4:5678: Connection refused (os error 111)"
+HW|t=2278|recovery.open[2]=Err(ConnectionFailed { addr: "cam4:5678", source: Os { code: 111, kind: ConnectionRefused, message: "Connection refused" } })
+HW|t=2279|recovery.open[2].error kind=IoRefused requires_new_session=false unconfirmed=false display="Connection failed to cam4:5678: Connection refused (os error 111)"
+HW|t=3279|recovery.open[3]=Err(ConnectionFailed { addr: "cam4:5678", source: Os { code: 111, kind: ConnectionRefused, message: "Connection refused" } })
+HW|t=3279|recovery.open[3].error kind=IoRefused requires_new_session=false unconfirmed=false display="Connection failed to cam4:5678: Connection refused (os error 111)"
+HW|t=4279|recovery.open[4]=Err(ConnectionFailed { addr: "cam4:5678", source: Os { code: 111, kind: ConnectionRefused, message: "Connection refused" } })
+HW|t=4279|recovery.open[4].error kind=IoRefused requires_new_session=false unconfirmed=false display="Connection failed to cam4:5678: Connection refused (os error 111)"
+HW|t=5346|recovery.inquiry[5]=Ok(true)
+HW|t=5356|recovery.close[5]=Ok(())
+HW|t=5356|RECOVERED attempts=6
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 5.36s

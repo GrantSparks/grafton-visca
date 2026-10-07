@@ -1,0 +1,77 @@
+
+running 1 test
+test hw05_shutter_round_trip ... HW|t=0|profile.selected=G2 VISCA_PROFILE="g2"
+HW|t=0|profile.type=grafton_visca::camera::profiles::PtzOpticsG2 model_name="PtzOptics G2"
+HW|t=0|connect.tcp=cam5:5678
+HW|t=31|profile.shutter_entry code=0x01 fraction=1/30
+HW|t=31|profile.shutter_entry code=0x02 fraction=1/60
+HW|t=31|profile.shutter_entry code=0x03 fraction=1/90
+HW|t=31|profile.shutter_entry code=0x04 fraction=1/100
+HW|t=31|profile.shutter_entry code=0x05 fraction=1/125
+HW|t=31|profile.shutter_entry code=0x06 fraction=1/180
+HW|t=31|profile.shutter_entry code=0x07 fraction=1/250
+HW|t=31|profile.shutter_entry code=0x08 fraction=1/350
+HW|t=31|profile.shutter_entry code=0x09 fraction=1/500
+HW|t=31|profile.shutter_entry code=0x0A fraction=1/725
+HW|t=31|profile.shutter_entry code=0x0B fraction=1/1000
+HW|t=31|profile.shutter_entry code=0x0C fraction=1/1500
+HW|t=31|profile.shutter_entry code=0x0D fraction=1/2000
+HW|t=31|profile.shutter_entry code=0x0E fraction=1/3000
+HW|t=31|profile.shutter_entry code=0x0F fraction=1/4000
+HW|t=31|profile.shutter_entry code=0x10 fraction=1/6000
+HW|t=31|profile.shutter_entry code=0x11 fraction=1/10000
+HW|t=31|check.profile_shutter_table_has_three_entries=true
+HW|t=69|original.exposure_mode=Ok(Auto)
+HW|t=239|original.shutter=Ok(ShutterSpeed(5))
+HW|t=400|original.iris=Ok(IrisLevel(12))
+HW|t=533|original.gain=Ok(GainLevel(2))
+HW|t=533|check.original_exposure_mode_readable=true
+HW|t=533|check.original_shutter_readable=true
+HW|t=533|exposure_mode.target=Shutter frame=81 01 04 39 0A FF
+HW|t=698|exposure_mode.set=Ok(())
+HW|t=1270|exposure_mode.after_set=Ok(Shutter)
+HW|t=1270|check.exposure_mode_readback_equals_target=true
+HW|t=1270|shutter.original_table_index=Some(4)
+HW|t=1270|shutter.one_step.target fraction=1/180 code=0x06 set_frame=81 01 04 4A 00 00 00 06 FF
+HW|t=1365|shutter.one_step.set=Ok(())
+HW|t=1919|shutter.one_step.typed=Ok(ShutterSpeed(6))
+HW|t=2070|shutter.one_step.raw=Ok([0, 0, 0, 6])
+HW|t=2070|shutter.one_step.decode fraction=1/180 set_code=0x06 inquiry_frame=81 09 04 4A FF reply_payload=00 00 00 06 typed=0x06 raw_position=0x06
+HW|t=2070|check.shutter_one_step_set_ok=true
+HW|t=2070|check.shutter_one_step_typed_readback_equals_set=true
+HW|t=2070|check.shutter_one_step_raw_position_equals_set=true
+HW|t=2070|shutter.table_min.target fraction=1/30 code=0x01 set_frame=81 01 04 4A 00 00 00 01 FF
+HW|t=2163|shutter.table_min.set=Ok(())
+HW|t=2699|shutter.table_min.typed=Ok(ShutterSpeed(1))
+HW|t=2962|shutter.table_min.raw=Ok([0, 0, 0, 1])
+HW|t=2962|shutter.table_min.decode fraction=1/30 set_code=0x01 inquiry_frame=81 09 04 4A FF reply_payload=00 00 00 01 typed=0x01 raw_position=0x01
+HW|t=2962|check.shutter_table_min_set_ok=true
+HW|t=2962|check.shutter_table_min_typed_readback_equals_set=true
+HW|t=2962|check.shutter_table_min_raw_position_equals_set=true
+HW|t=2962|shutter.table_middle.target fraction=1/500 code=0x09 set_frame=81 01 04 4A 00 00 00 09 FF
+HW|t=3002|shutter.table_middle.set=Ok(())
+HW|t=3559|shutter.table_middle.typed=Ok(ShutterSpeed(9))
+HW|t=3699|shutter.table_middle.raw=Ok([0, 0, 0, 9])
+HW|t=3700|shutter.table_middle.decode fraction=1/500 set_code=0x09 inquiry_frame=81 09 04 4A FF reply_payload=00 00 00 09 typed=0x09 raw_position=0x09
+HW|t=3700|check.shutter_table_middle_set_ok=true
+HW|t=3700|check.shutter_table_middle_typed_readback_equals_set=true
+HW|t=3700|check.shutter_table_middle_raw_position_equals_set=true
+HW|t=3700|shutter.table_max.target fraction=1/10000 code=0x11 set_frame=81 01 04 4A 00 00 01 01 FF
+HW|t=3817|shutter.table_max.set=Ok(())
+HW|t=4369|shutter.table_max.typed=Ok(ShutterSpeed(17))
+HW|t=4532|shutter.table_max.raw=Ok([0, 0, 1, 1])
+HW|t=4532|shutter.table_max.decode fraction=1/10000 set_code=0x11 inquiry_frame=81 09 04 4A FF reply_payload=00 00 01 01 typed=0x11 raw_position=0x11
+HW|t=4532|check.shutter_table_max_set_ok=true
+HW|t=4532|check.shutter_table_max_typed_readback_equals_set=true
+HW|t=4532|check.shutter_table_max_raw_position_equals_set=true
+HW|t=4628|restore.shutter.set=Ok(())
+HW|t=5425|restore.exposure_mode.set=Ok(())
+HW|t=6132|restored.exposure_mode=Ok(Auto)
+HW|t=6133|restored.shutter=Ok(ShutterSpeed(5))
+HW|t=6133|RESTORED exposure=Auto shutter=0x05
+HW|t=6133|check.restored_exposure_mode_equals_original=true
+HW|t=6133|observation.restored_shutter_equals_original=true (automatic mode Auto owns the shutter)
+HW|t=6143|session.close=Ok(())
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 6.14s
