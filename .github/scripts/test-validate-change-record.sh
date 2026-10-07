@@ -37,6 +37,30 @@ PY
     git -C "${fixture}" add .
     git -C "${fixture}" commit -q -m "test: establish fixture" \
         -m "Create the release-record validator baseline."
+    # A published release is one with a `v<version>` tag.
+    git -C "${fixture}" tag v1.1.0
+    base="$(git -C "${fixture}" rev-parse HEAD)"
+}
+
+# Commit an untagged dated 2.0.0-rc.1 section above the published 1.1.0 one
+# and make that commit the comparison base.
+add_unpublished_section() {
+    python3 - "${fixture}" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / "CHANGELOG.md"
+path.write_text(
+    path.read_text().replace(
+        "## [1.1.0] - 2026-08-01\n",
+        "## [2.0.0-rc.1] - 2026-09-04\n\n- Prepared candidate record.\n\n"
+        "## [1.1.0] - 2026-08-01\n",
+    )
+)
+PY
+    git -C "${fixture}" add CHANGELOG.md
+    git -C "${fixture}" commit -q -m "docs: prepare candidate record" \
+        -m "Date a candidate section that has not been published."
     base="$(git -C "${fixture}" rev-parse HEAD)"
 }
 
@@ -172,7 +196,7 @@ path.write_text(path.read_text().replace("Published behavior.", "Rewritten behav
 PY
 git -C "${fixture}" add CHANGELOG.md
 git -C "${fixture}" commit -q -m "docs: rewrite released history"
-expect_failure "content outside [Unreleased] is immutable"
+expect_failure "published release history is immutable"
 
 # 4. The release-cut exception cannot hide an edit to the pre-existing released
 # suffix.
@@ -190,7 +214,7 @@ path.write_text(changelog.replace("Published behavior.", "Rewritten behavior."))
 PY
 git -C "${fixture}" add CHANGELOG.md
 git -C "${fixture}" commit -q -m "docs: cut and rewrite release history"
-expect_failure "content outside [Unreleased] is immutable"
+expect_failure "published release history is immutable"
 
 # 5. A release cut cannot drop a prior Unreleased line.
 make_fixture release-cut-dropped-note
@@ -210,7 +234,7 @@ path.write_text(
 PY
 git -C "${fixture}" add CHANGELOG.md
 git -C "${fixture}" commit -q -m "docs: drop prior release note"
-expect_failure "content outside [Unreleased] is immutable"
+expect_failure "published release history is immutable"
 
 # 6. A release cut cannot reorder prior Unreleased lines.
 make_fixture release-cut-reordered-notes
@@ -230,7 +254,7 @@ path.write_text(
 PY
 git -C "${fixture}" add CHANGELOG.md
 git -C "${fixture}" commit -q -m "docs: reorder prior release notes"
-expect_failure "content outside [Unreleased] is immutable"
+expect_failure "published release history is immutable"
 
 # 7. A later commit cannot rewrite the released suffix after a valid cut.
 make_fixture release-cut-postcut-released-history
@@ -259,7 +283,7 @@ PY
 git -C "${fixture}" add CHANGELOG.md
 git -C "${fixture}" commit -q -m "docs: rewrite cut release history" \
     -m "Attempt to alter the immutable suffix after the release cut."
-expect_failure "content outside [Unreleased] is immutable"
+expect_failure "published release history is immutable"
 
 # 8. The released suffix comparison is byte-for-byte: a line-ending rewrite
 # after a valid cut is also rejected.
@@ -304,7 +328,7 @@ PY
 git -C "${fixture}" add CHANGELOG.md
 git -C "${fixture}" commit -q -m "docs: normalize released line ending" \
     -m "Attempt to rewrite an immutable released byte sequence."
-expect_failure "content outside [Unreleased] is immutable"
+expect_failure "published release history is immutable"
 
 # 9. Newly released notes retain the BREAKING issue-reference requirement.
 make_fixture release-cut-breaking-without-issue
@@ -433,5 +457,216 @@ git -C "${fixture}" add .github/change-record-body-policy-boundary
 git -C "${fixture}" commit -q -m "ci: advance body policy boundary" \
     -m "Attempt to skip the preceding source commit."
 expect_failure "must retain the merge-base marker"
+
+# 16. A dated section without a release tag was never published: folding it
+# back into Unreleased (and rewriting its notes there) is accepted.
+make_fixture fold-unpublished-section
+add_unpublished_section
+python3 - "${fixture}" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / "CHANGELOG.md"
+path.write_text(
+    path.read_text().replace(
+        "- Retained release record.\n\n"
+        "## [2.0.0-rc.1] - 2026-09-04\n\n- Prepared candidate record.\n\n",
+        "- Retained release record.\n- Net candidate record.\n\n",
+    )
+)
+PY
+git -C "${fixture}" add CHANGELOG.md
+git -C "${fixture}" commit -q -m "docs: fold unpublished candidate record" \
+    -m "Record the net change since the last published release."
+run_validator
+
+# 17. Once its tag exists the same section is published and byte-immutable.
+make_fixture edit-tagged-section
+add_unpublished_section
+git -C "${fixture}" tag v2.0.0-rc.1
+python3 - "${fixture}" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / "CHANGELOG.md"
+path.write_text(
+    path.read_text().replace(
+        "Prepared candidate record.", "Rewritten candidate record."
+    )
+)
+PY
+git -C "${fixture}" add CHANGELOG.md
+git -C "${fixture}" commit -q -m "docs: rewrite published candidate record"
+expect_failure "published release history is immutable"
+
+# 18. Folding a tagged section away is rejected like any other edit.
+make_fixture fold-tagged-section
+add_unpublished_section
+git -C "${fixture}" tag v2.0.0-rc.1
+python3 - "${fixture}" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / "CHANGELOG.md"
+path.write_text(
+    path.read_text().replace(
+        "## [2.0.0-rc.1] - 2026-09-04\n\n- Prepared candidate record.\n\n", ""
+    )
+)
+PY
+git -C "${fixture}" add CHANGELOG.md
+git -C "${fixture}" commit -q -m "docs: fold published candidate record"
+expect_failure "published release history is immutable"
+
+# 19. A section below a published release was released before it, so it stays
+# immutable even when its own tag is missing.
+make_fixture untagged-below-published
+git -C "${fixture}" tag -d v1.1.0 >/dev/null
+add_unpublished_section
+git -C "${fixture}" tag v2.0.0-rc.1
+python3 - "${fixture}" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / "CHANGELOG.md"
+path.write_text(path.read_text().replace("Published behavior.", "Rewritten behavior."))
+PY
+git -C "${fixture}" add CHANGELOG.md
+git -C "${fixture}" commit -q -m "docs: rewrite untagged older release"
+expect_failure "published release history is immutable"
+
+# 20. A checkout without release tags cannot tell published sections apart, so
+# validation fails closed instead of unlocking released history.
+make_fixture tagless-checkout
+git -C "${fixture}" tag -d v1.1.0 >/dev/null
+python3 - "${fixture}" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / "CHANGELOG.md"
+path.write_text(path.read_text().replace("Published behavior.", "Rewritten behavior."))
+PY
+git -C "${fixture}" add CHANGELOG.md
+git -C "${fixture}" commit -q -m "docs: rewrite release history without tags"
+expect_failure 'but no `v<version>` tag for any of them'
+
+# 21. Folding an unpublished section and then cutting a new release is a
+# recognised release cut: the new 2.0.0-rc.2 section is untagged and not part
+# of the base's unpublished set, so only the release-cut path accepts it.
+fold_then_cut() {
+    local cut_note="$1"
+    make_fixture "$2"
+    add_unpublished_section
+    python3 - "${fixture}" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / "CHANGELOG.md"
+path.write_text(
+    path.read_text().replace(
+        "- Retained release record.\n\n"
+        "## [2.0.0-rc.1] - 2026-09-04\n\n- Prepared candidate record.\n\n",
+        "- Retained release record.\n- Net candidate record.\n\n",
+    )
+)
+PY
+    git -C "${fixture}" add CHANGELOG.md
+    git -C "${fixture}" commit -q -m "docs: fold unpublished candidate record" \
+        -m "Record the net change since the last published release."
+    python3 - "${fixture}" "${cut_note}" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / "CHANGELOG.md"
+note = sys.argv[2]
+path.write_text(
+    path.read_text().replace(
+        "## [Unreleased]\n\n",
+        f"## [Unreleased]\n\n## [2.0.0-rc.2] - 2026-10-04\n\n{note}",
+    )
+)
+PY
+    git -C "${fixture}" add CHANGELOG.md
+    git -C "${fixture}" commit -q -m "docs: cut release record" \
+        -m "Move the retained Unreleased notes into the release candidate."
+}
+
+fold_then_cut "" fold-then-cut
+run_validator
+
+# 22. The recognised cut keeps the BREAKING issue-reference requirement for
+# its new release notes.
+fold_then_cut $'- **BREAKING**: Untracked release break.\n\n' fold-then-cut-breaking
+expect_failure '`**BREAKING**` bullet is missing an issue reference'
+
+# 23. RELEASING.md requires folding first: a release cut above an unpublished
+# section is rejected, because tagging the cut would freeze that section.
+make_fixture release-cut-above-unpublished
+add_unpublished_section
+python3 - "${fixture}" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / "CHANGELOG.md"
+path.write_text(
+    path.read_text().replace(
+        "## [Unreleased]\n\n",
+        "## [Unreleased]\n\n## [2.0.0-rc.2] - 2026-10-04\n\n",
+    )
+)
+PY
+git -C "${fixture}" add CHANGELOG.md
+git -C "${fixture}" commit -q -m "docs: cut release above unpublished record" \
+    -m "Leave the unpublished candidate section in place."
+expect_failure "release cut leaves unpublished release section(s) 2.0.0-rc.1"
+
+# 24. An unpublished section may also be edited in place.
+make_fixture edit-unpublished-section
+add_unpublished_section
+python3 - "${fixture}" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / "CHANGELOG.md"
+path.write_text(
+    path.read_text().replace("Prepared candidate record.", "Revised candidate record.")
+)
+PY
+git -C "${fixture}" add CHANGELOG.md
+git -C "${fixture}" commit -q -m "docs: revise unpublished candidate record" \
+    -m "Keep the unpublished section current."
+run_validator
+
+# 25. A version has exactly one dated heading, even while unpublished.
+make_fixture duplicate-release-heading
+add_unpublished_section
+python3 - "${fixture}" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / "CHANGELOG.md"
+section = "## [2.0.0-rc.1] - 2026-09-04\n\n- Prepared candidate record.\n\n"
+path.write_text(path.read_text().replace(section, section + section))
+PY
+git -C "${fixture}" add CHANGELOG.md
+git -C "${fixture}" commit -q -m "docs: duplicate unpublished candidate record"
+expect_failure "has more than one release section for 2.0.0-rc.1"
+
+# 26. Moving an unpublished section below a published one reorders published
+# history and is rejected.
+make_fixture reordered-release-headings
+add_unpublished_section
+python3 - "${fixture}" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1]) / "CHANGELOG.md"
+section = "## [2.0.0-rc.1] - 2026-09-04\n\n- Prepared candidate record.\n\n"
+text = path.read_text().replace(section, "")
+path.write_text(text.rstrip("\n") + "\n\n" + section.rstrip("\n") + "\n")
+PY
+git -C "${fixture}" add CHANGELOG.md
+git -C "${fixture}" commit -q -m "docs: reorder release headings"
+expect_failure "published release history is immutable"
 
 echo "change-record validator regression checks passed"

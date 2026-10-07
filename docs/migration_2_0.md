@@ -81,8 +81,8 @@ Renamed dependency aliases remain supported.
 | `RuntimeHandle` and private scheduler/runtime modules | `TokioRuntime`, `SmolRuntime`, or a coherent public `Executor`; never construct the owner directly. |
 | `CameraBuilder` and its `with_executor(...).from_transport(...).profile::<P>().open_async()` chain | `Connect` or `CameraConfig` for standard transports; async `Session::open(transport, SessionConfig, executor)` or blocking `blocking::Session::open(transport, SessionConfig)` for a caller-owned one. `camera_id(...)` becomes a `SessionConfig` target (`for_target`/`register_target`) or `CameraConfig::camera_id`; `timeout_config`/`retry_config` become an `OperationalTuning` supplied through `with_tuning`. |
 | Implicit Sony sequence synchronization at connection startup | Startup remains write-free by default. Opt in with `SessionConfig::with_sony_sequence_reset_on_connect(true)` or the matching `CameraConfig` builder only for a Sony-encapsulated profile; the RESET is sent before owner work begins. Observe its one-/two-byte reply as `DiagnosticResponse::SonyControl { code }`. |
-| `Runtime::connect_tcp` / `connect_udp` and the `TransportHandle` enum | Both remain under `async` as `runtime::{Runtime, TransportHandle}`. Prefer `Connect`/`CameraConfig`; when driving the transport yourself, use `Session::open(TransportHandle::Tcp(runtime.connect_tcp(addr, cfg).await?), config, runtime.clone())` (and the corresponding UDP variant). In 2.0.0-rc.2 the generic **connector** futures carry the `Send` contract needed to box or spawn this construction path; this does not change `Session::open` after a caller has already created a custom transport. See the rc.1 note below. |
-| Preview-only `BufferConfig::send_buffer_size` / `NetTransportBuilder::send_buffer_size` | Removed before rc.1 because neither affected production allocation. Owner transmit buffers are fixed and reused at protocol-bounded capacity; configure only receive/framing memory with `recv_buffer_size` and `max_buffer_size`. |
+| `Runtime::connect_tcp` / `connect_udp` and the `TransportHandle` enum | Both remain under `async` as `runtime::{Runtime, TransportHandle}`. Prefer `Connect`/`CameraConfig`; when driving the transport yourself, use `Session::open(TransportHandle::Tcp(runtime.connect_tcp(addr, cfg).await?), config, runtime.clone())` (and the corresponding UDP variant). The generic **connector** futures are `Send`, so this construction path can be boxed or spawned; a caller-created transport keeps its own `Send` obligations for `Session::open`. |
+| `BufferConfig::send_buffer_size` / `NetTransportBuilder::send_buffer_size` | Removed, because neither affected production allocation. Owner transmit buffers are fixed and reused at protocol-bounded capacity; configure only receive/framing memory with `recv_buffer_size` and `max_buffer_size`. |
 
 `SessionConfig` accepts only individual VISCA IDs 1–7. Broadcast, duplicate
 registration, an empty registry, and unsupported profile/transport pairs are
@@ -99,17 +99,6 @@ provides the distinction:
 | `Connect::open_tcp_async::<P, _>(address, runtime).await?` | `Connect::open_tcp::<P, _>(address, runtime).await?` → `CameraSession<P>` |
 | `Connect::open_udp_async::<P, _>(address, runtime).await?` | `Connect::open_udp::<P, _>(address, runtime).await?` → `CameraSession<P>` |
 | `Connect::open_serial_async::<P, _>(port, baud, runtime).await?` | `Connect::open_serial::<P, _>(port, baud, runtime).await?` → `Session` |
-
-> **2.0.0-rc.1 construction-future defect.** The rc.1 `Runtime` connector
-> trait did not expose a usable `Send` guarantee through generic TCP, UDP, and
-> serial construction. An application that boxed or spawned a
-> **connector-backed** camera-opening future could therefore see
-> `implementation of Send is not general enough`. Upgrade to 2.0.0-rc.2: its
-> connector contract fixes the `Connect`/`CameraConfig::open_async` and
-> `Runtime::connect_*` boundary. It does not change direct `Session::open` with
-> an already-created transport or the `Send` obligations of a custom transport
-> implementation. This is not an application ownership, noun-accessor, or
-> cancellation rewrite.
 
 For TCP or UDP, call `into_camera()` when an application abstraction should own
 only a cloneable `Camera<P>` view. That view keeps the owner and connection
@@ -204,7 +193,7 @@ the async `Session` / `CameraSession<P>` rows above.
 | --- | --- |
 | Root control-trait calls that duplicate noun views | `camera.power()`, `zoom()`, `system()`, `pan_tilt()`, `focus()`, `exposure()`, `white_balance()`, `image()`, `presets()`, `tally()`, `nd_filter()`, `motion_sync()`, `menu()`, and `advanced()`. |
 | 1.x `is_moving` / `stop_all_motion`, and the movement waits `await_idle` / `await_pan_tilt_idle` / `await_zoom_idle` / `await_focus_idle` / `await_axes_idle` (each taking a `Duration`) | `camera.motion().is_moving(MotionQuery)` (`MotionQuery::default()` samples `AffectedAxes::MOVEMENT`; `MotionQuery::new(axes)` selects an explicit axis set), `wait_until_idle(IdleWait)`, and `stop_all_motion()` returning a per-axis `HaltReport`. Inspect the report or explicitly collapse it with `into_result()`. There was **no** 1.x `wait_until_idle`; that name is 2.0's. |
-| 2.0.0-rc.2 `MotionQuery { axes, tolerance }` and an `is_moving`/`is_moving_axes` verdict from two back-to-back snapshots | `MotionQuery::new(axes)`, optionally `.with_tolerance(..)` and `.with_window(..)`. `MotionQuery` and `IdleWait` are `#[non_exhaustive]`, so struct literals no longer compile; use the constructors and `with_*` methods. The second snapshot now starts at least `window` (default 100 ms) after the first, so each call takes at least that long. `false` means no movement detected over the window. A zero window returns `Error::InvalidParameter`, and a window that cannot fit the deadline returns `Error::Timeout`. Raise the window to detect slower creep (#781). |
+| 1.x `is_moving` verdict from two back-to-back position snapshots (`is_moving_axes_with_deadline` with a `MovementTolerance`) | `MotionQuery::new(axes)`, optionally `.with_tolerance(..)` and `.with_window(..)`. The second snapshot starts at least `window` (default 100 ms) after the first, so each call takes at least that long, and `false` means no movement was detected over the window. A zero window returns `Error::InvalidParameter`, and a window that cannot fit the deadline returns `Error::Timeout`. Raise the window to detect slower creep. `MotionQuery` and `IdleWait` are `#[non_exhaustive]`: build them with their constructors, presets and `with_*` methods, not struct literals. |
 | 1.x `AwaitConfig` and `await_with_config(&AwaitConfig)` (`for_pan_tilt`/`for_zoom`/`for_focus`/`for_preset_recall`, `poll_interval`, `tolerance`, `debug`) | `camera::IdleWait` (same `for_*` presets plus `with_interval`/`with_tolerance`/`with_timeout`) passed to `wait_until_idle`, or `camera::MotionQuery` for `is_moving`. The `debug` field has no counterpart — use `tracing`. |
 | Noun-specific idle/wait aliases | The separate `motion()` safety/observation view. |
 | 1.x `Axes::ALL` as "everything that moves" | `AffectedAxes::MOVEMENT`. The 1.x `Axes` type is renamed `AffectedAxes` **and** `ALL` changed meaning — see [`Axes` → `AffectedAxes`: rename and `ALL` meaning change](#axes--affectedaxes-rename-and-all-meaning-change) below. |
@@ -215,10 +204,9 @@ the async `Session` / `CameraSession<P>` rows above.
 | Duplicate `NdFilterInquiry` accessor vocabulary | `nd_filter().position()` only. |
 | Separate focus `lock()`/`unlock()` twins | One parameterized `focus().set_lock(FocusLock)`. |
 | Root `toggle_menu()` (the 1.x `DirectMenuControl` method on the camera) | `menu().toggle_display()` is the direct replacement. Prefer `menu().display(true)` / `menu().display(false)` when the intended state is known; `menu().status()`, `navigate(...)`, and `select()` cover the remaining menu operations. |
-| Zoom `set_normalized(UnitInterval)` / `set_normalized_in_domain(UnitInterval, ZoomDomain)` (1.x and 2.0.0-rc.3) | One method, `zoom().set_normalized(position, domain)`: pass `ZoomDomain::Optical` for the former one-argument form and the domain directly for the former `set_normalized_in_domain`. It is a **targeted operation** returning an `Operation<Targeted>`; await it with `applied()`/`settled()` instead of getting a bare `Result<()>`. |
-| `pan_tilt().up/down/left/right(pan_speed, tilt_speed)` (1.x and 2.0.0-rc.3) | `pan_tilt().move_direction(PanTiltDirection::Up, pan_speed, tilt_speed)`, and likewise `Down`, `Left` and `Right`. The frame is identical. The same applies to `DynPanTilt`. |
-| `nd_filter().set_value(u16)` / `set_stops(f32)` (2.0.0-rc.3) | `nd_filter().set_value(NdFilterValue)`, building the value with `command::NdFilterValue::new(raw)?` or `NdFilterValue::from_stops(stops)?`. An out-of-range raw value or stop count is now rejected by the constructor, before any noun call. |
-| `motion().is_moving()` / `is_moving_axes(MotionQuery)` (2.0.0-rc.3) | `motion().is_moving(MotionQuery)`. Pass `MotionQuery::default()` for the former no-argument form, which samples `AffectedAxes::MOVEMENT`. |
+| Zoom `set_normalized(UnitInterval)` / `set_normalized_in_domain(UnitInterval, ZoomDomain)` | One method, `zoom().set_normalized(position, domain)`: pass `ZoomDomain::Optical` for the former one-argument form and the domain directly for the former `set_normalized_in_domain`. It is a **targeted operation** returning an `Operation<Targeted>`; await it with `applied()`/`settled()` instead of getting a bare `Result<()>`. |
+| `pan_tilt().up/down/left/right(pan_speed, tilt_speed)` | `pan_tilt().move_direction(PanTiltDirection::Up, pan_speed, tilt_speed)`, and likewise `Down`, `Left` and `Right`. The frame is identical. The same applies to `DynPanTilt`. |
+| `nd_filter().set_value(u16)` / `set_stops(f32)` | `nd_filter().set_value(NdFilterValue)`, building the value with `command::NdFilterValue::new(raw)?` or `NdFilterValue::from_stops(stops)?`. An out-of-range raw value or stop count is now rejected by the constructor, before any noun call. |
 
 The **async** dynamic views are object-safe and erase profile/request types;
 the blocking dynamic projection is native and has no futures. Both share the
@@ -253,14 +241,6 @@ let future = Box::pin(async move {
     image.contrast().await
 });
 ```
-
-The rc.1 constructor-future defect above is separate: if the diagnostic passes
-through connector-backed `Connect`, `CameraConfig::open_async`, or
-`Runtime::connect_*` construction, upgrade to rc.2. Direct `Session::open`
-with an already-created/custom transport is outside that fix; its future and
-transport bounds remain the application's responsibility. Boxing domain futures
-or cloning a `Camera<P>` cannot repair a connector future before the camera has
-been constructed.
 
 There is also an application-owned Rust type-system edge for libraries with
 multiple trait layers. If *your* domain trait returns
@@ -314,23 +294,22 @@ Optional typed controls now name the exact evidence boundary:
 | PTZOptics advanced methods were ungated | Add the relevant `HasPtzOpticsAntiFlicker`, `HasPtzOpticsMulticastStreaming`, `HasPtzOpticsNdiQuality`, `HasPtzOpticsPresetRecallSpeed`, or `HasPtzOpticsSettingsSave` bound. |
 | Sony auto-slow-shutter and spotlight methods were broadly exposed | Add `HasSonyAutoSlowShutter` or `HasSonySpotlight`; unsupported profiles reject through the dynamic API before encoding. |
 | USB-audio methods were broadly exposed | Add `HasUsbAudio`. Only `PtzOpticsG2` and legacy `PtzOptics30X` currently carry source-backed support; `PtzOpticsG3` does not. |
-| `system().version()` was available on every profile and assumed the Sony 7-byte reply | Add `HasVersionInquiry`. The Sony profiles and `GenericVisca` carry it; `PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30X` do not, because G2 hardware replies `90 50 00 52 FF` and no source defines that layout. Dynamic calls on those profiles return `FeatureNotSupported` before any I/O. Read the bytes with `raw::Inquiry` and `81 09 00 02 FF`. A custom profile needs all three: implement `HasVersionInquiry` on the compile-time type, include `TypedSupportSurface::VersionInquiry` in `ProfileTypedSupport::TYPED_SUPPORT`, and add `"version-inquiry"` to the runtime `capabilities.typed_support` list before persisting it; a spec saved by 2.0.0-rc.3 does not load and must be rebuilt (see below) (#795). |
+| `system().version()` was available on every profile and assumed the Sony 7-byte reply | Add `HasVersionInquiry`. The Sony profiles and `GenericVisca` carry it; `PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30X` do not, because G2 hardware replies `90 50 00 52 FF` and no source defines that layout. Dynamic calls on those profiles return `FeatureNotSupported` before any I/O. Read the bytes with `raw::Inquiry` and `81 09 00 02 FF`. A custom profile needs all three: implement `HasVersionInquiry` on the compile-time type, include `TypedSupportSurface::VersionInquiry` in `ProfileTypedSupport::TYPED_SUPPORT`, and add `"version-inquiry"` to the runtime `capabilities.typed_support` list before persisting it (#795). |
 | `white_balance().color_temperature()` needed only `HasColorTemperature` | Add `HasColorTemperatureInquiry`. Only `PtzOpticsG2` and `PtzOptics30X` carry it, because only the PTZOptics G2 one-byte `90 50 pq FF` reply is sourced; `PtzOpticsG3` and `SonyBRCH900` keep the color-temperature setters. Dynamic calls on the other profiles return `FeatureNotSupported` before any I/O. Read the bytes with `raw::Inquiry` and `81 09 04 20 FF`. |
 | `HasImageProcessing` arrived through a blanket implementation | Built-in profiles receive an explicit implementation only when at least one source-backed image surface exists. A downstream profile must opt in deliberately. |
-| `SonyBRC300` in 2.0.0-rc.1 advertised typed backlight support but could not construct `image()` | Upgrade to rc.2, which restores `camera.image().backlight()` and `camera.image().set_backlight(...)` while keeping every other image row independently capability-gated. |
 | `CapabilityRange` serde accepted `min > max`, and checked scalar wrappers could deserialize invalid values | Deserialization now validates the same invariants as construction; handle the serde error and repair invalid persisted data before retrying. |
 
 ### Wire corrections and removed ambiguous inquiries
 
 2.0 deliberately does not preserve several incorrect 1.x byte sequences. The
 complete audited delta is recorded in the
-[immutable rc.1 CHANGELOG entry for "Breaking wire corrections versus 1.x"](https://github.com/GrantSparks/grafton-visca/blob/ad6982fb95d3d13c3dd6ec496fa59b495fe3107d/CHANGELOG.md#L682-L725); the migrations a
+[CHANGELOG entry "Breaking wire corrections versus 1.x"](https://github.com/GrantSparks/grafton-visca/blob/ad6982fb95d3d13c3dd6ec496fa59b495fe3107d/CHANGELOG.md#L682-L725); the migrations a
 caller can observe directly are:
 
 | 1.x assumption | 2.0 destination |
 | --- | --- |
 | Autofocus sensitivity Low/Normal/High encoded as `00/01/02` | The sourced wire values are `03/02/01`. Keep semantic enum values in application state rather than treating an integer cast as a stable wire code. |
-| Bright Direct used `04 0D`, and the 2.0 preview exposed byte-identical `Brightness::SetLevel` / `Brightness::Direct` variants | Use only `Brightness::SetLevel` or the noun method `brightness_set`. They encode the sourced direct register `04 4D`; `Brightness::Direct` and `brightness_direct` are removed, while `04 0D` remains only the reset/up/down family. |
+| Bright Direct (`set_brightness_direct`) used `04 0D` | Use `Brightness::SetLevel` or the noun method `brightness_set`. They encode the sourced direct register `04 4D`; `04 0D` remains only the reset/up/down family. |
 | UpRight limit corner was `03` | It is `01` in limit set and clear frames. |
 | Focus-zone inquiry was `09 04 3C` | It now matches the focus-zone register at `09 04 AA`. |
 | `FocusZone` had exactly Top/Center/Bottom (`00/01/02`), and the inquiry rejected any other reply | `FocusZone` is `#[non_exhaustive]` and adds `Zone03` (`03`), which PTZOptics G2 firmware reports, accepts and reads back, though no vendor source names it. Add a wildcard arm to exhaustive matches. Sending is gated per profile by `Capabilities::focus_zones` (`Focus::FOCUS_ZONES`): `PtzOpticsG2` and `PtzOptics30X` admit `Zone03`, `PtzOpticsG3` and custom profiles default to Top/Center/Bottom, and an unlisted value fails with `Error::InvalidParameter { parameter: "focus_zone", .. }` before any I/O. Decoding `03` is never gated (#795). |
@@ -381,7 +360,10 @@ the independent `HasNoiseReduction2DControl` /
 `HasNoiseReduction3DControl` markers (and the matching dynamic
 `TypedSupportSurface::NoiseReduction2DControl` /
 `TypedSupportSurface::NoiseReduction3DControl` checks). Do not replace one
-bound with the other: an inquiry permission is not a control permission.
+bound with the other: an inquiry permission is not a control permission. The
+2D mode (`04 50`) has its own marker for both its setter and its inquiry,
+`HasNoiseReduction2DMode` (`TypedSupportSurface::NoiseReduction2DMode`); the
+2D markers cover the `04 53` level only.
 
 | Earlier/removed vocabulary | 2.0 destination |
 | --- | --- |
@@ -626,10 +608,7 @@ Superseded motion fails with `Error::MotionSuperseded { axes, context }`.
 certainty is `NotAccepted` when the request never reached the camera — it was
 still queued, or every written attempt was rejected before ACK — and
 `Unconfirmed` only when an earlier attempt may have taken effect. A submission
-the fence rejects at admission reports stage `PreAdmission`. Code that built
-the error with `Error::motion_superseded(axes)` now passes the context as a
-second argument; patterns that already use `{ .. }` are unaffected. In earlier
-release candidates the variant had no context and always reported `Unconfirmed`.
+the fence rejects at admission reports stage `PreAdmission`.
 
 A typed STOP that the camera refuses with `0x41` is reported at once as
 `Error::CommandNotExecutable` and is not resent. A PTZOptics G2 in auto-focus
@@ -641,8 +620,8 @@ on either envelope: an error that arrives after the ACK ends the request with
 `Error::CommandFailedAfterAck { source }` (the camera's exact error as
 `source`, `Terminal`/`Unconfirmed`, never retryable), because a relative move
 or preset may have partly executed; and a Sony command that is ACKed and then
-silent ends with an unconfirmed `Timeout` instead of the same-sequence resend
-earlier release candidates made (#795). Code that matched, say,
+silent ends with an unconfirmed `Timeout` instead of being resent with the
+same sequence number (#795). Code that matched, say,
 `Err(Error::CommandNotExecutable)` for a rejection after the ACK now matches
 `Err(Error::CommandFailedAfterAck { .. })` and reads `source`.
 
@@ -835,7 +814,6 @@ Both forms are demonstrated end to end in `examples/operation_handles.rs` and
 | Generic optional accessors or unsupported PTZOptics/Sony controls | Compile-time `Has*` gates; dynamic callers inspect capability support. Unsupported controls are not exposed through metadata fallback. |
 | Direct PTZOptics ND filter, Motion Sync, variable-speed, Sony color-temperature, or legacy quality controls | The matching supported noun only when its profile marker permits it; otherwise use a raw extension deliberately. |
 | Public `camera::*`, `command::*`, `protocol::*`, response, cache, runtime, or transport implementation modules | Supported root/module exports and owner methods. Implementation submodules are not extension points. |
-| `diagnostics::Diagnostics`/probe-style compatibility API | `Session::metrics`, and `subscribe_diagnostics` on either facade. |
 | Legacy mutable `cache::StateCache` | Owner-backed read-only root `StateCache`; use `target()` and `value(StateKey)`. |
 | 1.x `Camera::set_timeout_config` / `timeout_config` | `Session::set_tuning` / `tuning` (and the same pair on `CameraSession`), taking an `OperationalTuning`. Standard `CameraConfig` construction uses `with_tuning`. See [Reconfiguring timeouts at runtime](#reconfiguring-timeouts-at-runtime). |
 
@@ -881,39 +859,34 @@ that kind but does not require a replacement session.
 
 Retained public protocol values also changed shape:
 
-| 1.x/earlier RC call | 2.0 call |
+| 1.x call | 2.0 call |
 | --- | --- |
 | `DirectMenuControl::new(control1, control2)` returning the value directly | `DirectMenuControl::new(control1, control2)?`; the constructor rejects a data `FF` followed by an address byte because that would begin a second VISCA frame. |
 | `envelope.frame_into(visca, kind, out)` returning framing metadata directly | `envelope.frame_into(visca, kind, out)?`; malformed/non-terminated Sony payloads are validation errors and leave `out` unchanged. An empty message is rejected with `Error::InvalidRequest` (it used to clear `out` and succeed), and with IP addressing every address byte, including the `88` broadcast address, is sent as camera 1 (`81`), because VISCA over IP fixes the camera address at 1. |
-| Earlier 2.0 RC matching on `FrameSequence::Lower16(value)` | Match `FrameSequence::MaybeTruncated(value)`. A zero upper half does not prove truncation; the new name preserves that uncertainty while `value()` still returns the numeric value. |
-| Tuple construction or one-field matching of `ZoomTarget(position)` | `ZoomTarget::new(position)` for a raw target, or `ZoomTarget::from_normalized(value, domain, profile)?` when normalization provenance must survive until profile validation. |
 | `<R as RuntimeSerial>::SerialTransport` | `<R as Runtime>::SerialTransport`; `RuntimeSerial` remains the `connect_serial` extension trait, while the associated transport type lives on `Runtime` so `TransportHandle<R>` stays runtime-paired. |
 | `command::FocusSpeed` (a second focus-speed type) | `grafton_visca::FocusSpeed` (also `types::FocusSpeed`), the one type `Focus::FarWithSpeed`, `FocusDrive`, and `focus().far_variable(..)` take. Out-of-range values now report `ParameterOutOfRange`. |
 | `Coarse` (`grafton_visca::Coarse`, `types::Coarse`), a second name for `SpeedLevel`, and `PanSpeed::from_coarse`, `TiltSpeed::from_coarse`, `ZoomSpeed::from_coarse`, `FocusSpeed::from_coarse` | `SpeedLevel` and `From`: `ZoomSpeed::from(SpeedLevel::Fast)` or `SpeedLevel::Fast.into()`. The mapping to wire speeds is unchanged. |
-| `EncodeError`, a second name for `Error`, in `Request::write_into(..) -> Result<usize, EncodeError>` | `Error`: implement `fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> grafton_visca::Result<usize>`. `#[derive(ViscaInquiry)]` expands to the same signature. |
 | `command::Version`, `command::TallyStatus`, `command::NightDayMode`, `command::IrisControl` | `command::VersionInfo` and `command::TallyStatusState`, which the accessors return; the unused `NightDayMode`/`IrisControl` enums are removed. `InquiryData::Version { info }` and `InquiryData::TallyStatus { state }` carry those structs instead of repeating their fields. |
-| `SetMotionSyncPreset::new(u8)?`, `SetMotionSyncPreset::from_preset`, `MotionSyncSpeed::from_preset`, and the `motion_sync().set_preset(u8)` accessor | `motion_sync().set_speed(MotionSyncSpeed)`; `SetMotionSyncPreset::new(MotionSyncSpeed)` and `speed() -> MotionSyncSpeed`. `MotionSyncSpeed::new(u8)?` owns the `1..=24` range and `MotionSyncSpeed::from(MotionSyncPreset)` is the one preset mapping. |
+| `SetMotionSyncPreset::new(u8)?`, `SetMotionSyncPreset::from_preset`, `MotionSyncSpeed::from_preset`, and the `set_motion_sync_preset_speed(MotionSyncPreset)` camera method | `motion_sync().set_speed(MotionSyncSpeed)`; `SetMotionSyncPreset::new(MotionSyncSpeed)` and `speed() -> MotionSyncSpeed`. `MotionSyncSpeed::new(u8)?` owns the `1..=24` range and `MotionSyncSpeed::from(MotionSyncPreset)` is the one preset mapping. |
 | `ShutterSpeed::try_from(Fraction)` | `capabilities.shutter_speed_for(fraction)?`: shutter codes are camera-specific, and the removed table matched no built-in profile. `ShutterSpeed` wraps the `0p 0q` field's byte: `ShutterSpeed::new(u8)` is infallible and `value()` returns `u8`; the profile's table decides which codes a camera accepts. |
 | `Fraction { numerator, denominator }` literals and `Fraction::new(n, d)` returning `Self` | `Fraction::new(n, d)` returns `Option<Fraction>` (`None` for a zero denominator) in lowest terms, so `==` is value equality; read it with `numerator()`/`denominator()`. Its text and serde form is `"1/60"`. |
-| `capabilities::ShutterSpeed { label, value }`, `RuntimeShutterSpeed { label, value }`, and `ExposureExt::find_shutter_speed` | One `capabilities::ShutterSpeedEntry { exposure: Fraction, value }` for both `Exposure::SHUTTER_SPEEDS` and `Capabilities::shutter_speeds`. Look codes up with `Capabilities::shutter_speed_for`; `find_shutter_speed`'s nearest-code guess is removed. |
+| `capabilities::ShutterSpeed { label, value }` and `ExposureExt::find_shutter_speed` | One `capabilities::ShutterSpeedEntry { exposure: Fraction, value }` for both `Exposure::SHUTTER_SPEEDS` and `Capabilities::shutter_speeds`. Look codes up with `Capabilities::shutter_speed_for`; `find_shutter_speed`'s nearest-code guess is removed. |
 | `ColorTemp::try_from(Kelvin(k))` (a second, `2000..=8000` K formula) | Unchanged call; it is now `ColorTemp::from_kelvin(k)` (`2500..=8000` K, nearest 100 K step, `ParameterOutOfRange` outside). `3200` K encodes `0x07`, not `0x0B`. |
 | `From<Raw<_>>` for speed and level wrappers (silently clamped to `MIN`, #828) | `T::try_from(Raw(value))?`, which rejects a value outside the type's domain. |
-| `PanTiltExt::degrees_to_{pan,tilt}_units(degrees) -> i32` (truncating) | `-> Option<i32>`, rounded like request preparation (`10.05°` on a G2 is `145`, not `144`); `None` for non-finite input. |
+| `PanTiltExt::degrees_to_{pan,tilt}_units(degrees) -> i16` (truncating) | `-> Option<i32>`, rounded like request preparation (`10.05°` on a G2 is `145`, not `144`); `None` for non-finite input. |
 | `Zoom::ZOOM_MAGNIFICATION_TO_UNITS`, `Capabilities::zoom_magnification_to_units`, `{magnification_to_zoom_units, zoom_units_to_magnification, max_optical_zoom, max_combined_zoom}` on `Capabilities` and `ZoomExt` | `Zoom::OPTICAL_ZOOM_RATIO` / `Capabilities::optical_zoom_ratio` (`Option<f32>`) and one `capabilities::ZoomScale` (`units(magnification)`, `magnification(units)`), from `caps.zoom_scale()?` or, for a profile that spans several lenses such as the PTZOptics G2 family, `caps.zoom_scale_for_lens(20.0)?` for the installed 20x lens; `zoom_scale()` on such a profile fails with an error naming `zoom_scale_for_lens`. Only `PtzOptics30X` (30x, R3) fixes its lens; the old scales could not reach the nominal ratio (PT30X: `29 × 565 > 0x4000`). Digital magnification has no sourced scale and is rejected. |
-| `camera::PanTiltPosition::as_degrees_with_profile` returning `(f64, f64)` | Returns `PanTiltPositionDeg`. |
 | `types::{PanPosition, TiltPosition}`, `PanTilt::{AbsolutePositionRaw, RelativePositionRaw, LimitSetRaw}` | `PanTilt::{AbsolutePosition, RelativePosition, LimitSet}` take the raw `i16` wire words directly (an unsigned-centered word `w` is `w as i16`); the value types restated PTZOptics G2 ranges as if they were protocol limits. Profile-aware requests take `Degrees`. |
 | `units::Magnification<T>` | Removed; it had no consumer. `ZoomScale::units(f32)` and `ZoomScale::magnification(u16) -> Option<f32>` name the quantity in the method. |
 | `ExposureExt::fstop_to_iris_units` | Removed (#828): an uncalibrated placeholder that returned the minimum iris for `NaN`. Use `FStop` → `IrisLevel` and the profile's `iris_range`. |
 | `camera::profiles::{G2Gain, G2PresetId}` | Removed. `G2Gain` offered 24 dB, which the G2 profile rejects; use `GainLevel` and `PresetNumber` with the profile's `gain_range`/preset count. |
-| `Capabilities::{supports_hue, has_gamma, has_luminance, has_color_temp, has_rgb_gain, has_noise_reduction}` and `ImageProcessing::{SUPPORTS_HUE, SUPPORTS_GAMMA, SUPPORTS_LUMINANCE, SUPPORTS_NOISE_REDUCTION}`, `WhiteBalance::{SUPPORTS_COLOR_TEMP, SUPPORTS_RGB_GAIN}` (#818) | Removed. The range is the fact: `hue_range`, `gamma_range`, `luminance_range`, `color_temp_range` `.is_some()`; manual RGB gain is `red_gain_range` and `blue_gain_range` both `Some`; noise reduction is `has_2d_nr \|\| has_3d_nr`. |
-| `Capabilities::{has_iris_control, has_digital_zoom, has_focus_zone, has_exposure_comp, exposure_comp_profile_range}`, `Focus::SUPPORTS_FOCUS_ZONE`, `Exposure::SUPPORTS_EXPOSURE_COMP` | Removed. Use `iris_range.is_some()`, `zoom_range_digital.is_some()`, `!focus_zones.is_empty()` (`Focus::FOCUS_ZONES` defaults to empty) and `exposure_comp_range` (`Exposure::EXPOSURE_COMP_RANGE: Option<CapabilityRange<i8>>`, default `None`). |
+| `Capabilities::{has_gamma, has_luminance, has_color_temp, has_rgb_gain, has_noise_reduction}` and `ImageProcessing::{SUPPORTS_HUE, SUPPORTS_GAMMA, SUPPORTS_LUMINANCE, SUPPORTS_NOISE_REDUCTION}`, `WhiteBalance::{SUPPORTS_COLOR_TEMP, SUPPORTS_RGB_GAIN}` (#818) | Removed. The range is the fact: `hue_range`, `gamma_range`, `luminance_range`, `color_temp_range` `.is_some()`; manual RGB gain is `red_gain_range` and `blue_gain_range` both `Some`; noise reduction is `has_2d_nr \|\| has_3d_nr`. |
+| `Capabilities::{has_iris_control, has_digital_zoom, has_focus_zone, has_exposure_comp}`, `Focus::SUPPORTS_FOCUS_ZONE`, `Exposure::SUPPORTS_EXPOSURE_COMP` | Removed. Use `iris_range.is_some()`, `zoom_range_digital.is_some()`, `!focus_zones.is_empty()` (`Focus::FOCUS_ZONES` defaults to empty) and `exposure_comp_range` (`Exposure::EXPOSURE_COMP_RANGE: Option<CapabilityRange<i8>>`, default `None`). |
 | `Presets::PRESET_SPEED_RANGE: CapabilityRange<u8>`, `Capabilities::preset_speed_range: RangeInclusive<u8>` | `Option<..>`: `None` when the model documents no preset recall speed (EVI-H100, Generic VISCA). |
-| `Capabilities::{has_motion_sync, max_motion_sync_speed, max_motion_sync_speed_profile}`, `MotionSyncMetadata::{SUPPORTS_MOTION_SYNC, MAX_MOTION_SYNC_SPEED}` | One fact: `MotionSyncMetadata::MOTION_SYNC_SPEED_RANGE: Option<CapabilityRange<u8>>` and `Capabilities::motion_sync_speed_range: Option<RangeInclusive<u8>>`. `None` means no motion sync; `Some(range)` bounds every typed motion-sync speed and must lie in `MotionSyncSpeed`'s `1..=24`. Replace `has_motion_sync` with `motion_sync_speed_range.is_some()`. No built-in profile documents motion sync. |
-| `Capabilities::{default_tcp_port, default_udp_port}`, `SupportsTcp::DEFAULT_TCP_PORT`, `SupportsUdp::DEFAULT_UDP_PORT`, `ProfileMetadata::POSITION_INQUIRY_SUPPORT` (#822) | Removed. Ports are `ProfileSpec::transports()` / `CompileTimeProfile::TRANSPORTS` (`CameraConfig::tcp`/`udp` resolve through it and fail to build for a profile that implements `SupportsTcp`/`SupportsUdp` without the port); position inquiries are `CompileTimeProfile::POSITION_INQUIRIES`. |
+| `Capabilities::{has_motion_sync, max_motion_sync_speed}`, `MotionSyncMetadata::{SUPPORTS_MOTION_SYNC, MAX_MOTION_SYNC_SPEED}` | One fact: `MotionSyncMetadata::MOTION_SYNC_SPEED_RANGE: Option<CapabilityRange<u8>>` and `Capabilities::motion_sync_speed_range: Option<RangeInclusive<u8>>`. `None` means no motion sync; `Some(range)` bounds every typed motion-sync speed and must lie in `MotionSyncSpeed`'s `1..=24`. Replace `has_motion_sync` with `motion_sync_speed_range.is_some()`. No built-in profile documents motion sync. |
+| `Capabilities::{default_tcp_port, default_udp_port}`, `SupportsTcp::DEFAULT_TCP_PORT`, `SupportsUdp::DEFAULT_UDP_PORT` (#822) | Removed. Ports are `ProfileSpec::transports()` / `CompileTimeProfile::TRANSPORTS` (`CameraConfig::tcp`/`udp` resolve through it and fail to build for a profile that implements `SupportsTcp`/`SupportsUdp` without the port). |
 | `PanTiltExt::validate_{pan,tilt}_speed`, `ZoomExt::validate_zoom_speed`, `FocusExt::validate_focus_speed` returning a clamped `u8` (#823) | Return `Result<u8, ValidationError>` and reject an out-of-range speed, as request validation does. `CapabilityRange::clamp` is removed; `CapabilityRange::validate` is the shared range check. |
-| `Error::InvalidPreset { preset, max }` and `Error::invalid_preset` | Removed; nothing produced it. An out-of-profile preset number is `Error::ParameterOutOfRange` with the profile's `0..=highest_preset` bounds. |
-| `Error::DecoderNotFound { inquiry_kind, payload_hex }` and `Error::decoder_not_found` | Removed; nothing produces it. A reply of the wrong length is `Error::InvalidResponseLength` for every inquiry and framing. |
-| A `retry_timing` override shorter than the profile's bounds, or a `retry_limit` above 3 | Rejected by `validate_tuning`: retry timing may only lengthen and the retry count may only shrink (#828). |
+| `Error::InvalidPreset { preset, max }`, returned by `G2PresetId::new` | Removed with `G2PresetId`. An out-of-profile preset number is `Error::ParameterOutOfRange` with the profile's `0..=highest_preset` bounds. |
+| `retry_config(RetryConfig)` with any `max_retries` and retry delays | `OperationalTuning::retry_limit` / `retry_timing`, which `validate_tuning` accepts only when they make retries more conservative: the retry count may only shrink below the default 3, and the backoff and budget may only lengthen beyond the profile's bounds (#828). |
 | `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` over TCP or UDP | Serial only: their manuals document RS-232C/RS-422 VISCA and no IP transport. |
 | `Presets::MAX_PRESETS`, `Capabilities::max_presets` (documented as a count, used as the highest index) | `Presets::HIGHEST_PRESET` and `Capabilities::highest_preset`: the highest preset memory number, so presets are `0..=highest_preset` and `0` is one preset (a runtime profile with `has_presets` and `highest_preset: 0` now builds). The registry field is `presets: { highest: N, .. }`. |
 | Highest preset number of `SonyEVIH100` 6, `GenericVisca` 6, `NearusBRC300` 16 | 5 for all three: R8 and R21 document `CAM_Memory` p = 0 to 5, and Generic VISCA keeps what R8, R12 and R21 share. Presets 6 and above are refused with `ParameterOutOfRange`. |
@@ -922,10 +895,8 @@ Retained public protocol values also changed shape:
 | `SonyFR7` and `SonyBRCH900` accepted typed `ShutterSpeed` positions | Refused before any I/O: their shutter tables could not be read (a known unverified fact, not a claim that the cameras lack shutter control); send the shutter command as a `raw::Plain` request. |
 | `ExposureExt::validate_iris` reported a profile without iris as `ValidationError::NotSupported("Iris control")` | `NotSupported("iris")`, the same label request validation uses; a position in the profile's iris table gap is `InvalidValue`. |
 | `ProfileGroup::{supports_tcp, supports_udp, supports_serial, uses_sony_encapsulation, inquiry_support}` were declared per group | Derived from the members: a transport or encapsulation is reported only when every member has it, and `inquiry_support` is the weakest member's. `ProfileGroup::GenericVisca` therefore reports no TCP or UDP, because `SonyBRC300`, `SonyEVIH100` and `NearusBRC300` are serial-only; ask the `ProfileId` (`supports_tcp()` and friends) for one profile. |
-| Positive tilt degrees were down on `SonyBRC300` and `NearusBRC300` (and documented as down for every profile) | Positive tilt is up for every profile, as positive pan is right. The BRC-300 family's tilt scale is now `+208` units per degree, so raw `493D` (up) is about +90° and the sign of every BRC-300/Nearus tilt in degrees flips: negate stored tilt angles and degree-based limits. Raw `i32` positions and other profiles are unchanged. |
+| `SonyBRC300`/`NearusBRC300` converted degrees at 13 units per degree on both axes, within a `±390` tilt range | Their geometry follows R12/R21: about 208 units (`0xD0`) per degree, positive tilt up (raw `493D` is about +90°) and raw pan reversed (`08A58` is left), as positive pan is right and positive tilt up on every profile. Recompute stored degree values and degree-based limits from raw positions. |
 | `SonyBRC300`/`NearusBRC300` optical zoom maximum `0x1068`, no digital zoom, no one-push focus | Optical `0x0000..=0x4000` (x12) and optical-plus-digital `0x4000..=0x7F00` (x4), per R12/R21. Normalized optical zoom `1.0` now sends `0x4000`, so normalized positions computed against the old maximum move further; both profiles implement `HasDigitalZoomToggle`, `HasDigitalZoomRange` and `HasOnePushFocus`. |
-| `noise_reduction_2d_mode()` required `HasNoiseReduction2D` and `set_noise_reduction_2d_mode` required `HasNoiseReduction2DControl` | Both require `HasNoiseReduction2DMode` (`TypedSupportSurface::NoiseReduction2DMode`, tag `noise-reduction2-d-mode`); the 2D markers now cover the `04 53` level only. The PTZOptics profiles carry all three; `SonyEVIH100` carries the 2D level pair without the mode. Generic code that calls the mode methods adds the bound; a runtime profile that sets the mode lists the surface. |
-| A runtime profile could grant `PtzOpticsPresetRecallSpeed` without a preset speed range and fail every recall-speed request | `ProfileSpecBuilder::build` rejects the grant: the surface's metadata requires `preset_speed_range`. |
 
 Serialization features (`serde`, `schemars`, `ts-rs`) remain opt-in data-shape
 features. They do not reopen private modules or create a second semantic
@@ -944,7 +915,7 @@ invalid wrapper.
 so every checked newtype, including the crate's own value types, has the same
 constructor, bounds, accessor and error contract:
 
-| Earlier RC | 2.0 |
+| 1.x | 2.0 |
 | --- | --- |
 | `visca_range_type!` `MIN`/`MAX` typed as the inner integer | `MIN`/`MAX` are `Self`; read the raw bound with `T::MIN.value()`. |
 | `visca_range_type!` `value(&self)` | `pub const fn value(self)`, usable in `const` items and as `T::value` in iterator adapters. |
@@ -964,42 +935,13 @@ constructor, bounds, accessor and error contract:
 | `ViscaEnum` discriminants accepted suffixed literals and byte literals | Discriminants are unsuffixed integer literals in `0..=255`. |
 | `#[visca_enum(exhaustive = ...)]` was parsed and ignored | Rejected as an unknown key; generated conversions always cover every variant. |
 
-#### Persisted `ProfileSpec` values from earlier releases (#795, #807, #808)
-
-`ProfileSpec` deserialization requires every current field and validates the
-result; no older shape is upgraded. A spec saved by 2.0.0-rc.3 or earlier
-lacks `capabilities.focus_zones` and `capabilities.optical_zoom_ratio`, and its
-shutter entries carry a `label` string instead of an `exposure` fraction, so
-it fails to deserialize. The error names the first missing field and the fix,
-for example:
-
-```text
-missing field `exposure` at line 112 column 5; the spec was saved by another release, so regenerate it with `ProfileSpec::from_compile_time::<P>()` for a built-in profile (or rebuild a custom profile with `ProfileSpec::builder`) and persist the result
-```
-
-Regenerate each stored built-in spec from the current registry and persist the
-new value:
-
-```rust,ignore
-use grafton_visca::{profiles::SonyFR7, ProfileSpec};
-
-let spec = ProfileSpec::from_compile_time::<SonyFR7>()?;
-let json = serde_json::to_string(&spec)?; // replace the stored value
-```
-
-Rebuild a custom runtime profile with `ProfileSpec::builder`. A spec in the
-current shape whose `capabilities.profile_id` names a built-in profile must
-still match the current registry exactly; a stale typed-support set is refused
-with `Error::InvalidRequest` naming the profile, the differing surfaces, and
-the `from_compile_time` constructor that regenerates it.
-
 #### Command encoding and inquiry decoding (#809–#812, #828)
 
 Every built-in command and inquiry writes its frame through one frame writer,
 and every inquiry reply decodes through the generated table, so the same
 malformed reply now fails the same way on every inquiry and profile:
 
-| Earlier RC | 2.0 |
+| 1.x | 2.0 |
 | --- | --- |
 | An unknown code byte in an inquiry reply (exposure mode, white-balance mode, focus zone, flip mode, an on/off byte, ...) returned `Error::InvalidParameter` from some inquiries and `Error::InvalidResponse` from others | Always `Error::InvalidResponse { expected, actual }`, with `actual` the offending byte. A camera reply outside its code set is a protocol error, not a caller error. Numeric values outside a value type's range are still `ParameterOutOfRange`. |
 | A padded reply (`00 00 0p 0q`, `00 00 00 0p`) with nonzero padding decoded after silently dropping the leading nibbles (a sharpness position of `00 01 00 05` read as `5`) | `Error::InvalidResponseFormat`. Contrast and luminance replies now keep both `0p 0q` digits, as the reference documents. |
@@ -1007,21 +949,20 @@ malformed reply now fails the same way on every inquiry and profile:
 | `InquiryData::FlipState { horizontal, vertical }` | `InquiryData::FlipState { state }`, carrying `FlipState` as `Version` and `TallyStatus` do. `FlipState::from(ImageFlipMode)` converts a combined flip mode. |
 | `InquiryData::SharpnessPosition { position: u16 }` and `InquiryData::Brightness { position: u16 }` | `position: u8`: both replies are `00 00 0p 0q`. `BrightnessLevel` is unchanged; the typed accessor still returns it. |
 | The gain inquiry decoded only the last nibble of `00 00 0p 0q` | Both digits: `InquiryData::Gain::gain` is `pq`, and a value above `GainLevel`'s `0x0F` is the typed accessor's `ParameterOutOfRange` instead of being truncated. |
-| A malformed Sony BRC-300 pan/tilt reply returned `Error::DecoderNotFound`, and a profile pairing BRC-300 framing with unsigned-centered coordinates failed each decode with `InvalidRequest` | The wrong length is `Error::InvalidResponseLength`, as for every other framing, and `Error::DecoderNotFound` is removed. The coordinate mismatch can no longer reach a request or a reply: `ProfileSpecBuilder::build`, `ProfileSpec` and `PanTiltCoordinateConversion` deserialization reject it with the profile-field error `InvalidRequest` naming `pan_tilt_coordinates`, and a compile-time profile that declares it fails to build at `PanTiltCoordinateConversion::for_profile`. |
+| A pan/tilt position reply of the wrong length returned `Error::DecoderNotFound { inquiry_kind, payload_hex }` | `Error::InvalidResponseLength`, as for every other inquiry and framing; `Error::DecoderNotFound` is removed. A profile that pairs BRC-300 framing with unsigned-centered coordinates is rejected where it is built: `ProfileSpecBuilder::build`, `ProfileSpec` and `PanTiltCoordinateConversion` deserialization reject it with the profile-field error `InvalidRequest` naming `pan_tilt_coordinates`, and a compile-time profile that declares it fails to build at `PanTiltCoordinateConversion::for_profile`. |
 | `AutoWhiteBalanceSensitivity::to_command_byte()` | `u8::from(sensitivity)`; the enum derives `ViscaEnum`, so `TryFrom<u8>` decodes it. `Flip` and `ImageFlipMode` derive `ViscaEnum` too. |
 | Unit commands (`PowerOn`, `TallyRedOn`, `SpotlightOn`, ...) had hand-written `new()`/`Default` | `visca_command!` generates `#[derive(Default)]` and a `const fn new()` for every unit command, including commands a downstream crate declares with it; delete a downstream unit command's own `new`/`Default`. |
 | `visca_command!` took `bytes = [..]` / `prefix = [..]` literal lists only | Either form takes any `[u8; N]` expression, so a body can be a named constant. Bodies never include the camera address byte. |
 
 ### Transport defaults, connect errors and serial startup (#797–#800, #828)
 
-These changes land between 2.0 release candidates; each is breaking for code
-that relied on the previous behaviour.
+Each of these is breaking for code that relied on the 1.x behaviour.
 
 **One set of per-transport defaults.** `TransportConfig::for_tcp()`,
 `for_udp()` and `for_serial()` are the defaults every built-in entry point
 uses. Start from the matching constructor to change a field:
 
-| Before | Now |
+| 1.x | 2.0 |
 | --- | --- |
 | `Transport::tcp()` / `udp()` limited replies to 128 bytes | 256 bytes (TCP) and 1024 bytes (UDP), as every other entry point |
 | `CameraConfig::transport_config(c)` replaced a `BufferConfig::default()` buffer with the transport preset | the supplied configuration is used as given; pass `TransportConfig::for_tcp()` (or `for_udp`, `for_serial`) as the base |
@@ -1035,12 +976,11 @@ size of one read, and must be at least `BufferConfig::MIN_RECV_BUFFER_SIZE`
 (24 bytes); `max_buffer_size` bounds stream input carried between reads
 (see `docs/observability_and_recovery.md`). An unrepresentable timeout is now
 `Error::InvalidParameter` naming the field (`"read_timeout"`, ...) both in
-validation and at runtime, replacing `InvalidRequest("... exceeds the
-monotonic clock range")`.
+validation and at runtime.
 
 **Connect errors are the same on every facade.**
 
-| Failure | Before | Now (blocking, Tokio, smol) |
+| Failure | 1.x | 2.0 (blocking, Tokio, smol) |
 | --- | --- | --- |
 | Host name does not resolve | `InvalidAddress` (blocking), `Io` (async) | `InvalidAddress { reason: "Failed to resolve '<host:port>': ..." }` |
 | Every resolved address refuses | `Io` | `ConnectionFailed { addr: "<host:port>", .. }` |
@@ -1110,16 +1050,13 @@ fields map directly to the corresponding tuning methods:
 | *(no 1.x field)* | `settlement_timeout` for the profile-selected protocol-settlement budget; `inquiry_timeout` is the profile inquiry-response deadline (a new dedicated field whose default differs from 1.x — see the note below) |
 | `RetryConfig::max_retries`, `base_retry_delay`, `max_retry_duration` | `retry_limit` and `retry_timing` |
 
-Two profile deadlines changed value relative to 1.x, and both are interim
-figures pending a hardware-measurement pass:
+Two profile deadlines are interim figures pending a hardware-measurement
+pass:
 
-- **Acknowledgement (`ack_timeout`).** 1.x's `TimeoutConfig` default was 500 ms,
-  and that was the deadline every 1.x profile actually scheduled under. The
-  2.0-preview built-in profiles briefly tightened this to 100 ms (150 ms and
-  200 ms on two Sony profiles); every built-in profile is now restored to the
-  1.x **500 ms** default. An operational override may only widen a profile
-  deadline, so an `ack_timeout` below 500 ms is now rejected where the tighter
-  preview default would have accepted it.
+- **Acknowledgement (`ack_timeout`).** Every built-in profile keeps the 1.x
+  `TimeoutConfig` default of **500 ms**, the deadline every 1.x profile
+  scheduled under. An operational override may only widen a profile
+  deadline, so an `ack_timeout` below 500 ms is rejected.
 - **Inquiry response (`inquiry_timeout`).** 1.x inquiries had no dedicated
   deadline and used the 5 s `Quick` category budget. 2.0 gives inquiries their
   own deadline, defaulting to **1 s** on every built-in profile — the one
@@ -1268,34 +1205,6 @@ silence during the sampled interval; the application owns the number of
 unanswered heartbeats or wall-clock duration that triggers replacement. The
 library sends no background heartbeat.
 
-**Behavior change (issue #713).** A partial raw response straddling a
-correlation-release boundary no longer consumes an implementation-specific
-poll-count budget or poisons merely because its tail is late. Both facades wait
-for the same engine-owned grace (at most 100 ms and never longer than the
-configured read timeout), then discard and diagnose an orphaned prefix while
-leaving the session usable. `StreamPoisoned` remains reserved for an
-unrecoverable stream position, such as overflow or a failed discard.
-
-**Behavior change (issue #712).** A matched raw inquiry reply now releases its
-single-flight lane immediately; it no longer installs the profile's one-second
-pre-ACK ambiguity hold or delays an urgent stop. Only inquiry timeout, terminal
-error, or retry release can retain a late reply. That remaining hold uses the
-new `ProfileTiming::raw_inquiry_reply_skew` fact (required by
-`ProfileTimingBuilder`, defaulted by compile-time profiles to no more than their
-minimum inquiry spacing) and blocks only another inquiry for the same target.
-ACK-bearing commands remain eligible. An inquiry also no longer starts the
-urgent command-spacing clock, while consecutive commands and cancellations
-still honor physical command pacing.
-
-**Behavior change (issue #714).** A raw predecessor whose ACK was lost remains
-quarantined only to its known ambiguity deadline. Ordinary work queues to that
-bounded correlation release on both facades. An intrinsically `Urgent` stop
-takes the safety-lane exception immediately (subject to command pacing and
-actual socket capacity). While the predecessor and stop are both
-open, unsequenced ACK/error traffic is ambiguous and binds to neither. Treat a
-later `UnsequencedCommandUnconfirmed` from either handle as uncertainty about
-the reply, not evidence that the urgent stop failed to reach the camera.
-
 A fatal receive closure is normalized to `ConnectionClosed`, with the
 underlying transport error's text retained in its reason. `StreamPoisoned` is
 reserved for a stream whose framing or write position became unknowable (for
@@ -1309,20 +1218,18 @@ session as `ConnectionClosed` with the last cause retained; a successful read
 or a five-second gap between faults resets the run, and an idle read does
 not reset it.
 
-**Behavior change (issue #671).** In an earlier 2.0 preview an unconfirmable raw
-command poisoned the whole session and `UnsequencedCommandUnconfirmed` mapped to
-`true`. It now fails only that one command on a still-live session, so it maps to
-`false`: reconcile that command's camera effect (never blindly replay it — it may
-already have acted on the camera) and keep using the session for unrelated work.
-A raw caller should therefore keep the session alive and reconcile before any
-deliberate resubmission. If you preferred the old hard-fail behavior, opt into
-`SessionConfig::with_strict_unconfirmed_poison(true)` (or the matching
-`CameraConfig` builder), which poisons the session and reports
-`StreamPoisoned` (`true`) exactly as before.
+**Unconfirmable raw commands (issue #671).** An unconfirmable raw command
+fails only that one command, with `UnsequencedCommandUnconfirmed`, on a
+still-live session, so `requires_new_session()` is `false`: reconcile that
+command's camera effect (never blindly replay it — it may already have acted
+on the camera) and keep using the session for unrelated work. If you prefer a
+hard failure, opt into `SessionConfig::with_strict_unconfirmed_poison(true)`
+(or the matching `CameraConfig` builder), which poisons the session and
+reports `StreamPoisoned` (`true`).
 
 **Behavior change (issue #675).** `read_timeout` and `write_timeout` now take
-effect on async sessions. In an earlier 2.0 preview both knobs were silently
-ignored on every async transport (only the blocking sockets applied them), so an
+effect on async sessions. In 1.x both knobs were silently ignored on every
+async transport (only the blocking sockets applied them), so an
 async read or write could block indefinitely. The async owner now bounds each
 one: a read that outlasts `read_timeout` is treated as an idle no-data receive
 (nothing consumed, no request penalized), and a write that outlasts

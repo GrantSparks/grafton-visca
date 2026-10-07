@@ -230,10 +230,12 @@ generated from them:
 2. **Wire encoder** (`src/command/<domain>.rs`): the request type and its
    `WireEncode` implementation, written through `FrameWriter`.
 3. **Request entry** (`src/request/builtin.rs`): one `builtin_request!` entry
-   names the request type's ledger row and its policy; its encoded size is
-   measured from the encoder. Add the per-value checks to its
-   `BuiltinValidation` implementation; a typed capability gate comes from the
-   ledger row through `validate_static_typed_command`.
+   names the request type's ledger row and its policy. Each entry still gives
+   an explicit `size:`, the `MAX_SIZE` allocation bound for the request's
+   longest frame, while the exact encoded length is measured from the encoder.
+   Add the per-value checks to its `BuiltinValidation` implementation; a typed
+   capability gate comes from the ledger row through
+   `validate_static_typed_command`.
 4. **Noun row** (`src/noun_table.rs`): one row under the owning `@noun` header
    gives the method name, arguments, rustdoc, capability `where` marker and
    request. The blocking, async and `Dyn*` methods, the static surface entry
@@ -394,41 +396,61 @@ commit.
 
 ## Documentation
 
-For 2.0 release-candidate work, update the Unreleased section of `CHANGELOG.md` in the
-same change as the implementation. If behavior, setup, examples, or contributor
-workflow changes, update the matching README, example, or contributor docs
-before closing the task. `submit` examples must distinguish lifecycle management
-from profile-aware input validation and applied completion from physical settling.
+For 2.0 work, update the Unreleased section of `CHANGELOG.md` in the same
+change as the implementation. The changelog records what changed between
+published versions, and Unreleased states the net change since the last
+published version (the newest `v<version>` tag), not the history of how it was
+reached: when a change revises an item that Unreleased already describes,
+rewrite that entry to state the net result instead of adding another. If
+behavior, setup, examples, or contributor workflow changes, update the matching
+README, example, or contributor docs before closing the task. `submit` examples
+must distinguish lifecycle management from profile-aware input validation and
+applied completion from physical settling.
 
 ### Changelog discipline for reversals and waivers
 
 A decision must not reuse the issue number of the finding it reverses. When a
-change reverts or supersedes earlier behavior — an earlier 2.0 preview decision
-or a prior review verdict included — it gets its own `### Changed` or
-`### Removed` entry in `CHANGELOG.md` that names the superseded finding by its
-issue number, plus a migration-guide row wherever a 1.x or prior user would feel
-it. Rewriting the original entry in place, or filing the reversal under the same
-issue number, hides the reversal from the record and is not allowed.
+change reverts or supersedes behavior that a published version shipped — a
+prior review verdict included — it gets its own `### Changed` or `### Removed`
+entry under Unreleased that names the superseded finding by its issue number.
+Reversing a decision made after the last published version needs no record of
+its own: rewrite or drop the Unreleased entry so that it states only the net
+change from the published version. An item added and removed again before the
+next publication, or an internal fix of a regression that never shipped, gets
+no entry.
+
+`docs/migration_2_0.md` records the differences between 1.2 and 2.0 only. Add
+or update a row there wherever a 1.x user would feel a change; do not add rows
+or notes for differences between 2.0 prereleases, and do not describe an API
+that did not exist in 1.2 as a migration source.
 
 The `release-validation` CI job enforces four parts of this record mechanically:
 
-- Text outside the top `## [Unreleased]` body is byte-for-byte immutable
-  relative to the pull request's merge base, except for a release cut that
-  moves the prior Unreleased lines in order into one new strict dated section
-  below an otherwise empty Unreleased heading. Every pre-existing released
-  section remains byte-for-byte immutable. Correct an old statement with a
-  dated superseding entry under Unreleased; do not edit the released entry.
+- Every published release section is byte-for-byte immutable relative to the
+  pull request's merge base. A release is published once its `v<version>` tag
+  exists; a section below a published one counts as published even without a
+  tag. Only the top `## [Unreleased]` body and dated sections above the newest
+  published one that have no tag (prepared but never published) may change,
+  and such an untagged section may be folded back into Unreleased. A release
+  cut that moves the prior Unreleased lines in order into one new strict dated
+  section below an otherwise empty Unreleased heading is also accepted, but
+  only once no unpublished section remains below it: fold those first. Each
+  version has exactly one dated heading.
+  Correct a published statement with an entry under Unreleased; do not edit the
+  published entry. The validator needs the release tags, so run it from a
+  full-history checkout with tags; it fails rather than guess when none are
+  present.
 - A change to `api/2.0.0-rc.1/*.txt` must include a `CHANGELOG.md` change in the
   same pull request.
 - Every top-level Unreleased bullet carrying the exact `**BREAKING**` label must
-  include an issue reference in the form `(#NNN)`.
+  include an issue reference in the form `(#NNN)` or `(#NNN, #MMM)`.
 - Every new commit that touches `src/` must have a non-empty explanatory body,
   not only a subject. The policy-boundary files under `.github/` bootstrap the
   repaired historical text and grandfather the already-audited PR #559 commit
   ledger; they must not be advanced to excuse later changes.
 
-From a full-history checkout, run the validator and its four deliberate-failure
-fixtures with:
+From a full-history checkout, run the validator and its deliberate-failure and
+acceptance fixtures with:
 
 ```bash
 python3 .github/scripts/validate-change-record.py "$(git merge-base HEAD origin/main)" HEAD
@@ -437,11 +459,11 @@ bash .github/scripts/test-validate-change-record.sh
 
 When a change alters observable protocol behavior, add or update a direct
 regression or wire/decode golden in the production owner, engine, or parser
-path, and record the caller-visible consequence in `docs/migration_2_0.md` and
-`CHANGELOG.md`. Review the new behavior against the implementation and its
-tests directly; do not preserve a behavior merely because an earlier release
-had it if that would make correlation, framing, cancellation, or physical
-safety less certain.
+path, and record the caller-visible consequence in `CHANGELOG.md`, and in
+`docs/migration_2_0.md` when it differs from 1.2. Review the new behavior
+against the implementation and its tests directly; do not preserve a behavior
+merely because an earlier release had it if that would make correlation,
+framing, cancellation, or physical safety less certain.
 
 ### Code Documentation
 

@@ -7,10 +7,164 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Physical-camera verification remains pending; the hardware release checklist
+records the representative scenarios required before a stable release (#753).
+
 ### Changed
 
-- **BREAKING (#804, #828): every transport receive reports a
-  `ReceiveOutcome`.** `AsyncTransport::recv_into` is the one required async
+- **BREAKING** (#788): Freeze extensible public configuration, diagnostic, error and
+  transport payloads with `#[non_exhaustive]`; expose narrow constructors for
+  external adapters and parsers. Use constructors or Default plus field
+  assignments, partial named patterns (`..`), and wildcard registry matches.
+  Fixed wire/value records and command payloads remain exhaustive. `ViscaEnum`
+  error types named `Error` now use the `invalid_response` constructor convention
+  while other custom error types retain `From<String>`.
+- **BREAKING** (#779): `stop_all_motion()` returns `HaltReport` with an
+  independent result for each supported axis. One owner halt fences older
+  declared queued motion and retries, then admits STOPs under one end-to-end
+  deadline while respecting protocol gates. Motion the fence suppresses fails
+  with the new `Error::MotionSuperseded { axes, context }`, whose
+  `FailureContext` is `NotAccepted` when the superseded motion was never
+  written and `Unconfirmed` only when an earlier attempt may have taken effect
+  (#795). Custom plain/raw commands can declare their motion axes without
+  gaining STOP priority (D21).
+- **BREAKING** (#782): targeted `settled*` waits return `Settlement`
+  evidence (D23, revising #542's settlement contract). Stable-sample evidence reports
+  its axes, window, and tolerance; it does not prove arrival at an endpoint. A
+  later conflicting admission supersedes an unfinished polled observation with
+  the new `Error::SettlementSuperseded`. A polling failure is the new
+  `Error::SettlementObservationFailed`, which retains the inquiry cause while
+  reporting `Observation/Unconfirmed` for the applied move, so it cannot
+  authorize replay of that move (#783). Established cached evidence and exact
+  profile-declared completion remain valid.
+- **BREAKING** (#781, #813, #815, #816, #828): motion observation has one
+  shape on every facade. `motion().is_moving(MotionQuery)` replaces the
+  no-argument `is_moving` and `is_moving_axes` on the blocking, async and
+  `Dyn*` surfaces; `MotionQuery::default()` is the former no-argument form.
+  `BlockingDynSessionCamera::{stop_all_motion, is_moving, wait_until_idle}` are
+  replaced by `motion()`, which returns the same `blocking::MotionAccessor` a
+  typed blocking camera returns, and `blocking::MotionAccessor` and the async
+  `MotionAccessor` lose their profile type parameter (`MotionAccessor<'_>`).
+  `is_moving` observes over an explicit window instead of comparing two
+  back-to-back snapshots: `MotionQuery` gains a public `window` field (default
+  `MotionQuery::DEFAULT_WINDOW`, 100 ms) and `with_window`, and the second
+  snapshot starts only once that window has elapsed on the owner clock after
+  the first was received, so `false` means "no movement detected over at least
+  `window`". A zero window is rejected with `Error::InvalidParameter` before
+  any inquiry. The single observation deadline covers the window plus the
+  30 s inquiry budget, and a window that cannot elapse before it returns
+  `Error::Timeout` rather than `false`. Each call takes at least `window`.
+  `MotionQuery` and `IdleWait` are `#[non_exhaustive]` (D22, D27): their
+  fields stay readable, but they are built with `new`, `Default`, `From`, the
+  `for_*` presets and the `with_*` methods instead of struct literals.
+  `wait_until_idle` behavior is unchanged.
+- **BREAKING** (#777): Operation waits borrow the handle instead of
+  consuming it. `applied`, `settled`, `cancel`, and their `_with_timeout`
+  forms take `&mut self` on the async, blocking, and dynamic handles, and the
+  handle caches the authoritative results it observes:
+  - a wait that times out, or is dropped as the losing branch of a `select!`,
+    ends only that wait, and the handle can wait again;
+  - outcomes are classified by the owner clock at delivery: one delivered
+    before or exactly at the observer deadline satisfies that wait, and a later
+    one stays cached for a subsequent wait, so a timely cancellation failure is
+    not hidden by a late original completion (#783);
+  - `settled` after `applied` continues from the cached application, and a
+    repeated wait answers from the cache;
+  - `cancel` waits for the cancellation's conclusion and returns
+    `CancellationOutcome` directly. It is one idempotent intent per handle: a
+    repeated `cancel`, including after a timeout, observes the first intent
+    and never writes a second cancellation. Once the outcome is known it
+    decides the answer (`Completed`, `Cancelled`, or the operation's error).
+    Its default deadline covers the owner's own cancellation resolution. A
+    `cancel` that cannot reach a stopped owner answers from an outcome the
+    owner delivered before it stopped (D19);
+  - a refused cancellation, or one that fails after the owner accepted it, is
+    a plain error, and the handle keeps observing the operation's own outcome;
+  - `detach` still consumes the handle, and dropping it is still `detach`.
+
+  This replaces the #612 recovery shape (`CancelRejected` carrying the handle
+  back) and the consuming lifecycle the #552 exit criteria described.
+  `CancellationOutcome` is `#[non_exhaustive]`.
+- **BREAKING** (#783): Every timeout says which deadline expired and what is
+  known about the request (D20). This refines the #755 failure matrix and the
+  #726 public failure model; it does not reverse D8 (#671) and reinstates no
+  session poisoning.
+  - New `Error::ObservationTimeout { operation }` is returned only when a
+    caller's wait on an admitted operation, cancellation, command, or inquiry
+    expires while the owner still holds the request. It names the
+    `OperationId`, its kind is `ErrorKind::Timeout`, and `is_retryable()` is
+    `false`: wait again or reconcile, never resubmit. Previously such waits
+    returned `Error::Timeout`, which `is_retryable()` called retryable.
+  - `Error::Timeout` becomes `Timeout { context: FailureContext }`. Its
+    `FailureStage` says where the deadline was (`PreAdmission`,
+    `Observation`, `Terminal`, `CancellationAttempt`, `Session`) and its
+    `Certainty` says what is known (`NotAccepted`, `StillLive`,
+    `FailedConclusively`, `Unconfirmed`). An admission-deadline expiry stays
+    `Timeout`, with `PreAdmission`/`NotAccepted`. An engine terminal timeout
+    is `Unconfirmed` for a sent command, `FailedConclusively` for an inquiry,
+    and `NotAccepted` for a command never written.
+  - `Error::failure_context()` returns the context for every timeout and for
+    `UnsequencedCommandUnconfirmed` and `CancellationUnconfirmed`.
+    `FailureContext`, `FailureStage`, and `Certainty` are `#[non_exhaustive]`.
+  - Custom transports report an expired read or write with
+    `Error::io_timeout()`; any `Error::Timeout` from a read still means "no
+    data".
+  - `is_retryable()` is documented as classifying temporary conditions, not
+    replay safety; it is `suggested_retry_delay().is_some()`, with the delay
+    chosen per `ErrorKind` (#820).
+- **BREAKING** (#778): `SessionConfig::admission_capacity` now bounds
+  ordinary requests only (D26). Each registered camera also has a control
+  reserve, one admission slot per typed STOP its profile supports
+  (pan/tilt, zoom, focus; at most three), that only an urgent typed STOP may
+  use. A STOP takes its camera's reserve first and an ordinary slot only when
+  the reserve is held, so queued ordinary work can no longer lock a STOP out
+  with `RuntimeQueueFull`, and one camera's stops cannot use another's
+  reserve. Up to `capacity` plus the reserves can be pending or active at
+  once. This extends D10 and D1; it changes no pacing, socket limit, raw
+  correlation hold, or in-progress write.
+  - New `Error::ControlReserveExhausted { target, reserve }` is returned when
+    a STOP finds its camera's reserve and ordinary admission both full. It is
+    a `BufferFull`-kind, retryable rejection.
+  - `MetricsSnapshot` is `#[non_exhaustive]` and gains
+    `control_reserve_admitted` and `control_reserve_rejected`. Construct it
+    only through `Session::metrics()`; struct literals outside the crate no
+    longer compile.
+- **BREAKING** (#780): A blocking session runs its owner on one native
+  worker thread (D24). The worker runs the same coordinator, turn logic, and
+  engine policy as the async owner, so the blocking facade no longer drives
+  the owner on the caller's thread. This revises the "no per-camera
+  background workers" invariant and the caller-thread model of #542: each
+  blocking session has exactly one worker, started by `Session::open` after
+  startup validation, and `close` joins it.
+  - Submission means admission, as on async. A returned operation handle
+    names an admitted request; a write failure is reported through the
+    operation's outcome. Work that cannot be written yet queues instead of
+    failing.
+  - The blocking `Session`, `Camera<P>`, `CameraSession<P>`, `Operation<K>`,
+    and `BlockingDynSessionCamera` own their link to the
+    worker instead of borrowing the session, and are `Send + Sync`;
+    `Session`, `Camera<P>`, and `BlockingDynSessionCamera` are `Clone`.
+    Share them across threads by cloning; a thread waiting on one operation
+    never blocks another thread's submit, cancel, or STOP.
+  - `blocking::CameraSession::camera()` returns `&Camera<P>`, and the new
+    `into_camera()` returns the owned camera, matching the async
+    `CameraSession`. `blocking::Camera::profile()`/`capabilities()` and the
+    same methods on `BlockingDynSessionCamera` are no longer `const`.
+  - `blocking::Session::subscribe_diagnostics(capacity)` returns the same
+    `DiagnosticSubscription` as the async facade; its `recv_timeout` waits
+    on the calling thread.
+  - The worker reads the transport in slices of at most 10 ms, so a STOP,
+    cancellation, or `close` reaches the owner within one slice plus any
+    in-progress write; the slice bounds one read's contribution to control
+    latency, not total latency through queued work and protocol constraints.
+    A blocking transport must honour short read timeouts. A transport
+    callback that closes its own session requests shutdown and receives
+    `InvalidState` instead of waiting for the worker it runs on.
+  - Async and blocking owners share one owner shell core, boundary types,
+    receipt observation, and transport framing; the coordinator paces
+    receive after idle and fault pauses for both.
+- **BREAKING** (#804, #828): Every transport receive reports a
+  `ReceiveOutcome`. `AsyncTransport::recv_into` is the one required async
   receive and now returns `Result<ReceiveOutcome, Error>`; the
   `recv_into_with_outcome` companion and its exact-fill default are removed.
   `BlockingTransport::recv_into_with_timeout`, `AsyncDatagram::recv` (the old
@@ -26,42 +180,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `MIN_RECV_BUFFER_SIZE + 1`. Datagram transports skip empty datagrams (zero
   bytes means end of stream). `ReceiveOutcome` is exported in every feature
   configuration and gains `ReceiveOutcome::copy_message`.
-- **BREAKING (#828): `BufferConfig::recv_buffer_size` must be at least
-  `BufferConfig::MIN_RECV_BUFFER_SIZE` (24 bytes)**, the largest valid VISCA
+- **BREAKING** (#828): `BufferConfig::recv_buffer_size` must be at least
+  `BufferConfig::MIN_RECV_BUFFER_SIZE` (24 bytes), the largest valid VISCA
   reply (16 bytes) behind Sony's 8-byte header, so no valid reply can be
   rejected as oversized. The `0` case now reports the same message.
-- **BREAKING (#805): `SessionConfig::with_tuning` is infallible**, matching
+- **BREAKING** (#805): `SessionConfig::with_tuning` is infallible, matching
   `CameraConfig::with_tuning`; `register_target` no longer validates tuning.
   The session policy (tuning against every registered profile, admission
   capacity, Sony sequence reset) is validated exactly once, when a session
-  opens, before any transport I/O. Both configurations share one set of
+  opens, before any transport I/O. A live `Session::set_tuning` update is
+  validated on exactly the grounds a session open validates its configured
+  tuning on, so a value that opening would have rejected is rejected there too
+  and leaves the live tuning untouched. Both configurations share one set of
   policy builders and getters with identical docs, and one Sony-reset
   rejection message ("requires Sony encapsulated profiles").
-- **BREAKING (#805): async `Session::shutdown` and `CameraSession::shutdown`
-  are synchronous**, like the blocking ones: the request is a non-blocking
+- **BREAKING** (#805): async `Session::shutdown` and `CameraSession::shutdown`
+  are synchronous, like the blocking ones: the request is a non-blocking
   signal, so drop the `.await`.
-- **BREAKING (#805): `DynSessionCamera::from_session` /
+- **BREAKING** (#805): `DynSessionCamera::from_session` /
   `from_session_target` and `BlockingDynSessionCamera::from_session` /
-  `from_session_target` are removed**; `Session::camera_dyn` /
+  `from_session_target` are removed; `Session::camera_dyn` /
   `camera_dyn_for` is the one constructor on both facades. A session's
   single-target selectors no longer have an empty-registry error path: an
   open session always has a validated, non-empty registry.
-- **BREAKING (#805): the async `Operation` prints only its identity under
-  `Debug`** (`Operation { id: OperationId(..) }`), like the blocking one;
-  it previously printed owner and observation internals.
-- **BREAKING (#816): the motion view has one shape on every facade.**
-  `BlockingDynSessionCamera::{stop_all_motion, is_moving(query),
-  wait_until_idle}` are replaced by `motion()`, which returns the same
-  `blocking::MotionAccessor` a typed blocking camera returns, so
-  `is_moving()` / `is_moving_axes(query)` mean the same everywhere.
-  `blocking::MotionAccessor` and the async `MotionAccessor` lose their
-  profile type parameter (`MotionAccessor<'_>`). The four methods' rustdoc is
-  written once and documents the window, zero-window (`InvalidParameter`) and
-  `Timeout` contract on every facade.
-- **BREAKING (#828): enabling `dyn-api` without `blocking` or `async` is a
-  compile error** explaining that it projects the enabled facades' camera
+- **BREAKING** (#805): the async `Operation` prints only its identity under
+  `Debug` (`Operation { id: OperationId(..) }`), like the blocking one; it
+  previously printed owner and observation internals.
+- **BREAKING** (#813, #815, #828): one noun method per operation, on the
+  blocking, async and `Dyn*` surfaces. `zoom().set_normalized(position,
+  domain)` replaces `set_normalized(UnitInterval)` and
+  `set_normalized_in_domain`; `nd_filter().set_value(NdFilterValue)` replaces
+  `set_value(u16)` and `set_stops(f32)`, and the range checks move to
+  `NdFilterValue::new` / `NdFilterValue::from_stops`.
+- **BREAKING** (#828): enabling `dyn-api` without `blocking` or `async` is a
+  compile error explaining that it projects the enabled facades' camera
   views; it previously compiled to an empty feature with warnings. The
   feature-matrix script checks the rejection.
+- (#815) Accessor, getter and `Dyn*` rustdoc has one text per noun on every
+  surface; async accessor lifetimes are named `'view`.
 - (#817) The raw request types document their associated policy constants
   as unread fallbacks. `raw::Targeted`'s unread fallback policy constants
   (`<raw::Targeted as Request>::TIMEOUT_CLASS`/`RETRY_CLASS`) now equal
@@ -71,27 +227,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   selection and lookup errors are produced in one place.
 - A `PanTiltLimits` state-cache clear must name a corner, like
   a limit set; a corner-less clear is refused as malformed.
-
-- **Correction (2026-10-05) to the 2.0.0-rc.1 `set_tuning` entry (#631, #805):**
-  that entry says a live `set_tuning` update is validated "on exactly the
-  grounds `SessionConfig::with_tuning` validates on". `with_tuning` no longer
-  validates; a live update is validated on exactly the grounds a session open
-  validates its configured tuning on (against every registered profile), so a
-  value that opening would have rejected is rejected here too and leaves the
-  live tuning untouched.
-
-- **BREAKING (#824): `visca_range_type!` and `#[derive(ViscaValue)]` share one
-  generator** with one constructor, bounds, accessor and error contract:
+- **BREAKING** (#824): `visca_range_type!` and `#[derive(ViscaValue)]` share one
+  generator with one constructor, bounds, accessor and error contract:
   `MIN`/`MAX` are `Self`, `value` is `pub const fn value(self)`, range `new`
   is `const fn` and returns `Error::ParameterOutOfRange` (previously
   `InvalidParameter` from `visca_range_type!`). A range's inner type must be
   `u8`, `u16`, `i8`, `i16` or `i32` and its bounds must satisfy
   `min <= max` (both are compile errors otherwise); a derive without a
   domain is rejected; hex `Display` pads to two digits. `GainLimit`,
-  `BrightnessLevel`, `SharpnessLevel`, `LuminanceLevel`, `ContrastLevel`
-  and `DynamicRangeLevel` are declared as ranges, and
-  `ExposureCompensationLevel` is generated (gaining `Display`).
-- **BREAKING (#824): every range check reports `ParameterOutOfRange`.** The
+  `SharpnessLevel`, `LuminanceLevel`, `ContrastLevel` and `DynamicRangeLevel`
+  are declared as ranges, and `ExposureCompensationLevel` is generated
+  (gaining `Display`).
+- **BREAKING** (#824): every range check reports `ParameterOutOfRange`. The
   remaining hand-written checks — `Sharpness::SetLevel`, the defog,
   broadcast-domain, ND-preset, exposure-compensation and colour-tuning
   inquiry decoders, profile admission of pan/tilt speed and position, zoom,
@@ -100,49 +247,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   code outside the profile's table (a set, not a range) remains
   `InvalidParameter`. `Sharpness::SetLevel { value }` holds a
   `SharpnessLevel` instead of a `u8`.
-- **BREAKING (#824): `ViscaInquiry`, `ViscaEnum` and `ViscaValue` share one
-  attribute policy:** a repeated key is a compile error, VISCA byte literals
+- **BREAKING** (#824): `ViscaInquiry`, `ViscaEnum` and `ViscaValue` share one
+  attribute policy: a repeated key is a compile error, VISCA byte literals
   are unsuffixed `0..=255` in any radix, and `#[visca_enum(exhaustive)]` is
   rejected.
 - `Error` display text (#824, #828): `ParameterOutOfRange` prints an inclusive
   range (`2..=4`), `Unknown` prints the code as `0x05`, and
   `InquiryNotCancelable` describes the 2.0 behaviour instead of naming
   removed APIs.
-
-- **BREAKING (#806): one public `FocusSpeed`.** `grafton_visca::FocusSpeed`
+- **BREAKING** (#806): one public `FocusSpeed`. `grafton_visca::FocusSpeed`
   (`types::FocusSpeed`) is the type every focus-speed API takes;
   out-of-range values report `ParameterOutOfRange`.
-
-- **BREAKING (#806):** `SetMotionSyncPreset::new(MotionSyncSpeed)` and
+- **BREAKING** (#806): `SetMotionSyncPreset::new(MotionSyncSpeed)` and
   `speed() -> MotionSyncSpeed`; `motion_sync().set_speed` is the setter.
   `InquiryData::Version { info: VersionInfo }` and
   `InquiryData::TallyStatus { state: TallyStatusState }` carry the canonical
   structs.
-
-- **BREAKING (#808): one degrees↔units conversion per profile geometry.**
+- **BREAKING** (#808): one degrees↔units conversion per profile geometry.
   `PanTiltExt::degrees_to_{pan,tilt}_units` returns `Option<i32>` and rounds
   half away from zero exactly like request preparation (G2 10.05° is now 145
   units, was 144); `as_degrees_with_profile` returns `PanTiltPositionDeg`;
   `PanTilt::{AbsolutePosition, RelativePosition, LimitSet}` take raw `i16`
   words; all conversions use `f32`.
-
-- **BREAKING (#808, #828): magnification follows the installed lens.**
+- **BREAKING** (#808, #828): magnification follows the installed lens.
   `Zoom::OPTICAL_ZOOM_RATIO` / `Capabilities::optical_zoom_ratio` replace the
   per-profile magnification scale; `ZoomScale`, `Capabilities::zoom_scale()`
   and `Capabilities::zoom_scale_for_lens(ratio)` convert between
   magnification and zoom units. Only `PtzOptics30X` fixes its lens; the
   PTZOptics G2 family (12x/20x/30x on one protocol profile) needs the lens
   declared, and an undeclared lens fails with an `InvalidRequest` saying how.
-
-- **BREAKING (#807, #819):** `Fraction` is stored in lowest terms with private
+- **BREAKING** (#807, #819): `Fraction` is stored in lowest terms with private
   fields (`new` returns `Option`, equality is value equality);
   `capabilities::ShutterSpeedEntry { exposure: Fraction, value }` replaces
   `capabilities::ShutterSpeed` and `RuntimeShutterSpeed`; `types::ShutterSpeed`
   wraps a `u8` covering the whole `0p 0q` wire field, and each profile's
   shutter table alone decides which codes a camera accepts.
-
-- **BREAKING (#795): raw VISCA byte streams correlate every frame through one
-  write-ordered ledger per camera.** Every written request that still owes a
+- **BREAKING** (#795): raw VISCA byte streams correlate every frame through one
+  write-ordered ledger per camera. Every written request that still owes a
   first answer is an entry in write order, and each frame resolves against
   the oldest entry that could legally have produced it. An answer that
   arrives after its request ended is discarded rather than given to a later
@@ -159,16 +300,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   answer per request, socket naming in completions learned per session) and
   the cost when a camera violates them are documented in
   `docs/architecture_2_0.md`.
-
-- **BREAKING (scheduling, #795):** a raw `CompletionOnly` command is exclusive
+- **BREAKING** (#795): a raw `CompletionOnly` command is exclusive
   on its camera until its completion or rejection arrives; inquiries and
   ordinary commands queue behind it, and one STOP may wait behind it. A
   `NoReply` command no longer holds STOPs; on a stream it waits behind an
   owed command answer and fails `CommandCorrelationLost` once that lane
   latches, and a `CompletionOnly` command behind an unsettled `NoReply` fails
   the same way instead of timing out.
-
-- **BREAKING (#795): no command is written again after its ACK**, on raw and
+- **BREAKING** (#795): no command is written again after its ACK, on raw and
   Sony envelopes alike. A camera error after an ACK is reported as
   `Error::CommandFailedAfterAck { source }` (`Terminal`/`Unconfirmed`, not
   retryable); a Sony completion timeout after an ACK is an `Unconfirmed`
@@ -177,14 +316,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unacknowledged command at once (the PTZOptics G2 rejects focus STOP in
   auto focus this way), so a G2 halt reports focus `CommandNotExecutable`
   promptly instead of after a 0.5 s ACK deadline and 1 s hold.
-
-- **BREAKING (#795): `Error::MotionSuperseded` gains
-  `context: FailureContext`** with exact certainty (`NotAccepted` when the
-  superseded motion was never written), and `Error::motion_superseded` takes
-  it.
-
-- **BREAKING (#797): blocking and Tokio serial share one sans-I/O startup
-  state machine.** A failed, timed-out or partially written Address Set is
+- **BREAKING** (#797): blocking and Tokio serial share one sans-I/O startup
+  state machine. A failed, timed-out or partially written Address Set is
   never resent (a partial broadcast cannot be retracted from the daisy
   chain); exhausted attempts return `MaxRetriesExceeded`; read errors are
   returned unchanged. Ports open exclusively on both facades, so a second
@@ -196,8 +329,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `if_clear_on_connect`), drops `camera_address`, and defaults to the
   `for_serial()` 5 s timeouts. Startup input is discarded before the
   session sees it.
-
-- **BREAKING (#798): one IP connect pipeline for every facade.** An
+- **BREAKING** (#798): one IP connect pipeline for every facade. An
   unresolvable host is `InvalidAddress` on blocking, Tokio and smol (async
   was `Io`); exhausting every resolved TCP address gives
   `ConnectionFailed`; `connect_timeout` now bounds blocking DNS (bounded
@@ -205,26 +337,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   within the deadline) and is shared across resolved addresses so an
   unroutable first address cannot starve the next. `declare_net_transport!`
   is replaced by generic `Tcp<S>` / `Udp<S>`.
-
-- **BREAKING (#799): `TransportConfig::for_tcp/for_udp/for_serial` are the
-  only transport defaults.** `Transport::tcp()` / `udp()` reply limits rise
+- **BREAKING** (#799): `TransportConfig::for_tcp/for_udp/for_serial` are the
+  only transport defaults. `Transport::tcp()` / `udp()` reply limits rise
   from 128 bytes to 256 (TCP) and 1024 (UDP), matching every other entry
   point; `CameraConfig::transport_config` uses the supplied config as given
   (a default buffer is no longer treated as unset); `for_udp` / `for_serial`
   carry no TCP fields and `tcp_nodelay: None` keeps the OS default.
-
-- **BREAKING (#800): one bounded blocking I/O policy.** Every syscall arms its
+- **BREAKING** (#800): one bounded blocking I/O policy. Every syscall arms its
   own timeout, so timeouts are no longer saved and restored; failing to arm
   a timeout is `Io` on every transport; an unrepresentable timeout is
   `InvalidParameter` naming the field (was `InvalidRequest`), checked once in
   `validate()`; an interrupted UDP send is retried within its budget. One
   write loop, one datagram truncation policy and one Sony response parser
   serve all transports.
-
-- **BREAKING (#795): `system().version()` is now gated by the
+- **BREAKING** (#795): `system().version()` is gated by the
   `HasVersionInquiry` marker and the `VersionInquiry` typed-support surface;
   the PTZOptics profiles (`PtzOpticsG2`, `PtzOptics30X`, `PtzOpticsG3`) no
-  longer expose it.** Previously the typed version inquiry compiled for every
+  longer expose it. Previously the typed version inquiry compiled for every
   profile. On the PTZOptics G2 bench (PT30X/PT20X/PT12X-NDI G2, ARM firmware
   6.3.51THI, 6.3.76THI and 6.4.18SHI, 2026-10-04) `81 09 00 02 FF` returns
   the two-byte payload `00 52`, which no cited source defines, so the 7-byte
@@ -234,63 +363,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   citing its model's `CAM_VersionInq` row. Custom compile-time profiles must
   implement `HasVersionInquiry` and list `TypedSupportSurface::VersionInquiry`
   in `TYPED_SUPPORT`; persisted runtime profiles must add `"version-inquiry"`
-  to `typed_support` (see `docs/migration_2_0.md`).
-
-- **BREAKING (#795): `FocusZone` is now `#[non_exhaustive]` and gains
-  `FocusZone::Zone03`.** Every camera on the G2 bench reports focus zone
+  to `typed_support` (see `docs/camera_profile_support.md`).
+- **BREAKING** (#795): `FocusZone` is `#[non_exhaustive]` and gains
+  `FocusZone::Zone03`. Every camera on the G2 bench reports focus zone
   `03` and accepts `81 01 04 AA 03 FF`, a value no vendor source documents;
-  rc.3 rejected it, so `focus().zone()` failed on all of them. The variant is
-  named by its value because its meaning is unsourced. Setting a zone is now
-  checked against the profile's zone list before any I/O: `PtzOpticsG2` and
-  `PtzOptics30X` allow `Zone03`, `PtzOpticsG3` allows only the documented
-  Top/Center/Bottom, and decoding an inquiry reply of `03` is accepted
-  everywhere so a read value can always be set back where it is supported.
-
-- **BREAKING (#795): a `ProfileSpec` or `TypedSupportSet` persisted by an
-  earlier 2.0 prerelease is refused on load.** Every current field
+  2.0.0-rc.2 rejected it, so `focus().zone()` failed on all of them. The
+  variant is named by its value because its meaning is unsourced. Setting a
+  zone is checked against the profile's zone list before any I/O:
+  `PtzOpticsG2` and `PtzOptics30X` allow `Zone03`, `PtzOpticsG3` allows only
+  the documented Top/Center/Bottom, and decoding an inquiry reply of `03` is
+  accepted everywhere so a read value can always be set back where it is
+  supported.
+- **BREAKING** (#795, #807, #808): a `ProfileSpec` or `TypedSupportSet`
+  persisted by 2.0.0-rc.2 or earlier is refused on load. Every current field
   (`focus_zones`, `optical_zoom_ratio`, `wire_codec`, shutter `exposure`) is
   required and built-in identities must match the current registry exactly,
   so older built-in specs (which lack `VersionInquiry` and these fields) and
   older custom specs fail with an `InvalidRequest` naming the profile and the
   regeneration call (`ProfileSpec::from_compile_time::<P>()` for a built-in,
   `ProfileSpec::builder` for a custom profile). No older shape is backfilled.
-- **BREAKING (#809): an unknown code byte in any inquiry reply is
-  `Error::InvalidResponse { expected, actual }`.** Enum and on/off (`02`/`03`)
+- **BREAKING** (#809): an unknown code byte in any inquiry reply is
+  `Error::InvalidResponse { expected, actual }`. Enum and on/off (`02`/`03`)
   replies all decode through one table; several decoders returned the caller
   error `InvalidParameter` before. `#[derive(ViscaInquiry)]` `parser = Mode`
   passes the enum's own error through. Numeric values outside a value type
   stay `ParameterOutOfRange`.
-- **BREAKING (#809, #828): `InquiryData::FlipState { state: FlipState }`**
+- **BREAKING** (#809, #828): `InquiryData::FlipState { state: FlipState }`
   replaces the `horizontal`/`vertical` fields.
   `FlipState::from(ImageFlipMode)` is the one combined-flip mapping; `Flip`
   and `ImageFlipMode` derive `ViscaEnum`.
-- **BREAKING (#809): `AutoWhiteBalanceSensitivity::to_command_byte` is
-  removed;** use `u8::from(..)` (the enum derives `ViscaEnum`).
-- **BREAKING (#828 L1): padded replies must have zero padding.** A `00 00 0p
+- **BREAKING** (#809): `AutoWhiteBalanceSensitivity::to_command_byte` is
+  removed; use `u8::from(..)` (the enum derives `ViscaEnum`).
+- **BREAKING** (#828): padded replies must have zero padding. A `00 00 0p
   0q` or `00 00 00 0p` reply with a nonzero leading nibble is
   `InvalidResponseFormat` instead of having the nibbles dropped.
   `Nibbles::u8_pair`/`last_nibble` are replaced by
   `zero_extended_u8`/`zero_extended_nibble`; derived `parser =
   Nibble`/`LastNibble` inquiries use them.
-- **BREAKING (#828 L1): `InquiryData::SharpnessPosition::position` and
-  `InquiryData::Brightness::position` are `u8`;** gain, contrast and luminance
+- **BREAKING** (#828): `InquiryData::SharpnessPosition::position` and
+  `InquiryData::Brightness::position` are `u8`; gain, contrast and luminance
   replies keep both `0p 0q` digits (gain previously decoded only the last
   nibble).
-- **BREAKING (#828 L2):** a malformed Sony BRC-300 pan/tilt reply is
+- **BREAKING** (#828): a malformed Sony BRC-300 pan/tilt reply is
   `InvalidResponseLength`, as for every profile (was `DecoderNotFound`).
-- **BREAKING (#811): `visca_command!` unit commands derive `Default` and get
-  `const fn new()`;** a downstream unit command that defines its own
+- **BREAKING** (#811): `visca_command!` unit commands derive `Default` and get
+  `const fn new()`; a downstream unit command that defines its own
   `new`/`Default` must delete them. `bytes`/`prefix` accept any `[u8; N]`
   expression; bodies never include the address byte.
-- **BREAKING (#810): `Envelope::frame_into` rejects an empty message with
-  `InvalidRequest`** (it cleared the output and succeeded), and with IP
+- **BREAKING** (#810): `Envelope::frame_into` rejects an empty message with
+  `InvalidRequest` (it cleared the output and succeeded), and with IP
   addressing every address, `0x88` included, is sent as `0x81`: VISCA over IP
   fixes the camera address at 1.
 - `RedTuning`/`BlueTuning` gain `to_protocol_value`; the three centred levels
   expose `WIRE_CENTER` (#809).
-- **BREAKING** (`test-utils`): the testkit's VISCA reply frames are built in
-  one module, shared with `ViscaCameraSimulator`, and Command Buffer Full has
-  one frame shape, the socketless `90 60 03 FF`. Accordingly
+- **BREAKING** (#827): in `test-utils`, the testkit's VISCA reply frames are
+  built in one module, shared with `ViscaCameraSimulator`, and Command Buffer Full
+  has one frame shape, the socketless `90 60 03 FF`. Accordingly
   `testing::testkit::helpers::buffer_full()`,
   `helpers::errors::syntax_error()` and
   `helpers::errors::command_buffer_full()` no longer take a socket argument.
@@ -302,11 +430,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   &helpers::ack(1))`), and read a request's sequence with the new
   `helpers::sony_sequence(&request)`, which returns `None` for raw VISCA and
   panics on a malformed envelope. `helpers::inquiry_reply(&payload)` is new
-  and builds `90 50 <payload> FF`. (#827)
-- **BREAKING** (`test-utils`): the unused `logic_test!` and `timeout_test!`
-  macros are removed from the crate root. Integration tests that run one
-  scenario per runtime or facade use the suite's shared `runtime_matrix!` /
-  `facade_matrix!` harness instead. (#826)
+  and builds `90 50 <payload> FF`.
+- **BREAKING** (#826): in `test-utils`, the unused `logic_test!` and
+  `timeout_test!` macros are removed from the crate root. Integration tests
+  that run one scenario per runtime or facade use the suite's shared
+  `runtime_matrix!` / `facade_matrix!` harness instead.
 - `ScriptedTransport` and `ScriptedBlockingTransport` run one step queue. A
   scripted receive error is only ever a `Step::InjectError` and reaches `recv`
   unchanged on both facades (previously the async transport could map a queued
@@ -314,7 +442,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   on both, and lock-poisoning panics name the transport that owns the script.
   `ScriptedBlockingTransport::with_config` is added, matching the async
   transport. (#827)
-- **BREAKING (#818): capability flags that duplicated a fact are gone.**
+- **BREAKING** (#818): capability flags that duplicated a fact are gone.
   Removed `Capabilities::{supports_hue, has_gamma, has_luminance,
   has_color_temp, has_rgb_gain, has_noise_reduction, has_iris_control,
   has_digital_zoom, has_focus_zone, has_exposure_comp,
@@ -334,32 +462,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   surface to its metadata; profile validation, typed request validation and
   a both-direction registry test (with an explicit per-row `withheld` list)
   all use it.
-
-- **BREAKING (#808, #828): positive tilt is up for every profile.** Degrees are positive
-  right and positive up. `SonyBRC300` and `NearusBRC300` mapped positive tilt
-  to down; their tilt scale is now `+208` units per degree (raw `493D`, up,
-  is about +90°), so every BRC-300/Nearus tilt angle and degree-based limit
-  changes sign. Pan is unchanged (BRC-300 raw pan stays reversed, `08A58` is
-  left), and so are raw positions and the other profiles, whose scales already
-  mapped positive tilt to up while the docs said down. A per-profile test pins
-  the encoded direction of +45° pan and tilt. PTZOptics, FR7 and BRC-H900 raw
-  directions follow the R8 convention unverified (see Known unverified facts).
-
-- **BREAKING (#828): `Presets::MAX_PRESETS` is `HIGHEST_PRESET`.**
+- **BREAKING** (#808, #828): positive tilt is up for every profile. Degrees
+  are positive right and positive up. `SonyBRC300` and `NearusBRC300` mapped
+  positive tilt to down; their tilt scale is now `+208` units per degree (raw
+  `493D`, up, is about +90°), so every BRC-300/Nearus tilt angle and
+  degree-based limit changes sign. Pan is unchanged (BRC-300 raw pan stays
+  reversed, `08A58` is left), and so are raw positions and the other
+  profiles, whose scales already mapped positive tilt to up while the docs
+  said down. A per-profile test pins the encoded direction of +45° pan and
+  tilt. PTZOptics, FR7 and BRC-H900 raw directions follow the R8 convention
+  unverified (see Known unverified facts).
+- **BREAKING** (#828): `Presets::MAX_PRESETS` is `HIGHEST_PRESET`.
   `Presets::HIGHEST_PRESET` and `Capabilities::highest_preset` replace
   `MAX_PRESETS` and `max_presets`, which were documented as a count but used
   as the highest index: presets are `0..=highest_preset`. A runtime profile
   with presets and `highest_preset: 0` (one preset) now builds. The
   capability summary prints `Presets: 0..=N`.
-
-- **BREAKING (#818): the 2D noise-reduction mode has its own marker.**
+- **BREAKING** (#818): the 2D noise-reduction mode has its own marker.
   `HasNoiseReduction2DMode` / `TypedSupportSurface::NoiseReduction2DMode`
   (`noise-reduction2-d-mode`) gates `noise_reduction_2d_mode()` and
   `set_noise_reduction_2d_mode` (`04 50`); `HasNoiseReduction2D` and
   `HasNoiseReduction2DControl` now cover the `04 53` level only. The PTZOptics
   profiles carry all three.
-
-- **BREAKING (#818): motion sync is one fact.**
+- **BREAKING** (#818): motion sync is one fact.
   `MotionSyncMetadata::MOTION_SYNC_SPEED_RANGE: Option<CapabilityRange<u8>>`
   (default `None`) and `Capabilities::motion_sync_speed_range:
   Option<RangeInclusive<u8>>` replace `MotionSyncMetadata::{SUPPORTS_MOTION_SYNC,
@@ -368,8 +493,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   motion sync; a range must lie in `MotionSyncSpeed`'s `1..=24`, and typed
   motion-sync speeds outside it are `ParameterOutOfRange` with its bounds.
   The registry rows declare `motion_sync: { speed_range: None }`.
-
-- **BREAKING (#822): default ports and position inquiries have one source.**
+- **BREAKING** (#822): default ports and position inquiries have one source.
   `SupportsTcp` / `SupportsUdp` are plain markers (`DEFAULT_TCP_PORT` /
   `DEFAULT_UDP_PORT` removed); `CameraConfig::tcp` / `udp` resolve a
   host-only address through `CompileTimeProfile::TRANSPORTS`, exactly like
@@ -381,8 +505,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   observation reads). `ProfileGroup::{uses_sony_encapsulation, supports_tcp,
   supports_udp, supports_serial, inquiry_support}` are derived from the
   member profiles (every member; weakest inquiry level).
-
-- **BREAKING (#823): `*Ext` validators validate once and never clamp.**
+- **BREAKING** (#823): `*Ext` validators validate once and never clamp.
   `CapabilityRange::validate` is the single range check behind every
   `validate_*` helper, and `CapabilityRange::clamp` is removed.
   `PanTiltExt::validate_{pan,tilt}_speed`, `ZoomExt::validate_zoom_speed` and
@@ -390,8 +513,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   reject out-of-range speeds, as request validation does, instead of
   clamping. `ExposureExt::validate_iris` reports an absent iris as
   `NotSupported("iris")`.
-
-- **BREAKING (#818, #828): iris and bright positions are table domains.**
+- **BREAKING** (#818, #828): iris and bright positions are table domains, and
+  `BrightnessLevel` is the Bright Direct wire byte.
   `capabilities::CapabilityDomain<T>` (bounds plus the positions the source
   table does not list; `new`, `with_gaps`, `min`, `max`, `gaps`, `bounds`,
   `contains`, `validate`; serde `{min, max, gaps}`) is the type of
@@ -399,26 +522,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Capabilities::iris_range` and `Capabilities::exposure_brightness_range`.
   One admission rule serves the `*Ext` helpers and request validation: a
   gap is `Error::InvalidParameter`, a value past the bounds
-  `ParameterOutOfRange`.
-
-- **BREAKING: `BrightnessLevel` is the Bright Direct wire byte.**
-  `types::BrightnessLevel(u8)` is a plain wire byte, not a range newtype:
-  `new` is infallible, `TryFrom<u16>` refuses a value above `0xFF`, and its
-  percentage and `Raw` conversions are removed. (This corrects the #824
-  entry, which lists `BrightnessLevel` among the newtypes declared as
-  ranges.) `ExposureExt::validate_brightness` takes `u8`. Each profile's
-  bright domain is the sole admission check.
-
-- **BREAKING (#828 M3): tuning may only make retries more conservative.**
+  `ParameterOutOfRange`. `types::BrightnessLevel` wraps a plain `u8` wire
+  byte instead of a `u16` range: `new` is infallible, `TryFrom<u16>` refuses a
+  value above `0xFF`, and its percentage and `Raw` conversions are removed.
+  `ExposureExt::validate_brightness` takes `u8`. Each profile's bright domain
+  is the sole admission check.
+- **BREAKING** (#828): tuning may only make retries more conservative.
   `ProfileSpec::validate_tuning` rejects an `OperationalTuning::retry_timing`
   first backoff below 50 ms, a ceiling below the larger of 500 ms and the
   profile busy timeout, or a budget below the larger of ten seconds and the
   busy timeout; a request whose own budget (twice its governing deadline) is
   longer than the override keeps its own. `retry_limit` may only lower the
   default base retry count of 3 (previously up to 32).
-
-- **BREAKING (#828 M4, L4, L7, #716): built-in profile facts follow their
-  cited sources.**
+- **BREAKING** (#716, #828): built-in profile facts follow their cited
+  sources.
   - PTZOptics G2/G3/30X: the focus range is the full `0x0000..=0xFFFF` wire
     domain (the `0x1000..=0xF000` limits were Axis-only). None claims socket
     cancel: on the PTZOptics G2 bench (PT30X-NDI G2 and PT12X-NDI G2,
@@ -469,8 +586,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Known unverified:** the PTZOptics G2-family shutter table is retained
     as shipped; its sources document only `pq = Shutter Position`. It is
     pending a set/inquire round trip on the PTZOptics G2 bench.
-
-- **BREAKING (#828 M1): the color-temperature inquiry has its own marker.**
+- **BREAKING** (#828): the color-temperature inquiry has its own marker.
   `camera.white_balance().color_temperature()` and `ColorTemperatureInquiry`
   require `HasColorTemperatureInquiry` / `TypedSupportSurface::ColorTemperatureInquiry`
   (wire tag `color-temperature-inquiry`), because only the PTZOptics G2
@@ -478,8 +594,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   carry it; `PtzOpticsG3` and `SonyBRCH900` keep `HasColorTemperature` (mode
   and setters) but the inquiry no longer compiles for them, and the dyn and
   runtime paths return `FeatureNotSupported` before any I/O.
-
-- **BREAKING (#828 L2): an inconsistent pan/tilt framing cannot be built.**
+- **BREAKING** (#828): an inconsistent pan/tilt framing cannot be built.
   Sony BRC-300 framing with unsigned-centered coordinates is rejected where a
   profile is made: `ProfileSpecBuilder::build`, `ProfileSpec` and
   `PanTiltCoordinateConversion` deserialization return `InvalidRequest`
@@ -489,98 +604,121 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Response::parse_with_profile` no longer check it. The builder's
   separate overlapping-speed rule now names only
   `capabilities.pan_speed`/`tilt_speed`.
-
 - A runtime profile granting `PtzOpticsPresetRecallSpeed` without a
   `preset_speed_range` is rejected by `ProfileSpecBuilder::build`; the
   surface's metadata rule requires the range, so it no longer fails on every
   request instead.
-
 - (#821) `ProfileSpec` stores one `ProfileFacts` value; the compile-time
   identity check is its derived equality and the serde shape is unchanged.
   The five command timeout categories are reached through one accessor.
   `CommandTimeouts::DEFAULT` names the standard table.
-
-- (#820) `Error::is_retryable()` is `suggested_retry_delay().is_some()`; the
-  delay is chosen per `ErrorKind` (no behaviour change).
-
 - The `cancellation` example drives an EVI-H100 over RS-232C (both its
   transport and socket cancel are documented) and needs
   `transport-serial-tokio`.
 
 ### Removed
 
-- **BREAKING (#806):** `command::{FocusSpeed, Version, TallyStatus,
+- **BREAKING** (#777): `Cancellation`, `blocking::Cancellation`, and
+  `dynapi::DynCancellation`. `cancel` returns the `CancellationOutcome`
+  itself.
+- **BREAKING** (#777): `CancelRejected`. A refused cancellation is the
+  plain `Error`, and the handle is unaffected.
+- **BREAKING** (#780): `Error::TransportBusy`. Blocking submission queues
+  work that cannot be written yet, as async submission always has.
+- **BREAKING** (#780): The `'session` lifetime on the blocking `Camera`,
+  `Operation`, and `BlockingDynSessionCamera`; noun accessors keep only
+  their `'view` borrow of the camera.
+- **BREAKING** (#780): `blocking::Session::drain_diagnostics`. Use
+  `subscribe_diagnostics`.
+- **BREAKING** (#813, #815, #828): `pan_tilt().up/down/left/right` on the
+  blocking, async and `Dyn*` surfaces. Use
+  `move_direction(PanTiltDirection::…, pan, tilt)`, which sends the same
+  frame.
+- **BREAKING** (#813): `DYN_NOUN_TARGET_METHOD_COUNT`,
+  `DYN_NOUN_INQUIRY_METHOD_COUNT`, `DYN_NOUN_COUNT`,
+  `DYN_NOUN_CONVENIENCE_METHOD_COUNT` and `DYN_NOUN_CONVENIENCE_METHODS`, which
+  were exported from the crate root, `dynapi`, `prelude::r#async` and
+  `prelude::dyn_api`.
+- **BREAKING** (#813): `types::Coarse` and
+  `{Pan,Tilt,Zoom,Focus}Speed::from_coarse`; use `SpeedLevel` with `From`.
+- **BREAKING** (#813): `EncodeError`; `Request::write_into` returns
+  `Result<usize>`, and `#[derive(ViscaInquiry)]` expands to the same
+  signature.
+- **BREAKING** (#806): `command::{FocusSpeed, Version, TallyStatus,
   NightDayMode, IrisControl}`, `SetMotionSyncPreset::from_preset`,
   `MotionSyncSpeed::from_preset` and the `motion_sync().set_preset(u8)`
   accessor.
-
-- **BREAKING (#807):** `TryFrom<Fraction> for ShutterSpeed` (its table matched
-  no profile) and `Fraction::same_value`.
-
-- **BREAKING (#808):** the profile-less G2-geometry helpers
+- **BREAKING** (#807): `TryFrom<Fraction> for ShutterSpeed` (its table matched
+  no profile).
+- **BREAKING** (#808): the profile-less G2-geometry helpers
   (`PanTiltPosition::as_degrees`, `PanTiltPositionDeg::to_raw`),
   `PanTiltPositionRaw`, `types::{PanPosition, TiltPosition}`, the
   `PanTilt::*Raw` variants, `ZoomPositionExt` (now inherent),
   `ZoomPosition::normalized_against`, `units::Magnification`, and the
   magnification methods on `Capabilities` and `ZoomExt`.
-
-- **BREAKING (#819):** `camera::profiles::{G2Gain, G2PresetId}` (`G2Gain`
+- **BREAKING** (#819): `camera::profiles::{G2Gain, G2PresetId}` (`G2Gain`
   offered 24 dB, which the G2 profile rejects),
   `ExposureExt::find_shutter_speed` and the orphan `exposure_constants.rs`.
-
-- **BREAKING (#828):** `ExposureExt::fstop_to_iris_units`, an uncalibrated
+- **BREAKING** (#828): `ExposureExt::fstop_to_iris_units`, an uncalibrated
   placeholder that returned the minimum iris for a NaN f-stop.
-
-- **BREAKING (#798, #799):** `TransportBuilderExt`,
+- **BREAKING** (#798, #799): `TransportBuilderExt`,
   `BufferConfig::for_sony_ip`, `NetTransportBuilder::{udp_buffers,
   raw_ip_buffers, sony_ip_buffers}`, `declare_net_transport!`,
   `new_default`, the blocking `Tcp::connect` / `connect_timeout` and
   `Udp::connect`, and `serial::Config::camera_address`.
-- **BREAKING (#819):** `Error::InvalidPreset` and `Error::invalid_preset`. Nothing
-  produced it; an out-of-profile preset number is
+- **BREAKING** (#819): `Error::InvalidPreset`, whose only producer was the
+  removed `G2PresetId::new`. An out-of-profile preset number is
   `Error::ParameterOutOfRange`.
-- **BREAKING (#828 L2):** `Error::DecoderNotFound` and
-  `Error::decoder_not_found`. Its only producer became
-  `InvalidResponseLength` (see the #828 L2 entry under Changed).
+- **BREAKING** (#828): `Error::DecoderNotFound`, which a Sony BRC-300
+  pan/tilt reply of the wrong length returned. That reply is now
+  `InvalidResponseLength` (see the Sony BRC-300 pan/tilt reply entry under
+  Changed).
+- (#796) The executable 1.x behavioural-parity corpus
+  (`.github/behavioral-parity-1x/`), its validator and CI job, and
+  `docs/behavioral_parity_1x.md`. `docs/migration_2_0.md` is the single
+  record of differences from 1.x.
 
 ### Fixed
 
-- (#803) A ready request's owner wake and its dispatch now use the one
-  per-lane dispatch gate; the inquiry cooldown is encoded once, as pacing.
-  The dead `queued_dispatch_at` projection is removed.
-
+- Fixed a second admission or cancellation overwriting the one the async owner
+  retains while a raw correlation release is due (#775). While that single
+  deferred slot is occupied, the actor no longer selects further admissions
+  or cancellations. They wait, in order, in their existing bounded channels.
+  Receive, the release timer, shutdown, and control are still driven, so the
+  release can resolve. Previously, two ready boundaries at the release
+  instant hit a debug assertion in debug builds. In optimized builds the
+  first boundary was replaced, its caller saw a spurious owner-disconnected
+  error, and a deferred cancellation never reached the engine.
+- Fixed a boundary retained behind a raw release being lost, rather than
+  answered with the terminal error, when the async owner task unwinds (D25,
+  #776).
 - `ViscaInquiry` accepts binary and octal `opcode`/`subcode` literals; it
   previously rejected them as not fitting in a `u8` (#824).
-
-- **BREAKING (#807): `ColorTemp::try_from(Kelvin)` uses the single
-  `ColorTemp::from_kelvin` mapping** (2500–8000 K, nearest 100 K step), so
+- **BREAKING** (#807): `ColorTemp::try_from(Kelvin)` uses the single
+  `ColorTemp::from_kelvin` mapping (2500–8000 K, nearest 100 K step), so
   3200 K encodes `0x07` instead of `0x0B`.
-
-- **BREAKING (#828):** the speed/level `From<Raw<_>>` conversions, which
+- **BREAKING** (#828): the speed/level `From<Raw<_>>` conversions, which
   silently clamped invalid values to the minimum, are now `TryFrom<Raw<_>>`
   returning the type's range error.
-
 - (#819) Shutter code `0x00` (the generic 1/30 s step) is constructible,
   encodes as `81 01 04 4A 00 00 00 00 FF` and decodes on every generic-table
   profile.
-
 - (#808) `PanTiltCoordinateConversion` deserialization rejects zero or
   non-finite scales, and `PtzOptics30X` at 30x now reaches the optical
   maximum `0x4000` (its previous scale made 30x unreachable).
-
-- **BREAKING (#828): `CameraConfig` serial opens no longer broadcast I/F
-  Clear by default.** Startup writes are selected with
+- (#814) `ColorTemperature` declares `MAX_SIZE` 7, its longest frame, instead
+  of 8.
+- **BREAKING** (#828): `CameraConfig` serial opens no longer broadcast I/F
+  Clear by default. Startup writes are selected with
   `CameraConfig::serial_startup(Startup)` / `serial::Config::startup`, and
   every entry point documents what it writes on open.
-
-- **#828:** `BufferConfig::recv_buffer_size` is the largest accepted frame and
+- (#828) `BufferConfig::recv_buffer_size` is the largest accepted frame and
   the per-read size, and `max_buffer_size` bounds input carried between
   reads with room for one more read, so a burst of valid replies can no
   longer poison a healthy stream session.
-
-- **BREAKING (behaviour, #795): a raw VISCA inquiry over TCP can no longer
-  return another inquiry's stale reply as its own value.** On the 2026-10-04 bench (PTZOptics G2,
-  `5a3e81d1`), a silently stalled TCP stream made a timed-out
+- **BREAKING** (#795): a raw VISCA inquiry over TCP can no longer return
+  another inquiry's stale reply as its own value. On the 2026-10-04 bench
+  (PTZOptics G2, `5a3e81d1`), a silently stalled TCP stream made a timed-out
   `power().state()` inquiry be re-written six times; when the stall cleared
   the camera answered every copy, and the next `white_balance().mode()` calls
   returned `Ok(Outdoor)` while the camera was in Auto. On a raw stream session
@@ -615,30 +753,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pan_degrees, tilt_degrees, pan_degree_range, tilt_degree_range,
   to_degrees, to_units}`, `ZoomScale`, `Capabilities::{zoom_scale,
   zoom_scale_for_lens}` (#808).
-
 - `Error::CommandCorrelationLost { camera }` and
   `Error::CommandFailedAfterAck { source }` with their constructors (#795).
-
 - `transport::AddressedBus` and `HasTransportConfig::addressed_bus()` (#828).
   When serial Address Set ran, every `Session::open` (blocking and async,
   including caller-built transports) rejects a registered camera the chain
   did not address with `ConnectionFailed { addr: <port> }`, whose `NotFound`
   source names the camera. Wrapper transports must forward
   `addressed_bus()`.
-
 - `Focus::FOCUS_ZONES`, `Capabilities::focus_zones` and
   `Capabilities::supports_focus_zone()` (#795) expose each profile's settable
   focus zones; the list is empty exactly when focus-zone control is
   unsupported.
-
 - `Error::InquiryCorrelationLost { camera }` (#795) reports a latched raw-TCP
   inquiry lane (`ErrorKind::NotExecutable`, not retryable, failure context
   `Terminal`/`NotAccepted`). The session stays live; reopening it recovers the
-  camera's inquiries. The three public API snapshots gain only this variant,
-  its field, and its `const` constructor.
+  camera's inquiries.
 
 ### Internal
 
+- The async owner's source arbitration (source phase, fairness ceiling,
+  control allowance, raw-release proof and retained-boundary slot) lives in
+  one executor-free coordinator, which the blocking worker also runs, and
+  both owners resolve retained raw stream input with one shared routine
+  (D25, #776).
 - (#801, #802) Blocking and async owner handles, receipt waits, halt,
   cancellation and control requests are expanded from one source;
   settlement polling (`wait_until_idle` and targeted settlement) is one
@@ -656,13 +794,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `raw::AppliedOnly` are generated from one definition, and the raw policy
   accessors and `Request` forwarding are written once.
 - (#803) One `Lane` enum is shared by the engine, the stream ledger and the
-  owner.
+  owner; a ready request's owner wake and its dispatch use the one per-lane
+  dispatch gate, and the inquiry cooldown is encoded once, as pacing.
 - One frame writer, one step encoder, one nibble encoder and one address-free
   byte catalogue whose shared command/inquiry registers are declared once; raw
   admission and serial startup recognise Address Set / I/F Clear from it
   (#810, #811).
 - The built-in inquiry table has one row grammar and one generator; response
   lifting has one body (#812).
+- (#813, #814, #815) One source per built-in command fact: the ledger list
+  defines `BuiltinCommand`, `ALL` and the classification; each request is one
+  `builtin_request!` entry naming its ledger row, with its encoded size
+  measured from the encoder; one noun-table row grammar generates the
+  blocking, async and `Dyn*` facades, re-exports, typed-request inventory and
+  the typed inquiries' runtime gates. Unknown macro flags are compile errors.
 - The test-only auto-detect framing mode and its constructors are removed.
 - (#827) `DeterministicExecutor::block_on_bg` and `run_until` share one driver
   loop with its tunables defined once;
@@ -690,220 +835,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Registry tests no longer restate marker-versus-metadata agreement for
   brightness, contrast, sharpness, iris and picture effect; the two-way
   surface metadata test is the single check.
-
-## [2.0.0-rc.3] - 2026-10-04
-
-This candidate completes the adopted 2.0 decisions for software review.
-Physical-camera verification remains pending; the hardware checklist records
-the required representative scenarios before a stable release (#753).
-
-### Fixed
-
-- Fixed a blocking reply-selection race that could report an owner disconnect
-  after the healthy worker had queued an admission, cancellation, or control
-  reply and dropped its sender (#780). Selected disconnects now recheck the
-  buffered value; observation slots retain their delivery timestamps and late
-  outcomes remain reusable after observer timeouts (#777).
-- Made blocking operation-observation regressions wait for actual settlement
-  inquiry and cancellation writes instead of assuming a short observer timeout
-  proves worker progress (#777).
-
-- Align fatal settlement-polling regressions with retained inquiry causes and
-  `Observation/Unconfirmed` replay certainty (#782). Match the async observer
-  test helper to runtime-backed tests and keep the checked atomic admission
-  counter compatible with both the pinned nightly and Rust 1.88 (#777, #779).
-
-- Timestamped owner deliveries (#777, #783) make operation observer deadlines exact: an
-  outcome delivered at the deadline satisfies that wait; a later outcome stays
-  cached for a subsequent borrowing wait. A timely cancellation failure is no
-  longer hidden by a late original completion.
-- Settlement polling failures (#782, #783) retain their inquiry cause while reporting
-  `Observation/Unconfirmed` for the applied move, so they cannot authorize
-  replay of that move.
-
-- Adapted motion-window deadline errors and blocking clock imports to the
-  integrated structured-error and worker APIs (#781).
-- Fixed blocking worker self-close deadlocking when another caller had already
-  taken its join handle (#780). Transport callbacks now request shutdown and
-  receive `InvalidState` without waiting or consuming the join handle; an
-  external caller can still wait for complete teardown. Clarified that the
-  read slice bounds one read's contribution to control latency, rather than
-  total latency through queued work and protocol constraints.
-- Fixed the coordinator model retaining an old control allowance across
-  retained-boundary redelivery (#776). A new hold at the same synthetic
-  instant now receives its own allowance; the disclosed regression seed is
-  preserved. Production arbitration is unchanged.
-- Fixed a second admission or cancellation overwriting the one the async owner
-  retains while a raw correlation release is due (#775). While that single
-  deferred slot is occupied, the actor no longer selects further admissions
-  or cancellations. They wait, in order, in their existing bounded channels.
-  Receive, the release timer, shutdown, and control are still driven, so the
-  release can resolve. Previously, two ready boundaries at the release
-  instant hit a debug assertion in debug builds. In optimized builds the
-  first boundary was replaced, its caller saw a spurious owner-disconnected
-  error, and a deferred cancellation never reached the engine.
-- Fixed a boundary retained behind a raw release being lost, rather than
-  answered with the terminal error, when the async owner task unwinds (D25,
-  #776).
-- Fixed a cancellation request that could not reach the owner hiding the
-  operation's outcome (D19, #777). `cancel` now answers from an outcome the
-  owner delivered before it stopped, and a cancellation that fails after the
-  owner accepted it leaves the handle observing the operation's own outcome.
-
-### Changed
-
-- **BREAKING**: Freeze extensible public configuration, diagnostic, error and
-  transport payloads with `#[non_exhaustive]`; expose narrow constructors for
-  external adapters and parsers. Use constructors or Default plus field
-  assignments, partial named patterns (`..`), and wildcard registry matches.
-  Fixed wire/value records and command payloads remain exhaustive. `ViscaEnum`
-  error types named `Error` now use the `invalid_response` constructor convention
-  while other custom error types retain `From<String>` (#788).
-
-- **BREAKING** (D21): `stop_all_motion()` now returns `HaltReport` with an
-  independent result for each supported axis. One owner halt fences older
-  declared queued motion and retries, then admits STOPs under one end-to-end
-  deadline while respecting protocol gates. Custom plain/raw commands can
-  declare their motion axes without gaining STOP priority (#779).
-- **BREAKING** (D23, revises #542's settlement contract): targeted `settled*` waits return `Settlement` evidence.
-  Stable-sample evidence reports its axes, window, and tolerance; it does not
-  prove arrival at an endpoint. A later conflicting admission supersedes an
-  unfinished polled observation. Established cached evidence and exact
-  profile-declared completion remain valid (#782).
-
-- **BREAKING** (#781): `is_moving` and `is_moving_axes` now observe over an
-  explicit time window instead of comparing two back-to-back snapshots.
-  `MotionQuery` gains a public `window` field (default
-  `MotionQuery::DEFAULT_WINDOW`, 100 ms) and `with_window`. The second
-  snapshot starts only once that window has elapsed on the owner clock after
-  the first was received, so `false` now means "no movement detected over at
-  least `window`", not "no movement between two incidental inquiries". A zero
-  window is rejected with `Error::InvalidParameter` before any inquiry. The
-  single observation deadline now covers the window plus the existing 30 s
-  inquiry budget, and a window that cannot elapse before it returns
-  `Error::Timeout` rather than `false`. Each call now takes at least
-  `window`. Blocking, async, and both dynamic facades share one
-  implementation of these rules. `MotionQuery` and `IdleWait` are now
-  `#[non_exhaustive]` (D22, D27): their fields stay readable, but they are
-  built with `new`, `Default`, `From`, the `for_*` presets and the `with_*`
-  methods instead of struct literals, so later fields can be added without a
-  break. `wait_until_idle` behavior is unchanged.
-
-- The async owner's source arbitration (source phase, fairness ceiling,
-  control allowance, raw-release proof and retained-boundary slot) now lives
-  in one executor-free coordinator, and the actor polls its sources in the
-  coordinator's single planned order. Both owners resolve retained raw stream
-  input with one shared routine. Decision D25 (#776); no public API change.
-- **BREAKING** (#777): Operation waits borrow the handle instead of
-  consuming it. `applied`, `settled`, `cancel`, and their `_with_timeout`
-  forms take `&mut self` on the async, blocking, and dynamic handles, and the
-  handle caches the authoritative results it observes:
-  - a wait that times out, or is dropped as the losing branch of a `select!`,
-    ends only that wait, and the handle can wait again;
-  - `settled` after `applied` continues from the cached application, and a
-    repeated wait answers from the cache;
-  - `cancel` waits for the cancellation's conclusion and returns
-    `CancellationOutcome` directly. It is one idempotent intent per handle: a
-    repeated `cancel`, including after a timeout, observes the first intent
-    and never writes a second cancellation. Once the outcome is known it
-    decides the answer (`Completed`, `Cancelled`, or the operation's error).
-    Its default deadline covers the owner's own cancellation resolution;
-  - a refused cancellation is a plain error, and the handle keeps observing;
-  - `detach` still consumes the handle, and dropping it is still `detach`.
-
-  This replaces the #612 recovery shape (`CancelRejected` carrying the handle
-  back) and the consuming lifecycle the #552 exit criteria described.
-- **BREAKING** (#777): `CancellationOutcome` is `#[non_exhaustive]` (D19).
-
-- **BREAKING** (#783): Every timeout says which deadline expired and what is
-  known about the request (D20). This refines the #755 failure matrix and the
-  #726 public failure model; it does not reverse D8 (#671) and reinstates no
-  session poisoning.
-  - New `Error::ObservationTimeout { operation }` is returned only when a
-    caller's wait on an admitted operation, cancellation, command, or inquiry
-    expires while the owner still holds the request. It names the
-    `OperationId`, its kind is `ErrorKind::Timeout`, and `is_retryable()` is
-    `false`: wait again or reconcile, never resubmit. Previously such waits
-    returned `Error::Timeout`, which `is_retryable()` called retryable.
-  - `Error::Timeout` becomes `Timeout { context: FailureContext }`. Its
-    `FailureStage` says where the deadline was (`PreAdmission`,
-    `Observation`, `Terminal`, `CancellationAttempt`, `Session`) and its
-    `Certainty` says what is known (`NotAccepted`, `StillLive`,
-    `FailedConclusively`, `Unconfirmed`). An admission-deadline expiry stays
-    `Timeout`, with `PreAdmission`/`NotAccepted`. An engine terminal timeout
-    is `Unconfirmed` for a sent command, `FailedConclusively` for an inquiry,
-    and `NotAccepted` for a command never written.
-  - `Error::failure_context()` returns the context for every timeout and for
-    `UnsequencedCommandUnconfirmed` and `CancellationUnconfirmed`.
-    `FailureContext`, `FailureStage`, and `Certainty` are `#[non_exhaustive]`.
-  - Custom transports report an expired read or write with
-    `Error::io_timeout()`; any `Error::Timeout` from a read still means "no
-    data".
-  - `is_retryable()` is documented as classifying temporary conditions, not
-    replay safety.
-- **BREAKING** (#778): `SessionConfig::admission_capacity` now bounds
-  ordinary requests only (D26). Each registered camera also has a control
-  reserve, one admission slot per typed STOP its profile supports
-  (pan/tilt, zoom, focus; at most three), that only an urgent typed STOP may
-  use. A STOP takes its camera's reserve first and an ordinary slot only when
-  the reserve is held, so queued ordinary work can no longer lock a STOP out
-  with `RuntimeQueueFull`, and one camera's stops cannot use another's
-  reserve. Up to `capacity` plus the reserves can be pending or active at
-  once. This extends D10 and D1; it changes no pacing, socket limit, raw
-  correlation hold, or in-progress write.
-  - New `Error::ControlReserveExhausted { target, reserve }` is returned when
-    a STOP finds its camera's reserve and ordinary admission both full. It is
-    a `BufferFull`-kind, retryable rejection.
-  - `MetricsSnapshot` is `#[non_exhaustive]` and gains
-    `control_reserve_admitted` and `control_reserve_rejected`. Construct it
-    only through `Session::metrics()`; struct literals outside the crate no
-    longer compile.
-- **BREAKING** (#780): A blocking session runs its owner on one native
-  worker thread (D24). The worker runs the same coordinator, turn logic, and
-  engine policy as the async owner, so the blocking facade no longer drives
-  the owner on the caller's thread. This revises the "no per-camera
-  background workers" invariant and the caller-thread model of #542: each
-  blocking session has exactly one worker, started by `Session::open` after
-  startup validation, and `close` joins it.
-  - Submission means admission, as on async. A returned operation handle
-    names an admitted request; a write failure is reported through the
-    operation's outcome. Work that cannot be written yet queues instead of
-    failing.
-  - The blocking `Session`, `Camera<P>`, `CameraSession<P>`, `Operation<K>`,
-    and `BlockingDynSessionCamera` own their link to the
-    worker instead of borrowing the session, and are `Send + Sync`;
-    `Session`, `Camera<P>`, and `BlockingDynSessionCamera` are `Clone`.
-    Share them across threads by cloning; a thread waiting on one operation
-    never blocks another thread's submit, cancel, or STOP.
-  - `blocking::CameraSession::camera()` returns `&Camera<P>`, and the new
-    `into_camera()` returns the owned camera, matching the async
-    `CameraSession`. `blocking::Camera::profile()`/`capabilities()` and the
-    same methods on `BlockingDynSessionCamera` are no longer `const`.
-  - `blocking::Session::subscribe_diagnostics(capacity)` returns the same
-    `DiagnosticSubscription` as the async facade; its `recv_timeout` waits
-    on the calling thread.
-  - The worker reads the transport in slices of at most 10 ms, so a STOP,
-    cancellation, or `close` reaches the owner within one slice plus any
-    in-progress write. A blocking transport must honour short read
-    timeouts.
-  - Async and blocking owners share one owner shell core, boundary types,
-    receipt observation, and transport framing; the coordinator now paces
-    receive after idle and fault pauses for both.
-
-### Removed
-
-- **BREAKING** (#777): `Cancellation`, `blocking::Cancellation`, and
-  `dynapi::DynCancellation`. `cancel` returns the `CancellationOutcome`
-  itself.
-- **BREAKING** (#777): `CancelRejected`. A refused cancellation is the
-  plain `Error`, and the handle is unaffected.
-- **BREAKING** (#780): `Error::TransportBusy`. Blocking submission queues
-  work that cannot be written yet, as async submission always has.
-- **BREAKING** (#780): The `'session` lifetime on the blocking `Camera`,
-  `Operation`, and `BlockingDynSessionCamera`; noun accessors keep only
-  their `'view` borrow of the camera.
-- **BREAKING** (#780): `blocking::Session::drain_diagnostics`. Use
-  `subscribe_diagnostics`.
 
 ## [2.0.0-rc.2] - 2026-09-04
 

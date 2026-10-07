@@ -1,12 +1,23 @@
-//! Persisted built-in `ProfileSpec` JSON from 2.0.0-rc.3.
+//! Persisted built-in `ProfileSpec` JSON from the last published release,
+//! 2.0.0-rc.2.
 //!
-//! The fixtures in `tests/fixtures/issue_795_rc3_profile_specs/` are the exact
-//! `serde_json` output of `ProfileSpec::from_compile_time::<P>()` at the
-//! 2.0.0-rc.3 release commit (`5a3e81d1`), pretty-printed. That shape predates
-//! #795 and #807/#808: it has no `capabilities.focus_zones`, no
-//! `capabilities.optical_zoom_ratio`, shutter entries carry a `label` string
-//! instead of an `exposure` fraction, and `capabilities.typed_support` has no
-//! `"version-inquiry"` tag.
+//! The fixtures in `tests/fixtures/issue_795_rc2_profile_specs/` are the exact
+//! `serde_json` output of `ProfileSpec::from_compile_time::<P>()` at tag
+//! `v2.0.0-rc.2`, pretty-printed. That shape predates #795, #807, #808, #818,
+//! #822 and #828, so it differs from the current one:
+//!
+//! - `capabilities.focus_zones`, `optical_zoom_ratio`, `highest_preset` and
+//!   `motion_sync_speed_range` are absent;
+//! - it carries the removed `max_presets`, `max_motion_sync_speed`,
+//!   `max_motion_sync_speed_profile`, `default_tcp_port`, `default_udp_port`,
+//!   `zoom_magnification_to_units`, `exposure_comp_profile_range`,
+//!   `supports_hue` and `has_*` capability flags;
+//! - shutter entries carry a `label` string instead of an `exposure`
+//!   fraction, and the iris and brightness ranges are `{start, end}` instead
+//!   of `{min, max, gaps}` domains;
+//! - `capabilities.typed_support` lacks the surfaces added since: Sony FR7 and
+//!   Generic VISCA have no `"version-inquiry"` tag, and PTZOptics G2 has no
+//!   `"color-temperature-inquiry"` or `"noise-reduction2-d-mode"` tag.
 //!
 //! 2.0 keeps no compatibility path for older shapes. Every such spec is
 //! refused with an error that tells the caller to regenerate it from the
@@ -21,22 +32,35 @@ use grafton_visca::{
     Error, ProfileSpec,
 };
 
-const RC3_SONY_FR7: &str = include_str!("fixtures/issue_795_rc3_profile_specs/sony_fr7.json");
-const RC3_GENERIC_VISCA: &str =
-    include_str!("fixtures/issue_795_rc3_profile_specs/generic_visca.json");
-const RC3_PTZ_OPTICS_G2: &str =
-    include_str!("fixtures/issue_795_rc3_profile_specs/ptz_optics_g2.json");
+const RC2_SONY_FR7: &str = include_str!("fixtures/issue_795_rc2_profile_specs/sony_fr7.json");
+const RC2_GENERIC_VISCA: &str =
+    include_str!("fixtures/issue_795_rc2_profile_specs/generic_visca.json");
+const RC2_PTZ_OPTICS_G2: &str =
+    include_str!("fixtures/issue_795_rc2_profile_specs/ptz_optics_g2.json");
 
-fn assert_rc3_shape(fixture: &str) {
+/// Pins the fixture to the 2.0.0-rc.2 shape: current required fields are
+/// absent, removed fields are present, and `missing_tag` is a typed-support
+/// surface the current registry grants that rc.2 did not.
+fn assert_rc2_shape(fixture: &str, missing_tag: &str) {
     let value: serde_json::Value = serde_json::from_str(fixture).expect("fixture is JSON");
     let capabilities = &value["capabilities"];
-    assert!(capabilities.get("focus_zones").is_none());
-    assert!(capabilities.get("optical_zoom_ratio").is_none());
+    for field in [
+        "focus_zones",
+        "optical_zoom_ratio",
+        "highest_preset",
+        "motion_sync_speed_range",
+    ] {
+        assert!(capabilities.get(field).is_none(), "{field}");
+    }
+    for field in ["max_presets", "default_udp_port", "has_focus_zone"] {
+        assert!(capabilities.get(field).is_some(), "{field}");
+    }
     assert!(capabilities["shutter_speeds"][0].get("label").is_some());
+    assert!(capabilities["shutter_speeds"][0].get("exposure").is_none());
     let typed_support = capabilities["typed_support"]
         .as_array()
         .expect("typed_support list");
-    assert!(!typed_support.iter().any(|tag| tag == "version-inquiry"));
+    assert!(!typed_support.iter().any(|tag| tag == missing_tag));
 }
 
 fn refusal(json: &str) -> String {
@@ -56,9 +80,13 @@ fn assert_regeneration_instruction(error: &str) {
 }
 
 #[test]
-fn every_rc3_built_in_spec_is_refused_with_a_regeneration_instruction() {
-    for fixture in [RC3_SONY_FR7, RC3_GENERIC_VISCA, RC3_PTZ_OPTICS_G2] {
-        assert_rc3_shape(fixture);
+fn every_rc2_built_in_spec_is_refused_with_a_regeneration_instruction() {
+    for (fixture, missing_tag) in [
+        (RC2_SONY_FR7, "version-inquiry"),
+        (RC2_GENERIC_VISCA, "version-inquiry"),
+        (RC2_PTZ_OPTICS_G2, "color-temperature-inquiry"),
+    ] {
+        assert_rc2_shape(fixture, missing_tag);
         let error = refusal(fixture);
         assert!(error.contains("missing field"), "{error}");
         assert_regeneration_instruction(&error);

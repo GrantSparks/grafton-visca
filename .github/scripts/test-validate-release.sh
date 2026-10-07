@@ -242,6 +242,17 @@ rm -f "${rc_missing_checklist_root}/docs/hardware_release_checklist.md"
 commit_fixture_changes "${rc_missing_checklist_root}"
 run_validator "${rc_missing_checklist_root}" v2.0.0-rc.1
 
+# The release cut must date the tagged version's notes. Notes left under
+# Unreleased (for example after an unpublished candidate section was folded
+# back into it) do not satisfy the gate.
+undated_root="${root_temp}/undated-changelog"
+make_fixture "${undated_root}" "2.0.0-rc.3" "${pending_checklist}"
+printf '# Changelog\n\n## [Unreleased]\n\n- Net change since 2.0.0-rc.2.\n\n## [2.0.0-rc.2] - 2026-09-04\n' \
+    > "${undated_root}/CHANGELOG.md"
+commit_fixture_changes "${undated_root}"
+expect_failure "CHANGELOG.md must contain a dated '## [2.0.0-rc.3] - YYYY-MM-DD' heading" \
+    run_validator "${undated_root}" v2.0.0-rc.3
+
 # Stable 2.0+ releases require the five-row matrix and its four records.
 pending_root="${root_temp}/pending"
 make_fixture "${pending_root}" "2.0.0" "${pending_checklist}"
