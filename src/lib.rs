@@ -31,10 +31,8 @@
 // only things that ever call them are the blocking and async facades that the
 // leg switches off.
 //
-// This is the single crate-wide dead-code exemption in the crate. It is
-// conditional, so every configuration with a facade reports dead code
-// normally; the only narrower exemptions are the hidden completion-lowering
-// wrappers that are intentionally facade-less in this matrix.
+// This is the only dead-code exemption in the crate. It is conditional, so
+// every configuration with a facade reports dead code normally.
 #![cfg_attr(not(any(feature = "blocking", feature = "async")), allow(dead_code))]
 
 //! ## What is VISCA?
