@@ -953,6 +953,29 @@ impl OperationalTuning {
         self
     }
 
+    /// The completion-deadline override for one command category.
+    pub(crate) const fn command_override(self, category: CommandCategory) -> Option<Duration> {
+        match category {
+            CommandCategory::Quick => self.quick_timeout,
+            CommandCategory::Movement => self.movement_timeout,
+            CommandCategory::Preset => self.preset_timeout,
+            CommandCategory::LongRunning => self.long_running_timeout,
+            CommandCategory::Network => self.network_timeout,
+        }
+    }
+
+    /// Applies the retry-limit override to the default base retry count. The
+    /// override may only reduce it.
+    #[cfg(any(feature = "async", feature = "blocking", test))]
+    pub(crate) fn reduce_retry_base(self, default: u32) -> u32 {
+        self.retry_limit.map_or(default, |limit| limit.min(default))
+    }
+}
+
+/// Owner-side reads of the remaining overrides; only preparation and the
+/// owner policy consume them.
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl OperationalTuning {
     pub(crate) const fn command_spacing_override(self) -> Option<Duration> {
         self.command_spacing
     }
@@ -969,29 +992,12 @@ impl OperationalTuning {
         self.ack_timeout
     }
 
-    /// The completion-deadline override for one command category.
-    pub(crate) const fn command_override(self, category: CommandCategory) -> Option<Duration> {
-        match category {
-            CommandCategory::Quick => self.quick_timeout,
-            CommandCategory::Movement => self.movement_timeout,
-            CommandCategory::Preset => self.preset_timeout,
-            CommandCategory::LongRunning => self.long_running_timeout,
-            CommandCategory::Network => self.network_timeout,
-        }
-    }
-
     pub(crate) const fn settlement_timeout_override(self) -> Option<Duration> {
         self.settlement_timeout
     }
 
     pub(crate) const fn inquiry_timeout_override(self) -> Option<Duration> {
         self.inquiry_timeout
-    }
-
-    /// Applies the retry-limit override to the default base retry count. The
-    /// override may only reduce it.
-    pub(crate) fn reduce_retry_base(self, default: u32) -> u32 {
-        self.retry_limit.map_or(default, |limit| limit.min(default))
     }
 
     /// Applies the retry-timing overrides to a request's profile retry
@@ -1227,6 +1233,7 @@ impl ProfileSpec {
 
     /// Returns whether every protocol identity fact matches the generated
     /// compile-time projection for `P`.
+    #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) fn matches_compile_time_profile<P>(&self) -> bool
     where
         P: CompileTimeProfile,
@@ -1339,6 +1346,7 @@ impl ProfileSpec {
 
     /// The number of typed STOP paths (pan/tilt, zoom, focus) this profile
     /// supports. Each one gets a control-reserve admission slot (D26, #778).
+    #[cfg(any(feature = "blocking", feature = "async"))]
     pub(crate) fn typed_stop_paths(&self) -> u8 {
         [
             AffectedAxes::PAN_TILT,

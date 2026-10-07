@@ -4,11 +4,11 @@
 # full libtest path. Sourced by `test-all-features.sh`.
 #
 # They are the expensive part of the library unit tests (about 90 CPU-seconds
-# of the ~92 a no-default `--lib` run costs) and they cannot differ by feature
-# configuration: the engine's production code in `src/runtime/engine/` has no
-# `cfg(feature = ...)`, and the crate items it uses (`protocol::framer`, `raw`,
-# the error and ID types) are gated at most on `any(async, blocking, test)`,
-# which `cfg(test)` makes uniform. The feature cfgs that do exist there are
+# per `--lib` run) and they cannot differ by facade configuration: the engine
+# compiles only with a facade (`any(async, blocking)`), its production code in
+# `src/runtime/engine/` has no further `cfg(feature = ...)`, and the crate items
+# it uses (`protocol::framer`, `raw`, the error and ID types) are gated at most
+# on that same facade condition. The feature cfgs that do exist there are
 # test-only: four engine tests gated on a facade, and one helper in `types.rs`
 # under `cfg(all(test, any(async, blocking)))`. None of the four tests below is
 # among those tests or uses that helper.

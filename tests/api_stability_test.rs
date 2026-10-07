@@ -261,6 +261,10 @@ fn canonical_compile_contracts() {
     // The base-only feature leg has no conditional directory to append.
     #[allow(unused_mut)]
     let mut pass_dirs = vec!["tests/api_contract/pass"];
+    // Owner-backed views and the private engine/owner modules exist only
+    // with a facade; without one the crate is the domain vocabulary alone.
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pass_dirs.push("tests/api_contract/pass_facade");
     #[cfg(feature = "async")]
     pass_dirs.push("tests/api_contract/pass_async");
     #[cfg(feature = "blocking")]
@@ -279,6 +283,8 @@ fn canonical_compile_contracts() {
     pass_dirs.push("tests/api_contract/pass_serial_tokio");
 
     let mut fail_dirs = vec!["tests/api_contract/fail"];
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    fail_dirs.push("tests/api_contract/fail_facade");
     #[cfg(feature = "async")]
     fail_dirs.push("tests/api_contract/fail_async_canonical");
     #[cfg(all(feature = "blocking", not(feature = "async")))]
