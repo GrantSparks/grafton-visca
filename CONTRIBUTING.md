@@ -234,17 +234,22 @@ generated from them:
    an explicit `size:`, the `MAX_SIZE` allocation bound for the request's
    longest frame, while the exact encoded length is measured from the encoder.
    Add the per-value checks to its `BuiltinValidation` implementation; a typed
-   capability gate comes from the ledger row through
-   `validate_static_typed_command`.
+   capability gate comes from the ledger row. A type whose values serve
+   different ledger rows adds
+   `rows: |value| match value[.field] { Variant => Row, ... }`, an exhaustive
+   match whose patterns are variant paths (a wildcard is rejected), and its
+   validator gates each value on the row it selects, `self.ledger_row()`.
 4. **Noun row** (`src/noun_table.rs`): one row under the owning `@noun` header
    gives the method name, arguments, rustdoc, capability `where` marker and
    request. The blocking, async and `Dyn*` methods, the static surface entry
    and the typed-request inventory are all expanded from it.
 
 The compiler rejects a ledger row without a noun row, a noun row whose kind
-disagrees with the ledger class, and a request type whose rows disagree on
-their capability gate (unless its entry is `gate_by_value`, in which case its
-validator must name each value's own ledger row). A typed built-in inquiry is added to
+disagrees with the ledger class, and a request type without a `rows:` entry
+whose noun rows disagree on their capability gate. For a type with a `rows:`
+entry, every noun row that
+sends it must be a `[by_value <const expr>]` row whose value selects that noun
+row's ledger row. A typed built-in inquiry is added to
 `define_builtin_inquiries!` in `src/command/inquiry_structs.rs` and gets its
 runtime gate from its noun row in the same way.
 

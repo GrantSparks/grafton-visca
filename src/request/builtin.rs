@@ -54,7 +54,7 @@ use crate::{units::Degrees, PanTiltCoordinateConversion};
 ///     size: <MAX_SIZE>
 ///     [, policy: (<TimeoutClass>, <RetryClass>, <ControlClass>)]
 ///     [, wire: <closure from &type to its wire value>]
-///     [, rows: |<value>| match <value>[.<field>] { <pattern> => <BuiltinCommand row>, ... }]
+///     [, rows: |<value>| match <value>[.<field>] { <Variant path> => <BuiltinCommand row>, ... }]
 /// };
 /// ```
 ///
@@ -72,7 +72,9 @@ use crate::{units::Degrees, PanTiltCoordinateConversion};
 ///
 /// `rows` is for a type whose values serve different ledger rows. It
 /// generates the inherent `const fn ledger_row(&self)`, an exhaustive match
-/// with no repeated pattern, and sets `SELECTS_ROW_BY_VALUE`; the validator
+/// with no repeated pattern, and sets `SELECTS_ROW_BY_VALUE`. Each pattern is
+/// a path naming one variant, so a wildcard or binding cannot absorb a
+/// variant added later. The validator
 /// gates each value on the row it selects. Every row then classifies like
 /// the entry's row, and every noun row sending the type must be a `by_value`
 /// row whose value selects that noun row's command: the typed-request
@@ -113,7 +115,7 @@ macro_rules! builtin_request {
     };
 
     (@rows $type:ty, |$value:ident| $($scrutinee:ident).+ {
-        $($pattern:pat => $row:ident),+
+        $($pattern:path => $row:ident),+
     }) => {
         impl $type {
             /// The ledger row this value serves, whose typed capability gate
@@ -153,7 +155,7 @@ macro_rules! builtin_request {
             $(, policy: ($timeout:ident, $retry:ident, $control:ident))?
             $(, wire: $wire:expr)?
             $(, rows: |$value:ident| match $($scrutinee:ident).+ {
-                $($pattern:pat => $value_row:ident),+ $(,)?
+                $($pattern:path => $value_row:ident),+ $(,)?
             })?
             $(,)?
         };
@@ -579,9 +581,8 @@ fn validate_gain(profile: &crate::ProfileSpec, value: Option<u8>) -> Result<(), 
     Ok(())
 }
 
-/// Checks the white-balance domain and the profile's mode list, then the
-/// typed capability gate of the ledger row the mode selects, if that row has
-/// one.
+/// Checks the white-balance domain and the profile's mode list, then, for a
+/// mode whose ledger row has one, that row's typed capability gate.
 fn validate_white_balance_mode(
     profile: &crate::ProfileSpec,
     command: &crate::command::WhiteBalanceCommand,
@@ -594,19 +595,35 @@ fn validate_white_balance_mode(
         capabilities.white_balance_modes.contains(&command.mode),
         "selected white-balance mode",
     )?;
-    let Some(surface) = typed_surface_for_command(command.ledger_row()) else {
-        return Ok(());
-    };
     let feature = match command.mode {
-        WhiteBalanceMode::Auto => "automatic white balance",
-        WhiteBalanceMode::Indoor => "indoor white balance",
-        WhiteBalanceMode::Outdoor => "outdoor white balance",
         WhiteBalanceMode::OnePush => "one-push white balance",
         WhiteBalanceMode::ATW => "auto-tracking white balance",
-        WhiteBalanceMode::Manual => "manual white balance",
         WhiteBalanceMode::ColorTemperature => "color-temperature white balance",
+        // These modes select ledger rows whose noun rows carry no `Has*`
+        // marker, so they have no typed gate: the profile's mode list above is
+        // their whole check. The build fails if one of those rows gains a
+        // typed surface.
+        WhiteBalanceMode::Auto
+        | WhiteBalanceMode::Indoor
+        | WhiteBalanceMode::Outdoor
+        | WhiteBalanceMode::Manual => {
+            const {
+                assert!(
+                    !white_balance_mode_is_typed(WhiteBalanceMode::Auto)
+                        && !white_balance_mode_is_typed(WhiteBalanceMode::Indoor)
+                        && !white_balance_mode_is_typed(WhiteBalanceMode::Outdoor)
+                        && !white_balance_mode_is_typed(WhiteBalanceMode::Manual)
+                );
+            }
+            return Ok(());
+        }
     };
-    require(capabilities.permits_typed(surface), feature)
+    validate_static_typed_command(profile, command.ledger_row(), feature)
+}
+
+/// Whether the ledger row a white-balance mode selects has a typed gate.
+const fn white_balance_mode_is_typed(mode: crate::command::WhiteBalanceMode) -> bool {
+    typed_surface_for_command(crate::command::WhiteBalanceCommand { mode }.ledger_row()).is_some()
 }
 
 fn validate_awb_sensitivity(
