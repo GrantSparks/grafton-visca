@@ -17,8 +17,7 @@ use std::time::Duration;
     feature = "runtime-tokio",
     feature = "runtime-smol"
 ))]
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
+use grafton_visca_test_support::fake_camera;
 
 #[cfg(any(
     feature = "blocking",
@@ -26,11 +25,6 @@ mod fake_camera;
     feature = "runtime-smol"
 ))]
 use fake_camera::FakeCamera;
-
-#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
-#[macro_use]
-#[path = "common/matrix.rs"]
-mod matrix;
 
 use grafton_visca::{
     profile::ProfileSpec,
@@ -192,6 +186,7 @@ fn root_and_blocking_session_config_are_the_same_type() {
 ))]
 mod async_registry {
     use super::*;
+    use grafton_visca_test_support::runtime_matrix;
 
     #[cfg(feature = "runtime-tokio")]
     use std::num::NonZeroUsize;

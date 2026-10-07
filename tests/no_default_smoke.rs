@@ -7,8 +7,7 @@
 
 #![cfg(not(any(feature = "blocking", feature = "async")))]
 
-#[path = "common/compile_fail.rs"]
-mod compile_fail;
+use grafton_visca_test_support::{active_grafton_visca_features, compile_fail};
 
 use grafton_visca::{command::PowerOn, profiles::GenericVisca, CameraId, ProfileSpec, Request};
 
@@ -69,7 +68,7 @@ fn no_default_pure_request_profile_smoke_and_facade_inventory() {
         );
     }
 
-    let features = compile_fail::active_grafton_visca_features();
+    let features = active_grafton_visca_features!();
     // The base directory and no-canonical directory are defined for every
     // pure surface. The test-utils absence contract belongs only to pure
     // builds that do not expose `grafton_visca::testing`. The no-default CI

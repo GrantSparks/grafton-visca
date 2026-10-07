@@ -73,8 +73,8 @@ The `executor_selection` module provides utilities to help choose the appropriat
 - `TestExecutorSelector`: Trait for selecting appropriate executors
 
 Integration tests that run one scenario on several runtimes or facades use the
-suite's shared harness in `tests/common/` (`runtime_matrix!` and the facade
-matrix) rather than per-file entry points.
+suite's shared harness in the `grafton-visca-test-support` crate
+(`runtime_matrix!` and `facade_matrix!`) rather than per-file entry points.
 
 ## Migration Guide
 

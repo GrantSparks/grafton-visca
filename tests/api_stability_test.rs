@@ -5,8 +5,7 @@
 //! the feature matrix and the root exports honest without importing any of
 //! the removed 1.x mode, client, control-trait, or runtime-handle vocabulary.
 
-#[path = "common/compile_fail.rs"]
-mod compile_fail;
+use grafton_visca_test_support::{active_grafton_visca_features, compile_fail};
 
 use std::time::Duration;
 
@@ -258,25 +257,31 @@ fn blocking_dyn_root_is_runtime_profile_view() {
 
 #[test]
 fn canonical_compile_contracts() {
-    // The base-only feature leg has no conditional directory to append.
-    #[allow(unused_mut)]
     let mut pass_dirs = vec!["tests/api_contract/pass"];
-    #[cfg(feature = "async")]
-    pass_dirs.push("tests/api_contract/pass_async");
-    #[cfg(feature = "blocking")]
-    pass_dirs.push("tests/api_contract/pass_blocking");
-    #[cfg(all(feature = "blocking", feature = "async"))]
-    pass_dirs.push("tests/api_contract/pass_coexistence");
-    #[cfg(all(feature = "dyn-api", feature = "async"))]
-    pass_dirs.push("tests/api_contract/pass_dyn");
-    #[cfg(all(feature = "dyn-api", feature = "blocking"))]
-    pass_dirs.push("tests/api_contract/pass_dyn_blocking");
-    #[cfg(feature = "test-utils")]
-    pass_dirs.push("tests/api_contract/pass_test_utils");
-    #[cfg(all(feature = "blocking", feature = "transport-serial"))]
-    pass_dirs.push("tests/api_contract/pass_serial_blocking");
-    #[cfg(feature = "transport-serial-tokio")]
-    pass_dirs.push("tests/api_contract/pass_serial_tokio");
+    if cfg!(feature = "async") {
+        pass_dirs.push("tests/api_contract/pass_async");
+    }
+    if cfg!(feature = "blocking") {
+        pass_dirs.push("tests/api_contract/pass_blocking");
+    }
+    if cfg!(all(feature = "blocking", feature = "async")) {
+        pass_dirs.push("tests/api_contract/pass_coexistence");
+    }
+    if cfg!(all(feature = "dyn-api", feature = "async")) {
+        pass_dirs.push("tests/api_contract/pass_dyn");
+    }
+    if cfg!(all(feature = "dyn-api", feature = "blocking")) {
+        pass_dirs.push("tests/api_contract/pass_dyn_blocking");
+    }
+    if cfg!(feature = "test-utils") {
+        pass_dirs.push("tests/api_contract/pass_test_utils");
+    }
+    if cfg!(all(feature = "blocking", feature = "transport-serial")) {
+        pass_dirs.push("tests/api_contract/pass_serial_blocking");
+    }
+    if cfg!(feature = "transport-serial-tokio") {
+        pass_dirs.push("tests/api_contract/pass_serial_tokio");
+    }
 
     let mut fail_dirs = vec!["tests/api_contract/fail"];
     #[cfg(feature = "async")]
@@ -302,7 +307,7 @@ fn canonical_compile_contracts() {
     #[cfg(not(feature = "test-utils"))]
     fail_dirs.push("tests/api_contract/fail_no_test_utils");
 
-    let active_features = compile_fail::active_grafton_visca_features();
+    let active_features = active_grafton_visca_features!();
     compile_fail::assert_compile_pass_fixtures(&pass_dirs, &active_features);
     compile_fail::assert_compile_fail_fixtures(&fail_dirs, &active_features);
 }

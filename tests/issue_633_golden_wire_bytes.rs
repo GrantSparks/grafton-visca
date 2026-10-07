@@ -2,15 +2,14 @@
 //!
 //! Every assertion in this file compares the encoder output against an
 //! absolute byte vector that was derived from the VISCA specification by hand
-//! (see `tests/common/patterns.rs`). Nothing here recomputes an expectation
+//! (see `test-support/src/patterns.rs`). Nothing here recomputes an expectation
 //! with the encoder, the direction table, or the profile conversion under
 //! test, so a transposed field or a swapped table entry fails these tests even
 //! though it leaves every differential test green.
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-#[path = "common/patterns.rs"]
-mod patterns;
+use grafton_visca_test_support::patterns;
 
 use grafton_visca::{
     command::{PowerOn, PowerStandby},

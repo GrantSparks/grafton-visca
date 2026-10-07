@@ -1,0 +1,24 @@
+[package]
+name = "grafton-visca-test-support"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Shared helpers for grafton-visca's integration tests"
+publish = false
+
+# Each feature mirrors the grafton-visca feature of the same name and is
+# enabled by it (see the root manifest's `[features]`), so a test build compiles
+# exactly the helpers its feature leg can use. Helpers whose behaviour depends
+# on any other feature are macros, whose `cfg`s resolve in the test crate.
+[features]
+blocking = ["grafton-visca/blocking"]
+async = ["grafton-visca/async"]
+
+[dependencies]
+# The same package the integration tests link: Cargo resolves this path
+# dependency to the one `grafton-visca` instance of the test build, so types
+# from these helpers are the types the tests pass to the library.
+grafton-visca = { path = "..", default-features = false }
+flume = "0.12"
+serde_json = "1.0"

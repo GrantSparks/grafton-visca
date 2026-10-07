@@ -6,10 +6,7 @@
 #![cfg(feature = "blocking")]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
-#[path = "common/profile_fixtures.rs"]
-mod profile_fixtures;
+use grafton_visca_test_support::{fake_camera, profile_fixtures};
 
 use std::time::{Duration, Instant};
 
