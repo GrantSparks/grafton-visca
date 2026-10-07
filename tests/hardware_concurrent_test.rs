@@ -121,11 +121,7 @@
 //! or rerun `hwc04_concurrent_drive_and_stop`, which ends with STOP and a
 //! preset-1 recall on every camera.
 
-#[macro_use]
-#[path = "common/hardware.rs"]
-mod hardware;
-#[path = "common/hardware_rest.rs"]
-mod hardware_rest;
+use grafton_visca_test_support::{hardware, hardware_rest, hw};
 
 use std::{
     cell::Cell,

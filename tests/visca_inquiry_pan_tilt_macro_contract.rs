@@ -1,5 +1,4 @@
-#[path = "common/compile_fail.rs"]
-mod compile_fail;
+use grafton_visca_test_support::{active_grafton_visca_features, compile_fail};
 
 use grafton_visca::{
     command::{InquiryData, VISCA_TERMINATOR},
@@ -43,7 +42,7 @@ fn downstream_pantilt_derive_keeps_standard_framing_and_widens_signed_endpoints(
 
 #[test]
 fn documented_downstream_pantilt_derive_compiles() {
-    let features = compile_fail::active_grafton_visca_features();
+    let features = active_grafton_visca_features!();
     compile_fail::assert_compile_pass_fixture_paths(
         &["tests/api_contract/pass/derive_macro_pan_tilt_standard.rs"],
         &features,

@@ -34,9 +34,13 @@
 //! # }
 //! ```
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(any(feature = "async", feature = "blocking", test))]
+use std::time::Instant;
 
-use crate::{transport::buffer::BufferConfig, Error};
+use crate::transport::buffer::BufferConfig;
+#[cfg(any(feature = "async", feature = "blocking", test))]
+use crate::Error;
 
 /// Addressing mode for VISCA communication.
 ///
@@ -221,6 +225,7 @@ impl TransportConfig {
     /// The owner validates the same invariant when admitting a caller-owned
     /// transport. Standard construction also needs it here, before a network
     /// connector or serial-device initializer can perform I/O.
+    #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) fn validate(&self) -> crate::Result<()> {
         let now = Instant::now();
         for (name, parameter, timeout) in [

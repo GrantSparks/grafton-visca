@@ -110,17 +110,6 @@
 //! The rows follow an `@motion { .. };` header in the noun-header shape,
 //! without a gate: the view needs no capability.
 
-// With no facade feature selected there is no consumer for this table: only
-// the blocking and async facades (and the dyn-api projection, which requires
-// one of them) expand it, and CI's `no-default pure engine/domain` leg
-// switches them all off.  The table is
-// still parsed and still has to stay well formed in that configuration, so the
-// exemption is targeted at exactly that leg rather than left unconditional.
-#![cfg_attr(
-    not(any(feature = "blocking", feature = "async")),
-    allow(unused_macros, unused_imports)
-)]
-
 /// Hands the whole noun table to a consumer macro.
 ///
 /// See the module documentation for the row grammar.  Invoke it as
@@ -1030,6 +1019,7 @@ pub(crate) use noun_table;
 /// — the blocking and async `MotionAccessor` and the object-safe `DynMotion` —
 /// expands these rows, so all of them expose the same names, arities and
 /// contracts.
+#[cfg(any(feature = "blocking", feature = "async"))]
 macro_rules! motion_table {
     ($consumer:ident $(, $arg:tt)*) => {
         $consumer! {
@@ -1083,6 +1073,7 @@ macro_rules! motion_table {
     };
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 pub(crate) use motion_table;
 
 /// Re-exports one name per noun header from a facade module.
@@ -1093,6 +1084,7 @@ pub(crate) use motion_table;
 /// `noun_table!(reexport_nouns, [accessor], [crate::async_nouns])` or with
 /// `[dyn_trait]`, and `motion_table!(reexport_nouns, [accessor], [..])` for
 /// the motion view.
+#[cfg(any(feature = "blocking", feature = "async"))]
 macro_rules! reexport_nouns {
     (@use [accessor] [$($path:tt)*] $([$accessor:ident $dyn_trait:ident])*) => {
         pub use $($path)*::{$($accessor),*};
@@ -1134,4 +1126,5 @@ macro_rules! reexport_nouns {
     };
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 pub(crate) use reexport_nouns;

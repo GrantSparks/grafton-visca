@@ -33,11 +33,7 @@
     )
 ))]
 
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
-#[macro_use]
-#[path = "common/matrix.rs"]
-mod matrix;
+use grafton_visca_test_support::{facade_matrix, fake_camera};
 
 use std::time::Duration;
 
@@ -272,7 +268,7 @@ async fn dyn_refused_cancel_leaves_the_handle_observing<E: grafton_visca::Execut
     feature = "dyn-api",
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
-runtime_matrix!(dyn_refused_cancel_leaves_the_handle_observing);
+grafton_visca_test_support::runtime_matrix!(dyn_refused_cancel_leaves_the_handle_observing);
 
 #[test]
 fn the_profile_used_here_declares_no_socket_cancel() {

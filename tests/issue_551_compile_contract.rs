@@ -1,14 +1,12 @@
-#[path = "common/compile_fail.rs"]
-mod compile_fail;
+use grafton_visca_test_support::{active_grafton_visca_features, compile_fail};
 
 #[test]
 fn final_request_classification_contracts() {
-    let features = compile_fail::active_grafton_visca_features();
+    let features = active_grafton_visca_features!();
     compile_fail::assert_compile_pass_fixture_paths(
         &["tests/api_contract/pass/final_typed_requests.rs"],
         &features,
     );
-    #[allow(unused_mut)]
     let mut fixtures = vec![
         "tests/api_contract/fail/operation_without_affected_axes_is_rejected.rs",
         "tests/api_contract/fail/plain_request_is_not_an_operation.rs",
@@ -22,8 +20,7 @@ fn final_request_classification_contracts() {
     // adds a feature-dependent rustc help note to these two diagnostics. The
     // direct sealing contract is exercised in the no-default contract gate;
     // the remaining class-bound cases are feature-stable and still run here.
-    #[cfg(not(feature = "ts-rs"))]
-    {
+    if !cfg!(feature = "ts-rs") {
         // Rust's diagnostic qualification differs across the pure request,
         // blocking-only, and canonical facade surfaces. Keep the source
         // identical while routing each topology to its matching declaration.

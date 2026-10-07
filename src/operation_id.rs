@@ -23,6 +23,7 @@ impl OperationId {
         self.0
     }
 
+    #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) fn from_raw(value: u64) -> Self {
         Self(NonZeroU64::new(value).unwrap_or(NonZeroU64::MIN))
     }

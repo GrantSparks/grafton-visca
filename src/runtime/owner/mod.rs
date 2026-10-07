@@ -30,23 +30,19 @@ mod shell;
 mod turn;
 
 #[cfg(feature = "async")]
-#[allow(unused_imports)]
 pub(crate) use async_actor::*;
 #[cfg(feature = "blocking")]
-#[allow(unused_imports)]
 pub(crate) use blocking::*;
 #[cfg(feature = "blocking")]
 pub(crate) use clock::Clock;
 
+pub(crate) use adapter::validate_profile_transport;
 #[cfg(feature = "async")]
 pub(crate) use adapter::AsyncTransportAdapter;
 #[cfg(feature = "blocking")]
 pub(crate) use adapter::BlockingTransportAdapter;
-#[allow(unused_imports)]
-pub(crate) use adapter::{
-    decode_response_target, owner_policy_for_targets_with_tuning, profile_supports_transport,
-    validate_profile_transport, OwnerEnvelope, RoutingState, TargetRegistry,
-};
+#[cfg(all(feature = "test-utils", feature = "blocking"))]
+pub(crate) use adapter::{decode_response_target, RoutingState, TargetRegistry};
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 use turn::{clamp_receive_pause, transient_receive_pause, IdleReceiveRun, TransientFaultRun};

@@ -18,21 +18,14 @@
         any(feature = "runtime-tokio", feature = "runtime-smol")
     )
 ))]
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
-#[cfg(all(
-    feature = "async",
-    any(feature = "runtime-tokio", feature = "runtime-smol")
-))]
-#[macro_use]
-#[path = "common/matrix.rs"]
-mod matrix;
+use grafton_visca_test_support::fake_camera;
 
 #[cfg(all(
     feature = "async",
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
 mod async_standard {
+    use grafton_visca_test_support::runtime_matrix;
     use std::{
         future::Future,
         sync::{Arc, Mutex},
@@ -611,7 +604,6 @@ mod blocking_standard {
 
 #[cfg(all(feature = "async", feature = "blocking", feature = "runtime-tokio"))]
 mod coexistence {
-    #[allow(dead_code)]
     async fn async_return_type(
     ) -> grafton_visca::Result<grafton_visca::CameraSession<grafton_visca::profiles::PtzOpticsG2>>
     {
@@ -623,7 +615,6 @@ mod coexistence {
         .await
     }
 
-    #[allow(dead_code)]
     fn blocking_return_type() -> grafton_visca::Result<
         grafton_visca::blocking::CameraSession<grafton_visca::profiles::PtzOpticsG2>,
     > {
@@ -632,7 +623,6 @@ mod coexistence {
         )
     }
 
-    #[allow(dead_code)]
     fn config_return_types() {
         let _async_config =
             grafton_visca::CameraConfig::<grafton_visca::profiles::PtzOpticsG2>::new();

@@ -23,17 +23,6 @@
     clippy::todo
 )]
 #![allow(async_fn_in_trait)]
-// With no facade feature selected the crate still compiles the protocol
-// engine, the owner core, request preparation and the semantic ledger — that
-// configuration is deliberately a "does the pure engine/domain still build"
-// check (CI's `no-default pure engine/domain` leg), and in it every one of
-// those crate-private items is unreferenced *by construction*, because the
-// only things that ever call them are the blocking and async facades that the
-// leg switches off.
-//
-// This is the only dead-code exemption in the crate. It is conditional, so
-// every configuration with a facade reports dead code normally.
-#![cfg_attr(not(any(feature = "blocking", feature = "async")), allow(dead_code))]
 
 //! ## What is VISCA?
 //!
@@ -1061,8 +1050,12 @@ pub use requests::{
     TimeoutClass,
 };
 
+// Request preparation feeds only the owner, so like the engine it is compiled
+// only with a facade.
+#[cfg(any(feature = "blocking", feature = "async"))]
 mod prepared;
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 mod stop_request;
 
 /// Bounded owner metrics and diagnostic subscriptions.
@@ -1071,12 +1064,16 @@ pub mod observability;
 /// Read-only target-local state projections committed by the owner.
 pub mod state_cache;
 
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub use observability::DiagnosticSubscription;
 pub use observability::{
     DiagnosticCancellation, DiagnosticDeadline, DiagnosticEvent, DiagnosticId,
     DiagnosticIgnoreReason, DiagnosticLane, DiagnosticOutcome, DiagnosticPhase, DiagnosticResponse,
-    DiagnosticSubscription, MetricsSnapshot, SessionStatus,
+    MetricsSnapshot, SessionStatus,
 };
-pub use state_cache::{PanTiltLimitUpdate, StateCache, StateEntry, StateKey, StateValue};
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub use state_cache::StateCache;
+pub use state_cache::{PanTiltLimitUpdate, StateEntry, StateKey, StateValue};
 
 mod session_config;
 pub use session_config::{SessionConfig, DEFAULT_ADMISSION_CAPACITY};

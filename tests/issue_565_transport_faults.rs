@@ -31,13 +31,7 @@
     )
 ))]
 
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
-#[macro_use]
-#[path = "common/matrix.rs"]
-mod matrix;
-#[path = "common/profile_fixtures.rs"]
-mod profile_fixtures;
+use grafton_visca_test_support::{facade_matrix, fake_camera, profile_fixtures};
 
 use std::{sync::Arc, time::Duration};
 
@@ -49,7 +43,7 @@ use grafton_visca::{
     CameraId, CancellationOutcome, Error,
 };
 
-use fake_camera::{frames, AsyncWire, BlockingWire, FakeCamera, FOCUS_STOP, ZOOM_STOP};
+use fake_camera::{frames, FakeCamera, FOCUS_STOP, ZOOM_STOP};
 use profile_fixtures::{
     session_config, sony_session_config, two_camera_session_config, NonDefaultCompileTimeProfile,
 };
@@ -91,8 +85,8 @@ impl Rig {
         config
     }
 
-    #[allow(dead_code)]
-    fn blocking_wire(&self) -> BlockingWire {
+    #[cfg(feature = "blocking")]
+    fn blocking_wire(&self) -> fake_camera::BlockingWire {
         self.camera
             .blocking_wire()
             .with_config(self.config())
@@ -100,8 +94,11 @@ impl Rig {
             .with_addressing(self.addressing)
     }
 
-    #[allow(dead_code)]
-    fn async_wire(&self) -> AsyncWire {
+    #[cfg(all(
+        feature = "async",
+        any(feature = "runtime-tokio", feature = "runtime-smol")
+    ))]
+    fn async_wire(&self) -> fake_camera::AsyncWire {
         self.camera
             .async_wire()
             .with_config(self.config())

@@ -413,7 +413,7 @@ encoding.
 ## Release-candidate boundary
 
 Development-complete issue closure should require implementation, contract
-tests, documentation/migration notes, public-API snapshot review, MSRV/lint,
+tests, documentation/migration notes, public-API snapshot review, lint,
 and the supported feature matrix. It should not claim physical-camera evidence.
 This review originally allowed an RC tag to carry pending hardware rows. The
 subsequent ratified D8 decision (#732), later described and enforced by #738,

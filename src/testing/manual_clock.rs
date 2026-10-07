@@ -27,22 +27,13 @@ pub(crate) enum Bell {
     Expired,
 }
 
-/// What ended one blocking step of a clock wait.
-#[derive(Debug)]
-pub(crate) enum Woken<T> {
-    /// A source produced its value.
-    Value(T),
-    /// The clock rang the wait.
-    Bell(Bell),
-}
-
 /// The sources one clock wait selects over.
 pub(crate) trait Source<T> {
     /// A value that is ready now, without blocking.
     fn poll(&mut self) -> Option<T>;
 
-    /// Block until a value is ready or `bell` rings.
-    fn block(&mut self, bell: &flume::Receiver<Bell>) -> Woken<T>;
+    /// Block until a value is ready, or `bell` rings with the returned reason.
+    fn block(&mut self, bell: &flume::Receiver<Bell>) -> Result<T, Bell>;
 }
 
 /// A source that is only ever checked when the clock rings.
@@ -56,10 +47,10 @@ where
         (self.0)()
     }
 
-    fn block(&mut self, bell: &flume::Receiver<Bell>) -> Woken<T> {
+    fn block(&mut self, bell: &flume::Receiver<Bell>) -> Result<T, Bell> {
         // The wait holds the bell's sender until it returns, so the channel
         // cannot disconnect here; treat it as expiry rather than spin.
-        Woken::Bell(bell.recv().unwrap_or(Bell::Expired))
+        Err(bell.recv().unwrap_or(Bell::Expired))
     }
 }
 
@@ -445,10 +436,10 @@ impl ManualClock {
         })?;
         let value = loop {
             match source.block(&rung) {
-                Woken::Value(value) => break Some(value),
+                Ok(value) => break Some(value),
                 // A value ready at the deadline still wins.
-                Woken::Bell(Bell::Expired) => break source.poll(),
-                Woken::Bell(Bell::Verify(round)) => {
+                Err(Bell::Expired) => break source.poll(),
+                Err(Bell::Verify(round)) => {
                     if let Some(value) = source.poll() {
                         break Some(value);
                     }

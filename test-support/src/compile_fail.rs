@@ -41,7 +41,7 @@
 //!    for an extra or different reason fails loudly instead of coasting on the
 //!    reason it still shares with its declaration.
 //! 3. Every declared message must appear in stderr.
-//! 4. A fixture declaring an *absence* code — [`ABSENCE_CODES`], the codes a
+//! 4. A fixture declaring an *absence* code — `ABSENCE_CODES`, the codes a
 //!    typo produces just as readily as a real removal — must also declare a
 //!    message naming the path that has to be missing. "This name is gone" is
 //!    only a contract if the fixture says which name.
@@ -66,12 +66,10 @@
 //! Failures are collected across the whole run and reported together, so one
 //! run tells you every fixture that needs attention.
 
-#![allow(dead_code)]
-
 use std::{
     collections::BTreeSet,
     env,
-    ffi::{OsStr, OsString},
+    ffi::OsString,
     fmt::Write as _,
     fs,
     path::{Path, PathBuf},
@@ -95,43 +93,61 @@ enum Expectation {
     Message(String),
 }
 
-pub fn active_grafton_visca_features() -> Vec<&'static str> {
-    let mut features = Vec::new();
+/// The grafton-visca features enabled in the test crate that expands it, as a
+/// `Vec<&'static str>` to pass to the fixture harness.
+///
+/// A macro rather than a function so its `cfg!` checks read the features of
+/// the integration test binary (grafton-visca's own) instead of this crate's.
+#[macro_export]
+macro_rules! active_grafton_visca_features {
+    () => {{
+        let mut features: ::std::vec::Vec<&'static str> = ::std::vec::Vec::new();
+        if cfg!(feature = "blocking") {
+            features.push("blocking");
+        }
+        if cfg!(feature = "async") {
+            features.push("async");
+        }
+        if cfg!(feature = "runtime-tokio") {
+            features.push("runtime-tokio");
+        }
+        if cfg!(feature = "runtime-smol") {
+            features.push("runtime-smol");
+        }
+        if cfg!(feature = "transport-serial") {
+            features.push("transport-serial");
+        }
+        if cfg!(feature = "transport-serial-tokio") {
+            features.push("transport-serial-tokio");
+        }
+        if cfg!(feature = "dyn-api") {
+            features.push("dyn-api");
+        }
+        if cfg!(feature = "test-utils") {
+            features.push("test-utils");
+        }
+        if cfg!(feature = "serde") {
+            features.push("serde");
+        }
+        if cfg!(feature = "schemars") {
+            features.push("schemars");
+        }
+        if cfg!(feature = "ts-rs") {
+            features.push("ts-rs");
+        }
+        features
+    }};
+}
 
-    if cfg!(feature = "blocking") {
-        features.push("blocking");
-    }
-    if cfg!(feature = "async") {
-        features.push("async");
-    }
-    if cfg!(feature = "runtime-tokio") {
-        features.push("runtime-tokio");
-    }
-    if cfg!(feature = "runtime-smol") {
-        features.push("runtime-smol");
-    }
-    if cfg!(feature = "transport-serial") {
-        features.push("transport-serial");
-    }
-    if cfg!(feature = "transport-serial-tokio") {
-        features.push("transport-serial-tokio");
-    }
-    if cfg!(feature = "dyn-api") {
-        features.push("dyn-api");
-    }
-    if cfg!(feature = "test-utils") {
-        features.push("test-utils");
-    }
-    if cfg!(feature = "serde") {
-        features.push("serde");
-    }
-    if cfg!(feature = "schemars") {
-        features.push("schemars");
-    }
-    if cfg!(feature = "ts-rs") {
-        features.push("ts-rs");
-    }
-    features
+/// The grafton-visca package root: fixture paths are relative to it, and the
+/// generated fixture crates depend on it by path.
+///
+/// This crate lives one directory below that root (`test-support/`).
+fn grafton_visca_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .expect("the test-support crate lives inside the grafton-visca package root")
+        .to_path_buf()
 }
 
 /// Resolves the target namespace used by nested compile-fail Cargo projects.
@@ -210,7 +226,7 @@ impl Drop for CompileFailWorkGuard {
 }
 
 pub fn assert_compile_fail_fixtures(fixture_dirs: &[&str], crate_features: &[&str]) {
-    let crate_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let crate_root = grafton_visca_root();
     let fixtures = collect_fixtures(&crate_root, fixture_dirs);
     assert!(
         !fixtures.is_empty(),
@@ -230,7 +246,7 @@ pub fn assert_compile_fail_fixtures(fixture_dirs: &[&str], crate_features: &[&st
 /// Compiles every Rust fixture in the supplied directories and requires it to
 /// succeed with the active public feature surface.
 pub fn assert_compile_pass_fixtures(fixture_dirs: &[&str], crate_features: &[&str]) {
-    let crate_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let crate_root = grafton_visca_root();
     let fixtures = collect_fixtures(&crate_root, fixture_dirs);
     assert!(
         !fixtures.is_empty(),
@@ -253,7 +269,7 @@ pub fn assert_compile_pass_fixtures(fixture_dirs: &[&str], crate_features: &[&st
 /// fixture directory. Keeping those suites on this harness avoids relying on
 /// toolchain-sensitive rendered stderr snapshots.
 pub fn assert_compile_fail_fixture_paths(fixture_paths: &[&str], crate_features: &[&str]) {
-    let crate_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let crate_root = grafton_visca_root();
     assert!(
         !fixture_paths.is_empty(),
         "no compile-fail fixture paths supplied"
@@ -282,7 +298,7 @@ pub fn assert_compile_fail_fixture_paths(fixture_paths: &[&str], crate_features:
 
 /// Compiles an explicit list of fixtures and requires each one to succeed.
 pub fn assert_compile_pass_fixture_paths(fixture_paths: &[&str], crate_features: &[&str]) {
-    let crate_root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let crate_root = grafton_visca_root();
     assert!(
         !fixture_paths.is_empty(),
         "no compile-pass fixture paths supplied"
@@ -1098,6 +1114,8 @@ fn sanitize(value: &str) -> String {
 /// on disk.
 #[cfg(test)]
 mod tests {
+    use std::ffi::OsStr;
+
     use super::*;
 
     fn expectations(source: &str) -> Vec<Expectation> {

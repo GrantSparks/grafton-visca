@@ -2,8 +2,7 @@
 
 #![cfg(feature = "blocking")]
 
-#[path = "common/profile_fixtures.rs"]
-mod profile_fixtures;
+use grafton_visca_test_support::profile_fixtures;
 
 use grafton_visca::{
     blocking::{Camera, Operation},
@@ -108,14 +107,12 @@ fn all_base_inquiries<P: CompileTimeProfile>(camera: &Camera<P>) {
     let _ = camera.advanced().digital_mode_enabled();
 }
 
-#[allow(dead_code)]
 fn noise_2d_gate<P: CompileTimeProfile + HasImageProcessing + HasNoiseReduction2DMode>(
     camera: &Camera<P>,
 ) {
     let _ = camera.image().noise_reduction_2d_mode();
 }
 
-#[allow(dead_code)]
 fn all_optional_inquiries<P>(camera: &Camera<P>)
 where
     P: CompileTimeProfile
@@ -199,18 +196,15 @@ fn sony_optional(camera: &Camera<SonyFR7>) {
     applied(camera.zoom().tele());
 }
 
-#[allow(dead_code)]
 fn awb_gate<P: CompileTimeProfile + HasAutoWhiteBalanceSensitivity>(camera: &Camera<P>) {
     plain(camera.white_balance().sensitivity().map(|_| ()));
 }
 
-#[allow(dead_code)]
 fn motion_gate<P: CompileTimeProfile + HasMotionSync>(camera: &Camera<P>) {
     plain(camera.motion_sync().set_mode(MotionSyncMode::On));
     plain(camera.motion_sync().set_speed(MotionSyncSpeed::SLOW));
 }
 
-#[allow(dead_code)]
 fn focus_zone_command_gate<P: CompileTimeProfile + HasFocusZone>(camera: &Camera<P>) {
     plain(
         camera
@@ -219,7 +213,6 @@ fn focus_zone_command_gate<P: CompileTimeProfile + HasFocusZone>(camera: &Camera
     );
 }
 
-#[allow(dead_code)]
 fn focus_zone_inquiry_gate<P: CompileTimeProfile + HasFocusZoneInquiry>(camera: &Camera<P>) {
     let _ = camera.focus().zone();
 }
@@ -227,19 +220,16 @@ fn focus_zone_inquiry_gate<P: CompileTimeProfile + HasFocusZoneInquiry>(camera: 
 /// `system().version()` decodes the Sony 7-byte `CAM_VersionInq` layout, so it
 /// is reachable only on profiles whose replies have that layout. PTZOptics G2
 /// replies with an unsourced 2-byte payload and does not implement the marker.
-#[allow(dead_code)]
 fn version_inquiry_gate<P: CompileTimeProfile + HasVersionInquiry>(camera: &Camera<P>) {
     let _ = camera.system().version();
 }
 
-#[allow(dead_code)]
 fn usb_audio_gate<P: CompileTimeProfile + HasUsbAudio>(camera: &Camera<P>) {
     let _ = camera.advanced().usb_audio_enabled();
     plain(camera.advanced().usb_audio_on());
     plain(camera.advanced().usb_audio_off());
 }
 
-#[allow(dead_code)]
 fn ptzoptics_vendor_command_gates<P>(camera: &Camera<P>)
 where
     P: CompileTimeProfile
@@ -268,7 +258,6 @@ where
     );
 }
 
-#[allow(dead_code)]
 fn sony_spotlight_command_gates<P>(camera: &Camera<P>)
 where
     P: CompileTimeProfile + HasSonySpotlight,
@@ -277,7 +266,6 @@ where
     plain(camera.exposure().spotlight_off());
 }
 
-#[allow(dead_code)]
 fn sony_auto_slow_shutter_command_gates<P>(camera: &Camera<P>)
 where
     P: CompileTimeProfile + HasSonyAutoSlowShutter,
@@ -293,6 +281,12 @@ fn non_default(camera: &Camera<profile_fixtures::NonDefaultCompileTimeProfile>) 
 #[test]
 fn static_camera_surface_is_profile_typed_and_non_default() {
     let _: fn(&Camera<PtzOpticsG2>) = baseline::<PtzOpticsG2>;
+    let _: fn(&Camera<PtzOpticsG2>) = noise_2d_gate::<PtzOpticsG2>;
+    let _: fn(&Camera<profile_fixtures::OptionalSurfacesTypedSupport>) =
+        all_optional_inquiries::<profile_fixtures::OptionalSurfacesTypedSupport>;
+    let _: fn(&Camera<PtzOpticsG2>) = awb_gate::<PtzOpticsG2>;
+    let _: fn(&Camera<profile_fixtures::MotionSyncTypedSupport>) =
+        motion_gate::<profile_fixtures::MotionSyncTypedSupport>;
     let _: fn(&Camera<PtzOpticsG2>) = exposure_mode_surface::<PtzOpticsG2>;
     let _: fn(&Camera<PtzOpticsG2>) = base_image_surface::<PtzOpticsG2>;
     let _: fn(&Camera<SonyBRC300>) = backlight_surface::<SonyBRC300>;

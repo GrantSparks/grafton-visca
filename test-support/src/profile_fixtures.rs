@@ -1,15 +1,12 @@
 //! Synthetic compile-time profiles and the session configurations built on
-//! them, shared by the integration suite. Include it with
-//! `#[path = "common/profile_fixtures.rs"] mod profile_fixtures;`; each test
-//! binary uses a different subset.
-
-#![allow(dead_code)]
+//! them, shared by the integration suite; each test binary uses a different
+//! subset.
 
 use std::time::Duration;
 
 use grafton_visca::{
     capabilities::{
-        exposure::ShutterSpeedEntry, CapabilityDomain, CapabilityRange, Exposure, Focus,
+        self, exposure::ShutterSpeedEntry, CapabilityDomain, CapabilityRange, Exposure, Focus,
         HasDirectZoom, HasMotionSync, ImageProcessing, InquirySupport, MenuCapability,
         MotionSyncMetadata, NdFilterMetadata, PanTilt, Power, Presets, ProfileMetadata,
         ProfileTypedSupport, Tally, TypedSupportSet, TypedSupportSurface, VariableSpeedMetadata,
@@ -190,12 +187,6 @@ macro_rules! synthetic_profile {
 }
 
 synthetic_profile!(
-    MetadataEnabledNoTypedSupport,
-    "Metadata Enabled Without Typed Support",
-    TypedSupportSet::EMPTY
-);
-
-synthetic_profile!(
     DirectZoomOnlyTypedSupport,
     "Direct Zoom Typed Support Only",
     TypedSupportSet::from_surface(TypedSupportSurface::DirectZoom)
@@ -249,11 +240,55 @@ synthetic_profile!(
     TypedSupportSet::from_surface(TypedSupportSurface::MotionSync)
 );
 
-impl MotionSyncMetadata for MetadataEnabledNoTypedSupport {}
+// The generic noun contracts in the suite bound a profile on many typed
+// surfaces at once, and no built-in profile documents all of them (none
+// documents motion sync at all). This fixture declares every surface those
+// contracts name, so each contract is instantiated rather than only
+// type-checked in the abstract.
+synthetic_profile!(
+    OptionalSurfacesTypedSupport,
+    "Optional Surfaces Typed Support",
+    TypedSupportSet::from_surfaces(&[
+        TypedSupportSurface::AutoFocusSensitivity,
+        TypedSupportSurface::AutoWhiteBalanceSensitivity,
+        TypedSupportSurface::BacklightCompensation,
+        TypedSupportSurface::BrightnessControl,
+        TypedSupportSurface::ColorTemperature,
+        TypedSupportSurface::ColorTemperatureInquiry,
+        TypedSupportSurface::ContrastControl,
+        TypedSupportSurface::ExposureCompensation,
+        TypedSupportSurface::FocusNearLimitInquiry,
+        TypedSupportSurface::FocusZoneInquiry,
+        TypedSupportSurface::GammaControl,
+        TypedSupportSurface::HueControl,
+        TypedSupportSurface::ImageFlip,
+        TypedSupportSurface::IrisControl,
+        TypedSupportSurface::IrisControlInquiry,
+        TypedSupportSurface::LuminanceControl,
+        TypedSupportSurface::MotionSync,
+        TypedSupportSurface::NdFilter,
+        TypedSupportSurface::NoiseReduction2D,
+        TypedSupportSurface::NoiseReduction2DMode,
+        TypedSupportSurface::NoiseReduction3D,
+        TypedSupportSurface::PictureEffect,
+        TypedSupportSurface::RgbGain,
+        TypedSupportSurface::RgbTuning,
+        TypedSupportSurface::SaturationControl,
+        TypedSupportSurface::SharpnessControl,
+        TypedSupportSurface::Tally,
+        TypedSupportSurface::WideDynamicRange,
+    ])
+);
+
 impl MotionSyncMetadata for DirectZoomOnlyTypedSupport {}
 impl MotionSyncMetadata for NonDefaultCompileTimeProfile {}
 impl MotionSyncMetadata for MotionOwnerCompileTimeProfile {}
 impl MotionSyncMetadata for QuarantinedSocketCompileTimeProfile {}
+
+impl MotionSyncMetadata for OptionalSurfacesTypedSupport {
+    const MOTION_SYNC_SPEED_RANGE: Option<CapabilityRange<u8>> =
+        Some(CapabilityRange::<u8>::new(1, 24));
+}
 
 /// The one fixture that documents the physical capability, so the typed
 /// `MotionSync` surface above has something real to gate.
@@ -265,6 +300,36 @@ impl MotionSyncMetadata for MotionSyncTypedSupport {
 impl HasDirectZoom for DirectZoomOnlyTypedSupport {}
 
 impl HasMotionSync for MotionSyncTypedSupport {}
+
+impl capabilities::HasAutoFocusSensitivity for OptionalSurfacesTypedSupport {}
+impl capabilities::HasAutoWhiteBalanceSensitivity for OptionalSurfacesTypedSupport {}
+impl capabilities::HasBacklightCompensation for OptionalSurfacesTypedSupport {}
+impl capabilities::HasBrightnessControl for OptionalSurfacesTypedSupport {}
+impl capabilities::HasColorTemperature for OptionalSurfacesTypedSupport {}
+impl capabilities::HasColorTemperatureInquiry for OptionalSurfacesTypedSupport {}
+impl capabilities::HasContrastControl for OptionalSurfacesTypedSupport {}
+impl capabilities::HasExposureCompensation for OptionalSurfacesTypedSupport {}
+impl capabilities::HasFocusNearLimitInquiry for OptionalSurfacesTypedSupport {}
+impl capabilities::HasFocusZoneInquiry for OptionalSurfacesTypedSupport {}
+impl capabilities::HasGammaControl for OptionalSurfacesTypedSupport {}
+impl capabilities::HasHueControl for OptionalSurfacesTypedSupport {}
+impl capabilities::HasImageFlip for OptionalSurfacesTypedSupport {}
+impl capabilities::HasIrisControl for OptionalSurfacesTypedSupport {}
+impl capabilities::HasIrisControlInquiry for OptionalSurfacesTypedSupport {}
+impl capabilities::HasLuminanceControl for OptionalSurfacesTypedSupport {}
+impl capabilities::HasMotionSync for OptionalSurfacesTypedSupport {}
+impl capabilities::HasNdFilter for OptionalSurfacesTypedSupport {}
+impl capabilities::HasNoiseReduction2D for OptionalSurfacesTypedSupport {}
+impl capabilities::HasNoiseReduction2DMode for OptionalSurfacesTypedSupport {}
+impl capabilities::HasNoiseReduction3D for OptionalSurfacesTypedSupport {}
+impl capabilities::HasPictureEffect for OptionalSurfacesTypedSupport {}
+impl capabilities::HasRgbGain for OptionalSurfacesTypedSupport {}
+impl capabilities::HasRgbTuning for OptionalSurfacesTypedSupport {}
+impl capabilities::HasSaturationControl for OptionalSurfacesTypedSupport {}
+impl capabilities::HasSharpnessControl for OptionalSurfacesTypedSupport {}
+impl capabilities::HasTally for OptionalSurfacesTypedSupport {}
+impl capabilities::HasWideDynamicRange for OptionalSurfacesTypedSupport {}
+impl capabilities::HasImageProcessing for OptionalSurfacesTypedSupport {}
 
 /// A session on camera 1 with [`NonDefaultCompileTimeProfile`], the
 /// two-socket raw profile.

@@ -145,7 +145,6 @@ struct DefogLevelInquiry;
 #[visca(opcode = 0x2A, response = FocusRange, parser = FocusRange)]
 struct FocusRangeInquiry;
 
-#[allow(dead_code)]
 fn custom_parser(payload: &[u8]) -> Result<InquiryData, Error> {
     Ok(InquiryData::Power {
         on: payload == [0xA5],

@@ -1,8 +1,6 @@
-use std::marker::PhantomData;
-
 use grafton_visca::{
     command::{BoolConvention, FlipState, Nibbles, Payload, Response},
-    zoom_from_normalized, CameraId, StateCache, UnitInterval, ViscaSocket, ZoomDomain,
+    zoom_from_normalized, CameraId, UnitInterval, ViscaSocket, ZoomDomain,
 };
 
 fn main() {
@@ -10,10 +8,6 @@ fn main() {
     assert_eq!(camera_id.to_address_byte(), 0x81);
 
     let _socket = ViscaSocket::S1;
-    // The canonical root cache is an owner-backed target view; it is not a
-    // standalone mutable value.  Construction is exercised through Session
-    // and Camera facade tests, while this fixture keeps the root type public.
-    let _: PhantomData<StateCache> = PhantomData;
     let _flip = FlipState {
         horizontal: false,
         vertical: false,

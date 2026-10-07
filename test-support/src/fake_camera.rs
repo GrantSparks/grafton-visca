@@ -1,8 +1,8 @@
 //! The integration suite's one fake camera.
 //!
-//! Include it with `#[path = "common/fake_camera.rs"] mod fake_camera;`. It
-//! must not depend on `test-utils`: most behavioural tests run in CI legs that
-//! do not enable it.
+//! Compiled under grafton-visca's `blocking` or `async` feature. It must not
+//! depend on `test-utils`: most behavioural tests run in CI legs that do not
+//! enable it.
 //!
 //! * [`frames`] — the reply frames (ACK, completion, error, inquiry data, the
 //!   Sony envelope). It is the same source file the crate's testkit uses,
@@ -37,8 +37,6 @@
 //! wait on it too, so a blocking session opened on that clock never blocks
 //! in real time.
 
-#![allow(dead_code)]
-
 use std::{
     fmt,
     sync::{
@@ -69,6 +67,7 @@ pub mod frames;
 pub const WAIT_BUDGET: Duration = Duration::from_secs(5);
 
 /// How often the async wait helpers re-check their condition.
+#[cfg(feature = "async")]
 const ASYNC_POLL: Duration = Duration::from_millis(1);
 
 /// Zoom tele (standard speed), camera address 1.
@@ -82,6 +81,31 @@ pub const FOCUS_STOP: &[u8] = &[0x81, 0x01, 0x04, 0x08, 0x00, 0xff];
 /// command at once may send them.
 pub fn ack_and_complete(socket: u8) -> Vec<u8> {
     [frames::ack(socket), frames::complete(socket)].concat()
+}
+
+/// The VISCA message inside `frame`: the payload of a Sony envelope, or the
+/// frame itself when it is raw VISCA.
+///
+/// # Panics
+///
+/// Panics on a malformed envelope, as [`frames::sony_split`] does.
+#[must_use]
+fn visca_payload(frame: &[u8]) -> &[u8] {
+    frames::sony_split(frame).map_or(frame, |(_, payload)| payload)
+}
+
+/// Wraps `reply` in the framing of `request`: the Sony envelope echoing the
+/// request's sequence number when the request was enveloped, raw otherwise.
+///
+/// # Panics
+///
+/// Panics on a malformed request envelope, as [`frames::sony_split`] does.
+#[must_use]
+fn reply_like(request: &[u8], reply: &[u8]) -> Vec<u8> {
+    match frames::sony_sequence(request) {
+        Some(sequence) => frames::sony_reply(sequence, reply),
+        None => reply.to_vec(),
+    }
 }
 
 /// One read the camera delivers: reply bytes or a receive fault.
@@ -194,11 +218,11 @@ impl FakeCamera {
     pub fn visca(mut responder: impl FnMut(&[u8], &mut Answer) + Send + 'static) -> Self {
         Self::new(move |write, answer| {
             let mut inner = Answer::default();
-            responder(frames::visca_payload(write), &mut inner);
+            responder(visca_payload(write), &mut inner);
             for read in inner.reads {
                 answer
                     .reads
-                    .push(read.map(|reply| frames::reply_like(write, &reply)));
+                    .push(read.map(|reply| reply_like(write, &reply)));
             }
             answer.send_error = inner.send_error;
         })
@@ -224,7 +248,7 @@ impl FakeCamera {
     pub fn take_payloads(&self) -> Vec<Vec<u8>> {
         std::mem::take(&mut self.state().writes)
             .iter()
-            .map(|write| frames::visca_payload(write).to_vec())
+            .map(|write| visca_payload(write).to_vec())
             .collect()
     }
 
@@ -634,5 +658,30 @@ impl grafton_visca::transport::AsyncTransport for AsyncWire {
 
     fn send_semantics(&self) -> SendSemantics {
         self.0.semantics
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{frames, reply_like, visca_payload};
+
+    #[test]
+    fn replies_take_the_framing_of_their_request() {
+        let payload = frames::complete(1);
+        let enveloped = frames::sony_reply(0x0102_0304, &payload);
+        assert_eq!(visca_payload(&enveloped), payload.as_slice());
+        assert_eq!(reply_like(&enveloped, &payload), enveloped);
+
+        let raw = [0x81, 0x09, 0x04, 0x00, 0xFF];
+        assert_eq!(visca_payload(&raw), raw);
+        assert_eq!(reply_like(&raw, &payload), payload);
+    }
+
+    #[test]
+    #[should_panic(expected = "Sony length field disagrees with the payload")]
+    fn a_malformed_envelope_is_never_stripped() {
+        let mut frame = frames::sony_reply(1, &frames::ack(1));
+        frame.push(0xFF);
+        let _ = visca_payload(&frame);
     }
 }

@@ -13,7 +13,7 @@ use std::{
 };
 
 #[cfg(any(test, feature = "test-utils"))]
-use crate::testing::manual_clock::{Bell, ManualClock, PendingParticipant, Source, Woken};
+use crate::testing::manual_clock::{Bell, ManualClock, PendingParticipant, Source};
 
 /// Where the blocking owner reads time.
 #[derive(Debug, Clone, Default)]
@@ -204,8 +204,8 @@ trait Arm<'a, T> {
     /// Add the receive to `selector`.
     fn select<'s>(
         &'s mut self,
-        selector: flume::Selector<'s, Woken<T>>,
-    ) -> flume::Selector<'s, Woken<T>>
+        selector: flume::Selector<'s, Result<T, Bell>>,
+    ) -> flume::Selector<'s, Result<T, Bell>>
     where
         'a: 's,
         T: 's;
@@ -234,14 +234,14 @@ where
 
     fn select<'s>(
         &'s mut self,
-        selector: flume::Selector<'s, Woken<T>>,
-    ) -> flume::Selector<'s, Woken<T>>
+        selector: flume::Selector<'s, Result<T, Bell>>,
+    ) -> flume::Selector<'s, Result<T, Bell>>
     where
         'a: 's,
         T: 's,
     {
         let map = &mut self.map;
-        selector.recv(self.receiver, move |received| Woken::Value(map(received)))
+        selector.recv(self.receiver, move |received| Ok(map(received)))
     }
 }
 
@@ -255,13 +255,13 @@ impl<'a, T: 'a> Source<T> for Arms<'a, T> {
         self.0.iter_mut().find_map(|arm| arm.try_now())
     }
 
-    fn block(&mut self, bell: &flume::Receiver<Bell>) -> Woken<T> {
+    fn block(&mut self, bell: &flume::Receiver<Bell>) -> Result<T, Bell> {
         let mut selector = flume::Selector::new();
         for arm in &mut self.0 {
             selector = arm.select(selector);
         }
         selector
-            .recv(bell, |rung| Woken::Bell(rung.unwrap_or(Bell::Expired)))
+            .recv(bell, |rung| Err(rung.unwrap_or(Bell::Expired)))
             .wait()
     }
 }

@@ -12,15 +12,7 @@
     )
 ))]
 
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
-#[cfg(all(
-    feature = "async",
-    any(feature = "runtime-tokio", feature = "runtime-smol")
-))]
-#[macro_use]
-#[path = "common/matrix.rs"]
-mod matrix;
+use grafton_visca_test_support::fake_camera;
 
 use grafton_visca::{
     raw, AffectedAxes, ControlClass, Error, InquiryRoute, ProfileSpec, ResponseDecoder, RetryClass,
@@ -170,6 +162,7 @@ mod blocking_tests {
 mod async_tests {
     use super::*;
     use grafton_visca::{Executor, Session, SessionConfig};
+    use grafton_visca_test_support::runtime_matrix;
 
     async fn owner_admits_all_typed_raw_classes<E: Executor>(executor: E) {
         let fake = raw_camera();

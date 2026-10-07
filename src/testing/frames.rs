@@ -1,12 +1,12 @@
 //! VISCA reply frames for scripted and simulated cameras.
 //!
 //! This is the one place the test infrastructure spells out reply bytes: the
-//! testkit's [`helpers`](crate::testing::testkit::helpers) and
-//! `ViscaCameraSimulator` build their frames here, and the integration suite
-//! compiles this same file into `tests/common/fake_camera.rs` through
-//! `#[path]`, because that suite must also run without `test-utils`. The file
-//! therefore names nothing through `crate::`; the including module supplies
-//! `VISCA_TERMINATOR`.
+//! testkit's `helpers` (`testing::testkit::helpers`) and
+//! `ViscaCameraSimulator` build their frames here, and the integration suite's
+//! helper crate compiles this same file into `test-support/src/fake_camera.rs`
+//! through `#[path]`, because that suite must also run without `test-utils`.
+//! The file therefore names nothing through `crate::`; the including module
+//! supplies `VISCA_TERMINATOR`.
 //!
 //! The frames are written out byte by byte from the VISCA reply grammar rather
 //! than produced by the crate's encoders, so a fake camera built from them is
@@ -198,31 +198,4 @@ pub fn sony_split(frame: &[u8]) -> Option<(u32, &[u8])> {
 #[must_use]
 pub fn sony_sequence(frame: &[u8]) -> Option<u32> {
     sony_split(frame).map(|(sequence, _)| sequence)
-}
-
-/// The VISCA message inside `frame`: the payload of a Sony envelope, or the
-/// frame itself when it is raw VISCA.
-///
-/// # Panics
-///
-/// Panics on a malformed envelope, as [`sony_split`] does.
-#[must_use]
-#[cfg(test)]
-pub fn visca_payload(frame: &[u8]) -> &[u8] {
-    sony_split(frame).map_or(frame, |(_, payload)| payload)
-}
-
-/// Wraps `reply` in the framing of `request`: the Sony envelope echoing the
-/// request's sequence number when the request was enveloped, raw otherwise.
-///
-/// # Panics
-///
-/// Panics on a malformed request envelope, as [`sony_split`] does.
-#[must_use]
-#[cfg(test)]
-pub fn reply_like(request: &[u8], reply: &[u8]) -> Vec<u8> {
-    match sony_sequence(request) {
-        Some(sequence) => sony_reply(sequence, reply),
-        None => reply.to_vec(),
-    }
 }

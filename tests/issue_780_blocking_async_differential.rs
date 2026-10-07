@@ -13,13 +13,7 @@
 ))]
 #![allow(clippy::expect_used)]
 
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
-#[macro_use]
-#[path = "common/matrix.rs"]
-mod matrix;
-#[path = "common/profile_fixtures.rs"]
-mod profile_fixtures;
+use grafton_visca_test_support::{fake_camera, profile_fixtures, runtime_matrix};
 
 use grafton_visca::{
     completion::AppliedOnly,

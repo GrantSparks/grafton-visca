@@ -16,12 +16,7 @@
     )
 ))]
 
-#[macro_use]
-#[path = "common/matrix.rs"]
-mod matrix;
-
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
+use grafton_visca_test_support::fake_camera;
 
 use fake_camera::{FakeCamera, ZOOM_STOP};
 
@@ -170,6 +165,7 @@ mod blocking_single_camera {
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
 mod async_single_camera {
+    use grafton_visca_test_support::runtime_matrix;
     use std::{
         future::Future,
         sync::{Arc, Mutex},

@@ -22,13 +22,7 @@
 ))]
 #![allow(clippy::expect_used)]
 
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
-#[macro_use]
-#[path = "common/matrix.rs"]
-mod matrix;
-#[path = "common/profile_fixtures.rs"]
-mod profile_fixtures;
+use grafton_visca_test_support::{facade_matrix, fake_camera, profile_fixtures};
 
 use std::{num::NonZeroUsize, time::Duration};
 
@@ -149,4 +143,4 @@ async fn dyn_stop_passes_a_saturated_session<E: Executor>(executor: E) {
     feature = "async",
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
-runtime_matrix!(dyn_stop_passes_a_saturated_session);
+grafton_visca_test_support::runtime_matrix!(dyn_stop_passes_a_saturated_session);

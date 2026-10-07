@@ -1,13 +1,12 @@
 //! Test-case generators that run one scenario under every facade or runtime.
 //!
-//! Include with `#[macro_use] #[path = "common/matrix.rs"] mod matrix;`.
+//! Import the generators by name, e.g.
+//! `use grafton_visca_test_support::facade_matrix;`.
 //!
 //! Each scenario becomes its own libtest case per runtime or facade, so one
 //! failing scenario cannot hide the others: awaiting several scenarios in
 //! sequence inside one test stops at the first panic, and a green run would
 //! then prove only that nothing failed before it.
-
-#![allow(unused_macros)]
 
 /// Runs each `async fn scenario<E: Executor>(executor: E)` once per enabled
 /// runtime, as the cases `scenario::tokio` and `scenario::smol`.
@@ -15,16 +14,17 @@
 /// The Tokio cases use the current-thread test runtime. Prefix the list with
 /// `multi_thread:` to run them on a two-worker multi-thread runtime instead,
 /// for scenarios that must also hold under Tokio's work-stealing scheduler.
+#[macro_export]
 macro_rules! runtime_matrix {
     (multi_thread: $($scenario:ident),+ $(,)?) => {
         $(
-            runtime_matrix!(
+            $crate::runtime_matrix!(
                 @case [tokio::test(flavor = "multi_thread", worker_threads = 2)] $scenario
             );
         )+
     };
     ($($scenario:ident),+ $(,)?) => {
-        $(runtime_matrix!(@case [tokio::test] $scenario);)+
+        $($crate::runtime_matrix!(@case [tokio::test] $scenario);)+
     };
     (@case [$tokio_test:meta] $scenario:ident) => {
         mod $scenario {
@@ -102,15 +102,16 @@ macro_rules! runtime_matrix {
 ///
 /// A scenario that only exists on one facade is not written here: it stays a
 /// plain test, and the file header says why.
+#[macro_export]
 macro_rules! facade_matrix {
     (paused: $($scenarios:tt)+) => {
-        facade_matrix!(@cases [tokio::test(start_paused = true)] true; $($scenarios)+);
+        $crate::facade_matrix!(@cases [tokio::test(start_paused = true)] true; $($scenarios)+);
     };
     ($(
         $(#[$meta:meta])*
         fn $scenario:ident() $body:block
     )+) => {
-        facade_matrix!(@cases [tokio::test] false; $($(#[$meta])* fn $scenario() $body)+);
+        $crate::facade_matrix!(@cases [tokio::test] false; $($(#[$meta])* fn $scenario() $body)+);
     };
     (@cases [$tokio_test:meta] $virtual:tt; $(
         $(#[$meta:meta])*
@@ -119,13 +120,12 @@ macro_rules! facade_matrix {
         $(
             $(#[$meta])*
             mod $scenario {
-                #[allow(unused_imports)]
                 use super::*;
 
                 #[cfg(feature = "blocking")]
                 #[test]
                 fn blocking() {
-                    facade_matrix!(@blocking $virtual, $body);
+                    $crate::facade_matrix!(@blocking $virtual, $body);
                 }
 
                 #[cfg(all(feature = "async", feature = "runtime-tokio"))]
@@ -133,13 +133,13 @@ macro_rules! facade_matrix {
                 async fn tokio() {
                     let executor =
                         grafton_visca::TokioRuntime::from_current().expect("Tokio runtime");
-                    facade_matrix!(@async executor, $virtual, $body);
+                    $crate::facade_matrix!(@async executor, $virtual, $body);
                 }
 
                 #[cfg(all(feature = "async", feature = "runtime-smol"))]
                 #[test]
                 fn smol() {
-                    facade_matrix!(@smol $virtual, $body);
+                    $crate::facade_matrix!(@smol $virtual, $body);
                 }
             }
         )+
@@ -149,19 +149,16 @@ macro_rules! facade_matrix {
         {
             let clock = grafton_visca::testing::testkit::ManualClock::new();
             let _driver = clock.enter();
-            #[allow(unused_macros)]
             macro_rules! wait {
                 ($e:expr) => {
                     $e
                 };
             }
-            #[allow(unused_macros)]
             macro_rules! open {
                 ($camera:expr, $config:expr) => {
                     clock.open_blocking_session($camera.blocking_wire().on_clock(&clock), $config)
                 };
             }
-            #[allow(unused_macros)]
             macro_rules! open_camera {
                 ($camera:expr, $config:expr) => {
                     clock.open_blocking_camera_session(
@@ -170,38 +167,32 @@ macro_rules! facade_matrix {
                     )
                 };
             }
-            #[allow(unused_macros)]
             macro_rules! wait_for_writes {
                 ($camera:expr, $count:expr) => {
                     $camera.wait_for_writes_on(&clock, $count)
                 };
             }
-            #[allow(unused_macros)]
             macro_rules! wait_for_reads {
                 ($camera:expr, $count:expr) => {
                     $camera.wait_for_reads_on(&clock, $count)
                 };
             }
-            #[allow(unused_macros)]
             macro_rules! pause {
                 ($duration:expr) => {
                     clock.sleep($duration)
                 };
             }
-            #[allow(unused_macros)]
             macro_rules! within {
                 ($duration:expr, $e:expr) => {{
                     let _: std::time::Duration = $duration;
                     $e
                 }};
             }
-            #[allow(unused_macros)]
             macro_rules! now {
                 () => {
                     clock.now()
                 };
             }
-            #[allow(unused_macros)]
             macro_rules! after {
                 ($duration:expr, $f:expr) => {{
                     let duration: std::time::Duration = $duration;
@@ -216,70 +207,59 @@ macro_rules! facade_matrix {
             // Deterministic in outcome but not exact: the worker notices a
             // boundary only between bounded reads, so each boundary can add
             // up to one read slice of virtual time, as it does in real time.
-            #[allow(unused_macros)]
             macro_rules! virtual_clock {
                 () => {
                     false
                 };
             }
-            #[allow(dead_code)]
             const FACADE: &str = "blocking";
             $body
         }
         #[cfg(not(feature = "test-utils"))]
-        facade_matrix!(@blocking false, $body);
+        $crate::facade_matrix!(@blocking false, $body);
     }};
     (@blocking false, $body:block) => {{
-        #[allow(unused_macros)]
         macro_rules! wait {
             ($e:expr) => {
                 $e
             };
         }
-        #[allow(unused_macros)]
         macro_rules! open {
             ($camera:expr, $config:expr) => {
                 grafton_visca::blocking::Session::open($camera.blocking_wire(), $config)
             };
         }
-        #[allow(unused_macros)]
         macro_rules! open_camera {
             ($camera:expr, $config:expr) => {
                 grafton_visca::blocking::CameraSession::open($camera.blocking_wire(), $config)
             };
         }
-        #[allow(unused_macros)]
         macro_rules! wait_for_writes {
             ($camera:expr, $count:expr) => {
                 $camera.wait_for_writes($count)
             };
         }
-        #[allow(unused_macros)]
         macro_rules! wait_for_reads {
             ($camera:expr, $count:expr) => {
                 $camera.wait_for_reads($count)
             };
         }
-        #[allow(unused_macros)]
         macro_rules! pause {
             ($duration:expr) => {
                 std::thread::sleep($duration)
             };
         }
-        #[allow(unused_macros)]
         macro_rules! within {
             ($duration:expr, $e:expr) => {{
                 let _: std::time::Duration = $duration;
                 $e
             }};
         }
-        #[allow(unused_macros)]
         macro_rules! now {
             () => {
                 std::time::Instant::now()
             };
         }
-        #[allow(unused_macros)]
         macro_rules! after {
             ($duration:expr, $f:expr) => {{
                 let duration: std::time::Duration = $duration;
@@ -290,13 +270,11 @@ macro_rules! facade_matrix {
                 });
             }};
         }
-        #[allow(unused_macros)]
         macro_rules! virtual_clock {
             () => {
                 false
             };
         }
-        #[allow(dead_code)]
         const FACADE: &str = "blocking";
         $body
     }};
@@ -309,58 +287,51 @@ macro_rules! facade_matrix {
                 &clock,
             );
             grafton_visca::Executor::block_on(&executor, async {
-                facade_matrix!(@async executor, true, $body);
+                $crate::facade_matrix!(@async executor, true, $body);
             });
         }
         #[cfg(not(feature = "test-utils"))]
-        facade_matrix!(@smol false, $body);
+        $crate::facade_matrix!(@smol false, $body);
     }};
     (@smol false, $body:block) => {
         smol::block_on(async {
             let executor = grafton_visca::SmolRuntime::new();
-            facade_matrix!(@async executor, false, $body);
+            $crate::facade_matrix!(@async executor, false, $body);
         })
     };
     (@async $executor:ident, $virtual:tt, $body:block) => {{
-        #[allow(unused_macros)]
         macro_rules! wait {
             ($e:expr) => {
                 $e.await
             };
         }
-        #[allow(unused_macros)]
         macro_rules! open {
             ($camera:expr, $config:expr) => {
                 grafton_visca::Session::open($camera.async_wire(), $config, $executor.clone())
                     .await
             };
         }
-        #[allow(unused_macros)]
         macro_rules! open_camera {
             ($camera:expr, $config:expr) => {
                 grafton_visca::CameraSession::open($camera.async_wire(), $config, $executor.clone())
                     .await
             };
         }
-        #[allow(unused_macros)]
         macro_rules! wait_for_writes {
             ($camera:expr, $count:expr) => {
                 $camera.wait_for_writes_async(&$executor, $count).await
             };
         }
-        #[allow(unused_macros)]
         macro_rules! wait_for_reads {
             ($camera:expr, $count:expr) => {
                 $camera.wait_for_reads_async(&$executor, $count).await
             };
         }
-        #[allow(unused_macros)]
         macro_rules! pause {
             ($duration:expr) => {
                 grafton_visca::Executor::sleep(&$executor, $duration).await
             };
         }
-        #[allow(unused_macros)]
         macro_rules! within {
             ($duration:expr, $e:expr) => {
                 grafton_visca::Executor::timeout(&$executor, $duration, $e)
@@ -368,13 +339,11 @@ macro_rules! facade_matrix {
                     .expect(concat!("step exceeded its outer deadline: ", stringify!($e)))
             };
         }
-        #[allow(unused_macros)]
         macro_rules! now {
             () => {
                 grafton_visca::Executor::now(&$executor)
             };
         }
-        #[allow(unused_macros)]
         macro_rules! after {
             ($duration:expr, $f:expr) => {{
                 let duration: std::time::Duration = $duration;
@@ -386,13 +355,11 @@ macro_rules! facade_matrix {
                 });
             }};
         }
-        #[allow(unused_macros)]
         macro_rules! virtual_clock {
             () => {
                 $virtual
             };
         }
-        #[allow(dead_code)]
         const FACADE: &str = "async";
         let _ = &$executor;
         $body

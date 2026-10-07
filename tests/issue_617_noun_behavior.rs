@@ -9,8 +9,7 @@
 #![cfg(any(feature = "blocking", feature = "runtime-tokio"))]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
+use grafton_visca_test_support::fake_camera;
 
 use fake_camera::{frames, FakeCamera, ZOOM_TELE};
 

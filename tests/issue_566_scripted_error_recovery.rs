@@ -20,10 +20,7 @@
 
 #![cfg(all(feature = "test-utils", feature = "blocking"))]
 
-#[path = "common/profile_fixtures.rs"]
-mod profile_fixtures;
-#[path = "common/retry_requests.rs"]
-mod retry_requests;
+use grafton_visca_test_support::{profile_fixtures, retry_requests};
 
 use std::time::Duration;
 
