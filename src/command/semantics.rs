@@ -210,6 +210,10 @@ pub(crate) enum BuiltinRequestKind {
 }
 
 /// The ledger kind of a closed request class marker.
+#[allow(
+    dead_code,
+    reason = "used only by anonymous `const _` compile-time checks, which the rustc 1.88 MSRV dead-code pass does not count"
+)]
 pub(crate) trait BuiltinClassMarker {
     /// Kind a built-in request with this class must serve.
     const KIND: BuiltinRequestKind;
@@ -280,6 +284,10 @@ pub(crate) const fn state_effect<T: BuiltinRequestContract>() -> AppliedStateEff
 
 /// Fails const evaluation when `T`'s declared request class disagrees with
 /// its ledger row.
+#[allow(
+    dead_code,
+    reason = "used only by anonymous `const _` compile-time checks, which the rustc 1.88 MSRV dead-code pass does not count"
+)]
 pub(crate) const fn assert_request_contract<T>()
 where
     T: BuiltinRequestContract,
@@ -313,6 +321,7 @@ macro_rules! builtin_command_ledger {
 
         impl BuiltinCommand {
             /// Every ledger row, in protocol order.
+            #[allow(dead_code, reason = "used only by anonymous `const _` compile-time checks, which the rustc 1.88 MSRV dead-code pass does not count")]
             pub(crate) const ALL: &'static [Self] = &[ $( Self::$command, )+ ];
 
             /// Returns the ledger's classification of this row.
