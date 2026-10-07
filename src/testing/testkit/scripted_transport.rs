@@ -115,14 +115,18 @@ impl Clone for Step {
 /// One reply batch a send releases, in script order.
 #[cfg(any(feature = "async", feature = "blocking"))]
 #[derive(Debug)]
-// Only the async transport reads the delay; the blocking one delivers
-// immediately.
-#[cfg_attr(not(feature = "async"), allow(dead_code))]
 enum Delivery {
     /// Deliver now.
     Now(Vec<u8>),
     /// Deliver after a virtual delay (a [`Step::After`]).
-    After(Duration, Vec<Vec<u8>>),
+    After {
+        /// The virtual delay. Only the async transport schedules on it; the
+        /// blocking one delivers the batch immediately.
+        #[cfg(feature = "async")]
+        delay: Duration,
+        /// The frames released together.
+        batch: Vec<Vec<u8>>,
+    },
 }
 
 /// The answer a consumed step gives a send.
@@ -181,8 +185,18 @@ impl ScriptCore {
 
     fn release_leading_after(&mut self, deliveries: &mut Vec<Delivery>) {
         while matches!(self.steps.front(), Some(Step::After { .. })) {
-            if let Some(Step::After { delay, responses }) = self.steps.pop_front() {
-                deliveries.push(Delivery::After(delay, responses));
+            if let Some(Step::After {
+                #[cfg(feature = "async")]
+                delay,
+                responses,
+                ..
+            }) = self.steps.pop_front()
+            {
+                deliveries.push(Delivery::After {
+                    #[cfg(feature = "async")]
+                    delay,
+                    batch: responses,
+                });
             }
         }
     }
@@ -344,7 +358,10 @@ impl<E> ScriptedTransport<E> {
     where
         E: Executor + ExecutorExt + 'static,
     {
-        self.deliver(Delivery::After(delay, vec![response]));
+        self.deliver(Delivery::After {
+            delay,
+            batch: vec![response],
+        });
     }
 
     fn deliver(&self, delivery: Delivery)
@@ -353,7 +370,7 @@ impl<E> ScriptedTransport<E> {
     {
         match (delivery, &self.executor) {
             (Delivery::Now(reply), _) => self.script.deliver(reply),
-            (Delivery::After(delay, batch), Some(executor)) => {
+            (Delivery::After { delay, batch }, Some(executor)) => {
                 let replies_tx = self.script.replies_tx.clone();
                 let sleeper = Arc::clone(executor);
                 executor.spawn_detached(async move {
@@ -363,7 +380,7 @@ impl<E> ScriptedTransport<E> {
                     }
                 });
             }
-            (Delivery::After(_, batch), None) => {
+            (Delivery::After { batch, .. }, None) => {
                 for reply in batch {
                     self.script.deliver(reply);
                 }
@@ -476,7 +493,7 @@ impl BlockingTransport for ScriptedBlockingTransport {
         for delivery in self.script.on_send(bytes) {
             match delivery {
                 Delivery::Now(reply) => self.script.deliver(reply),
-                Delivery::After(_, batch) => {
+                Delivery::After { batch, .. } => {
                     for reply in batch {
                         self.script.deliver(reply);
                     }

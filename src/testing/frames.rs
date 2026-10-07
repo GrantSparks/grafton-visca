@@ -207,6 +207,7 @@ pub fn sony_sequence(frame: &[u8]) -> Option<u32> {
 ///
 /// Panics on a malformed envelope, as [`sony_split`] does.
 #[must_use]
+#[cfg(test)]
 pub fn visca_payload(frame: &[u8]) -> &[u8] {
     sony_split(frame).map_or(frame, |(_, payload)| payload)
 }
@@ -218,6 +219,7 @@ pub fn visca_payload(frame: &[u8]) -> &[u8] {
 ///
 /// Panics on a malformed request envelope, as [`sony_split`] does.
 #[must_use]
+#[cfg(test)]
 pub fn reply_like(request: &[u8], reply: &[u8]) -> Vec<u8> {
     match sony_sequence(request) {
         Some(sequence) => sony_reply(sequence, reply),
