@@ -1,5 +1,7 @@
 //! Issue #714: raw lost-ACK recovery has the same bounded-wait and Urgent
-//! safety-lane behavior on the async owner as on the blocking owner.
+//! safety-lane behavior on the async owner as on the blocking owner. Both
+//! owners drive the same shell core (#780), so the parity legs give each the
+//! same script and the same write barriers.
 
 #![cfg(all(
     feature = "async",
@@ -7,169 +9,79 @@
 ))]
 #![allow(clippy::expect_used)]
 
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+#[macro_use]
+#[path = "common/matrix.rs"]
+mod matrix;
 #[path = "common/profile_fixtures.rs"]
 mod profile_fixtures;
 
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
 use grafton_visca::{
     completion::AppliedOnly,
-    profile::ProfileSpec,
     raw::{self, RawReplyShape},
     request::builtin::{FocusStop, ZoomDrive},
-    transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
-    AffectedAxes, ControlClass, Error, Executor, RetryClass, Session, SessionConfig, TimeoutClass,
+    transport::AddressingMode,
+    AffectedAxes, ControlClass, Error, Executor, RetryClass, Session, TimeoutClass,
 };
 #[cfg(feature = "blocking")]
-use grafton_visca::{transport::AddressingMode, CameraId, OperationalTuning};
-use profile_fixtures::NonDefaultCompileTimeProfile;
+use grafton_visca::{CameraId, OperationalTuning};
 
-const ACK_SOCKET_ONE: &[u8] = &[0x90, 0x41, 0xff];
-const ACK_SOCKET_TWO: &[u8] = &[0x90, 0x42, 0xff];
 #[cfg(feature = "blocking")]
-const CAMERA_TWO_ACK_SOCKET_ONE: &[u8] = &[0xa0, 0x41, 0xff];
-const COMPLETE_SOCKET_ONE: &[u8] = &[0x90, 0x51, 0xff];
-const COMPLETE_SOCKET_TWO: &[u8] = &[0x90, 0x52, 0xff];
-const RAW_ZOOM_STOP: [u8; 6] = [0x81, 0x01, 0x04, 0x07, 0x00, 0xff];
+use fake_camera::FOCUS_STOP;
+use fake_camera::{frames, FakeCamera, ZOOM_STOP};
+use profile_fixtures::{session_config, NonDefaultCompileTimeProfile};
+#[cfg(feature = "blocking")]
+use {grafton_visca::profile::ProfileSpec, profile_fixtures::two_camera_session_config};
 
-#[derive(Debug)]
-struct Script {
-    steps: VecDeque<Vec<Vec<u8>>>,
-    writes: Vec<Vec<u8>>,
-}
-
-#[derive(Debug)]
-struct AsyncScriptTransport {
-    config: TransportConfig,
-    script: Arc<Mutex<Script>>,
-    reply_tx: flume::Sender<Vec<u8>>,
-    replies: flume::Receiver<Vec<u8>>,
-}
-
-#[derive(Clone, Debug)]
-struct Probe {
-    script: Arc<Mutex<Script>>,
-}
-
-impl Probe {
-    fn writes(&self) -> Vec<Vec<u8>> {
-        self.script.lock().expect("script lock").writes.clone()
-    }
-}
-
-impl AsyncScriptTransport {
-    fn new(steps: Vec<Vec<Vec<u8>>>) -> (Self, Probe) {
-        Self::new_with_config(steps, TransportConfig::default())
-    }
-
-    #[cfg(feature = "blocking")]
-    fn new_serial(steps: Vec<Vec<Vec<u8>>>) -> (Self, Probe) {
-        Self::new_with_config(
-            steps,
-            TransportConfig {
-                addressing: AddressingMode::Serial,
-                ..TransportConfig::default()
-            },
-        )
-    }
-
-    fn new_with_config(steps: Vec<Vec<Vec<u8>>>, config: TransportConfig) -> (Self, Probe) {
-        let script = Arc::new(Mutex::new(Script {
-            steps: steps.into(),
-            writes: Vec::new(),
-        }));
-        let (reply_tx, replies) = flume::unbounded();
-        (
-            Self {
-                config,
-                script: Arc::clone(&script),
-                reply_tx,
-                replies,
-            },
-            Probe { script },
-        )
-    }
-}
-
-impl HasTransportConfig for AsyncScriptTransport {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
-}
-
-impl AsyncTransport for AsyncScriptTransport {
-    async fn send(&mut self, bytes: &[u8]) -> Result<(), Error> {
-        let replies = {
-            let mut script = self.script.lock().expect("script lock");
-            script.writes.push(bytes.to_vec());
-            script.steps.pop_front().unwrap_or_default()
-        };
-        for reply in replies {
-            self.reply_tx
-                .send_async(reply)
-                .await
-                .map_err(|_| Error::ConnectionClosed { reason: None })?;
+/// A raw datagram camera whose replies are scripted per write: each write
+/// queues its step's replies. Writes past the script draw no reply.
+fn scripted_camera(steps: Vec<Vec<Vec<u8>>>) -> FakeCamera {
+    let mut steps: VecDeque<_> = steps.into();
+    FakeCamera::new(move |_, answer| {
+        for reply in steps.pop_front().unwrap_or_default() {
+            answer.reply(reply);
         }
-        Ok(())
-    }
-
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        let reply = self
-            .replies
-            .recv_async()
-            .await
-            .map_err(|_| Error::ConnectionClosed { reason: None })?;
-        dst[..reply.len()].copy_from_slice(&reply);
-        Ok(reply.len())
-    }
-
-    #[cfg(feature = "blocking")]
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        Some(self.config.addressing)
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
-    }
+    })
 }
 
-fn session_config() -> SessionConfig {
-    SessionConfig::new(
-        ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
-            .expect("two-socket raw profile"),
-    )
-}
+/// Physical pacing bound for a write the owner may issue at once.
+const PROMPT: Duration = Duration::from_millis(50);
 
+/// Bound for a write the owner issues after its command spacing or the
+/// predecessor's ACK deadline, but never after a quarantine release.
 #[cfg(feature = "blocking")]
-fn two_camera_session_config(command_spacing: Duration) -> SessionConfig {
-    let mut config = session_config();
-    config
-        .register_target(
-            CameraId::CAMERA_2,
-            ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
-                .expect("two-socket raw profile"),
-        )
-        .expect("second serial target");
-    config
-        .with_tuning(OperationalTuning::new().command_spacing(command_spacing))
-        .expect("test command spacing")
+const UNHELD: Duration = Duration::from_secs(1);
+
+/// Asserts that write `count` reached the camera within `bound` of `since`.
+///
+/// The shared wait helpers only guard against a hang; this is the promptness
+/// claim. It is measured after the wait returns, so scheduling delay can only
+/// lengthen the observed time, never hide a late write.
+fn assert_written_within(camera: &FakeCamera, count: usize, since: Instant, bound: Duration) {
+    let elapsed = since.elapsed();
+    assert!(
+        camera.write_count() >= count && elapsed < bound,
+        "write {count} took {elapsed:?}, over its {bound:?} bound"
+    );
 }
 
 fn ordinary_operation() -> raw::AppliedOnly {
     let policy = raw::Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Normal)
         .expect("raw policy")
         .with_reply_shape(RawReplyShape::AckThenCompletion);
-    raw::AppliedOnly::with_policy(RAW_ZOOM_STOP, AffectedAxes::ZOOM, policy)
+    raw::AppliedOnly::with_policy(ZOOM_STOP, AffectedAxes::ZOOM, policy)
         .expect("ordinary raw operation")
 }
 
 #[cfg(feature = "blocking")]
 fn ordinary_operation_for(target: CameraId) -> raw::AppliedOnly {
-    let mut wire = RAW_ZOOM_STOP;
+    let mut wire = ZOOM_STOP.to_vec();
     wire[0] = target.to_address_byte();
     raw::AppliedOnly::with_policy(
         wire,
@@ -181,48 +93,36 @@ fn ordinary_operation_for(target: CameraId) -> raw::AppliedOnly {
     .expect("targeted ordinary raw operation")
 }
 
-async fn wait_for_writes<E: Executor>(
-    probe: &Probe,
-    expected: usize,
-    timeout: Duration,
-    executor: &E,
-) {
-    let started = Instant::now();
-    while probe.writes().len() < expected {
-        assert!(
-            started.elapsed() < timeout,
-            "timed out waiting for write {expected}"
-        );
-        executor.sleep(Duration::from_millis(1)).await;
-    }
-}
-
-async fn run_lost_ack_regressions<E: Executor>(executor: E) {
-    // Ordinary work stays queued until the predecessor's 100 ms ACK deadline
-    // plus its one-second ambiguity window, then writes without TransportBusy.
-    let (transport, probe) = AsyncScriptTransport::new(vec![
-        vec![],
-        vec![ACK_SOCKET_ONE.to_vec(), COMPLETE_SOCKET_ONE.to_vec()],
-    ]);
-    let session = Session::open(transport, session_config(), executor.clone())
-        .await
-        .expect("async owner session");
-    let camera = session
+/// Ordinary work stays queued until the predecessor's 100 ms ACK deadline
+/// plus its one-second ambiguity window, then writes.
+async fn ordinary_successor_waits_for_lost_ack_quarantine<E: Executor>(executor: E) {
+    let camera = scripted_camera(vec![vec![], vec![frames::ack(1), frames::complete(1)]]);
+    let session = Session::open(
+        camera.async_wire().with_addressing(AddressingMode::Ip),
+        session_config(),
+        executor.clone(),
+    )
+    .await
+    .expect("async owner session");
+    let view = session
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
-    let predecessor = camera
+    let mut predecessor = view
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
         .await
         .expect("predecessor admission");
-    wait_for_writes(&probe, 1, Duration::from_millis(50), &executor).await;
+    let submitted = Instant::now();
+    camera.wait_for_writes_async(&executor, 1).await;
+    assert_written_within(&camera, 1, submitted, PROMPT);
     let first_written_at = Instant::now();
     executor.sleep(Duration::from_millis(150)).await;
     let ordinary = ordinary_operation();
-    let successor = camera
+    let mut successor = view
         .submit::<AppliedOnly, _>(&ordinary)
         .await
         .expect("ordinary successor admission");
-    wait_for_writes(&probe, 2, Duration::from_secs(2), &executor).await;
+    camera.wait_for_writes_async(&executor, 2).await;
+    assert_written_within(&camera, 2, first_written_at, Duration::from_secs(2));
     let release_elapsed = first_written_at.elapsed();
     assert!(
         release_elapsed >= Duration::from_millis(950),
@@ -240,40 +140,41 @@ async fn run_lost_ack_regressions<E: Executor>(executor: E) {
         .applied()
         .await
         .expect("ordinary successor settles after release");
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
+}
 
-    // Urgent work crosses the pre-ACK candidate immediately. Every ACK queued
-    // by the second send is read while both candidates are open and binds to
-    // neither, so both receipts eventually report the unconfirmed outcome.
-    let (transport, probe) = AsyncScriptTransport::new(vec![
+/// Urgent work crosses the pre-ACK candidate immediately. Every ACK queued
+/// by the second send is read while both candidates are open and binds to
+/// neither, so both receipts eventually report the unconfirmed outcome.
+async fn urgent_work_crosses_the_pre_ack_candidate<E: Executor>(executor: E) {
+    let camera = scripted_camera(vec![
         vec![],
-        vec![
-            ACK_SOCKET_ONE.to_vec(),
-            ACK_SOCKET_TWO.to_vec(),
-            COMPLETE_SOCKET_TWO.to_vec(),
-        ],
+        vec![frames::ack(1), frames::ack(2), frames::complete(2)],
     ]);
-    let session = Session::open(transport, session_config(), executor.clone())
-        .await
-        .expect("async owner session");
-    let camera = session
+    let session = Session::open(
+        camera.async_wire().with_addressing(AddressingMode::Ip),
+        session_config(),
+        executor.clone(),
+    )
+    .await
+    .expect("async owner session");
+    let view = session
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
-    let predecessor = camera
+    let mut predecessor = view
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
         .await
         .expect("predecessor admission");
-    wait_for_writes(&probe, 1, Duration::from_millis(50), &executor).await;
+    let submitted = Instant::now();
+    camera.wait_for_writes_async(&executor, 1).await;
+    assert_written_within(&camera, 1, submitted, PROMPT);
     let urgent_started = Instant::now();
-    let urgent = camera
+    let mut urgent = view
         .submit::<AppliedOnly, _>(&FocusStop)
         .await
         .expect("urgent admission");
-    wait_for_writes(&probe, 2, Duration::from_millis(50), &executor).await;
-    assert!(
-        urgent_started.elapsed() < Duration::from_millis(50),
-        "urgent command missed its physical pacing bound"
-    );
+    camera.wait_for_writes_async(&executor, 2).await;
+    assert_written_within(&camera, 2, urgent_started, PROMPT);
     assert!(matches!(
         urgent.applied().await,
         Err(Error::UnsequencedCommandUnconfirmed)
@@ -282,123 +183,78 @@ async fn run_lost_ack_regressions<E: Executor>(executor: E) {
         predecessor.applied().await,
         Err(Error::UnsequencedCommandUnconfirmed)
     ));
-    session.shutdown().await.expect("owner shutdown");
+    session.shutdown().expect("owner shutdown");
 }
+
+runtime_matrix!(
+    ordinary_successor_waits_for_lost_ack_quarantine,
+    urgent_work_crosses_the_pre_ack_candidate
+);
 
 #[cfg(feature = "blocking")]
 mod parity {
     use super::*;
     use grafton_visca::{
         blocking::{Session as BlockingSession, SessionConfig as BlockingSessionConfig},
-        command::CommandKind,
-        transport::BlockingTransport,
+        transport::{AddressingMode, TransportConfig},
     };
 
-    #[derive(Debug)]
-    struct SilentBlockingTransport {
-        config: TransportConfig,
-        writes: Arc<Mutex<Vec<Vec<u8>>>>,
+    /// How soon the urgent stop must follow its submission while camera one's
+    /// ordinary request sits in its lost-ACK `PreAck` hold.
+    ///
+    /// Crossing the hold, the stop waits only for the 20 ms command spacing.
+    /// Held behind it, the stop could not be written before the ordinary
+    /// request's ambiguity window closes: one second after that request's
+    /// write, less the 100 ms ACK deadline that `ordinary.applied()` already
+    /// waited out before the stop was submitted, so at least ~900 ms. 500 ms
+    /// sits between the two with more than 400 ms of margin on each side, so
+    /// neither scheduler load nor a slow CI host can flip the verdict.
+    const STOP_CROSSES_PREACK: Duration = Duration::from_millis(500);
+
+    /// The two-camera serial transcript's camera: the first write draws
+    /// camera two's ACK, the fifth draws the urgent stop's ACK and completion.
+    /// The blocking and async owners get the same script.
+    fn pending_cancel_camera() -> FakeCamera {
+        scripted_camera(vec![
+            vec![frames::ack_from(2, 1)],
+            vec![],
+            vec![],
+            vec![],
+            vec![frames::ack(1), frames::complete(1)],
+        ])
     }
 
-    impl HasTransportConfig for SilentBlockingTransport {
-        fn transport_config(&self) -> &TransportConfig {
-            &self.config
-        }
-    }
-
-    impl BlockingTransport for SilentBlockingTransport {
-        fn send_with_timeout(
-            &mut self,
-            bytes: &[u8],
-            _kind: CommandKind,
-            _timeout: Duration,
-        ) -> Result<(), Error> {
-            self.writes
-                .lock()
-                .expect("writes lock")
-                .push(bytes.to_vec());
-            Ok(())
-        }
-
-        fn recv_into_with_timeout(
-            &mut self,
-            _dst: &mut [u8],
-            _timeout: Duration,
-        ) -> Result<usize, Error> {
-            Err(Error::Timeout)
-        }
-
-        fn send_semantics(&self) -> SendSemantics {
-            SendSemantics::Datagram
-        }
-    }
-
-    /// Give the exact same per-write reply script to the blocking facade.
-    /// This prevents parity from being accidentally tested against a similar
-    /// but separately maintained transport fixture.
-    impl BlockingTransport for AsyncScriptTransport {
-        fn send_with_timeout(
-            &mut self,
-            bytes: &[u8],
-            _kind: CommandKind,
-            _timeout: Duration,
-        ) -> Result<(), Error> {
-            let replies = {
-                let mut script = self.script.lock().expect("script lock");
-                script.writes.push(bytes.to_vec());
-                script.steps.pop_front().unwrap_or_default()
-            };
-            for reply in replies {
-                self.reply_tx
-                    .try_send(reply)
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
-            }
-            Ok(())
-        }
-
-        fn recv_into_with_timeout(
-            &mut self,
-            dst: &mut [u8],
-            _timeout: Duration,
-        ) -> Result<usize, Error> {
-            let reply = self.replies.try_recv().map_err(|_| Error::Timeout)?;
-            dst[..reply.len()].copy_from_slice(&reply);
-            Ok(reply.len())
-        }
-
-        fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-            Some(self.config.addressing)
-        }
-
-        fn send_semantics(&self) -> SendSemantics {
-            SendSemantics::Datagram
-        }
+    fn serial_config() -> TransportConfig {
+        let mut config = TransportConfig::default();
+        config.addressing = AddressingMode::Serial;
+        config
     }
 
     fn blocking_transcript() -> Vec<Vec<u8>> {
-        let writes = Arc::new(Mutex::new(Vec::new()));
-        let transport = SilentBlockingTransport {
-            config: TransportConfig::default(),
-            writes: Arc::clone(&writes),
-        };
+        let camera = FakeCamera::silent();
         let session = BlockingSession::open(
-            transport,
+            camera.blocking_wire(),
             BlockingSessionConfig::new(
                 ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
                     .expect("raw profile"),
             ),
         )
         .expect("blocking session");
-        let camera = session
+        let view = session
             .camera::<NonDefaultCompileTimeProfile>()
             .expect("camera view");
-        let _predecessor = camera
+        let _predecessor = view
             .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
             .expect("blocking predecessor");
-        let _urgent = camera
+        let submitted = Instant::now();
+        camera.wait_for_writes(1);
+        assert_written_within(&camera, 1, submitted, UNHELD);
+        let _urgent = view
             .submit::<AppliedOnly, _>(&FocusStop)
             .expect("blocking urgent");
-        let transcript = writes.lock().expect("writes lock").clone();
+        let submitted = Instant::now();
+        let transcript = camera.wait_for_writes(2);
+        assert_written_within(&camera, 2, submitted, UNHELD);
         session.shutdown().expect("blocking shutdown");
         transcript
     }
@@ -410,15 +266,16 @@ mod parity {
     fn blocking_pending_cancel_and_preack_transcript() -> Vec<Vec<u8>> {
         const SPACING: Duration = Duration::from_millis(20);
 
-        let (transport, probe) = AsyncScriptTransport::new_serial(vec![
-            vec![CAMERA_TWO_ACK_SOCKET_ONE.to_vec()],
-            vec![],
-            vec![],
-            vec![],
-            vec![ACK_SOCKET_ONE.to_vec(), COMPLETE_SOCKET_ONE.to_vec()],
-        ]);
-        let session = BlockingSession::open(transport, two_camera_session_config(SPACING))
-            .expect("blocking multi-camera session");
+        let camera = pending_cancel_camera();
+        let session = BlockingSession::open(
+            camera
+                .blocking_wire()
+                .with_config(serial_config())
+                .with_addressing(AddressingMode::Serial),
+            two_camera_session_config()
+                .with_tuning(OperationalTuning::new().command_spacing(SPACING)),
+        )
+        .expect("blocking multi-camera session");
         let camera_one = session
             .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
             .expect("camera one view");
@@ -426,72 +283,94 @@ mod parity {
             .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
             .expect("camera two view");
 
-        let predecessor = camera_two
+        let mut predecessor = camera_two
             .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
             .expect("camera two predecessor");
+        let submitted = Instant::now();
+        camera.wait_for_writes(1);
+        assert_written_within(&camera, 1, submitted, UNHELD);
         let _socket_successor = camera_two
             .submit::<AppliedOnly, _>(&ordinary_operation_for(CameraId::CAMERA_2))
-            .expect("camera two ACK drain");
-        let _cancellation = predecessor.cancel().expect("paced cancellation");
-        let ordinary = camera_one
+            .expect("camera two successor");
+        let submitted = Instant::now();
+        camera.wait_for_writes(2);
+        assert_written_within(&camera, 2, submitted, UNHELD);
+        // A zero-length wait records the paced cancellation and returns; the
+        // camera never answers it.
+        assert!(matches!(
+            predecessor.cancel_with_timeout(Duration::ZERO),
+            Err(Error::ObservationTimeout { .. })
+        ));
+        let mut ordinary = camera_one
             .submit::<AppliedOnly, _>(&ordinary_operation())
-            .expect("camera one ordinary first write");
+            .expect("camera one ordinary admission");
+        let submitted = Instant::now();
+        camera.wait_for_writes(4);
+        assert_written_within(&camera, 4, submitted, UNHELD);
         assert!(matches!(
             ordinary.applied(),
             Err(Error::UnsequencedCommandUnconfirmed)
         ));
-        let stop = camera_one
+        let mut stop = camera_one
             .submit::<AppliedOnly, _>(&FocusStop)
             .expect("urgent stop crosses camera-one PreAck hold");
+        let stop_submitted = Instant::now();
+        camera.wait_for_writes(5);
+        assert_written_within(&camera, 5, stop_submitted, STOP_CROSSES_PREACK);
         stop.applied()
             .expect("the urgent stop ACK is attributable and completes");
 
-        let transcript = probe.writes();
+        let transcript = camera.writes();
         session.shutdown().expect("blocking shutdown");
         transcript
     }
 
-    pub(super) async fn assert_owner_transcript_parity<E: Executor>(executor: E) {
+    async fn blocking_and_async_owners_emit_the_same_urgent_transcript<E: Executor>(executor: E) {
         let blocking = blocking_transcript();
-        let (transport, probe) = AsyncScriptTransport::new(vec![vec![], vec![]]);
-        let session = Session::open(transport, session_config(), executor.clone())
-            .await
-            .expect("async session");
-        let camera = session
+        let camera = FakeCamera::silent();
+        let session = Session::open(
+            camera.async_wire().with_addressing(AddressingMode::Ip),
+            session_config(),
+            executor.clone(),
+        )
+        .await
+        .expect("async session");
+        let view = session
             .camera::<NonDefaultCompileTimeProfile>()
             .expect("camera view");
-        let _predecessor = camera
+        let _predecessor = view
             .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
             .await
             .expect("async predecessor");
-        wait_for_writes(&probe, 1, Duration::from_millis(50), &executor).await;
-        let _urgent = camera
+        let submitted = Instant::now();
+        camera.wait_for_writes_async(&executor, 1).await;
+        assert_written_within(&camera, 1, submitted, PROMPT);
+        let _urgent = view
             .submit::<AppliedOnly, _>(&FocusStop)
             .await
             .expect("async urgent");
-        wait_for_writes(&probe, 2, Duration::from_millis(50), &executor).await;
-        let asynchronous = probe.writes();
-        session.shutdown().await.expect("async shutdown");
+        let submitted = Instant::now();
+        let asynchronous = camera.wait_for_writes_async(&executor, 2).await;
+        assert_written_within(&camera, 2, submitted, PROMPT);
+        session.shutdown().expect("async shutdown");
 
         assert_eq!(asynchronous, blocking);
     }
 
-    pub(super) async fn assert_pending_cancel_and_preack_transcript_parity<E: Executor>(
+    async fn blocking_and_async_owners_match_the_pending_cancel_recovery_transcript<E: Executor>(
         executor: E,
     ) {
         const SPACING: Duration = Duration::from_millis(20);
 
         let blocking = blocking_pending_cancel_and_preack_transcript();
-        let (transport, probe) = AsyncScriptTransport::new_serial(vec![
-            vec![CAMERA_TWO_ACK_SOCKET_ONE.to_vec()],
-            vec![],
-            vec![],
-            vec![],
-            vec![ACK_SOCKET_ONE.to_vec(), COMPLETE_SOCKET_ONE.to_vec()],
-        ]);
+        let camera = pending_cancel_camera();
         let session = Session::open(
-            transport,
-            two_camera_session_config(SPACING),
+            camera
+                .async_wire()
+                .with_config(serial_config())
+                .with_addressing(AddressingMode::Serial),
+            two_camera_session_config()
+                .with_tuning(OperationalTuning::new().command_spacing(SPACING)),
             executor.clone(),
         )
         .await
@@ -503,37 +382,51 @@ mod parity {
             .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
             .expect("camera two view");
 
-        let predecessor = camera_two
+        let mut predecessor = camera_two
             .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
             .await
             .expect("camera two predecessor");
-        wait_for_writes(&probe, 1, Duration::from_secs(1), &executor).await;
+        let submitted = Instant::now();
+        camera.wait_for_writes_async(&executor, 1).await;
+        assert_written_within(&camera, 1, submitted, UNHELD);
         let _socket_successor = camera_two
             .submit::<AppliedOnly, _>(&ordinary_operation_for(CameraId::CAMERA_2))
             .await
             .expect("camera two successor");
-        wait_for_writes(&probe, 2, Duration::from_secs(1), &executor).await;
-        let _cancellation = predecessor.cancel().await.expect("paced cancellation");
-        let ordinary = camera_one
+        let submitted = Instant::now();
+        camera.wait_for_writes_async(&executor, 2).await;
+        assert_written_within(&camera, 2, submitted, UNHELD);
+        // The request is delivered before the zero-length wait expires, so the
+        // owner records the paced cancellation exactly as the blocking owner
+        // does; the camera never answers it.
+        assert!(matches!(
+            predecessor.cancel_with_timeout(Duration::ZERO).await,
+            Err(Error::ObservationTimeout { .. })
+        ));
+        let mut ordinary = camera_one
             .submit::<AppliedOnly, _>(&ordinary_operation())
             .await
             .expect("camera one ordinary admission");
-        wait_for_writes(&probe, 4, Duration::from_secs(1), &executor).await;
+        let submitted = Instant::now();
+        camera.wait_for_writes_async(&executor, 4).await;
+        assert_written_within(&camera, 4, submitted, UNHELD);
         assert!(matches!(
             ordinary.applied().await,
             Err(Error::UnsequencedCommandUnconfirmed)
         ));
-        let stop = camera_one
+        let mut stop = camera_one
             .submit::<AppliedOnly, _>(&FocusStop)
             .await
             .expect("urgent stop crosses camera-one PreAck hold");
-        wait_for_writes(&probe, 5, Duration::from_secs(1), &executor).await;
+        let stop_submitted = Instant::now();
+        camera.wait_for_writes_async(&executor, 5).await;
+        assert_written_within(&camera, 5, stop_submitted, STOP_CROSSES_PREACK);
         stop.applied()
             .await
             .expect("the urgent stop ACK is attributable and completes");
 
-        let asynchronous = probe.writes();
-        session.shutdown().await.expect("async shutdown");
+        let asynchronous = camera.writes();
+        session.shutdown().expect("async shutdown");
         assert_eq!(
             asynchronous, blocking,
             "both owners must emit the identical #744 transcript"
@@ -544,57 +437,15 @@ mod parity {
                 vec![0x82, 0x01, 0x04, 0x07, 0x02, 0xff],
                 vec![0x82, 0x01, 0x04, 0x07, 0x00, 0xff],
                 vec![0x82, 0x21, 0xff],
-                RAW_ZOOM_STOP.to_vec(),
-                vec![0x81, 0x01, 0x04, 0x08, 0x00, 0xff],
+                ZOOM_STOP.to_vec(),
+                FOCUS_STOP.to_vec(),
             ],
             "the transcript retains the cancellation, camera-one write, and acknowledged urgent stop"
         );
     }
-}
 
-#[cfg(feature = "runtime-tokio")]
-#[tokio::test]
-async fn tokio_lost_ack_wait_and_urgent_lane_are_bounded() {
-    run_lost_ack_regressions(grafton_visca::TokioRuntime::from_current().expect("tokio runtime"))
-        .await;
-}
-
-#[cfg(all(feature = "runtime-tokio", feature = "blocking"))]
-#[tokio::test]
-async fn tokio_blocking_and_async_owners_emit_the_same_urgent_transcript() {
-    parity::assert_owner_transcript_parity(
-        grafton_visca::TokioRuntime::from_current().expect("tokio runtime"),
-    )
-    .await;
-}
-
-#[cfg(all(feature = "runtime-tokio", feature = "blocking"))]
-#[tokio::test]
-async fn tokio_blocking_and_async_owners_match_the_pending_cancel_recovery_transcript() {
-    parity::assert_pending_cancel_and_preack_transcript_parity(
-        grafton_visca::TokioRuntime::from_current().expect("tokio runtime"),
-    )
-    .await;
-}
-
-#[cfg(feature = "runtime-smol")]
-#[test]
-fn smol_lost_ack_wait_and_urgent_lane_are_bounded() {
-    smol::block_on(run_lost_ack_regressions(grafton_visca::SmolRuntime::new()));
-}
-
-#[cfg(all(feature = "runtime-smol", feature = "blocking"))]
-#[test]
-fn smol_blocking_and_async_owners_emit_the_same_urgent_transcript() {
-    smol::block_on(parity::assert_owner_transcript_parity(
-        grafton_visca::SmolRuntime::new(),
-    ));
-}
-
-#[cfg(all(feature = "runtime-smol", feature = "blocking"))]
-#[test]
-fn smol_blocking_and_async_owners_match_the_pending_cancel_recovery_transcript() {
-    smol::block_on(parity::assert_pending_cancel_and_preack_transcript_parity(
-        grafton_visca::SmolRuntime::new(),
-    ));
+    runtime_matrix!(
+        blocking_and_async_owners_emit_the_same_urgent_transcript,
+        blocking_and_async_owners_match_the_pending_cancel_recovery_transcript
+    );
 }

@@ -6,16 +6,17 @@ Software release gates, the exact release tag, and CI on that exact release
 commit are required for every publication. Physical-camera evidence is a
 separate claim: an RC may be published while hardware remains explicitly
 unverified, while a stable release with major version 2 or higher requires a
-targeted representative hardware pass.
+targeted representative hardware pass on HW-01, HW-04 and HW-05 (HW-02 and
+HW-03 may instead be accepted known limitations).
 
 ## Version and changelog
 
 1. Choose the release version. The first candidate was `2.0.0-rc.1`; the
-   current candidate is `2.0.0-rc.2`.
+   current candidate is `2.0.0-rc.3`.
 2. Set `[workspace.package].version` in `Cargo.toml`; the macro crate inherits
    this value from the workspace.
 3. Pin the main crate's `grafton-visca-macros` dependency to the exact same
-   version (`=2.0.0-rc.2`, or the final version being prepared).
+   version (`=2.0.0-rc.3`, or the final version being prepared).
 4. Keep the root `Cargo.lock` ignored: this is a library workspace and release
    validation must work from a clean clone without a tracked lockfile. The
    validator checks both package manifests and the exact macro dependency with
@@ -23,8 +24,13 @@ targeted representative hardware pass.
    checkout-local lockfile immediately before its locked package/publish
    commands.
 5. Keep the 2.0 notes under `## [Unreleased]` until the release commit is
-   ready. At release time, move them to `## [2.0.0-rc.2] - YYYY-MM-DD` (or the
-   final version) and restore an empty `Unreleased` heading.
+   ready. Unreleased states the net change since the last published version
+   (the newest `v<version>` tag), not the churn between candidates. At release
+   time, move them to `## [2.0.0-rc.3] - YYYY-MM-DD` (or the final version) and
+   restore an empty `Unreleased` heading; `validate-release.sh` refuses a tag
+   whose version has no dated heading. A dated section whose release was never
+   tagged and published is not part of the record: fold it back into
+   Unreleased before the next release cut.
 
 The `api/2.0.0-rc.1/` directory is the rolling public-surface baseline for the
 whole 2.0 prerelease line; its name records the candidate where that baseline
@@ -50,20 +56,22 @@ with the hardware checklist still marked `Pending (Not run)` or `Unverified`,
 provided the release notes and checklist make that status plain and do not
 describe hardware support as verified.
 
-For a stable release whose major version is 2 or higher, run the five targeted
+For a stable release whose major version is 2 or higher, run the targeted
 representative scenarios in
 [`docs/hardware_release_checklist.md`](docs/hardware_release_checklist.md).
-Record the exact firmware and transcript or capture link for each scenario,
-plus the operator and date for the pass. A neighboring model, firmware, or
+HW-01, HW-04 and HW-05 must be `Pass`. HW-02 (Raw serial) and HW-03 (Sony UDP)
+must be `Pass` or `Not verified — accepted known limitation (<reason>)` with a
+dated maintainer decision (2026-10-07, superseding #753's five-row
+requirement), and the release notes must name any such limitation. Record the
+exact firmware and transcript or capture link for each passed scenario, plus
+the operator and date for the pass. A neighboring model, firmware, or
 software-only test does not substitute for the representative hardware pass.
 
-Before that stable hardware pass, finalize the Rust sources, Cargo manifests,
-and dependency metadata at one commit. Record its full SHA as
-`Hardware-tested commit:` in the checklist. Tests, documentation, workflows,
-and release records may change afterward, but shipped Rust sources and Cargo
-manifests may not. The publication workflow compares those source and manifest
-paths between the recorded bench commit and the release `HEAD`; any difference
-requires another targeted hardware pass.
+Record the full SHA the bench ran as `Hardware-tested commit:` in the
+checklist. It identifies the code the pass exercised; later changes do not
+invalidate it by themselves. Run another targeted hardware pass when a change
+alters wire encoding, transport, correlation, or motion behaviour on a verified
+path.
 
 Release tags must not carry semver build metadata: `v2.0.0+meta` has exactly
 the same precedence as `v2.0.0`, so the validator refuses metadata-bearing tags
@@ -78,8 +86,8 @@ change-record check covers the release delta instead of comparing `main` with
 itself:
 
 ```sh
-release_tag=v2.0.0-rc.2
-previous_release_tag=v2.0.0-rc.1
+release_tag=v2.0.0-rc.3
+previous_release_tag=v2.0.0-rc.2
 git fetch origin main --tags
 git switch --detach origin/main
 test -z "$(git status --porcelain=v1 --untracked-files=all)"
@@ -98,7 +106,8 @@ python3 .github/scripts/validate-change-record.py "$previous_release_commit" "$r
 bash .github/scripts/test-validate-change-record.sh
 cargo +nightly-2026-08-26 fmt --all -- --check
 bash .github/scripts/test-all-features.sh
-cargo +1.98.0 clippy --all-targets --all-features -- -D warnings
+bash .github/scripts/test-all-features.sh clippy
+bash .github/scripts/test-all-features.sh doc
 
 RUSTDOCFLAGS="-D warnings" cargo +1.98.0 doc --no-deps --all-features
 cargo +1.98.0 test --doc --all-features
@@ -117,12 +126,13 @@ test "$(git rev-parse --verify HEAD^{commit})" = "$release_commit"
 test -z "$(git status --porcelain=v1 --untracked-files=all)"
 ```
 
-The change-record validator requires a full-history checkout. It keeps every
-released changelog section immutable, requires public API snapshot changes to
-carry an Unreleased record, requires `**BREAKING**` records to name an issue,
-and requires explanatory commit bodies for source changes. Correct an old
-release note with a dated superseding Unreleased entry; never rewrite the old
-text to make the current release look internally consistent.
+The change-record validator requires a full-history checkout with tags. It
+keeps every published changelog section (one with a `v<version>` tag, or below
+one) immutable, requires public API snapshot changes to carry an Unreleased
+record, requires `**BREAKING**` records to name an issue, and requires
+explanatory commit bodies for source changes. Correct a published release note
+with an Unreleased entry; never rewrite the published text to make the current
+release look internally consistent.
 
 Also run the supported no-default, blocking-only, async-runtime, dynamic, and
 coexistence matrices documented in the repository before tagging. Check the
@@ -165,7 +175,7 @@ identify either input by a moving branch name, a local dirty worktree, or a
 crate version that has not been published.
 
 This gate deliberately uses Cargo source replacement for the two local
-packages, so it does not assume `2.0.0-rc.2` already exists in crates.io. Make
+packages, so it does not assume `2.0.0-rc.3` already exists in crates.io. Make
 two disposable detached worktrees (one at each recorded SHA) and place this
 temporary Cargo configuration outside both repositories:
 
@@ -280,15 +290,15 @@ git fetch origin main --tags
 test "$(git rev-parse --verify origin/main^{commit})" = "$release_commit"
 git switch --detach "$release_commit"
 test -z "$(git status --porcelain=v1 --untracked-files=all)"
-bash .github/scripts/validate-release.sh v2.0.0-rc.2
-git tag -a v2.0.0-rc.2 "$release_commit" -m "grafton-visca 2.0.0-rc.2"
-git push origin v2.0.0-rc.2
+bash .github/scripts/validate-release.sh v2.0.0-rc.3
+git tag -a v2.0.0-rc.3 "$release_commit" -m "grafton-visca 2.0.0-rc.3"
+git push origin v2.0.0-rc.3
 ```
 
 Wait next for the CI run triggered by that **tag push** to complete
 successfully. A prior `main` run for the same commit is necessary but not
 sufficient: the tag run must report the exact workflow path,
-`.github/workflows/ci.yml`, `event=push`, `head_branch=v2.0.0-rc.2`, and
+`.github/workflows/ci.yml`, `event=push`, `head_branch=v2.0.0-rc.3`, and
 `head_sha=$release_commit`. Do not dispatch publication until that tag run is
 green. The publication workflow independently queries all pages of the Actions
 API and enforces the same exact tag-run identity before it can package either

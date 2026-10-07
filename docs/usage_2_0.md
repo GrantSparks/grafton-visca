@@ -27,7 +27,9 @@ Cargo feature a snippet needs.
 | VISCA camera simulator | `test-utils,runtime-tokio` |
 
 `dyn-api` does not imply `async`: its blocking projection has no futures,
-executor, or async-runtime dependency. Runtime features imply the canonical
+executor, or async-runtime dependency. It projects the camera views of the
+enabled facades, so `dyn-api` without `blocking` or `async` is rejected at
+compile time. Runtime features imply the canonical
 `async` facade. `runtime-tokio`
 and `runtime-smol` may be enabled together; each session still receives one
 explicit runtime. The default `blocking` feature is an independent native
@@ -117,11 +119,12 @@ let mut config = SessionConfig::new(g2);
 config.register_target(grafton_visca::CameraId::new(2)?, generic)?;
 
 // Apply one session-wide tuning value before opening. Tuning may only be
-// more conservative than the profile floor, which is 150 ms here.
+// more conservative than the profile floor, which is 150 ms here; opening the
+// session checks it against every registered profile.
 let config = config.with_tuning(
     grafton_visca::OperationalTuning::new()
         .inquiry_spacing(std::time::Duration::from_millis(250)),
-)?;
+);
 # Ok::<(), grafton_visca::Error>(())
 ```
 
@@ -251,6 +254,15 @@ profile/transport pair matrix as an intentional BYO escape hatch; it still
 undergoes target-registry, envelope, addressing/topology, pacing, framing,
 buffer, and bounded-owner validation.
 
+A raw command declared `RawReplyShape::CompletionOnly` answers with no ACK and
+no socket, so it is exclusive on its camera: it starts only when nothing else
+to that camera is live, and until its completion or rejection arrives no
+inquiry and no ordinary command to that camera is written — they queue under
+their own deadlines. On a raw stream that lasts even past its own deadline;
+once its ambiguity window ends unanswered, queued work fails unwritten with
+`InquiryCorrelationLost` or `CommandCorrelationLost` until the answer arrives.
+STOPs are never held back by it (#795).
+
 ## Operational tuning
 
 Use `OperationalTuning` with `SessionConfig::with_tuning` for a reusable
@@ -265,8 +277,9 @@ minimum pacing, raise its socket limit, undercut a profile command category,
 or use zero timeouts. When targets have different profile minima, the strictest
 applicable pacing and capacity policy wins. A settlement timeout is separate
 from protocol completion: a targeted operation may be acknowledged before the
-profile-selected protocol settlement condition is met. This is not a
-bench-verified assertion of physical rest; see the
+profile-selected settlement evidence is established. `Settlement` distinguishes
+exact profile completion from stable samples with a window and tolerance;
+stable samples do not prove arrival at the endpoint. See the
 [hardware release checklist](hardware_release_checklist.md). Inquiries always
 use `inquiry_timeout`.
 
@@ -307,7 +320,9 @@ the same boundary, taking the profile from `P` instead of a runtime
 declare `AsyncTransport` or `BlockingTransport`, `HasTransportConfig`, and the
 correct stream/datagram send semantics. A blocking implementation must bound
 both `send_with_timeout` and `recv_into_with_timeout` by the supplied positive
-duration; the owner cannot preempt arbitrary synchronous code. Zero advertised
+duration; the owner cannot preempt arbitrary synchronous code. The blocking
+worker reads in slices of at most 10 ms, so a read that overruns its duration
+delays every STOP, cancellation, and `close` by the overrun. Zero advertised
 read/write timeouts are rejected at construction. A standard-kind caller-owned
 transport is checked against the profile transport registry; one that reports
 no standard kind (`None`) may bypass only that standard profile/transport pair matrix. The
@@ -318,31 +333,21 @@ one runtime.
 
 ### Sharing a blocking session
 
-`blocking::Session` and its borrowed `Camera<'_, P>` views are `Send + Sync`.
-The owner still admits only one fail-fast turn at a time, so overlapping calls
-from multiple threads return `Error::TransportBusy`. `Session::metrics()` is a
-read-only exception: it returns the last completed owner-turn snapshot while a
-different thread is in a bounded transport wait. If callers should wait rather
-than retry for a control operation, put the session in `Arc<Mutex<Session>>`,
-lock it for one operation, and derive the camera view from the guard. The view
-must remain inside the guard's scope:
+`blocking::Session`, its `Camera<P>` views, and their operation handles are
+owned, `Clone + Send + Sync` handles on one owner worker thread. Clone them
+into other threads instead of locking: the worker serializes every call, so a
+thread waiting on one operation never blocks another thread's submit, cancel,
+or STOP.
 
 ```rust,no_run
-use std::sync::{Arc, Mutex};
 use grafton_visca::{blocking, profiles::PtzOpticsG2};
 
-fn share(session: blocking::Session) -> grafton_visca::Result<()> {
-    let session = Arc::new(Mutex::new(session));
+fn share(session: &blocking::Session) -> grafton_visca::Result<()> {
+    let camera = session.camera::<PtzOpticsG2>()?;
     std::thread::scope(|scope| {
-        let session = Arc::clone(&session);
-        let worker = scope.spawn(move || -> grafton_visca::Result<()> {
-            let guard = session.lock().expect("camera session lock");
-            let camera = guard.camera::<PtzOpticsG2>()?;
-            camera.power().on()
-        });
+        let worker = scope.spawn(move || camera.power().on());
         worker.join().expect("camera worker")
-    })?;
-    Ok(())
+    })
 }
 ```
 
@@ -353,9 +358,41 @@ Static cameras expose the same 14 noun views in blocking and async forms:
 `image`, `presets`, `tally`, `nd_filter`, `motion_sync`, `menu`, and
 `advanced`. Profile-gated methods are available only when the profile's
 `Has*` marker permits them. `motion()` separately owns
-`stop_all_motion`, `is_moving`, `is_moving_axes`, and `wait_until_idle`.
-`is_moving()` takes no argument and samples `AffectedAxes::MOVEMENT`;
-`is_moving_axes(MotionQuery)` is the axis-selecting form.
+`stop_all_motion`, `is_moving`, and `wait_until_idle`, with
+the same names, arities and contracts on the blocking and async cameras, the
+blocking runtime-profile camera (whose `motion()` returns the same blocking
+view) and the object-safe `DynMotion`.
+`is_moving(MotionQuery)` samples the query's axes; `MotionQuery::default()`
+selects `AffectedAxes::MOVEMENT`.
+
+`stop_all_motion()` returns `HaltReport` under one end-to-end deadline. At owner
+acceptance it fences older declared queued motion and future retries, then
+admits each supported STOP independently while respecting protocol gates.
+Subsequent motion remains eligible. Inspect each axis's `HaltOutcome`, or use
+`into_result()` to explicitly retain only the first failure. Applied STOPs
+provide protocol evidence; they do not prove physical rest. A STOP the camera
+refuses is reported promptly and never resent: a PTZOptics G2 in auto-focus
+mode refuses the focus STOP, so `focus` is `Failed(CommandNotExecutable)` and
+`into_result()` returns that error while auto-focus owns the lens. Superseded
+motion fails with `MotionSuperseded`, whose `failure_context()` is
+`NotAccepted` when it never reached the camera.
+
+Targeted `settled*` waits return `Settlement` evidence. A later conflicting
+admission makes unfinished polled settlement return `SettlementSuperseded`,
+even if that later motion is cancelled before writing. Other axes/targets and
+rejected requests do not supersede it. Established cached evidence and exact
+profile completion remain valid.
+
+A motion observation reads one position snapshot, waits until at least
+`MotionQuery::window` (default 100 ms, set with `with_window`) has elapsed on
+the owner clock, and reads a second. `true` means a selected axis moved by more
+than its tolerance across that window. `false` means no movement was detected
+over the window: an axis creeping slowly enough to stay within tolerance, or
+returning to its start within the window, is not detected. A longer window
+detects slower movement but makes the call take longer. A zero window is
+rejected with `Error::InvalidParameter` before any inquiry, and a window that
+cannot elapse within the observation deadline returns `Error::Timeout`, never
+`false`.
 
 Async noun futures borrow the temporary accessor. A direct call such as
 `camera.motion().stop_all_motion().await` is fine; bind each accessor before a
@@ -368,6 +405,8 @@ let (sony_result, raw_result) = tokio::join!(
     sony_motion.stop_all_motion(),
     raw_motion.stop_all_motion(),
 );
+sony_result?.into_result()?;
+raw_result?.into_result()?;
 ```
 
 Blocking runtime-profile code uses `BlockingDynSessionCamera`. Its generic
@@ -389,9 +428,9 @@ async fn dynamic_views(
 ) -> Result<(), grafton_visca::Error> {
     use grafton_visca::dynapi::{DynMotion, DynZoom};
 
-    let camera = grafton_visca::dynapi::DynSessionCamera::from_session(session)?;
+    let camera = session.camera_dyn()?;
     camera.zoom().stop().await?.applied().await?;
-    camera.motion().is_moving_axes(query).await?;
+    camera.motion().is_moving(query).await?;
     Ok(())
 }
 ```
@@ -399,7 +438,9 @@ async fn dynamic_views(
 Use the generic `execute` for a plain request, `inquire` for a typed inquiry,
 and `submit` for a typed operation. Dynamic custom requests use the explicit
 targeted/applied-only request traits. An applied-only handle has no settled
-state; cancellation reports its owner outcome, and `detach` is the explicit
+state. Every wait borrows its handle and caches what it observes, so a timed-out
+wait can be retried and `settled` can follow `applied`; `cancel` is one
+idempotent intent that reports its owner outcome, and `detach` is the explicit
 fire-and-forget choice. Dropping a handle is exactly `detach` and never stops
 hardware, so an error path leaves movement running until something else ends
 it; see the scoped stop-on-exit guard in

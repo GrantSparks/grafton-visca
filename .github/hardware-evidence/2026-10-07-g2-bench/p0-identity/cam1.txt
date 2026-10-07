@@ -1,0 +1,6 @@
+camera: cam1
+model: PT30X-NDI G2
+source: HTTP get_device_conf; device-unique fields removed
+devtype="V63C"
+versioninfo="SOC v6.3.32 - ARM 6.3.51THI"
+device_model="F16.HI  "

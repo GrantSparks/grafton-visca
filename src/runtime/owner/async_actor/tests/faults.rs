@@ -1,4 +1,7 @@
 use super::*;
+use crate::runtime::owner::turn::{
+    clamp_receive_pause, transient_receive_pause, TransientFaultRun,
+};
 /// A zero-length stream read is still the only close signal.
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
@@ -58,7 +61,7 @@ async fn transient_receive_fault_retries_and_keeps_the_session_running() {
         .unwrap();
 
     frames
-        .send_async(Ok(AsyncReceive::Fault(Error::Io(Arc::new(
+        .send_async(Ok(OwnerReceive::Fault(Error::Io(Arc::new(
             std::io::Error::from(std::io::ErrorKind::ConnectionRefused),
         )))))
         .await
@@ -92,7 +95,7 @@ async fn transient_receive_fault_retries_and_keeps_the_session_running() {
         receipt.terminal().await.unwrap(),
         RuntimeOutcome::Applied
     ));
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.state, SessionState::Shutdown);
 }
@@ -116,7 +119,7 @@ async fn fatal_receive_fault_closes_the_session() {
         .await
         .unwrap();
     frames
-        .send_async(Ok(AsyncReceive::Fault(Error::Io(Arc::new(
+        .send_async(Ok(OwnerReceive::Fault(Error::Io(Arc::new(
             std::io::Error::from(std::io::ErrorKind::BrokenPipe),
         )))))
         .await
@@ -165,10 +168,7 @@ async fn a_transport_failing_every_read_still_serves_the_boundary() {
     );
 
     // And so is shutdown: the session is killable.
-    tokio::time::timeout(Duration::from_secs(5), handle.shutdown())
-        .await
-        .expect("shutdown must not be starved by a failing transport")
-        .unwrap();
+    handle.shutdown().unwrap();
     let snapshot = tokio::time::timeout(Duration::from_secs(5), actor_task)
         .await
         .expect("the actor task must tear down within a bound")
@@ -201,7 +201,7 @@ fn smol_transport_failing_every_read_still_serves_the_boundary() {
             handle.snapshot().await.unwrap().state,
             SessionState::Running
         );
-        handle.shutdown().await.unwrap();
+        handle.shutdown().unwrap();
         assert_eq!(task.await.state, SessionState::Shutdown);
     });
 }
@@ -271,7 +271,7 @@ async fn alternating_fault_and_no_data_receives_still_end_the_session() {
             >= usize::try_from(TRANSIENT_RECEIVE_FAULT_LIMIT.saturating_mul(2) - 1).unwrap(),
         "the scripted driver must actually alternate faults with no-data reads"
     );
-    let error = handle.shutdown().await.unwrap_err();
+    let error = handle.shutdown().unwrap_err();
     assert!(matches!(error, Error::ConnectionClosed { .. }));
 }
 /// Issue #625. Genuinely transient faults still behave exactly as #620
@@ -302,7 +302,7 @@ async fn a_burst_of_transient_faults_then_recovery_keeps_the_session() {
     // Two consecutive faults, each retransmitting the very same request.
     for _ in 0..2 {
         frames
-            .send_async(Ok(AsyncReceive::Fault(Error::TransportError(
+            .send_async(Ok(OwnerReceive::Fault(Error::TransportError(
                 "ICMP port unreachable".into(),
             ))))
             .await
@@ -341,7 +341,7 @@ async fn a_burst_of_transient_faults_then_recovery_keeps_the_session() {
     // transient and the session is still answering.
     for _ in 0..3 {
         frames
-            .send_async(Ok(AsyncReceive::Fault(Error::TransportError(
+            .send_async(Ok(OwnerReceive::Fault(Error::TransportError(
                 "ICMP port unreachable".into(),
             ))))
             .await
@@ -351,7 +351,7 @@ async fn a_burst_of_transient_faults_then_recovery_keeps_the_session() {
         handle.snapshot().await.unwrap().state,
         SessionState::Running
     );
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// Issue #625/#719. An application idle timeout is no data, not a fault.
@@ -379,7 +379,7 @@ async fn an_idle_read_timeout_is_not_a_receive_fault() {
         .unwrap();
 
     for timeout in [
-        Error::Timeout,
+        Error::io_timeout(),
         Error::Io(Arc::new(std::io::Error::from(
             std::io::ErrorKind::WouldBlock,
         ))),
@@ -388,11 +388,11 @@ async fn an_idle_read_timeout_is_not_a_receive_fault() {
         ))),
     ] {
         frames
-            .send_async(Ok(AsyncReceive::Fault(timeout)))
+            .send_async(Ok(OwnerReceive::Fault(timeout)))
             .await
             .unwrap();
     }
-    frames.send_async(Ok(AsyncReceive::NoData)).await.unwrap();
+    frames.send_async(Ok(OwnerReceive::NoData)).await.unwrap();
 
     // Control still answers, and nothing was retransmitted.
     assert_eq!(
@@ -417,7 +417,7 @@ async fn an_idle_read_timeout_is_not_a_receive_fault() {
         receipt.terminal().await.unwrap(),
         RuntimeOutcome::Applied
     ));
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// The escalation is bounded, monotonic, and long enough that a run only
@@ -472,9 +472,9 @@ fn a_fault_run_only_counts_consecutive_failures() {
         TRANSIENT_RECEIVE_FAULT_SPAN
     ));
 }
-/// Issue #625. The blocking owner clamps its transient pause to the
-/// caller's deadline; the async owner clamps to the next scheduler wake, so
-/// a fault can never delay a due deadline by the length of the pause.
+/// Issue #625. The shell clamps a transient fault pause to the next
+/// scheduler wake, so a fault can never delay a due deadline by the length of
+/// the pause.
 #[test]
 fn the_transient_pause_never_outlives_the_next_wake() {
     let now = Instant::now();
@@ -507,13 +507,7 @@ async fn consumed_truncated_datagrams_reset_the_async_fault_run() {
     let reads = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let faults = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let truncated = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    let config = crate::transport::builder::TransportConfig {
-        buffer_config: crate::transport::buffer::BufferConfig {
-            recv_buffer_size: 3,
-            ..crate::transport::buffer::BufferConfig::default()
-        },
-        ..crate::transport::builder::TransportConfig::default()
-    };
+    let config = crate::transport::builder::TransportConfig::default();
     let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
         AlternatingFaultAndTruncatedDatagrams {
             config,
@@ -562,7 +556,7 @@ async fn consumed_truncated_datagrams_reset_the_async_fault_run() {
         "a consumed malformed datagram resets the fault run rather than closing the session"
     );
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// Issue #637. One malformed datagram — the review's probe is `01 41 ff`,
@@ -621,7 +615,7 @@ async fn a_malformed_datagram_does_not_kill_the_async_session() {
         RuntimeOutcome::Applied
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.state, SessionState::Shutdown);
     assert!(
@@ -632,13 +626,11 @@ async fn a_malformed_datagram_does_not_kill_the_async_session() {
         "the discarded datagram must still be observable"
     );
 }
-/// #672: a delimited-but-unclassifiable frame on a byte stream is a
-/// malformed frame to discard, not a lost framing position. The framer kept
-/// its place, so the stream stays Running, the frame is recorded as
-/// `Ignored(MalformedFrame)`, and the in-flight command is settled by the
-/// next well-formed reply — the log-and-continue tolerance 1.x had. A genuine
-/// framing failure (buffer overflow / no boundary) still poisons and is
-/// pinned separately.
+/// #672: a delimited-but-unclassifiable frame on a byte stream is a malformed frame to discard, not
+/// a lost framing position. The framer kept its place, so the stream stays Running, the frame is
+/// recorded as `Ignored(MalformedFrame)`, and the in-flight command is settled by the next
+/// well-formed reply — an invalid frame is counted and discarded and the session continues. A
+/// genuine framing failure (buffer overflow / no boundary) still poisons and is pinned separately.
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn a_malformed_stream_frame_is_discarded_and_keeps_the_session() {
@@ -686,7 +678,7 @@ async fn a_malformed_stream_frame_is_discarded_and_keeps_the_session() {
         RuntimeOutcome::Applied
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.state, SessionState::Shutdown);
     assert!(
@@ -754,7 +746,7 @@ async fn a_stream_burst_over_the_frame_limit_keeps_the_session() {
         "a large-but-valid burst is not a session verdict"
     );
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// #681: a single-target IP session whose camera answers with its non-default
@@ -792,7 +784,7 @@ async fn a_single_target_ip_chain_address_reply_settles_the_command() {
         RuntimeOutcome::Applied
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// Issue #637. A datagram send failure fails exactly one request and the
@@ -832,7 +824,7 @@ async fn a_datagram_send_failure_never_demands_a_new_session() {
         "a datagram send failure is per request, not a session verdict"
     );
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 #[cfg(feature = "runtime-tokio")]
@@ -861,4 +853,57 @@ fn smol_stalled_write_never_parks_close() {
         terminated,
     ));
     join.join().unwrap();
+}
+/// Issue #780: an idle read paces the *receive* source only. While that pause
+/// is pending, admission, control and shutdown are still selected, so a
+/// boundary is applied before the pause ends rather than behind it. The
+/// admission's write ends the pause, because its reply may follow at once;
+/// the next read is idle again and re-arms it.
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn a_boundary_is_applied_during_an_idle_receive_pause() {
+    let (runtime, sleeps) = ManualRuntime::with_polling_sleeps_and_sleep_barrier(Instant::now());
+    let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime.clone()).unwrap();
+    let actor_task = tokio::spawn(actor.run(NoDataDriver {
+        reads: Arc::clone(&reads),
+    }));
+
+    // The first read is idle; the next selection parks with receive paced.
+    let pause = sleeps.recv_async().await.unwrap();
+    assert!(!pause.is_zero());
+    let paused_at = Executor::now(&runtime);
+
+    // Virtual time is frozen, so the pause cannot elapse. The admission is
+    // still applied and written, and only the write lifts the pause: exactly
+    // one more read follows it.
+    let receipt = tokio::time::timeout(Duration::from_secs(1), handle.submit(command()))
+        .await
+        .expect("an admission must not wait behind an idle receive pause")
+        .unwrap();
+    tokio::time::timeout(Duration::from_secs(1), async {
+        while reads.load(Ordering::Relaxed) < 2 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .expect("the write ends the receive pause");
+    for _ in 0..16 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(Executor::now(&runtime), paused_at);
+    assert_eq!(
+        reads.load(Ordering::Relaxed),
+        2,
+        "the idle read re-paced receive"
+    );
+
+    handle.shutdown().unwrap();
+    let snapshot = tokio::time::timeout(Duration::from_secs(1), actor_task)
+        .await
+        .expect("shutdown must not wait behind an idle receive pause")
+        .unwrap();
+    assert_eq!(snapshot.state, SessionState::Shutdown);
+    assert_eq!(reads.load(Ordering::Relaxed), 2);
+    drop(receipt);
 }

@@ -28,8 +28,8 @@ fn root_value_and_transport_contract() {
 
     let preset = PresetNumber::new(255).expect("preset 255 is valid");
     assert_eq!(preset.value(), 255);
-    assert_eq!(PresetNumber::MIN, 0);
-    assert_eq!(PresetNumber::MAX, 255);
+    assert_eq!(PresetNumber::MIN.value(), 0);
+    assert_eq!(PresetNumber::MAX.value(), 255);
 
     let camera_id = CameraId::new(1).expect("camera ID 1 is valid");
     assert_eq!(camera_id.to_address_byte(), 0x81);
@@ -128,6 +128,8 @@ fn profile_marker_and_capability_contract() {
 
     fn nd_filter<P: HasNdFilter>() {}
 
+    fn raw_ip<P: SupportsTcp + SupportsUdp>() {}
+
     profile::<PtzOpticsG2>();
     profile::<SonyFR7>();
     profile::<GenericVisca>();
@@ -135,22 +137,24 @@ fn profile_marker_and_capability_contract() {
     advanced::<SonyFR7>();
     advanced::<GenericVisca>();
     nd_filter::<SonyFR7>();
+    raw_ip::<PtzOpticsG2>();
+    raw_ip::<GenericVisca>();
 
     assert_eq!(PtzOpticsG2::MODEL_NAME, "PtzOptics G2");
     assert_eq!(PtzOpticsG2::DEFAULT_CAMERA_ID, 1);
-    assert_eq!(<PtzOpticsG2 as SupportsTcp>::DEFAULT_TCP_PORT, 5678);
-    assert_eq!(<PtzOpticsG2 as SupportsUdp>::DEFAULT_UDP_PORT, 1259);
-    assert_eq!(<GenericVisca as SupportsTcp>::DEFAULT_TCP_PORT, 5678);
-    assert_eq!(<GenericVisca as SupportsUdp>::DEFAULT_UDP_PORT, 1259);
+    for transports in [PtzOpticsG2::TRANSPORTS, GenericVisca::TRANSPORTS] {
+        assert_eq!(transports.tcp_port(), Some(5678));
+        assert_eq!(transports.udp_port(), Some(1259));
+    }
     assert_eq!(SonyFR7::DEFAULT_CAMERA_ID, 1);
 
     let g2 = Capabilities::from_profile::<PtzOpticsG2>();
     assert!(g2.has_basic_features());
     assert!(g2.has_full_inquiry_support());
     assert_eq!(g2.inquiry_support, InquirySupport::Full);
-    assert!(!g2.has_motion_sync);
+    assert_eq!(g2.motion_sync_speed_range, None);
     assert!(!g2.has_nd_filter);
-    assert!(g2.has_iris_control);
+    assert!(g2.iris_range.is_some());
     assert!(g2.has_picture_effect);
 
     let fr7 = Capabilities::from_profile::<SonyFR7>();
@@ -158,8 +162,8 @@ fn profile_marker_and_capability_contract() {
     assert!(fr7.has_advanced_features());
     assert!(fr7.has_nd_filter);
     assert!(fr7.supports_wake_on_lan);
-    assert_eq!(fr7.default_tcp_port, None);
-    assert_eq!(fr7.default_udp_port, Some(52381));
+    assert_eq!(SonyFR7::TRANSPORTS.tcp_port(), None);
+    assert_eq!(SonyFR7::TRANSPORTS.udp_port(), Some(52381));
 }
 
 #[cfg(feature = "async")]
@@ -168,7 +172,7 @@ fn async_root_exports_are_profile_and_handle_safe() {
     use grafton_visca::{
         completion::{AppliedOnly, Targeted},
         profiles::PtzOpticsG2,
-        Camera, Cancellation, CompileTimeProfile, Operation, Session, SessionConfig,
+        Camera, CancellationOutcome, CompileTimeProfile, Operation, Session, SessionConfig,
     };
 
     fn assert_profile<P: CompileTimeProfile>() {}
@@ -180,10 +184,9 @@ fn async_root_exports_are_profile_and_handle_safe() {
     let _: PhantomData<SessionConfig> = PhantomData;
     let _: PhantomData<Operation<AppliedOnly>> = PhantomData;
     let _: PhantomData<Operation<Targeted>> = PhantomData;
-    let _: PhantomData<Cancellation> = PhantomData;
     assert_send_sync::<Operation<AppliedOnly>>();
     assert_send_sync::<Operation<Targeted>>();
-    assert_send_sync::<Cancellation>();
+    assert_send_sync::<CancellationOutcome>();
 }
 
 #[cfg(feature = "blocking")]
@@ -200,13 +203,13 @@ fn blocking_root_exports_are_profile_and_handle_safe() {
     fn assert_send_sync<T: Send + Sync>() {}
 
     assert_profile::<PtzOpticsG2>();
-    let _: PhantomData<Camera<'static, PtzOpticsG2>> = PhantomData;
+    let _: PhantomData<Camera<PtzOpticsG2>> = PhantomData;
     let _: PhantomData<Session> = PhantomData;
     let _: PhantomData<SessionConfig> = PhantomData;
-    let _: PhantomData<Operation<'static, AppliedOnly>> = PhantomData;
-    let _: PhantomData<Operation<'static, Targeted>> = PhantomData;
+    let _: PhantomData<Operation<AppliedOnly>> = PhantomData;
+    let _: PhantomData<Operation<Targeted>> = PhantomData;
     assert_send_sync::<Session>();
-    assert_send_sync::<Camera<'static, PtzOpticsG2>>();
+    assert_send_sync::<Camera<PtzOpticsG2>>();
 }
 
 #[cfg(all(feature = "blocking", feature = "async"))]
@@ -215,7 +218,7 @@ fn blocking_and_async_facades_coexist() {
     use grafton_visca::completion::{AppliedOnly, Targeted};
     use grafton_visca::{blocking, profiles::PtzOpticsG2, Camera, Operation, Session};
 
-    let _: PhantomData<blocking::Camera<'static, PtzOpticsG2>> = PhantomData;
+    let _: PhantomData<blocking::Camera<PtzOpticsG2>> = PhantomData;
     let _: PhantomData<blocking::Session> = PhantomData;
     let _: PhantomData<Camera<PtzOpticsG2>> = PhantomData;
     let _: PhantomData<Session> = PhantomData;
@@ -250,7 +253,7 @@ fn dyn_root_is_object_safe() {
 fn blocking_dyn_root_is_runtime_profile_view() {
     use grafton_visca::dynapi::BlockingDynSessionCamera;
 
-    let _: PhantomData<BlockingDynSessionCamera<'static>> = PhantomData;
+    let _: PhantomData<BlockingDynSessionCamera> = PhantomData;
 }
 
 #[test]

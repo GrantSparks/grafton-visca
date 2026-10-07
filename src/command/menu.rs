@@ -4,7 +4,13 @@
 //! allowing remote navigation and configuration. These commands are particularly useful
 //! for Sony FR7 and other cameras with comprehensive on-screen menus.
 
-use crate::{command::bytes::ConstCommandBuilder, visca_command, Error};
+use crate::{
+    command::{
+        bytes::{constants::menu, FrameWriter},
+        pan_tilt::PanTiltDirection,
+    },
+    visca_command, Error,
+};
 
 visca_command! {
     /// Menu display control command.
@@ -15,7 +21,7 @@ visca_command! {
     pub struct SetMenuDisplay {
         on: bool,
     };
-    prefix = [0x01, 0x06, 0x06];
+    prefix = menu::MENU;
     param = if *on { 0x02 } else { 0x03 };
     max_param_size = 1;
 }
@@ -44,23 +50,32 @@ pub enum MenuDirection {
     Right,
 }
 
-// Manual implementation for MenuNavigate due to complex direction mapping
+impl MenuDirection {
+    /// The pan/tilt drive direction that moves the OSD cursor this way.
+    const fn pan_tilt(self) -> PanTiltDirection {
+        match self {
+            Self::Up => PanTiltDirection::Up,
+            Self::Down => PanTiltDirection::Down,
+            Self::Left => PanTiltDirection::Left,
+            Self::Right => PanTiltDirection::Right,
+        }
+    }
+}
+
+/// OSD navigation is the pan/tilt drive at the fixed `0E 0E` speed pair, so the
+/// direction pair is the pan/tilt direction's.
 impl crate::command::encode::WireEncode for MenuNavigate {
     fn write_into(
         &self,
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        let mut builder = ConstCommandBuilder::<9>::new();
-        builder.push_mut(camera_id.to_address_byte());
-        builder.append_mut(&[0x01, 0x06, 0x01, 0x0E, 0x0E]);
-        match self.direction {
-            MenuDirection::Up => builder.append_mut(&[0x03, 0x01]),
-            MenuDirection::Down => builder.append_mut(&[0x03, 0x02]),
-            MenuDirection::Left => builder.append_mut(&[0x01, 0x03]),
-            MenuDirection::Right => builder.append_mut(&[0x02, 0x03]),
-        };
-        builder.terminate().build_into(buffer)
+        let (pan, tilt) = self.direction.pan_tilt().to_bytes();
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&menu::NAVIGATE)
+            .byte(pan)
+            .byte(tilt)
+            .finish()
     }
 }
 
@@ -115,7 +130,7 @@ visca_command! {
     pub struct PerformMenuAction {
         action: MenuAction,
     };
-    prefix = [0x01, 0x06, 0x06];
+    prefix = menu::MENU;
     param = u8::from(*action);
     max_param_size = 1;
 }
@@ -147,12 +162,11 @@ impl crate::command::encode::WireEncode for DirectMenuControl {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        let mut builder = ConstCommandBuilder::<8>::new();
-        builder.push_mut(camera_id.to_address_byte());
-        builder.append_mut(&[0x01, 0x7E, 0x04, 0x72]);
-        builder.push_mut(self.control1);
-        builder.push_mut(self.control2);
-        builder.terminate().build_into(buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&menu::DIRECT)
+            .byte(self.control1)
+            .byte(self.control2)
+            .finish()
     }
 }
 

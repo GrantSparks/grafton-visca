@@ -1,9 +1,9 @@
 //! Focused tests for timeout primitives and deterministic transport behavior.
 //!
 //! Category-to-deadline preparation is covered by the production-owned tests
-//! in `src/prepared.rs`; this integration test keeps the public category oracle
-//! and test transport behavior honest without pretending that a raw transport
-//! smoke test exercises owner deadline selection.
+//! in `src/prepared.rs`. This integration test pins the public category
+//! defaults and the scripted transport's timeout behaviour; it does not claim
+//! that a raw transport smoke test exercises owner deadline selection.
 
 #[cfg(all(test, feature = "runtime-tokio", feature = "test-utils"))]
 mod timeout_tests {
@@ -59,7 +59,7 @@ mod timeout_tests {
         // Now poll the timeout
         let result = timeout_fut.await;
         assert!(
-            matches!(result, Err(grafton_visca::Error::Timeout)),
+            matches!(result, Err(grafton_visca::Error::Timeout { .. })),
             "Expected timeout error, got {:?}",
             result
         );
@@ -70,11 +70,9 @@ mod timeout_tests {
         // Test basic ScriptedTransport functionality
         let executor = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
 
-        let mut transport = ScriptedTransport::new(vec![Step::OnSend {
-            matches: None,
-            responses: vec![vec![0x90, 0x41, 0xFF]], // ACK
-        }])
-        .with_executor(executor.clone());
+        let mut transport =
+            ScriptedTransport::new(vec![Step::on_send(None, vec![vec![0x90, 0x41, 0xFF]])])
+                .with_executor(executor.clone());
 
         // Send a command
         transport
@@ -84,7 +82,7 @@ mod timeout_tests {
 
         // Should receive the scripted response
         let mut buf = vec![0u8; 1024];
-        let n = transport.recv_into(&mut buf).await.unwrap();
+        let n = transport.recv_into(&mut buf).await.unwrap().copied_len();
         assert_eq!(&buf[..n], &[0x90, 0x41, 0xFF]);
 
         // Verify the command was recorded
@@ -113,6 +111,6 @@ mod timeout_tests {
         // Should get the injected timeout error immediately (no hanging)
         let mut buf = vec![0u8; 1024];
         let result = transport.recv_into(&mut buf).await;
-        assert!(matches!(result, Err(grafton_visca::Error::Timeout)));
+        assert!(matches!(result, Err(grafton_visca::Error::Timeout { .. })));
     }
 }

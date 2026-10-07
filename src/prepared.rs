@@ -1,11 +1,15 @@
 //! Pure profile-aware lowering from typed requests to inert engine inputs.
 
-use std::{marker::PhantomData, sync::Arc, time::Duration};
+use std::{
+    marker::PhantomData,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use smallvec::SmallVec;
 
 use crate::{
-    camera::{MovementTolerance, PanTiltPosition},
+    camera::{MotionQuery, MovementTolerance, PanTiltPosition},
     command::{
         inquiry::{
             FocusPositionInquiry, IrisInquiry, NdFilterInquiry, PanTiltPositionInquiry,
@@ -14,6 +18,8 @@ use crate::{
         resolution::NdFilterPosition,
     },
     completion,
+    profile::{RetryBounds, DEFAULT_RETRY_BASE},
+    timeout::CommandCategory,
     types::{FocusPosition, IrisLevel, ZoomPosition},
     AffectedAxes, CameraId, ControlClass, Inquiry, InquiryRoute, OperationCommand,
     OperationalTuning, PlainCommand, ProfileSpec, Request, ResponseDecoder, RetryClass,
@@ -120,17 +126,6 @@ impl<R> PreparedInquiryTemplate<R> {
 }
 
 impl SettlementPlan {
-    // Convenience accessor over the target both variants already carry; the
-    // settlement poller in `crate::completion` is what will read it rather than
-    // re-matching the plan. Left in place because #630 is extending this module
-    // concurrently (#636).
-    #[allow(dead_code)]
-    pub(crate) const fn target(&self) -> Option<CameraId> {
-        match self {
-            Self::CompletionIsSettled { target, .. } | Self::Poll { target, .. } => Some(*target),
-        }
-    }
-
     pub(crate) const fn default_budget(&self) -> Option<Duration> {
         match self {
             Self::CompletionIsSettled { default_budget, .. }
@@ -221,42 +216,208 @@ pub(crate) struct PositionSnapshot {
     pub(crate) nd_filter: Option<NdFilterPosition>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum MotionState {
-    NeedSample,
-    Moving,
-    Settled,
-}
-
 /// Pure selected-axis movement detector shared by both execution modes.
+///
+/// It exists only once a complete baseline snapshot was taken, so every
+/// comparison has a previous snapshot by construction.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct MotionDetector {
     axes: AffectedAxes,
     tolerance: MovementTolerance,
-    previous: Option<PositionSnapshot>,
+    previous: PositionSnapshot,
 }
 
 impl MotionDetector {
-    pub(crate) const fn new(axes: AffectedAxes, tolerance: MovementTolerance) -> Self {
+    /// Starts detection from `baseline`, which must hold every selected axis.
+    pub(crate) fn from_baseline(
+        axes: AffectedAxes,
+        tolerance: MovementTolerance,
+        baseline: PositionSnapshot,
+    ) -> Result<Self> {
+        baseline.validate(axes)?;
+        Ok(Self {
+            axes,
+            tolerance,
+            previous: baseline,
+        })
+    }
+
+    /// Whether any selected axis moved beyond its tolerance between the
+    /// previous snapshot and `snapshot`, which then becomes the previous one.
+    pub(crate) fn moved(&mut self, snapshot: PositionSnapshot) -> Result<bool> {
+        snapshot.validate(self.axes)?;
+        let previous = std::mem::replace(&mut self.previous, snapshot);
+        snapshots_moved(self.axes, self.tolerance, previous, snapshot)
+    }
+}
+
+/// Temporal contract for one `is_moving` observation, shared by every facade
+/// (#781).
+///
+/// The facade supplies owner-clock instants; this type decides what they
+/// prove. The baseline's readings were all taken no later than the instant it
+/// was received, and the final snapshot may start only once `window` has
+/// elapsed after that. Every selected axis is therefore compared across at
+/// least `window`, however quickly the camera answers each inquiry.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct MotionWindow {
+    query: MotionQuery,
+}
+
+/// A [`MotionWindow`] whose baseline snapshot was received: the final
+/// snapshot may start at [`Self::final_not_before`].
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct OpenMotionWindow {
+    detector: MotionDetector,
+    final_not_before: Instant,
+}
+
+impl MotionWindow {
+    /// Validates the query before any I/O.
+    pub(crate) fn new(query: MotionQuery) -> Result<Self> {
+        if query.window.is_zero() {
+            return Err(Error::InvalidParameter {
+                parameter: "MotionQuery::window",
+                value: "0ns".into(),
+                reason: "a movement observation needs a positive window".into(),
+            });
+        }
+        Ok(Self { query })
+    }
+
+    /// The budget for both snapshots' inquiries, admission and replies, on
+    /// top of the window itself.
+    const INQUIRY_BUDGET: Duration = Duration::from_secs(30);
+
+    /// The single absolute budget for the whole observation: both snapshots'
+    /// admission and replies plus the intervening wait.
+    pub(crate) fn budget(&self) -> Result<Duration> {
+        self.query
+            .window
+            .checked_add(Self::INQUIRY_BUDGET)
+            .ok_or_else(|| Error::InvalidParameter {
+                parameter: "MotionQuery::window",
+                value: format!("{:?}", self.query.window).into(),
+                reason: "the observation deadline is not representable".into(),
+            })
+    }
+
+    /// Records the baseline received at `received_at`.
+    ///
+    /// A window that cannot elapse before `deadline` is insufficient evidence
+    /// and fails with [`Error::Timeout`] rather than reporting no movement.
+    pub(crate) fn observe_baseline(
+        self,
+        snapshot: PositionSnapshot,
+        received_at: Instant,
+        deadline: Instant,
+    ) -> Result<OpenMotionWindow> {
+        let detector =
+            MotionDetector::from_baseline(self.query.axes, self.query.tolerance, snapshot)?;
+        let final_not_before = received_at
+            .checked_add(self.query.window)
+            .filter(|not_before| *not_before < deadline)
+            .ok_or_else(Error::query_timeout)?;
+        Ok(OpenMotionWindow {
+            detector,
+            final_not_before,
+        })
+    }
+}
+
+impl OpenMotionWindow {
+    /// The earliest instant the final snapshot may start.
+    pub(crate) const fn final_not_before(&self) -> Instant {
+        self.final_not_before
+    }
+
+    /// Compares the final snapshot, whose first inquiry started at
+    /// `started_at`, with the baseline. Returns whether movement was observed.
+    pub(crate) fn observe_final(
+        mut self,
+        snapshot: PositionSnapshot,
+        started_at: Instant,
+    ) -> Result<bool> {
+        if started_at < self.final_not_before {
+            return Err(Error::InvalidState(
+                "final movement snapshot started before the observation window elapsed".into(),
+            ));
+        }
+        self.detector.moved(snapshot)
+    }
+}
+
+/// What a settlement poll's driver does after one snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SettlementStep {
+    /// Two consecutive snapshots agreed within tolerance.
+    Settled,
+    /// Sleep this long on the owner clock, then take the next snapshot.
+    SampleAfter(Duration),
+}
+
+/// Position-polling proof that the selected axes are idle, shared by
+/// targeted-operation settlement and `wait_until_idle` on every facade (#802).
+///
+/// A baseline snapshot, then one every `interval`, until two consecutive
+/// snapshots agree within tolerance, all before one absolute `deadline`. The
+/// driver supplies each snapshot and its owner-clock instant and performs the
+/// sleep this returns; every decision is made here.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SettlementPoll {
+    axes: AffectedAxes,
+    tolerance: MovementTolerance,
+    interval: Duration,
+    deadline: Instant,
+    detector: Option<MotionDetector>,
+}
+
+impl SettlementPoll {
+    pub(crate) const fn new(
+        axes: AffectedAxes,
+        tolerance: MovementTolerance,
+        interval: Duration,
+        deadline: Instant,
+    ) -> Self {
         Self {
             axes,
             tolerance,
-            previous: None,
+            interval,
+            deadline,
+            detector: None,
         }
     }
 
-    pub(crate) fn observe(&mut self, snapshot: PositionSnapshot) -> Result<MotionState> {
-        snapshot.validate(self.axes)?;
-        let Some(previous) = self.previous.replace(snapshot) else {
-            return Ok(MotionState::NeedSample);
+    /// Records the snapshot that finished at `now` and decides the next step.
+    ///
+    /// The baseline never settles on its own. Once the deadline has passed
+    /// with the axes still moving, the poll fails with [`Error::Timeout`]; a
+    /// pause is clipped to the deadline, and the driver's next inquiry
+    /// rechecks it before admission.
+    pub(crate) fn observe(
+        &mut self,
+        snapshot: PositionSnapshot,
+        now: Instant,
+    ) -> Result<SettlementStep> {
+        let moving = match &mut self.detector {
+            None => {
+                self.detector = Some(MotionDetector::from_baseline(
+                    self.axes,
+                    self.tolerance,
+                    snapshot,
+                )?);
+                true
+            }
+            Some(detector) => detector.moved(snapshot)?,
         };
-        Ok(
-            if snapshots_moved(self.axes, self.tolerance, previous, snapshot)? {
-                MotionState::Moving
-            } else {
-                MotionState::Settled
-            },
-        )
+        if !moving {
+            return Ok(SettlementStep::Settled);
+        }
+        let remaining = self.deadline.saturating_duration_since(now);
+        if remaining.is_zero() {
+            return Err(Error::query_timeout());
+        }
+        Ok(SettlementStep::SampleAfter(self.interval.min(remaining)))
     }
 }
 
@@ -495,7 +656,10 @@ where
     validate_timeout_class(command.timeout_class(), false)?;
     command.validate_for_profile(profile)?;
     let wire = encode(command, target)?;
-    let context = request_context(command, target, profile, tuning, class, false, false)?;
+    let mut context = request_context(command, target, profile, tuning, class, false, false)?;
+    context.motion = command
+        .motion_axes()
+        .map(|axes| crate::runtime::engine::MotionEffect { axes, stop: false });
     Ok(PreparedCommand {
         wire,
         context,
@@ -677,7 +841,20 @@ where
     // effect of discovering that its operation class is unavailable.
     operation.validate_for_profile(profile)?;
     let affected_axes = operation.affected_axes();
-    let context = request_context(operation, target, profile, tuning, class, false, false)?;
+    let mut context = request_context(operation, target, profile, tuning, class, false, false)?;
+    let stop = context.control.class == crate::runtime::engine::ControlClass::Urgent;
+    context.motion = Some(crate::runtime::engine::MotionEffect {
+        axes: affected_axes,
+        // Urgent admission authority comes only from the sealed built-in STOP hook.
+        stop,
+    });
+    if stop {
+        // A STOP the camera finds not executable (`0x41`, for example a focus
+        // STOP while auto-focus owns the lens) is refused for a standing
+        // reason a resend cannot change, and its caller needs that verdict
+        // promptly. Capacity rejections (`0x03`/`0x05`) still retry (#795).
+        context.retry.movement_not_executable = false;
+    }
     let settlement = K::lower_settlement(
         target,
         profile,
@@ -801,6 +978,9 @@ where
             .unwrap_or(timing.minimum_command_spacing())
     };
     Ok(RequestContext {
+        motion: None,
+        submission_order: 0,
+        dispatch_deadline: None,
         target,
         timeout,
         retry: retry_policy(
@@ -838,26 +1018,14 @@ fn completion_timeout(
     profile: &ProfileSpec,
     tuning: OperationalTuning,
 ) -> Duration {
-    let timing = profile.timing();
-    match class {
-        TimeoutClass::Quick => tuning
-            .quick_timeout_override()
-            .unwrap_or(timing.command_timeouts().quick_timeout()),
-        TimeoutClass::Movement => tuning
-            .movement_timeout_override()
-            .unwrap_or(timing.command_timeouts().movement_timeout()),
-        TimeoutClass::Preset => tuning
-            .preset_timeout_override()
-            .unwrap_or(timing.command_timeouts().preset_timeout()),
-        TimeoutClass::LongRunning => tuning
-            .long_running_timeout_override()
-            .unwrap_or(timing.command_timeouts().long_running_timeout()),
-        TimeoutClass::Network => tuning
-            .network_timeout_override()
-            .unwrap_or(timing.command_timeouts().network_timeout()),
+    let timeouts = profile.timing().command_timeouts();
+    match CommandCategory::of(class) {
+        Some(category) => tuning
+            .command_override(category)
+            .unwrap_or(timeouts.get(category)),
         // Inquiry requests use `TimeoutPolicy::inquiry`; keep the otherwise
-        // unused completion field aligned with 1.x's Quick category.
-        TimeoutClass::Inquiry => timing.command_timeouts().quick_timeout(),
+        // unused completion field on the Quick timeout.
+        None => timeouts.get(CommandCategory::Quick),
     }
 }
 
@@ -871,30 +1039,13 @@ fn settlement_budget(
         .unwrap_or_else(|| completion_timeout(class, profile, tuning))
 }
 
-/// Base retry count every per-category budget is derived from.
-///
-/// This is 1.x's `RetryConfig::default().max_retries`, and
-/// [`OperationalTuning::retry_limit`] overrides exactly this number — not the
-/// final per-category count — because that is the knob 1.x exposed.
-const DEFAULT_RETRY_BASE: u32 = 3;
-
-/// Floor for the total wall-clock a request may spend retrying, counted from
-/// admission.
-///
-/// 1.x's `RetryConfig::default().max_retry_duration`. The governing request
-/// deadline and profile busy timeout can raise this floor for a request whose
-/// first attempt is longer than ten seconds.
-const MINIMUM_RETRY_BUDGET: Duration = Duration::from_secs(10);
-
 /// Bounded retry count for one timeout category.
 ///
-/// This is 1.x's `RetryBudget::from_base` (`main:src/runtime/core/mod.rs`)
-/// restored verbatim: quick work gets two extra attempts because it is cheap
-/// to replay, network work gets one fewer because a failing link rarely
-/// recovers within a retry, and a long-running command gets exactly one
-/// attempt to spare the camera a second multi-minute operation. 1.x keyed this
-/// on the request's [`TimeoutClass`]. Inquiries retain their own retry class
-/// while their response deadline is selected from the inquiry timing fact.
+/// Budgets are keyed on the request's [`TimeoutClass`]: quick work gets two extra attempts because
+/// it is cheap to replay, network work gets one fewer because a failing link rarely recovers within
+/// a retry, and a long-running command gets exactly one attempt to spare the camera a second
+/// multi-minute operation. Inquiries retain their own retry class while their response deadline is
+/// selected from the inquiry timing fact.
 const fn retry_budget(base: u32, class: TimeoutClass) -> u32 {
     match class {
         TimeoutClass::Quick | TimeoutClass::Inquiry => base.saturating_add(2),
@@ -926,13 +1077,8 @@ fn retry_policy(
     deadline: Duration,
     builtin_inquiry_syntax: bool,
 ) -> RetryPolicy {
-    let default_initial = Duration::from_millis(50);
-    let default_maximum = Duration::from_millis(500).max(busy_timeout);
-    let default_budget = MINIMUM_RETRY_BUDGET
-        .max(deadline.saturating_mul(2))
-        .max(busy_timeout);
-    let (initial, maximum, budget) = tuning.retry_timing_override();
-    let base = tuning.retry_limit_override().unwrap_or(DEFAULT_RETRY_BASE);
+    let bounds = tuning.lengthen_retry_bounds(RetryBounds::for_request(busy_timeout, deadline));
+    let base = tuning.reduce_retry_base(DEFAULT_RETRY_BASE);
     let max_retries = if matches!(retry_class, RetryClass::Never) {
         0
     } else {
@@ -941,14 +1087,17 @@ fn retry_policy(
     // `Never` is the sole policy opt-out from automatic replay. These flags
     // are only policy permissions: the engine narrows them further using
     // envelope evidence. Thus sequence-correlated Sony traffic may retry a
-    // lost ACK or post-ACK completion timeout, while a successfully sent raw
-    // command is poisoned on an ambiguous outcome rather than replayed.
+    // lost ACK (same-sequence retransmission, docs/visca_reference.md §5.3),
+    // while a successfully sent raw command is never replayed on an ambiguous
+    // outcome, and no command is written again after its ACK on either
+    // envelope (#795): `completion_timeout` only governs a command that has no
+    // ACK phase.
     let replayable = !matches!(retry_class, RetryClass::Never);
     RetryPolicy {
         max_retries,
-        initial_backoff: initial.unwrap_or(default_initial),
-        maximum_backoff: maximum.unwrap_or(default_maximum),
-        total_budget: budget.unwrap_or(default_budget),
+        initial_backoff: bounds.initial_backoff,
+        maximum_backoff: bounds.maximum_backoff,
+        total_budget: bounds.total_budget,
         ack_timeout: replayable,
         completion_timeout: replayable,
         inquiry_timeout: matches!(retry_class, RetryClass::Inquiry),
@@ -987,6 +1136,15 @@ impl PreparedCommand {
     }
 }
 
+/// Configured observer deadlines of one admitted operation (#777).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct OperationTimeouts {
+    /// Bounds a configured wait for application.
+    pub(crate) applied: Duration,
+    /// Bounds a configured wait for a cancellation's conclusion.
+    pub(crate) cancellation: Duration,
+}
+
 /// Returns the default lifetime for a caller observer.
 ///
 /// An observer that expires while its request can still be retried would turn
@@ -1014,19 +1172,6 @@ impl<R> PreparedInquiry<R> {
         }
     }
 
-    // Consumed by the blocking owner's inquiry submission seam
-    // (`runtime::owner::blocking`), which an async-only leg does not compile.
-    #[allow(dead_code)]
-    pub(crate) fn into_parts(self) -> (RuntimeRequest, ResponseDecoder<R>, Duration) {
-        let timeout = observation_timeout(&self.context, self.context.timeout.inquiry);
-        let request = RuntimeRequest::Inquiry {
-            wire: self.wire,
-            context: self.context,
-            route: crate::runtime::engine::InquiryRoute(self.route.identifier()),
-        };
-        (request, self.decoder, timeout)
-    }
-
     pub(crate) fn admit_with<T>(
         self,
         admit: impl FnOnce(RuntimeRequest, ResponseDecoder<R>, Duration) -> T,
@@ -1045,45 +1190,40 @@ impl<K> PreparedOperation<K>
 where
     K: completion::Kind,
 {
-    /// Returns the target selected during preparation without consuming the
-    /// operation.
-    #[cfg(feature = "blocking")]
-    pub(crate) const fn target(&self) -> CameraId {
-        self.context.target
-    }
-
-    /// Returns the optional ACK budget the blocking owner may use to drain the
-    /// raw single-candidate pre-ACK gate before this operation's first-write
-    /// submit (issue #673), without consuming the prepared operation.
-    ///
-    /// Only an ordinary ACK-then-completion successor can become
-    /// dispatch-eligible when the predecessor's ACK arrives. An intrinsically
-    /// Urgent operation bypasses this drain and the raw single-candidate gate
-    /// through the engine's audited safety lane (#714). A completion-only
-    /// successor still requires target idleness after that ACK, so the pre-ACK
-    /// gate is not its sole obstacle and blocking submission must fail fast
-    /// rather than pump a peer frame. `NoReply` operations are rejected before
-    /// preparation. The returned budget is this request's own ACK deadline, so
-    /// the drain waits no longer for a prior command's ACK than the request
-    /// itself would wait for its own.
-    #[cfg(feature = "blocking")]
-    pub(crate) fn preack_drain_hint(&self) -> Option<Duration> {
-        (self.context.reply_shape == ReplyShape::AckThenCompletion
-            && self.context.control.class != crate::runtime::engine::ControlClass::Urgent)
-            .then_some(self.context.timeout.ack)
-    }
-
     pub(crate) fn admit_with<T>(
         self,
-        admit: impl FnOnce(RuntimeRequest, AffectedAxes, completion::Settlement<K>, Duration) -> T,
+        admit: impl FnOnce(
+            RuntimeRequest,
+            AffectedAxes,
+            completion::Settlement<K>,
+            OperationTimeouts,
+        ) -> T,
     ) -> T {
-        let timeout = observation_timeout(&self.context, self.context.timeout.completion);
+        let applied = observation_timeout(&self.context, self.context.timeout.completion);
+        // Once cancellation is requested, the engine concludes the operation
+        // within its cancellation ambiguity window plus the cancellation
+        // observation window, and never before the original completion
+        // deadline it already owned.
+        let cancellation = applied.max(
+            self.context
+                .timeout
+                .ambiguity
+                .saturating_add(self.context.timeout.cancellation),
+        );
         let request = RuntimeRequest::Command {
             wire: self.wire,
             context: self.context,
             applied_state: self.applied_state,
         };
-        admit(request, self.affected_axes, self.settlement, timeout)
+        admit(
+            request,
+            self.affected_axes,
+            self.settlement,
+            OperationTimeouts {
+                applied,
+                cancellation,
+            },
+        )
     }
 }
 
@@ -1101,6 +1241,7 @@ mod tests {
             PictureEffectInquiry, PowerInquiry, UsbAudioInquiry, VersionInquiry,
             ZoomPositionInquiry, VISCA_TERMINATOR,
         },
+        profile::MINIMUM_RETRY_BUDGET,
         request::builtin::{
             request_write_count, reset_request_write_count, FocusTrigger, IrisDirect, IrisReset,
             NdFilterStepUp, PanTiltAbsolute, PanTiltLimitClear, PanTiltLimitSet, PanTiltRelative,
@@ -1135,11 +1276,7 @@ mod tests {
         preset_axes: AffectedAxes,
     ) -> ProfileSpec {
         capabilities.supports_operation_complete = operation_complete;
-        let transports = TransportCompatibility::new(
-            capabilities.default_tcp_port,
-            capabilities.default_udp_port,
-            false,
-        );
+        let transports = TransportCompatibility::new(Some(5678), Some(1259), false);
         ProfileSpec::builder(capabilities)
             .pan_tilt_coordinates(
                 crate::capabilities::CoordinateSystem::SignedCentered,
@@ -1743,9 +1880,18 @@ mod tests {
         let bare = minimal_profile(|_| {});
         assert!(!admits(&PowerInquiry, &bare));
         assert!(!admits(&ZoomPositionInquiry, &bare));
-        // `VersionInquiry` sits on the `System` noun (`noun_marker!` = `None`),
-        // so it stays reachable regardless of the base domains.
-        assert!(admits(&VersionInquiry, &bare));
+        // `VersionInquiry` sits on the `System` noun (`gate: [always]` in its
+        // `@noun` header in `crate::noun_table`),
+        // so no base domain gates it; only its own `HasVersionInquiry` typed
+        // surface does, because its decoder accepts only the Sony reply layout.
+        assert!(!admits(&VersionInquiry, &bare));
+        let version_only = minimal_profile(|capabilities| {
+            capabilities.typed_support = crate::capabilities::TypedSupportSet::from_surface(
+                crate::capabilities::TypedSupportSurface::VersionInquiry,
+            );
+        });
+        assert!(admits(&VersionInquiry, &version_only));
+        assert!(!admits(&PowerInquiry, &version_only));
 
         // Opting the power domain in flips the power inquiry to admitted while
         // the still-absent zoom domain keeps its inquiry refused: the erased
@@ -1756,7 +1902,7 @@ mod tests {
         });
         assert!(admits(&PowerInquiry, &power_only));
         assert!(!admits(&ZoomPositionInquiry, &power_only));
-        assert!(admits(&VersionInquiry, &power_only));
+        assert!(!admits(&VersionInquiry, &power_only));
     }
 
     #[test]
@@ -1792,9 +1938,9 @@ mod tests {
             default_budget,
         } = prepared
             .settlement
-            .into_plan()
+            .plan()
             .expect("targeted settlement plan")
-            .into_inner()
+            .clone()
         else {
             panic!("profile without completion must choose polling");
         };
@@ -1831,6 +1977,175 @@ mod tests {
         );
     }
 
+    fn zoom_snapshot(value: u16) -> PositionSnapshot {
+        PositionSnapshot {
+            zoom: Some(ZoomPosition::new(value).expect("zoom")),
+            ..PositionSnapshot::default()
+        }
+    }
+
+    /// Runs the shared #781 window contract over synthetic owner-clock
+    /// instants: the baseline is received at `start`, and the final snapshot
+    /// starts exactly when the window allows.
+    fn windowed_zoom(query: MotionQuery, baseline: u16, last: u16) -> Result<bool> {
+        let start = Instant::now();
+        let deadline = start + Duration::from_secs(30);
+        let window =
+            MotionWindow::new(query)?.observe_baseline(zoom_snapshot(baseline), start, deadline)?;
+        let not_before = window.final_not_before();
+        assert_eq!(not_before, start + query.window);
+        window.observe_final(zoom_snapshot(last), not_before)
+    }
+
+    /// Issue #802: the one settlement-polling decision both owners drive.
+    #[test]
+    fn settlement_poll_settles_only_on_two_agreeing_samples_before_its_deadline() {
+        let start = Instant::now();
+        let interval = Duration::from_millis(100);
+        let deadline = start + Duration::from_millis(250);
+        let mut poll = SettlementPoll::new(
+            AffectedAxes::ZOOM,
+            MovementTolerance::default(),
+            interval,
+            deadline,
+        );
+        // The baseline never settles on its own, even when the next sample
+        // will agree with it.
+        assert_eq!(
+            poll.observe(zoom_snapshot(10), start).expect("baseline"),
+            SettlementStep::SampleAfter(interval)
+        );
+        // Movement keeps polling; the pause is clipped to the deadline.
+        let late = start + Duration::from_millis(200);
+        assert_eq!(
+            poll.observe(zoom_snapshot(500), late).expect("moving"),
+            SettlementStep::SampleAfter(Duration::from_millis(50))
+        );
+        // Two agreeing samples settle, regardless of the clock.
+        assert_eq!(
+            poll.observe(zoom_snapshot(500), deadline).expect("settled"),
+            SettlementStep::Settled
+        );
+
+        // Still moving at the deadline is a timeout, never "settled".
+        let mut moving = SettlementPoll::new(
+            AffectedAxes::ZOOM,
+            MovementTolerance::default(),
+            interval,
+            deadline,
+        );
+        moving.observe(zoom_snapshot(10), start).expect("baseline");
+        let timeout = moving
+            .observe(zoom_snapshot(900), deadline)
+            .expect_err("still moving at the deadline");
+        assert!(matches!(timeout, Error::Timeout { .. }));
+        assert_eq!(
+            timeout.failure_context(),
+            Some(crate::FailureContext::new(
+                crate::FailureStage::Observation,
+                crate::Certainty::NotAccepted
+            ))
+        );
+    }
+
+    #[test]
+    fn motion_window_rejects_a_zero_window_before_io() {
+        let query = MotionQuery::new(AffectedAxes::ZOOM).with_window(Duration::ZERO);
+        assert!(matches!(
+            MotionWindow::new(query),
+            Err(Error::InvalidParameter {
+                parameter: "MotionQuery::window",
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn motion_window_cannot_be_established_by_zero_time_sampling() {
+        let query = MotionQuery::new(AffectedAxes::ZOOM).with_window(Duration::from_millis(100));
+        let start = Instant::now();
+        let window = MotionWindow::new(query)
+            .expect("valid window")
+            .observe_baseline(zoom_snapshot(10), start, start + Duration::from_secs(30))
+            .expect("baseline");
+        let not_before = window.final_not_before();
+        // A pair taken back to back cannot report "no movement" for a window
+        // it did not span, even when the readings are identical.
+        let early = not_before - Duration::from_nanos(1);
+        assert!(matches!(
+            window.observe_final(zoom_snapshot(10), early),
+            Err(Error::InvalidState(_))
+        ));
+        assert!(!window
+            .observe_final(zoom_snapshot(10), not_before)
+            .expect("a sample at the window edge is valid"));
+    }
+
+    #[test]
+    fn motion_window_that_cannot_fit_the_deadline_is_insufficient_evidence() {
+        let query = MotionQuery::new(AffectedAxes::ZOOM).with_window(Duration::from_secs(1));
+        let start = Instant::now();
+        let window = MotionWindow::new(query).expect("valid window");
+        // Slow inquiries consumed the budget: the window would end exactly at
+        // the deadline, so no final snapshot can start. That is a timeout,
+        // never a report of no movement (and with no open window, no final
+        // snapshot can be compared at all).
+        assert!(matches!(
+            window.observe_baseline(zoom_snapshot(10), start, start + Duration::from_secs(1)),
+            Err(Error::Timeout { .. })
+        ));
+    }
+
+    #[test]
+    fn motion_window_budget_covers_the_window_and_every_inquiry() {
+        let query = MotionQuery::new(AffectedAxes::ZOOM).with_window(Duration::from_millis(250));
+        let window = MotionWindow::new(query).expect("valid window");
+        assert_eq!(
+            window.budget().expect("budget"),
+            Duration::from_millis(30_250)
+        );
+        let huge =
+            MotionWindow::new(MotionQuery::new(AffectedAxes::ZOOM).with_window(Duration::MAX))
+                .expect("a positive window is structurally valid");
+        assert!(matches!(huge.budget(), Err(Error::InvalidParameter { .. })));
+    }
+
+    #[test]
+    fn motion_window_compares_endpoints_across_the_whole_window() {
+        let tolerance = MovementTolerance {
+            zoom: 10,
+            ..MovementTolerance::default()
+        };
+        let query = MotionQuery::new(AffectedAxes::ZOOM)
+            .with_tolerance(tolerance)
+            .with_window(Duration::from_millis(500));
+        // Slow cumulative drift: individually small steps that add up to more
+        // than the tolerance over the window are movement.
+        assert!(windowed_zoom(query, 100, 111).expect("drift"));
+        // Quantized movement that has not yet crossed a step reads as equal.
+        assert!(!windowed_zoom(query, 100, 100).expect("quantized"));
+        // Stable noise within tolerance, in either direction, is not movement.
+        assert!(!windowed_zoom(query, 100, 110).expect("noise up"));
+        assert!(!windowed_zoom(query, 100, 90).expect("noise down"));
+        assert!(windowed_zoom(query, 100, 89).expect("past tolerance"));
+    }
+
+    #[test]
+    fn motion_window_ignores_unselected_axes() {
+        let query = MotionQuery::new(AffectedAxes::ZOOM);
+        let start = Instant::now();
+        let mut baseline = zoom_snapshot(10);
+        baseline.focus = Some(FocusPosition::new(0));
+        let window = MotionWindow::new(query)
+            .expect("valid window")
+            .observe_baseline(baseline, start, start + Duration::from_secs(30))
+            .expect("baseline");
+        let not_before = window.final_not_before();
+        let mut last = zoom_snapshot(10);
+        last.focus = Some(FocusPosition::new(0x0fff));
+        assert!(!window.observe_final(last, not_before).expect("final"));
+    }
+
     #[test]
     fn motion_detector_is_pure_selected_axis_tolerant_and_overflow_safe() {
         let tolerance = MovementTolerance {
@@ -1843,69 +2158,58 @@ mod tests {
         let all = AffectedAxes::PAN_TILT
             .union(AffectedAxes::ZOOM)
             .union(AffectedAxes::FOCUS);
-        let mut detector = MotionDetector::new(all, tolerance);
-        assert_eq!(
-            detector
-                .observe(PositionSnapshot {
-                    pan_tilt: Some(PanTiltPosition::new(i32::MIN, i32::MAX)),
-                    zoom: Some(ZoomPosition::new(100).expect("zoom")),
-                    focus: Some(FocusPosition::new(200)),
-                    iris: None,
-                    nd_filter: None,
-                })
-                .expect("complete baseline"),
-            MotionState::NeedSample
-        );
-        assert_eq!(
-            detector
-                .observe(PositionSnapshot {
-                    pan_tilt: Some(PanTiltPosition::new(i32::MAX, i32::MIN)),
-                    zoom: Some(ZoomPosition::new(110).expect("zoom")),
-                    focus: Some(FocusPosition::new(205)),
-                    iris: None,
-                    nd_filter: None,
-                })
-                .expect("complete moving sample"),
-            MotionState::Moving
-        );
-        assert_eq!(
-            detector
-                .observe(PositionSnapshot {
-                    pan_tilt: Some(PanTiltPosition::new(i32::MAX - 2, i32::MIN + 2)),
-                    zoom: Some(ZoomPosition::new(100).expect("zoom")),
-                    focus: Some(FocusPosition::new(200)),
-                    iris: None,
-                    nd_filter: None,
-                })
-                .expect("tolerance-bound sample"),
-            MotionState::Settled
-        );
+        let mut detector = MotionDetector::from_baseline(
+            all,
+            tolerance,
+            PositionSnapshot {
+                pan_tilt: Some(PanTiltPosition::new(i32::MIN, i32::MAX)),
+                zoom: Some(ZoomPosition::new(100).expect("zoom")),
+                focus: Some(FocusPosition::new(200)),
+                iris: None,
+                nd_filter: None,
+            },
+        )
+        .expect("complete baseline");
+        assert!(detector
+            .moved(PositionSnapshot {
+                pan_tilt: Some(PanTiltPosition::new(i32::MAX, i32::MIN)),
+                zoom: Some(ZoomPosition::new(110).expect("zoom")),
+                focus: Some(FocusPosition::new(205)),
+                iris: None,
+                nd_filter: None,
+            })
+            .expect("complete moving sample"));
+        assert!(!detector
+            .moved(PositionSnapshot {
+                pan_tilt: Some(PanTiltPosition::new(i32::MAX - 2, i32::MIN + 2)),
+                zoom: Some(ZoomPosition::new(100).expect("zoom")),
+                focus: Some(FocusPosition::new(200)),
+                iris: None,
+                nd_filter: None,
+            })
+            .expect("tolerance-bound sample"));
 
-        let mut zoom_only = MotionDetector::new(AffectedAxes::ZOOM, tolerance);
-        assert_eq!(
-            zoom_only
-                .observe(PositionSnapshot {
-                    pan_tilt: Some(PanTiltPosition::new(i32::MIN, i32::MAX)),
-                    zoom: Some(ZoomPosition::new(10).expect("zoom")),
-                    focus: None,
-                    iris: None,
-                    nd_filter: None,
-                })
-                .expect("zoom baseline"),
-            MotionState::NeedSample
-        );
-        assert_eq!(
-            zoom_only
-                .observe(PositionSnapshot {
-                    pan_tilt: Some(PanTiltPosition::new(i32::MAX, i32::MIN)),
-                    zoom: Some(ZoomPosition::new(10).expect("zoom")),
-                    focus: Some(FocusPosition::new(u16::MAX)),
-                    iris: None,
-                    nd_filter: None,
-                })
-                .expect("unselected changes are ignored"),
-            MotionState::Settled
-        );
+        let mut zoom_only = MotionDetector::from_baseline(
+            AffectedAxes::ZOOM,
+            tolerance,
+            PositionSnapshot {
+                pan_tilt: Some(PanTiltPosition::new(i32::MIN, i32::MAX)),
+                zoom: Some(ZoomPosition::new(10).expect("zoom")),
+                focus: None,
+                iris: None,
+                nd_filter: None,
+            },
+        )
+        .expect("zoom baseline");
+        assert!(!zoom_only
+            .moved(PositionSnapshot {
+                pan_tilt: Some(PanTiltPosition::new(i32::MAX, i32::MIN)),
+                zoom: Some(ZoomPosition::new(10).expect("zoom")),
+                focus: Some(FocusPosition::new(u16::MAX)),
+                iris: None,
+                nd_filter: None,
+            })
+            .expect("unselected changes are ignored"));
     }
 
     #[test]
@@ -1921,45 +2225,37 @@ mod tests {
         let within_tolerance = PanTiltPosition::new(0x08A58 - 40_000, 0x493D);
         let beyond_tolerance = PanTiltPosition::new(0x08A58 - 40_001, 0x493D);
 
-        let mut stable = MotionDetector::new(AffectedAxes::PAN_TILT, tolerance);
-        assert_eq!(
-            stable
-                .observe(PositionSnapshot {
-                    pan_tilt: Some(endpoint),
-                    ..PositionSnapshot::default()
-                })
-                .expect("BRC-300 baseline"),
-            MotionState::NeedSample
-        );
-        assert_eq!(
-            stable
-                .observe(PositionSnapshot {
-                    pan_tilt: Some(within_tolerance),
-                    ..PositionSnapshot::default()
-                })
-                .expect("BRC-300 tolerance-bound sample"),
-            MotionState::Settled
-        );
+        let mut stable = MotionDetector::from_baseline(
+            AffectedAxes::PAN_TILT,
+            tolerance,
+            PositionSnapshot {
+                pan_tilt: Some(endpoint),
+                ..PositionSnapshot::default()
+            },
+        )
+        .expect("BRC-300 baseline");
+        assert!(!stable
+            .moved(PositionSnapshot {
+                pan_tilt: Some(within_tolerance),
+                ..PositionSnapshot::default()
+            })
+            .expect("BRC-300 tolerance-bound sample"));
 
-        let mut moving = MotionDetector::new(AffectedAxes::PAN_TILT, tolerance);
-        assert_eq!(
-            moving
-                .observe(PositionSnapshot {
-                    pan_tilt: Some(endpoint),
-                    ..PositionSnapshot::default()
-                })
-                .expect("BRC-300 moving baseline"),
-            MotionState::NeedSample
-        );
-        assert_eq!(
-            moving
-                .observe(PositionSnapshot {
-                    pan_tilt: Some(beyond_tolerance),
-                    ..PositionSnapshot::default()
-                })
-                .expect("BRC-300 beyond-tolerance sample"),
-            MotionState::Moving
-        );
+        let mut moving = MotionDetector::from_baseline(
+            AffectedAxes::PAN_TILT,
+            tolerance,
+            PositionSnapshot {
+                pan_tilt: Some(endpoint),
+                ..PositionSnapshot::default()
+            },
+        )
+        .expect("BRC-300 moving baseline");
+        assert!(moving
+            .moved(PositionSnapshot {
+                pan_tilt: Some(beyond_tolerance),
+                ..PositionSnapshot::default()
+            })
+            .expect("BRC-300 beyond-tolerance sample"));
     }
 
     #[test]
@@ -2036,9 +2332,9 @@ mod tests {
         .expect("FR7 ND operation");
         let SettlementPlan::Poll { queries, axes, .. } = nd
             .settlement
-            .into_plan()
+            .plan()
             .expect("targeted ND settlement")
-            .into_inner()
+            .clone()
         else {
             panic!("FR7 must poll ND position without operation-complete support");
         };
@@ -2059,11 +2355,7 @@ mod tests {
         )
         .expect("PTZ iris operation");
         assert!(matches!(
-            completed
-                .settlement
-                .into_plan()
-                .expect("PTZ settlement")
-                .into_inner(),
+            completed.settlement.plan().expect("PTZ settlement").clone(),
             SettlementPlan::CompletionIsSettled { .. }
         ));
     }
@@ -2089,9 +2381,9 @@ mod tests {
             ..
         } = prepared
             .settlement
-            .into_plan()
+            .plan()
             .expect("BRC-H900 iris settlement")
-            .into_inner()
+            .clone()
         else {
             panic!("BRC-H900 must poll iris because it has no operation-complete reply");
         };
@@ -2123,19 +2415,13 @@ mod tests {
             .expect("BRC-H900 iris readback 0x14");
         assert_eq!(decoded, level);
 
-        let mut detector = MotionDetector::new(axes, tolerance);
         let snapshot = PositionSnapshot {
             iris: Some(decoded),
             ..PositionSnapshot::default()
         };
-        assert_eq!(
-            detector.observe(snapshot).expect("iris baseline"),
-            MotionState::NeedSample
-        );
-        assert_eq!(
-            detector.observe(snapshot).expect("stable iris readback"),
-            MotionState::Settled
-        );
+        let mut detector =
+            MotionDetector::from_baseline(axes, tolerance, snapshot).expect("iris baseline");
+        assert!(!detector.moved(snapshot).expect("stable iris readback"));
     }
 
     #[test]
@@ -2155,50 +2441,49 @@ mod tests {
     #[test]
     fn scalar_position_detector_honors_iris_and_nd_tolerance() {
         let axes = AffectedAxes::IRIS.union(AffectedAxes::ND_FILTER);
-        let mut detector = MotionDetector::new(axes, MovementTolerance::default());
         let first = PositionSnapshot {
             iris: Some(IrisLevel::new(4).expect("iris")),
             nd_filter: Some(NdFilterPosition::OneQuarter),
             ..PositionSnapshot::default()
         };
-        assert_eq!(
-            detector.observe(first).expect("baseline"),
-            MotionState::NeedSample
-        );
+        let mut detector = MotionDetector::from_baseline(axes, MovementTolerance::default(), first)
+            .expect("baseline");
         let same = PositionSnapshot {
             iris: Some(IrisLevel::new(4).expect("iris")),
             nd_filter: Some(NdFilterPosition::OneQuarter),
             ..PositionSnapshot::default()
         };
-        assert_eq!(
-            detector.observe(same).expect("stable"),
-            MotionState::Settled
-        );
+        assert!(!detector.moved(same).expect("stable"));
         let changed = PositionSnapshot {
             iris: Some(IrisLevel::new(5).expect("iris")),
             nd_filter: Some(NdFilterPosition::OneEighth),
             ..PositionSnapshot::default()
         };
-        assert_eq!(
-            detector.observe(changed).expect("moving"),
-            MotionState::Moving
-        );
+        assert!(detector.moved(changed).expect("moving"));
     }
 
     #[test]
     fn motion_detector_rejects_an_incomplete_selected_snapshot_without_panicking() {
-        let mut detector = MotionDetector::new(
-            AffectedAxes::PAN_TILT.union(AffectedAxes::ZOOM),
-            MovementTolerance::default(),
-        );
+        let axes = AffectedAxes::PAN_TILT.union(AffectedAxes::ZOOM);
+        let incomplete = PositionSnapshot {
+            pan_tilt: Some(PanTiltPosition::new(0, 0)),
+            zoom: None,
+            focus: None,
+            iris: None,
+            nd_filter: None,
+        };
+        let error = MotionDetector::from_baseline(axes, MovementTolerance::default(), incomplete)
+            .expect_err("missing selected zoom must be rejected");
+        assert!(matches!(error, Error::InvalidState(_)));
+        let complete = PositionSnapshot {
+            zoom: Some(ZoomPosition::new(0).expect("zoom")),
+            ..incomplete
+        };
+        let mut detector =
+            MotionDetector::from_baseline(axes, MovementTolerance::default(), complete)
+                .expect("complete baseline");
         let error = detector
-            .observe(PositionSnapshot {
-                pan_tilt: Some(PanTiltPosition::new(0, 0)),
-                zoom: None,
-                focus: None,
-                iris: None,
-                nd_filter: None,
-            })
+            .moved(incomplete)
             .expect_err("missing selected zoom must be rejected");
         assert!(matches!(error, Error::InvalidState(_)));
     }
@@ -2396,9 +2681,6 @@ mod tests {
             let admitted =
                 prepared_with_budget(budget).admit_with(|_request, _decoder, timeout| timeout);
             assert_eq!(admitted, expected, "admission budget {budget:?}");
-
-            let (_request, _decoder, blocking) = prepared_with_budget(budget).into_parts();
-            assert_eq!(blocking, expected, "blocking budget {budget:?}");
         }
 
         let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
@@ -2496,10 +2778,17 @@ mod tests {
                 >= operation_budget,
             "targeted settlement observer must cover retry budget"
         );
-        let observer = operation.admit_with(|_request, _axes, _settlement, timeout| timeout);
+        let request_timeouts = operation.context.timeout;
+        let timeouts = operation.admit_with(|_request, _axes, _settlement, timeouts| timeouts);
         assert!(
-            observer >= operation_budget,
+            timeouts.applied >= operation_budget,
             "operation observer must cover retry budget"
+        );
+        // A cancellation observer outlives the application observer and the
+        // engine's cancellation ambiguity plus observation windows (#777).
+        assert!(timeouts.cancellation >= timeouts.applied);
+        assert!(
+            timeouts.cancellation >= request_timeouts.ambiguity + request_timeouts.cancellation
         );
 
         let applied_only = prepare_builtin_operation::<completion::AppliedOnly, _>(
@@ -2510,7 +2799,8 @@ mod tests {
         )
         .expect("applied-only operation preparation");
         let applied_only_budget = applied_only.context.retry.total_budget;
-        let observer = applied_only.admit_with(|_request, _axes, _settlement, timeout| timeout);
+        let observer =
+            applied_only.admit_with(|_request, _axes, _settlement, timeouts| timeouts.applied);
         assert!(
             observer >= applied_only_budget,
             "applied-only observer must cover retry budget"
@@ -2553,8 +2843,8 @@ mod tests {
             CameraId::CAMERA_1,
             &profile,
             OperationalTuning::new().retry_timing(
-                Duration::from_millis(1),
-                Duration::from_millis(1),
+                Duration::from_millis(50),
+                Duration::from_millis(500),
                 Duration::from_secs(10),
             ),
             ClassSelection::Request,
@@ -2562,17 +2852,20 @@ mod tests {
         .expect("busy-command preparation");
         let busy_budget = busy.context.retry.total_budget;
         let busy_observer = busy.admit_with(|_request, timeout| timeout);
-        assert_eq!(busy_budget, Duration::from_secs(10));
+        // A shorter budget override never shortens the request's own budget:
+        // twice Generic VISCA's 10 s quick deadline (#828 M3).
+        assert_eq!(busy_budget, Duration::from_secs(20));
         assert!(
             busy_observer > Duration::from_secs(2),
             "the t=2 s CommandBufferFull retry must precede observer Timeout"
         );
         assert!(busy_observer >= busy_budget);
 
-        // Sony's sequence envelope makes a post-ACK completion retry safe.
-        // It may occur at the 30 s completion deadline, so the operation
-        // receipt must observe through the 60 s retry budget rather than
-        // detach at completion's first deadline.
+        // The operation receipt observes through the whole 60 s retry budget
+        // rather than detaching at the 30 s completion deadline, so any
+        // retry the budget still permits (a lost ACK, a busy camera) precedes
+        // the observer's Timeout. An acknowledged command is never rewritten
+        // (#795).
         let sony =
             ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("Sony FR7 profile");
         let sony_operation = prepare_operation::<completion::Targeted, _>(
@@ -2585,11 +2878,11 @@ mod tests {
         .expect("Sony operation preparation");
         let sony_budget = sony_operation.context.retry.total_budget;
         let sony_observer =
-            sony_operation.admit_with(|_request, _axes, _settlement, timeout| timeout);
+            sony_operation.admit_with(|_request, _axes, _settlement, timeouts| timeouts.applied);
         assert_eq!(sony_budget, Duration::from_secs(60));
         assert!(
             sony_observer > Duration::from_secs(30),
-            "the Sony completion retry must precede observer Timeout"
+            "a Sony retry within the budget must precede observer Timeout"
         );
         assert!(sony_observer >= sony_budget);
     }
@@ -2630,7 +2923,7 @@ mod tests {
 
     #[test]
     fn never_retry_class_ignores_retry_limit_tuning() {
-        let tuning = OperationalTuning::new().retry_limit(7);
+        let tuning = OperationalTuning::new().retry_limit(2);
         let never = retry_policy(
             RetryClass::Never,
             TimeoutClass::Quick,
@@ -2650,13 +2943,13 @@ mod tests {
 
         assert_eq!(never.max_retries, 0);
         // `retry_limit` sets the base; a movement budget is the base itself.
-        assert_eq!(standard.max_retries, 7);
+        assert_eq!(standard.max_retries, 2);
     }
 
-    /// Issue #566: the per-category retry budgets are 1.x's
-    /// `RetryBudget::from_base`, not one flat number per retry class.
+    /// Issue #566: the retry budgets follow the per-category table derived
+    /// from the base count, not one flat number per retry class.
     #[test]
-    fn retry_budgets_follow_the_1x_per_category_table() {
+    fn retry_budgets_follow_the_per_category_table() {
         let tuning = OperationalTuning::new();
         let budget = |timeout_class| {
             retry_policy(
@@ -2713,20 +3006,69 @@ mod tests {
             RetryClass::Standard,
             TimeoutClass::Quick,
             OperationalTuning::new().retry_timing(
-                Duration::from_millis(25),
-                Duration::from_millis(75),
-                Duration::from_secs(2),
+                Duration::from_millis(100),
+                Duration::from_millis(750),
+                Duration::from_secs(30),
             ),
             Duration::ZERO,
             Duration::from_secs(1),
             false,
         );
-        assert_eq!(tuned.initial_backoff, Duration::from_millis(25));
-        assert_eq!(tuned.maximum_backoff, Duration::from_millis(75));
-        assert_eq!(tuned.total_budget, Duration::from_secs(2));
+        assert_eq!(tuned.initial_backoff, Duration::from_millis(100));
+        assert_eq!(tuned.maximum_backoff, Duration::from_millis(750));
+        assert_eq!(tuned.total_budget, Duration::from_secs(30));
     }
 
-    /// A network budget never reaches zero, matching 1.x's clamp.
+    /// #828 M3: retry timing is a profile bound that tuning may only
+    /// lengthen. An override shorter than a request's own bound (here even
+    /// one that validation would reject) leaves that bound in force, and a
+    /// budget override shorter than a long request's own budget does not
+    /// shorten it.
+    #[test]
+    fn retry_timing_overrides_never_shorten_a_request_bound() {
+        let shortened = OperationalTuning::new().retry_timing(
+            Duration::from_millis(1),
+            Duration::from_millis(2),
+            Duration::from_secs(3),
+        );
+        let quick = retry_policy(
+            RetryClass::Standard,
+            TimeoutClass::Quick,
+            shortened,
+            Duration::ZERO,
+            Duration::from_secs(1),
+            false,
+        );
+        assert_eq!(quick.initial_backoff, Duration::from_millis(50));
+        assert_eq!(quick.maximum_backoff, Duration::from_millis(500));
+        assert_eq!(quick.total_budget, MINIMUM_RETRY_BUDGET);
+
+        let raised_budget = OperationalTuning::new().retry_timing(
+            Duration::from_millis(50),
+            Duration::from_millis(500),
+            Duration::from_secs(20),
+        );
+        let long = retry_policy(
+            RetryClass::Standard,
+            TimeoutClass::LongRunning,
+            raised_budget,
+            Duration::ZERO,
+            Duration::from_secs(300),
+            false,
+        );
+        assert_eq!(long.total_budget, Duration::from_secs(600));
+        let short = retry_policy(
+            RetryClass::Standard,
+            TimeoutClass::Quick,
+            raised_budget,
+            Duration::ZERO,
+            Duration::from_secs(1),
+            false,
+        );
+        assert_eq!(short.total_budget, Duration::from_secs(20));
+    }
+
+    /// A network budget never reaches zero: the clamp keeps one attempt.
     #[test]
     fn a_network_budget_keeps_one_attempt_at_the_smallest_base() {
         for base in [0, 1, 2] {
@@ -2811,8 +3153,49 @@ mod tests {
         assert!(!policy(RetryClass::Never));
     }
 
-    /// Issue #566: the default retry budget is at least the 1.x ten-second
-    /// budget and grows with the selected command deadline.
+    /// A typed STOP the camera answers with `0x41` was refused for a standing
+    /// reason (G2 focus STOP in auto-focus), so it is reported at once rather
+    /// than rewritten; capacity rejections still retry. Ordinary movement
+    /// keeps the #566 `0x41` retry.
+    #[test]
+    fn typed_stops_do_not_retry_command_not_executable() {
+        use crate::request::builtin::{FocusStop, ZoomDrive, ZoomStop};
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>()
+            .expect("built-in profile");
+        let stop_policies = [
+            prepare_builtin_operation::<completion::AppliedOnly, _>(
+                &FocusStop,
+                CameraId::CAMERA_1,
+                &profile,
+                OperationalTuning::new(),
+            )
+            .expect("focus stop"),
+            prepare_builtin_operation::<completion::AppliedOnly, _>(
+                &ZoomStop,
+                CameraId::CAMERA_1,
+                &profile,
+                OperationalTuning::new(),
+            )
+            .expect("zoom stop"),
+        ];
+        for prepared in &stop_policies {
+            assert!(prepared.context.motion.is_some_and(|motion| motion.stop));
+            assert!(!prepared.context.retry.movement_not_executable);
+            assert!(prepared.context.retry.buffer_full);
+        }
+        let drive = prepare_builtin_operation::<completion::AppliedOnly, _>(
+            &ZoomDrive::Tele,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+        )
+        .expect("zoom drive");
+        assert!(drive.context.motion.is_some_and(|motion| !motion.stop));
+        assert!(drive.context.retry.movement_not_executable);
+    }
+
+    /// Issue #566: the default retry budget is at least the ten-second
+    /// floor and grows with the selected command deadline.
     #[test]
     fn retry_budget_follows_the_governing_response_deadline() {
         let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
@@ -2884,7 +3267,7 @@ mod tests {
 
         let sony_absolute = PanTiltAbsolute::for_profile(
             Degrees(45.0),
-            Degrees(-15.0),
+            Degrees(15.0),
             pan_speed,
             sony_tilt_speed,
             &sony,
@@ -2892,7 +3275,7 @@ mod tests {
         .expect("Sony BRC-300 absolute");
         let sony_relative = PanTiltRelative::for_profile(
             Degrees(45.0),
-            Degrees(-15.0),
+            Degrees(15.0),
             pan_speed,
             sony_tilt_speed,
             &sony,
@@ -2901,7 +3284,7 @@ mod tests {
         let sony_limit = PanTiltLimitSet::for_profile(
             PanTiltLimitCorner::UpRight,
             Degrees(45.0),
-            Degrees(-15.0),
+            Degrees(15.0),
             &sony,
         )
         .expect("Sony BRC-300 limit");
@@ -2963,87 +3346,74 @@ mod tests {
             crate::camera::PanTiltPosition::new(9360, -3120)
         );
 
+        // R21 documents the same one-speed, five-pan-nibble frame and limits
+        // for the Nearus BRC-300, so it encodes and decodes exactly as the
+        // Sony BRC-300 does.
         {
             let profile = &nearus;
-            let absolute = PanTiltAbsolute::for_profile(
-                Degrees(45.0),
-                Degrees(-15.0),
-                pan_speed,
-                tilt_speed,
-                profile,
-            )
-            .expect("Nearus standard absolute");
-            let relative = PanTiltRelative::for_profile(
-                Degrees(45.0),
-                Degrees(-15.0),
-                pan_speed,
-                tilt_speed,
-                profile,
-            )
-            .expect("Nearus standard relative");
-            let limit = PanTiltLimitSet::for_profile(
-                PanTiltLimitCorner::UpRight,
-                Degrees(45.0),
-                Degrees(-15.0),
-                profile,
-            )
-            .expect("Nearus standard limit");
             let prepared_absolute = prepare_builtin_operation::<completion::Targeted, _>(
-                &absolute,
+                &PanTiltAbsolute::for_profile(
+                    Degrees(45.0),
+                    Degrees(15.0),
+                    pan_speed,
+                    sony_tilt_speed,
+                    profile,
+                )
+                .expect("Nearus absolute"),
                 CameraId::CAMERA_1,
                 profile,
                 OperationalTuning::new(),
             )
-            .expect("prepared absolute");
+            .expect("prepared Nearus absolute");
             let prepared_relative = prepare_builtin_operation::<completion::Targeted, _>(
-                &relative,
+                &PanTiltRelative::for_profile(
+                    Degrees(45.0),
+                    Degrees(15.0),
+                    pan_speed,
+                    sony_tilt_speed,
+                    profile,
+                )
+                .expect("Nearus relative"),
                 CameraId::CAMERA_1,
                 profile,
                 OperationalTuning::new(),
             )
-            .expect("prepared relative");
+            .expect("prepared Nearus relative");
             let prepared_limit = prepare_builtin_command(
-                &limit,
+                &PanTiltLimitSet::for_profile(
+                    PanTiltLimitCorner::UpRight,
+                    Degrees(45.0),
+                    Degrees(15.0),
+                    profile,
+                )
+                .expect("Nearus limit"),
                 CameraId::CAMERA_1,
                 profile,
                 OperationalTuning::new(),
             )
-            .expect("prepared limit");
-
+            .expect("prepared Nearus limit");
             assert_eq!(
                 prepared_absolute.wire.as_bytes(),
-                encoded(&PanTilt::AbsolutePositionRaw {
-                    pan_u16: 0x8249,
-                    tilt_u16: 0x7f3d,
-                    pan_speed,
-                    tilt_speed,
-                })
+                prepared_sony_absolute.wire.as_bytes()
             );
             assert_eq!(
                 prepared_relative.wire.as_bytes(),
-                encoded(&PanTilt::RelativePositionRaw {
-                    pan_u16: 0x8249,
-                    tilt_u16: 0x7f3d,
-                    pan_speed,
-                    tilt_speed,
-                })
+                prepared_sony_relative.wire.as_bytes()
             );
             assert_eq!(
                 prepared_limit.wire.as_bytes(),
-                encoded(&PanTilt::LimitSetRaw {
-                    corner: PanTiltLimitCorner::UpRight,
-                    pan_u16: 0x8249,
-                    tilt_u16: 0x7f3d,
-                })
+                prepared_sony_limit.wire.as_bytes()
             );
             assert!(matches!(
-                prepared_limit.applied_state,
-                Some(AppliedStateProjection::Set {
-                    key: crate::command::semantics::WriteOnlyState::PanTiltLimits,
-                    value,
-                }) if value.value_count == 3
+                PanTiltAbsolute::for_profile(
+                    Degrees(45.0),
+                    Degrees(15.0),
+                    pan_speed,
+                    tilt_speed,
+                    profile,
+                ),
+                Err(Error::InvalidRequest(_))
             ));
-
             let inquiry = prepare_inquiry(
                 &PanTiltPositionInquiry,
                 CameraId::CAMERA_1,
@@ -3051,13 +3421,13 @@ mod tests {
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
-            .expect("prepared Nearus standard inquiry");
+            .expect("prepared Nearus inquiry");
             assert_eq!(
                 inquiry
                     .decoder
-                    .decode(&[0x8, 0x2, 0x4, 0x9, 0x7, 0xf, 0x3, 0xd])
-                    .expect("Nearus standard position decode"),
-                crate::camera::PanTiltPosition::new(585, -195)
+                    .decode(&[0x00, 0x02, 0x04, 0x09, 0x00, 0x0F, 0x03, 0x0D, 0x00])
+                    .expect("Nearus position decode"),
+                crate::camera::PanTiltPosition::new(9360, -3120)
             );
         }
 
@@ -3081,7 +3451,7 @@ mod tests {
         assert!(matches!(
             prepared_clear.applied_state,
             Some(AppliedStateProjection::Clear {
-                key: crate::command::semantics::WriteOnlyState::PanTiltLimits,
+                key: crate::StateKey::PanTiltLimits,
                 ..
             })
         ));
@@ -3103,9 +3473,9 @@ mod tests {
         .expect("prepared signed absolute");
         assert_eq!(
             prepared.wire.as_bytes(),
-            encoded(&PanTilt::AbsolutePositionRaw {
-                pan_u16: 0x02d0,
-                tilt_u16: 0xff10,
+            encoded(&PanTilt::AbsolutePosition {
+                pan: 0x02d0_u16 as i16,
+                tilt: 0xff10_u16 as i16,
                 pan_speed,
                 tilt_speed,
             })
@@ -3185,7 +3555,6 @@ mod tests {
         let mut bounded_zoom_caps = Capabilities::from_profile::<crate::profiles::GenericVisca>();
         bounded_zoom_caps.profile_id = None;
         bounded_zoom_caps.zoom_range_optical = 0..=0x4000;
-        bounded_zoom_caps.has_digital_zoom = true;
         bounded_zoom_caps.zoom_range_digital = Some(0x4000..=0x5000);
         bounded_zoom_caps.supports_direct_zoom = true;
         bounded_zoom_caps.typed_support = TypedSupportSet::from_surfaces(&[
@@ -3453,6 +3822,45 @@ mod tests {
     /// context as a protocol-policy fact. The engine reads it there rather than
     /// inferring it from the wire bytes.
     #[test]
+    fn declared_raw_motion_lowers_axes_without_forging_stop_authority() {
+        let profile =
+            ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().expect("profile");
+        let policy =
+            crate::raw::Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Normal)
+                .expect("policy");
+        let command = crate::raw::Plain::with_policy([0x81, 0x01, 0x04, 0x07, 0x02, 0xff], policy)
+            .expect("plain");
+        let undeclared = prepare_command(
+            &command,
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("prepares");
+        assert!(undeclared.context.motion.is_none());
+        let declared = prepare_command(
+            &command.with_motion_axes(AffectedAxes::ZOOM),
+            CameraId::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("prepares");
+        assert_eq!(
+            declared.context.motion,
+            Some(crate::runtime::engine::MotionEffect {
+                axes: AffectedAxes::ZOOM,
+                stop: false
+            })
+        );
+        assert_eq!(
+            declared.context.control.class,
+            crate::runtime::engine::ControlClass::Normal
+        );
+    }
+
+    #[test]
     fn raw_reply_shape_lowers_into_request_context() {
         let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
             .expect("built-in profile");
@@ -3520,5 +3928,74 @@ mod tests {
         )
         .expect_err("a no-reply operation must not create an applied handle");
         assert!(matches!(error, Error::InvalidRequest(_)));
+    }
+}
+
+/// Three independent typed STOPs, lowered before entering the owner boundary.
+#[cfg(any(feature = "async", feature = "blocking"))]
+#[derive(Debug)]
+pub(crate) struct PreparedHalt {
+    pub(crate) target: CameraId,
+    pub(crate) axes: Option<AffectedAxes>,
+    pub(crate) requests: [Option<Result<RuntimeRequest>>; 3],
+    pub(crate) budget: Duration,
+}
+
+#[cfg(any(feature = "async", feature = "blocking"))]
+pub(crate) fn prepare_halt(
+    target: CameraId,
+    profile: &ProfileSpec,
+    tuning: OperationalTuning,
+) -> PreparedHalt {
+    use crate::request::builtin::{FocusStop, ZoomStop};
+    let mut budget = completion_timeout(TimeoutClass::Movement, profile, tuning);
+    let mut lower = |prepared: Result<PreparedOperation<completion::AppliedOnly>>| {
+        prepared.map(|prepared| {
+            prepared.admit_with(|request, _, _, timeouts| {
+                budget = budget.max(timeouts.applied);
+                request
+            })
+        })
+    };
+    let pan_tilt = profile.supports_axes(AffectedAxes::PAN_TILT).then(|| {
+        lower(
+            crate::stop_request::pan_tilt_stop_request(profile).and_then(|stop| {
+                prepare_operation(&stop, target, profile, tuning, ClassSelection::Request)
+            }),
+        )
+    });
+    let zoom = profile.supports_axes(AffectedAxes::ZOOM).then(|| {
+        lower(prepare_operation(
+            &ZoomStop,
+            target,
+            profile,
+            tuning,
+            ClassSelection::Request,
+        ))
+    });
+    let focus = profile.supports_axes(AffectedAxes::FOCUS).then(|| {
+        lower(prepare_operation(
+            &FocusStop,
+            target,
+            profile,
+            tuning,
+            ClassSelection::Request,
+        ))
+    });
+    let mut axes: Option<AffectedAxes> = None;
+    for (supported, axis) in [
+        (pan_tilt.is_some(), AffectedAxes::PAN_TILT),
+        (zoom.is_some(), AffectedAxes::ZOOM),
+        (focus.is_some(), AffectedAxes::FOCUS),
+    ] {
+        if supported {
+            axes = Some(axes.map_or(axis, |old| old.union(axis)));
+        }
+    }
+    PreparedHalt {
+        target,
+        axes,
+        requests: [pan_tilt, zoom, focus],
+        budget,
     }
 }

@@ -1,0 +1,48 @@
+
+running 1 test
+test hw04_halt_fences_queued_motion ... HW|t=0|connect.tcp=cam3:5678
+HW|t=27|op.zoom_tele.submitted id=OperationId(1)
+HW|t=29|op.pan_tilt_left.submitted id=OperationId(2)
+HW|t=40|op.zoom_wide.submitted id=OperationId(3)
+HW|t=389|drive.wall_ms_until_halt_returned=363
+HW|t=389|halt.elapsed_ms=348
+HW|t=389|halt.bound_ms=35000
+HW|t=389|halt.pan_tilt=Applied
+HW|t=389|halt.zoom=Applied
+HW|t=389|halt.focus=Failed(CommandNotExecutable)
+HW|t=389|halt.focus.failure=Err(CommandNotExecutable)
+HW|t=389|halt.focus.failure.error kind=NotExecutable requires_new_session=false unconfirmed=false display="Command is not executable"
+HW|t=389|op.zoom_tele.outcome=Ok(())
+HW|t=389|op.zoom_tele.outcome.class=SENT_APPLIED
+HW|t=389|op.pan_tilt_left.outcome=Err(MotionSuperseded { axes: AffectedAxes { pan_tilt: true, zoom: true, focus: true, iris: false, nd_filter: false }, context: FailureContext { stage: Terminal, certainty: NotAccepted } })
+HW|t=389|op.pan_tilt_left.outcome.error kind=Cancelled requires_new_session=false unconfirmed=false display="Motion on AffectedAxes { pan_tilt: true, zoom: true, focus: true, iris: false, nd_filter: false } was superseded by an owner halt (in the protocol lifecycle)"
+HW|t=389|op.pan_tilt_left.outcome.class=SUPERSEDED
+HW|t=389|op.zoom_wide.outcome=Err(MotionSuperseded { axes: AffectedAxes { pan_tilt: true, zoom: true, focus: true, iris: false, nd_filter: false }, context: FailureContext { stage: Terminal, certainty: NotAccepted } })
+HW|t=389|op.zoom_wide.outcome.error kind=Cancelled requires_new_session=false unconfirmed=false display="Motion on AffectedAxes { pan_tilt: true, zoom: true, focus: true, iris: false, nd_filter: false } was superseded by an owner halt (in the protocol lifecycle)"
+HW|t=389|op.zoom_wide.outcome.class=SUPERSEDED
+HW|t=988|wait_until_idle=Ok(())
+HW|t=1291|pan_tilt+zoom.sample[0]=Ok((PanTiltPosition { pan: -856, tilt: -233 }, ZoomPosition(434)))
+HW|t=1678|pan_tilt+zoom.sample[1]=Ok((PanTiltPosition { pan: -856, tilt: -233 }, ZoomPosition(434)))
+HW|t=2088|pan_tilt+zoom.sample[2]=Ok((PanTiltPosition { pan: -856, tilt: -233 }, ZoomPosition(434)))
+HW|t=2488|pan_tilt+zoom.sample[3]=Ok((PanTiltPosition { pan: -856, tilt: -233 }, ZoomPosition(434)))
+HW|t=2887|pan_tilt+zoom.sample[4]=Ok((PanTiltPosition { pan: -856, tilt: -233 }, ZoomPosition(434)))
+HW|t=2888|pan_tilt+zoom.rest_stable=true
+HW|t=2939|fresh.zoom_stop.applied=Ok(())
+HW|t=3447|restore.preset1.settled=Ok(ProfileCompletion { axes: AffectedAxes { pan_tilt: true, zoom: true, focus: true, iris: false, nd_filter: false } })
+HW|t=3650|restored.pan_tilt=Ok(PanTiltPosition { pan: -856, tilt: -233 })
+HW|t=3650|restored.zoom=Ok(ZoomPosition(0))
+HW|t=3650|RESTORED pan=-856 tilt=-233 zoom=0
+HW|t=3650|check.halt_returned_ok_report=true
+HW|t=3658|check.halt_within_bound=true
+HW|t=3658|check.halt_pan_tilt_supported=true
+HW|t=3658|check.halt_zoom_supported=true
+HW|t=3658|check.rest_stable=true
+HW|t=3658|check.fresh_stop_after_halt_applied=true
+HW|t=3658|guard.begin
+HW|t=3700|guard.pan_tilt_stop=Ok(())
+HW|t=3846|guard.zoom_stop=Ok(())
+HW|t=3846|guard.end
+HW|t=3856|session.close=Ok(())
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 3.86s

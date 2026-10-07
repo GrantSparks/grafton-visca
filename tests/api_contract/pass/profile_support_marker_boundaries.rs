@@ -1,9 +1,10 @@
 use grafton_visca::{
     capabilities::{
-        HasBrightnessControl, HasExposureMode, HasFocusZone, HasFocusZoneInquiry, HasIrisControl,
-        HasNoiseReduction2D, HasNoiseReduction2DControl, HasNoiseReduction3D,
-        HasNoiseReduction3DControl, HasPictureEffect, HasSonyAutoSlowShutter, HasSonySpotlight,
-        HasUsbAudio,
+        HasBrightnessControl, HasExposureCompensation, HasExposureMode, HasFocusZone,
+        HasFocusZoneInquiry, HasImageFlip, HasIrisControl, HasNoiseReduction2D,
+        HasNoiseReduction2DControl, HasNoiseReduction3D, HasNoiseReduction3DControl,
+        HasOnePushWhiteBalance, HasPictureEffect, HasRgbGain, HasSonyAutoSlowShutter,
+        HasSonySpotlight, HasUsbAudio, HasVersionInquiry,
     },
     profiles::{
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
@@ -24,8 +25,30 @@ fn requires_picture_effect<P: HasPictureEffect>() {}
 fn requires_usb_audio<P: HasUsbAudio>() {}
 fn requires_spotlight<P: HasSonySpotlight>() {}
 fn requires_auto_slow_shutter<P: HasSonyAutoSlowShutter>() {}
+fn requires_version_inquiry<P: HasVersionInquiry>() {}
+fn requires_exposure_compensation<P: HasExposureCompensation>() {}
+fn requires_rgb_gain<P: HasRgbGain>() {}
+fn requires_image_flip<P: HasImageFlip>() {}
+fn requires_one_push_wb<P: HasOnePushWhiteBalance>() {}
 
 fn main() {
+    // #828 grant audit: rows documented by R8, R12 and R21.
+    for_sony_standard_exposure::<SonyEVIH100>();
+    for_sony_standard_exposure::<SonyBRC300>();
+    for_sony_standard_exposure::<NearusBRC300>();
+    requires_image_flip::<SonyBRC300>();
+    requires_image_flip::<NearusBRC300>();
+    requires_one_push_wb::<SonyBRC300>();
+    requires_one_push_wb::<NearusBRC300>();
+    requires_auto_slow_shutter::<NearusBRC300>();
+
+    requires_version_inquiry::<SonyFR7>();
+    requires_version_inquiry::<SonyBRCH900>();
+    requires_version_inquiry::<SonyEVIH100>();
+    requires_version_inquiry::<SonyBRC300>();
+    requires_version_inquiry::<NearusBRC300>();
+    requires_version_inquiry::<GenericVisca>();
+
     requires_brightness::<PtzOpticsG2>();
     requires_brightness::<PtzOpticsG3>();
     requires_brightness::<PtzOptics30X>();
@@ -78,4 +101,13 @@ fn main() {
     requires_spotlight::<SonyBRCH900>();
     requires_auto_slow_shutter::<SonyEVIH100>();
     requires_auto_slow_shutter::<SonyBRC300>();
+}
+
+fn for_sony_standard_exposure<P>()
+where
+    P: HasBrightnessControl + HasExposureCompensation + HasRgbGain,
+{
+    requires_brightness::<P>();
+    requires_exposure_compensation::<P>();
+    requires_rgb_gain::<P>();
 }

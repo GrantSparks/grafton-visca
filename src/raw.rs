@@ -60,6 +60,7 @@ pub use crate::{
 };
 
 use crate::{
+    command::bytes::{constants::system, VISCA_TERMINATOR},
     completion, request, CameraId, Error, Inquiry as InquiryRequest, OperationCommand, Request,
     Result,
 };
@@ -75,8 +76,6 @@ pub(crate) const INLINE_BYTES: usize = 32;
 /// than ordinary VISCA messages so vendor extensions remain possible while
 /// still making construction and admission memory-bounded.
 pub const MAX_BYTES: usize = 1_024;
-
-const VISCA_TERMINATOR: u8 = 0xff;
 
 /// The reply protocol a raw command declares the camera will use.
 ///
@@ -112,6 +111,17 @@ pub enum RawReplyShape {
     /// the unacknowledged-command gate expecting an ACK, so a missing ACK cannot
     /// fail or poison it. It terminates on the completion frame or, failing
     /// that, on a bounded completion deadline.
+    ///
+    /// Its answer carries no identity, so it is exclusive on its camera: it
+    /// starts only when no other command or inquiry to that camera is live,
+    /// and while it is unanswered no inquiry and no ordinary command to that
+    /// camera is written — they queue, under their own deadlines. On a raw
+    /// byte stream (TCP, serial) that lasts until its completion or
+    /// rejection arrives, even after its own deadline ended it unconfirmed;
+    /// if that answer is still missing when its ambiguity window ends, they
+    /// fail unwritten with [`crate::Error::InquiryCorrelationLost`] or
+    /// [`crate::Error::CommandCorrelationLost`] until it arrives. STOPs are
+    /// never held back by it (#795).
     CompletionOnly,
     /// A plain fire-and-forget command expects nothing back. Its `execute()`
     /// call succeeds once the local transport write succeeds; that result does
@@ -119,9 +129,24 @@ pub enum RawReplyShape {
     /// holds it waiting for a frame. To keep its later raw-correlation
     /// quarantine attributable, the owner starts it only when the target has
     /// no live command or inquiry and excludes same-target work while the
-    /// write is in flight; any later command response is then ignored through
-    /// the bounded quarantine. Raw targeted and applied-only operation
-    /// constructors/preparation reject this shape.
+    /// write is in flight; ordinary command and inquiry work then waits out
+    /// the bounded quarantine, through which its late response is ignored.
+    /// STOPs are never held back by it (#795): a STOP is written at once,
+    /// and its ACK (which this command never sends) and the completion or
+    /// error naming its socket still reach it. A socketless error in that
+    /// window could be this command's rejection or the STOP's, and binds to
+    /// neither: on a raw byte stream the STOP's own ACK proves it was this
+    /// command's; failing such proof the STOP ends
+    /// [`crate::Error::UnsequencedCommandUnconfirmed`]. On a raw byte stream
+    /// its possible rejection stays owed until a later answer from the camera
+    /// settles it (a stall can delay it past any window), so a
+    /// `CompletionOnly` command to that camera waits for that, failing with
+    /// [`crate::Error::CommandCorrelationLost`] once this command's ambiguity
+    /// window has ended; and it is
+    /// itself held back while an earlier command's answer is owed, failing
+    /// with [`crate::Error::CommandCorrelationLost`] once that lane latches.
+    /// Raw targeted and applied-only operation constructors/preparation
+    /// reject this shape.
     NoReply,
 }
 
@@ -261,10 +286,7 @@ impl Wire {
 
     fn write_into(&self, buffer: &mut [u8]) -> Result<usize> {
         if buffer.len() < self.len() {
-            return Err(Error::BufferTooSmall {
-                required: self.len(),
-                actual: buffer.len(),
-            });
+            return Err(Error::buffer_too_small(self.len(), buffer.len()));
         }
         buffer[..self.len()].copy_from_slice(self.as_bytes());
         Ok(self.len())
@@ -356,7 +378,7 @@ fn reject_owner_only_at_boundary(bytes: &[u8], start: usize) -> Result<()> {
     let remaining = &bytes[start..];
     if remaining.len() >= 3
         && (remaining[0] & 0xf0) == 0x80
-        && (remaining[1] & 0xf0) == 0x20
+        && (remaining[1] & 0xf0) == system::COMMAND_CANCEL
         && remaining[2] == VISCA_TERMINATOR
     {
         return Err(Error::InvalidRequest(
@@ -365,9 +387,7 @@ fn reject_owner_only_at_boundary(bytes: &[u8], start: usize) -> Result<()> {
     }
     if remaining.len() >= 5
         && (remaining[0] & 0xf0) == 0x80
-        && remaining[1] == 0x01
-        && remaining[2] == 0x00
-        && remaining[3] == 0x01
+        && remaining[1..4] == system::INTERFACE_CLEAR
         && remaining[4] == VISCA_TERMINATOR
     {
         return Err(Error::InvalidRequest(
@@ -378,8 +398,8 @@ fn reject_owner_only_at_boundary(bytes: &[u8], start: usize) -> Result<()> {
     // checked against the prepared target, and this rejects the broadcast
     // setup primitive before a target-scoped request can emit it.
     if remaining.len() >= 4
-        && remaining[0] == 0x88
-        && remaining[1] == 0x30
+        && remaining[0] == CameraId::BROADCAST.to_address_byte()
+        && remaining[1] == system::ADDRESS_SET_REGISTER
         && (remaining[2] & 0xf0) == 0x00
         && remaining[3] == VISCA_TERMINATOR
     {
@@ -395,11 +415,188 @@ fn is_visca_address(byte: u8) -> bool {
     (0x81..=0x88).contains(&byte)
 }
 
+/// The policy accessors every raw request value exposes, written once for
+/// the four raw types (#817). `$subject` names the value in the docs; the
+/// optional `reply_shape` arm adds the reply-shape accessor the command and
+/// operation types carry.
+macro_rules! raw_policy_accessors {
+    ($subject:literal $(, $reply_shape:ident)?) => {
+        #[doc = concat!("Returns ", $subject, "'s explicit policy.")]
+        #[must_use]
+        pub const fn policy(&self) -> Policy {
+            self.policy
+        }
+
+        #[doc = concat!("Returns ", $subject, "'s explicit timeout class.")]
+        #[must_use]
+        pub const fn timeout_class(&self) -> TimeoutClass {
+            self.policy.timeout_class()
+        }
+
+        #[doc = concat!("Returns ", $subject, "'s explicit retry class.")]
+        #[must_use]
+        pub const fn retry_class(&self) -> RetryClass {
+            self.policy.retry_class()
+        }
+
+        #[doc = concat!("Returns ", $subject, "'s explicit control class.")]
+        #[must_use]
+        pub const fn control_class(&self) -> ControlClass {
+            self.policy.control_class()
+        }
+
+        $(
+            #[doc = concat!("Returns ", $subject, "'s declared reply shape.")]
+            #[must_use]
+            pub const fn $reply_shape(&self) -> RawReplyShape {
+                self.policy.reply_shape()
+            }
+        )?
+    };
+}
+
+/// The [`Request`] items every raw request value forwards to its policy and
+/// wire, written once for the four raw types (#817). The policy constants are
+/// the given unread fallbacks, documented as such.
+macro_rules! raw_request_forwarding {
+    ($timeout:ident, $retry:ident, $control:ident) => {
+        const MAX_SIZE: usize = MAX_BYTES;
+
+        /// Unread fallback. A raw value's policy is selected at construction
+        /// and returned by [`Request::timeout_class`], which this type
+        /// overrides; this constant serves only fixed request types.
+        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::$timeout;
+
+        /// Unread fallback. A raw value's policy is selected at construction
+        /// and returned by [`Request::retry_class`], which this type
+        /// overrides; this constant serves only fixed request types.
+        const RETRY_CLASS: RetryClass = RetryClass::$retry;
+
+        /// Unread fallback. A raw value's policy is selected at construction
+        /// and returned by [`Request::control_class`], which this type
+        /// overrides; this constant serves only fixed request types.
+        const CONTROL_CLASS: ControlClass = ControlClass::$control;
+
+        fn timeout_class(&self) -> TimeoutClass {
+            self.policy.timeout_class()
+        }
+
+        fn retry_class(&self) -> RetryClass {
+            self.policy.retry_class()
+        }
+
+        fn control_class(&self) -> ControlClass {
+            self.policy.control_class()
+        }
+
+        fn encoded_size(&self) -> usize {
+            self.wire.len()
+        }
+
+        fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize> {
+            self.wire.write_into(buffer)
+        }
+    };
+}
+
+/// A raw operation type of one completion kind, written once for
+/// [`Targeted`] and [`AppliedOnly`] (#817).
+macro_rules! raw_operation {
+    (
+        $(#[$type_doc:meta])*
+        $name:ident: $kind:ty, $noun:literal, $lifecycle:literal
+    ) => {
+        $(#[$type_doc])*
+        #[derive(Debug, Clone, PartialEq, Eq)]
+        pub struct $name {
+            wire: Wire,
+            axes: AffectedAxes,
+            policy: Policy,
+        }
+
+        impl $name {
+            #[doc = concat!(
+                "Creates a bounded raw ", $noun,
+                " operation that moves `axes`, with an explicit protocol policy."
+            )]
+            pub fn new(
+                bytes: impl AsRef<[u8]>,
+                axes: AffectedAxes,
+                timeout: TimeoutClass,
+                retry: RetryClass,
+                control: ControlClass,
+            ) -> Result<Self> {
+                Self::with_policy(bytes, axes, Policy::new(timeout, retry, control)?)
+            }
+
+            /// [`Self::new`] with an explicit [`Policy`] value.
+            ///
+            #[doc = concat!(
+                "A policy whose reply shape is [`RawReplyShape::NoReply`] is rejected: a ",
+                $noun, " operation's ", $lifecycle,
+                " lifecycle requires terminal camera evidence, not merely a successful local write."
+            )]
+            pub fn with_policy(
+                bytes: impl AsRef<[u8]>,
+                axes: AffectedAxes,
+                policy: Policy,
+            ) -> Result<Self> {
+                validate_operation_reply_shape(policy.reply_shape())?;
+                Ok(Self {
+                    wire: Wire::new(bytes)?,
+                    axes,
+                    policy,
+                })
+            }
+
+            /// Returns the exact frame bytes retained by this value.
+            #[must_use]
+            pub fn bytes(&self) -> &[u8] {
+                self.wire.as_bytes()
+            }
+
+            /// Returns this operation's explicit affected axes.
+            #[must_use]
+            pub const fn affected_axes(&self) -> AffectedAxes {
+                self.axes
+            }
+
+            raw_policy_accessors!("this operation", reply_shape);
+        }
+
+        impl Request for $name {
+            type Class = request::Operation<$kind>;
+            raw_request_forwarding!(Quick, Never, User);
+
+            fn reply_shape(&self) -> RawReplyShape {
+                self.policy.reply_shape()
+            }
+
+            fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<()> {
+                if profile.supports_axes(self.axes) {
+                    Ok(())
+                } else {
+                    Err(Error::FeatureNotSupported {
+                        feature: concat!("raw ", $noun, " operation axes"),
+                    })
+                }
+            }
+        }
+
+        impl OperationCommand<$kind> for $name {
+            fn affected_axes(&self) -> AffectedAxes {
+                self.axes
+            }
+        }
+    };
+}
+
 /// A raw plain command with no operation lifecycle handle.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Plain {
     wire: Wire,
     policy: Policy,
+    motion_axes: Option<AffectedAxes>,
 }
 
 impl Plain {
@@ -418,7 +615,16 @@ impl Plain {
         Ok(Self {
             wire: Wire::new(bytes)?,
             policy,
+            motion_axes: None,
         })
+    }
+
+    /// Declares axes moved by this command so an owner halt can suppress it.
+    /// Undeclared raw commands are never suppressed; this grants no STOP priority.
+    #[must_use]
+    pub const fn with_motion_axes(mut self, axes: AffectedAxes) -> Self {
+        self.motion_axes = Some(axes);
+        self
     }
 
     /// Returns the exact frame bytes retained by this value.
@@ -427,70 +633,19 @@ impl Plain {
         self.wire.as_bytes()
     }
 
-    /// Returns this value's explicit policy.
-    #[must_use]
-    pub const fn policy(&self) -> Policy {
-        self.policy
-    }
-
-    /// Returns this value's explicit timeout class.
-    #[must_use]
-    pub const fn timeout_class(&self) -> TimeoutClass {
-        self.policy.timeout_class()
-    }
-
-    /// Returns this value's explicit retry class.
-    #[must_use]
-    pub const fn retry_class(&self) -> RetryClass {
-        self.policy.retry_class()
-    }
-
-    /// Returns this value's explicit control class.
-    #[must_use]
-    pub const fn control_class(&self) -> ControlClass {
-        self.policy.control_class()
-    }
-
-    /// Returns this value's declared reply shape.
-    #[must_use]
-    pub const fn reply_shape(&self) -> RawReplyShape {
-        self.policy.reply_shape()
-    }
+    raw_policy_accessors!("this value", reply_shape);
 }
 
 impl Request for Plain {
     type Class = request::Plain;
-
-    // The trait retains associated constants for fixed built-in/downstream
-    // request types. Raw values override the instance accessors below because
-    // their policy is intentionally selected at construction.
-    const MAX_SIZE: usize = MAX_BYTES;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-    const RETRY_CLASS: RetryClass = RetryClass::Never;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
-
-    fn timeout_class(&self) -> TimeoutClass {
-        self.policy.timeout_class()
-    }
-
-    fn retry_class(&self) -> RetryClass {
-        self.policy.retry_class()
-    }
-
-    fn control_class(&self) -> ControlClass {
-        self.policy.control_class()
-    }
+    raw_request_forwarding!(Quick, Never, Normal);
 
     fn reply_shape(&self) -> RawReplyShape {
         self.policy.reply_shape()
     }
 
-    fn encoded_size(&self) -> usize {
-        self.wire.len()
-    }
-
-    fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize> {
-        self.wire.write_into(buffer)
+    fn motion_axes(&self) -> Option<AffectedAxes> {
+        self.motion_axes
     }
 }
 
@@ -596,29 +751,7 @@ impl<R> Inquiry<R> {
         self.route
     }
 
-    /// Returns this inquiry's explicit policy.
-    #[must_use]
-    pub const fn policy(&self) -> Policy {
-        self.policy
-    }
-
-    /// Returns this inquiry's explicit timeout class.
-    #[must_use]
-    pub const fn timeout_class(&self) -> TimeoutClass {
-        self.policy.timeout_class()
-    }
-
-    /// Returns this inquiry's explicit retry class.
-    #[must_use]
-    pub const fn retry_class(&self) -> RetryClass {
-        self.policy.retry_class()
-    }
-
-    /// Returns this inquiry's explicit control class.
-    #[must_use]
-    pub const fn control_class(&self) -> ControlClass {
-        self.policy.control_class()
-    }
+    raw_policy_accessors!("this inquiry");
 }
 
 impl<R> fmt::Debug for Inquiry<R> {
@@ -649,30 +782,7 @@ where
     R: Send + 'static,
 {
     type Class = request::Inquiry;
-    const MAX_SIZE: usize = MAX_BYTES;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
-    const RETRY_CLASS: RetryClass = RetryClass::Inquiry;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
-
-    fn timeout_class(&self) -> TimeoutClass {
-        self.policy.timeout_class()
-    }
-
-    fn retry_class(&self) -> RetryClass {
-        self.policy.retry_class()
-    }
-
-    fn control_class(&self) -> ControlClass {
-        self.policy.control_class()
-    }
-
-    fn encoded_size(&self) -> usize {
-        self.wire.len()
-    }
-
-    fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize> {
-        self.wire.write_into(buffer)
-    }
+    raw_request_forwarding!(Inquiry, Inquiry, Normal);
 }
 
 impl<R> InquiryRequest for Inquiry<R>
@@ -690,266 +800,17 @@ where
     }
 }
 
-/// A raw operation with a meaningful target state and profile-selected protocol
-/// settlement.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Targeted {
-    wire: Wire,
-    axes: AffectedAxes,
-    policy: Policy,
+raw_operation! {
+    /// A raw operation with a meaningful target state and profile-selected
+    /// protocol settlement.
+    Targeted: completion::Targeted, "targeted", "`applied()`/`settled()`"
 }
 
-impl Targeted {
-    /// Creates a bounded raw targeted operation with explicit non-empty axes
-    /// and protocol policy.
-    pub fn new(
-        bytes: impl AsRef<[u8]>,
-        axes: AffectedAxes,
-        timeout: TimeoutClass,
-        retry: RetryClass,
-        control: ControlClass,
-    ) -> Result<Self> {
-        Self::with_policy(bytes, axes, Policy::new(timeout, retry, control)?)
-    }
-
-    /// Creates a raw targeted operation from an explicit policy value.
-    ///
-    /// [`RawReplyShape::NoReply`] is rejected because a targeted operation's
-    /// `applied()`/`settled()` lifecycle requires terminal camera evidence, not
-    /// merely a successful local write.
-    pub fn with_policy(
-        bytes: impl AsRef<[u8]>,
-        axes: AffectedAxes,
-        policy: Policy,
-    ) -> Result<Self> {
-        validate_operation_reply_shape(policy.reply_shape())?;
-        Ok(Self {
-            wire: Wire::new(bytes)?,
-            axes,
-            policy,
-        })
-    }
-
-    /// Returns the exact frame bytes retained by this value.
-    #[must_use]
-    pub fn bytes(&self) -> &[u8] {
-        self.wire.as_bytes()
-    }
-
-    /// Returns this operation's explicit affected axes.
-    #[must_use]
-    pub const fn affected_axes(&self) -> AffectedAxes {
-        self.axes
-    }
-
-    /// Returns this operation's explicit policy.
-    #[must_use]
-    pub const fn policy(&self) -> Policy {
-        self.policy
-    }
-
-    /// Returns this operation's explicit timeout class.
-    #[must_use]
-    pub const fn timeout_class(&self) -> TimeoutClass {
-        self.policy.timeout_class()
-    }
-
-    /// Returns this operation's explicit retry class.
-    #[must_use]
-    pub const fn retry_class(&self) -> RetryClass {
-        self.policy.retry_class()
-    }
-
-    /// Returns this operation's explicit control class.
-    #[must_use]
-    pub const fn control_class(&self) -> ControlClass {
-        self.policy.control_class()
-    }
-
-    /// Returns this operation's declared reply shape.
-    #[must_use]
-    pub const fn reply_shape(&self) -> RawReplyShape {
-        self.policy.reply_shape()
-    }
-}
-
-impl Request for Targeted {
-    type Class = request::Operation<completion::Targeted>;
-    const MAX_SIZE: usize = MAX_BYTES;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Movement;
-    const RETRY_CLASS: RetryClass = RetryClass::Movement;
-    const CONTROL_CLASS: ControlClass = ControlClass::User;
-
-    fn timeout_class(&self) -> TimeoutClass {
-        self.policy.timeout_class()
-    }
-
-    fn retry_class(&self) -> RetryClass {
-        self.policy.retry_class()
-    }
-
-    fn control_class(&self) -> ControlClass {
-        self.policy.control_class()
-    }
-
-    fn reply_shape(&self) -> RawReplyShape {
-        self.policy.reply_shape()
-    }
-
-    fn encoded_size(&self) -> usize {
-        self.wire.len()
-    }
-
-    fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize> {
-        self.wire.write_into(buffer)
-    }
-
-    fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<()> {
-        if profile.supports_axes(self.axes) {
-            Ok(())
-        } else {
-            Err(Error::FeatureNotSupported {
-                feature: "raw targeted operation axes",
-            })
-        }
-    }
-}
-
-impl OperationCommand<completion::Targeted> for Targeted {
-    fn affected_axes(&self) -> AffectedAxes {
-        self.axes
-    }
-}
-
-/// A raw operation whose terminal protocol application is its only lifecycle
-/// observation. It intentionally has no `settled` method or target inference.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AppliedOnly {
-    wire: Wire,
-    axes: AffectedAxes,
-    policy: Policy,
-}
-
-impl AppliedOnly {
-    /// Creates a bounded raw applied-only operation with explicit non-empty
-    /// axes and protocol policy.
-    pub fn new(
-        bytes: impl AsRef<[u8]>,
-        axes: AffectedAxes,
-        timeout: TimeoutClass,
-        retry: RetryClass,
-        control: ControlClass,
-    ) -> Result<Self> {
-        Self::with_policy(bytes, axes, Policy::new(timeout, retry, control)?)
-    }
-
-    /// Creates a raw applied-only operation from an explicit policy value.
-    ///
-    /// [`RawReplyShape::NoReply`] is rejected because an applied-only
-    /// operation's `applied()` lifecycle requires terminal camera evidence, not
-    /// merely a successful local write.
-    pub fn with_policy(
-        bytes: impl AsRef<[u8]>,
-        axes: AffectedAxes,
-        policy: Policy,
-    ) -> Result<Self> {
-        validate_operation_reply_shape(policy.reply_shape())?;
-        Ok(Self {
-            wire: Wire::new(bytes)?,
-            axes,
-            policy,
-        })
-    }
-
-    /// Returns the exact frame bytes retained by this value.
-    #[must_use]
-    pub fn bytes(&self) -> &[u8] {
-        self.wire.as_bytes()
-    }
-
-    /// Returns this operation's explicit affected axes.
-    #[must_use]
-    pub const fn affected_axes(&self) -> AffectedAxes {
-        self.axes
-    }
-
-    /// Returns this operation's explicit policy.
-    #[must_use]
-    pub const fn policy(&self) -> Policy {
-        self.policy
-    }
-
-    /// Returns this operation's explicit timeout class.
-    #[must_use]
-    pub const fn timeout_class(&self) -> TimeoutClass {
-        self.policy.timeout_class()
-    }
-
-    /// Returns this operation's explicit retry class.
-    #[must_use]
-    pub const fn retry_class(&self) -> RetryClass {
-        self.policy.retry_class()
-    }
-
-    /// Returns this operation's explicit control class.
-    #[must_use]
-    pub const fn control_class(&self) -> ControlClass {
-        self.policy.control_class()
-    }
-
-    /// Returns this operation's declared reply shape.
-    #[must_use]
-    pub const fn reply_shape(&self) -> RawReplyShape {
-        self.policy.reply_shape()
-    }
-}
-
-impl Request for AppliedOnly {
-    type Class = request::Operation<completion::AppliedOnly>;
-    const MAX_SIZE: usize = MAX_BYTES;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-    const RETRY_CLASS: RetryClass = RetryClass::Never;
-    const CONTROL_CLASS: ControlClass = ControlClass::User;
-
-    fn timeout_class(&self) -> TimeoutClass {
-        self.policy.timeout_class()
-    }
-
-    fn retry_class(&self) -> RetryClass {
-        self.policy.retry_class()
-    }
-
-    fn control_class(&self) -> ControlClass {
-        self.policy.control_class()
-    }
-
-    fn reply_shape(&self) -> RawReplyShape {
-        self.policy.reply_shape()
-    }
-
-    fn encoded_size(&self) -> usize {
-        self.wire.len()
-    }
-
-    fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize> {
-        self.wire.write_into(buffer)
-    }
-
-    fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<()> {
-        if profile.supports_axes(self.axes) {
-            Ok(())
-        } else {
-            Err(Error::FeatureNotSupported {
-                feature: "raw applied-only operation axes",
-            })
-        }
-    }
-}
-
-impl OperationCommand<completion::AppliedOnly> for AppliedOnly {
-    fn affected_axes(&self) -> AffectedAxes {
-        self.axes
-    }
+raw_operation! {
+    /// A raw operation whose terminal protocol application is its only
+    /// lifecycle observation. It intentionally has no `settled` method or
+    /// target inference.
+    AppliedOnly: completion::AppliedOnly, "applied-only", "`applied()`"
 }
 
 fn validate_inquiry_reply_shape(reply_shape: RawReplyShape) -> Result<()> {
@@ -1421,6 +1282,32 @@ mod tests {
                 .is_ok(),
                 "legitimate custom frame {frame:x?} must stay admissible"
             );
+        }
+    }
+
+    /// #810: raw admission and the Command Cancel encoder read the one
+    /// `system::COMMAND_CANCEL` opcode, so every frame the owner's encoder
+    /// emits for any camera and socket is exactly a frame admission refuses.
+    #[test]
+    fn every_encoded_command_cancel_is_refused_by_raw_admission() {
+        use crate::{
+            command::{encode::WireEncode, system::CommandCancelCommand},
+            ViscaSocket,
+        };
+
+        for id in 1..=7 {
+            let camera = CameraId::new(id).expect("individual camera");
+            for socket in [ViscaSocket::S1, ViscaSocket::S2] {
+                let mut frame = [0_u8; 8];
+                let len =
+                    WireEncode::write_into(&CommandCancelCommand::new(socket), camera, &mut frame)
+                        .expect("cancel frame fits");
+                let frame = &frame[..len];
+                assert!(
+                    reject_owner_only_primitive(frame).is_err(),
+                    "encoded cancel {frame:x?} must be refused by raw admission"
+                );
+            }
         }
     }
 

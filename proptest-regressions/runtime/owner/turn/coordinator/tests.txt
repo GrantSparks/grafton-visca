@@ -1,0 +1,12 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc c29c99e1e8297b711d098de5af55e5ab6cf970af75901bd5f622ae849648bd80 # shrinks to steps = [0, 5, 3, 6, 14, 14, 4, 0, 8, 14, 14, 13, 4, 7, 14, 14]
+cc 2070dbd1614636c3ccbb31c8f012b779c75c0be21970b75c3c920bafe8944025 # shrinks to steps = [0, 9, 14, 5, 14, 14, 14, 10, 14, 9, 5]
+cc 9a7329b740ed46040cb6355a713d8022b142eb861c3004c95f167a749e5a07d0 # shrinks to steps = [0, 0, 5, 0, 4, 0, 0, 4, 9, 14, 14, 14, 14, 14, 4, 14]
+cc 75402036a338f035c08cc22519b7a4a886db515431d74567c8fe09626d142ec0 # shrinks to steps = [8, 5, 0, 14, 4, 14, 5, 14, 7, 14, 10, 14, 14, 14, 14, 5, 4, 7, 0, 4, 14, 14]
+cc f3c5df6c341010caf105153cc9a244c381d23a38ad98bcc41b674188a24ade31 # shrinks to steps = [2, 5, 15, 10, 15, 15, 14, 5]
+cc 50c8d0c30b8de777c22550a3d6190a298c0cb4f59fe12636df65b541698997de # shrinks to steps = [5, 4, 15, 2, 15, 10, 15, 15, 4, 5, 7, 15]

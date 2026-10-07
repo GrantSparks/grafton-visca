@@ -85,7 +85,8 @@ fn downstream_derive_uses_public_terminator_and_exact_buffer_size() {
             result,
             Err(Error::BufferTooSmall {
                 required: 5,
-                actual: 4
+                actual: 4,
+                ..
             })
         ),
         "downstream inquiry should report exact buffer size, got {result:?}"

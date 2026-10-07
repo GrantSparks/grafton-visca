@@ -13,12 +13,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         match action.as_str() {
             "set" => camera.presets().set(preset),
             "clear" | "reset" => camera.presets().reset(preset),
-            "recall" => camera.presets().recall(preset)?.settled(),
-            _ => Err(Error::InvalidParameter {
-                parameter: "operation",
-                value: action.into(),
-                reason: "expected set, recall, or clear".into(),
-            }),
+            "recall" => camera.presets().recall(preset)?.settled().map(|_| ()),
+            _ => Err(Error::invalid_parameter(
+                "operation",
+                action,
+                "expected set, recall, or clear",
+            )),
         }
     };
     finish(result, session.close())?;

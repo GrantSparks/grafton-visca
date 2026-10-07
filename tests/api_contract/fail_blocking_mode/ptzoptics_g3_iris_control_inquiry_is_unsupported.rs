@@ -3,7 +3,7 @@
 use grafton_visca::{blocking::Camera, profiles::PtzOpticsG3};
 
 fn main() {
-    let camera: Option<Camera<'static, PtzOpticsG3>> = None;
+    let camera: Option<Camera<PtzOpticsG3>> = None;
     let camera = camera.as_ref().unwrap();
 
     let _ = camera.exposure().iris_control();

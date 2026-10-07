@@ -1,0 +1,56 @@
+
+running 1 test
+test hw05_tilt_polarity ... HW|t=0|profile.selected=G2 VISCA_PROFILE="g2"
+HW|t=0|profile.type=grafton_visca::camera::profiles::PtzOpticsG2 model_name="PtzOptics G2"
+HW|t=0|connect.tcp=cam2:5678
+HW|t=129|pan_tilt.p0=Ok(PanTiltPosition { pan: 208, tilt: -207 })
+HW|t=129|profile.pan_tilt tilt_range=-432..=1296 tilt_degrees_to_units=14.4 pan_tolerance_raw=2
+HW|t=129|OBSERVE: camera will tilt UP briefly
+HW|t=2139|tilt.UP.submitted id=OperationId(2)
+HW|t=2390|tilt.UP.drive_wall_ms_before_stop_submitted=260
+HW|t=2422|tilt.UP.stop.applied=Ok(())
+HW|t=2422|tilt.UP.applied=Ok(())
+HW|t=2923|tilt.UP.wait_until_idle=Ok(())
+HW|t=3073|tilt.UP.sample[0]=Ok(PanTiltPosition { pan: 208, tilt: -201 })
+HW|t=3372|tilt.UP.sample[1]=Ok(PanTiltPosition { pan: 208, tilt: -201 })
+HW|t=3670|tilt.UP.sample[2]=Ok(PanTiltPosition { pan: 208, tilt: -201 })
+HW|t=3970|tilt.UP.sample[3]=Ok(PanTiltPosition { pan: 208, tilt: -201 })
+HW|t=4269|tilt.UP.sample[4]=Ok(PanTiltPosition { pan: 208, tilt: -201 })
+HW|t=4269|tilt.UP.rest_stable=true
+HW|t=4419|tilt.UP.after=Ok(PanTiltPosition { pan: 208, tilt: -201 })
+HW|t=4419|observation.tilt.UP before_raw=(208,-207) after_raw=(208,-201) delta_raw=(pan 0, tilt 6) before_deg=(14.444,-14.375) after_deg=(14.444,-13.958) tilt_delta_deg=0.417
+HW|t=4419|check.tilt_UP_rest_stable=true
+HW|t=4419|check.tilt_UP_raw_delta_sign=true
+HW|t=4419|check.tilt_UP_degree_delta_sign=true
+HW|t=4419|check.tilt_UP_pan_unchanged=true
+HW|t=4419|OBSERVE: camera will tilt DOWN briefly
+HW|t=6422|tilt.DOWN.submitted id=OperationId(12)
+HW|t=6676|tilt.DOWN.drive_wall_ms_before_stop_submitted=256
+HW|t=6722|tilt.DOWN.stop.applied=Ok(())
+HW|t=6722|tilt.DOWN.applied=Ok(())
+HW|t=7223|tilt.DOWN.wait_until_idle=Ok(())
+HW|t=7373|tilt.DOWN.sample[0]=Ok(PanTiltPosition { pan: 208, tilt: -207 })
+HW|t=7674|tilt.DOWN.sample[1]=Ok(PanTiltPosition { pan: 208, tilt: -207 })
+HW|t=7978|tilt.DOWN.sample[2]=Ok(PanTiltPosition { pan: 208, tilt: -207 })
+HW|t=8270|tilt.DOWN.sample[3]=Ok(PanTiltPosition { pan: 208, tilt: -207 })
+HW|t=8576|tilt.DOWN.sample[4]=Ok(PanTiltPosition { pan: 208, tilt: -207 })
+HW|t=8576|tilt.DOWN.rest_stable=true
+HW|t=8719|tilt.DOWN.after=Ok(PanTiltPosition { pan: 208, tilt: -207 })
+HW|t=8719|observation.tilt.DOWN before_raw=(208,-201) after_raw=(208,-207) delta_raw=(pan 0, tilt -6) before_deg=(14.444,-13.958) after_deg=(14.444,-14.375) tilt_delta_deg=-0.417
+HW|t=8719|check.tilt_DOWN_rest_stable=true
+HW|t=8719|check.tilt_DOWN_raw_delta_sign=true
+HW|t=8719|check.tilt_DOWN_degree_delta_sign=true
+HW|t=8719|check.tilt_DOWN_pan_unchanged=true
+HW|t=8989|restore.preset1.settled=Ok(ProfileCompletion { axes: AffectedAxes { pan_tilt: true, zoom: true, focus: true, iris: false, nd_filter: false } })
+HW|t=9230|restored.pan_tilt=Ok(PanTiltPosition { pan: 208, tilt: -207 })
+HW|t=9230|restored.zoom=Ok(ZoomPosition(0))
+HW|t=9230|RESTORED pan=208 tilt=-207 zoom=0
+HW|t=9230|OPERATOR: confirm the camera physically tilted up during the UP drive and down during the DOWN drive (positive tilt is up)
+HW|t=9230|guard.begin
+HW|t=9279|guard.pan_tilt_stop=Ok(())
+HW|t=9420|guard.zoom_stop=Ok(())
+HW|t=9420|guard.end
+HW|t=9431|session.close=Ok(())
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 9.43s

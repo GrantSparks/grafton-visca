@@ -5,8 +5,8 @@ use std::{num::NonZeroU64, sync::Arc, time::Duration};
 use smallvec::SmallVec;
 
 use crate::{
-    command::semantics::WriteOnlyState, protocol::framer::RawIncompletePrefix, raw::INLINE_BYTES,
-    raw::MAX_BYTES, CameraId, Error, ViscaSocket,
+    protocol::framer::RawIncompletePrefix, raw::INLINE_BYTES, raw::MAX_BYTES, CameraId, Error,
+    StateKey, ViscaSocket,
 };
 
 /// Maximum number of Sony sequences retained for one request across retries.
@@ -29,11 +29,6 @@ impl EngineTurn {
     pub(crate) const COMPLETE: Self = Self {
         run_due: true,
         dispatch: true,
-    };
-    #[allow(dead_code)] // Used by blocking owner turns; async-only builds omit them.
-    pub(crate) const DEADLINES_ONLY: Self = Self {
-        run_due: true,
-        dispatch: false,
     };
     pub(crate) const INPUT_ONLY: Self = Self {
         run_due: false,
@@ -113,9 +108,9 @@ impl RequestId {
 pub(crate) struct TransmissionId(NonZeroU64);
 
 impl TransmissionId {
-    // Read back by `runtime::engine::tests` when it pins allocator wraparound; no
-    // production caller yet (#636).
-    #[allow(dead_code)]
+    /// The raw identity, read back by `runtime::engine::tests` when it pins
+    /// allocator wraparound.
+    #[cfg(test)]
     pub(crate) const fn get(self) -> u64 {
         self.0.get()
     }
@@ -255,9 +250,9 @@ pub(crate) struct RetryPolicy {
 }
 
 impl RetryPolicy {
-    // Consumed by `runtime::owner::blocking_transport` and the engine tests; the
-    // async legs compile neither, so it reads as dead there (#636).
-    #[allow(dead_code)]
+    // A fixed no-retry policy for the engine and owner test fixtures;
+    // production requests always carry a prepared retry policy (#636).
+    #[cfg(test)]
     pub(crate) const NEVER: Self = Self {
         max_retries: 0,
         initial_backoff: Duration::ZERO,
@@ -272,9 +267,21 @@ impl RetryPolicy {
     };
 }
 
+/// Immutable motion semantics. Only trusted typed STOPs set `stop`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MotionEffect {
+    pub(crate) axes: crate::AffectedAxes,
+    pub(crate) stop: bool,
+}
+
 /// Every immutable protocol policy carried by an admitted request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RequestContext {
+    pub(crate) motion: Option<MotionEffect>,
+    /// Assigned under the owner ingress lock, independently of engine admission.
+    pub(crate) submission_order: u64,
+    /// Absolute last instant before which an owner-halt STOP may begin a write.
+    pub(crate) dispatch_deadline: Option<std::time::Instant>,
     pub(crate) target: CameraId,
     pub(crate) timeout: TimeoutPolicy,
     pub(crate) retry: RetryPolicy,
@@ -323,33 +330,32 @@ impl AppliedStateValue {
 pub(crate) enum AppliedStateProjection {
     /// Replace the key with a bounded known value.
     Set {
-        key: WriteOnlyState,
+        key: StateKey,
         value: AppliedStateValue,
     },
     /// Record a known absence for the key.
     Clear {
-        key: WriteOnlyState,
-        /// Optional bounded discriminator for a key-local clear operation.
-        /// Pan/tilt limit clears carry the corner byte here; a legacy whole-key
-        /// clear can still use an empty value.
+        key: StateKey,
+        /// Bounded discriminator naming what the clear is local to: a pan/tilt
+        /// limit clear names the corner it clears, exactly as a limit set does.
         value: AppliedStateValue,
     },
     /// Record that the key's value is unknown.
-    Invalidate { key: WriteOnlyState },
+    Invalidate { key: StateKey },
 }
 
 impl AppliedStateProjection {
-    pub(crate) fn set(key: WriteOnlyState, values: &[i64]) -> Result<Self, Error> {
+    pub(crate) fn set(key: StateKey, values: &[i64]) -> Result<Self, Error> {
         Ok(Self::Set {
             key,
             value: AppliedStateValue::new(values)?,
         })
     }
 
-    // Value-less clear used by the engine and owner tests; production preparation
-    // builds clears through `clear_with_values` (#636).
-    #[allow(dead_code)]
-    pub(crate) const fn clear(key: WriteOnlyState) -> Self {
+    // A value-less clear for engine tests; production preparation builds every
+    // clear with its discriminator through `clear_with_values`.
+    #[cfg(test)]
+    pub(crate) const fn clear(key: StateKey) -> Self {
         Self::Clear {
             key,
             value: AppliedStateValue {
@@ -359,29 +365,41 @@ impl AppliedStateProjection {
         }
     }
 
-    pub(crate) fn clear_with_values(key: WriteOnlyState, values: &[i64]) -> Result<Self, Error> {
+    pub(crate) fn clear_with_values(key: StateKey, values: &[i64]) -> Result<Self, Error> {
         Ok(Self::Clear {
             key,
             value: AppliedStateValue::new(values)?,
         })
     }
 
-    pub(crate) const fn invalidate(key: WriteOnlyState) -> Self {
+    pub(crate) const fn invalidate(key: StateKey) -> Self {
         Self::Invalidate { key }
     }
 
-    pub(crate) const fn state(self) -> WriteOnlyState {
+    pub(crate) const fn state(self) -> StateKey {
         match self {
             Self::Set { key, .. } | Self::Clear { key, .. } | Self::Invalidate { key } => key,
         }
     }
 
-    // Consumed by `runtime::owner::tests`; the applied-state observer facade is
-    // its production caller (#636).
-    #[allow(dead_code)]
+    /// Whether the effect leaves the state known; read by `runtime::owner::tests`.
+    #[cfg(test)]
     pub(crate) const fn is_known(self) -> bool {
         matches!(self, Self::Set { .. } | Self::Clear { .. })
     }
+}
+
+/// The two kinds of protocol work a camera serves independently.
+///
+/// Commands and inquiries are admitted, queued, paced and reported on
+/// separate lanes, and the raw stream ledger latches each lane of a camera
+/// separately (a `CompletionOnly` command's debt holds both).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Lane {
+    /// Commands: ACK-bearing, `CompletionOnly` and `NoReply` alike.
+    Command,
+    /// Inquiries.
+    Inquiry,
 }
 
 /// The engine's only two protocol execution classes.
@@ -400,6 +418,12 @@ pub(crate) enum RuntimeRequest {
 }
 
 impl RuntimeRequest {
+    pub(crate) fn context_mut(&mut self) -> &mut RequestContext {
+        match self {
+            Self::Command { context, .. } | Self::Inquiry { context, .. } => context,
+        }
+    }
+
     pub(crate) const fn context(&self) -> &RequestContext {
         match self {
             Self::Command { context, .. } | Self::Inquiry { context, .. } => context,
@@ -414,6 +438,14 @@ impl RuntimeRequest {
 
     pub(crate) const fn is_inquiry(&self) -> bool {
         matches!(self, Self::Inquiry { .. })
+    }
+
+    /// The lane this request is admitted, queued and reported on.
+    pub(crate) const fn lane(&self) -> Lane {
+        match self {
+            Self::Command { .. } => Lane::Command,
+            Self::Inquiry { .. } => Lane::Inquiry,
+        }
     }
 
     pub(crate) const fn inquiry_route(&self) -> Option<InquiryRoute> {
@@ -450,6 +482,33 @@ pub(crate) enum TransportKind {
 pub(crate) struct TargetPolicy {
     pub(crate) command_sockets: u8,
     pub(crate) cancellation: CancellationPolicy,
+    /// Admission slots reserved for this target's urgent typed STOPs, one
+    /// per STOP path its profile supports (D26, #778).
+    pub(crate) control_reserve: u8,
+}
+
+#[cfg(test)]
+impl TargetPolicy {
+    /// Shared test fixture: two command sockets, supported cancellation and
+    /// no control reserve. Tests override fields with `..TargetPolicy::test_default()`.
+    pub(crate) const fn test_default() -> Self {
+        Self {
+            command_sockets: 2,
+            cancellation: CancellationPolicy::Supported,
+            control_reserve: 0,
+        }
+    }
+}
+
+/// Which admission budget an entry holds (D26, #778).
+///
+/// Ordinary requests hold one of the session's `capacity` slots. An urgent
+/// typed STOP may instead hold one of its target's reserved slots, which
+/// ordinary work can never use.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum AdmissionSlot {
+    Ordinary,
+    ControlReserve,
 }
 
 /// Session-wide scheduling policy.
@@ -482,6 +541,28 @@ pub(crate) struct ProtocolPolicy {
     /// hard-fail than risk a subtle correlation error. This flag is meaningless
     /// for the Sony envelope, whose sequence correlation needs no raw hold.
     pub(crate) strict_unconfirmed_poison: bool,
+}
+
+#[cfg(test)]
+impl ProtocolPolicy {
+    /// Shared test fixture: a raw datagram policy with capacity 16, inquiry
+    /// capacity 8, no command or inquiry spacing, a 25 ms inquiry cooldown and
+    /// non-strict recovery. Tests override fields
+    /// with `..ProtocolPolicy::test_default()`.
+    pub(crate) const fn test_default() -> Self {
+        Self {
+            capacity: 16,
+            envelope: EnvelopeKind::Raw,
+            transport: TransportKind::Datagram,
+            inquiry_capacity: 8,
+            command_spacing: Duration::ZERO,
+            inquiry_spacing: Duration::ZERO,
+            inquiry_cooldown: Duration::from_millis(25),
+            raw_inquiry_release_hold: Duration::from_millis(50),
+            raw_release_grace: Duration::from_millis(100),
+            strict_unconfirmed_poison: false,
+        }
+    }
 }
 
 /// Identifies full-width and known-truncated Sony envelope correlation data.
@@ -556,15 +637,14 @@ impl RawCorrelationRelease {
         self.terminal_all
     }
 
-    // Queried by async/blocking retained-prefix integrations; engine-only
-    // feature combinations construct the scope but do not inspect it.
-    #[allow(dead_code)]
+    /// Test projection of the inquiry-unkeyed release.
+    #[cfg(test)]
     pub(crate) const fn inquiry_unkeyed(self) -> bool {
         self.inquiry_unkeyed
     }
 
-    // See `inquiry_unkeyed`: this remains part of the crate-private owner API.
-    #[allow(dead_code)]
+    /// Test projection of the pre-ACK-unkeyed release.
+    #[cfg(test)]
     pub(crate) const fn pre_ack_unkeyed(self) -> bool {
         self.pre_ack_unkeyed
     }
@@ -617,6 +697,16 @@ impl RawCorrelationReleaseSet {
 
     pub(super) fn for_target_mut(&mut self, target: CameraId) -> &mut RawCorrelationRelease {
         &mut self.targets[target.id() as usize]
+    }
+}
+
+#[cfg(all(test, any(feature = "async", feature = "blocking")))]
+impl RawCorrelationReleaseSet {
+    /// Add `target`'s broad terminal release, for owner arbitration tests that
+    /// need distinct non-empty sets without a running engine.
+    pub(crate) fn with_terminal_for_test(mut self, target: CameraId) -> Self {
+        self.for_target_mut(target).release_terminal_all();
+        self
     }
 }
 
@@ -721,8 +811,8 @@ pub(crate) enum IgnoreReason {
 
 /// Which of a request's own protocol deadlines expired.
 ///
-/// These are exactly the three deadlines 1.x counted as timeouts. Cancellation
-/// deadlines are deliberately not part of this vocabulary: they resolve the
+/// These are exactly the three deadlines that count as request timeouts.
+/// Cancellation deadlines are deliberately not part of this vocabulary: they resolve the
 /// separate cancellation lifecycle rather than the request's ordinary protocol
 /// progress, and they are already reported through
 /// [`Effect::CancellationObservation`].
@@ -746,9 +836,9 @@ pub(crate) enum RuntimeOutcome {
     Written,
     Applied,
     Reply {
-        // Reported to the owner's inquiry decoder; the blocking-only legs never read
-        // the route back out of the outcome (#636).
-        #[allow(dead_code)]
+        /// The route the reply frame was decoded with; `None` when it was
+        /// correlated without one. Only the protocol trace tests read it.
+        #[cfg(test)]
         route: Option<InquiryRoute>,
         payload: SmallVec<[u8; INLINE_BYTES]>,
     },
@@ -788,6 +878,7 @@ pub(crate) enum Input {
     Admit {
         ticket: AdmissionTicket,
         request: RuntimeRequest,
+        slot: AdmissionSlot,
     },
     TransmissionFinished {
         transmission: TransmissionId,
@@ -812,9 +903,9 @@ pub(crate) enum Input {
         error: Error,
     },
     Shutdown(ShutdownReason),
-    // A pure "re-evaluate deadlines now" input. The owners call `advance`
-    // directly; only `runtime::engine::tests` drives it as an input (#636).
-    #[allow(dead_code)]
+    /// A pure "re-evaluate deadlines now" input. The owners call `advance`
+    /// directly; only `runtime::engine::tests` drives it as an input.
+    #[cfg(test)]
     Wake,
 }
 
@@ -915,8 +1006,7 @@ pub(crate) enum Effect {
     /// the policy that motivated it: it is true exactly when the expiry produced
     /// a [`Effect::RetryScheduled`] for the same request. A subscriber therefore
     /// never has to infer the decision from a [`Effect::Transition`] plus the
-    /// absence of a retry, which is what 1.x's
-    /// `SchedulerAction::Timeout { will_retry }` carried directly.
+    /// absence of a retry: the event carries the decision directly.
     DeadlineExpired {
         id: RequestId,
         deadline: DeadlineKind,

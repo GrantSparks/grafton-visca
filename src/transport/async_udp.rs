@@ -1,21 +1,34 @@
-//! Generic async UDP transport implementation with zero-cost abstractions.
+//! Generic async UDP transport, written once for every async runtime.
 //!
-//! This module provides a runtime-agnostic UDP transport that works with any
-//! socket type implementing the AsyncDatagram trait.
+//! A runtime supplies a socket type implementing [`NetDatagram`]; connecting
+//! and the datagram receive policy of [`crate::transport::datagram`] are
+//! implemented here.
+
+use std::future::Future;
 
 use crate::{
     transport::{
-        async_io::AsyncDatagram, builder::TransportConfig, AddressingMode, AsyncTransport,
-        HasTransportConfig, ReceiveOutcome, SendSemantics,
+        async_connect::{self, AsyncNet},
+        async_io::AsyncDatagram,
+        builder::TransportConfig,
+        connect::preflight,
+        datagram::deliverable,
+        socket_options::UdpSocketConfig,
+        AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
     },
     Error,
 };
 
+/// A runtime's UDP socket as used by [`Udp`].
+pub trait NetDatagram: AsyncDatagram + Sized {
+    /// The runtime providing the connect primitives.
+    type Net: AsyncNet<UdpSocket = Self>;
+}
+
 /// Generic UDP transport for async VISCA communication.
 ///
-/// This transport uses native async functions without boxing and supports
-/// both IPv4 and IPv6 addresses. It works with any socket type implementing
-/// the AsyncDatagram trait (tokio, smol, etc.).
+/// This transport supports both IPv4 and IPv6 addresses and works with any
+/// socket type implementing [`AsyncDatagram`].
 #[derive(Debug)]
 pub struct Udp<S: AsyncDatagram> {
     socket: S,
@@ -51,6 +64,47 @@ impl<S: AsyncDatagram> Udp<S> {
     }
 }
 
+impl<S: NetDatagram> Udp<S> {
+    /// Connect to a UDP endpoint with [`TransportConfig::for_udp`].
+    ///
+    /// The socket binds the unspecified address of the target's family. The
+    /// address must include an explicit port; IPv6 literals must be bracketed.
+    pub async fn connect(address: &str) -> Result<Self, Error> {
+        Self::connect_with_config(address, TransportConfig::for_udp()).await
+    }
+
+    /// Connect with a full configuration.
+    ///
+    /// Name resolution and socket setup share `config.connect_timeout`. See
+    /// [`crate::transport::connect`] for the error contract shared with the
+    /// blocking connector.
+    pub async fn connect_with_config(
+        address: &str,
+        config: TransportConfig,
+    ) -> Result<Self, Error> {
+        let socket = Self::preflight_udp_setup(address, config, |endpoint, options| async move {
+            async_connect::connect_udp::<S::Net>(&endpoint, options).await
+        })
+        .await?;
+        Ok(Self::new(socket, config))
+    }
+
+    /// Run endpoint parsing and connector setup only after configuration
+    /// preflight.
+    pub(crate) async fn preflight_udp_setup<T, F, Fut>(
+        address: &str,
+        config: TransportConfig,
+        setup: F,
+    ) -> Result<T, Error>
+    where
+        F: FnOnce(String, UdpSocketConfig) -> Fut,
+        Fut: Future<Output = Result<T, Error>>,
+    {
+        let endpoint = preflight(address, &config)?;
+        setup(endpoint, config.into()).await
+    }
+}
+
 impl<S: AsyncDatagram> AsyncTransport for Udp<S> {
     async fn send(&mut self, data: &[u8]) -> Result<(), Error> {
         // Send directly - retry logic is handled at the runtime/scheduler level
@@ -58,35 +112,14 @@ impl<S: AsyncDatagram> AsyncTransport for Udp<S> {
         Ok(())
     }
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        match self.recv_into_with_outcome(dst).await? {
-            ReceiveOutcome::Complete { bytes } => Ok(bytes),
-            ReceiveOutcome::Truncated { .. } | ReceiveOutcome::PossiblyTruncated { .. } => {
-                Err(Error::ResponseTooLarge {
-                    max_size: dst.len(),
-                })
-            }
-        }
-    }
-
-    async fn recv_into_with_outcome(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
-        // An empty UDP datagram is a valid packet, but `Ok(0)` is reserved for
-        // stream EOF by the transport contract. Keep receiving until a packet
-        // with payload arrives or the socket reports an error.
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
+        // Empty datagrams are skipped (see `transport::datagram`), yielding
+        // before polling again. A non-complete outcome describes a datagram
+        // the socket already consumed: return it so the owner discards the
+        // whole datagram rather than decoding its prefix.
         loop {
-            let outcome = self.socket.recv_with_outcome(dst).await?;
-            let copied = outcome.copied_len();
-            if copied > dst.len() {
-                return Err(Error::InvalidResponse {
-                    expected: "datagram receive fitting the supplied buffer".into(),
-                    actual: copied.to_le_bytes().to_vec(),
-                });
-            }
-            // A non-complete result describes a datagram that the socket
-            // already consumed. Return it immediately so the owner rejects
-            // the whole datagram rather than treating its copied prefix as
-            // a valid VISCA frame.
-            if !outcome.is_complete() || copied > 0 {
+            let outcome = self.socket.recv(dst).await?;
+            if let Some(outcome) = deliverable(outcome, dst.len())? {
                 return Ok(outcome);
             }
             cooperative_yield().await;
@@ -135,11 +168,6 @@ mod tests {
         receives: ReceiveQueue,
     }
 
-    #[derive(Debug)]
-    struct LegacyDatagram {
-        payload: Vec<u8>,
-    }
-
     impl ScriptedDatagram {
         fn new(receives: impl IntoIterator<Item = Result<Vec<u8>, Error>>) -> Self {
             Self {
@@ -170,27 +198,8 @@ mod tests {
             ready(Ok(buf.len()))
         }
 
-        async fn recv(&self, buf: &mut [u8]) -> Result<usize, Error> {
-            Ok(self.receive(buf)?.copied_len())
-        }
-
-        async fn recv_with_outcome(&self, buf: &mut [u8]) -> Result<ReceiveOutcome, Error> {
+        async fn recv(&self, buf: &mut [u8]) -> Result<ReceiveOutcome, Error> {
             self.receive(buf)
-        }
-    }
-
-    // Deliberately implements only the original `recv` requirement. This is
-    // the source-compatible custom-socket shape; its exact-fill result must be
-    // treated conservatively until it adopts `recv_with_outcome`.
-    impl AsyncDatagram for LegacyDatagram {
-        fn send(&self, buf: &[u8]) -> impl Future<Output = Result<usize, Error>> + Send {
-            ready(Ok(buf.len()))
-        }
-
-        async fn recv(&self, buf: &mut [u8]) -> Result<usize, Error> {
-            let copied = self.payload.len().min(buf.len());
-            buf[..copied].copy_from_slice(&self.payload[..copied]);
-            Ok(copied)
         }
     }
 
@@ -225,8 +234,8 @@ mod tests {
 
         let received = block_on(transport.recv_into(&mut dst)).expect("valid datagram");
 
-        assert_eq!(received, 5);
-        assert_eq!(&dst[..received], b"valid");
+        assert_eq!(received, ReceiveOutcome::complete(5));
+        assert_eq!(&dst[..5], b"valid");
     }
 
     #[test]
@@ -244,7 +253,7 @@ mod tests {
             assert_eq!(counting_waker.wake_count(), 1);
 
             match receive.as_mut().poll(&mut context) {
-                Poll::Ready(Ok(received)) => received,
+                Poll::Ready(Ok(received)) => received.copied_len(),
                 other => panic!("expected valid datagram after cooperative yield, got {other:?}"),
             }
         };
@@ -268,7 +277,7 @@ mod tests {
             assert_eq!(counting_waker.wake_count(), 2);
 
             match receive.as_mut().poll(&mut context) {
-                Poll::Ready(Ok(received)) => received,
+                Poll::Ready(Ok(received)) => received.copied_len(),
                 other => panic!("expected valid datagram after cooperative yields, got {other:?}"),
             }
         };
@@ -282,9 +291,9 @@ mod tests {
         let mut transport = Udp::new(socket, TransportConfig::default());
         let mut dst = [0; 3];
 
-        let error = block_on(transport.recv_into(&mut dst)).expect_err("truncated datagram");
+        let truncated = block_on(transport.recv_into(&mut dst)).expect("consumed datagram");
 
-        assert!(matches!(error, Error::ResponseTooLarge { max_size: 3 }));
+        assert_eq!(truncated, ReceiveOutcome::truncated(3));
         assert_eq!(dst, [0x90, 0x41, 0xff]);
     }
 
@@ -296,21 +305,79 @@ mod tests {
 
         let received = block_on(transport.recv_into(&mut dst)).expect("exact-fit datagram");
 
-        assert_eq!(received, 3);
+        assert_eq!(received, ReceiveOutcome::complete(3));
         assert_eq!(dst, [0x90, 0x41, 0xff]);
     }
+}
 
+/// The OS truncation policy of every async runtime's UDP socket, run as one
+/// table through each runtime's `AsyncDatagram` implementation.
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod os_truncation {
+    use super::*;
+
+    /// (datagram, receive capacity, expected outcome)
+    const CASES: [(&[u8], usize, ReceiveOutcome); 2] = [
+        // A valid ACK prefix must not certify a larger datagram.
+        (
+            &[0x90, 0x41, 0xff, 0x00],
+            3,
+            ReceiveOutcome::Truncated { copied: 3 },
+        ),
+        // An exact-size datagram is complete.
+        (
+            &[0x90, 0x41, 0xff],
+            3,
+            ReceiveOutcome::Complete { bytes: 3 },
+        ),
+    ];
+
+    /// A connected receiver (non-blocking, for a runtime) and its sender.
+    fn std_pair() -> (std::net::UdpSocket, std::net::UdpSocket) {
+        let receiver = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind receiver");
+        let sender = std::net::UdpSocket::bind("127.0.0.1:0").expect("bind sender");
+        receiver
+            .connect(sender.local_addr().expect("sender address"))
+            .expect("connect receiver");
+        sender
+            .connect(receiver.local_addr().expect("receiver address"))
+            .expect("connect sender");
+        receiver
+            .set_nonblocking(true)
+            .expect("non-blocking receiver");
+        (receiver, sender)
+    }
+
+    async fn check<S: AsyncDatagram>(wrap: impl Fn(std::net::UdpSocket) -> S) {
+        for (datagram, capacity, expected) in CASES {
+            let (receiver, sender) = std_pair();
+            let receiver = wrap(receiver);
+            sender.send(datagram).expect("send datagram");
+            let mut destination = vec![0; capacity];
+            let outcome = receiver
+                .recv(&mut destination)
+                .await
+                .expect("receive datagram");
+            assert_eq!(outcome, expected, "datagram {datagram:02X?}");
+            assert_eq!(destination, datagram[..capacity]);
+        }
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    #[cfg_attr(miri, ignore = "requires loopback sockets")]
+    async fn tokio_udp_socket() {
+        check(|socket| tokio::net::UdpSocket::from_std(socket).expect("tokio socket")).await;
+    }
+
+    // smol's timer needs `timerfd_create`, which Miri does not implement (#585).
+    #[cfg(feature = "runtime-smol")]
     #[test]
-    fn legacy_datagram_implementation_fails_closed_on_an_exact_fill() {
-        let socket = LegacyDatagram {
-            payload: vec![0x90, 0x41, 0xff],
-        };
-        let mut transport = Udp::new(socket, TransportConfig::default());
-        let mut dst = [0; 3];
-
-        let error = block_on(transport.recv_into(&mut dst))
-            .expect_err("legacy datagram cannot certify an exact fit");
-
-        assert!(matches!(error, Error::ResponseTooLarge { max_size: 3 }));
+    #[cfg_attr(miri, ignore = "smol needs timerfd_create, unsupported by Miri (#585)")]
+    fn smol_udp_socket() {
+        smol::block_on(check(|socket| {
+            smol::net::UdpSocket::try_from(socket).expect("smol socket")
+        }));
     }
 }

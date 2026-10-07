@@ -7,7 +7,7 @@ use core::time::Duration;
 
 use crate::{
     command::CommandKind,
-    transport::{builder::TransportConfig, AddressingMode, SendSemantics},
+    transport::{builder::TransportConfig, AddressingMode, ReceiveOutcome, SendSemantics},
     Error,
 };
 
@@ -67,7 +67,7 @@ impl BlockingTransport for BlockingTransportHandle {
         &mut self,
         dst: &mut [u8],
         timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         match self {
             BlockingTransportHandle::Tcp(transport) => {
                 transport.recv_into_with_timeout(dst, timeout)
@@ -120,6 +120,15 @@ impl HasTransportConfig for BlockingTransportHandle {
             BlockingTransportHandle::Serial(_) => crate::camera::TransportKind::Serial,
         })
     }
+
+    fn addressed_bus(&self) -> Option<&AddressedBus> {
+        match self {
+            BlockingTransportHandle::Tcp(transport) => transport.addressed_bus(),
+            BlockingTransportHandle::Udp(transport) => transport.addressed_bus(),
+            #[cfg(feature = "transport-serial")]
+            BlockingTransportHandle::Serial(transport) => transport.addressed_bus(),
+        }
+    }
 }
 
 /// Blocking transport for VISCA communication.
@@ -150,9 +159,13 @@ impl HasTransportConfig for BlockingTransportHandle {
 ///         Ok(())
 ///     }
 ///
-///     fn recv_into_with_timeout(&mut self, dst: &mut [u8], timeout: Duration) -> Result<usize, Error> {
+///     fn recv_into_with_timeout(
+///         &mut self,
+///         dst: &mut [u8],
+///         timeout: Duration,
+///     ) -> Result<ReceiveOutcome, Error> {
 ///         // Receive implementation bounded by `timeout`.
-///         Err(Error::Timeout)
+///         Err(Error::io_timeout())
 ///     }
 /// }
 /// ```
@@ -163,7 +176,7 @@ pub trait BlockingTransport: Send {
     /// known, or `timeout` expires. Implementations must arrange an OS/device
     /// write timeout or an equivalent bounded operation; the blocking owner
     /// cannot safely preempt an arbitrary synchronous implementation. Report
-    /// expiry as [`Error::Timeout`]. The [`CommandKind`] is used for proper
+    /// expiry as [`Error::io_timeout`]. The [`CommandKind`] is used for proper
     /// protocol framing (for example, Sony encapsulation).
     ///
     /// # Arguments
@@ -196,17 +209,41 @@ pub trait BlockingTransport: Send {
         timeout: Duration,
     ) -> Result<(), Error>;
 
-    /// Read raw bytes with a timeout (blocking).
+    /// Read raw bytes with a timeout (blocking), reporting whether everything
+    /// received fitted in `dst`.
     ///
     /// This method must block until some data is available, an error is known,
     /// or `timeout` expires. Implementations must use an OS/device timeout or
     /// an equivalent bounded operation; they must not synthesize an immediate
-    /// idle result for a positive timeout. Report expiry as [`Error::Timeout`].
+    /// idle result for a positive timeout. Report expiry as [`Error::io_timeout`].
     ///
     /// # Arguments
     ///
     /// * `dst` - The buffer to read data into
     /// * `timeout` - Maximum time to wait for data
+    ///
+    /// # Receive outcome
+    ///
+    /// The [`ReceiveOutcome`] is the transport's own statement about what it
+    /// copied; the runtime never infers it from the byte count, and applies
+    /// the same rule as the async facade's receive.
+    ///
+    /// - A byte stream always reports [`ReceiveOutcome::complete`]: a short
+    ///   read is routine and the runtime buffers the remainder.
+    /// - A datagram transport reports [`ReceiveOutcome::complete`] only when
+    ///   the whole datagram fitted, [`ReceiveOutcome::truncated`] when its OS
+    ///   reported a discarded tail, and [`ReceiveOutcome::possibly_truncated`]
+    ///   when it filled `dst` and cannot tell. The runtime discards a datagram
+    ///   that is not complete as one malformed input and keeps the session; it
+    ///   never decodes its prefix. A byte stream that reports one ends the
+    ///   session, because bytes it consumed were lost.
+    /// - A datagram transport never reports zero bytes for an empty datagram
+    ///   (zero bytes is end of stream): it skips the empty datagram and keeps
+    ///   reading within the same deadline. One that reports
+    ///   [`ReceiveOutcome::possibly_truncated`] for every exact fill needs a
+    ///   `recv_buffer_size` of at least
+    ///   [`BufferConfig::MIN_RECV_BUFFER_SIZE`](crate::transport::BufferConfig::MIN_RECV_BUFFER_SIZE)
+    ///   ` + 1`; see [`ReceiveOutcome`].
     ///
     /// # Error contract
     ///
@@ -215,26 +252,23 @@ pub trait BlockingTransport: Send {
     /// retransmitted. A failed read must consume nothing, so that the runtime's
     /// framing state stays intact.
     ///
-    /// - `Ok(n)` with `n > 0` — bytes were read. Returning fewer bytes than a
-    ///   whole frame is normal and is not an error; the runtime buffers the
-    ///   remainder until a later read completes the frame.
-    /// - `Ok(0)` — end of stream: the peer closed. The runtime ends the session
-    ///   with [`Error::ConnectionClosed`]. Never return `Ok(0)` to mean "no data
-    ///   yet"; that is the one signal reserved for EOF.
-    /// - `Err(Error::Timeout)` — `timeout` expired and no bytes arrived. The
+    /// - `Ok(outcome)` with a non-zero [`ReceiveOutcome::copied_len`] — bytes
+    ///   were read. Returning fewer bytes than a whole frame is normal and is
+    ///   not an error.
+    /// - `Ok(ReceiveOutcome::complete(0))` — end of stream: the peer closed.
+    ///   The runtime ends the session with [`Error::ConnectionClosed`]. Never
+    ///   report zero bytes to mean "no data yet"; that is the one signal
+    ///   reserved for EOF.
+    /// - `Err(Error::io_timeout())` — `timeout` expired and no bytes arrived. The
     ///   runtime treats it as "no data": the session lives, framing state is
     ///   untouched, and no request's retry budget is spent. The raw I/O
     ///   spellings [`std::io::ErrorKind::WouldBlock`] and
     ///   [`std::io::ErrorKind::Interrupted`] wrapped in [`Error::Io`] are
-    ///   normalized to the same meaning. Use `Error::Timeout`, not a raw
+    ///   normalized to the same meaning. Any [`Error::Timeout`] is read the same
+    ///   way. Use [`Error::io_timeout`], not a raw
     ///   [`std::io::ErrorKind::TimedOut`], for an application-owned idle timer:
     ///   a connected TCP socket can report the latter when OS keepalive
     ///   exhausts, and the runtime treats that as session death.
-    /// - `Err(Error::ResponseTooLarge)` from a datagram transport — one
-    ///   oversized datagram was consumed and its copied prefix must be
-    ///   discarded before framing. The owner keeps the session running and
-    ///   accepts the next datagram. Custom datagram transports should use this
-    ///   spelling only for an already-consumed packet.
     /// - A session-fatal error — any error for which
     ///   [`Error::requires_new_session`] is true, plus [`Error::Io`] carrying
     ///   `TimedOut`, `ConnectionReset`, `ConnectionAborted`, `BrokenPipe`,
@@ -254,14 +288,11 @@ pub trait BlockingTransport: Send {
     ///   no sequence key, so it is left to its own ACK deadline and is never
     ///   replayed merely because of this fault. Do not use this class for idle
     ///   timeouts.
-    ///
-    /// # Returns
-    ///
-    /// * `Ok(n)` - Number of bytes read (0 = EOF)
-    /// * `Err(Error::Timeout)` - If the timeout expires
-    /// * `Err(_)` - For other transport errors
-    fn recv_into_with_timeout(&mut self, dst: &mut [u8], timeout: Duration)
-        -> Result<usize, Error>;
+    fn recv_into_with_timeout(
+        &mut self,
+        dst: &mut [u8],
+        timeout: Duration,
+    ) -> Result<ReceiveOutcome, Error>;
 
     /// Return a side-effect-free hint for the transport's VISCA addressing mode.
     ///
@@ -312,6 +343,28 @@ pub trait BlockingTransport: Send {
     }
 }
 
+/// The outcome of serial Address Set on one bus: the port and the number of
+/// cameras the chain reported, which then hold addresses `1..=cameras`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct AddressedBus {
+    /// The serial port path the bus is attached to.
+    pub port: String,
+    /// The number of cameras Address Set addressed.
+    pub cameras: u8,
+}
+
+impl AddressedBus {
+    /// Reports that Address Set on `port` addressed `cameras` cameras.
+    #[must_use]
+    pub fn new(port: impl Into<String>, cameras: u8) -> Self {
+        Self {
+            port: port.into(),
+            cameras,
+        }
+    }
+}
+
 /// Trait for types that carry transport configuration.
 ///
 /// This trait provides a unified interface for accessing the transport configuration
@@ -340,6 +393,24 @@ pub trait HasTransportConfig {
     fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
         None
     }
+
+    /// The serial bus this transport addressed with Address Set while
+    /// opening, if it did.
+    ///
+    /// Address Set assigns addresses `1..=n` along the daisy chain. Every
+    /// `Session::open` (blocking and async) checks each registered target
+    /// against this report before any protocol I/O: a target the chain did
+    /// not address fails the open with [`crate::Error::ConnectionFailed`]
+    /// naming the port, whose `NotFound` source names the camera. Cameras
+    /// beyond the registered ones are allowed. `None` (the default, and every
+    /// IP or custom transport) means no bus addressing ran and nothing is
+    /// checked.
+    ///
+    /// A transport that wraps another must forward this method, as it
+    /// forwards [`HasTransportConfig::transport_config`].
+    fn addressed_bus(&self) -> Option<&AddressedBus> {
+        None
+    }
 }
 
 // Blanket implementation for references, enabling HRTB bounds like `for<'a> &'a T: HasTransportConfig`
@@ -352,5 +423,10 @@ impl<T: HasTransportConfig + ?Sized> HasTransportConfig for &T {
     #[inline]
     fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
         (*self).standard_transport_kind()
+    }
+
+    #[inline]
+    fn addressed_bus(&self) -> Option<&AddressedBus> {
+        (*self).addressed_bus()
     }
 }

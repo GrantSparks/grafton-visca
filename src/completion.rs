@@ -46,10 +46,6 @@ pub trait Kind: private::Sealed + Send + Sync + 'static {
 /// state in public handles.
 #[doc(hidden)]
 #[derive(Debug)]
-#[cfg_attr(
-    not(any(feature = "async", feature = "blocking", test)),
-    allow(dead_code)
-)]
 pub struct Settlement<K>
 where
     K: Kind,
@@ -62,10 +58,6 @@ where
 // settlement plan. The owner deliberately keeps the plan inert and inline.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
-#[cfg_attr(
-    not(any(feature = "async", feature = "blocking", test)),
-    allow(dead_code)
-)]
 enum LoweredPlan {
     Targeted(TargetedSettlementPlan),
     AppliedOnly(AppliedOnlySettlementPlan),
@@ -92,10 +84,12 @@ impl Settlement<Targeted> {
         }
     }
 
+    /// The prepared settlement plan. Borrowed, so a settlement wait that is
+    /// abandoned or times out can be restarted on the same handle (#777).
     #[cfg(any(feature = "async", feature = "blocking", test))]
-    pub(crate) fn into_plan(self) -> Result<TargetedSettlementPlan> {
-        match self.plan {
-            LoweredPlan::Targeted(plan) => Ok(plan),
+    pub(crate) fn plan(&self) -> Result<&crate::prepared::SettlementPlan> {
+        match &self.plan {
+            LoweredPlan::Targeted(plan) => Ok(&plan.inner),
             LoweredPlan::AppliedOnly(_) => Err(crate::Error::InvalidState(
                 "targeted settlement was lowered as applied-only".into(),
             )),
@@ -130,17 +124,9 @@ impl core::fmt::Debug for TargetedSettlementPlan {
     }
 }
 
-#[cfg_attr(
-    not(any(feature = "async", feature = "blocking", test)),
-    allow(dead_code)
-)]
 impl TargetedSettlementPlan {
     pub(crate) fn new(inner: crate::prepared::SettlementPlan) -> Self {
         Self { inner }
-    }
-
-    pub(crate) fn into_inner(self) -> crate::prepared::SettlementPlan {
-        self.inner
     }
 }
 

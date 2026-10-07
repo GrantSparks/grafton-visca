@@ -1,8 +1,9 @@
-//! Issue #561: blocking submission behavior at the first-write boundary.
+//! Issue #561: blocking submission queues behind busy sockets.
 //!
-//! Public blocking operation handles are returned only after their own first
-//! write succeeds. A request that loses the socket race is terminalized as
-//! `TransportBusy`; ordinary owner receipts still retain bounded queueing.
+//! A blocking operation handle is returned once the owner has admitted the
+//! request (D24). A request that finds every socket busy stays queued and is
+//! written when one frees; a transport write failure is reported through the
+//! operation's own outcome.
 
 #![cfg(feature = "blocking")]
 
@@ -10,106 +11,45 @@
 mod profile_fixtures;
 
 use std::{
-    collections::VecDeque,
     num::NonZeroUsize,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+
+use fake_camera::{frames, Answer, FakeCamera, FOCUS_STOP, ZOOM_STOP};
 use grafton_visca::{
     blocking::{Session, SessionConfig},
-    command::CommandKind,
     completion::AppliedOnly,
     profile::ProfileSpec,
     profiles::SonyFR7,
     request::builtin::{FocusStop, PanTiltStop, ZoomStop},
-    transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
     types::{PanSpeed, TiltSpeed},
     Error, OperationalTuning,
 };
 
-use profile_fixtures::NonDefaultCompileTimeProfile;
+use profile_fixtures::{session_config, sony_session_config, NonDefaultCompileTimeProfile};
 
-const ZOOM_STOP: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x00, 0xff];
-const FOCUS_STOP: &[u8] = &[0x81, 0x01, 0x04, 0x08, 0x00, 0xff];
 const PAN_TILT_STOP_PREFIX: &[u8] = &[0x81, 0x01, 0x06, 0x01];
+
+/// Queue an ACK and a completion on alternating sockets 1 and 2, the way a
+/// two-socket camera answers each accepted command in write order.
+fn answer_on_alternating_sockets(next_socket: &mut u8, answer: &mut Answer) {
+    let socket = (*next_socket % 2) + 1;
+    *next_socket = next_socket.wrapping_add(1);
+    answer
+        .reply(frames::ack(socket))
+        .reply(frames::complete(socket));
+}
 
 /// A two-socket camera: every accepted command is answered with an ACK and a
 /// completion on alternating sockets, in the order the commands were written.
-#[derive(Debug)]
-struct TwoSocketTransport {
-    config: TransportConfig,
-    responses: VecDeque<Vec<u8>>,
-    writes: Arc<Mutex<Vec<Vec<u8>>>>,
-    next_socket: u8,
-    sony: bool,
-}
-
-impl TwoSocketTransport {
-    fn new(config: TransportConfig) -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
-        let writes = Arc::new(Mutex::new(Vec::new()));
-        (
-            Self {
-                config,
-                responses: VecDeque::new(),
-                writes: Arc::clone(&writes),
-                next_socket: 0,
-                sony: false,
-            },
-            writes,
-        )
-    }
-
-    fn with_sony(mut self) -> Self {
-        self.sony = true;
-        self
-    }
-}
-
-impl HasTransportConfig for TwoSocketTransport {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
-}
-
-impl BlockingTransport for TwoSocketTransport {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
-        self.writes
-            .lock()
-            .expect("writes lock")
-            .push(bytes.to_vec());
-        let socket = (self.next_socket % 2) + 1;
-        self.next_socket = self.next_socket.wrapping_add(1);
-        let ack = vec![0x90, 0x40 | socket, 0xff];
-        let completion = vec![0x90, 0x50 | socket, 0xff];
-        if self.sony {
-            self.responses.push_back(sony_reply(bytes, &ack));
-            self.responses.push_back(sony_reply(bytes, &completion));
-        } else {
-            self.responses.push_back(ack);
-            self.responses.push_back(completion);
-        }
-        Ok(())
-    }
-
-    fn recv_into_with_timeout(
-        &mut self,
-        dst: &mut [u8],
-        _timeout: Duration,
-    ) -> Result<usize, Error> {
-        let response = self.responses.pop_front().ok_or(Error::Timeout)?;
-        dst[..response.len()].copy_from_slice(&response);
-        Ok(response.len())
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
-    }
+/// Replies follow the framing of each request.
+fn two_socket_camera() -> FakeCamera {
+    let mut next_socket = 0_u8;
+    FakeCamera::visca(move |_, answer| answer_on_alternating_sockets(&mut next_socket, answer))
 }
 
 fn pan_tilt_stop() -> PanTiltStop {
@@ -119,439 +59,157 @@ fn pan_tilt_stop() -> PanTiltStop {
     )
 }
 
-fn session_config() -> SessionConfig {
-    SessionConfig::new(
-        ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
-            .expect("two-socket runtime profile"),
-    )
-}
-
-fn sony_session_config() -> SessionConfig {
-    SessionConfig::new(ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile"))
-}
-
-fn sony_reply(request: &[u8], payload: &[u8]) -> Vec<u8> {
-    assert!(
-        request.len() >= 8,
-        "Sony request must carry its sequence header"
-    );
-    let mut response = Vec::with_capacity(8 + payload.len());
-    response.extend_from_slice(&[0x01, 0x11]);
-    response.extend_from_slice(
-        &u16::try_from(payload.len())
-            .expect("Sony reply payload length")
-            .to_be_bytes(),
-    );
-    response.extend_from_slice(&request[4..8]);
-    response.extend_from_slice(payload);
-    response
-}
-
-fn sony_payload(frame: &[u8]) -> &[u8] {
-    assert!(
-        frame.len() >= 8,
-        "Sony write must carry its sequence header"
-    );
-    &frame[8..]
-}
-
-fn written(writes: &Arc<Mutex<Vec<Vec<u8>>>>) -> Vec<Vec<u8>> {
-    writes.lock().expect("writes lock").clone()
-}
-
 const FIRST_WRITE_ERROR: &str = "distinctive first-write transport failure";
 
-/// Shared observations for transports whose ownership moves into `Session`.
-/// `attempts` includes failed writes; `writes` contains only sends accepted by
-/// the transport, and `reads` counts receive calls. Keeping those distinctions
-/// lets the public blocking tests assert the exact first-write boundary.
-#[derive(Clone, Debug)]
-struct IoProbe {
-    attempts: Arc<Mutex<Vec<Vec<u8>>>>,
-    writes: Arc<Mutex<Vec<Vec<u8>>>>,
-    reads: Arc<Mutex<usize>>,
+/// The sends a camera accepted, as opposed to every attempted send (which is
+/// `FakeCamera::writes`). A failed send accepts no bytes.
+type AcceptedWrites = Arc<Mutex<Vec<Vec<u8>>>>;
+
+fn accepted_count(accepted: &AcceptedWrites) -> usize {
+    accepted.lock().expect("accepted lock").len()
 }
 
-impl IoProbe {
-    fn new() -> Self {
-        Self {
-            attempts: Arc::new(Mutex::new(Vec::new())),
-            writes: Arc::new(Mutex::new(Vec::new())),
-            reads: Arc::new(Mutex::new(0)),
+/// A datagram camera whose first send fails before accepting bytes, then
+/// recovers for a later submission. The camera records attempted sends and
+/// `accepted` records the successful ones, so an operation cannot hide a failed
+/// first write as a no-write path.
+fn first_write_failure_camera() -> (FakeCamera, AcceptedWrites) {
+    let accepted = AcceptedWrites::default();
+    let log = Arc::clone(&accepted);
+    let mut sends = 0_usize;
+    let mut next_socket = 0_u8;
+    let camera = FakeCamera::new(move |write, answer| {
+        sends = sends.saturating_add(1);
+        if sends == 1 {
+            answer.fail_send(Error::TransportError(FIRST_WRITE_ERROR.into()));
+            return;
         }
-    }
-
-    fn attempts(&self) -> Vec<Vec<u8>> {
-        self.attempts.lock().expect("attempts lock").clone()
-    }
-
-    fn writes(&self) -> Vec<Vec<u8>> {
-        self.writes.lock().expect("writes lock").clone()
-    }
-
-    fn reads(&self) -> usize {
-        *self.reads.lock().expect("reads lock")
-    }
+        log.lock().expect("accepted lock").push(write.to_vec());
+        answer_on_alternating_sockets(&mut next_socket, answer);
+    });
+    (camera, accepted)
 }
 
-/// A datagram transport whose first send fails before accepting bytes, then
-/// recovers for a later submission. It records attempted and successful sends
-/// separately so an operation cannot hide a failed first write as a no-write
-/// path.
-#[derive(Debug)]
-struct FirstWriteFailureTransport {
-    config: TransportConfig,
-    responses: VecDeque<Vec<u8>>,
-    probe: IoProbe,
-    sends: usize,
-    next_socket: u8,
-}
-
-impl FirstWriteFailureTransport {
-    fn new(config: TransportConfig) -> (Self, IoProbe) {
-        let probe = IoProbe::new();
-        (
-            Self {
-                config,
-                responses: VecDeque::new(),
-                probe: probe.clone(),
-                sends: 0,
-                next_socket: 0,
-            },
-            probe,
-        )
-    }
-
-    fn queue_reply(&mut self) {
-        let socket = (self.next_socket % 2) + 1;
-        self.next_socket = self.next_socket.wrapping_add(1);
-        self.responses.push_back(vec![0x90, 0x40 | socket, 0xff]);
-        self.responses.push_back(vec![0x90, 0x50 | socket, 0xff]);
-    }
-}
-
-impl HasTransportConfig for FirstWriteFailureTransport {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
-}
-
-impl BlockingTransport for FirstWriteFailureTransport {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
-        self.sends = self.sends.saturating_add(1);
-        self.probe
-            .attempts
-            .lock()
-            .expect("attempts lock")
-            .push(bytes.to_vec());
-        if self.sends == 1 {
-            return Err(Error::TransportError(FIRST_WRITE_ERROR.into()));
-        }
-        self.probe
-            .writes
-            .lock()
-            .expect("writes lock")
-            .push(bytes.to_vec());
-        self.queue_reply();
-        Ok(())
-    }
-
-    fn recv_into_with_timeout(
-        &mut self,
-        dst: &mut [u8],
-        _timeout: Duration,
-    ) -> Result<usize, Error> {
-        *self.probe.reads.lock().expect("reads lock") += 1;
-        let response = self.responses.pop_front().ok_or(Error::Timeout)?;
-        dst[..response.len()].copy_from_slice(&response);
-        Ok(response.len())
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
-    }
-}
-
-/// A datagram transport with a small independent pacing guard. The profile
-/// used by the pacing test requires a longer interval, so a skipped profile
-/// wait is rejected by this transport without relying on a wall-clock lower
-/// bound assertion in the test itself.
-#[derive(Debug)]
-struct PacingTransport {
-    config: TransportConfig,
-    responses: VecDeque<Vec<u8>>,
-    probe: IoProbe,
-    minimum_spacing: Duration,
-    next_eligible: Option<Instant>,
-    next_socket: u8,
-    sony: bool,
-}
-
-impl PacingTransport {
-    fn new(minimum_spacing: Duration) -> (Self, IoProbe) {
-        let probe = IoProbe::new();
-        (
-            Self {
-                config: TransportConfig::default(),
-                responses: VecDeque::new(),
-                probe: probe.clone(),
-                minimum_spacing,
-                next_eligible: None,
-                next_socket: 0,
-                sony: false,
-            },
-            probe,
-        )
-    }
-
-    fn with_sony(mut self) -> Self {
-        self.sony = true;
-        self
-    }
-
-    fn queue_reply(&mut self, request: &[u8]) {
-        let socket = (self.next_socket % 2) + 1;
-        self.next_socket = self.next_socket.wrapping_add(1);
-        let ack = vec![0x90, 0x40 | socket, 0xff];
-        let completion = vec![0x90, 0x50 | socket, 0xff];
-        if self.sony {
-            self.responses.push_back(sony_reply(request, &ack));
-            self.responses.push_back(sony_reply(request, &completion));
-        } else {
-            self.responses.push_back(ack);
-            self.responses.push_back(completion);
-        }
-    }
-}
-
-impl HasTransportConfig for PacingTransport {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
-}
-
-impl BlockingTransport for PacingTransport {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
+/// A datagram camera with a small independent pacing guard. The profile used
+/// by the pacing test requires a longer interval, so a skipped profile wait is
+/// rejected by this camera without relying on a wall-clock lower bound
+/// assertion in the test itself. Replies follow the framing of each request.
+fn pacing_camera(minimum_spacing: Duration) -> (FakeCamera, AcceptedWrites) {
+    let accepted = AcceptedWrites::default();
+    let log = Arc::clone(&accepted);
+    let mut next_eligible: Option<Instant> = None;
+    let mut next_socket = 0_u8;
+    let camera = FakeCamera::visca(move |write, answer| {
         let now = Instant::now();
-        self.probe
-            .attempts
-            .lock()
-            .expect("attempts lock")
-            .push(bytes.to_vec());
-        if self.next_eligible.is_some_and(|eligible| now < eligible) {
-            return Err(Error::TransportError("transport pacing violation".into()));
+        if next_eligible.is_some_and(|eligible| now < eligible) {
+            answer.fail_send(Error::TransportError("transport pacing violation".into()));
+            return;
         }
-        self.probe
-            .writes
-            .lock()
-            .expect("writes lock")
-            .push(bytes.to_vec());
-        self.next_eligible = Some(now + self.minimum_spacing);
-        self.queue_reply(bytes);
-        Ok(())
-    }
-
-    fn recv_into_with_timeout(
-        &mut self,
-        dst: &mut [u8],
-        _timeout: Duration,
-    ) -> Result<usize, Error> {
-        *self.probe.reads.lock().expect("reads lock") += 1;
-        let response = self.responses.pop_front().ok_or(Error::Timeout)?;
-        dst[..response.len()].copy_from_slice(&response);
-        Ok(response.len())
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
-    }
+        log.lock().expect("accepted lock").push(write.to_vec());
+        next_eligible = Some(now + minimum_spacing);
+        answer_on_alternating_sockets(&mut next_socket, answer);
+    });
+    (camera, accepted)
 }
 
-/// A third public operation over a two-socket target is rejected immediately,
-/// without a write or an escaped handle. Once the first operation completes,
-/// the caller can resubmit successfully.
+/// A third public operation over a two-socket target is admitted and queued
+/// while both sockets are busy, then written once one frees. Nothing is
+/// rejected and nothing is written twice.
 #[test]
-fn third_blocking_operation_rejects_until_a_socket_frees() {
-    let (transport, writes) = TwoSocketTransport::new(TransportConfig::default());
+fn a_third_operation_queues_until_a_socket_frees() {
+    let fake = two_socket_camera();
     let session =
-        Session::open(transport.with_sony(), sony_session_config()).expect("owner session");
+        Session::open(fake.blocking_wire(), sony_session_config()).expect("owner session");
     let camera = session.camera::<SonyFR7>().expect("camera view");
 
-    let first = camera
+    let mut first = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .expect("first submission");
-    let second = camera
+    let mut second = camera
         .submit::<AppliedOnly, _>(&FocusStop)
         .expect("second submission");
-    let error = camera
+    let mut third = camera
         .submit::<AppliedOnly, _>(&pan_tilt_stop())
-        .expect_err("issue #542: a third operation must not queue before first write");
-    assert!(matches!(error, Error::TransportBusy));
-
-    let before = written(&writes);
-    assert_eq!(
-        before.len(),
-        2,
-        "only the two successful operation submissions may write"
-    );
-    assert_eq!(sony_payload(&before[0]), ZOOM_STOP);
-    assert_eq!(sony_payload(&before[1]), FOCUS_STOP);
-
-    let metrics = session
-        .metrics()
-        .expect("metrics after first-write rejection");
-    assert_eq!(metrics.admitted, 3);
-    assert_eq!(metrics.terminal, 1);
-    assert_eq!(metrics.active, 2);
-    assert_eq!(metrics.pending, 0);
-    assert_eq!(metrics.writes, 2);
+        .expect("a third operation is admitted and queued");
 
     first.applied().expect("first operation applied");
-    let replacement = camera
-        .submit::<AppliedOnly, _>(&pan_tilt_stop())
-        .expect("a resubmission after a socket frees must write");
-    let drained = written(&writes);
-    assert_eq!(
-        drained.len(),
-        3,
-        "the replacement request writes exactly once"
-    );
-    assert!(sony_payload(&drained[2]).starts_with(PAN_TILT_STOP_PREFIX));
-
     second.applied().expect("second operation applied");
-    replacement
-        .applied()
-        .expect("replacement operation applied");
+    third.applied().expect("queued operation applied");
 
-    assert_eq!(written(&writes).len(), 3, "nothing is written twice");
-    session.shutdown().expect("owner shutdown");
-}
-
-/// A first-write rejection releases the shared admission permit. Repeating
-/// the attempt therefore remains a `TransportBusy` rejection rather than
-/// turning into a queue-depth rejection, and the original operations remain
-/// observable.
-#[test]
-fn first_write_rejection_releases_admission_capacity() {
-    let config = sony_session_config()
-        .with_admission_capacity(NonZeroUsize::new(3).expect("non-zero queue depth"));
-    let (transport, writes) = TwoSocketTransport::new(TransportConfig::default());
-    let session = Session::open(transport.with_sony(), config).expect("owner session");
-    let camera = session.camera::<SonyFR7>().expect("camera view");
-
-    let first = camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
-        .expect("first submission");
-    let second = camera
-        .submit::<AppliedOnly, _>(&FocusStop)
-        .expect("second submission");
-
-    let error = camera
-        .submit::<AppliedOnly, _>(&pan_tilt_stop())
-        .expect_err("the third operation must reject while both sockets are occupied");
     assert!(
-        matches!(error, Error::TransportBusy),
-        "expected a first-write rejection, got {error:?}"
+        fake.writes()
+            .iter()
+            .all(|write| frames::sony_split(write).is_some()),
+        "every Sony write carries its sequence envelope"
     );
-    assert_eq!(
-        written(&writes).len(),
-        2,
-        "a first-write rejection never writes"
-    );
+    let written = fake.take_payloads();
+    assert_eq!(written.len(), 3, "each operation writes exactly once");
+    assert_eq!(written[0], ZOOM_STOP);
+    assert_eq!(written[1], FOCUS_STOP);
+    assert!(written[2].starts_with(PAN_TILT_STOP_PREFIX));
 
-    let repeated = camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
-        .expect_err("the released permit must not be mistaken for a writable socket");
-    assert!(matches!(repeated, Error::TransportBusy));
-    assert_eq!(written(&writes).len(), 2);
-
-    first.applied().expect("first operation applied");
-    second.applied().expect("second operation applied");
-
-    // With the sockets and permits released, the same operation is admitted
-    // and written normally.
-    camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
-        .expect("capacity is released by terminal operations")
-        .applied()
-        .expect("re-admitted operation applied");
-
+    let metrics = session.metrics().expect("metrics");
+    assert_eq!(metrics.admitted, 3);
+    assert_eq!(metrics.terminal, 3);
+    assert_eq!(metrics.active, 0);
     session.shutdown().expect("owner shutdown");
 }
 
-/// The same invariant holds when a target is tuned to one command socket: a
-/// second operation rejects without writing, and a later resubmission works
-/// once the first operation reaches its terminal outcome.
+/// The same holds when a target is tuned to one command socket: the second
+/// operation waits in the owner's queue and is written only after the first
+/// one completes.
 #[test]
-fn one_socket_operation_rejection_is_immediate_and_retryable() {
-    let config = session_config()
-        .with_tuning(OperationalTuning::new().maximum_command_sockets(1))
-        .expect("one socket is within the profile limit");
-    let (transport, writes) = TwoSocketTransport::new(TransportConfig::default());
-    let session = Session::open(transport, config).expect("owner session");
+fn a_one_socket_target_queues_the_second_operation() {
+    let config = session_config().with_tuning(OperationalTuning::new().maximum_command_sockets(1));
+    let fake = two_socket_camera();
+    let session = Session::open(fake.blocking_wire(), config).expect("owner session");
     let camera = session
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
 
-    let first = camera
+    let mut first = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .expect("first operation");
-    let error = camera
+    let mut second = camera
         .submit::<AppliedOnly, _>(&FocusStop)
-        .expect_err("the second operation must not wait for the one socket");
-    assert!(matches!(error, Error::TransportBusy));
-    assert_eq!(written(&writes).len(), 1);
-
+        .expect("the second operation is admitted while the one socket is busy");
     first.applied().expect("first operation applied");
-    let replacement = camera
-        .submit::<AppliedOnly, _>(&FocusStop)
-        .expect("resubmission after the socket frees");
-    assert_eq!(written(&writes).len(), 2);
-    replacement
-        .applied()
-        .expect("replacement operation applied");
+    second.applied().expect("queued operation applied");
+    assert_eq!(fake.writes(), [ZOOM_STOP.to_vec(), FOCUS_STOP.to_vec()]);
     session.shutdown().expect("owner shutdown");
 }
 
-/// A typed operation that fails during its first datagram send returns that
-/// exact transport error without manufacturing a handle. The terminalized
-/// entry releases its shared permit, so a one-slot session can immediately
-/// admit and complete a later operation.
+/// A typed operation whose datagram send fails is still admitted; the exact
+/// transport error is its outcome (D24). The terminalized entry releases its
+/// shared permit, so a one-slot session can immediately admit and complete a
+/// later operation.
 #[test]
-fn typed_operation_first_write_failure_returns_exact_error_and_releases_permit() {
+fn a_failed_operation_write_is_its_outcome_and_releases_the_permit() {
     let config =
         session_config().with_admission_capacity(NonZeroUsize::new(1).expect("one permit"));
-    let (transport, probe) = FirstWriteFailureTransport::new(TransportConfig::default());
-    let session = Session::open(transport, config).expect("owner session");
+    let (fake, accepted) = first_write_failure_camera();
+    let session = Session::open(fake.blocking_wire(), config).expect("owner session");
     let camera = session
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
 
     let error = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
-        .expect_err("a failed first write must not return an operation handle");
+        .expect("submission succeeds at admission")
+        .applied()
+        .expect_err("the failed write is the operation's outcome");
     match &error {
         Error::TransportError(reason) => assert_eq!(reason.as_ref(), FIRST_WRITE_ERROR),
-        other => panic!("expected the exact first-write transport error, got {other:?}"),
+        other => panic!("expected the exact transport error, got {other:?}"),
     }
-    assert!(!matches!(error, Error::TransportBusy));
-    assert_eq!(probe.attempts().len(), 1, "the failed operation tried once");
-    assert!(
-        probe.writes().is_empty(),
+    assert_eq!(fake.write_count(), 1, "the failed operation tried once");
+    assert_eq!(
+        accepted_count(&accepted),
+        0,
         "the failed send accepted no bytes"
     );
 
-    let metrics = session.metrics().expect("metrics after failed first write");
+    let metrics = session.metrics().expect("metrics after failed write");
     assert_eq!(metrics.admitted, 1);
     assert_eq!(metrics.terminal, 1);
     assert_eq!(metrics.active, 0);
@@ -561,14 +219,13 @@ fn typed_operation_first_write_failure_returns_exact_error_and_releases_permit()
 
     // With only one admission permit, this proves that terminal removal also
     // released the permit rather than merely dropping the public observer.
-    let recovered = camera
+    camera
         .submit::<AppliedOnly, _>(&FocusStop)
-        .expect("the terminalized request released its admission permit");
-    assert_eq!(probe.attempts().len(), 2);
-    assert_eq!(probe.writes().len(), 1);
-    recovered
+        .expect("the terminalized request released its admission permit")
         .applied()
         .expect("the later datagram operation must recover normally");
+    assert_eq!(fake.write_count(), 2);
+    assert_eq!(accepted_count(&accepted), 1);
 
     let metrics = session.metrics().expect("metrics after recovery");
     assert_eq!(metrics.admitted, 2);
@@ -577,62 +234,39 @@ fn typed_operation_first_write_failure_returns_exact_error_and_releases_permit()
     assert_eq!(metrics.pending, 0);
     assert_eq!(metrics.writes, 2);
     assert_eq!(metrics.write_failures, 1);
-    assert_eq!(
-        probe.reads(),
-        2,
-        "only the recovered handle pumps its reply"
-    );
     session.shutdown().expect("owner shutdown");
 }
 
-/// Profile pacing is a submission wait, not permission to pump an earlier
-/// request. The Sony FR7 profile's nonzero command minimum makes the second
-/// typed submission wait even though the second socket is available; the
-/// transport guard catches an implementation that skips that pacing wait.
+/// Profile pacing holds the second write back even though the second socket
+/// is free; the transport guard catches an owner that skips that wait.
 #[test]
-fn typed_operation_waits_for_profile_pacing_without_pumping_peer_replies() {
+fn typed_operations_respect_profile_pacing() {
     let profile = ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile");
     assert_eq!(
         profile.timing().minimum_command_spacing(),
         Duration::from_millis(35),
         "the pacing precondition must be nonzero"
     );
-    let (transport, probe) = PacingTransport::new(Duration::from_millis(30));
-    let config = SessionConfig::new(profile)
-        // The intentional pacing wait must not let the first peer's short
-        // profile ACK deadline expire before its explicit handle is observed.
-        .with_tuning(OperationalTuning::new().ack_timeout(Duration::from_secs(1)))
-        .expect("widened ACK deadline");
-    let session = Session::open(transport.with_sony(), config).expect("owner session");
+    let (fake, accepted) = pacing_camera(Duration::from_millis(30));
+    let session =
+        Session::open(fake.blocking_wire(), SessionConfig::new(profile)).expect("owner session");
     let camera = session.camera::<SonyFR7>().expect("camera view");
 
-    let first = camera
+    let mut first = camera
         .submit::<AppliedOnly, _>(&ZoomStop)
         .expect("first operation");
-    assert_eq!(probe.attempts().len(), 1);
-    assert_eq!(probe.writes().len(), 1);
-    assert_eq!(probe.reads(), 0);
-
-    // The second socket is free, but profile pacing is not. A correct submit
-    // waits only for this request's dispatch eligibility and does not receive
-    // the first operation's queued ACK/completion while waiting.
-    let second = camera
+    let mut second = camera
         .submit::<AppliedOnly, _>(&FocusStop)
-        .expect("second operation waits for and then performs its own write");
-    assert_eq!(probe.attempts().len(), 2);
-    assert_eq!(probe.writes().len(), 2);
-    assert_eq!(probe.reads(), 0, "submit must not pump either peer reply");
-
-    first
-        .applied()
-        .expect("the first operation still owns its queued replies");
-    second
-        .applied()
-        .expect("the second operation still owns its queued replies");
-    assert_eq!(
-        probe.reads(),
-        4,
-        "only explicit handle waits consume replies"
+        .expect("second operation");
+    first.applied().expect("first operation applied");
+    second.applied().expect("second operation applied");
+    assert!(
+        fake.writes()
+            .iter()
+            .all(|write| frames::sony_split(write).is_some()),
+        "every Sony write carries its sequence envelope"
     );
+    assert_eq!(fake.write_count(), 2, "no write violated pacing");
+    assert_eq!(accepted_count(&accepted), 2);
     session.shutdown().expect("owner shutdown");
 }

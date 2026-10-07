@@ -19,9 +19,10 @@
 //!
 //! This example uses an in-memory transport, so it runs with no hardware: the
 //! first transport stays open but never answers, and the factory's next
-//! transport answers the re-query inquiries. The demo uses an intentionally
-//! short retry budget; production supervisors should choose their own
-//! application silence threshold. Requires only the default `blocking` feature.
+//! transport answers the re-query inquiries. The demo disables retries
+//! (`retry_limit(0)`), so the silent probe ends at the profile's own deadline;
+//! production supervisors should choose their own application silence
+//! threshold. Requires only the default `blocking` feature.
 
 use std::{collections::VecDeque, time::Duration};
 
@@ -30,7 +31,7 @@ use grafton_visca::{
     camera::profiles::PtzOpticsG2,
     command::CommandKind,
     profile::ProfileSpec,
-    transport::{BlockingTransport, HasTransportConfig, TransportConfig},
+    transport::{BlockingTransport, HasTransportConfig, ReceiveOutcome, TransportConfig},
     Error, OperationalTuning,
 };
 
@@ -99,25 +100,19 @@ impl BlockingTransport for FakeCamera {
         &mut self,
         dst: &mut [u8],
         timeout: Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<ReceiveOutcome, Error> {
         if matches!(self.peer, Peer::Silent) {
             std::thread::sleep(timeout.min(Duration::from_millis(5)));
-            return Err(Error::Timeout);
+            return Err(Error::io_timeout());
         }
-        let reply = self.replies.pop_front().ok_or(Error::Timeout)?;
-        dst[..reply.len()].copy_from_slice(&reply);
-        Ok(reply.len())
+        let reply = self.replies.pop_front().ok_or(Error::io_timeout())?;
+        Ok(ReceiveOutcome::copy_message(&reply, dst))
     }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let config = SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>()?).with_tuning(
-        OperationalTuning::new().retry_limit(0).retry_timing(
-            Duration::from_millis(1),
-            Duration::from_millis(1),
-            Duration::from_millis(500),
-        ),
-    )?;
+    let config = SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>()?)
+        .with_tuning(OperationalTuning::new().retry_limit(0));
 
     // A RE-CALLABLE factory (`FnMut`, not `FnOnce`): a supervisor can call it on
     // every reconnect. Here the first transport is silent and later ones

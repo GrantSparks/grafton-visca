@@ -1,37 +1,61 @@
 use super::*;
+/// The actor polls its sources by walking the coordinator's planned order:
+/// for every selection shape and every combination of ready sources, the
+/// winner is the first ready source in `Selection::order`, and an omitted
+/// (ineligible) source never wins.
 #[test]
-fn simultaneous_source_readiness_follows_the_explicit_phase() {
-    let receive = || std::future::ready("receive");
-    let boundary = || std::future::ready("boundary");
+fn simultaneous_source_readiness_follows_the_planned_order() {
+    use crate::runtime::owner::turn::SourcePhase;
 
-    assert_eq!(
-        future::block_on(select_source(
-            SourcePhase::ReceiveFirst,
-            receive(),
-            boundary(),
-        )),
-        "receive",
-    );
-    assert_eq!(
-        future::block_on(select_source(
-            SourcePhase::BoundariesFirst,
-            receive(),
-            boundary(),
-        )),
-        "boundary",
-    );
-    assert_eq!(
-        TurnOutcome::Continue.next_source_phase(),
-        Some(SourcePhase::ReceiveFirst),
-    );
-    assert_eq!(
-        TurnOutcome::ContinueBuffered.next_source_phase(),
-        Some(SourcePhase::ReceiveFirst),
-    );
-    assert_eq!(
-        TurnOutcome::YieldBoundaries.next_source_phase(),
-        Some(SourcePhase::BoundariesFirst),
-    );
+    const SOURCES: [Source; 6] = [
+        Source::Receive,
+        Source::Shutdown,
+        Source::Cancellation,
+        Source::Admission,
+        Source::Control,
+        Source::Timer,
+    ];
+    let bit = |source: Source| 1_u8 << SOURCES.iter().position(|s| *s == source).unwrap();
+    for phase in [SourcePhase::ReceiveFirst, SourcePhase::BoundariesFirst] {
+        for flags in 0_u8..4 {
+            let selection = Selection {
+                phase,
+                receive: ReceiveArm::Poll,
+                timer: TimerArm::Engine {
+                    at: None,
+                    due: false,
+                },
+                boundaries_eligible: flags & 1 != 0,
+                timer_precedes_control: flags & 2 != 0,
+            };
+            for ready in 1_u8..64 {
+                let Some(expected) = selection.order().find(|source| ready & bit(*source) != 0)
+                else {
+                    continue;
+                };
+                let source = |source: Source| async move {
+                    if ready & bit(source) != 0 {
+                        source
+                    } else {
+                        future::pending().await
+                    }
+                };
+                let winner = future::block_on(select_in_order(
+                    selection,
+                    source(Source::Receive),
+                    source(Source::Shutdown),
+                    source(Source::Cancellation),
+                    source(Source::Admission),
+                    source(Source::Control),
+                    source(Source::Timer),
+                ));
+                assert_eq!(
+                    winner, expected,
+                    "{selection:?} with ready mask {ready:#08b}"
+                );
+            }
+        }
+    }
 }
 
 /// A due raw release used to bypass the ordinary boundary future entirely.
@@ -67,24 +91,27 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
     let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
 
     // Install a real inquiry release hold without first running the eager
-    // flood. The zero-length response deadline terminalizes A immediately;
-    // H remains one second away.
+    // flood. A socketless camera rejection terminalizes A immediately (a
+    // timed-out stream inquiry would owe its reply and never release; see
+    // `raw_inquiry_rejection`); H remains one second away.
     let (predecessor_completion, predecessor_admitted) =
-        handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
-    let predecessor_boundary = actor.admissions.try_recv().unwrap();
+        handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let predecessor_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
-        .handle_admission(
-            predecessor_boundary,
+        .handle_event(
+            OwnerEvent::Admission(Ok(predecessor_boundary)),
             &mut driver,
             &runtime,
             Executor::now(&runtime),
+            false,
         )
         .await;
     let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();
-    assert_eq!(writes.recv_async().await.unwrap(), predecessor);
+    assert_eq!(writes.recv_async().await.unwrap(), predecessor.id);
+    reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
-        ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
+        RuntimeOutcome::Failed(Error::CommandNotExecutable)
     ));
 
     // Establish the due retained-prefix gate without starting the flood yet.
@@ -95,7 +122,7 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
     assert_eq!(
         actor
             .handle_event(
-                ActorEvent::Wake,
+                OwnerEvent::Wake,
                 &mut driver,
                 &runtime,
                 Executor::now(&runtime),
@@ -104,16 +131,18 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
             .await,
         TurnOutcome::ContinueBuffered
     );
-    assert!(actor.raw_release.await_until().is_some());
+    assert!(actor.core.coordinator.release().await_until().is_some());
 
-    let (urgent_completion, urgent_admitted) =
-        handle.enqueue_admission(urgent_command(), None).unwrap();
-    assert!(!handle.admissions.is_empty());
+    let (urgent_completion, urgent_admitted) = handle
+        .core
+        .enqueue_admission(urgent_command(), None)
+        .unwrap();
+    assert!(!handle.core.admissions.is_empty());
     let actor_task = tokio::spawn(actor.run(driver));
     // The admission is deliberately queued before the flood starts. It cannot
     // be consumed until the raw selector spends a forced fairness turn; once
-    // removed it remains deferred behind the release proof.
-    while !handle.admissions.is_empty() {
+    // removed it remains retained behind the release proof.
+    while !handle.core.admissions.is_empty() {
         tokio::task::yield_now().await;
     }
     let reads_before_release = reads.load(Ordering::Relaxed);
@@ -136,7 +165,7 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
             .await
             .expect("urgent request writes after the bounded raw release")
             .unwrap(),
-        urgent
+        urgent.id
     );
     assert!(
         urgent_completion.try_recv().is_none(),
@@ -148,7 +177,7 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
         "raw release flood took {post_h_polls} polls after Urgent queued (bound {POST_H_POLL_BOUND})"
     );
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 
@@ -177,23 +206,30 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
     let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
 
     if latched_raw_release {
-        let (completion, admitted) = handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
-        let predecessor = actor.admissions.try_recv().unwrap();
+        let (completion, admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
+        let predecessor = actor.core.receivers.admissions.try_recv().unwrap();
         actor
-            .handle_admission(predecessor, &mut driver, &runtime, Executor::now(&runtime))
+            .handle_event(
+                OwnerEvent::Admission(Ok(predecessor)),
+                &mut driver,
+                &runtime,
+                Executor::now(&runtime),
+                false,
+            )
             .await;
         let predecessor = admitted.recv_async().await.unwrap().unwrap();
-        assert_eq!(writes.recv_async().await.unwrap(), predecessor);
+        assert_eq!(writes.recv_async().await.unwrap(), predecessor.id);
+        reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
         assert!(matches!(
             completion.recv_async().await.unwrap(),
-            ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
+            RuntimeOutcome::Failed(Error::CommandNotExecutable)
         ));
 
         runtime.advance(HOLD);
         assert_eq!(
             actor
                 .handle_event(
-                    ActorEvent::Wake,
+                    OwnerEvent::Wake,
                     &mut driver,
                     &runtime,
                     Executor::now(&runtime),
@@ -202,10 +238,13 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
                 .await,
             TurnOutcome::ContinueBuffered
         );
-        assert!(actor.raw_release.await_until().is_some());
+        assert!(actor.core.coordinator.release().await_until().is_some());
     }
 
-    let (_completion, _admitted) = handle.enqueue_admission(urgent_command(), None).unwrap();
+    let (_completion, _admitted) = handle
+        .core
+        .enqueue_admission(urgent_command(), None)
+        .unwrap();
     let mut run = Box::pin(actor.run(driver));
     let waker = std::task::Waker::noop();
     let mut context = std::task::Context::from_waker(waker);
@@ -213,14 +252,14 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
     assert!(std::future::Future::poll(run.as_mut(), &mut context).is_pending());
     let first_yield_reads = reads.load(Ordering::Relaxed);
     assert!(
-        !handle.admissions.is_empty(),
+        !handle.core.admissions.is_empty(),
         "the forced boundary begins on the next poll"
     );
 
     assert!(std::future::Future::poll(run.as_mut(), &mut context).is_pending());
     let second_yield_reads = reads.load(Ordering::Relaxed);
     assert!(
-        handle.admissions.is_empty(),
+        handle.core.admissions.is_empty(),
         "the same boundary poll must consume the queued urgent admission"
     );
     drop(run);
@@ -264,17 +303,26 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
 
     // Install one sent inquiry without running the event loop yet. Its
     // reply deadline is therefore the next authoritative engine wake.
-    let (completion, admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
+    let (completion, admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
     let admission = actor
+        .core
+        .receivers
         .admissions
         .try_recv()
         .expect("the staged inquiry must be waiting for the actor");
     actor
-        .handle_admission(admission, &mut driver, &runtime, Executor::now(&runtime))
+        .handle_event(
+            OwnerEvent::Admission(Ok(admission)),
+            &mut driver,
+            &runtime,
+            Executor::now(&runtime),
+            false,
+        )
         .await;
     assert!(admitted.recv_async().await.unwrap().is_ok());
-    assert_eq!(actor.state.active_len(), 1);
+    assert_eq!(actor.core.state.active_len(), 1);
     let deadline = actor
+        .core
         .state
         .next_wake()
         .expect("the sent inquiry must own a reply deadline");
@@ -290,11 +338,11 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
     for expected_queued in 1..=CONTROL_CHAIN {
         let control_handle = handle.clone();
         controls.push(tokio::spawn(async move { control_handle.metrics().await }));
-        while handle.control.len() < expected_queued {
+        while handle.core.control.len() < expected_queued {
             tokio::task::yield_now().await;
         }
     }
-    assert!(handle.control.is_full());
+    assert!(handle.core.control.is_full());
 
     // Make the protocol deadline due before selection begins. Tokio's
     // paused clock keeps this exact and avoids a wall-clock liveness race.
@@ -318,13 +366,13 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
     );
     assert!(matches!(
         completion.recv_async().await.unwrap(),
-        ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
+        RuntimeOutcome::Failed(Error::Timeout { .. })
     ));
 
     for control in controls {
         control.await.unwrap().unwrap();
     }
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// A timer can mature after the actor has constructed its tail selection.
@@ -347,16 +395,25 @@ async fn parked_future_wake_charges_the_first_ready_control() {
     let (_frames, receives) = flume::bounded(1);
     let mut driver = UngatedDriver { receives };
 
-    let (completion, admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
+    let (completion, admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
     let admission = actor
+        .core
+        .receivers
         .admissions
         .try_recv()
         .expect("the staged inquiry must be waiting for the actor");
     actor
-        .handle_admission(admission, &mut driver, &runtime, Executor::now(&runtime))
+        .handle_event(
+            OwnerEvent::Admission(Ok(admission)),
+            &mut driver,
+            &runtime,
+            Executor::now(&runtime),
+            false,
+        )
         .await;
     assert!(admitted.recv_async().await.unwrap().is_ok());
     let deadline = actor
+        .core
         .state
         .next_wake()
         .expect("the sent inquiry must own a reply deadline");
@@ -378,10 +435,12 @@ async fn parked_future_wake_charges_the_first_ready_control() {
     let (first_reply, first_result) = flume::bounded(1);
     let (second_reply, second_result) = flume::bounded(1);
     handle
+        .core
         .control
         .try_send(ControlBoundary::Metrics(first_reply))
         .unwrap();
     handle
+        .core
         .control
         .try_send(ControlBoundary::Metrics(second_reply))
         .unwrap();
@@ -396,7 +455,7 @@ async fn parked_future_wake_charges_the_first_ready_control() {
     );
     assert!(matches!(
         completion.recv_async().await.unwrap(),
-        ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
+        RuntimeOutcome::Failed(Error::Timeout { .. })
     ));
 }
 #[cfg(feature = "runtime-tokio")]
@@ -447,25 +506,20 @@ fn tokio_current_thread_malformed_stream_batches_yield_to_all_boundaries() {
 /// The same no-progress handoff on a single-thread, runtime-neutral
 /// executor. `AsyncOwnerActor` uses no Tokio scheduling primitive here:
 /// a discarded malformed batch must let independently spawned admission,
-/// control, timer, and shutdown work run under smol as well.
+/// control, timer, and shutdown work run under smol as well. Liveness is
+/// counted in the peer's reads (`BABBLING_READ_BUDGET`), not in wall time.
 #[cfg(feature = "runtime-smol")]
 #[test]
 fn smol_current_thread_malformed_stream_batches_yield_to_boundaries() {
-    const WATCHDOG: Duration = Duration::from_secs(2);
-
     let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let (finished, result) = flume::bounded(1);
     let worker_reads = Arc::clone(&reads);
-    let worker_stop = Arc::clone(&stop);
-    let worker = std::thread::spawn(move || {
+    let outcome = run_with_hang_backstop("discarded malformed stream frames", move || {
         let local = async_executor::LocalExecutor::new();
-        let outcome: Result<(), String> = future::block_on(local.run(async {
+        future::block_on(local.run(async {
             let (handle, actor) = AsyncOwnerActor::new(policy(1), SmolRuntime::new())
                 .map_err(|error| error.to_string())?;
             let actor_task = local.spawn(actor.run(CountingBabblingDriver {
                 reads: Arc::clone(&worker_reads),
-                stop: Arc::clone(&worker_stop),
                 empty_batches: true,
             }));
 
@@ -501,7 +555,7 @@ fn smol_current_thread_malformed_stream_batches_yield_to_boundaries() {
                 ));
             }
 
-            handle.shutdown().await.map_err(|error| error.to_string())?;
+            handle.shutdown().map_err(|error| error.to_string())?;
             let terminal = actor_task.await;
             if terminal.state != SessionState::Shutdown {
                 return Err(format!(
@@ -510,31 +564,16 @@ fn smol_current_thread_malformed_stream_batches_yield_to_boundaries() {
                 ));
             }
             Ok(())
-        }));
-        let _ = finished.send(outcome);
+        }))
     });
-
-    match result.recv_timeout(WATCHDOG) {
-        Ok(Ok(())) => worker.join().unwrap(),
-        Ok(Err(error)) => {
-            worker.join().unwrap();
-            panic!("malformed-frame smol liveness scenario failed: {error}");
-        }
-        Err(flume::RecvTimeoutError::Timeout) => {
-            stop.store(true, Ordering::Release);
-            if result.recv_timeout(WATCHDOG).is_ok() {
-                worker.join().unwrap();
-            } else {
-                drop(worker);
-            }
-            panic!(
-                "discarded malformed stream frames monopolized smol's current-thread executor before boundary or timer work could run"
-            );
-        }
-        Err(flume::RecvTimeoutError::Disconnected) => {
-            worker.join().unwrap();
-            panic!("malformed-frame smol liveness worker exited without a result");
-        }
+    if let Err(error) = babbling_reads_within_budget(
+        &reads,
+        "discarded malformed stream frames",
+        "smol's current-thread executor",
+    )
+    .and(outcome)
+    {
+        panic!("malformed-frame smol liveness scenario failed: {error}");
     }
 }
 #[cfg(feature = "runtime-tokio")]
@@ -596,4 +635,81 @@ fn smol_nodata_receive_never_hot_spins() {
         reads,
     ));
     join.join().unwrap();
+}
+
+/// The same raw byte flood, but without first driving the release timer by
+/// hand: the hold matures while the actor is running, so no grace budget
+/// exists yet. The forced fairness turn must deliver the release timer ahead
+/// of the always-ready receive; that timer turn starts the retained prefix's
+/// grace, and once it elapses the release resolves and the queued urgent
+/// command is written. Without that timer turn the flood would stall the
+/// release indefinitely (#776 review).
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn raw_release_flood_resolves_without_a_prior_timer_turn() {
+    const HOLD: Duration = Duration::from_secs(1);
+    const GRACE: Duration = Duration::from_millis(100);
+    const FAIRNESS_CEILING: usize = 4;
+
+    let runtime = ManualRuntime::with_polling_sleeps(Instant::now());
+    let mut owner_policy = stream_policy(1);
+    owner_policy.limits.frames_per_receive = FAIRNESS_CEILING;
+    owner_policy.protocol.raw_inquiry_release_hold = HOLD;
+    owner_policy.protocol.raw_release_grace = GRACE;
+    let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let buffered = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let (write_tx, writes) = flume::bounded(8);
+    let mut driver = RawBufferedFloodDriver {
+        reads: Arc::clone(&reads),
+        buffered,
+        writes: write_tx,
+    };
+    let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
+
+    let (predecessor_completion, predecessor_admitted) =
+        handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let predecessor_boundary = actor.core.receivers.admissions.try_recv().unwrap();
+    actor
+        .handle_event(
+            OwnerEvent::Admission(Ok(predecessor_boundary)),
+            &mut driver,
+            &runtime,
+            Executor::now(&runtime),
+            false,
+        )
+        .await;
+    let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();
+    assert_eq!(writes.recv_async().await.unwrap(), predecessor.id);
+    reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
+    assert!(matches!(
+        predecessor_completion.recv_async().await.unwrap(),
+        RuntimeOutcome::Failed(Error::CommandNotExecutable)
+    ));
+
+    let (_urgent_completion, urgent_admitted) = handle
+        .core
+        .enqueue_admission(urgent_command(), None)
+        .unwrap();
+    let actor_task = tokio::spawn(actor.run(driver));
+    // The hold matures while the flood is already running.
+    runtime.advance(HOLD);
+    for _ in 0..64 {
+        tokio::task::yield_now().await;
+    }
+    runtime.advance(GRACE);
+    let urgent = tokio::time::timeout(Duration::from_secs(1), urgent_admitted.recv_async())
+        .await
+        .expect("the flood must not stall the release behind it")
+        .unwrap()
+        .unwrap();
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), writes.recv_async())
+            .await
+            .expect("the urgent command is written once the release resolves")
+            .unwrap(),
+        urgent.id
+    );
+
+    handle.shutdown().unwrap();
+    assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }

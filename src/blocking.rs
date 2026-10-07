@@ -1,277 +1,187 @@
-//! Blocking operation lifecycle handles.
+//! Blocking owner facade.
 //!
-//! These handles are deliberately mode-native: they expose direct
-//! [`Result`]s and never create or return a future. The owner remains the
-//! protocol and lifecycle authority; a handle only retains one owner receipt
-//! and the caller-thread control needed to observe it.
+//! A [`Session`] owns exactly one native owner worker thread and the transport
+//! moved into it (D24). [`Camera`] values are inexpensive target views:
+//! cloning one only clones the owner handle and its immutable target/profile
+//! facts. Every handle is `Clone + Send + Sync`, and calls from any number of
+//! threads are serialized by the worker rather than by the caller. These
+//! handles are deliberately mode-native: they expose direct [`Result`]s and
+//! never create or return a future. Dropping a non-final handle leaves the
+//! shared owner running; dropping the final one stops the worker and releases
+//! its transport, but never emits a protocol STOP. [`Session::close`] is the
+//! deterministic release barrier.
 
 use std::{fmt, marker::PhantomData, sync::Arc, time::Duration};
 
 use crate::{
     camera::{IdleWait, MotionQuery},
     completion,
-    prepared::{prepare_position_queries, ClassSelection},
-    request::builtin::{FocusStop, PanTiltStop, ZoomStop},
-    runtime::owner::{
-        sample_positions_blocking, BlockingCancellationReceipt, BlockingControlHost,
-        BlockingOperationReceipt, BlockingReceiptControl, BlockingSessionHost,
+    prepared::{
+        prepare_command, prepare_inquiry, prepare_operation, prepare_position_queries,
+        ClassSelection,
     },
-    stop_request::pan_tilt_stop_request,
-    AffectedAxes, CameraId, CancelRejected, CancellationOutcome, CompileTimeProfile,
-    DiagnosticEvent, Error, Inquiry, MetricsSnapshot, OperationCommand, OperationalTuning,
-    PlainCommand, ProfileSpec, Result, StateCache, SubmissionClass,
+    runtime::owner::{BlockingOperationReceipt, BlockingOwnerHandle, BlockingTransportAdapter},
+    CameraId, CancellationOutcome, CompileTimeProfile, DiagnosticSubscription, Error, Inquiry,
+    MetricsSnapshot, OperationCommand, OperationalTuning, PlainCommand, ProfileSpec, Result,
+    StateCache, SubmissionClass,
 };
-
-const MOTION_QUERY_OBSERVER_BUDGET: Duration = Duration::from_secs(30);
 
 pub use crate::OperationId;
 
-/// A linear blocking operation handle.
+/// A blocking handle on one admitted operation.
 ///
-/// The lifetime ties the handle to the caller-thread session/owner control;
-/// the completion marker is the only type parameter. No profile, transport,
-/// executor, or runtime type appears in this public handle.
+/// The completion marker `K` is the only type parameter. No profile,
+/// transport, executor, or runtime type appears in this public handle, and it
+/// borrows nothing: it keeps the session's owner alive, so it may outlive the
+/// [`Session`] and [`Camera`] it came from and move to another thread. The
+/// owner remains authoritative for protocol lifecycle, timeouts, settlement,
+/// and cancellation policy; the handle observes it.
+///
+/// # Waits borrow the handle
+///
+/// Every wait takes `&mut self`, and the handle caches the authoritative
+/// result once received. Waiting again returns the cached result, an
+/// [`applied`](Self::applied) wait can be followed by
+/// [`settled`](Operation::settled), and a wait that times out releases only
+/// that wait: the operation keeps running and the handle keeps observing it.
 ///
 /// # Dropping never stops the camera
 ///
 /// Dropping this handle is exactly [`detach`](Self::detach): it relinquishes
-/// the observer and nothing else. The owner keeps the protocol state, never
+/// observation and nothing else. The owner keeps the protocol state, never
 /// interprets handle drop as cancellation, and no STOP is written, so an early
 /// `?` return or a panic unwinding past a live handle leaves physical movement
-/// running until something ends it. This matches 1.x exactly and is not a 2.0
-/// behaviour change.
+/// running until something ends it.
 ///
 /// To bound movement by a scope, write a small guard whose own `Drop` submits
 /// the typed STOP — see the guard pattern in `docs/migration_2_0.md` and
 /// `examples/operation_handles.rs`. For an explicit stop on a path you
 /// control, use `camera.pan_tilt().stop()`, `camera.zoom().stop()`,
 /// `camera.focus().stop()`, or `camera.motion().stop_all_motion()`;
-/// [`cancel`](Self::cancel) records protocol cancellation but does not by
-/// itself prove motion ended.
+/// [`cancel`](Self::cancel) is protocol cancellation and does not by itself
+/// prove motion ended.
 #[must_use = "observe, cancel, or explicitly detach this operation"]
-pub struct Operation<'session, K>
+pub struct Operation<K>
 where
     K: completion::Kind,
 {
-    receipt: Option<BlockingOperationReceipt<K>>,
-    /// Shared caller-thread owner control.  The handle never holds an
-    /// exclusive borrow for its lifetime; each consuming terminal method
-    /// creates a short-lived receipt control from this reference.
-    host: &'session dyn BlockingControlHost,
-    id: OperationId,
-    marker: PhantomData<fn() -> K>,
+    receipt: BlockingOperationReceipt<K>,
 }
 
-impl<'session, K> Operation<'session, K>
+impl<K> Operation<K>
 where
     K: completion::Kind,
 {
-    /// Creates a public handle over an admitted owner receipt and its
-    /// caller-thread observation control.
+    /// Creates a public handle over an admitted owner receipt.
     ///
     /// This constructor is crate-private: only the blocking admission path may
-    /// create a lifecycle handle, after the owner admitted the request and its
-    /// initial transport write succeeded. If the request cannot win the first
-    /// dispatch race, blocking operation admission returns
-    /// [`Error::TransportBusy`] and no handle is created.
-    pub(crate) fn from_receipt(
-        receipt: BlockingOperationReceipt<K>,
-        host: &'session dyn BlockingControlHost,
-    ) -> Self {
-        let id = OperationId::from_raw(receipt.id());
-        Self {
-            receipt: Some(receipt),
-            host,
-            id,
-            marker: PhantomData,
-        }
+    /// create a lifecycle handle, after the owner admitted the request.
+    pub(crate) fn from_receipt(receipt: BlockingOperationReceipt<K>) -> Self {
+        Self { receipt }
     }
 
     /// Returns the opaque identity assigned when this operation was admitted.
     #[must_use]
     pub fn id(&self) -> OperationId {
-        self.id
+        OperationId::from_raw(self.receipt.id())
     }
 
-    /// Waits for exact protocol application using the configured observer
-    /// deadline.
-    pub fn applied(self) -> Result<(), Error> {
-        let (receipt, mut control) = self.take_parts()?;
-        receipt.applied(&mut control)
+    /// Waits for exact protocol application, bounded by the configured
+    /// observer deadline.
+    pub fn applied(&mut self) -> Result<(), Error> {
+        self.receipt.applied(None)
     }
 
-    /// Waits for exact protocol application using an explicit observer
-    /// deadline.
-    pub fn applied_with_timeout(self, timeout: Duration) -> Result<(), Error> {
-        let (receipt, mut control) = self.take_parts()?;
-        receipt.applied_with_timeout(&mut control, timeout)
-    }
-
-    /// Records cancellation intent and returns its exact terminal observer.
+    /// Waits for exact protocol application, bounded by `timeout`.
     ///
-    /// # A refused cancellation hands this handle back
+    /// The deadline bounds only this wait. If it expires the wait returns
+    /// [`Error::ObservationTimeout`]: the operation keeps running, its
+    /// scheduler deadline is unchanged, and the handle can wait again.
+    pub fn applied_with_timeout(&mut self, timeout: Duration) -> Result<(), Error> {
+        self.receipt.applied(Some(timeout))
+    }
+
+    /// Cancels the operation and waits for the cancellation's conclusion,
+    /// bounded by the configured cancellation deadline.
+    ///
+    /// The result is [`CancellationOutcome::Cancelled`] when cancellation
+    /// won, [`CancellationOutcome::Completed`] when the operation was applied
+    /// first, and the operation's own error when it failed first.
+    ///
+    /// Cancelling is idempotent. The handle has one cancellation intent;
+    /// calling `cancel` again, including after a timed-out call, observes that
+    /// intent instead of sending a second cancellation. Once the operation's
+    /// outcome is known, `cancel` answers from it without sending anything.
+    ///
+    /// # A refused cancellation leaves the operation running
     ///
     /// Cancelling a request that is still queued always succeeds. Cancelling
     /// one that has already been written needs profile support for the
-    /// standard VISCA socket-cancel command; without it — [`PtzOpticsG2`] is
-    /// the only built-in profile in that position — the owner refuses with
-    /// [`Error::NotSupported`] and deliberately leaves the original request
-    /// scheduled, retryable, and able to complete.
+    /// standard VISCA socket-cancel command; without it — the built-in
+    /// PTZOptics profiles ([`PtzOpticsG2`], [`PtzOpticsG3`] and
+    /// [`PtzOptics30X`]) are in that position — the owner refuses with
+    /// [`Error::NotSupported`] and leaves the original request scheduled,
+    /// retryable, and able to complete. The handle is unaffected and can
+    /// still wait for it. A refusal does not stop the camera; a moving axis
+    /// ends with an applied typed STOP.
     ///
-    /// Because the original is still live, this method only consumes the
-    /// handle when it succeeds. A refusal returns [`CancelRejected`], which
-    /// carries the handle back so the caller can keep waiting on it, retry the
-    /// cancel, or drop it to detach. Recovering the handle does not stop the
-    /// camera; a moving axis ends with an applied typed STOP.
-    ///
-    /// `?` in a function returning [`Error`] still works — the [`From`]
-    /// conversion keeps the reason and detaches the handle.
+    /// A cancellation that was accepted but then failed without ending the
+    /// operation (its cancel write failed, or its observation deadline
+    /// expired) returns that error; the handle still observes the operation's
+    /// own outcome.
     ///
     /// [`PtzOpticsG2`]: crate::profiles::PtzOpticsG2
-    pub fn cancel(self) -> Result<Cancellation<'session>, CancelRejected<Self>> {
-        let host = self.host;
-        let id = self.id;
-        let (receipt, mut control) = match self.take_parts() {
-            Ok(parts) => parts,
-            Err(error) => return Err(CancelRejected::new(None, error)),
-        };
-        match control.cancel_operation(receipt) {
-            Ok(cancellation) => Ok(Cancellation::from_receipt(cancellation, host)),
-            Err((receipt, error)) => Err(CancelRejected::new(
-                receipt.map(|receipt| Self {
-                    receipt: Some(receipt),
-                    host,
-                    id,
-                    marker: PhantomData,
-                }),
-                error,
-            )),
-        }
+    /// [`PtzOpticsG3`]: crate::profiles::PtzOpticsG3
+    /// [`PtzOptics30X`]: crate::profiles::PtzOptics30X
+    pub fn cancel(&mut self) -> Result<CancellationOutcome, Error> {
+        self.receipt.cancel(None)
     }
 
-    /// Explicitly relinquishes this operation's observation right.
+    /// [`cancel`](Self::cancel), bounded by `timeout` instead of the
+    /// configured cancellation deadline. If it expires, the cancellation
+    /// intent stays recorded and a later `cancel` observes it.
+    pub fn cancel_with_timeout(&mut self, timeout: Duration) -> Result<CancellationOutcome, Error> {
+        self.receipt.cancel(Some(timeout))
+    }
+
+    /// Explicitly relinquishes this operation's observation.
     ///
     /// Detaching never records cancellation and never emits a physical STOP.
     /// It is the explicit spelling of what dropping the handle already does;
     /// movement continues until something else ends it.
     pub fn detach(self) {}
+}
 
-    fn take_parts(
-        mut self,
-    ) -> Result<
-        (
-            BlockingOperationReceipt<K>,
-            BlockingReceiptControl<'session>,
-        ),
-        Error,
-    > {
-        let receipt = self
-            .receipt
-            .take()
-            .ok_or_else(|| Error::InvalidState("operation handle was already consumed".into()))?;
-        Ok((receipt, BlockingReceiptControl::shared(self.host)))
+impl Operation<completion::Targeted> {
+    /// Waits for exact application and the profile-selected protocol
+    /// settlement condition, bounded by the configured settlement budget.
+    ///
+    /// Application is cached, so calling this after
+    /// [`applied`](Operation::applied) continues from it. Polled settlement proves observed stability, not arrival at the requested endpoint.
+    /// Later conflicting admission supersedes unfinished polled evidence. Settlement proven
+    /// by position polling is cached once proven; a polling wait that times
+    /// out restarts with a fresh proof.
+    pub fn settled(&mut self) -> Result<crate::Settlement, Error> {
+        self.receipt.settled(None)
+    }
+
+    /// [`settled`](Self::settled), bounded by `timeout`.
+    ///
+    /// The deadline bounds only this wait; the prepared scheduler and
+    /// settlement policy are unchanged. Each abandoned polling attempt may
+    /// leave its admitted position inquiries running until their own
+    /// deadlines, within the session's admission capacity.
+    pub fn settled_with_timeout(&mut self, timeout: Duration) -> Result<crate::Settlement, Error> {
+        self.receipt.settled(Some(timeout))
     }
 }
 
-impl Operation<'_, completion::Targeted> {
-    /// Waits for exact application and the profile-selected protocol settlement
-    /// condition using the configured settlement plan and observer deadline.
-    pub fn settled(self) -> Result<(), Error> {
-        let (receipt, control) = self.take_parts()?;
-        receipt.settled(control).wait().map(drop)
-    }
-
-    /// Waits for exact application and the profile-selected protocol settlement
-    /// condition using an explicit observer deadline.
-    pub fn settled_with_timeout(self, timeout: Duration) -> Result<(), Error> {
-        let (receipt, control) = self.take_parts()?;
-        receipt
-            .settled_with_timeout(control, timeout)
-            .wait()
-            .map(drop)
-    }
-}
-
-impl<K> Drop for Operation<'_, K>
-where
-    K: completion::Kind,
-{
-    fn drop(&mut self) {
-        // Dropping the receipt relinquishes observation only. The owner keeps
-        // protocol state and never interprets handle drop as cancellation.
-        let _ = self.receipt.take();
-    }
-}
-
-impl<K> fmt::Debug for Operation<'_, K>
+impl<K> fmt::Debug for Operation<K>
 where
     K: completion::Kind,
 {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("Operation")
-            .field("id", &self.id)
-            .finish()
-    }
-}
-
-/// A linear blocking cancellation observer for one exact operation.
-#[must_use = "observe or explicitly detach this cancellation"]
-pub struct Cancellation<'session> {
-    receipt: Option<BlockingCancellationReceipt>,
-    host: &'session dyn BlockingControlHost,
-}
-
-impl<'session> Cancellation<'session> {
-    /// Creates a cancellation observer over the same caller-thread owner as
-    /// the operation that produced it.
-    pub(crate) fn from_receipt(
-        receipt: BlockingCancellationReceipt,
-        host: &'session dyn BlockingControlHost,
-    ) -> Self {
-        Self {
-            receipt: Some(receipt),
-            host,
-        }
-    }
-
-    /// Observes whether cancellation won or the original operation completed
-    /// first, bounded by the supplied observer deadline.
-    pub fn outcome(self, timeout: Duration) -> Result<CancellationOutcome, Error> {
-        let (receipt, mut control) = self.take_parts()?;
-        receipt.outcome(&mut control, timeout)
-    }
-
-    /// Explicitly relinquishes cancellation observation.
-    pub fn detach(self) {}
-
-    fn take_parts(
-        mut self,
-    ) -> Result<
-        (
-            BlockingCancellationReceipt,
-            BlockingReceiptControl<'session>,
-        ),
-        Error,
-    > {
-        let receipt = self.receipt.take().ok_or_else(|| {
-            Error::InvalidState("cancellation handle was already consumed".into())
-        })?;
-        Ok((receipt, BlockingReceiptControl::shared(self.host)))
-    }
-}
-
-impl fmt::Debug for Cancellation<'_> {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_struct("Cancellation").finish()
-    }
-}
-
-impl Drop for Cancellation<'_> {
-    fn drop(&mut self) {
-        // Cancellation intent, once recorded, is owner state. Dropping this
-        // observer never sends another cancellation or a physical STOP.
-        let _ = self.receipt.take();
+        self.receipt.fmt_public_handle(formatter)
     }
 }
 
@@ -326,6 +236,10 @@ mod construction {
         }
 
         /// Opens one owner-backed blocking serial session.
+        ///
+        /// Opening writes nothing to the bus: no Address Set and no I/F
+        /// Clear. Select startup writes with
+        /// [`CameraConfig::serial_startup`](crate::camera::CameraConfig::serial_startup).
         #[cfg(feature = "transport-serial")]
         pub fn open_serial<P>(port: impl Into<String>, baud_rate: u32) -> Result<Session>
         where
@@ -339,79 +253,102 @@ mod construction {
 #[cfg(feature = "blocking")]
 pub use construction::{CameraConfig, Connect};
 
-/// One caller-driven blocking owner session.
+/// One blocking owner session.
 ///
-/// The transport is moved into one serialized owner at construction. Camera
-/// views borrow that owner and may coexist on the caller thread; retaining
-/// multiple operation handles never creates a second protocol authority. This
-/// value is the RAII owner of its caller-thread host: dropping it releases
-/// the host and transport without sending shutdown or a protocol STOP.
+/// The transport is moved into one native owner worker thread at
+/// construction (D24). The session, the [`Camera`] views taken from it, and
+/// the [`Operation`] handles they return are all `Clone + Send + Sync` and
+/// borrow nothing, so they may be shared freely between threads: the worker
+/// serializes every call, and one thread waiting on an operation never blocks
+/// another thread's submit, cancel, or STOP. Timers, reads, and correlation
+/// cleanup progress on the worker even while no caller is inside the session.
 ///
-/// `Session` is `Send + Sync`. Owner turns remain fail-fast: overlapping calls
-/// from different threads return [`Error::TransportBusy`] instead of waiting.
-/// Applications that want waiting serialization can place the session in a
-/// `Mutex` and derive each [`Camera`] while holding that lock; a camera view
-/// must not outlive the guard it borrows from.
-#[derive(Debug)]
+/// Every clone shares the one worker. Dropping the last handle — session,
+/// camera, or operation — stops it and releases the transport without sending
+/// a protocol STOP; [`close`](Self::close) is the explicit, joining teardown.
+#[derive(Clone)]
 pub struct Session {
-    host: BlockingSessionHost,
-    config: SessionConfig,
+    owner: BlockingOwnerHandle,
+    config: Arc<crate::session_config::ValidatedSessionConfig>,
+}
+
+impl fmt::Debug for Session {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Session")
+            .field("targets", &self.config.target_count())
+            .finish_non_exhaustive()
+    }
 }
 
 impl Session {
     /// Opens a blocking session over a configured transport and profile.
+    ///
+    /// Startup validates the profiles, tuning, transport buffers, and the
+    /// immutable owner policy, and sends the optional Sony sequence RESET on
+    /// the calling thread, before it starts exactly one worker thread. Any
+    /// failure, including a failed thread spawn, drops the transport and
+    /// returns the error; no worker is left running.
     pub fn open<T>(transport: T, config: SessionConfig) -> Result<Self, Error>
     where
         T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
     {
-        config.validate_for_transport(transport.standard_transport_kind())?;
+        Self::open_validated(transport, config.validated()?)
+    }
+
+    /// [`Self::open`] for a configuration whose session policy is already
+    /// validated, so each open validates it exactly once.
+    pub(crate) fn open_validated<T>(
+        transport: T,
+        config: crate::session_config::ValidatedSessionConfig,
+    ) -> Result<Self, Error>
+    where
+        T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
+    {
+        config.validate_opened_transport(&transport)?;
         let profiles = config.profile_registry();
-        let mut adapter =
-            crate::runtime::owner::BlockingTransportAdapter::new_with_profile_registry(
-                transport,
-                &profiles,
-                config.tuning(),
-                config.admission_capacity(),
-                config.strict_unconfirmed_poison(),
-            )?;
+        let mut adapter = BlockingTransportAdapter::new_with_targets(
+            transport,
+            &profiles,
+            config.tuning(),
+            config.admission_capacity(),
+            config.strict_unconfirmed_poison(),
+        )?;
         if config.sony_sequence_reset_on_connect() {
             adapter.send_sony_sequence_reset()?;
         }
+        let policy = adapter.policy().clone();
         Ok(Self {
-            host: BlockingSessionHost::from_adapter(adapter)?,
-            config,
+            owner: BlockingOwnerHandle::spawn(policy, adapter)?,
+            config: Arc::new(config),
         })
     }
 
     /// Returns the statically checked view for the sole registered target.
-    pub fn camera<P>(&self) -> Result<Camera<'_, P>, Error>
+    pub fn camera<P>(&self) -> Result<Camera<P>, Error>
     where
         P: CompileTimeProfile,
     {
-        let target = self.config.sole_target().ok_or_else(|| {
-            if self.config.target_count() == 0 {
-                Error::InvalidState("session has no registered target".into())
-            } else {
-                Error::InvalidState(
-                    "session has multiple registered targets; select one with camera_for".into(),
-                )
-            }
-        })?;
-        self.camera_for::<P>(target)
+        self.camera_for::<P>(self.config.sole_target_for("camera_for")?)
     }
 
     /// Returns a target-specific statically checked camera view.
-    pub fn camera_for<P>(&self, target: CameraId) -> Result<Camera<'_, P>, Error>
+    pub fn camera_for<P>(&self, target: CameraId) -> Result<Camera<P>, Error>
     where
         P: CompileTimeProfile,
     {
-        let profile = self.config.profile_for_compile_time::<P>(target)?;
-        Ok(Camera::from_core(BlockingCameraCore {
-            host: &self.host,
+        let profile = self.config.registered_profile_for::<P>(target)?;
+        Ok(Camera::from_core(self.core(target, profile)))
+    }
+
+    /// The erased view of `target`, registered with `profile`.
+    fn core(&self, target: CameraId, profile: Arc<ProfileSpec>) -> BlockingCameraCore {
+        BlockingCameraCore {
+            owner: self.owner.clone(),
             target,
             profile,
             class: ClassSelection::Request,
-        }))
+        }
     }
 
     /// Returns the runtime-profile camera view for the sole registered target.
@@ -473,10 +410,8 @@ impl Session {
     /// # }
     /// ```
     #[cfg(feature = "dyn-api")]
-    pub fn camera_dyn(&self) -> Result<crate::dynapi::BlockingDynSessionCamera<'_>, Error> {
-        Ok(crate::dynapi::BlockingDynSessionCamera::new(
-            self.camera_core()?,
-        ))
+    pub fn camera_dyn(&self) -> Result<crate::dynapi::BlockingDynSessionCamera, Error> {
+        self.camera_dyn_for(self.config.sole_target_for("camera_dyn_for")?)
     }
 
     /// Returns a target-specific runtime-profile camera view.
@@ -484,154 +419,140 @@ impl Session {
     pub fn camera_dyn_for(
         &self,
         target: CameraId,
-    ) -> Result<crate::dynapi::BlockingDynSessionCamera<'_>, Error> {
+    ) -> Result<crate::dynapi::BlockingDynSessionCamera, Error> {
+        let profile = self.config.registered_profile(target)?;
         Ok(crate::dynapi::BlockingDynSessionCamera::new(
-            self.camera_core_for(target)?,
+            self.core(target, profile),
         ))
-    }
-
-    #[cfg(feature = "dyn-api")]
-    fn camera_core(&self) -> Result<BlockingCameraCore<'_>, Error> {
-        let target = self.config.sole_target().ok_or_else(|| {
-            if self.config.target_count() == 0 {
-                Error::InvalidState("session has no registered target".into())
-            } else {
-                Error::InvalidState(
-                    "session has multiple registered targets; select one with camera_dyn_for"
-                        .into(),
-                )
-            }
-        })?;
-        self.camera_core_for(target)
-    }
-
-    #[cfg(feature = "dyn-api")]
-    fn camera_core_for(&self, target: CameraId) -> Result<BlockingCameraCore<'_>, Error> {
-        let profile = self
-            .config
-            .profile(target)
-            .ok_or_else(|| Error::InvalidRequest("session target is not registered".into()))?;
-        Ok(BlockingCameraCore {
-            host: &self.host,
-            target,
-            profile,
-            class: ClassSelection::Request,
-        })
     }
 
     /// Returns the operational tuning this session is currently preparing
     /// requests under.
     ///
     /// This is the live value, not the one the session was opened with: it
-    /// reflects the most recent successful [`set_tuning`](Self::set_tuning).
+    /// reflects the most recent successful [`set_tuning`](Self::set_tuning),
+    /// including one made through another clone of this session.
     #[must_use]
     pub fn tuning(&self) -> OperationalTuning {
-        self.host.tuning()
+        self.owner.tuning()
     }
 
     /// Replaces this session's operational tuning at runtime.
     ///
     /// # Scope
     ///
-    /// **Every request prepared after this call uses the new values** — its
-    /// acknowledgement, completion, settlement, and inquiry deadlines, its
-    /// retry budget, and its pacing floor. The owner's session-wide pacing and
-    /// per-target command-socket capacity are re-derived immediately, so work
-    /// still queued behind pacing is released under the new values too.
+    /// **Every request prepared after this call returns uses the new values**
+    /// — its acknowledgement, completion, settlement, and inquiry deadlines,
+    /// its retry budget, and its pacing floor. The owner's session-wide pacing
+    /// and per-target command-socket capacity are re-derived immediately, so
+    /// work still queued behind pacing is released under the new values too.
     ///
     /// **Requests already in flight keep the deadlines they were admitted
     /// with.** 2.0 stamps a request's deadlines once, at preparation, and the
     /// engine derives its absolute phase deadlines from that stamp; nothing is
-    /// re-timed underneath a receipt a caller is already holding. This is the
-    /// one deliberate difference from 1.2.0's `Camera::set_timeout_config`,
-    /// which recomputed deadlines on every housekeeping pass and therefore also
-    /// covered work in flight. To widen a deadline for a command that is
-    /// already running, cancel it and resubmit.
+    /// re-timed underneath an [`Operation`] a caller is already holding. This
+    /// is deliberate: a deadline that moved after submission would change the
+    /// contract of work a caller has already observed, so tuning applies only
+    /// to requests prepared after the call. To widen a deadline for a command
+    /// that is already running, cancel it and resubmit.
     ///
     /// The update is not a merge: a field left unset returns to its profile
     /// default rather than keeping the value a previous call installed.
     /// Construction-only recovery policy lives on [`SessionConfig`], outside
     /// `OperationalTuning`, and is therefore unaffected by this call.
     ///
+    /// The update travels through the owner's control boundary and the owner is
+    /// its only writer, so two session clones reconfiguring concurrently
+    /// resolve last-writer-wins in the order the owner accepted them; no reader
+    /// ever observes a mixture of the two.
+    ///
     /// # Errors
     ///
     /// Rejects tuning that construction would reject for a registered profile:
     /// values that weaken pacing minima, raise a socket limit, undercut a
     /// deadline, or specify incoherent retry timing, leaving the session's
-    /// current tuning untouched. Also returns
-    /// [`Error::TransportBusy`] if called re-entrantly from inside another
-    /// owner turn, and the session's terminal error if the owner is gone. A
-    /// retained terminal error takes precedence over validation of the proposed
-    /// update.
+    /// current tuning untouched. Returns the session's terminal error if the
+    /// owner has shut down; a retained terminal error takes precedence over
+    /// validation of the proposed update.
     pub fn set_tuning(&self, tuning: OperationalTuning) -> Result<(), Error> {
         let validated_tuning = self.config.validate_tuning(tuning).map(|()| tuning);
-        self.host.reconfigure(validated_tuning)
+        self.owner.reconfigure(validated_tuning)
     }
 
     /// Requests owner shutdown.
+    ///
+    /// This is an idempotent shutdown request. It returns once the request is
+    /// accepted by the owner's bounded shutdown boundary; it does not join the
+    /// worker or claim that transport teardown has finished. After this call,
+    /// new request admission is rejected with [`Error::RuntimeShutdown`]. All
+    /// [`Session`] clones share this one shutdown boundary.
     pub fn shutdown(&self) -> Result<(), Error> {
-        self.host.shutdown()
+        self.owner.shutdown()
     }
 
-    /// Explicitly shuts down this session.
+    /// Requests owner shutdown and consumes this session, waiting for teardown.
+    ///
+    /// Unlike [`Self::shutdown`], this is a deterministic transport teardown
+    /// barrier: it returns only after the worker has dropped its transport,
+    /// so reopening the same endpoint after `close` is safe. If shutdown was
+    /// accepted, the terminal owner result is returned after teardown: an
+    /// explicit shutdown returns `Ok(())`, while a transport close or stream
+    /// poison that won the race is returned unchanged. If sending this call's
+    /// shutdown signal fails immediately, that error is preserved. A worker
+    /// that panicked is reported as [`Error::InvalidState`].
+    /// A custom transport calling this from its own worker requests shutdown
+    /// but receives [`Error::InvalidState`] immediately: it cannot wait for
+    /// its own teardown. A caller on another thread can still close and join.
     pub fn close(self) -> Result<(), Error> {
-        self.host.shutdown()
+        self.owner.close()
     }
 
-    /// Returns the most recently completed owner-turn scalar snapshot without
-    /// cloning diagnostics.
-    ///
-    /// This observation does not borrow the transport turn, so another thread
-    /// can inspect it while a blocking request waits for transport input.
+    /// Returns a scalar snapshot of the owner without cloning diagnostics.
     pub fn metrics(&self) -> Result<MetricsSnapshot, Error> {
-        self.host.metrics()
+        self.owner.metrics()
     }
 
-    /// Drains the bounded diagnostic ring in owner order.
+    /// Subscribes to the owner's bounded, best-effort diagnostic stream.
     ///
-    /// The returned vector is at most the owner's fixed diagnostic-ring bound
-    /// (128 by default). Calling this repeatedly after an empty drain is safe
-    /// and returns an empty vector until another event is recorded.
-    pub fn drain_diagnostics(&self) -> Result<Vec<DiagnosticEvent>, Error> {
-        self.host.drain_diagnostics().map(|events| {
-            events
-                .into_iter()
-                .map(DiagnosticEvent::from_owner)
-                .collect()
-        })
+    /// `capacity` must be in `1..=128`; at most four live subscriptions are
+    /// retained by one owner. A slow subscriber never stalls command or
+    /// transport processing; its dropped events are visible in [`Self::metrics`].
+    ///
+    /// Delivery is not ordered against receipt resolution: a wait on an
+    /// operation can return before that operation's terminal event is queued
+    /// here. Once [`Self::close`] returns, every event the owner published is
+    /// queued.
+    pub fn subscribe_diagnostics(&self, capacity: usize) -> Result<DiagnosticSubscription, Error> {
+        self.owner
+            .subscribe_diagnostics(capacity)
+            .map(DiagnosticSubscription::from_owner)
     }
 }
 
 /// One blocking owner session that owns exactly one compile-time bound camera.
 ///
 /// This is the single-target counterpart of [`Session`]. The profile is named
-/// once, at construction, and [`camera`](Self::camera) returns the view for
+/// once, at construction, and the [`Camera`] this type hands out was built from
 /// that same profile parameter: the session path's second, runtime-checked
 /// profile naming (`session.camera::<P>()?`) has no equivalent here, so a
 /// profile mismatch is not expressible.
 ///
-/// The value owns its session, so it is self-sufficient: dropping it releases
-/// the owner and its transport by RAII, without sending a protocol STOP. Use
-/// [`close`](Self::close) for the explicit shutdown that mirrors
-/// [`Session::close`].
-///
-/// The blocking [`Camera`] borrows its session, so the view is handed out by
-/// [`camera`](Self::camera) rather than stored; the async facade's owned
-/// `Camera<P>` needs no such step.
+/// The value owns its session, so it is self-sufficient: the connection lives
+/// as long as this camera session (or a [`Camera`] taken out of it) is alive.
+/// Dropping the final owner handle stops the worker and releases the
+/// transport, but does not emit a protocol STOP. Use [`close`](Self::close)
+/// for the explicit teardown that mirrors [`Session::close`].
 pub struct CameraSession<P: CompileTimeProfile> {
     session: Session,
-    target: CameraId,
-    profile: Arc<ProfileSpec>,
-    class: ClassSelection,
-    _profile: PhantomData<fn() -> P>,
+    camera: Camera<P>,
 }
 
 impl<P: CompileTimeProfile> fmt::Debug for CameraSession<P> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("CameraSession")
-            .field("target", &self.target)
-            .field("profile", &self.profile)
+            .field("target", &self.camera.target())
+            .field("profile", &self.camera.profile())
             .finish_non_exhaustive()
     }
 }
@@ -645,16 +566,9 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     /// from this exact `P`. That is what makes the bind structural instead of
     /// a runtime profile comparison.
     pub(crate) fn from_session(session: Session, target: CameraId) -> Result<Self, Error> {
-        let profile = session.config.profile_arc(target).ok_or_else(|| {
-            Error::InvalidState("single-camera session lost its registered target".into())
-        })?;
-        Ok(Self {
-            session,
-            target,
-            profile,
-            class: ClassSelection::Request,
-            _profile: PhantomData,
-        })
+        let profile = session.config.registered_profile(target)?;
+        let camera = Camera::from_core(session.core(target, profile));
+        Ok(Self { session, camera })
     }
 
     /// Opens one single-camera owner session over a caller-owned transport.
@@ -667,40 +581,42 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     where
         T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
     {
-        let target = config.camera_id;
-        Self::from_session(Session::open(transport, config.session_config()?)?, target)
+        let session = Session::open_validated(transport, config.validated_session_config()?)?;
+        Self::from_session(session, config.camera_id)
     }
 
     /// Returns this session's compile-time bound camera view.
     ///
     /// The profile is not named again and the call cannot fail.
-    pub fn camera(&self) -> Camera<'_, P> {
-        Camera::from_core(BlockingCameraCore {
-            host: &self.session.host,
-            target: self.target,
-            profile: self.profile.as_ref(),
-            class: self.class,
-        })
+    pub const fn camera(&self) -> &Camera<P> {
+        &self.camera
     }
 
-    /// Returns the submission-class default this session hands to its camera.
+    /// Returns the submission-class default this session's camera carries.
     ///
     /// See [`Camera::submission_class`].
     #[must_use]
     pub const fn submission_class(&self) -> Option<SubmissionClass> {
-        self.class.handle_default()
+        self.camera.submission_class()
     }
 
-    /// Sets the submission-class default this session hands to its camera.
+    /// Sets the submission-class default for this session's camera.
     ///
-    /// The blocking [`Camera`] is built afresh by [`camera`](Self::camera)
-    /// rather than stored, so this is how a single-camera session carries a
-    /// default: every view taken after this call, and every noun accessor
-    /// reached through one, submits in `class`. See
-    /// [`Camera::set_submission_class`] for the full semantics, including the
-    /// rule that an urgent request is never demoted.
+    /// This is [`Camera::set_submission_class`] applied to the camera this
+    /// session owns, so every view handed out by [`camera`](Self::camera) and
+    /// every noun accessor reached through it submits in `class` afterwards.
+    /// A [`Camera`] already taken out with [`into_camera`](Self::into_camera)
+    /// carries its own copy and is unaffected.
     pub fn set_submission_class(&mut self, class: Option<SubmissionClass>) {
-        self.class = ClassSelection::from_handle_default(class);
+        self.camera.set_submission_class(class);
+    }
+
+    /// Consumes this value and returns the owned camera.
+    ///
+    /// The camera keeps the owner alive, so the connection survives; the
+    /// explicit [`close`](Self::close) is given up in exchange.
+    pub fn into_camera(self) -> Camera<P> {
+        self.camera
     }
 
     /// Returns the owned session behind this camera.
@@ -712,7 +628,7 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     /// Returns this session's sole camera target.
     #[must_use]
     pub const fn target(&self) -> CameraId {
-        self.target
+        self.camera.target()
     }
 
     /// Returns the operational tuning this session is currently preparing
@@ -736,26 +652,39 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     }
 
     /// Requests owner shutdown without consuming this value.
+    ///
+    /// This is the idempotent, non-joining signal; use [`Self::close`] when
+    /// the worker and owned transport must be fully released before continuing.
     pub fn shutdown(&self) -> Result<(), Error> {
         self.session.shutdown()
     }
 
-    /// Explicitly shuts down this camera session.
+    /// Requests owner shutdown and consumes this camera session, waiting for
+    /// the worker and its owned transport to be fully released.
+    ///
+    /// This is the deterministic teardown barrier described by
+    /// [`Session::close`]; use [`Self::shutdown`] when only an idempotent,
+    /// non-joining signal is required.
     pub fn close(self) -> Result<(), Error> {
         self.session.close()
     }
 }
 
-/// Erased owner-backed blocking target view shared by typed projections.
-#[derive(Clone, Copy)]
-pub(crate) struct BlockingCameraCore<'session> {
-    host: &'session BlockingSessionHost,
+/// Erased owner-backed blocking target view shared by typed and dynamic
+/// projections.
+///
+/// This is crate-private so the public camera type cannot accidentally expose
+/// transport details. It is the only place that retains the owner handle and
+/// performs request preparation.
+#[derive(Clone)]
+pub(crate) struct BlockingCameraCore {
+    owner: BlockingOwnerHandle,
     target: CameraId,
-    profile: &'session ProfileSpec,
+    profile: Arc<ProfileSpec>,
     class: ClassSelection,
 }
 
-impl fmt::Debug for BlockingCameraCore<'_> {
+impl fmt::Debug for BlockingCameraCore {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Camera")
@@ -765,9 +694,9 @@ impl fmt::Debug for BlockingCameraCore<'_> {
     }
 }
 
-impl<'session> BlockingCameraCore<'session> {
+impl BlockingCameraCore {
     #[cfg(feature = "dyn-api")]
-    pub(crate) fn into_typed<P>(self) -> Result<Camera<'session, P>, Error>
+    pub(crate) fn into_typed<P>(self) -> Result<Camera<P>, Error>
     where
         P: CompileTimeProfile,
     {
@@ -776,21 +705,18 @@ impl<'session> BlockingCameraCore<'session> {
     }
 
     /// Returns this view's fixed camera target.
-    #[must_use]
-    pub const fn target(&self) -> CameraId {
+    pub(crate) const fn target(&self) -> CameraId {
         self.target
     }
 
     /// Returns this view's validated profile facts.
-    #[must_use]
-    pub const fn profile(&self) -> &ProfileSpec {
-        self.profile
+    pub(crate) fn profile(&self) -> &ProfileSpec {
+        self.profile.as_ref()
     }
 
     /// Returns a cheap live read-only view of this camera's target-local state.
-    #[must_use]
-    pub fn state_cache(&self) -> StateCache {
-        self.host.state_cache(self.target)
+    pub(crate) fn state_cache(&self) -> StateCache {
+        self.owner.state_cache(self.target)
     }
 
     /// Reads the session's live operational tuning.
@@ -799,16 +725,16 @@ impl<'session> BlockingCameraCore<'session> {
     /// view taken before [`Session::set_tuning`] still prepares its next
     /// request under the new values (#631).
     fn tuning(&self) -> OperationalTuning {
-        self.host.tuning()
+        self.owner.tuning()
     }
 
     /// Returns this view's submission-class default, if it carries one.
-    pub const fn submission_class(&self) -> Option<SubmissionClass> {
+    pub(crate) const fn submission_class(&self) -> Option<SubmissionClass> {
         self.class.handle_default()
     }
 
     /// Sets this view's submission-class default.
-    pub fn set_submission_class(&mut self, class: Option<SubmissionClass>) {
+    pub(crate) fn set_submission_class(&mut self, class: Option<SubmissionClass>) {
         self.class = ClassSelection::from_handle_default(class);
     }
 
@@ -817,211 +743,115 @@ impl<'session> BlockingCameraCore<'session> {
     /// Ordinary commands wait for their terminal protocol application. A raw
     /// [`crate::raw::RawReplyShape::NoReply`] command instead succeeds once its
     /// local transport write succeeds; it does not claim camera application.
-    pub fn execute<C>(&self, command: &C) -> Result<(), Error>
+    pub(crate) fn execute<C>(&self, command: &C) -> Result<(), Error>
     where
         C: PlainCommand + ?Sized,
     {
-        self.execute_with_selection(command, self.class)
-    }
-
-    fn execute_with_selection<C>(&self, command: &C, class: ClassSelection) -> Result<(), Error>
-    where
-        C: PlainCommand + ?Sized,
-    {
-        let prepared = crate::prepared::prepare_command(
+        let prepared = prepare_command(
             command,
             self.target,
-            self.profile,
+            self.profile.as_ref(),
             self.tuning(),
-            class,
+            self.class,
         )?;
-        let receipt = self.host.submit_command(prepared)?;
-        let mut control = BlockingReceiptControl::shared(self.host);
-        receipt.wait(&mut control)
+        self.owner.submit_command(prepared)?.wait()
     }
 
     /// Submits a typed inquiry and returns its decoded response.
-    pub fn inquire<Q>(&self, inquiry: &Q) -> Result<Q::Response, Error>
+    pub(crate) fn inquire<Q>(&self, inquiry: &Q) -> Result<Q::Response, Error>
     where
         Q: Inquiry + ?Sized,
     {
-        self.inquire_with_selection(inquiry, self.class)
-    }
-
-    fn inquire_with_selection<Q>(
-        &self,
-        inquiry: &Q,
-        class: ClassSelection,
-    ) -> Result<Q::Response, Error>
-    where
-        Q: Inquiry + ?Sized,
-    {
-        let prepared = crate::prepared::prepare_inquiry(
+        let prepared = prepare_inquiry(
             inquiry,
             self.target,
-            self.profile,
+            self.profile.as_ref(),
             self.tuning(),
-            class,
+            self.class,
         )?;
-        let receipt = self.host.submit_inquiry(prepared)?;
-        let mut control = BlockingReceiptControl::shared(self.host);
-        receipt.wait(&mut control)
+        self.owner.submit_inquiry(prepared)?.wait()
     }
 
-    /// Admits a typed operation and returns its linear lifecycle handle only
-    /// after this request's initial transport write succeeds. If the request
-    /// cannot win the first dispatch race, admission returns
-    /// [`Error::TransportBusy`] and leaves no operation handle behind.
-    pub fn submit<K, O>(&self, operation: &O) -> Result<Operation<'session, K>, Error>
+    /// Admits a typed operation and returns its lifecycle handle once the
+    /// owner has accepted it. A transport write failure is reported through
+    /// the operation's outcome.
+    pub(crate) fn submit<K, O>(&self, operation: &O) -> Result<Operation<K>, Error>
     where
         K: completion::Kind,
         O: OperationCommand<K> + ?Sized,
     {
-        self.submit_with_selection::<K, O>(operation, self.class)
-    }
-
-    fn submit_with_selection<K, O>(
-        &self,
-        operation: &O,
-        class: ClassSelection,
-    ) -> Result<Operation<'session, K>, Error>
-    where
-        K: completion::Kind,
-        O: OperationCommand<K> + ?Sized,
-    {
-        let prepared = crate::prepared::prepare_operation::<K, _>(
+        let prepared = prepare_operation::<K, _>(
             operation,
             self.target,
-            self.profile,
+            self.profile.as_ref(),
             self.tuning(),
-            class,
+            self.class,
         )?;
-        let receipt = self.host.submit_operation(prepared)?;
-        Ok(Operation::from_receipt(receipt, self.host))
+        Ok(Operation::from_receipt(
+            self.owner.submit_operation(prepared)?,
+        ))
     }
 
     /// Stops every profile-supported pan/tilt, zoom, and focus axis through
     /// this camera's one owner.
     ///
-    /// Every supported typed stop is submitted and observed even when an
-    /// earlier submission or application fails. The first supported-axis error
-    /// is returned only after every supported stop path has had its observation
-    /// attempted.
-    pub fn stop_all_motion(&self) -> Result<(), Error> {
-        let mut first_error = None;
-
-        if self.profile.supports_axes(AffectedAxes::PAN_TILT) {
-            let pan_tilt_result = match self.pan_tilt_stop_request() {
-                Ok(stop) => self
-                    .submit::<completion::AppliedOnly, _>(&stop)
-                    .and_then(|operation| operation.applied()),
-                Err(error) => Err(error),
-            };
-            retain_first_error(&mut first_error, pan_tilt_result);
-        }
-
-        if self.profile.supports_axes(AffectedAxes::ZOOM) {
-            let zoom_result = self
-                .submit::<completion::AppliedOnly, _>(&ZoomStop)
-                .and_then(|operation| operation.applied());
-            retain_first_error(&mut first_error, zoom_result);
-        }
-
-        if self.profile.supports_axes(AffectedAxes::FOCUS) {
-            let focus_result = self
-                .submit::<completion::AppliedOnly, _>(&FocusStop)
-                .and_then(|operation| operation.applied());
-            retain_first_error(&mut first_error, focus_result);
-        }
-
-        first_error.map_or(Ok(()), Err)
+    /// One halt fences older declared motion, then admits supported STOPs
+    /// independently under a common deadline. The report retains each axis's
+    /// outcome even when another axis fails.
+    pub(crate) fn stop_all_motion(&self) -> Result<crate::HaltReport> {
+        let started = self.owner.now();
+        let prepared =
+            crate::prepared::prepare_halt(self.target, self.profile.as_ref(), self.tuning());
+        self.owner.halt(prepared, started)
     }
 
-    /// Observes movement on exactly the selected, profile-supported axes.
-    ///
-    /// Two complete snapshots are taken through ordinary owner inquiries and
-    /// compared by the shared pure movement detector. The observer budget is
-    /// lowered once to one owner-clock deadline.
-    pub fn is_moving(&self, query: MotionQuery) -> Result<bool, Error> {
-        let queries =
-            prepare_position_queries(self.target, self.profile, self.tuning(), query.axes)?;
-        let deadline = self.host.deadline_after(MOTION_QUERY_OBSERVER_BUDGET)?;
-        let mut control = BlockingReceiptControl::shared(self.host);
-        let mut detector = crate::prepared::MotionDetector::new(query.axes, query.tolerance);
-
-        let baseline = sample_positions_blocking(&mut control, &queries, deadline)?;
-        if detector.observe(baseline)? != crate::prepared::MotionState::NeedSample {
-            return Err(Error::InvalidState(
-                "new movement detector rejected its baseline snapshot".into(),
-            ));
-        }
-        ensure_before_deadline(&control, deadline)?;
-        let next = sample_positions_blocking(&mut control, &queries, deadline)?;
-        Ok(matches!(
-            detector.observe(next)?,
-            crate::prepared::MotionState::Moving
-        ))
+    pub(crate) fn is_moving(&self, query: MotionQuery) -> Result<bool, Error> {
+        let window = crate::prepared::MotionWindow::new(query)?;
+        let queries = prepare_position_queries(
+            self.target,
+            self.profile.as_ref(),
+            self.tuning(),
+            query.axes,
+        )?;
+        self.owner.observe_motion(window, &queries)
     }
 
     /// Waits for exactly the selected, profile-supported axes to become idle.
     ///
-    /// The timeout is lowered once to one absolute owner-clock deadline. Every
-    /// inquiry admission, reply, and polling interval is bounded by that same
+    /// The timeout is lowered once to one absolute deadline. Every inquiry
+    /// admission, reply, and polling interval is bounded by that same
     /// deadline, and the clock is checked before each new inquiry can be
-    /// enqueued.
-    pub fn wait_until_idle(&self, wait: IdleWait) -> Result<(), Error> {
+    /// enqueued. The owner worker keeps the session progressing while this
+    /// thread sleeps between samples.
+    pub(crate) fn wait_until_idle(&self, wait: IdleWait) -> Result<(), Error> {
         let queries =
-            prepare_position_queries(self.target, self.profile, self.tuning(), wait.axes)?;
-        let deadline = self.host.deadline_after(wait.timeout)?;
-        let mut control = BlockingReceiptControl::shared(self.host);
-        let mut detector = crate::prepared::MotionDetector::new(wait.axes, wait.tolerance);
-
-        let baseline = sample_positions_blocking(&mut control, &queries, deadline)?;
-        if detector.observe(baseline)? != crate::prepared::MotionState::NeedSample {
-            return Err(Error::InvalidState(
-                "new movement detector rejected its baseline snapshot".into(),
-            ));
-        }
-
-        loop {
-            ensure_before_deadline(&control, deadline)?;
-            let remaining = deadline.saturating_duration_since(control.now());
-            if remaining.is_zero() {
-                return Err(Error::Timeout);
-            }
-            control.sleep(wait.interval.min(remaining));
-            ensure_before_deadline(&control, deadline)?;
-            let snapshot = sample_positions_blocking(&mut control, &queries, deadline)?;
-            match detector.observe(snapshot)? {
-                crate::prepared::MotionState::Settled => return Ok(()),
-                crate::prepared::MotionState::Moving => {}
-                crate::prepared::MotionState::NeedSample => {
-                    return Err(Error::InvalidState(
-                        "movement detector lost its baseline snapshot".into(),
-                    ));
-                }
-            }
-        }
-    }
-
-    fn pan_tilt_stop_request(&self) -> Result<PanTiltStop, Error> {
-        pan_tilt_stop_request(self.profile)
+            prepare_position_queries(self.target, self.profile.as_ref(), self.tuning(), wait.axes)?;
+        self.owner.wait_until_idle(wait, &queries)
     }
 }
 
-/// A profile-aware camera view borrowing one [`Session`] owner.
+/// A profile-aware camera view onto one [`Session`] target.
 ///
 /// The profile parameter supplies compile-time capability gates; owner and
-/// transport state remain in the shared borrowed core.
-/// The view is `Send + Sync`; concurrent owner turns retain the session's
-/// fail-fast [`Error::TransportBusy`] behavior.
+/// transport state remain in the shared erased core. The view is
+/// `Clone + Send + Sync` and borrows nothing: it keeps the session's owner
+/// alive, and concurrent calls through it are serialized by the owner worker.
 #[must_use]
-pub struct Camera<'session, P: CompileTimeProfile> {
-    core: BlockingCameraCore<'session>,
+pub struct Camera<P: CompileTimeProfile> {
+    core: BlockingCameraCore,
     _profile: PhantomData<fn() -> P>,
 }
 
-impl<P: CompileTimeProfile> fmt::Debug for Camera<'_, P> {
+impl<P: CompileTimeProfile> Clone for Camera<P> {
+    fn clone(&self) -> Self {
+        Self {
+            core: self.core.clone(),
+            _profile: PhantomData,
+        }
+    }
+}
+
+impl<P: CompileTimeProfile> fmt::Debug for Camera<P> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Camera")
@@ -1031,100 +861,19 @@ impl<P: CompileTimeProfile> fmt::Debug for Camera<'_, P> {
     }
 }
 
-impl<'session, P: CompileTimeProfile> Camera<'session, P> {
-    pub(crate) fn from_core(core: BlockingCameraCore<'session>) -> Self {
+impl<P: CompileTimeProfile> Camera<P> {
+    pub(crate) fn from_core(core: BlockingCameraCore) -> Self {
         Self {
             core,
             _profile: PhantomData,
         }
     }
 
-    pub(crate) const fn core(&self) -> &BlockingCameraCore<'session> {
+    pub(crate) const fn core(&self) -> &BlockingCameraCore {
         &self.core
     }
 
-    /// Returns this view's fixed camera target.
-    #[must_use]
-    pub const fn target(&self) -> CameraId {
-        self.core.target()
-    }
-
-    /// Returns this view's validated profile facts.
-    #[must_use]
-    pub const fn profile(&self) -> &ProfileSpec {
-        self.core.profile()
-    }
-
-    /// Returns this view's validated runtime capability inventory.
-    ///
-    /// This is the runtime discovery view of the same facts the compile-time
-    /// marker traits gate: it reports what the profile documents, not
-    /// permission to call a typed API.
-    #[must_use]
-    pub const fn capabilities(&self) -> &crate::capabilities::Capabilities {
-        self.core.profile().capabilities()
-    }
-
-    /// Returns a cheap live read-only view of this camera's target-local state.
-    #[must_use]
-    pub fn state_cache(&self) -> StateCache {
-        self.core.state_cache()
-    }
-
-    /// Returns this handle's submission-class default, if it carries one.
-    ///
-    /// `None` — the initial value — means every request uses its intrinsic
-    /// [`crate::ControlClass`]. See
-    /// [`set_submission_class`](Self::set_submission_class).
-    #[must_use]
-    pub const fn submission_class(&self) -> Option<SubmissionClass> {
-        self.core.submission_class()
-    }
-
-    /// Derives a camera view whose ordinary work uses `class`.
-    ///
-    /// The original view is unchanged. Commands, inquiries, operations, and
-    /// noun methods submitted through the returned view all inherit this
-    /// class; intrinsically urgent stops remain urgent.
-    pub fn with_submission_class(&self, class: SubmissionClass) -> Self {
-        let mut core = self.core;
-        core.set_submission_class(Some(class));
-        Self::from_core(core)
-    }
-
-    /// Sets the ordinary-work [`SubmissionClass`] every later submission from
-    /// *this handle* uses, or clears it with `None`.
-    ///
-    /// The owner dispatches ready work from the highest occupied class first
-    /// and FIFO within a class, so lowering this default makes the handle's
-    /// traffic yield the transport to other handles' ordinary work, and
-    /// raising it makes the handle's traffic overtake work that is still
-    /// **queued**. It never interrupts, cancels, or reorders a request that
-    /// has already been written to the transport, and it does not change the
-    /// class of requests submitted before the call.
-    ///
-    /// The default is a property of *this handle*, not of the camera or the
-    /// session: another view taken from the same [`Session`] keeps its own
-    /// value. It applies to every request the handle submits — commands,
-    /// inquiries, and operations, including the ones the noun accessors submit
-    /// — with exactly one exception.
-    ///
-    /// # Urgent requests are never demoted
-    ///
-    /// A request the crate classifies [`crate::ControlClass::Urgent`] — the typed
-    /// stops [`PanTiltStop`], [`ZoomStop`], [`FocusStop`], and owner-issued
-    /// protocol cancellation — ignores this default and stays urgent. A handle demoted to
-    /// [`SubmissionClass::Background`] for telemetry polling therefore still
-    /// preempts with an emergency stop. Per-submission overrides obey the same
-    /// safety floor, and [`SubmissionClass`] deliberately has no urgent
-    /// variant for callers to manufacture.
-    ///
-    /// Owner-internal traffic that no caller submitted — the settlement
-    /// polling behind [`Operation::settled`] and the observation inquiries
-    /// behind `motion()` — keeps its own built-in class.
-    pub fn set_submission_class(&mut self, class: Option<SubmissionClass>) {
-        self.core.set_submission_class(class);
-    }
+    crate::camera_view::camera_view_getters!();
 
     /// Executes a plain command through this camera's shared owner.
     ///
@@ -1170,8 +919,9 @@ impl<'session, P: CompileTimeProfile> Camera<'session, P> {
         self.core.inquire(inquiry)
     }
 
-    /// Submits a typed operation and returns its borrowed owner-backed handle.
-    pub fn submit<K, O>(&self, operation: &O) -> Result<Operation<'session, K>, Error>
+    /// Submits a typed operation and returns its owner-backed handle once the
+    /// owner has admitted it.
+    pub fn submit<K, O>(&self, operation: &O) -> Result<Operation<K>, Error>
     where
         K: completion::Kind,
         O: OperationCommand<K> + ?Sized,
@@ -1183,30 +933,9 @@ impl<'session, P: CompileTimeProfile> Camera<'session, P> {
 #[path = "blocking_nouns.rs"]
 mod blocking_nouns;
 
-pub use blocking_nouns::{
-    AdvancedAccessor, ExposureAccessor, FocusAccessor, ImageAccessor, MenuAccessor, MotionAccessor,
-    MotionSyncAccessor, NdFilterAccessor, PanTiltAccessor, PowerAccessor, PresetsAccessor,
-    SystemAccessor, TallyAccessor, WhiteBalanceAccessor, ZoomAccessor,
-};
-
-fn ensure_before_deadline(
-    control: &BlockingReceiptControl<'_>,
-    deadline: std::time::Instant,
-) -> Result<(), Error> {
-    if control.now() >= deadline {
-        Err(Error::Timeout)
-    } else {
-        Ok(())
-    }
-}
-
-fn retain_first_error(first_error: &mut Option<Error>, result: Result<(), Error>) {
-    if let Err(error) = result {
-        if first_error.is_none() {
-            *first_error = Some(error);
-        }
-    }
-}
+use crate::noun_table::reexport_nouns;
+crate::noun_table::noun_table!(reexport_nouns, [accessor], [blocking_nouns]);
+crate::noun_table::motion_table!(reexport_nouns, [accessor], [blocking_nouns]);
 
 #[cfg(all(test, feature = "test-utils"))]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
@@ -1273,7 +1002,7 @@ mod tests {
             &mut self,
             dst: &mut [u8],
             timeout: Duration,
-        ) -> Result<usize, Error> {
+        ) -> Result<crate::transport::ReceiveOutcome, Error> {
             self.inner.recv_into_with_timeout(dst, timeout)
         }
 
@@ -1314,24 +1043,19 @@ mod tests {
             .expect("valid partial motion profile")
     }
 
-    fn partial_motion_core(session: &Session) -> BlockingCameraCore<'_> {
-        BlockingCameraCore {
-            host: &session.host,
-            target: CameraId::CAMERA_1,
-            profile: session
-                .config
-                .profile(CameraId::CAMERA_1)
-                .expect("registered partial motion profile"),
-            class: ClassSelection::Request,
-        }
+    fn partial_motion_core(session: &Session) -> BlockingCameraCore {
+        let profile = session
+            .config
+            .registered_profile(CameraId::CAMERA_1)
+            .expect("registered partial motion profile");
+        session.core(CameraId::CAMERA_1, profile)
     }
 
-    /// The owning `Session` is the host every camera view borrows from: two
-    /// views taken from the same session drive the one owned transport, and an
-    /// operation submitted through either of them settles rather than merely
-    /// being constructed.
+    /// Two views taken from the same session drive its one owned transport,
+    /// and an operation submitted through either of them is applied rather
+    /// than merely being constructed.
     #[test]
-    fn owning_blocking_session_builds_shared_handle_host() {
+    fn camera_views_share_the_session_owner() {
         use crate::testing::testkit::{helpers, ScriptedBlockingTransport};
 
         let transport = ScriptedBlockingTransport::new([
@@ -1359,6 +1083,44 @@ mod tests {
             "both views wrote their zoom stop through the one owned transport"
         );
         session.shutdown().unwrap();
+    }
+
+    /// Issue #805: an operation's `Debug` output is its identity only, the
+    /// same on both facades (the async facade used to print its receipt).
+    #[test]
+    fn operation_debug_shows_only_its_identity() {
+        let transport = ScriptedBlockingTransport::new([helpers::auto_respond_step()]);
+        let session = Session::open(
+            transport,
+            SessionConfig::new(partial_motion_profile(true, false)),
+        )
+        .expect("zoom session");
+        let mut operation = partial_motion_core(&session)
+            .submit::<completion::AppliedOnly, _>(&crate::request::builtin::ZoomStop)
+            .expect("admitted");
+        assert_eq!(
+            format!("{operation:?}"),
+            format!("Operation {{ id: {:?} }}", operation.id())
+        );
+        operation.applied().expect("applied");
+        session.shutdown().expect("session shutdown");
+    }
+
+    /// Issue #805: tuning is validated once, when the session opens, before
+    /// any write: an open that would send the Sony RESET writes nothing.
+    #[test]
+    fn session_open_rejects_invalid_tuning_before_any_write() {
+        let transport = ScriptedBlockingTransport::new([]);
+        let probe = transport.clone();
+        let config = SessionConfig::from_compile_time::<crate::profiles::SonyFR7>()
+            .unwrap()
+            .with_sony_sequence_reset_on_connect(true)
+            .with_tuning(OperationalTuning::new().maximum_command_sockets(u8::MAX));
+        assert!(matches!(
+            Session::open(transport, config),
+            Err(Error::InvalidRequest(_) | Error::InvalidParameter { .. })
+        ));
+        assert!(probe.sent().is_empty());
     }
 
     #[test]
@@ -1390,7 +1152,9 @@ mod tests {
 
         partial_motion_core(&session)
             .stop_all_motion()
-            .expect("zoom-only stop succeeds");
+            .expect("zoom-only stop succeeds")
+            .into_result()
+            .expect("supported STOP applied");
 
         assert_eq!(
             probe.sent(),
@@ -1412,7 +1176,9 @@ mod tests {
 
         partial_motion_core(&session)
             .stop_all_motion()
-            .expect("no-axis stop is a successful no-op");
+            .expect("no-axis stop is a successful no-op")
+            .into_result()
+            .expect("no supported axes");
 
         assert!(
             probe.sent().is_empty(),
@@ -1422,7 +1188,7 @@ mod tests {
     }
 
     #[test]
-    fn stop_all_motion_returns_the_first_supported_failure_after_later_stops() {
+    fn stop_all_motion_reports_each_supported_axis_after_a_partial_failure() {
         let (transport, writes) = FailFirstZoomStopSend::new([helpers::auto_respond_step()]);
         let session = Session::open(
             transport,
@@ -1430,10 +1196,15 @@ mod tests {
         )
         .expect("zoom-focus session");
 
+        let report = partial_motion_core(&session)
+            .stop_all_motion()
+            .expect("halt was accepted");
+        assert!(matches!(report.pan_tilt, crate::HaltOutcome::Unsupported));
         assert!(matches!(
-            partial_motion_core(&session).stop_all_motion(),
-            Err(Error::TransportError(_))
+            report.zoom,
+            crate::HaltOutcome::Failed(Error::TransportError(_))
         ));
+        assert!(matches!(report.focus, crate::HaltOutcome::Applied));
         assert_eq!(
             writes.lock().expect("writes lock").clone(),
             vec![

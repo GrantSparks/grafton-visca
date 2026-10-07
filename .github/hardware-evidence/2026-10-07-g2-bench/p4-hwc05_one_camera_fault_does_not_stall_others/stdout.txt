@@ -1,0 +1,162 @@
+
+running 1 test
+test hwc05_one_camera_fault_does_not_stall_others ... HW|t=0|cameras=["cam1", "cam2", "cam3", "cam4", "cam5"] profile=PtzOpticsG2
+HW|t=0|fault.camera=cam4 flag=bench/fault-p4-hwc05_one_camera_fault_does_not_stall_others.flag
+HW|t=0|cam=cam1|connect.tcp=cam1:5678
+HW|t=270|cam=cam1|baseline.rest[0].sample[0]=Ok((PanTiltPosition { pan: 0, tilt: -203 }, ZoomPosition(0)))
+HW|t=669|cam=cam1|baseline.rest[0].sample[1]=Ok((PanTiltPosition { pan: 0, tilt: -203 }, ZoomPosition(0)))
+HW|t=1069|cam=cam1|baseline.rest[0].sample[2]=Ok((PanTiltPosition { pan: 0, tilt: -203 }, ZoomPosition(0)))
+HW|t=1470|cam=cam1|baseline.rest[0].sample[3]=Ok((PanTiltPosition { pan: 0, tilt: -203 }, ZoomPosition(0)))
+HW|t=1869|cam=cam1|baseline.rest[0].sample[4]=Ok((PanTiltPosition { pan: 0, tilt: -203 }, ZoomPosition(0)))
+HW|t=1869|cam=cam1|baseline.rest[0].rest_stable=true
+HW|t=2631|cam=cam1|baseline=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=2631|cam=cam2|connect.tcp=cam2:5678
+HW|t=2873|cam=cam2|baseline.rest[0].sample[0]=Ok((PanTiltPosition { pan: 208, tilt: -207 }, ZoomPosition(0)))
+HW|t=3273|cam=cam2|baseline.rest[0].sample[1]=Ok((PanTiltPosition { pan: 208, tilt: -207 }, ZoomPosition(0)))
+HW|t=3673|cam=cam2|baseline.rest[0].sample[2]=Ok((PanTiltPosition { pan: 208, tilt: -207 }, ZoomPosition(0)))
+HW|t=4073|cam=cam2|baseline.rest[0].sample[3]=Ok((PanTiltPosition { pan: 208, tilt: -207 }, ZoomPosition(0)))
+HW|t=4473|cam=cam2|baseline.rest[0].sample[4]=Ok((PanTiltPosition { pan: 208, tilt: -207 }, ZoomPosition(0)))
+HW|t=4473|cam=cam2|baseline.rest[0].rest_stable=true
+HW|t=5239|cam=cam2|baseline=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1706), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=5240|cam=cam3|connect.tcp=cam3:5678
+HW|t=5499|cam=cam3|baseline.rest[0].sample[0]=Ok((PanTiltPosition { pan: -856, tilt: -233 }, ZoomPosition(0)))
+HW|t=5898|cam=cam3|baseline.rest[0].sample[1]=Ok((PanTiltPosition { pan: -856, tilt: -233 }, ZoomPosition(0)))
+HW|t=6299|cam=cam3|baseline.rest[0].sample[2]=Ok((PanTiltPosition { pan: -856, tilt: -233 }, ZoomPosition(0)))
+HW|t=6699|cam=cam3|baseline.rest[0].sample[3]=Ok((PanTiltPosition { pan: -856, tilt: -233 }, ZoomPosition(0)))
+HW|t=7098|cam=cam3|baseline.rest[0].sample[4]=Ok((PanTiltPosition { pan: -856, tilt: -233 }, ZoomPosition(0)))
+HW|t=7098|cam=cam3|baseline.rest[0].rest_stable=true
+HW|t=7848|cam=cam3|baseline=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=7848|cam=cam4|connect.tcp=cam4:5678
+HW|t=8094|cam=cam4|baseline.rest[0].sample[0]=Ok((PanTiltPosition { pan: 814, tilt: 0 }, ZoomPosition(0)))
+HW|t=8486|cam=cam4|baseline.rest[0].sample[1]=Ok((PanTiltPosition { pan: 814, tilt: 0 }, ZoomPosition(0)))
+HW|t=8885|cam=cam4|baseline.rest[0].sample[2]=Ok((PanTiltPosition { pan: 814, tilt: 0 }, ZoomPosition(0)))
+HW|t=9294|cam=cam4|baseline.rest[0].sample[3]=Ok((PanTiltPosition { pan: 814, tilt: 0 }, ZoomPosition(0)))
+HW|t=9694|cam=cam4|baseline.rest[0].sample[4]=Ok((PanTiltPosition { pan: 814, tilt: 0 }, ZoomPosition(0)))
+HW|t=9694|cam=cam4|baseline.rest[0].rest_stable=true
+HW|t=10455|cam=cam4|baseline=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=10455|cam=cam5|connect.tcp=cam5:5678
+HW|t=10704|cam=cam5|baseline.rest[0].sample[0]=Ok((PanTiltPosition { pan: 1000, tilt: -239 }, ZoomPosition(0)))
+HW|t=11107|cam=cam5|baseline.rest[0].sample[1]=Ok((PanTiltPosition { pan: 1000, tilt: -239 }, ZoomPosition(0)))
+HW|t=11520|cam=cam5|baseline.rest[0].sample[2]=Ok((PanTiltPosition { pan: 1000, tilt: -239 }, ZoomPosition(0)))
+HW|t=11929|cam=cam5|baseline.rest[0].sample[3]=Ok((PanTiltPosition { pan: 1000, tilt: -239 }, ZoomPosition(0)))
+HW|t=12328|cam=cam5|baseline.rest[0].sample[4]=Ok((PanTiltPosition { pan: 1000, tilt: -239 }, ZoomPosition(0)))
+HW|t=12328|cam=cam5|baseline.rest[0].rest_stable=true
+HW|t=13087|cam=cam5|baseline=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=13088|cam=cam5|rounds.start
+HW|t=13088|cam=cam4|READY_FOR_FAULT flag=bench/fault-p4-hwc05_one_camera_fault_does_not_stall_others.flag
+HW|t=13088|cam=cam3|rounds.start
+HW|t=13088|cam=cam2|rounds.start
+HW|t=13088|cam=cam1|rounds.start
+HW|t=13188|cam=cam4|fault.flag_seen
+HW|t=14195|cam=cam4|during_fault[0]=Err(Timeout { context: FailureContext { stage: Terminal, certainty: FailedConclusively } })
+HW|t=14195|cam=cam4|during_fault[0].error kind=Timeout requires_new_session=false unconfirmed=false display="Operation timed out (in the protocol lifecycle)"
+HW|t=14195|cam=cam4|during_fault[0].documented_class=true
+HW|t=15197|cam=cam4|during_fault[1]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=15197|cam=cam4|during_fault[1].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=15197|cam=cam4|during_fault[1].documented_class=true
+HW|t=15703|cam=cam4|during_fault[2]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=15703|cam=cam4|during_fault[2].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=15703|cam=cam4|during_fault[2].documented_class=true
+HW|t=16209|cam=cam4|during_fault[3]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=16209|cam=cam4|during_fault[3].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=16209|cam=cam4|during_fault[3].documented_class=true
+HW|t=16715|cam=cam4|during_fault[4]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=16715|cam=cam4|during_fault[4].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=16715|cam=cam4|during_fault[4].documented_class=true
+HW|t=17222|cam=cam4|during_fault[5]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=17222|cam=cam4|during_fault[5].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=17222|cam=cam4|during_fault[5].documented_class=true
+HW|t=17729|cam=cam4|during_fault[6]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=17729|cam=cam4|during_fault[6].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=17729|cam=cam4|during_fault[6].documented_class=true
+HW|t=18238|cam=cam4|during_fault[7]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=18238|cam=cam4|during_fault[7].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=18238|cam=cam4|during_fault[7].documented_class=true
+HW|t=18741|cam=cam4|during_fault[8]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=18741|cam=cam4|during_fault[8].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=18741|cam=cam4|during_fault[8].documented_class=true
+HW|t=19253|cam=cam4|during_fault[9]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=19253|cam=cam4|during_fault[9].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=19253|cam=cam4|during_fault[9].documented_class=true
+HW|t=19757|cam=cam4|during_fault[10]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=19757|cam=cam4|during_fault[10].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=19757|cam=cam4|during_fault[10].documented_class=true
+HW|t=20267|cam=cam4|during_fault[11]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=20267|cam=cam4|during_fault[11].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=20268|cam=cam4|during_fault[11].documented_class=true
+HW|t=20773|cam=cam4|during_fault[12]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=20773|cam=cam4|during_fault[12].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=20773|cam=cam4|during_fault[12].documented_class=true
+HW|t=21273|cam=cam4|fault.observation_ended lifted=true held_ms=8084 errors=13 session_dead=false
+HW|t=21279|cam=cam4|recovery.same_session[0]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=21279|cam=cam4|recovery.same_session[0].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=22280|cam=cam4|recovery.same_session[1]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=22280|cam=cam4|recovery.same_session[1].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=23281|cam=cam4|recovery.same_session[2]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=23281|cam=cam4|recovery.same_session[2].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=24283|cam=cam4|recovery.same_session[3]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=24283|cam=cam4|recovery.same_session[3].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=25291|cam=cam4|recovery.same_session[4]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=25291|cam=cam4|recovery.same_session[4].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=26293|cam=cam4|recovery.same_session[5]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=26293|cam=cam4|recovery.same_session[5].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=27303|cam=cam4|recovery.same_session[6]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=27303|cam=cam4|recovery.same_session[6].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=28308|cam=cam4|recovery.same_session[7]=Err(InquiryCorrelationLost { camera: CameraId(1) })
+HW|t=28308|cam=cam4|recovery.same_session[7].error kind=NotExecutable requires_new_session=false unconfirmed=false display="Raw inquiry correlation for Camera 1 is lost: an earlier inquiry's reply is still owed by the stream, so this request was not sent; reopen the session to recover"
+HW|t=29361|cam=cam4|recovery.same_session[8]=Ok(true)
+HW|t=29372|cam=cam4|session.close=Ok(())
+HW|t=29372|cam=cam4|RECOVERED via=same_session attempts=9
+HW|t=30005|cam=cam1|summary rounds=22 decoded=22 failed=0 mismatched=0 inquiries=110 latency_p50_ms=134.2 latency_max_ms=246.9
+HW|t=30005|cam=cam1|metrics.before=Ok(MetricsSnapshot { admitted: 0, admission_rejected: 0, control_reserve_admitted: 0, control_reserve_rejected: 0, writes: 0, write_failures: 0, terminal: 0, cancellations: 0, cache_updates: 0, ack_timeouts: 0, completion_timeouts: 0, inquiry_timeouts: 0, busy_errors: 0, protocol_errors: 0, retries_scheduled: 0, received_frames: 0, ignored_unmatched_sequenced_replies: 0, ignored_malformed_frames: 0, dropped_diagnostics: 0, dropped_diagnostic_events: 0, dropped_observer_events: 0, dropped_applied_events: 0, dropped_boundary_work: 0, active: 0, pending: 0, session: Running })
+HW|t=30005|cam=cam1|metrics.after=Ok(MetricsSnapshot { admitted: 125, admission_rejected: 0, control_reserve_admitted: 0, control_reserve_rejected: 0, writes: 125, write_failures: 0, terminal: 125, cancellations: 0, cache_updates: 0, ack_timeouts: 0, completion_timeouts: 0, inquiry_timeouts: 0, busy_errors: 0, protocol_errors: 0, retries_scheduled: 0, received_frames: 125, ignored_unmatched_sequenced_replies: 0, ignored_malformed_frames: 0, dropped_diagnostics: 622, dropped_diagnostic_events: 0, dropped_observer_events: 0, dropped_applied_events: 0, dropped_boundary_work: 0, active: 0, pending: 0, session: Running })
+HW|t=30005|cam=cam1|metrics.new_timeouts=Ok(0)
+HW|t=30005|cam=cam1|check.every_reply_decoded=true
+HW|t=30005|cam=cam1|check.replies_attributed_to_own_camera=true
+HW|t=30005|cam=cam1|check.no_timeouts=true
+HW|t=30005|cam=cam1|check.session_running=true
+HW|t=30005|cam=cam1|latency.bound_ms=799 baseline_p50_ms=159.9 factor=5 floor_ms=500 inquiry_deadline_ms=1000
+HW|t=30005|cam=cam1|check.latency_within_baseline_bound=true
+HW|t=30016|cam=cam1|session.close=Ok(())
+HW|t=30021|cam=cam2|summary rounds=22 decoded=22 failed=0 mismatched=0 inquiries=110 latency_p50_ms=139.8 latency_max_ms=239.2
+HW|t=30021|cam=cam2|metrics.before=Ok(MetricsSnapshot { admitted: 0, admission_rejected: 0, control_reserve_admitted: 0, control_reserve_rejected: 0, writes: 0, write_failures: 0, terminal: 0, cancellations: 0, cache_updates: 0, ack_timeouts: 0, completion_timeouts: 0, inquiry_timeouts: 0, busy_errors: 0, protocol_errors: 0, retries_scheduled: 0, received_frames: 0, ignored_unmatched_sequenced_replies: 0, ignored_malformed_frames: 0, dropped_diagnostics: 0, dropped_diagnostic_events: 0, dropped_observer_events: 0, dropped_applied_events: 0, dropped_boundary_work: 0, active: 0, pending: 0, session: Running })
+HW|t=30021|cam=cam2|metrics.after=Ok(MetricsSnapshot { admitted: 125, admission_rejected: 0, control_reserve_admitted: 0, control_reserve_rejected: 0, writes: 125, write_failures: 0, terminal: 125, cancellations: 0, cache_updates: 0, ack_timeouts: 0, completion_timeouts: 0, inquiry_timeouts: 0, busy_errors: 0, protocol_errors: 0, retries_scheduled: 0, received_frames: 125, ignored_unmatched_sequenced_replies: 0, ignored_malformed_frames: 0, dropped_diagnostics: 622, dropped_diagnostic_events: 0, dropped_observer_events: 0, dropped_applied_events: 0, dropped_boundary_work: 0, active: 0, pending: 0, session: Running })
+HW|t=30021|cam=cam2|metrics.new_timeouts=Ok(0)
+HW|t=30021|cam=cam2|check.every_reply_decoded=true
+HW|t=30021|cam=cam2|check.replies_attributed_to_own_camera=true
+HW|t=30021|cam=cam2|check.no_timeouts=true
+HW|t=30021|cam=cam2|check.session_running=true
+HW|t=30021|cam=cam2|latency.bound_ms=825 baseline_p50_ms=165.1 factor=5 floor_ms=500 inquiry_deadline_ms=1000
+HW|t=30021|cam=cam2|check.latency_within_baseline_bound=true
+HW|t=30032|cam=cam2|session.close=Ok(())
+HW|t=30043|cam=cam3|summary rounds=22 decoded=22 failed=0 mismatched=0 inquiries=110 latency_p50_ms=149.0 latency_max_ms=251.0
+HW|t=30043|cam=cam3|metrics.before=Ok(MetricsSnapshot { admitted: 0, admission_rejected: 0, control_reserve_admitted: 0, control_reserve_rejected: 0, writes: 0, write_failures: 0, terminal: 0, cancellations: 0, cache_updates: 0, ack_timeouts: 0, completion_timeouts: 0, inquiry_timeouts: 0, busy_errors: 0, protocol_errors: 0, retries_scheduled: 0, received_frames: 0, ignored_unmatched_sequenced_replies: 0, ignored_malformed_frames: 0, dropped_diagnostics: 0, dropped_diagnostic_events: 0, dropped_observer_events: 0, dropped_applied_events: 0, dropped_boundary_work: 0, active: 0, pending: 0, session: Running })
+HW|t=30043|cam=cam3|metrics.after=Ok(MetricsSnapshot { admitted: 125, admission_rejected: 0, control_reserve_admitted: 0, control_reserve_rejected: 0, writes: 125, write_failures: 0, terminal: 125, cancellations: 0, cache_updates: 0, ack_timeouts: 0, completion_timeouts: 0, inquiry_timeouts: 0, busy_errors: 0, protocol_errors: 0, retries_scheduled: 0, received_frames: 125, ignored_unmatched_sequenced_replies: 0, ignored_malformed_frames: 0, dropped_diagnostics: 622, dropped_diagnostic_events: 0, dropped_observer_events: 0, dropped_applied_events: 0, dropped_boundary_work: 0, active: 0, pending: 0, session: Running })
+HW|t=30043|cam=cam3|metrics.new_timeouts=Ok(0)
+HW|t=30043|cam=cam3|check.every_reply_decoded=true
+HW|t=30043|cam=cam3|check.replies_attributed_to_own_camera=true
+HW|t=30043|cam=cam3|check.no_timeouts=true
+HW|t=30043|cam=cam3|check.session_running=true
+HW|t=30043|cam=cam3|latency.bound_ms=750 baseline_p50_ms=150.0 factor=5 floor_ms=500 inquiry_deadline_ms=1000
+HW|t=30043|cam=cam3|check.latency_within_baseline_bound=true
+HW|t=30054|cam=cam3|session.close=Ok(())
+HW|t=30062|cam=cam5|summary rounds=22 decoded=22 failed=0 mismatched=0 inquiries=110 latency_p50_ms=140.0 latency_max_ms=245.0
+HW|t=30062|cam=cam5|metrics.before=Ok(MetricsSnapshot { admitted: 0, admission_rejected: 0, control_reserve_admitted: 0, control_reserve_rejected: 0, writes: 0, write_failures: 0, terminal: 0, cancellations: 0, cache_updates: 0, ack_timeouts: 0, completion_timeouts: 0, inquiry_timeouts: 0, busy_errors: 0, protocol_errors: 0, retries_scheduled: 0, received_frames: 0, ignored_unmatched_sequenced_replies: 0, ignored_malformed_frames: 0, dropped_diagnostics: 0, dropped_diagnostic_events: 0, dropped_observer_events: 0, dropped_applied_events: 0, dropped_boundary_work: 0, active: 0, pending: 0, session: Running })
+HW|t=30062|cam=cam5|metrics.after=Ok(MetricsSnapshot { admitted: 125, admission_rejected: 0, control_reserve_admitted: 0, control_reserve_rejected: 0, writes: 125, write_failures: 0, terminal: 125, cancellations: 0, cache_updates: 0, ack_timeouts: 0, completion_timeouts: 0, inquiry_timeouts: 0, busy_errors: 0, protocol_errors: 0, retries_scheduled: 0, received_frames: 125, ignored_unmatched_sequenced_replies: 0, ignored_malformed_frames: 0, dropped_diagnostics: 622, dropped_diagnostic_events: 0, dropped_observer_events: 0, dropped_applied_events: 0, dropped_boundary_work: 0, active: 0, pending: 0, session: Running })
+HW|t=30062|cam=cam5|metrics.new_timeouts=Ok(0)
+HW|t=30062|cam=cam5|check.every_reply_decoded=true
+HW|t=30062|cam=cam5|check.replies_attributed_to_own_camera=true
+HW|t=30062|cam=cam5|check.no_timeouts=true
+HW|t=30062|cam=cam5|check.session_running=true
+HW|t=30062|cam=cam5|latency.bound_ms=784 baseline_p50_ms=156.9 factor=5 floor_ms=500 inquiry_deadline_ms=1000
+HW|t=30062|cam=cam5|check.latency_within_baseline_bound=true
+HW|t=30073|cam=cam5|session.close=Ok(())
+HW|t=30073|cam=cam4|fault.report=FaultReport { flag_appeared: true, fault_lifted: true, errors: 13, undocumented_errors: 0, recovered: true }
+HW|t=30073|cam=cam4|check.fault_flag_appeared=true
+HW|t=30073|cam=cam4|check.fault_lifted=true
+HW|t=30073|cam=cam4|check.faulted_session_reported_error=true
+HW|t=30073|cam=cam4|check.faulted_errors_documented_class=true
+HW|t=30073|cam=cam4|check.faulted_camera_recovered=true
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 30.07s

@@ -7,8 +7,8 @@ async fn ready_transport_close_precedes_shutdown_and_queued_admission() {
     let harness = harness();
     let frames = harness.frames.clone();
     let admission = handle.try_submit(command()).unwrap();
-    handle.shutdown().await.unwrap();
-    frames.send_async(Ok(AsyncReceive::Closed)).await.unwrap();
+    handle.shutdown().unwrap();
+    frames.send_async(Ok(OwnerReceive::Closed)).await.unwrap();
     let snapshot = actor.run(harness.driver).await;
     assert_eq!(snapshot.state, SessionState::Closed);
     assert!(matches!(
@@ -36,8 +36,8 @@ async fn terminal_stop_is_published_before_shutdown_can_enter_the_live_lane() {
 
     let outcome = actor
         .handle_event(
-            ActorEvent::Receive {
-                result: Ok(AsyncReceive::Closed),
+            OwnerEvent::Receive {
+                result: Ok(OwnerReceive::Closed),
                 received_at: Executor::now(&runtime),
             },
             &mut driver,
@@ -48,10 +48,10 @@ async fn terminal_stop_is_published_before_shutdown_can_enter_the_live_lane() {
         .await;
     assert_eq!(outcome, TurnOutcome::Stop);
 
-    let error = handle.shutdown().await.unwrap_err();
+    let error = handle.shutdown().unwrap_err();
     assert!(matches!(error, Error::ConnectionClosed { .. }));
     assert!(
-        actor.shutdown.is_empty(),
+        actor.core.receivers.shutdown.is_empty(),
         "a terminal session must not retain a shutdown signal it can never poll"
     );
 }
@@ -70,7 +70,7 @@ async fn ready_frame_is_observed_before_explicit_shutdown() {
         }]))
         .await
         .unwrap();
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     let snapshot = actor.run(harness.driver).await;
     let frame = snapshot
         .diagnostics
@@ -85,9 +85,12 @@ async fn ready_frame_is_observed_before_explicit_shutdown() {
     assert!(frame < shutdown);
     assert_eq!(snapshot.state, SessionState::Shutdown);
 }
+/// A cancellation still queued when the session shuts down is drained with
+/// the terminal error, consuming nothing: the operation's terminal outcome,
+/// buffered before shutdown, still decides the cancellation (#777).
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
-async fn shutdown_drain_reuses_buffered_operation_receiver_for_queued_cancel() {
+async fn queued_cancel_at_shutdown_concludes_on_the_buffered_terminal_slot() {
     let runtime = TokioRuntime::from_current().unwrap();
     let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
     let harness = harness();
@@ -100,8 +103,11 @@ async fn shutdown_drain_reuses_buffered_operation_receiver_for_queued_cancel() {
     let operation = handle.submit(command()).await.unwrap();
     let _ = started.recv_async().await.unwrap();
     let cancel_handle = handle.clone();
-    let cancel_task = tokio::spawn(async move { cancel_handle.cancel_test(operation).await });
-    while handle.cancellations.is_empty() {
+    let cancel_task = tokio::spawn(async move {
+        let observer = cancel_handle.cancel_test(&operation).await;
+        (observer, operation)
+    });
+    while handle.core.cancellations.is_empty() {
         tokio::task::yield_now().await;
     }
     frames
@@ -111,17 +117,25 @@ async fn shutdown_drain_reuses_buffered_operation_receiver_for_queued_cancel() {
         ]))
         .await
         .unwrap();
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     gates
         .send_async(Ok(TransmissionMeta { sequence: None }))
         .await
         .unwrap();
 
-    let cancellation = cancel_task.await.unwrap().unwrap();
-    assert!(matches!(
-        cancellation.recv_test().await.unwrap(),
-        CancellationObservation::Completed
-    ));
+    // The queued cancellation is drained at shutdown with the session's
+    // terminal error; the operation's buffered terminal outcome still decides
+    // the cancellation (#777).
+    let (answer, operation) = cancel_task.await.unwrap();
+    assert!(
+        matches!(answer, Err(Error::RuntimeShutdown)),
+        "got {answer:?}"
+    );
+    let terminal = operation.terminal().await.unwrap();
+    assert_eq!(
+        cancellation_outcome(&terminal).unwrap(),
+        CancellationOutcome::Completed
+    );
     assert_eq!(
         writes
             .lock()
@@ -148,13 +162,13 @@ async fn stream_poison_resolves_active_and_drains_unstaged_boundary() {
     assert_eq!(started.recv_async().await.unwrap(), first.id);
     let queued_handle = handle.clone();
     let queued = tokio::spawn(async move { queued_handle.submit(command()).await });
-    while handle.permits.available() != 0 {
+    while handle.core.permits.available() != 0 {
         tokio::task::yield_now().await;
     }
     // The permit is acquired before the bounded boundary send. One more
     // yield lets that infallible next step enqueue before poison is released.
     tokio::task::yield_now().await;
-    gates.send_async(Err(Error::Timeout)).await.unwrap();
+    gates.send_async(Err(Error::io_timeout())).await.unwrap();
 
     assert!(matches!(
         first.terminal().await.unwrap(),
@@ -197,7 +211,7 @@ async fn actor_disconnect_without_terminal_result_fails_closed() {
     ));
     assert!(actor_task.await.is_err(), "the test driver must panic");
 
-    let error = handle.shutdown().await.unwrap_err();
+    let error = handle.shutdown().unwrap_err();
     assert!(matches!(
         error,
         Error::InvalidState(message)
@@ -216,7 +230,7 @@ async fn queued_admission_actor_disconnect_fails_closed_and_releases_capacity() 
     let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
 
     let queued = handle.try_submit(inquiry()).unwrap();
-    assert_eq!(handle.permits.available(), 0);
+    assert_eq!(handle.core.permits.available(), 0);
 
     // The receive-first actor turn panics before it can consume the
     // already-buffered admission. Awaiting the task makes Drop's final
@@ -231,11 +245,11 @@ async fn queued_admission_actor_disconnect_fails_closed_and_releases_capacity() 
         Error::InvalidState(message)
             if message.contains("without publishing a terminal result")
     ));
-    let published = handle.shutdown().await.unwrap_err();
+    let published = handle.shutdown().unwrap_err();
     assert_eq!(queued_error.to_string(), published.to_string());
     assert_eq!(
-        handle.permits.available(),
-        handle.permits.capacity(),
+        handle.core.permits.available(),
+        handle.core.permits.capacity(),
         "the drained admission must return its permit"
     );
 }
@@ -261,7 +275,10 @@ async fn active_receipt_actor_disconnect_fails_closed() {
 
     let error = tokio::time::timeout(
         Duration::from_secs(1),
-        wait_core_for(receipt, handle.receipt_control(), Duration::from_secs(5)),
+        handle.wait_core_until(
+            &receipt,
+            handle.deadline_after(Duration::from_secs(5)).unwrap(),
+        ),
     )
     .await
     .expect("receipt wait must observe the actor disappearance")
@@ -288,12 +305,17 @@ async fn active_cancellation_actor_disconnect_fails_closed() {
         .expect("admission must complete before the actor panic")
         .unwrap();
     assert_eq!(handle.snapshot().await.unwrap().active, 1);
-    let cancellation = handle.cancel_test(receipt).await.unwrap();
+    let cancellation = handle.cancel_test(&receipt).await.unwrap();
     panic_signal.send_async(()).await.unwrap();
 
+    // The cancellation concludes on the receipt's terminal slot, whose wait
+    // fails closed; the cancellation observer is never resolved.
     let error = tokio::time::timeout(
         Duration::from_secs(1),
-        cancellation.outcome(handle.receipt_control(), Duration::from_secs(5)),
+        handle.wait_core_until(
+            &receipt,
+            handle.deadline_after(Duration::from_secs(5)).unwrap(),
+        ),
     )
     .await
     .expect("cancellation wait must observe the actor disappearance")
@@ -304,7 +326,14 @@ async fn active_cancellation_actor_disconnect_fails_closed() {
             if message.contains("without publishing a terminal result")
     ));
     assert!(actor_task.await.is_err(), "the test driver must panic");
+    // The dead owner dropped the intent's cell unresolved, which disconnects
+    // the slot: a wait on it ends instead of hanging (#777).
+    let unresolved = tokio::time::timeout(Duration::from_secs(1), cancellation.recv_async())
+        .await
+        .expect("a dropped cancellation cell must disconnect its observer");
+    assert!(unresolved.is_none());
 }
+
 /// Issue #626. `run` drains the boundary lanes once and then drops its
 /// receivers. A message that lands in between used to be stranded forever:
 /// this handle's own sender keeps flume's queue alive, and with it the
@@ -358,7 +387,7 @@ async fn a_boundary_request_racing_teardown_never_hangs() {
         // boundary work is actually moving. The exact interleaving is left
         // to the scheduler; over this many iterations both orders occur.
         tokio::task::yield_now().await;
-        frames.send_async(Ok(AsyncReceive::Closed)).await.unwrap();
+        frames.send_async(Ok(OwnerReceive::Closed)).await.unwrap();
 
         // The bug this guards is an unbounded park, so the bound only has
         // to be longer than a healthy teardown ever takes. It is generous
@@ -388,10 +417,10 @@ async fn teardown_answers_queued_work_before_the_liveness_lane_fires() {
     let frames = harness.frames.clone();
     let control_handle = handle.clone();
     let queued = tokio::spawn(async move { control_handle.metrics().await });
-    while handle.control.is_empty() {
+    while handle.core.control.is_empty() {
         tokio::task::yield_now().await;
     }
-    frames.send_async(Ok(AsyncReceive::Closed)).await.unwrap();
+    frames.send_async(Ok(OwnerReceive::Closed)).await.unwrap();
     let snapshot = actor.run(harness.driver).await;
     assert_eq!(snapshot.state, SessionState::Closed);
     assert!(matches!(

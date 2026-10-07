@@ -5,6 +5,10 @@
 //! reusable I/O storage) and exposes small mode-native driver seams.
 
 mod adapter;
+#[cfg(any(feature = "async", feature = "blocking"))]
+mod halt;
+mod motion;
+use motion::{Admitted, MotionRegistry, MotionStamp};
 #[cfg(feature = "async")]
 mod async_actor;
 #[cfg(feature = "async")]
@@ -13,21 +17,27 @@ mod async_transport;
 mod blocking;
 #[cfg(feature = "blocking")]
 mod blocking_transport;
+#[cfg(any(feature = "async", feature = "blocking"))]
+mod boundary;
+#[cfg(any(feature = "async", feature = "blocking"))]
+mod handle;
+#[cfg(any(feature = "async", feature = "blocking"))]
+mod receipt;
+#[cfg(any(feature = "async", feature = "blocking"))]
+mod shell;
 mod turn;
 
 #[cfg(feature = "async")]
 #[allow(unused_imports)]
 pub(crate) use async_actor::*;
-#[cfg(feature = "async")]
-#[allow(unused_imports)]
-pub(crate) use async_transport::*;
 #[cfg(feature = "blocking")]
 #[allow(unused_imports)]
 pub(crate) use blocking::*;
-#[cfg(feature = "blocking")]
-#[allow(unused_imports)]
-pub(crate) use blocking_transport::*;
 
+#[cfg(feature = "async")]
+pub(crate) use adapter::AsyncTransportAdapter;
+#[cfg(feature = "blocking")]
+pub(crate) use adapter::BlockingTransportAdapter;
 #[allow(unused_imports)]
 pub(crate) use adapter::{
     decode_response_target, owner_policy_for_targets_with_tuning, profile_supports_transport,
@@ -35,17 +45,12 @@ pub(crate) use adapter::{
 };
 
 #[cfg(any(feature = "async", feature = "blocking"))]
-use turn::{
-    clamp_receive_pause, transient_receive_pause, IdleReceiveRun, RawReleaseTurn, TransientFaultRun,
-};
+use turn::{clamp_receive_pause, transient_receive_pause, IdleReceiveRun, TransientFaultRun};
 
-#[cfg(any(
-    all(test, feature = "blocking", not(feature = "async")),
-    all(
-        test,
-        feature = "async",
-        any(feature = "runtime-tokio", feature = "runtime-smol")
-    )
+#[cfg(all(
+    test,
+    feature = "async",
+    any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
 use turn::{
     MAXIMUM_TRANSIENT_RECEIVE_PAUSE, TRANSIENT_RECEIVE_FAULT_LIMIT, TRANSIENT_RECEIVE_FAULT_RESET,
@@ -57,41 +62,40 @@ use std::{
     collections::{BTreeMap, VecDeque},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, Weak,
     },
     time::{Duration, Instant},
 };
 
 use bytes::BytesMut;
 
-use crate::command::{encode::WireEncode, semantics::WriteOnlyState, system::CommandCancelCommand};
+use crate::{
+    command::{encode::WireEncode, system::CommandCancelCommand},
+    StateKey,
+};
 use crate::{raw::MAX_BYTES, CameraId, CancellationOutcome, Error, ErrorKind, ViscaSocket};
 
 use super::engine::{
-    AdmissionTicket, AppliedStateEffect, AppliedStateProjection, CancelState,
+    AdmissionSlot, AdmissionTicket, AppliedStateEffect, AppliedStateProjection, CancelState,
     CancellationObservation, CancellationPolicy, ControlClass, DeadlineKind, DecodedFrame,
     DecodedResponse, Effect, EngineTurn, EnvelopeKind, EnvelopeSequence, IgnoreReason, Input,
-    InputTurn, Phase, ProtocolEngine, ProtocolPolicy, RequestId, RetryPolicy, RuntimeOutcome,
-    RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy, Transmission,
-    TransmissionId, TransmissionMeta,
+    InputTurn, Lane, Phase, ProtocolEngine, ProtocolPolicy, RequestContext, RequestId, RetryPolicy,
+    RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy,
+    Transmission, TransmissionId, TransmissionMeta,
 };
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 use super::engine::{RawCorrelationReleaseSet, RawPrefixEvidence, RawReleaseGateAction};
-
-#[cfg(any(feature = "blocking", test))]
-use super::engine::FirstDispatch;
 
 #[cfg(test)]
 mod tests;
 
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-// Compared by `tests::blocking` (blocking without async) and by
-// `async_actor::tests` (Tokio); neither compiles on the plain `async` or smol
-// legs (#636).
+// Compared by the blocking worker tests and by `async_actor::tests` (Tokio);
+// neither compiles on the plain `async` or smol legs (#636).
 #[cfg(any(
-    all(feature = "blocking", not(feature = "async")),
+    feature = "blocking",
     all(feature = "async", feature = "runtime-tokio")
 ))]
 pub(crate) enum CanonicalOwnerStep {
@@ -105,13 +109,12 @@ pub(crate) enum CanonicalOwnerStep {
     Applied,
 }
 
-// Consumed by `tests::blocking` (blocking without async) and by
-// `async_actor::tests` (Tokio); neither compiles on the plain `async` or smol
-// legs (#636).
+// Consumed by the blocking worker tests and by `async_actor::tests` (Tokio);
+// neither compiles on the plain `async` or smol legs (#636).
 #[cfg(all(
     test,
     any(
-        all(feature = "blocking", not(feature = "async")),
+        feature = "blocking",
         all(feature = "async", feature = "runtime-tokio")
     )
 ))]
@@ -126,13 +129,12 @@ pub(crate) const CANONICAL_OWNER_TRACE: &[CanonicalOwnerStep] = &[
     CanonicalOwnerStep::Applied,
 ];
 
-// Consumed by `tests::blocking` (blocking without async) and by
-// `async_actor::tests` (Tokio); neither compiles on the plain `async` or smol
-// legs (#636).
+// Consumed by the blocking worker tests and by `async_actor::tests` (Tokio);
+// neither compiles on the plain `async` or smol legs (#636).
 #[cfg(all(
     test,
     any(
-        all(feature = "blocking", not(feature = "async")),
+        feature = "blocking",
         all(feature = "async", feature = "runtime-tokio")
     )
 ))]
@@ -232,13 +234,15 @@ pub(crate) struct OwnerPolicy {
     pub(crate) limits: OwnerLimits,
     pub(crate) tuning: crate::OperationalTuning,
     pub(crate) baseline: TuningBaseline,
-    /// Maximum time one async transport read may take before the owner treats
-    /// the read as "no data arrived" (#675). The blocking owner applies the
-    /// same value at the socket; the async owner enforces it around
+    /// Maximum time one transport read may take before the owner treats the
+    /// read as "no data arrived" (#675). The async owner enforces it around
     /// [`AsyncOwnerDriver::receive`](super::AsyncOwnerDriver) because the
-    /// runtime-agnostic async transports have no timer of their own. Lowered
+    /// runtime-agnostic async transports have no timer of their own; the
+    /// blocking worker reports no data once its sliced reads have been idle
+    /// this long (#780). Lowered
     /// from the transport [`TransportConfig`](crate::transport::TransportConfig)
-    /// by the production policy builder; the test constructors default it.
+    /// by the production policy builder; [`Self::with_targets`] starts it at
+    /// the `TransportConfig` default.
     pub(crate) read_timeout: Duration,
     /// Maximum time one async transport write may take before the owner
     /// abandons it as a stalled write (#675). A byte-stream write that cannot
@@ -269,6 +273,10 @@ impl OwnerPolicy {
                 "owner target registry must contain at least one camera".into(),
             ));
         }
+        // The read and write bounds start from the one transport default
+        // (#799); the production builder lowers the caller's configured
+        // values over them (#675).
+        let transport = crate::transport::TransportConfig::default();
         Ok(Self {
             protocol,
             targets,
@@ -281,10 +289,8 @@ impl OwnerPolicy {
                     targets[index].map(|policy| policy.command_sockets)
                 }),
             },
-            // Matches `TransportConfig`'s default; the production builder
-            // lowers the caller's configured values over these (#675).
-            read_timeout: Duration::from_secs(5),
-            write_timeout: Duration::from_secs(5),
+            read_timeout: transport.read_timeout,
+            write_timeout: transport.write_timeout,
         })
     }
 
@@ -315,6 +321,8 @@ impl OwnerPolicy {
 pub(crate) struct OwnerMetrics {
     pub(crate) admitted: u64,
     pub(crate) admission_rejected: u64,
+    pub(crate) control_reserve_admitted: u64,
+    pub(crate) control_reserve_rejected: u64,
     pub(crate) writes: u64,
     pub(crate) write_failures: u64,
     pub(crate) terminal: u64,
@@ -330,8 +338,8 @@ pub(crate) struct OwnerMetrics {
     pub(crate) received_frames: u64,
     pub(crate) ignored_unmatched_sequenced_replies: u64,
     /// Delimited frames a byte stream discarded as malformed while staying
-    /// Running (#672). 1.x logged and continued on the same frames; this counter
-    /// makes the otherwise lossy-diagnostics-only signal a durable metric.
+    /// Running (#672). The session continues past these frames; this counter makes
+    /// the otherwise lossy-diagnostics-only signal a durable metric.
     pub(crate) ignored_malformed_frames: u64,
     pub(crate) dropped_diagnostics: u64,
     pub(crate) dropped_diagnostic_events: u64,
@@ -346,7 +354,7 @@ pub(crate) struct OwnerMetrics {
 /// transient camera-side backpressure: command buffer full (`0x03`), no socket
 /// available (`0x05`), and not executable in the current state (`0x41`).
 ///
-/// 1.x bucketed `0x03 | 0x04` here instead. `0x04` is the cancellation reply,
+/// `0x04` is deliberately not in this set: it is the cancellation reply,
 /// which this engine consumes as the confirmation of a cancel rather than as a
 /// failure, so counting it as a busy error would make every successful
 /// cancellation look like camera backpressure.
@@ -356,12 +364,6 @@ const fn error_code_is_busy(code: u8) -> bool {
 
 /// The cancellation reply code, which is an answer rather than a fault.
 const CANCELLATION_REPLY_CODE: u8 = 0x04;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum RequestLane {
-    Command,
-    Inquiry,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ResponseDiagnostic {
@@ -401,7 +403,7 @@ pub(crate) enum CancellationDiagnostic {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RequestSummary {
     target: CameraId,
-    lane: RequestLane,
+    lane: Lane,
     timeout: TimeoutPolicy,
     retry: RetryPolicy,
     control: ControlClass,
@@ -413,11 +415,7 @@ impl RequestSummary {
         let context = request.context();
         Self {
             target: context.target,
-            lane: if request.is_inquiry() {
-                RequestLane::Inquiry
-            } else {
-                RequestLane::Command
-            },
+            lane: request.lane(),
             timeout: context.timeout,
             retry: context.retry,
             control: context.control.class,
@@ -433,7 +431,7 @@ pub(crate) enum DiagnosticEvent {
     Admitted {
         id: RequestId,
         target: CameraId,
-        lane: RequestLane,
+        lane: Lane,
         timeout: TimeoutPolicy,
         retry: RetryPolicy,
         control: ControlClass,
@@ -441,7 +439,7 @@ pub(crate) enum DiagnosticEvent {
     },
     AdmissionRejected {
         target: CameraId,
-        lane: RequestLane,
+        lane: Lane,
         error: ErrorKind,
     },
     FrameReceived {
@@ -492,7 +490,7 @@ pub(crate) enum DiagnosticEvent {
     AppliedState {
         id: RequestId,
         target: CameraId,
-        key: WriteOnlyState,
+        key: StateKey,
     },
     Terminal {
         id: RequestId,
@@ -515,8 +513,8 @@ struct CachedProjection {
 
 #[derive(Debug, Default)]
 pub(crate) struct TargetStateCache {
-    values: BTreeMap<WriteOnlyState, CachedProjection>,
-    order: VecDeque<(WriteOnlyState, u64)>,
+    values: BTreeMap<StateKey, CachedProjection>,
+    order: VecDeque<(StateKey, u64)>,
     generation: u64,
 }
 
@@ -528,24 +526,21 @@ impl TargetStateCache {
         // The cache stores the public semantic discriminator, not a
         // profile-specific wire variant. `PanTiltLimitCorner` has only the
         // two Standard VISCA values documented for this opcode: down-left
-        // (`0x00`) and up-right (`0x01`). Refuse a malformed projection before
-        // it can replace a previously known limit update.
+        // (`0x00`) and up-right (`0x01`). A limit set and a limit clear are
+        // both local to one corner, so each must name a valid one; refuse a
+        // malformed projection before it can replace a previously known limit
+        // update.
         let invalid_limit_corner = match projection {
             AppliedStateProjection::Set {
-                key: WriteOnlyState::PanTiltLimits,
+                key: StateKey::PanTiltLimits,
+                value,
+            }
+            | AppliedStateProjection::Clear {
+                key: StateKey::PanTiltLimits,
                 value,
             } => !matches!(
                 value.values[0..value.value_count as usize].first(),
                 Some(0 | 1)
-            ),
-            // A value-less clear remains the legacy whole-key clear. A
-            // corner-local clear must use the same discriminator as a set.
-            AppliedStateProjection::Clear {
-                key: WriteOnlyState::PanTiltLimits,
-                value,
-            } => matches!(
-                value.values[0..value.value_count as usize].first(),
-                Some(value) if !matches!(value, 0 | 1)
             ),
             _ => false,
         };
@@ -586,11 +581,11 @@ impl TargetStateCache {
         }
     }
 
-    fn get(&self, state: WriteOnlyState) -> Option<AppliedStateProjection> {
+    fn get(&self, state: StateKey) -> Option<AppliedStateProjection> {
         self.values.get(&state).map(|value| value.projection)
     }
 
-    pub(crate) fn entry(&self, state: WriteOnlyState) -> crate::state_cache::StateEntry {
+    pub(crate) fn entry(&self, state: StateKey) -> crate::state_cache::StateEntry {
         let Some(value) = self.get(state) else {
             return crate::state_cache::StateEntry::Unknown;
         };
@@ -608,50 +603,137 @@ impl TargetStateCache {
 
 #[derive(Debug)]
 struct PermitPoolInner {
-    available: Mutex<usize>,
+    available: Mutex<PermitCounts>,
     capacity: usize,
+    reserves: [u8; 9],
 }
 
-/// One shared admission limit covering boundary work and authoritative engine
+/// Free admission slots: the ordinary budget, and each target's control
+/// reserve (D26, #778).
+#[derive(Debug)]
+struct PermitCounts {
+    ordinary: usize,
+    reserve: [u8; 9],
+}
+
+/// The admission limit covering boundary work and authoritative engine
 /// entries. A permit moves from pending admission to the active record and is
 /// released only when admission is rejected or a request reaches terminal.
+///
+/// Ordinary requests share `capacity` slots. Each registered target also has
+/// a control reserve, one slot per typed STOP its profile supports, that only
+/// an urgent request may take; such a request takes its target's reserve
+/// first and an ordinary slot only when that reserve is held (D26, #778).
 #[derive(Debug, Clone)]
 pub(crate) struct AdmissionPermitPool(Arc<PermitPoolInner>);
 
 impl AdmissionPermitPool {
-    fn new(capacity: usize) -> Self {
+    fn new(capacity: usize, reserves: [u8; 9]) -> Self {
         Self(Arc::new(PermitPoolInner {
-            available: Mutex::new(capacity),
+            available: Mutex::new(PermitCounts {
+                ordinary: capacity,
+                reserve: reserves,
+            }),
             capacity,
+            reserves,
         }))
     }
 
+    /// The ordinary admission capacity.
+    #[cfg(test)]
     pub(crate) fn capacity(&self) -> usize {
         self.0.capacity
     }
 
-    pub(crate) fn try_acquire(&self) -> Option<AdmissionPermit> {
+    /// The most requests that can be pending or active at once: the ordinary
+    /// capacity plus every target's control reserve.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn total_capacity(&self) -> usize {
+        self.0
+            .reserves
+            .iter()
+            .fold(self.0.capacity, |total, reserve| {
+                total.saturating_add(usize::from(*reserve))
+            })
+    }
+
+    /// Takes one admission slot for a request with `context`.
+    ///
+    /// An ordinary request that finds the ordinary budget full gets
+    /// [`Error::RuntimeQueueFull`]. An urgent request that finds both its
+    /// target's reserve and the ordinary budget full gets
+    /// [`Error::ControlReserveExhausted`].
+    pub(crate) fn try_acquire(&self, context: &RequestContext) -> Result<AdmissionPermit, Error> {
+        let target = context.target;
+        let index = usize::from(target.id());
         let mut available = self.0.available.lock().unwrap_or_else(|p| p.into_inner());
-        if *available == 0 {
-            return None;
-        }
-        *available -= 1;
-        Some(AdmissionPermit {
+        let slot = if context.control.class == ControlClass::Urgent && available.reserve[index] > 0
+        {
+            available.reserve[index] -= 1;
+            AdmissionSlot::ControlReserve
+        } else if available.ordinary > 0 {
+            available.ordinary -= 1;
+            AdmissionSlot::Ordinary
+        } else if context.control.class == ControlClass::Urgent {
+            return Err(Error::ControlReserveExhausted {
+                target,
+                reserve: usize::from(self.0.reserves[index]),
+            });
+        } else {
+            return Err(Error::RuntimeQueueFull {
+                capacity: self.0.capacity,
+            });
+        };
+        Ok(AdmissionPermit {
             pool: Arc::clone(&self.0),
+            slot,
+            target: index,
             released: false,
         })
     }
 
+    /// Takes an ordinary slot, as any non-urgent request on camera 1 would.
+    #[cfg(test)]
+    pub(crate) fn try_acquire_ordinary(&self) -> Result<AdmissionPermit, Error> {
+        let mut available = self.0.available.lock().unwrap_or_else(|p| p.into_inner());
+        if available.ordinary == 0 {
+            return Err(Error::RuntimeQueueFull {
+                capacity: self.0.capacity,
+            });
+        }
+        available.ordinary -= 1;
+        Ok(AdmissionPermit {
+            pool: Arc::clone(&self.0),
+            slot: AdmissionSlot::Ordinary,
+            target: 1,
+            released: false,
+        })
+    }
+
+    /// Free ordinary slots.
     #[cfg(test)]
     fn available(&self) -> usize {
-        *self.0.available.lock().unwrap_or_else(|p| p.into_inner())
+        self.0
+            .available
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .ordinary
     }
 }
 
 #[derive(Debug)]
 pub(crate) struct AdmissionPermit {
     pool: Arc<PermitPoolInner>,
+    slot: AdmissionSlot,
+    target: usize,
     released: bool,
+}
+
+impl AdmissionPermit {
+    /// The admission budget this permit holds a slot in.
+    pub(crate) const fn slot(&self) -> AdmissionSlot {
+        self.slot
+    }
 }
 
 impl Drop for AdmissionPermit {
@@ -665,16 +747,76 @@ impl Drop for AdmissionPermit {
             .available
             .lock()
             .unwrap_or_else(|p| p.into_inner());
-        debug_assert!(*available < self.pool.capacity);
-        *available = available.saturating_add(1).min(self.pool.capacity);
+        match self.slot {
+            AdmissionSlot::Ordinary => {
+                debug_assert!(available.ordinary < self.pool.capacity);
+                available.ordinary = available.ordinary.saturating_add(1).min(self.pool.capacity);
+            }
+            AdmissionSlot::ControlReserve => {
+                let reserve = self.pool.reserves[self.target];
+                let free = &mut available.reserve[self.target];
+                debug_assert!(*free < reserve);
+                *free = free.saturating_add(1).min(reserve);
+            }
+        }
     }
 }
 
+/// Outcome of one owner driver receive.
+///
+/// The distinction is load bearing on byte-stream transports: only a zero-length
+/// transport read means the peer closed. A read that carried bytes but did not
+/// finish a frame decodes to an empty batch, and the owner must keep pumping so
+/// the remainder of the frame can arrive in a later read.
+#[cfg(any(feature = "async", feature = "blocking"))]
 #[derive(Debug)]
-struct ObserverCell {
+pub(crate) enum OwnerReceive {
+    /// The transport reported end of stream, i.e. a zero-length read.
+    Closed,
+    /// The read carried bytes and decoded to zero or more complete frames, in
+    /// source order. An empty batch means the chunk only advanced a partially
+    /// received frame; the transport is still open.
+    Frames(Vec<DecodedFrame>),
+    /// The read reported that no bytes arrived — an expired idle read timeout,
+    /// which is how a custom transport implements a non-blocking read. Nothing
+    /// was consumed and nothing failed: the owner keeps the session, keeps the
+    /// framing state, and does not touch any request's retry budget (#625).
+    NoData,
+    /// The transport read itself failed and consumed nothing, so framing state
+    /// is intact. The owner classifies the error: a transient fault retries
+    /// in-flight work and keeps the session, a fatal one ends it.
+    ///
+    /// This is deliberately distinct from `Err`, which the driver reserves for
+    /// a framing or decode failure over bytes that were already consumed.
+    Fault(Error),
+}
+
+/// The owner-side half of one bounded, one-shot observation slot.
+///
+/// The owner resolves it at most once. A handle holds the matching
+/// [`Observer`]; dropping that observer marks the cell detached, so the owner
+/// can count an observation that nobody will read.
+#[derive(Debug)]
+pub(crate) struct ObserverCell<T> {
     detached: AtomicBool,
     resolved: AtomicBool,
-    sender: flume::Sender<ReceiptObservation>,
+    sender: flume::Sender<Observed<T>>,
+}
+
+/// A value and its authoritative owner-clock delivery instant.
+#[derive(Debug, Clone)]
+pub(crate) struct Observed<T> {
+    pub(crate) at: Instant,
+    pub(crate) value: T,
+}
+
+impl<T> Observed<T> {
+    /// The observation deadline rule: a delivered value counts for a wait
+    /// only if the owner delivered it no later than the wait's deadline. A
+    /// value delivered exactly at the deadline still counts.
+    pub(crate) fn within(&self, deadline: Instant) -> bool {
+        self.at <= deadline
+    }
 }
 
 /// The result of attempting to settle one receipt observer.
@@ -688,14 +830,19 @@ enum ObserverResolution {
     AlreadyResolved,
 }
 
-impl ObserverCell {
+impl<T> ObserverCell<T> {
     fn is_attached(&self) -> bool {
         !self.detached.load(Ordering::Acquire)
             && !self.resolved.load(Ordering::Acquire)
             && !self.sender.is_disconnected()
     }
 
-    fn resolve(&self, observation: ReceiptObservation) -> ObserverResolution {
+    #[cfg(test)]
+    fn resolve(&self, observation: T) -> ObserverResolution {
+        self.resolve_at(observation, Instant::now())
+    }
+
+    fn resolve_at(&self, observation: T, at: Instant) -> ObserverResolution {
         // A previous successful resolution wins even if the receiver was
         // subsequently dropped. That is a duplicate delivery attempt, not a
         // newly lost observer event.
@@ -712,7 +859,10 @@ impl ObserverCell {
         {
             return ObserverResolution::AlreadyResolved;
         }
-        match self.sender.try_send(observation) {
+        match self.sender.try_send(Observed {
+            at,
+            value: observation,
+        }) {
             Ok(()) => ObserverResolution::Delivered,
             Err(flume::TrySendError::Disconnected(_)) => ObserverResolution::ReceiverLost,
             // A cell has one sender and is marked resolved before sending, so
@@ -723,112 +873,141 @@ impl ObserverCell {
     }
 }
 
-#[derive(Debug, Clone)]
-enum ReceiptObservation {
-    Terminal(RuntimeOutcome),
-    CancellationFailed(Error),
-}
-
-/// A bounded terminal observer. Dropping it is the detach operation: no actor
-/// message and no protocol mutation are needed.
+/// The handle-side half of one bounded, one-shot observation slot.
+///
+/// The handle holds only a weak reference to the owner-side cell, so the
+/// owner's copy is the cell's only strong owner and dropping it unresolved
+/// disconnects the slot: a wait then ends instead of hanging.
+///
+/// Dropping the observer is the detach operation: no actor message and no
+/// protocol mutation are needed. A received value is never lost by an
+/// abandoned wait: flume's receive future leaves an unread value queued when
+/// it is dropped.
 #[derive(Debug)]
-pub(crate) struct CompletionObserver {
-    cell: Arc<ObserverCell>,
-    receiver: flume::Receiver<ReceiptObservation>,
+pub(crate) struct Observer<T> {
+    cell: Weak<ObserverCell<T>>,
+    receiver: flume::Receiver<Observed<T>>,
 }
 
-impl CompletionObserver {
-    fn try_recv(&self) -> Option<ReceiptObservation> {
+impl<T> Observer<T> {
+    /// Creates a slot. The returned cell must be installed where the
+    /// observation is produced; dropping it unresolved disconnects the slot.
+    pub(crate) fn pair() -> (Self, Arc<ObserverCell<T>>) {
+        let (sender, receiver) = flume::bounded(1);
+        let cell = Arc::new(ObserverCell {
+            detached: AtomicBool::new(false),
+            resolved: AtomicBool::new(false),
+            sender,
+        });
+        let observer = Self {
+            cell: Arc::downgrade(&cell),
+            receiver,
+        };
+        (observer, cell)
+    }
+
+    /// The owner-side cell, while the owner still holds it.
+    fn cell(&self) -> Option<Arc<ObserverCell<T>>> {
+        self.cell.upgrade()
+    }
+
+    #[cfg(test)]
+    fn try_recv(&self) -> Option<T> {
+        self.try_observed().map(|observed| observed.value)
+    }
+
+    fn try_observed(&self) -> Option<Observed<T>> {
         self.receiver.try_recv().ok()
     }
 
-    // Used by the blocking cancellation test helper.
-    #[cfg(all(test, feature = "blocking"))]
-    fn recv(&self) -> Result<ReceiptObservation, Error> {
-        self.receiver.recv().map_err(|_| Error::RuntimeShutdown)
-    }
-
+    /// Waits for the value; `None` once the owner dropped its cell unresolved.
     #[cfg(feature = "async")]
-    async fn recv_async(&self) -> Result<ReceiptObservation, Error> {
-        self.receiver
-            .recv_async()
+    async fn recv_observed_async(&self) -> Option<Observed<T>> {
+        self.receiver.recv_async().await.ok()
+    }
+
+    #[cfg(all(
+        test,
+        feature = "async",
+        any(feature = "runtime-tokio", feature = "runtime-smol")
+    ))]
+    async fn recv_async(&self) -> Option<T> {
+        self.recv_observed_async()
             .await
-            .map_err(|_| Error::RuntimeShutdown)
+            .map(|observed| observed.value)
+    }
+
+    /// The slot's receiver, for a blocking wait that selects over several
+    /// slots. A receive error means the owner dropped its cell unresolved.
+    #[cfg(feature = "blocking")]
+    const fn receiver(&self) -> &flume::Receiver<Observed<T>> {
+        &self.receiver
     }
 }
 
-impl Drop for CompletionObserver {
+impl<T> Drop for Observer<T> {
     fn drop(&mut self) {
-        self.cell.detached.store(true, Ordering::Release);
+        if let Some(cell) = self.cell.upgrade() {
+            cell.detached.store(true, Ordering::Release);
+        }
     }
 }
 
-fn completion_pair() -> (Arc<ObserverCell>, CompletionObserver) {
-    let (sender, receiver) = flume::bounded(1);
-    let cell = Arc::new(ObserverCell {
-        detached: AtomicBool::new(false),
-        resolved: AtomicBool::new(false),
-        sender,
-    });
-    (Arc::clone(&cell), CompletionObserver { cell, receiver })
-}
+/// Observes one request's authoritative terminal outcome.
+pub(crate) type TerminalObserver = Observer<RuntimeOutcome>;
 
-/// A cancellation the owner refused, carrying the operation's observation
-/// authority back to the caller (#612).
+/// Observes a cancellation that failed *without* ending its operation: a
+/// cancellation write that could not be sent, or a cancellation observation
+/// deadline that expired. The operation's own terminal outcome is still
+/// delivered through its [`TerminalObserver`] (#777).
+pub(crate) type CancellationObserver = Observer<Error>;
+
+/// One cancellation request for an admitted operation (#777).
 ///
-/// A refused cancellation is never cancellation intent: the engine leaves the
-/// original request scheduled and able to complete, so its observer is still
-/// meaningful and must not be destroyed by the failure. `receipt` is `None`
-/// only when the owner itself is gone, which is the one case where no receipt
-/// could be observed anyway.
+/// The handle creates the cancellation observer and ships its owner-side half
+/// with every request, so a retried or abandoned `cancel` observes the same
+/// intent instead of creating a second one.
 #[derive(Debug)]
-pub(crate) struct RejectedCancellation {
-    pub(crate) receipt: Option<ReceiptCore>,
-    pub(crate) error: Error,
-}
-
-impl RejectedCancellation {
-    pub(crate) const fn kept(receipt: ReceiptCore, error: Error) -> Self {
-        Self {
-            receipt: Some(receipt),
-            error,
-        }
-    }
-
-    #[cfg(any(feature = "async", test))]
-    pub(crate) const fn lost(error: Error) -> Self {
-        Self {
-            receipt: None,
-            error,
-        }
-    }
+pub(crate) struct CancellationRequest {
+    pub(crate) id: RequestId,
+    pub(crate) observer: Arc<ObserverCell<Error>>,
 }
 
 /// Exact, linear observation authority shared by the mode-specific receipt
 /// wrappers. It is deliberately neither cloneable nor publicly nameable.
 #[derive(Debug)]
 pub(crate) struct ReceiptCore {
+    motion: Option<MotionStamp>,
     pub(crate) id: RequestId,
     pub(crate) target: CameraId,
-    pub(crate) completion: CompletionObserver,
+    pub(crate) completion: TerminalObserver,
     pub(crate) configured_timeout: Duration,
-    pub(crate) origin: Arc<()>,
 }
 
 impl ReceiptCore {
+    fn admitted(
+        admitted: Admitted,
+        target: CameraId,
+        completion: TerminalObserver,
+        timeout: Duration,
+    ) -> Self {
+        let mut core = Self::new(admitted.id, target, completion, timeout);
+        core.motion = admitted.motion;
+        core
+    }
+
     fn new(
         id: RequestId,
         target: CameraId,
-        completion: CompletionObserver,
+        completion: TerminalObserver,
         configured_timeout: Duration,
-        origin: Arc<()>,
     ) -> Self {
         Self {
+            motion: None,
             id,
             target,
             completion,
             configured_timeout,
-            origin,
         }
     }
 
@@ -844,13 +1023,38 @@ impl ReceiptCore {
         self.configured_timeout
     }
 
-    fn try_outcome(&self) -> Option<RuntimeOutcome> {
-        self.completion.try_recv().map(observation_outcome)
+    /// The verdict of a terminal outcome delivered to this receipt's wait
+    /// ending at `deadline`: its value when it counts, else an observation
+    /// timeout.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    fn conclude(
+        &self,
+        outcome: Observed<RuntimeOutcome>,
+        deadline: Instant,
+    ) -> Result<RuntimeOutcome, Error> {
+        if outcome.within(deadline) {
+            Ok(outcome.value)
+        } else {
+            Err(observation_timeout(self.id))
+        }
     }
 
-    #[cfg(all(test, feature = "blocking", not(feature = "async")))]
-    pub(crate) fn terminal(&self) -> Option<RuntimeOutcome> {
-        self.try_outcome()
+    /// The terminal outcome already delivered, if any, judged against
+    /// `deadline`; `None` while the slot is still empty.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    fn try_conclude(&self, deadline: Instant) -> Option<Result<RuntimeOutcome, Error>> {
+        self.completion
+            .try_observed()
+            .map(|outcome| self.conclude(outcome, deadline))
+    }
+
+    /// The terminal outcome already delivered within `deadline`, if any.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    fn observed_within(&self, deadline: Instant) -> Option<RuntimeOutcome> {
+        self.completion
+            .try_observed()
+            .filter(|outcome| outcome.within(deadline))
+            .map(|outcome| outcome.value)
     }
 
     // Consumed only by `async_actor::tests`, which additionally requires
@@ -861,17 +1065,11 @@ impl ReceiptCore {
         any(feature = "runtime-tokio", feature = "runtime-smol")
     ))]
     pub(crate) async fn terminal(&self) -> Result<RuntimeOutcome, Error> {
-        self.completion.recv_async().await.map(observation_outcome)
+        self.completion
+            .recv_async()
+            .await
+            .ok_or(Error::RuntimeShutdown)
     }
-}
-
-/// Selection retained with a targeted settlement receipt until the blocking
-/// observer creates its one absolute deadline. Selecting an override never
-/// mutates engine time.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum WaitSelection {
-    Configured,
-    Override(Duration),
 }
 
 fn normalize_command_outcome(outcome: RuntimeOutcome) -> Result<(), Error> {
@@ -882,13 +1080,6 @@ fn normalize_command_outcome(outcome: RuntimeOutcome) -> Result<(), Error> {
         RuntimeOutcome::Reply { .. } => Err(Error::InvalidState(
             "a command observer received an inquiry reply".into(),
         )),
-    }
-}
-
-fn observation_outcome(observation: ReceiptObservation) -> RuntimeOutcome {
-    match observation {
-        ReceiptObservation::Terminal(outcome) => outcome,
-        ReceiptObservation::CancellationFailed(error) => RuntimeOutcome::Failed(error),
     }
 }
 
@@ -908,91 +1099,208 @@ fn normalize_inquiry_outcome<R>(
 
 #[derive(Debug)]
 struct PendingAdmission {
+    motion: Option<MotionStamp>,
     permit: AdmissionPermit,
-    observer: Arc<ObserverCell>,
-    reply: flume::Sender<Result<RequestId, Error>>,
+    observer: Arc<ObserverCell<RuntimeOutcome>>,
+    reply: flume::Sender<Result<Admitted, Error>>,
     summary: RequestSummary,
 }
 
 #[derive(Debug)]
 struct ActiveRequest {
     _permit: AdmissionPermit,
-    observer: Arc<ObserverCell>,
+    observer: Arc<ObserverCell<RuntimeOutcome>>,
     summary: RequestSummary,
+    /// The one cancellation intent a handle installed (#777). It lives exactly
+    /// as long as the request, so it adds no unbounded state.
+    cancellation: Option<CancellationIntent>,
 }
 
 #[derive(Debug)]
-struct CancellationWaiter {
-    acknowledgement: flume::Sender<Result<(), Error>>,
+struct CancellationIntent {
+    observer: Arc<ObserverCell<Error>>,
     recorded: bool,
 }
 
-#[derive(Debug)]
-struct CancellationRegistration {
-    acknowledgement: flume::Receiver<Result<(), Error>>,
-}
-
-/// Receiver for the exact terminal engine cancellation observation. The
-/// intermediate `Recorded` observation acknowledges `cancel()` and is not
-/// exposed as a terminal token outcome.
-#[derive(Debug)]
-pub(crate) struct CancellationCore {
-    origin: Arc<()>,
-    completion: CompletionObserver,
-    buffered: Option<ReceiptObservation>,
-}
-
-impl CancellationCore {
-    fn try_observation(&mut self) -> Option<ReceiptObservation> {
-        self.buffered.take().or_else(|| self.completion.try_recv())
-    }
-
-    // Used by the blocking cancellation test helper.
-    #[cfg(all(test, feature = "blocking"))]
-    fn recv(mut self) -> Result<ReceiptObservation, Error> {
-        match self.buffered.take() {
-            Some(observation) => Ok(observation),
-            None => self.completion.recv(),
-        }
-    }
-
-    // Used by the Tokio async cancellation test helper.
-    #[cfg(all(test, feature = "runtime-tokio"))]
-    async fn recv_async(mut self) -> Result<ReceiptObservation, Error> {
-        match self.buffered.take() {
-            Some(observation) => Ok(observation),
-            None => self.completion.recv_async().await,
-        }
-    }
-}
-
-fn cancellation_receipt_for(
-    receipt: ReceiptCore,
-    buffered: Option<ReceiptObservation>,
-) -> CancellationCore {
-    CancellationCore {
-        origin: receipt.origin,
-        completion: receipt.completion,
-        buffered,
-    }
-}
-
-fn normalize_cancellation_observation(
-    observation: ReceiptObservation,
+/// What a cancellation tells its caller once the operation's terminal outcome
+/// is known: `Completed` after a successful application, `Cancelled` after a
+/// cancellation, and the failure itself after a failed operation.
+pub(crate) fn cancellation_outcome(
+    terminal: &RuntimeOutcome,
 ) -> Result<CancellationOutcome, Error> {
-    match observation {
-        ReceiptObservation::Terminal(RuntimeOutcome::Cancelled) => {
-            Ok(CancellationOutcome::Cancelled)
-        }
-        ReceiptObservation::Terminal(RuntimeOutcome::Applied) => Ok(CancellationOutcome::Completed),
-        ReceiptObservation::Terminal(RuntimeOutcome::Failed(error))
-        | ReceiptObservation::CancellationFailed(error) => Err(error),
-        ReceiptObservation::Terminal(RuntimeOutcome::Written) => Err(Error::InvalidState(
+    match terminal {
+        RuntimeOutcome::Cancelled => Ok(CancellationOutcome::Cancelled),
+        RuntimeOutcome::Applied => Ok(CancellationOutcome::Completed),
+        RuntimeOutcome::Failed(error) => Err(error.clone()),
+        RuntimeOutcome::Written => Err(Error::InvalidState(
             "a local write outcome cannot authorize cancellation".into(),
         )),
-        ReceiptObservation::Terminal(RuntimeOutcome::Reply { .. }) => Err(Error::InvalidState(
+        RuntimeOutcome::Reply { .. } => Err(Error::InvalidState(
             "an inquiry outcome cannot authorize cancellation".into(),
         )),
+    }
+}
+
+/// The handle-side observation state of one admitted operation (#777).
+///
+/// Every wait borrows it, so an abandoned or timed-out wait releases only that
+/// wait. The authoritative terminal outcome, a failed cancellation, and the
+/// handle's own settlement verdict are cached here once received, so later
+/// waits return them without touching the owner.
+#[derive(Debug)]
+pub(crate) struct OperationObservation {
+    core: ReceiptCore,
+    cancellation_timeout: Duration,
+    terminal: Option<Observed<RuntimeOutcome>>,
+    settled: Option<Result<crate::Settlement, Error>>,
+    cancellation: Option<CancellationObserver>,
+    cancellation_failure: Option<Observed<Error>>,
+}
+
+impl OperationObservation {
+    pub(crate) fn new(core: ReceiptCore, cancellation_timeout: Duration) -> Self {
+        Self {
+            core,
+            cancellation_timeout,
+            terminal: None,
+            settled: None,
+            cancellation: None,
+            cancellation_failure: None,
+        }
+    }
+
+    pub(crate) const fn id(&self) -> RequestId {
+        self.core.id()
+    }
+
+    pub(crate) const fn target(&self) -> CameraId {
+        self.core.target()
+    }
+
+    /// The configured observer deadline for application.
+    pub(crate) const fn applied_timeout(&self) -> Duration {
+        self.core.configured_timeout()
+    }
+
+    /// The configured observer deadline for a cancellation's conclusion.
+    pub(crate) const fn cancellation_timeout(&self) -> Duration {
+        self.cancellation_timeout
+    }
+
+    /// Moves every value the owner already delivered into the cache.
+    fn poll(&mut self) {
+        if self.terminal.is_none() {
+            self.terminal = self.core.completion.try_observed();
+        }
+        if self.cancellation_failure.is_none() {
+            self.cancellation_failure = self
+                .cancellation
+                .as_ref()
+                .and_then(CancellationObserver::try_observed);
+        }
+    }
+
+    /// The application verdict, once the terminal outcome is known.
+    pub(crate) fn applied(&mut self, deadline: Instant) -> Option<Result<(), Error>> {
+        self.poll();
+        self.terminal
+            .as_ref()
+            .filter(|event| event.within(deadline))
+            .map(|event| normalize_command_outcome(event.value.clone()))
+    }
+
+    /// The cancellation verdict, once known. The terminal outcome always
+    /// decides it, so the answer does not depend on the order in which the
+    /// owner emits a cancellation failure and a later terminal outcome.
+    pub(crate) fn cancellation(
+        &mut self,
+        deadline: Instant,
+    ) -> Option<Result<CancellationOutcome, Error>> {
+        self.poll();
+        match self
+            .terminal
+            .as_ref()
+            .filter(|event| event.within(deadline))
+        {
+            Some(terminal) => Some(cancellation_outcome(&terminal.value)),
+            None => self
+                .cancellation_failure
+                .as_ref()
+                .filter(|event| event.within(deadline))
+                .map(|event| Err(event.value.clone())),
+        }
+    }
+
+    /// The request to send for this handle's single cancellation intent.
+    ///
+    /// While the owner holds the intent's cell, the request carries that same
+    /// cell, so the owner observes the existing intent. A cell the owner
+    /// dropped belonged to a refused request, which installed no intent; the
+    /// next request starts a fresh slot.
+    pub(crate) fn cancellation_request(&mut self) -> CancellationRequest {
+        self.poll();
+        let observer = match self.cancellation.as_ref().and_then(Observer::cell) {
+            Some(cell) => cell,
+            None => {
+                let (observer, cell) = Observer::pair();
+                self.cancellation = Some(observer);
+                cell
+            }
+        };
+        CancellationRequest {
+            id: self.core.id(),
+            observer,
+        }
+    }
+
+    pub(crate) fn record_terminal(&mut self, outcome: Observed<RuntimeOutcome>) {
+        self.terminal.get_or_insert(outcome);
+    }
+
+    pub(crate) fn record_cancellation_failure(&mut self, error: Observed<Error>) {
+        self.cancellation_failure.get_or_insert(error);
+    }
+
+    pub(crate) const fn terminal_observer(&self) -> &TerminalObserver {
+        &self.core.completion
+    }
+
+    pub(crate) fn cancellation_observer(&self) -> Option<&CancellationObserver> {
+        self.cancellation.as_ref()
+    }
+
+    pub(crate) fn settled(&self) -> Option<Result<crate::Settlement, Error>> {
+        self.settled.clone()
+    }
+
+    pub(crate) fn check_settlement(&mut self) -> Result<(), Error> {
+        if let Some(stamp) = &self.core.motion {
+            if let Err(error) = stamp.check(crate::OperationId::from_raw(self.id().get())) {
+                self.settled = Some(Err(error.clone()));
+                return Err(error);
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn commit_settlement(
+        &mut self,
+        result: Result<crate::Settlement, Error>,
+        polled: bool,
+    ) -> Result<crate::Settlement, Error> {
+        if polled {
+            if let Some(stamp) = &self.core.motion {
+                return stamp.commit(
+                    crate::OperationId::from_raw(self.id().get()),
+                    result,
+                    &mut self.settled,
+                );
+            }
+        }
+        if let Ok(evidence) = result {
+            self.settled = Some(Ok(evidence));
+        }
+        result
     }
 }
 
@@ -1035,6 +1343,15 @@ impl DiagnosticSubscription {
             .recv_async()
             .await
             .map_err(|_| Error::RuntimeShutdown)
+    }
+
+    #[cfg(feature = "blocking")]
+    pub(crate) fn recv_timeout(&self, timeout: Duration) -> Result<Option<DiagnosticEvent>, Error> {
+        match self.receiver.recv_timeout(timeout) {
+            Ok(event) => Ok(Some(event)),
+            Err(flume::RecvTimeoutError::Timeout) => Ok(None),
+            Err(flume::RecvTimeoutError::Disconnected) => Err(Error::RuntimeShutdown),
+        }
     }
 }
 
@@ -1094,7 +1411,7 @@ impl OwnerBuffers {
 
     /// Peeks the malformed-frame discard count without clearing it, so a drain
     /// pass can decide it made progress and hand the count on to the owner.
-    #[cfg(feature = "async")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn discarded_malformed(&self) -> usize {
         self.discarded_malformed
     }
@@ -1162,15 +1479,11 @@ impl OwnerBuffers {
 /// Borrowed exact write handed to a mode-native transport adapter.
 #[derive(Debug)]
 pub(crate) struct WireWrite<'a> {
-    // Read only by the test wire drivers in `tests::blocking` and
-    // `async_actor::tests` (#636).
-    #[cfg(any(
-        all(test, feature = "blocking", not(feature = "async")),
-        all(
-            test,
-            feature = "async",
-            any(feature = "runtime-tokio", feature = "runtime-smol")
-        )
+    // Read only by the test wire drivers in `async_actor::tests` (#636).
+    #[cfg(all(
+        test,
+        feature = "async",
+        any(feature = "runtime-tokio", feature = "runtime-smol")
     ))]
     pub(crate) request: RequestId,
     pub(crate) bytes: &'a [u8],
@@ -1181,19 +1494,27 @@ pub(crate) struct WireWrite<'a> {
     /// Reusable framing destination owned by the session. Envelope adapters
     /// must frame into this buffer instead of allocating per transmission.
     pub(crate) frame_buffer: &'a mut BytesMut,
-    // Read only by the test wire drivers in `tests::blocking` and
-    // `async_actor::tests` (#636).
-    #[cfg(any(
-        all(test, feature = "blocking", not(feature = "async")),
-        all(
-            test,
-            feature = "async",
-            any(feature = "runtime-tokio", feature = "runtime-smol")
-        )
+    // Read only by the test wire drivers in `async_actor::tests` (#636).
+    #[cfg(all(
+        test,
+        feature = "async",
+        any(feature = "runtime-tokio", feature = "runtime-smol")
     ))]
     pub(crate) cancellation: bool,
     pub(crate) inquiry: bool,
     pub(crate) envelope: EnvelopeKind,
+}
+
+#[cfg(any(feature = "async", feature = "blocking"))]
+impl WireWrite<'_> {
+    /// The command kind this write is framed and sent as.
+    pub(crate) const fn command_kind(&self) -> crate::command::CommandKind {
+        if self.inquiry {
+            crate::command::CommandKind::Inquiry
+        } else {
+            crate::command::CommandKind::Command
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1209,7 +1530,7 @@ pub(crate) struct StagedWrite {
 /// The engine token is intentionally opaque here so blocking and async owners
 /// cannot manufacture a different timestamp for recursive write completions.
 #[derive(Debug)]
-pub(crate) struct OwnerInputTurn(InputTurn);
+pub(crate) struct OwnerInputTurn(InputTurn, Instant);
 
 impl StagedWrite {
     fn target(&self) -> CameraId {
@@ -1233,9 +1554,8 @@ pub(crate) enum AppliedEffect {
 /// The owner's live operational tuning, shared with every handle that prepares
 /// requests against it.
 ///
-/// The owner is the sole writer: an update reaches it through the async control
-/// boundary or, in the blocking mode, through the owner turn the caller thread
-/// takes. Readers therefore see one whole [`crate::OperationalTuning`] value —
+/// The owner is the sole writer: an update reaches it through the control
+/// boundary of either owner shell (#631, #780). Readers therefore see one whole [`crate::OperationalTuning`] value —
 /// never a half-applied mixture of two updates — and two concurrent updates
 /// resolve last-writer-wins in the order the owner accepted them.
 #[derive(Debug, Clone)]
@@ -1256,16 +1576,65 @@ impl LiveTuning {
     }
 }
 
+/// Retained byte-stream input as both owner shells see it at a raw
+/// correlation release (#776). Datagram and stateless drivers retain nothing,
+/// which the defaults describe.
+#[cfg(any(feature = "async", feature = "blocking"))]
+pub(crate) trait RetainedStreamInput {
+    /// Whether the stream framer retains input not yet delivered to the
+    /// engine.
+    fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
+        Ok(false)
+    }
+
+    /// A monotonic measure of the first retained input. Production adapters
+    /// return the framer's exact byte count; the default suits a
+    /// single-fragment test seam. A successful discard must reduce it (or
+    /// remove it), which lets the owner prove progress without a turn cap.
+    fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
+        Ok(self.has_buffered_stream_input()?.then_some(1))
+    }
+
+    /// Evidence visible in the first retained raw input. A complete frame
+    /// defers to the ordinary decode path; an incomplete prefix is classified
+    /// only from its first two bytes, just far enough for the engine to decide
+    /// whether it belongs to an expiring correlation scope. `None` means no
+    /// input is retained.
+    fn buffered_raw_prefix_evidence(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
+        Ok(None)
+    }
+
+    /// Discard exactly the first retained raw frame or incomplete fragment,
+    /// preserving all later input.
+    fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
+        Ok(())
+    }
+}
+
+/// How a due raw release may proceed once retained input is resolved.
+#[cfg(any(feature = "async", feature = "blocking"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RawReleaseResolution {
+    /// Release correlation and run due work now.
+    Advance,
+    /// Wait for a retained prefix's tail until this engine-owned deadline.
+    AwaitInputUntil(Instant),
+}
+
 /// Common serialized owner state shared by blocking and async modes.
 #[derive(Debug)]
 pub(crate) struct OwnerState {
     engine: ProtocolEngine,
+    observed_at: Instant,
     policy: OwnerPolicy,
     tuning: LiveTuning,
     permits: AdmissionPermitPool,
     pending: BTreeMap<AdmissionTicket, PendingAdmission>,
     active: BTreeMap<RequestId, ActiveRequest>,
-    cancellation_waiters: BTreeMap<RequestId, CancellationWaiter>,
+    /// A cancellation the engine refused while handling the request that is
+    /// being driven right now; read back by `conclude_cancellation`.
+    cancellation_refusal: Option<(RequestId, Error)>,
+    motion: Arc<MotionRegistry>,
     target_cache: Arc<[Mutex<TargetStateCache>; 9]>,
     subscribers: BTreeMap<u64, AppliedSubscriber>,
     diagnostic_subscribers: BTreeMap<u64, DiagnosticSubscriber>,
@@ -1275,14 +1644,13 @@ pub(crate) struct OwnerState {
     next_subscription: u64,
     // Read only by `subscribe_diagnostics`, whose consumers are feature-gated
     // (#636).
-    #[cfg(any(feature = "async", test))]
+    #[cfg(any(feature = "async", feature = "blocking", test))]
     next_diagnostic_subscription: u64,
     next_ticket: u64,
     diagnostics: VecDeque<DiagnosticEvent>,
     metrics: OwnerMetrics,
     buffers: OwnerBuffers,
     session_error: Option<Error>,
-    origin: Arc<()>,
 }
 
 impl OwnerState {
@@ -1316,39 +1684,41 @@ impl OwnerState {
                 engine.register_target(target, target_policy)?;
             }
         }
-        let permits = AdmissionPermitPool::new(policy.protocol.capacity);
+        let permits = AdmissionPermitPool::new(
+            policy.protocol.capacity,
+            policy
+                .targets
+                .map(|target| target.map_or(0, |target| target.control_reserve)),
+        );
         let buffers = OwnerBuffers::new(policy.limits)?;
         let tuning = LiveTuning::new(policy.tuning);
         Ok(Self {
             engine,
+            observed_at: Instant::now(),
             policy,
             tuning,
             permits,
             pending: BTreeMap::new(),
             active: BTreeMap::new(),
-            cancellation_waiters: BTreeMap::new(),
+            cancellation_refusal: None,
+            motion: Arc::new(MotionRegistry::default()),
             target_cache: Arc::new(array::from_fn(|_| Mutex::new(TargetStateCache::default()))),
             subscribers: BTreeMap::new(),
             diagnostic_subscribers: BTreeMap::new(),
             #[cfg(test)]
             next_subscription: 1,
-            #[cfg(any(feature = "async", test))]
+            #[cfg(any(feature = "async", feature = "blocking", test))]
             next_diagnostic_subscription: 1,
             next_ticket: 1,
             diagnostics: VecDeque::new(),
             metrics: OwnerMetrics::default(),
             buffers,
             session_error: None,
-            origin: Arc::new(()),
         })
     }
 
     pub(crate) fn permits(&self) -> AdmissionPermitPool {
         self.permits.clone()
-    }
-
-    pub(crate) fn origin(&self) -> Arc<()> {
-        Arc::clone(&self.origin)
     }
 
     pub(crate) const fn policy(&self) -> &OwnerPolicy {
@@ -1419,6 +1789,13 @@ impl OwnerState {
         self.session_error.clone()
     }
 
+    /// Whether `id` is still an active request: admitted, and its terminal
+    /// outcome not yet delivered.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn is_active(&self, id: RequestId) -> bool {
+        self.active.contains_key(&id)
+    }
+
     // Used by owner tests and the test-only async snapshot helper (#636).
     #[cfg(test)]
     pub(crate) fn active_len(&self) -> usize {
@@ -1444,10 +1821,13 @@ impl OwnerState {
     pub(crate) fn record_admission_rejection(
         &mut self,
         target: CameraId,
-        lane: RequestLane,
+        lane: Lane,
         error: &Error,
     ) {
-        self.record_pre_admission_rejections(1);
+        self.record_pre_admission_rejections(
+            1,
+            u64::from(matches!(error, Error::ControlReserveExhausted { .. })),
+        );
         self.record_admission_rejection_diagnostic(target, lane, error.kind());
     }
 
@@ -1456,9 +1836,15 @@ impl OwnerState {
     /// Async handles can reject a submission while acquiring the shared
     /// admission permit, before an observer, ticket, or boundary item exists.
     /// Their bounded ingress is drained by the actor, which uses this method to
-    /// merge the exact counter total into owner-owned metrics.
-    pub(crate) fn record_pre_admission_rejections(&mut self, count: u64) {
+    /// merge the exact counter totals into owner-owned metrics. `control_reserve`
+    /// counts the urgent stops among them that found their target's control
+    /// reserve full (D26, #778).
+    pub(crate) fn record_pre_admission_rejections(&mut self, count: u64, control_reserve: u64) {
         self.metrics.admission_rejected = self.metrics.admission_rejected.saturating_add(count);
+        self.metrics.control_reserve_rejected = self
+            .metrics
+            .control_reserve_rejected
+            .saturating_add(control_reserve);
     }
 
     /// Delivers the bounded diagnostic half of a pre-admission rejection.
@@ -1469,7 +1855,7 @@ impl OwnerState {
     pub(crate) fn record_admission_rejection_diagnostic(
         &mut self,
         target: CameraId,
-        lane: RequestLane,
+        lane: Lane,
         error: ErrorKind,
     ) {
         self.record(DiagnosticEvent::AdmissionRejected {
@@ -1481,7 +1867,7 @@ impl OwnerState {
 
     /// Accounts for a bounded diagnostic ingress evicting an older event before
     /// the owner can place it in its public diagnostic ring.
-    #[cfg(feature = "async")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn record_dropped_diagnostics(&mut self, count: u64) {
         self.metrics.dropped_diagnostics = self.metrics.dropped_diagnostics.saturating_add(count);
     }
@@ -1496,12 +1882,6 @@ impl OwnerState {
         self.diagnostics.iter()
     }
 
-    // Consumed by the public blocking diagnostics facade and its owner tests.
-    #[cfg(feature = "blocking")]
-    pub(crate) fn drain_diagnostics(&mut self) -> Vec<DiagnosticEvent> {
-        self.diagnostics.drain(..).collect()
-    }
-
     pub(crate) fn next_wake(&self) -> Option<Instant> {
         self.engine.next_wake()
     }
@@ -1511,62 +1891,79 @@ impl OwnerState {
         self.engine.raw_correlation_releases_due(now)
     }
 
+    /// Resolve retained raw stream input at a due correlation release.
+    ///
+    /// Each retained fragment the engine assigns to the expiring scope is
+    /// discarded, one at a time and with proven progress, so a stale fragment
+    /// never crosses into a successor's correlation interval while later input
+    /// is preserved. The result says whether due work may advance now or must
+    /// wait for a tail until the engine's grace deadline. Both owner shells use
+    /// this one loop (#776).
+    ///
+    /// Every error means the owner can no longer prove a safe release; the
+    /// caller ends the session with a framing failure.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn resolve_raw_release_gate(
+    pub(crate) fn resolve_retained_raw_input<I>(
         &mut self,
+        input: &mut I,
         now: Instant,
-        evidence: Option<RawPrefixEvidence>,
-    ) -> RawReleaseGateAction {
-        self.engine.resolve_raw_release_gate(now, evidence)
-    }
-
-    /// The next engine wake relevant to the selected turn boundary.
-    #[cfg(feature = "blocking")]
-    pub(crate) fn next_wake_for(&self, turn: EngineTurn) -> Option<Instant> {
-        self.engine.next_wake_for(turn)
+    ) -> Result<RawReleaseResolution, Error>
+    where
+        I: RetainedStreamInput + ?Sized,
+    {
+        loop {
+            let buffered = input.has_buffered_stream_input()?;
+            let evidence = input.buffered_raw_prefix_evidence()?;
+            if buffered != evidence.is_some() {
+                return Err(Error::InvalidState(
+                    if buffered {
+                        "retained raw stream input could not be classified before correlation release"
+                    } else {
+                        "stream decoder described absent buffered input"
+                    }
+                    .into(),
+                ));
+            }
+            match self.engine.resolve_raw_release_gate(now, evidence) {
+                RawReleaseGateAction::Advance => return Ok(RawReleaseResolution::Advance),
+                RawReleaseGateAction::AwaitInputUntil(deadline) => {
+                    return Ok(RawReleaseResolution::AwaitInputUntil(deadline));
+                }
+                RawReleaseGateAction::DiscardFirst if !buffered => {
+                    return Err(Error::InvalidState(
+                        "raw release gate requested a discard without retained input".into(),
+                    ));
+                }
+                RawReleaseGateAction::DiscardFirst => {
+                    let before = input.buffered_stream_input_len()?.ok_or_else(|| {
+                        Error::InvalidState(
+                            "stream decoder reported buffered input without a progress measure"
+                                .into(),
+                        )
+                    })?;
+                    input.discard_buffered_stream_input()?;
+                    if input
+                        .buffered_stream_input_len()?
+                        .is_some_and(|after| after >= before)
+                    {
+                        return Err(Error::InvalidState(
+                            "raw stream decoder did not consume the discarded prefix".into(),
+                        ));
+                    }
+                    let _ = self.apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
+                }
+            }
+        }
     }
 
     pub(crate) fn input(&mut self, input: Input, now: Instant) -> VecDeque<Effect> {
+        self.observed_at = now;
         self.observe_input(&input);
-        self.engine.handle(input, now).into()
-    }
-
-    #[cfg(any(feature = "blocking", test))]
-    pub(crate) fn input_with_turn(
-        &mut self,
-        input: Input,
-        now: Instant,
-        turn: EngineTurn,
-    ) -> VecDeque<Effect> {
-        self.observe_input(&input);
-        self.engine.handle_turn(input, now, turn).into()
-    }
-
-    #[cfg(any(feature = "blocking", test))]
-    pub(crate) fn first_dispatch(&mut self, id: RequestId, now: Instant) -> FirstDispatch {
-        self.engine.first_dispatch(id, now)
-    }
-
-    /// Terminalizes an admitted, still-unwritten request through the engine's
-    /// normal lifecycle transition. Blocking operation submission uses this
-    /// when socket capacity is unavailable, so the temporary observer receives
-    /// the rejection and its shared admission permit is released immediately.
-    #[cfg(feature = "blocking")]
-    pub(crate) fn reject_unwritten(&mut self, id: RequestId, error: Error) -> VecDeque<Effect> {
-        self.engine.reject_unwritten(id, error).into()
-    }
-
-    /// Whether the raw single-candidate pre-ACK gate alone blocks a new command
-    /// on `target`, so pumping the pending ACK would free a socket for it
-    /// (issue #673). See
-    /// [`super::engine::ProtocolEngine::raw_ack_input_may_enable_dispatch`].
-    #[cfg(feature = "blocking")]
-    pub(crate) fn raw_ack_input_may_enable_dispatch(&self, target: CameraId) -> bool {
-        self.engine.raw_ack_input_may_enable_dispatch(target)
+        self.engine_input(input, |engine, input| engine.handle(input, now))
     }
 
     pub(crate) fn begin_input_turn(&self, now: Instant) -> OwnerInputTurn {
-        OwnerInputTurn(self.engine.begin_input_turn(now))
+        OwnerInputTurn(self.engine.begin_input_turn(now), now)
     }
 
     /// Applies an input in an active decoded-input turn without running due
@@ -1577,8 +1974,40 @@ impl OwnerState {
         turn: &OwnerInputTurn,
         input: Input,
     ) -> VecDeque<Effect> {
+        self.observed_at = turn.1;
         self.observe_input(&input);
-        self.engine.handle_in_turn(&turn.0, input).into()
+        self.engine_input(input, |engine, input| engine.handle_in_turn(&turn.0, input))
+    }
+
+    fn engine_input(
+        &mut self,
+        input: Input,
+        apply: impl FnOnce(&mut ProtocolEngine, Input) -> Vec<Effect>,
+    ) -> VecDeque<Effect> {
+        let admission = match &input {
+            Input::Admit {
+                ticket, request, ..
+            } => request
+                .context()
+                .motion
+                .map(|motion| (*ticket, *request.context(), motion)),
+            _ => None,
+        };
+        if let Some((ticket, context, motion)) = admission {
+            let registry = Arc::clone(&self.motion);
+            let (effects, stamp) = registry.admit(
+                context.target,
+                motion.axes,
+                context.submission_order,
+                || apply(&mut self.engine, input),
+            );
+            if let Some(pending) = self.pending.get_mut(&ticket) {
+                pending.motion = stamp;
+            }
+            effects.into()
+        } else {
+            apply(&mut self.engine, input).into()
+        }
     }
 
     pub(crate) fn finish_input_turn(
@@ -1586,6 +2015,7 @@ impl OwnerState {
         turn: OwnerInputTurn,
         engine_turn: EngineTurn,
     ) -> VecDeque<Effect> {
+        self.observed_at = turn.1;
         self.engine.finish_input_turn(turn.0, engine_turn).into()
     }
 
@@ -1614,12 +2044,8 @@ impl OwnerState {
     }
 
     pub(crate) fn advance(&mut self, now: Instant) -> VecDeque<Effect> {
+        self.observed_at = now;
         self.engine.advance(now).into()
-    }
-
-    #[cfg(feature = "blocking")]
-    pub(crate) fn advance_turn(&mut self, now: Instant, turn: EngineTurn) -> VecDeque<Effect> {
-        self.engine.advance_turn(now, turn).into()
     }
 
     pub(crate) fn finish_write(
@@ -1638,6 +2064,7 @@ impl OwnerState {
         now: Instant,
         turn: EngineTurn,
     ) -> VecDeque<Effect> {
+        self.observed_at = now;
         self.observe_write(staged, &result);
         self.engine
             .handle_turn(
@@ -1659,6 +2086,7 @@ impl OwnerState {
         staged: &StagedWrite,
         result: Result<TransmissionMeta, Error>,
     ) -> VecDeque<Effect> {
+        self.observed_at = turn.1;
         self.observe_write(staged, &result);
         self.engine
             .handle_in_turn(
@@ -1701,34 +2129,20 @@ impl OwnerState {
         });
     }
 
-    #[cfg(any(feature = "blocking", test))]
-    pub(crate) fn stage_admission(
-        &mut self,
-        request: RuntimeRequest,
-        permit: AdmissionPermit,
-    ) -> (
-        Input,
-        CompletionObserver,
-        flume::Receiver<Result<RequestId, Error>>,
-    ) {
-        let (observer, receiver) = completion_pair();
-        let (reply, admission) = flume::bounded(1);
-        let input = self.stage_admission_with(request, permit, observer, reply);
-        (input, receiver, admission)
-    }
-
     fn stage_admission_with(
         &mut self,
         request: RuntimeRequest,
         permit: AdmissionPermit,
-        observer: Arc<ObserverCell>,
-        reply: flume::Sender<Result<RequestId, Error>>,
+        observer: Arc<ObserverCell<RuntimeOutcome>>,
+        reply: flume::Sender<Result<Admitted, Error>>,
     ) -> Input {
         let ticket = self.allocate_ticket();
         let summary = RequestSummary::new(&request);
+        let slot = permit.slot();
         let previous = self.pending.insert(
             ticket,
             PendingAdmission {
+                motion: None,
                 permit,
                 observer,
                 reply,
@@ -1736,7 +2150,49 @@ impl OwnerState {
             },
         );
         debug_assert!(previous.is_none());
-        Input::Admit { ticket, request }
+        Input::Admit {
+            ticket,
+            request,
+            slot,
+        }
+    }
+
+    fn mark_cancellation_recorded(&mut self, id: RequestId) {
+        if let Some(intent) = self
+            .active
+            .get_mut(&id)
+            .and_then(|active| active.cancellation.as_mut())
+        {
+            intent.recorded = true;
+        }
+    }
+
+    /// A failed cancellation observation. Before the intent was recorded it is
+    /// the engine refusing the request, which leaves the operation running and
+    /// is answered to the cancelling caller; afterwards it is a cancellation
+    /// that failed without ending the operation, which reaches the handle's
+    /// cancellation observer. The operation's terminal slot is untouched
+    /// either way (#777).
+    fn cancellation_failed(&mut self, id: RequestId, error: Error) {
+        let Some(active) = self.active.get_mut(&id) else {
+            return;
+        };
+        match &active.cancellation {
+            Some(intent) if intent.recorded => {
+                if matches!(
+                    intent.observer.resolve_at(error, self.observed_at),
+                    ObserverResolution::ReceiverLost
+                ) {
+                    self.metrics.dropped_observer_events =
+                        self.metrics.dropped_observer_events.saturating_add(1);
+                }
+            }
+            Some(_) => {
+                active.cancellation = None;
+                self.cancellation_refusal = Some((id, error));
+            }
+            None => {}
+        }
     }
 
     fn allocate_ticket(&mut self) -> AdmissionTicket {
@@ -1750,29 +2206,32 @@ impl OwnerState {
         }
     }
 
-    fn register_cancellation(&mut self, id: RequestId) -> CancellationRegistration {
-        let (acknowledgement, acknowledgement_receiver) = flume::bounded(1);
-        if !self.active.contains_key(&id) {
-            let _ = acknowledgement.try_send(Err(Error::InvalidState(
-                "cancellation target is not active".into(),
-            )));
-        } else {
-            match self.cancellation_waiters.entry(id) {
-                std::collections::btree_map::Entry::Occupied(_) => {
-                    let _ = acknowledgement.try_send(Err(Error::InvalidState(
-                        "cancellation is already being observed".into(),
-                    )));
-                }
-                std::collections::btree_map::Entry::Vacant(entry) => {
-                    entry.insert(CancellationWaiter {
-                        acknowledgement,
-                        recorded: false,
-                    });
-                }
-            }
+    /// Installs a handle's cancellation intent and returns the engine input to
+    /// drive, or `None` when there is nothing to send (#777):
+    ///
+    /// - the request is no longer active, so its terminal outcome has already
+    ///   been delivered to the handle;
+    /// - the handle's intent is already installed, so cancelling again
+    ///   observes it instead of sending a second cancellation.
+    pub(crate) fn begin_cancellation(&mut self, request: CancellationRequest) -> Option<Input> {
+        self.cancellation_refusal = None;
+        let active = self.active.get_mut(&request.id)?;
+        if active.cancellation.is_some() {
+            return None;
         }
-        CancellationRegistration {
-            acknowledgement: acknowledgement_receiver,
+        active.cancellation = Some(CancellationIntent {
+            observer: request.observer,
+            recorded: false,
+        });
+        Some(Input::Cancel { id: request.id })
+    }
+
+    /// The answer to a cancellation request once its input has been driven:
+    /// the engine's refusal, if it refused, else success.
+    pub(crate) fn conclude_cancellation(&mut self, id: RequestId) -> Result<(), Error> {
+        match self.cancellation_refusal.take() {
+            Some((refused, error)) if refused == id => Err(error),
+            _ => Ok(()),
         }
     }
 
@@ -1805,9 +2264,7 @@ impl OwnerState {
         Ok(AppliedStateSubscription { receiver })
     }
 
-    // Consumed by the async actor's diagnostics control arm and the owner
-    // tests.
-    #[cfg(any(feature = "async", test))]
+    #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) fn subscribe_diagnostics(
         &mut self,
         event_capacity: usize,
@@ -1876,40 +2333,31 @@ impl OwnerState {
         &'a mut self,
         staged: &StagedWrite,
     ) -> Result<WireWrite<'a>, Error> {
-        #[cfg(any(
-            all(test, feature = "blocking", not(feature = "async")),
-            all(
-                test,
-                feature = "async",
-                any(feature = "runtime-tokio", feature = "runtime-smol")
-            )
+        #[cfg(all(
+            test,
+            feature = "async",
+            any(feature = "runtime-tokio", feature = "runtime-smol")
         ))]
         let cancellation = matches!(staged.kind, Transmission::Cancel { .. });
         let inquiry = self
             .active
             .get(&staged.request)
-            .is_some_and(|active| active.summary.lane == RequestLane::Inquiry);
+            .is_some_and(|active| active.summary.lane == Lane::Inquiry);
         let (bytes, frame_buffer) = self.buffers.prepare(&staged.kind)?;
         Ok(WireWrite {
-            #[cfg(any(
-                all(test, feature = "blocking", not(feature = "async")),
-                all(
-                    test,
-                    feature = "async",
-                    any(feature = "runtime-tokio", feature = "runtime-smol")
-                )
+            #[cfg(all(
+                test,
+                feature = "async",
+                any(feature = "runtime-tokio", feature = "runtime-smol")
             ))]
             request: staged.request,
             bytes,
             requested_sequence: staged.requested_sequence,
             frame_buffer,
-            #[cfg(any(
-                all(test, feature = "blocking", not(feature = "async")),
-                all(
-                    test,
-                    feature = "async",
-                    any(feature = "runtime-tokio", feature = "runtime-smol")
-                )
+            #[cfg(all(
+                test,
+                feature = "async",
+                any(feature = "runtime-tokio", feature = "runtime-smol")
             ))]
             cancellation,
             inquiry,
@@ -1933,20 +2381,27 @@ impl OwnerState {
                     return AppliedEffect::None;
                 };
                 let PendingAdmission {
+                    motion,
                     permit,
                     observer,
                     reply,
                     summary,
                 } = pending;
+                let permit_slot = permit.slot();
                 self.active.insert(
                     id,
                     ActiveRequest {
                         _permit: permit,
                         observer,
                         summary,
+                        cancellation: None,
                     },
                 );
                 self.metrics.admitted = self.metrics.admitted.saturating_add(1);
+                if permit_slot == AdmissionSlot::ControlReserve {
+                    self.metrics.control_reserve_admitted =
+                        self.metrics.control_reserve_admitted.saturating_add(1);
+                }
                 self.record(DiagnosticEvent::Admitted {
                     id,
                     target: summary.target,
@@ -1956,7 +2411,7 @@ impl OwnerState {
                     control: summary.control,
                     cancellation: summary.cancellation,
                 });
-                let _ = reply.try_send(Ok(id));
+                let _ = reply.try_send(Ok(Admitted { id, motion }));
                 AppliedEffect::None
             }
             Effect::AdmissionRejected { ticket, error } => {
@@ -2064,10 +2519,7 @@ impl OwnerState {
             }
             Effect::CancellationRecorded { id } => {
                 self.metrics.cancellations = self.metrics.cancellations.saturating_add(1);
-                if let Some(waiter) = self.cancellation_waiters.get_mut(&id) {
-                    waiter.recorded = true;
-                    let _ = waiter.acknowledgement.try_send(Ok(()));
-                }
+                self.mark_cancellation_recorded(id);
                 if let Some(target) = self.active.get(&id).map(|active| active.summary.target) {
                     self.record(DiagnosticEvent::CancellationRecorded { id, target });
                 }
@@ -2077,38 +2529,11 @@ impl OwnerState {
                 let target = self.active.get(&id).map(|active| active.summary.target);
                 let diagnostic = cancellation_diagnostic(&observation);
                 match observation {
-                    CancellationObservation::Recorded => {
-                        if let Some(waiter) = self.cancellation_waiters.get_mut(&id) {
-                            waiter.recorded = true;
-                            let _ = waiter.acknowledgement.try_send(Ok(()));
-                        }
-                    }
+                    CancellationObservation::Recorded
+                    | CancellationObservation::Cancelled
+                    | CancellationObservation::Completed => self.mark_cancellation_recorded(id),
                     CancellationObservation::Failed(error) => {
-                        if let Some(waiter) = self.cancellation_waiters.remove(&id) {
-                            if waiter.recorded {
-                                if self.active.get(&id).is_some_and(|active| {
-                                    matches!(
-                                        active
-                                            .observer
-                                            .resolve(ReceiptObservation::CancellationFailed(error)),
-                                        ObserverResolution::ReceiverLost
-                                    )
-                                }) {
-                                    self.metrics.dropped_observer_events =
-                                        self.metrics.dropped_observer_events.saturating_add(1);
-                                }
-                            } else {
-                                let _ = waiter.acknowledgement.try_send(Err(error));
-                            }
-                        }
-                    }
-                    CancellationObservation::Cancelled | CancellationObservation::Completed => {
-                        if let Some(waiter) = self.cancellation_waiters.get_mut(&id) {
-                            if !waiter.recorded {
-                                waiter.recorded = true;
-                                let _ = waiter.acknowledgement.try_send(Ok(()));
-                            }
-                        }
+                        self.cancellation_failed(id, error);
                     }
                 }
                 if let Some(target) = target {
@@ -2163,7 +2588,7 @@ impl OwnerState {
                     if matches!(
                         active
                             .observer
-                            .resolve(ReceiptObservation::Terminal(outcome.clone())),
+                            .resolve_at(outcome.clone(), self.observed_at),
                         ObserverResolution::ReceiverLost
                     ) {
                         self.metrics.dropped_observer_events =
@@ -2175,11 +2600,6 @@ impl OwnerState {
                         target,
                         outcome: diagnostic,
                     });
-                }
-                if let Some(waiter) = self.cancellation_waiters.remove(&id) {
-                    if !waiter.recorded {
-                        let _ = waiter.acknowledgement.try_send(Ok(()));
-                    }
                 }
                 self.metrics.terminal = self.metrics.terminal.saturating_add(1);
                 AppliedEffect::None
@@ -2227,7 +2647,7 @@ impl OwnerState {
     }
 
     // Consumed only by the async actor's boundary drain (#636).
-    #[cfg(feature = "async")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn fail_unstaged_boundary(&mut self, count: usize) {
         self.metrics.dropped_boundary_work = self
             .metrics
@@ -2266,7 +2686,7 @@ impl OwnerState {
 }
 
 // Private helper for the owner subscription paths.
-#[cfg(any(feature = "async", test))]
+#[cfg(any(feature = "async", feature = "blocking", test))]
 fn allocate_subscription_id<T>(next: &mut u64, values: &BTreeMap<u64, T>) -> u64 {
     loop {
         let id = *next;
@@ -2329,7 +2749,32 @@ fn boundary_error_for_input(input: &Input) -> Option<Error> {
         | Input::Frame(_)
         | Input::Cancel { .. }
         | Input::ReceiveFault { .. } => None,
+        #[cfg(test)]
         Input::Wake => None,
+    }
+}
+
+/// A caller's wait on `id` expired while the owner still holds the request
+/// (D20, #783).
+#[cfg(any(feature = "async", feature = "blocking"))]
+pub(crate) fn observation_timeout(id: RequestId) -> Error {
+    Error::ObservationTimeout {
+        operation: crate::OperationId::from_raw(id.get()),
+    }
+}
+
+/// A settlement wait on operation `id` that ran out of caller time, while
+/// waiting for application or between position samples, is that operation's
+/// observation timeout: the operation may still be moving.
+#[cfg(any(feature = "async", feature = "blocking"))]
+pub(crate) fn settlement_error(error: Error, id: RequestId) -> Error {
+    if error.is_caller_deadline() {
+        observation_timeout(id)
+    } else {
+        Error::SettlementObservationFailed {
+            operation: crate::OperationId::from_raw(id.get()),
+            source: Box::new(error),
+        }
     }
 }
 
@@ -2343,7 +2788,7 @@ fn boundary_error_for_input(input: &Input) -> Option<Error> {
 /// for its ACK, burning whole retry budgets in milliseconds, and on the async
 /// owner it would spin the actor's transient-fault arm (#625, #637).
 ///
-/// Both owners therefore normalize an explicit [`Error::Timeout`] and the
+/// Both owners therefore normalize any [`Error::Timeout`] and the
 /// non-fatal raw `WouldBlock` / `Interrupted` spellings to "this read produced
 /// no frames" and keep pumping. A raw `io::ErrorKind::TimedOut` is different:
 /// on a connected TCP socket it is the first error Linux commonly reports when
@@ -2351,7 +2796,7 @@ fn boundary_error_for_input(input: &Input) -> Option<Error> {
 /// mistaken for an application-owned idle timer (#719).
 pub(crate) fn receive_reported_no_data(error: &Error) -> bool {
     match error {
-        Error::Timeout => true,
+        Error::Timeout { .. } => true,
         Error::Io(io) => matches!(
             io.kind(),
             std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
@@ -2401,11 +2846,10 @@ pub(crate) fn normalize_datagram_send_error(error: Error) -> Error {
 
 /// Whether one receive-side transport failure leaves the session usable.
 ///
-/// 1.x drew this line in the runtime loops: a `ConnectionClosed` read ended the
-/// session, and every other read error became a `NetworkError` that retried
-/// in-flight work and kept the loop alive. This keeps that contract and states
-/// the remaining fatal cases explicitly instead of inheriting them from
-/// [`ErrorKind`], which cannot separate "the peer went away" from "this read
+/// A `ConnectionClosed` read ends the session, and every other read error is a
+/// transient fault that retries in-flight work where that is safe and keeps
+/// the loop alive. The remaining fatal cases are stated explicitly instead of
+/// being inherited from [`ErrorKind`], which cannot separate "the peer went away" from "this read
 /// failed".
 ///
 /// Transient therefore includes the case the issue is about: a UDP `recv`

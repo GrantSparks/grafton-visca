@@ -12,7 +12,7 @@ use std::{
 
 use crate::{
     command::{bytes::VISCA_TERMINATOR, CommandKind},
-    protocol::framer::ProtocolFramer,
+    protocol::framer::{FramingMode, ProtocolFramer},
     transport::{buffer::BufferConfig, BlockingTransport},
     Error,
 };
@@ -115,8 +115,9 @@ impl BlockingTransport for MockTcp {
         &mut self,
         dst: &mut [u8],
         _duration: std::time::Duration,
-    ) -> Result<usize, Error> {
+    ) -> Result<crate::transport::ReceiveOutcome, Error> {
         self.recv_into(dst)
+            .map(crate::transport::ReceiveOutcome::complete)
     }
 
     fn addressing_mode_hint(&self) -> Option<crate::transport::AddressingMode> {
@@ -139,7 +140,8 @@ fn test_back_to_back_visca_frames() {
     let mut transport = MockTcp::new(stream);
 
     // Create a framer to test the framing logic
-    let mut framer = ProtocolFramer::new_with_config(BufferConfig::default());
+    let mut framer =
+        ProtocolFramer::new_with_config_and_mode(BufferConfig::default(), FramingMode::RawVisca);
     let mut read_buf = vec![0u8; 256];
 
     // Read all data in one go (simulating single TCP read)
@@ -184,7 +186,8 @@ fn test_multiple_back_to_back_frames() {
     let mut transport = MockTcp::new(stream);
 
     // Create a framer to test the framing logic
-    let mut framer = ProtocolFramer::new_with_config(BufferConfig::default());
+    let mut framer =
+        ProtocolFramer::new_with_config_and_mode(BufferConfig::default(), FramingMode::RawVisca);
     let mut read_buf = vec![0u8; 256];
 
     // Read all data in one go
@@ -241,7 +244,10 @@ fn test_sony_encapsulated_frames_back_to_back() {
     let mut transport = MockTcp::new(stream);
 
     // Create a framer configured for Sony protocol
-    let mut framer = ProtocolFramer::new_with_config(BufferConfig::for_sony_ip());
+    let mut framer = ProtocolFramer::new_with_config_and_mode(
+        BufferConfig::for_udp(),
+        FramingMode::SonyEncapsulated,
+    );
     let mut read_buf = vec![0u8; 256];
 
     // Read all data in one go
@@ -276,7 +282,8 @@ fn test_eof_with_complete_frame() {
     let mut transport = MockTcp::new(stream);
 
     // Create a framer to test the framing logic
-    let mut framer = ProtocolFramer::new_with_config(BufferConfig::default());
+    let mut framer =
+        ProtocolFramer::new_with_config_and_mode(BufferConfig::default(), FramingMode::RawVisca);
     let mut read_buf = vec![0u8; 256];
 
     // Read the frame
@@ -310,7 +317,8 @@ fn test_eof_with_partial_frame() {
     let mut transport = MockTcp::new(stream);
 
     // Create a framer to test the framing logic
-    let mut framer = ProtocolFramer::new_with_config(BufferConfig::default());
+    let mut framer =
+        ProtocolFramer::new_with_config_and_mode(BufferConfig::default(), FramingMode::RawVisca);
     let mut read_buf = vec![0u8; 256];
 
     // Read the partial data

@@ -36,6 +36,8 @@ mod nouns;
 #[cfg(feature = "async")]
 mod owner_projection;
 
+#[cfg(feature = "async")]
+use crate::noun_table::reexport_nouns;
 #[cfg(feature = "blocking")]
 pub use blocking_projection::BlockingDynSessionCamera;
 #[cfg(feature = "async")]
@@ -43,14 +45,12 @@ pub use custom::{
     submit_applied, submit_targeted, DynAppliedRequest, DynCustomOperations, DynTargetedRequest,
 };
 #[cfg(feature = "async")]
-pub use nouns::{
-    DynAdvanced, DynExposure, DynFocus, DynImage, DynMenu, DynMotion, DynMotionSync, DynNdFilter,
-    DynPanTilt, DynPower, DynPresets, DynSessionCameraNouns, DynSystem, DynTally, DynWhiteBalance,
-    DynZoom, DYN_NOUN_CONVENIENCE_METHODS, DYN_NOUN_CONVENIENCE_METHOD_COUNT, DYN_NOUN_COUNT,
-    DYN_NOUN_INQUIRY_METHOD_COUNT, DYN_NOUN_TARGET_METHOD_COUNT,
-};
+crate::noun_table::noun_table!(reexport_nouns, [dyn_trait], [nouns]);
+#[cfg(feature = "async")]
+crate::noun_table::motion_table!(reexport_nouns, [dyn_trait], [nouns]);
+#[cfg(feature = "async")]
+pub use nouns::DynSessionCameraNouns;
 #[cfg(feature = "async")]
 pub use owner_projection::{
-    DynAppliedOperation, DynCancellation, DynSessionCamera, DynSessionCameraControl,
-    DynTargetedOperation,
+    DynAppliedOperation, DynSessionCamera, DynSessionCameraControl, DynTargetedOperation,
 };

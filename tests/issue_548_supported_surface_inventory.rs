@@ -102,69 +102,100 @@ const EXPECTED_TYPED_GATES: &[&str] = &[
     "DefogLevel",
     "TallyBrightness",
     "PtzOpticsTally",
+    "VersionInquiry",
+    "ColorTemperatureInquiry",
+    "NoiseReduction2DMode",
 ];
 
-const EXPECTED_ACCESSORS: &[&str] = &[
-    "AdvancedAccessor",
-    "ExposureAccessor",
-    "FocusAccessor",
-    "ImageAccessor",
-    "MenuAccessor",
-    "MotionSyncAccessor",
-    "NdFilterAccessor",
-    "PanTiltAccessor",
-    "PowerAccessor",
-    "PresetsAccessor",
-    "SystemAccessor",
-    "TallyAccessor",
-    "WhiteBalanceAccessor",
-    "ZoomAccessor",
-];
+/// Pins the public static accessor names and makes each one a compile-time
+/// fact: every name must resolve in each enabled facade, so a renamed or
+/// missing accessor fails to build rather than relying on a source scan.
+macro_rules! static_accessor_inventory {
+    ($($accessor:ident),* $(,)?) => {
+        const EXPECTED_ACCESSORS: &[&str] = &[$(stringify!($accessor)),*];
 
-const EXPECTED_DYN_TRAITS: &[&str] = &[
-    "DynAdvanced",
-    "DynAppliedRequest",
-    "DynExposure",
-    "DynFocus",
-    "DynImage",
-    "DynMenu",
-    "DynMotion",
-    "DynMotionSync",
-    "DynNdFilter",
-    "DynPanTilt",
-    "DynPower",
-    "DynPresets",
-    "DynSessionCameraControl",
-    "DynSessionCameraNouns",
-    "DynSystem",
-    "DynTally",
-    "DynTargetedRequest",
-    "DynWhiteBalance",
-    "DynZoom",
-];
-
-fn public_trait_names(sources: &[&str]) -> Vec<String> {
-    let mut names = Vec::new();
-    for source in sources {
-        for line in source.lines() {
-            let Some(rest) = line.trim_start().strip_prefix("pub trait ") else {
-                continue;
-            };
-            let name = rest
-                .split(|character: char| {
-                    character == '<' || character == ':' || character.is_whitespace()
-                })
-                .next()
-                .unwrap_or_default();
-            if !name.is_empty() {
-                names.push(name.to_owned());
-            }
+        #[cfg(feature = "async")]
+        #[allow(dead_code)]
+        fn async_accessors_resolve<P>()
+        where
+            P: grafton_visca::CompileTimeProfile
+                + grafton_visca::capabilities::HasTally
+                + grafton_visca::capabilities::HasNdFilter
+                + grafton_visca::capabilities::HasMotionSync
+                + 'static,
+        {
+            $( let _: Option<grafton_visca::$accessor<'static, P>> = None; )*
         }
-    }
-    names.sort();
-    names.dedup();
-    names
+
+        #[cfg(feature = "blocking")]
+        #[allow(dead_code)]
+        fn blocking_accessors_resolve<P>()
+        where
+            P: grafton_visca::CompileTimeProfile
+                + grafton_visca::capabilities::HasTally
+                + grafton_visca::capabilities::HasNdFilter
+                + grafton_visca::capabilities::HasMotionSync
+                + 'static,
+        {
+            $( let _: Option<grafton_visca::blocking::$accessor<'static, P>> = None; )*
+        }
+    };
 }
+
+static_accessor_inventory!(
+    AdvancedAccessor,
+    ExposureAccessor,
+    FocusAccessor,
+    ImageAccessor,
+    MenuAccessor,
+    MotionSyncAccessor,
+    NdFilterAccessor,
+    PanTiltAccessor,
+    PowerAccessor,
+    PresetsAccessor,
+    SystemAccessor,
+    TallyAccessor,
+    WhiteBalanceAccessor,
+    ZoomAccessor,
+);
+
+/// Pins the public `Dyn*` trait names and makes each one a compile-time fact:
+/// every name must resolve as an object type in `grafton_visca::dynapi`, so a
+/// renamed or missing trait fails to build rather than relying on a source
+/// scan.
+macro_rules! dyn_trait_inventory {
+    ($($dyn_trait:ident),* $(,)?) => {
+        const EXPECTED_DYN_TRAITS: &[&str] = &[$(stringify!($dyn_trait)),*];
+
+        #[cfg(all(feature = "dyn-api", feature = "async"))]
+        #[allow(dead_code)]
+        fn dyn_traits_resolve() {
+            $( let _: Option<&dyn grafton_visca::dynapi::$dyn_trait> = None; )*
+        }
+    };
+}
+
+dyn_trait_inventory!(
+    DynAdvanced,
+    DynAppliedRequest,
+    DynExposure,
+    DynFocus,
+    DynImage,
+    DynMenu,
+    DynMotion,
+    DynMotionSync,
+    DynNdFilter,
+    DynPanTilt,
+    DynPower,
+    DynPresets,
+    DynSessionCameraControl,
+    DynSessionCameraNouns,
+    DynSystem,
+    DynTally,
+    DynTargetedRequest,
+    DynWhiteBalance,
+    DynZoom,
+);
 
 #[test]
 fn built_in_profile_and_transport_inventory_is_closed() {
@@ -174,17 +205,106 @@ fn built_in_profile_and_transport_inventory_is_closed() {
         .collect();
     assert_eq!(actual, EXPECTED_PROFILES);
 
-    for profile in ProfileId::all() {
-        let raw = !profile.uses_sony_encapsulation();
-        assert_eq!(profile.supports_tcp(), raw, "{profile:?} TCP drift");
-        assert!(profile.supports_udp(), "{profile:?} must retain UDP");
-        assert_eq!(profile.supports_serial(), raw, "{profile:?} serial drift");
-        assert_eq!(profile.default_tcp_port(), raw.then_some(5678));
+    // (TCP port, UDP port, serial) per profile, from each model's source:
+    // PTZOptics R1/R5 raw ports, Sony R7/R11 encapsulated UDP, and the
+    // RS-232C/RS-422-only EVI-H100 (R8), BRC-300 (R12) and Nearus (R21).
+    let expected = [
+        (Some(5678), Some(1259), true),
+        (Some(5678), Some(1259), true),
+        (Some(5678), Some(1259), true),
+        (None, Some(52381), false),
+        (None, Some(52381), false),
+        (None, None, true),
+        (None, None, true),
+        (None, None, true),
+        (Some(5678), Some(1259), true),
+    ];
+    for (profile, (tcp, udp, serial)) in ProfileId::all().iter().zip(expected) {
+        assert_eq!(profile.default_tcp_port(), tcp, "{profile:?} TCP drift");
+        assert_eq!(profile.default_udp_port(), udp, "{profile:?} UDP drift");
         assert_eq!(
-            profile.default_udp_port(),
-            Some(if raw { 1259 } else { 52381 })
+            profile.supports_serial(),
+            serial,
+            "{profile:?} serial drift"
+        );
+        assert_eq!(profile.supports_tcp(), tcp.is_some());
+        assert_eq!(profile.supports_udp(), udp.is_some());
+    }
+}
+
+#[test]
+fn built_in_group_and_vendor_inventory_is_closed() {
+    use grafton_visca::{camera::profiles::ProfileGroup, capabilities::InquirySupport};
+
+    let expected = [
+        (
+            ProfileGroup::GenericVisca,
+            &[
+                ProfileId::GenericVisca,
+                ProfileId::SonyBrc300,
+                ProfileId::SonyEviH100,
+                ProfileId::NearusBrc300,
+            ][..],
+            (false, false, true, false),
+            InquirySupport::Partial,
+        ),
+        (
+            ProfileGroup::PtzOpticsG2,
+            &[
+                ProfileId::PtzOpticsG2,
+                ProfileId::PtzOpticsG3,
+                ProfileId::PtzOptics30X,
+            ][..],
+            (true, true, true, false),
+            InquirySupport::Full,
+        ),
+        (
+            ProfileGroup::SonyProfessional,
+            &[ProfileId::SonyFr7, ProfileId::SonyBrcH900][..],
+            (false, true, false, true),
+            InquirySupport::Full,
+        ),
+    ];
+    for (group, members, (tcp, udp, serial, sony), inquiry) in expected {
+        assert_eq!(group.profiles(), members, "{group:?} membership");
+        for member in members {
+            assert_eq!(member.profile_group(), group, "{member:?} group");
+        }
+        assert_eq!(
+            (
+                group.supports_tcp(),
+                group.supports_udp(),
+                group.supports_serial(),
+                group.uses_sony_encapsulation()
+            ),
+            (tcp, udp, serial, sony),
+            "{group:?} transport facts"
+        );
+        assert_eq!(
+            group.inquiry_support(),
+            inquiry,
+            "{group:?} inquiry support"
         );
     }
+
+    let vendors: Vec<_> = ProfileId::all()
+        .iter()
+        .map(|profile| profile.vendor())
+        .collect();
+    assert_eq!(
+        vendors,
+        [
+            "PtzOptics",
+            "PtzOptics",
+            "PtzOptics",
+            "Sony",
+            "Sony",
+            "Sony",
+            "Sony",
+            "Nearus",
+            "Generic"
+        ]
+    );
 }
 
 #[test]
@@ -198,75 +318,31 @@ fn typed_capability_gate_inventory_is_closed() {
 
 #[test]
 fn static_noun_and_control_inventory_is_closed() {
-    let async_nouns = declarations(include_str!("../src/async_nouns.rs"));
-    let blocking_nouns = declarations(include_str!("../src/blocking_nouns.rs"));
+    // The accessor names are compile-time facts (`static_accessor_inventory!`);
+    // this keeps the closed list itself readable and duplicate-free.
+    let mut sorted = EXPECTED_ACCESSORS.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted, EXPECTED_ACCESSORS);
+
     let surface = declarations(include_str!("../src/command/surface.rs"));
-
-    for accessor in EXPECTED_ACCESSORS {
-        assert!(async_nouns.contains(accessor), "missing async {accessor}");
-        assert!(
-            blocking_nouns.contains(accessor),
-            "missing blocking {accessor}"
-        );
-    }
     assert!(surface.contains("pub(crate) const fn surface_entry"));
-    assert!(surface.contains("BuiltinCommand::ALL"));
-
-    // The generated facades each consume one invocation per one of the 14
-    // registry noun arms. The compiled parity test checks the actual names;
-    // this integration gate keeps the count visible to reviewers.
-    assert_eq!(async_nouns.matches("=> async_noun_methods);").count(), 14);
-    assert_eq!(
-        blocking_nouns.matches("=> blocking_noun_methods);").count(),
-        14
-    );
-
-    // The command registry is intentionally readable at a glance: 149 IDs,
-    // of which 146 are target-facing and three are protocol exceptions.
-    assert!(surface.contains("BUILTIN_COMMAND_COUNT: usize = 149"));
-    assert!(surface.contains("TARGET_FACING_COMMAND_COUNT: usize = 146"));
-    assert!(surface.contains("NON_NOUN_COMMAND_COUNT: usize = 3"));
+    // No second command inventory: the registry is one exhaustive match over
+    // `BuiltinCommand`, and every arm's class is a const-checked ledger row.
+    assert!(surface.contains("match command {"));
+    assert!(surface.contains("registry_class(BuiltinCommand::$command, registry_class!($kind))"));
 }
 
 #[test]
 fn dynamic_control_inventory_is_closed() {
-    let owner = declarations(include_str!("../src/dynapi/owner_projection.rs"));
-    let nouns = declarations(include_str!("../src/dynapi/nouns.rs"));
-    let custom = declarations(include_str!("../src/dynapi/custom.rs"));
     let whole_nouns = include_str!("../src/dynapi/nouns.rs");
 
-    let mut actual = public_trait_names(&[&owner, &nouns]);
-    actual.extend(["DynAppliedRequest", "DynTargetedRequest"].map(str::to_owned));
-    actual.sort();
-    actual.dedup();
-    assert_eq!(actual, EXPECTED_DYN_TRAITS);
-
-    // Each of the 14 noun traits has one declaration and one implementation
-    // projection. Both are generated from the shared registry; no method list
-    // is reconstructed from source tokens here.
-    assert_eq!(nouns.matches("pub trait Dyn").count(), 16); // 14 nouns + Motion + owner nouns
-    assert_eq!(
-        nouns.matches("noun_table!(").count(),
-        28,
-        "every noun arm needs declaration and implementation consumers"
-    );
-    assert!(custom.contains("pub trait DynTargetedRequest"));
-    assert!(custom.contains("pub trait DynAppliedRequest"));
-
-    // Keep the six public totals visible without making the test a second
-    // registry. The crate's compiled tests derive the same totals from the
-    // command/inquiry registries.
-    for (name, value) in [
-        ("DYN_NOUN_TARGET_METHOD_COUNT", "146"),
-        ("DYN_NOUN_INQUIRY_METHOD_COUNT", "62"),
-        ("DYN_NOUN_CONVENIENCE_METHOD_COUNT", "9"),
-        ("DYN_NOUN_COUNT", "14"),
-    ] {
-        assert!(
-            nouns.contains(&format!("{name}: usize = {value}")),
-            "missing readable dynamic inventory total {name}={value}"
-        );
-    }
+    // The trait names are compile-time facts (`dyn_trait_inventory!`); this
+    // keeps the closed list itself readable and duplicate-free.
+    let mut sorted = EXPECTED_DYN_TRAITS.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    assert_eq!(sorted, EXPECTED_DYN_TRAITS);
 
     // The forbidden-token gates below are negative, so they read the whole
     // file: a legacy spelling hiding in a test module is still a legacy
@@ -304,7 +380,6 @@ fn dynamic_control_inventory_is_closed() {
         );
     }
     assert!(!whole_nouns.contains("fn result("));
-    assert_eq!(nouns.matches("pub trait DynSessionCameraNouns").count(), 1);
 }
 
 #[test]
@@ -417,26 +492,6 @@ fn ecosystem_feature_inventory_matches_cargo_manifest() {
     );
 }
 
-/// The 1.x feature aliases removed by 2.0.
-const REMOVED_1X_FEATURE_ALIASES: [&str; 3] = ["mode-async", "async-core", "mode-blocking"];
-
-#[test]
-fn removed_1x_feature_aliases_are_absent_from_the_manifest() {
-    let table = manifest_feature_table();
-    for removed in REMOVED_1X_FEATURE_ALIASES {
-        for (name, value) in &table {
-            assert_ne!(*name, removed);
-            let implied = value
-                .trim_matches(|character: char| character == '[' || character == ']')
-                .split(',')
-                .map(|entry| entry.trim().trim_matches('"'));
-            for entry in implied {
-                assert_ne!(entry, removed);
-            }
-        }
-    }
-}
-
 #[test]
 fn tcp_is_not_a_feature() {
     for (name, value) in manifest_feature_table() {
@@ -454,10 +509,7 @@ fn test_utility_inventory_compiles_in_the_selected_mode() {
     use std::time::Duration;
 
     let _ = helpers::ack(1);
-    let _ = Step::After {
-        delay: Duration::ZERO,
-        responses: vec![],
-    };
+    let _ = Step::after(Duration::ZERO, vec![]);
 
     #[cfg(feature = "blocking")]
     {

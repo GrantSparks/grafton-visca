@@ -4,7 +4,10 @@
 //! `PtzOptics` G2 cameras support up to 128 presets (0-127).
 
 use crate::{
-    command::{bytes::builder::ConstCommandBuilder, encode::WireEncode},
+    command::{
+        bytes::{constants::preset, FrameWriter},
+        encode::WireEncode,
+    },
     error::Error,
 };
 
@@ -74,13 +77,10 @@ impl WireEncode for PresetRecallSpeedCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::bytes::constants::preset;
-
-        ConstCommandBuilder::<6>::from_prefix(preset::RECALL_SPEED_PREFIX)
-            .with_camera_id(camera_id)
-            .push(self.speed.value())
-            .terminate()
-            .build_into(buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&preset::RECALL_SPEED)
+            .byte(self.speed.value())
+            .finish()
     }
 }
 
@@ -101,14 +101,11 @@ impl WireEncode for PresetCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::bytes::constants::preset;
-
-        ConstCommandBuilder::<7>::from_prefix(preset::CONTROL_PREFIX)
-            .with_camera_id(camera_id)
-            .push(self.action as u8)
-            .push(self.preset_number.value())
-            .terminate()
-            .build_into(buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&preset::MEMORY)
+            .byte(self.action as u8)
+            .byte(self.preset_number.value())
+            .finish()
     }
 }
 

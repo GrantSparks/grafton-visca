@@ -3,6 +3,30 @@
 //! Standard-construction tests use a recording runtime rather than opening
 //! loopback sockets. This keeps endpoint/configuration assertions at the
 //! pre-I/O boundary while still starting and shutting down a real owner.
+//!
+//! The recording runtime hands out wires onto a silent `FakeCamera`. The
+//! standard-path scenarios run under each enabled runtime, as the cases
+//! `async_standard::standard_paths::{tokio,smol}` and
+//! `async_standard::bracketed_ipv6_endpoint_and_ambiguous_ipv6_rejection::{tokio,smol}`;
+//! the remaining async scenarios (preflight and options, buffer bounds,
+//! runtime-selected transports, serial buffer bounds) are Tokio-only.
+
+#[cfg(any(
+    feature = "blocking",
+    all(
+        feature = "async",
+        any(feature = "runtime-tokio", feature = "runtime-smol")
+    )
+))]
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+#[cfg(all(
+    feature = "async",
+    any(feature = "runtime-tokio", feature = "runtime-smol")
+))]
+#[macro_use]
+#[path = "common/matrix.rs"]
+mod matrix;
 
 #[cfg(all(
     feature = "async",
@@ -19,12 +43,11 @@ mod async_standard {
         camera::{CameraConfig, Connect},
         profiles::{PtzOpticsG2, SonyFR7},
         runtime::Runtime,
-        transport::{
-            AddressingMode, AsyncTransport, BufferConfig, HasTransportConfig, SendSemantics,
-            TransportConfig,
-        },
+        transport::{AddressingMode, BufferConfig, TransportConfig},
         Error, Executor,
     };
+
+    use crate::fake_camera::{AsyncWire, FakeCamera};
 
     #[cfg(feature = "runtime-tokio")]
     use grafton_visca::OperationalTuning;
@@ -47,38 +70,13 @@ mod async_standard {
         config: TransportConfig,
     }
 
-    #[derive(Debug)]
-    struct ProbeTransport {
-        config: TransportConfig,
-    }
-
-    impl HasTransportConfig for ProbeTransport {
-        fn transport_config(&self) -> &TransportConfig {
-            &self.config
-        }
-    }
-
-    impl AsyncTransport for ProbeTransport {
-        #[allow(clippy::manual_async_fn)]
-        fn send(&mut self, _bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
-            async { Ok(()) }
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn recv_into<'a>(
-            &'a mut self,
-            _dst: &'a mut [u8],
-        ) -> impl Future<Output = Result<usize, Error>> + Send {
-            std::future::pending()
-        }
-
-        fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-            Some(AddressingMode::Ip)
-        }
-
-        fn send_semantics(&self) -> SendSemantics {
-            SendSemantics::Datagram
-        }
+    /// The wire the recording connectors hand out: an idle camera that
+    /// reports IP addressing and the connector's transport configuration.
+    fn probe_wire(config: TransportConfig) -> AsyncWire {
+        FakeCamera::silent()
+            .async_wire()
+            .with_config(config)
+            .with_addressing(AddressingMode::Ip)
     }
 
     #[derive(Debug, Clone)]
@@ -142,8 +140,8 @@ mod async_standard {
     }
 
     impl<E: Executor> Runtime for ProbeRuntime<E> {
-        type TcpTransport = ProbeTransport;
-        type UdpTransport = ProbeTransport;
+        type TcpTransport = AsyncWire;
+        type UdpTransport = AsyncWire;
         #[cfg(feature = "transport-serial-tokio")]
         type SerialTransport = std::convert::Infallible;
 
@@ -159,7 +157,7 @@ mod async_standard {
                     address: address.to_owned(),
                     config,
                 });
-                Ok(ProbeTransport { config })
+                Ok(probe_wire(config))
             }
         }
 
@@ -175,7 +173,7 @@ mod async_standard {
                     address: address.to_owned(),
                     config,
                 });
-                Ok(ProbeTransport { config })
+                Ok(probe_wire(config))
             }
         }
     }
@@ -189,7 +187,8 @@ mod async_standard {
         call
     }
 
-    async fn standard_paths<E: Runtime>(runtime: ProbeRuntime<E>) {
+    async fn standard_paths<E: Executor>(executor: E) {
+        let runtime = ProbeRuntime::new(executor);
         let calls = runtime.calls();
         let session = Connect::open_tcp::<PtzOpticsG2, _>("camera.local", runtime.clone())
             .await
@@ -200,7 +199,7 @@ mod async_standard {
                 .buffer_config,
             BufferConfig::for_raw_ip()
         );
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
 
         let calls = runtime.calls();
         let session = CameraConfig::<PtzOpticsG2>::udp("camera.local")
@@ -213,7 +212,7 @@ mod async_standard {
                 .buffer_config,
             BufferConfig::for_udp()
         );
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
 
         let calls = runtime.calls();
         let session = CameraConfig::<SonyFR7>::udp("camera.local")
@@ -221,24 +220,18 @@ mod async_standard {
             .await
             .expect("fake Sony UDP owner session");
         assert_one_call(&calls, Kind::Udp, "camera.local:52381");
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
-    #[cfg(feature = "runtime-tokio")]
-    #[tokio::test]
-    async fn tokio_standard_paths_record_defaults_and_grammar() {
-        let runtime = ProbeRuntime::new(
-            grafton_visca::runtime::TokioRuntime::from_current().expect("runtime"),
-        );
-        standard_paths(runtime.clone()).await;
-
+    async fn bracketed_ipv6_endpoint_and_ambiguous_ipv6_rejection<E: Executor>(executor: E) {
+        let runtime = ProbeRuntime::new(executor);
         let calls = runtime.calls();
         let session = CameraConfig::<PtzOpticsG2>::tcp("[2001:db8::1]:5678")
             .open_async(runtime.clone())
             .await
             .expect("fake bracketed IPv6 owner session");
         assert_one_call(&calls, Kind::Tcp, "[2001:db8::1]:5678");
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
 
         let calls = runtime.calls();
         let error = CameraConfig::<PtzOpticsG2>::tcp("2001:db8::1")
@@ -249,14 +242,10 @@ mod async_standard {
         assert!(calls.lock().expect("calls lock").is_empty());
     }
 
-    #[cfg(feature = "runtime-smol")]
-    #[test]
-    fn smol_standard_paths_record_defaults_and_start_owner() {
-        smol::block_on(async {
-            let runtime = ProbeRuntime::new(grafton_visca::runtime::SmolRuntime::new());
-            standard_paths(runtime).await;
-        });
-    }
+    runtime_matrix!(
+        standard_paths,
+        bracketed_ipv6_endpoint_and_ambiguous_ipv6_rejection
+    );
 
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
@@ -290,17 +279,20 @@ mod async_standard {
         assert!(matches!(error, Error::InvalidAddress { .. }));
         assert!(calls.lock().expect("calls lock").is_empty());
 
-        let transport_config = TransportConfig {
-            connect_timeout: Duration::from_millis(17),
-            read_timeout: Duration::from_millis(19),
-            write_timeout: Duration::from_millis(23),
-            buffer_config: BufferConfig {
-                recv_buffer_size: 11,
-                max_buffer_size: 17,
-            },
-            tcp_nodelay: Some(false),
-            tcp_keepalive: Some(TcpKeepaliveConfig::new(Duration::from_secs(4))),
-            ..TransportConfig::default()
+        let transport_config = {
+            let mut config = TransportConfig::default();
+            config.connect_timeout = Duration::from_millis(17);
+            config.read_timeout = Duration::from_millis(19);
+            config.write_timeout = Duration::from_millis(23);
+            config.buffer_config = {
+                let mut config = BufferConfig::default();
+                config.recv_buffer_size = 31;
+                config.max_buffer_size = 37;
+                config
+            };
+            config.tcp_nodelay = Some(false);
+            config.tcp_keepalive = Some(TcpKeepaliveConfig::new(Duration::from_secs(4)));
+            config
         };
         let session = CameraConfig::<PtzOpticsG2>::tcp("192.0.2.10:5678")
             .transport_config(transport_config)
@@ -314,19 +306,22 @@ mod async_standard {
         assert_eq!(call.config.buffer_config, transport_config.buffer_config);
         assert_eq!(call.config.tcp_nodelay, Some(false));
         assert_eq!(call.config.tcp_keepalive, transport_config.tcp_keepalive);
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
 
-        let udp_config = TransportConfig {
-            connect_timeout: Duration::from_millis(31),
-            read_timeout: Duration::from_millis(37),
-            write_timeout: Duration::from_millis(41),
-            buffer_config: BufferConfig {
-                recv_buffer_size: 43,
-                max_buffer_size: 53,
-            },
-            ttl: Some(59),
-            addressing: AddressingMode::Ip,
-            ..TransportConfig::default()
+        let udp_config = {
+            let mut config = TransportConfig::default();
+            config.connect_timeout = Duration::from_millis(31);
+            config.read_timeout = Duration::from_millis(37);
+            config.write_timeout = Duration::from_millis(41);
+            config.buffer_config = {
+                let mut config = BufferConfig::default();
+                config.recv_buffer_size = 43;
+                config.max_buffer_size = 53;
+                config
+            };
+            config.ttl = Some(59);
+            config.addressing = AddressingMode::Ip;
+            config
         };
         let udp_camera_config = CameraConfig::<PtzOpticsG2>::udp("192.0.2.11:1259")
             .with_admission_capacity(NonZeroUsize::new(61).expect("nonzero queue depth"))
@@ -349,7 +344,7 @@ mod async_standard {
         assert_eq!(call.config.buffer_config, udp_config.buffer_config);
         assert_eq!(call.config.ttl, Some(59));
         assert_eq!(call.config.addressing, AddressingMode::Ip);
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
     }
 
     #[cfg(feature = "runtime-tokio")]
@@ -362,23 +357,38 @@ mod async_standard {
 
         for (buffer_config, message) in [
             (
-                BufferConfig {
-                    recv_buffer_size: 0,
-                    max_buffer_size: 64,
+                {
+                    let mut config = BufferConfig::default();
+                    config.recv_buffer_size = 0;
+                    config.max_buffer_size = 64;
+                    config
                 },
-                "transport receive buffer must be non-zero",
+                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
             ),
             (
-                BufferConfig {
-                    recv_buffer_size: 64,
-                    max_buffer_size: 0,
+                {
+                    let mut config = BufferConfig::default();
+                    config.recv_buffer_size = BufferConfig::MIN_RECV_BUFFER_SIZE - 1;
+                    config.max_buffer_size = 64;
+                    config
+                },
+                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
+            ),
+            (
+                {
+                    let mut config = BufferConfig::default();
+                    config.recv_buffer_size = 64;
+                    config.max_buffer_size = 0;
+                    config
                 },
                 "transport maximum buffer must be non-zero",
             ),
             (
-                BufferConfig {
-                    recv_buffer_size: 65,
-                    max_buffer_size: 64,
+                {
+                    let mut config = BufferConfig::default();
+                    config.recv_buffer_size = 65;
+                    config.max_buffer_size = 64;
+                    config
                 },
                 "transport receive buffer cannot exceed maximum buffer",
             ),
@@ -388,9 +398,10 @@ mod async_standard {
                 CameraConfig::<PtzOpticsG2>::udp("camera.local:1259"),
             ] {
                 let error = config
-                    .transport_config(TransportConfig {
-                        buffer_config,
-                        ..TransportConfig::default()
+                    .transport_config({
+                        let mut config = TransportConfig::default();
+                        config.buffer_config = buffer_config;
+                        config
                     })
                     .open_async(runtime.clone())
                     .await
@@ -419,7 +430,7 @@ mod async_standard {
         .await
         .expect("runtime-selected TCP transport");
         assert_one_call(&calls, Kind::Tcp, "camera.local:5678");
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
 
         let session = Connect::open::<PtzOpticsG2, _>(
             grafton_visca::camera::TransportOptions::udp("camera.local"),
@@ -428,7 +439,7 @@ mod async_standard {
         .await
         .expect("runtime-selected UDP transport");
         assert_one_call(&calls, Kind::Udp, "camera.local:1259");
-        session.shutdown().await.expect("shutdown");
+        session.shutdown().expect("shutdown");
 
         let error = Connect::open::<SonyFR7, _>(
             grafton_visca::camera::TransportOptions::tcp("camera.local"),
@@ -446,12 +457,15 @@ mod async_standard {
         let runtime = grafton_visca::runtime::TokioRuntime::from_current().expect("runtime");
         let error =
             CameraConfig::<PtzOpticsG2>::serial("grafton-visca-test-unopened-serial-device", 9_600)
-                .transport_config(TransportConfig {
-                    buffer_config: BufferConfig {
-                        recv_buffer_size: 65,
-                        max_buffer_size: 64,
-                    },
-                    ..TransportConfig::default()
+                .transport_config({
+                    let mut config = TransportConfig::default();
+                    config.buffer_config = {
+                        let mut config = BufferConfig::default();
+                        config.recv_buffer_size = 65;
+                        config.max_buffer_size = 64;
+                        config
+                    };
+                    config
                 })
                 .open_serial_async(runtime)
                 .await
@@ -466,71 +480,34 @@ mod async_standard {
 
 #[cfg(feature = "blocking")]
 mod blocking_standard {
-    use std::{collections::VecDeque, time::Duration};
+    use std::time::Duration;
 
     use grafton_visca::{
         blocking::{CameraConfig, Session},
-        command::CommandKind,
         profiles::PtzOpticsG2,
-        transport::{
-            AddressingMode, BlockingTransport, BufferConfig, HasTransportConfig, SendSemantics,
-            TransportConfig,
-        },
+        transport::{AddressingMode, BufferConfig, SendSemantics, TransportConfig},
         CameraId, Error, SessionConfig,
     };
 
-    #[derive(Debug)]
-    struct ProbeTransport {
-        config: TransportConfig,
-        responses: VecDeque<Vec<u8>>,
-    }
+    use crate::fake_camera::{BlockingWire, FakeCamera};
 
-    impl HasTransportConfig for ProbeTransport {
-        fn transport_config(&self) -> &TransportConfig {
-            &self.config
-        }
-    }
-
-    impl BlockingTransport for ProbeTransport {
-        fn send_with_timeout(
-            &mut self,
-            _bytes: &[u8],
-            _kind: CommandKind,
-            _timeout: Duration,
-        ) -> Result<(), Error> {
-            self.responses.push_back(vec![0x90, 0x41, 0xff]);
-            self.responses.push_back(vec![0x90, 0x51, 0xff]);
-            Ok(())
-        }
-
-        fn recv_into_with_timeout(
-            &mut self,
-            dst: &mut [u8],
-            _timeout: Duration,
-        ) -> Result<usize, Error> {
-            let response = self.responses.pop_front().ok_or(Error::Timeout)?;
-            dst[..response.len()].copy_from_slice(&response);
-            Ok(response.len())
-        }
-
-        fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-            Some(AddressingMode::Serial)
-        }
-
-        fn send_semantics(&self) -> SendSemantics {
-            SendSemantics::Stream
-        }
+    /// A camera that answers every command with ACK and completion, behind a
+    /// wire that reports serial addressing and stream semantics.
+    fn serial_wire(config: TransportConfig) -> BlockingWire {
+        FakeCamera::acking(1)
+            .blocking_wire()
+            .with_config(config)
+            .with_addressing(AddressingMode::Serial)
+            .with_semantics(SendSemantics::Stream)
     }
 
     #[test]
     fn custom_blocking_session_open_uses_one_owner_and_hint() {
-        let transport = ProbeTransport {
-            config: TransportConfig {
-                addressing: AddressingMode::Serial,
-                ..TransportConfig::default()
-            },
-            responses: VecDeque::new(),
-        };
+        let transport = serial_wire({
+            let mut config = TransportConfig::default();
+            config.addressing = AddressingMode::Serial;
+            config
+        });
         let config = SessionConfig::for_target(
             CameraId::CAMERA_1,
             grafton_visca::ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("profile"),
@@ -544,26 +521,25 @@ mod blocking_standard {
     fn custom_blocking_session_rejects_zero_io_timeouts_at_construction() {
         for (transport_config, message) in [
             (
-                TransportConfig {
-                    addressing: AddressingMode::Serial,
-                    read_timeout: Duration::ZERO,
-                    ..TransportConfig::default()
+                {
+                    let mut config = TransportConfig::default();
+                    config.addressing = AddressingMode::Serial;
+                    config.read_timeout = Duration::ZERO;
+                    config
                 },
                 "transport read timeout must be non-zero",
             ),
             (
-                TransportConfig {
-                    addressing: AddressingMode::Serial,
-                    write_timeout: Duration::ZERO,
-                    ..TransportConfig::default()
+                {
+                    let mut config = TransportConfig::default();
+                    config.addressing = AddressingMode::Serial;
+                    config.write_timeout = Duration::ZERO;
+                    config
                 },
                 "transport write timeout must be non-zero",
             ),
         ] {
-            let transport = ProbeTransport {
-                config: transport_config,
-                responses: VecDeque::new(),
-            };
+            let transport = serial_wire(transport_config);
             let config = SessionConfig::for_target(
                 CameraId::CAMERA_1,
                 grafton_visca::ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("profile"),
@@ -589,12 +565,15 @@ mod blocking_standard {
     #[test]
     fn invalid_blocking_buffer_bounds_fail_before_socket_open() {
         let error = CameraConfig::<PtzOpticsG2>::tcp("127.0.0.1:1")
-            .transport_config(TransportConfig {
-                buffer_config: BufferConfig {
-                    recv_buffer_size: 65,
-                    max_buffer_size: 64,
-                },
-                ..TransportConfig::default()
+            .transport_config({
+                let mut config = TransportConfig::default();
+                config.buffer_config = {
+                    let mut config = BufferConfig::default();
+                    config.recv_buffer_size = 65;
+                    config.max_buffer_size = 64;
+                    config
+                };
+                config
             })
             .open()
             .expect_err("invalid buffer bounds must fail before socket I/O");
@@ -610,12 +589,15 @@ mod blocking_standard {
     fn invalid_blocking_serial_buffer_bounds_fail_before_device_open() {
         let error =
             CameraConfig::<PtzOpticsG2>::serial("grafton-visca-test-unopened-serial-device", 9_600)
-                .transport_config(TransportConfig {
-                    buffer_config: BufferConfig {
-                        recv_buffer_size: 65,
-                        max_buffer_size: 64,
-                    },
-                    ..TransportConfig::default()
+                .transport_config({
+                    let mut config = TransportConfig::default();
+                    config.buffer_config = {
+                        let mut config = BufferConfig::default();
+                        config.recv_buffer_size = 65;
+                        config.max_buffer_size = 64;
+                        config
+                    };
+                    config
                 })
                 .open_serial()
                 .expect_err("invalid buffer bounds must fail before serial-device open");

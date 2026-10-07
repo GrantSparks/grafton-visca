@@ -22,24 +22,26 @@
 
 #[path = "common/profile_fixtures.rs"]
 mod profile_fixtures;
+#[path = "common/retry_requests.rs"]
+mod retry_requests;
 
 use std::time::Duration;
 
 use grafton_visca::{
-    blocking::{Session, SessionConfig},
+    blocking::Session,
     command::ZoomPositionInquiry,
     completion::AppliedOnly,
-    profile::ProfileSpec,
-    request::{self, builtin::ZoomStop},
+    request::builtin::ZoomStop,
     testing::testkit::{
         helpers::{self, errors},
         ScriptedBlockingTransport, Step,
     },
     types::ZoomPosition,
-    CameraId, ControlClass, Error, OperationalTuning, Request, RetryClass, TimeoutClass,
+    Error, OperationalTuning,
 };
 
-use profile_fixtures::NonDefaultCompileTimeProfile;
+use profile_fixtures::{session_config, NonDefaultCompileTimeProfile};
+use retry_requests::{MovementCommand, StandardCommand};
 
 /// The exact bytes a zoom-position inquiry puts on the wire for camera 1.
 const ZOOM_POSITION_INQUIRY: [u8; 5] = [0x81, 0x09, 0x04, 0x47, 0xff];
@@ -49,31 +51,6 @@ const ZOOM_POSITION_INQUIRY: [u8; 5] = [0x81, 0x09, 0x04, 0x47, 0xff];
 /// quick timeout class grants. Named once so the two halves of the budget —
 /// staying inside it and running past it — cannot drift apart.
 const TUNED_QUICK_WRITES: usize = 4;
-
-/// A plain command in the standard retry class, so the class under test is
-/// stated rather than inherited from a built-in.
-#[derive(Debug)]
-struct StandardCommand;
-
-impl Request for StandardCommand {
-    type Class = request::Plain;
-    const MAX_SIZE: usize = 3;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-    const RETRY_CLASS: RetryClass = RetryClass::Standard;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
-
-    fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
-        out[..3].copy_from_slice(&[target.to_address_byte(), 0x01, 0xff]);
-        Ok(3)
-    }
-}
-
-fn session_config() -> SessionConfig {
-    SessionConfig::new(
-        ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
-            .expect("two-socket runtime profile"),
-    )
-}
 
 fn open(steps: Vec<Step>) -> (Session, ScriptedBlockingTransport) {
     let transport = ScriptedBlockingTransport::new(steps);
@@ -86,18 +63,18 @@ fn open(steps: Vec<Step>) -> (Session, ScriptedBlockingTransport) {
 ///
 /// The budget tests below assert an exact number of writes on both sides of the
 /// limit, which is only meaningful against a limit this file states. The
-/// backoff is compressed at the same time so that the wall-clock retry budget
-/// can never be what ends a scenario about the attempt count.
+/// backoff stays at the profile's shortest bounds while the wall-clock retry
+/// budget is lengthened, so the budget can never be what ends a scenario about
+/// the attempt count.
 fn tuned_open(steps: Vec<Step>) -> (Session, ScriptedBlockingTransport) {
     let transport = ScriptedBlockingTransport::new(steps);
     let probe = transport.clone();
-    let config = session_config()
-        .with_tuning(OperationalTuning::new().retry_limit(1).retry_timing(
-            Duration::from_millis(1),
-            Duration::from_millis(2),
+    let config =
+        session_config().with_tuning(OperationalTuning::new().retry_limit(1).retry_timing(
+            Duration::from_millis(50),
+            Duration::from_millis(500),
             Duration::from_secs(30),
-        ))
-        .expect("a lowered retry budget is valid operational tuning");
+        ));
     let session = Session::open(transport, config).expect("owner session");
     (session, probe)
 }
@@ -143,16 +120,37 @@ fn a_refused_movement_command_is_replayed_once_and_then_succeeds() {
         .expect("camera view");
 
     camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
-        .expect("submission")
-        .applied_with_timeout(Duration::from_secs(5))
+        .execute(&MovementCommand)
         .expect("a refused movement command must be replayed");
     assert_eq!(probe.sent().len(), 2);
     session.shutdown().expect("owner shutdown");
 }
 
+/// The same refusal of a typed STOP is conclusive: the camera's standing
+/// condition (a focus STOP under auto-focus) cannot change by resending, so
+/// the STOP reports it at once and the replay step is never consumed.
+#[test]
+fn a_refused_typed_stop_is_terminal() {
+    let (session, probe) = open(helpers::not_executable_then_success(0));
+    let camera = session
+        .camera::<NonDefaultCompileTimeProfile>()
+        .expect("camera view");
+
+    let error = camera
+        .submit::<AppliedOnly, _>(&ZoomStop)
+        .expect("submission")
+        .applied_with_timeout(Duration::from_secs(5))
+        .expect_err("a refused STOP surfaces the camera's refusal");
+    assert!(
+        matches!(error, Error::CommandNotExecutable),
+        "expected the camera's own refusal, got {error:?}"
+    );
+    assert_eq!(probe.sent().len(), 1, "no replay was attempted");
+    session.shutdown().expect("owner shutdown");
+}
+
 /// `helpers::not_executable_sequence_then_success`: several consecutive
-/// refusals still resolve. `ZoomStop` is `RetryClass::Movement` but
+/// refusals still resolve. `MovementCommand` is `RetryClass::Movement` but
 /// `TimeoutClass::Quick`, so the *count* it is allowed comes from the quick
 /// class; the movement retry class is what decides that `0x41` is replayable
 /// here at all.
@@ -164,9 +162,7 @@ fn a_repeatedly_refused_movement_command_stays_inside_its_budget() {
         .expect("camera view");
 
     camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
-        .expect("submission")
-        .applied_with_timeout(Duration::from_secs(5))
+        .execute(&MovementCommand)
         .expect("three refusals stay inside the movement budget of three");
     assert_eq!(probe.sent().len(), 4);
     session.shutdown().expect("owner shutdown");
@@ -306,9 +302,7 @@ fn a_refused_movement_command_exhausts_exactly_the_configured_retry_budget() {
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
     camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
-        .expect("submission")
-        .applied_with_timeout(Duration::from_secs(5))
+        .execute(&MovementCommand)
         .expect("the configured budget must absorb one refusal fewer than it allows");
     assert_eq!(probe.sent().len(), TUNED_QUICK_WRITES);
     session.shutdown().expect("owner shutdown");
@@ -321,9 +315,7 @@ fn a_refused_movement_command_exhausts_exactly_the_configured_retry_budget() {
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
     let error = camera
-        .submit::<AppliedOnly, _>(&ZoomStop)
-        .expect("submission")
-        .applied_with_timeout(Duration::from_secs(5))
+        .execute(&MovementCommand)
         .expect_err("the configured budget must run out rather than replaying on");
     assert!(
         matches!(error, Error::CommandNotExecutable),

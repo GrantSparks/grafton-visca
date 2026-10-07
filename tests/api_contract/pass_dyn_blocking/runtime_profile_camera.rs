@@ -9,9 +9,9 @@ use grafton_visca::{
     CameraId, Error, ProfileSpec, StateCache, SubmissionClass,
 };
 
-fn surface<'session>(
-    session: &'session Session,
-    camera: &mut BlockingDynSessionCamera<'session>,
+fn surface(
+    session: &Session,
+    camera: &mut BlockingDynSessionCamera,
 ) -> Result<(), Error> {
     let _: CameraId = camera.target();
     let _: &ProfileSpec = camera.profile();
@@ -19,17 +19,17 @@ fn surface<'session>(
     let _: Option<SubmissionClass> = camera.submission_class();
     camera.set_submission_class(Some(SubmissionClass::Background));
 
-    let _: Result<Camera<'session, GenericVisca>, Error> = camera.camera::<GenericVisca>();
-    let _: Result<Operation<'session, AppliedOnly>, Error> =
+    let _: Result<Camera<GenericVisca>, Error> = camera.camera::<GenericVisca>();
+    let _: Result<Operation<AppliedOnly>, Error> =
         camera.submit::<AppliedOnly, _>(&ZoomStop);
 
-    let _: Result<BlockingDynSessionCamera<'session>, Error> = session.camera_dyn();
-    let _: Result<BlockingDynSessionCamera<'session>, Error> =
+    let _: Result<BlockingDynSessionCamera, Error> = session.camera_dyn();
+    let _: Result<BlockingDynSessionCamera, Error> =
         session.camera_dyn_for(CameraId::CAMERA_1);
     Ok(())
 }
 
 fn main() {
-    let _: PhantomData<BlockingDynSessionCamera<'static>> = PhantomData;
+    let _: PhantomData<BlockingDynSessionCamera> = PhantomData;
     let _ = surface;
 }

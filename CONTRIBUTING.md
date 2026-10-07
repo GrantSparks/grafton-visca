@@ -54,8 +54,8 @@ the public API snapshots is documented in `api/2.0.0-rc.1/README.md`.
 git clone https://github.com/YOUR_USERNAME/grafton-visca.git
 cd grafton-visca
 
-# Run the canonical local/release validation matrix. CI runs equivalent
-# feature-matrix entries as separate jobs; it does not invoke this script.
+# Run the canonical local/release validation matrix. CI builds one job per
+# feature shape from this script's `list-json` mode, so both share one list.
 bash .github/scripts/test-all-features.sh
 
 # Or run individual matrix entries while iterating
@@ -90,6 +90,17 @@ cargo fmt
 
 ## Code Style
 
+Commit hooks check formatting with the CI-pinned nightly formatter, lint the
+default feature set once, and run text hygiene checks. The default feature set
+already enables `blocking`; it does not need a second blocking-only lint pass.
+CI owns broad feature testing, all-feature and no-default linting, and rustdoc.
+
+For a feature-specific lint investigation, run an opt-in hook, for example
+`pre-commit run clippy-runtime-smol --hook-stage manual --all-files`.
+`pre-commit run --hook-stage manual --all-files` runs all the extra lint and
+rustdoc hooks. Use these when the change warrants them, rather than stacking
+the entire local matrix on top of a successful CI run for the same source.
+
 We maintain high code quality standards:
 
 - **Format**: Use `cargo fmt` before committing
@@ -103,16 +114,16 @@ We maintain high code quality standards:
 
 All VISCA commands MUST be properly terminated with the `VISCA_TERMINATOR` byte (0xFF). This is critical for protocol compliance and camera communication safety.
 
-**Important**: Always use the `ConstCommandBuilder` or similar safe abstractions that automatically handle termination:
+**Important**: Build every frame through the crate's frame writer, which adds the camera address byte and the terminator. Command and inquiry bodies are address-free byte sequences from `command::bytes::constants` (or the built-in inquiry table):
 
 ```rust
-use crate::command::bytes::{ConstCommandBuilder, VISCA_TERMINATOR};
+use crate::command::bytes::{constants::zoom, FrameWriter, Step};
 
-// GOOD: Using CommandBuilder ensures proper termination
-let builder = ConstCommandBuilder::<7>::new()
-    .append(command_bytes)
-    .with_camera_id(camera_id)
-    .terminate();  // Automatically adds VISCA_TERMINATOR
+// GOOD: the frame writer adds the address byte and the terminator
+FrameWriter::new(camera_id, buffer)
+    .bytes(&zoom::DRIVE)
+    .byte(Step::Up.byte())
+    .finish()
 
 // BAD: Manual byte construction without terminator
 let command = [0x81, 0x01, 0x04, 0x00]; // Missing 0xFF terminator!
@@ -207,6 +218,50 @@ impl Inquiry for MyInquiry {
 }
 ```
 
+### 4. Adding a Built-in Command
+
+A built-in command is declared in four places, and every other projection is
+generated from them:
+
+1. **Ledger row** (`src/command/semantics.rs`): one `builtin_command_ledger!`
+   row gives the command its `BuiltinCommand` identity and its class
+   (`plain`, `applied(<AXES>)` or `targeted(<AXES>)`), plus any write-only
+   state effect.
+2. **Wire encoder** (`src/command/<domain>.rs`): the request type and its
+   `WireEncode` implementation, written through `FrameWriter`.
+3. **Request entry** (`src/request/builtin.rs`): one `builtin_request!` entry
+   names the request type's ledger row and its policy. Each entry still gives
+   an explicit `size:`, the `MAX_SIZE` allocation bound for the request's
+   longest frame, while the exact encoded length is measured from the encoder.
+   Add the per-value checks to its `BuiltinValidation` implementation; a typed
+   capability gate comes from the ledger row. A type whose values serve
+   different ledger rows adds
+   `rows: |value| match value[.field] { Variant => Row, ... }`, an exhaustive
+   match whose patterns are variant paths (a wildcard is rejected), and its
+   validator gates each value on the row it selects, `self.ledger_row()`.
+4. **Noun row** (`src/noun_table.rs`): one row under the owning `@noun` header
+   gives the method name, arguments, rustdoc, capability `where` marker and
+   request. The blocking, async and `Dyn*` methods, the static surface entry
+   and the typed-request inventory are all expanded from it.
+
+The compiler rejects a ledger row without a noun row, a noun row whose kind
+disagrees with the ledger class, and a request type without a `rows:` entry
+whose noun rows disagree on their capability gate. For a type with a `rows:`
+entry, every noun row that
+sends it must be a `[by_value <const expr>]` row whose value selects that noun
+row's ledger row. A typed built-in inquiry is added to
+`define_builtin_inquiries!` in `src/command/inquiry_structs.rs` and gets its
+runtime gate from its noun row in the same way.
+
+Then:
+
+- extend the wire golden (`src/issue_715_wire_golden.rs` and
+  `tests/fixtures/issue_715_wire_golden.txt`);
+- update the semantic class tripwire in `src/command/surface.rs`
+  (`surface_ledger_is_exhaustive_unique_and_class_balanced`) and name the class
+  the row landed in in the commit message;
+- regenerate the public API snapshots (see [Public API Snapshots](#public-api-snapshots)).
+
 ## Camera Profile Support
 
 Camera profiles are part of the public type-safety contract. Before adding or
@@ -263,6 +318,12 @@ real Tokio/smol executor for wall-clock timeout behavior. See
 `src/testing/testkit/README.md` and the existing operation-handle integration
 tests for maintained patterns.
 
+Integration tests that need a fake camera use `tests/common/fake_camera.rs`
+(`FakeCamera` with `blocking_wire()`/`async_wire()`, the shared reply frames
+and wait helpers); scenarios that run on several facades or runtimes use
+`facade_matrix!`/`runtime_matrix!` from `tests/common/matrix.rs`. A
+hand-written transport stays local only with a `// Local fake:` comment.
+
 ### Running Tests
 
 ```bash
@@ -291,6 +352,51 @@ bash .github/scripts/miri-tests.sh
 # With output for debugging
 cargo test -- --nocapture
 ```
+
+### Test time budget
+
+The whole feature matrix (`test`, `clippy` and `doc` modes) should finish in
+under ten minutes of wall time on a many-core machine when run in parallel:
+
+```bash
+# N jobs at a time, each in its own target directory under target/matrix;
+# per-job logs and a summary land in target/matrix/logs/<mode>/.
+bash .github/scripts/test-all-features.sh --jobs 12 test
+
+# The 15 slowest tests of one shape (pinned nightly --report-time; timings only)
+bash .github/scripts/test-all-features.sh slowest 15 --all-features
+```
+
+- No single test should need more than a few seconds of wall time; the
+  parallel summary lists any test libtest reports as running for over 60 s.
+  The known exception is `api_stability_test::canonical_compile_contracts`,
+  which compiles about 96 contract fixtures for the leg's features: about
+  3-15 s on a warm nested target, and over 60 s in a cold, fully loaded
+  parallel run, when it first builds the crate for its fixtures.
+- Each parallel job keeps its own target directory, so a full `test`,
+  `clippy` and `doc` run holds about 66 GB under `target/matrix` (91
+  directories, measured on Linux with line-tables-only debug info). Delete it
+  when you need the space; the next run rebuilds it.
+- Wait on deadlines in virtual time where the owner allows it: write the
+  scenario as `facade_matrix! { paused: ... }` so its Tokio case runs on paused
+  time. The blocking and smol owners read the real clock.
+- A heavy test whose behaviour cannot differ by feature configuration runs in
+  one designated leg: list it in `.github/scripts/engine-model-tests.sh` only
+  with evidence that no `cfg(feature = ...)` reaches its code path. The matrix
+  fails if a listed test runs anywhere else, or not exactly once in its leg.
+
+### Built-in wire golden
+
+`tests/fixtures/issue_715_wire_golden.txt` pins the encoded bytes of every
+built-in command. After a deliberate encoder change, regenerate it with:
+
+```bash
+GRAFTON_VISCA_BLESS_WIRE_GOLDEN=1 cargo test --lib wire_ledger_matches_literal_golden_inventory
+```
+
+The bless run writes the fixture and then fails on purpose ("fixture blessed;
+review the diff and rerun without the variable"), and it is refused when `CI`
+is set. Review the fixture diff, then rerun the test without the variable.
 
 ## Public API Snapshots
 
@@ -327,70 +433,74 @@ commit.
 
 ## Documentation
 
-For 2.0 release-candidate work, update the Unreleased section of `CHANGELOG.md` in the
-same change as the implementation. If behavior, setup, examples, or contributor
-workflow changes, update the matching README, example, or contributor docs
-before closing the task. `submit` examples must distinguish lifecycle management
-from profile-aware input validation and applied completion from physical settling.
+For 2.0 work, update the Unreleased section of `CHANGELOG.md` in the same
+change as the implementation. The changelog records what changed between
+published versions, and Unreleased states the net change since the last
+published version (the newest `v<version>` tag), not the history of how it was
+reached: when a change revises an item that Unreleased already describes,
+rewrite that entry to state the net result instead of adding another. If
+behavior, setup, examples, or contributor workflow changes, update the matching
+README, example, or contributor docs before closing the task. `submit` examples
+must distinguish lifecycle management from profile-aware input validation and
+applied completion from physical settling.
 
 ### Changelog discipline for reversals and waivers
 
 A decision must not reuse the issue number of the finding it reverses. When a
-change reverts or supersedes earlier behavior — an earlier 2.0 preview decision
-or a prior review verdict included — it gets its own `### Changed` or
-`### Removed` entry in `CHANGELOG.md` that names the superseded finding by its
-issue number, plus a migration-guide row wherever a 1.x or prior user would feel
-it. Rewriting the original entry in place, or filing the reversal under the same
-issue number, hides the reversal from the record and is not allowed.
+change reverts or supersedes behavior that a published version shipped — a
+prior review verdict included — it gets its own `### Changed` or `### Removed`
+entry under Unreleased that names the superseded finding by its issue number.
+Reversing a decision made after the last published version needs no record of
+its own: rewrite or drop the Unreleased entry so that it states only the net
+change from the published version. An item added and removed again before the
+next publication, or an internal fix of a regression that never shipped, gets
+no entry.
+
+`docs/migration_2_0.md` records the differences between 1.2 and 2.0 only. Add
+or update a row there wherever a 1.x user would feel a change; do not add rows
+or notes for differences between 2.0 prereleases, and do not describe an API
+that did not exist in 1.2 as a migration source.
 
 The `release-validation` CI job enforces four parts of this record mechanically:
 
-- Text outside the top `## [Unreleased]` body is byte-for-byte immutable
-  relative to the pull request's merge base, except for a release cut that
-  moves the prior Unreleased lines in order into one new strict dated section
-  below an otherwise empty Unreleased heading. Every pre-existing released
-  section remains byte-for-byte immutable. Correct an old statement with a
-  dated superseding entry under Unreleased; do not edit the released entry.
+- Every published release section is byte-for-byte immutable relative to the
+  pull request's merge base. A release is published once its `v<version>` tag
+  exists; a section below a published one counts as published even without a
+  tag. Only the top `## [Unreleased]` body and dated sections above the newest
+  published one that have no tag (prepared but never published) may change,
+  and such an untagged section may be folded back into Unreleased. A release
+  cut that moves the prior Unreleased lines in order into one new strict dated
+  section below an otherwise empty Unreleased heading is also accepted, but
+  only once no unpublished section remains below it: fold those first. Each
+  version has exactly one dated heading.
+  Correct a published statement with an entry under Unreleased; do not edit the
+  published entry. The validator needs the release tags, so run it from a
+  full-history checkout with tags; it fails rather than guess when none are
+  present.
 - A change to `api/2.0.0-rc.1/*.txt` must include a `CHANGELOG.md` change in the
   same pull request.
 - Every top-level Unreleased bullet carrying the exact `**BREAKING**` label must
-  include an issue reference in the form `(#NNN)`.
+  include an issue reference in the form `(#NNN)` or `(#NNN, #MMM)`.
 - Every new commit that touches `src/` must have a non-empty explanatory body,
   not only a subject. The policy-boundary files under `.github/` bootstrap the
   repaired historical text and grandfather the already-audited PR #559 commit
   ledger; they must not be advanced to excuse later changes.
 
-From a full-history checkout, run the validator and its four deliberate-failure
-fixtures with:
+From a full-history checkout, run the validator and its deliberate-failure and
+acceptance fixtures with:
 
 ```bash
 python3 .github/scripts/validate-change-record.py "$(git merge-base HEAD origin/main)" HEAD
 bash .github/scripts/test-validate-change-record.sh
 ```
 
-For historical 1.x behavior decisions, add or update a direct v2 regression or
-wire/decode golden in the production owner, engine, or parser path and update
-`docs/behavioral_parity_1x.md` when the decision is useful to future
-maintainers. Those direct v2 tests and goldens are authoritative and the twelve
-historical families are enforced by the executable 1.x provenance corpus. From
-a full (non-shallow) clone, run:
-
-```bash
-bash .github/scripts/validate-behavioral-parity.sh
-```
-
-The gate reads the pinned 1.x source object and checks every current mapping
-against validator-owned source, exact libtest-path, command,
-envelope/profile/receipt pins. It removes comments and literals before checking
-code evidence, then proves each exact path reported `ok` rather than accepting
-Cargo's zero-match, ignored-test, or suffix-collision exit status. This is
-audited traceability, not a protocol semantic model, so review the pinned test's
-assertions as well as the mapping. Do not use `--skip-tests` as a PR or CI
-substitute. A new behavior needs direct review in the implementation, tests,
-and changelog; update the corpus and its validator-pinned family and target sets
-together when it changes the covered 1.x contract. CI independently pins the
-expected family count and publishes the required-family, manifest-row, and
-mapped-v2-test-row counts in its job summary.
+When a change alters observable protocol behavior, add or update a direct
+regression or wire/decode golden in the production owner, engine, or parser
+path, and record the caller-visible consequence in `CHANGELOG.md`, and in
+`docs/migration_2_0.md` when it differs from 1.2. Review the new behavior
+against the implementation and its tests directly; do not preserve a behavior
+merely because an earlier release had it if that would make correlation,
+framing, cancellation, or physical safety less certain.
 
 ### Code Documentation
 
@@ -440,10 +550,10 @@ mapped-v2-test-row counts in its job summary.
 
 4. **Checklist**: Before submitting:
    - [ ] Declared cfg-aware matrix passes: `bash .github/scripts/test-all-features.sh`
-   - [ ] No clippy warnings: `cargo clippy --all-targets --all-features -- -D warnings`
+   - [ ] No clippy warnings in any supported feature shape: `bash .github/scripts/test-all-features.sh clippy`
+   - [ ] Rustdoc builds without warnings in every supported feature shape: `bash .github/scripts/test-all-features.sh doc`
    - [ ] Formatted: `cargo +nightly fmt --all -- --check`
    - [ ] Rustdoc and doctests pass for blocking, Tokio, and all-feature surfaces
-   - [ ] 1.x provenance corpus passes from full Git history: `bash .github/scripts/validate-behavioral-parity.sh`
    - [ ] Documentation updated
    - [ ] CHANGELOG.md updated (if applicable)
    - [ ] Safety documented for movement commands
@@ -457,7 +567,7 @@ mapped-v2-test-row counts in its job summary.
 
 Releases use a two-crate prerelease/final publish sequence because the main crate
 depends on the same-version `grafton-visca-macros` package. Follow
-[RELEASING.md](RELEASING.md) for `2.0.0-rc.2` versioning, changelog
+[RELEASING.md](RELEASING.md) for `2.0.0-rc.3` versioning, changelog
 finalization, validation, tagging, crates.io index verification, and recovery if
 the macro package publishes but the main package does not. Never create a
 release tag from a commit that has not passed the complete 2.0 matrix — public
@@ -480,7 +590,7 @@ When adding features that require new dependencies:
 ## Performance Considerations
 
 - Prefer const functions where possible
-- Use zero-allocation patterns (see `ConstCommandBuilder`)
+- Use zero-allocation patterns (see `FrameWriter`, which writes straight into the caller's buffer)
 - Avoid unnecessary heap allocations
 - Profile performance-critical code paths
 

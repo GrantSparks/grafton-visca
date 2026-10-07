@@ -15,12 +15,13 @@ pub enum CommandKind {
     Inquiry,
 }
 
-/// The single crate-private wire encoder contract.
+/// The internal wire encoder contract used by generated command implementations.
 ///
 /// This trait intentionally exposes only frame mechanics. It is not a
 /// command registry and carries no request class, timeout, retry, routing, or
 /// completion metadata.
-pub(crate) trait WireEncode: Send + Sync {
+#[doc(hidden)]
+pub trait WireEncode: Send + Sync {
     /// Write one complete VISCA frame into `buffer`.
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error>;
 }
@@ -35,21 +36,7 @@ mod tests {
         struct Dummy;
         impl WireEncode for Dummy {
             fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-                let bytes = [
-                    camera_id.to_address_byte(),
-                    0x01,
-                    0x04,
-                    0x00,
-                    crate::command::bytes::VISCA_TERMINATOR,
-                ];
-                if buffer.len() < bytes.len() {
-                    return Err(Error::BufferTooSmall {
-                        required: bytes.len(),
-                        actual: buffer.len(),
-                    });
-                }
-                buffer[..bytes.len()].copy_from_slice(&bytes);
-                Ok(bytes.len())
+                crate::command::bytes::write_frame(camera_id, &[&[0x01, 0x04, 0x00]], buffer)
             }
         }
 

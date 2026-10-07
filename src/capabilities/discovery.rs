@@ -7,20 +7,10 @@
 use std::{borrow::Cow, ops::RangeInclusive, time::Duration};
 
 use super::{
-    profile_metadata::InquirySupport, ProfileTypedSupport, TypedSupportSet, TypedSupportSurface,
+    profile_metadata::InquirySupport, CapabilityDomain, ProfileTypedSupport, TypedSupportSet,
+    TypedSupportSurface,
 };
 use crate::{command::exposure::ExposureMode, WhiteBalanceMode};
-
-/// Owned runtime representation of one supported shutter setting.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct RuntimeShutterSpeed {
-    /// Human-readable shutter label, such as `1/60`.
-    pub label: String,
-    /// VISCA protocol value.
-    pub value: u16,
-}
 
 /// Structured capabilities response for runtime feature discovery.
 ///
@@ -39,9 +29,8 @@ pub struct RuntimeShutterSpeed {
 /// println!("Pan speed range: {:?}", caps.pan_speed);
 /// println!("Zoom range: 0x0000-0x{:04X}", caps.zoom_range_optical.end());
 ///
-/// if caps.has_digital_zoom {
-///     println!("Digital zoom supported up to 0x{:04X}",
-///              caps.zoom_range_digital.unwrap().end());
+/// if let Some(digital) = &caps.zoom_range_digital {
+///     println!("Digital zoom supported up to 0x{:04X}", digital.end());
 /// }
 /// ```
 #[derive(Debug, Clone, PartialEq)]
@@ -58,19 +47,6 @@ pub struct Capabilities {
 
     /// Default camera ID for VISCA addressing.
     pub default_camera_id: u8,
-
-    // Network configuration
-    /// Validated mirror of the profile's default TCP transport port.
-    ///
-    /// Runtime builders fill `None` from their transport facts; an explicit
-    /// `Some` value is treated as an assertion and must match exactly.
-    pub default_tcp_port: Option<u16>,
-
-    /// Validated mirror of the profile's default UDP transport port.
-    ///
-    /// Runtime builders fill `None` from their transport facts; an explicit
-    /// `Some` value is treated as an assertion and must match exactly.
-    pub default_udp_port: Option<u16>,
 
     // Pan/Tilt capabilities
     /// Whether camera supports pan/tilt movement.
@@ -104,18 +80,15 @@ pub struct Capabilities {
     /// Whether camera supports zoom operations.
     pub has_zoom: bool,
 
-    /// Whether profile metadata reports digital zoom beyond optical.
-    ///
-    /// This is not permission to call typed digital zoom APIs; use
-    /// [`supports_typed`](Self::supports_typed) with
-    /// [`TypedSupportSurface::DigitalZoomToggle`] or
-    /// [`TypedSupportSurface::DigitalZoomRange`] for that.
-    pub has_digital_zoom: bool,
-
     /// Optical zoom range in VISCA units (0x0000 to max).
     pub zoom_range_optical: RangeInclusive<u16>,
 
     /// Digital zoom range if supported (optical_max to digital_max).
+    ///
+    /// This is discovery metadata, not permission to call typed digital zoom
+    /// APIs; use [`supports_typed`](Self::supports_typed) with
+    /// [`TypedSupportSurface::DigitalZoomToggle`] or
+    /// [`TypedSupportSurface::DigitalZoomRange`] for that.
     pub zoom_range_digital: Option<RangeInclusive<u16>>,
 
     /// Valid zoom speed range (typically 0-7).
@@ -131,17 +104,19 @@ pub struct Capabilities {
     /// Whether camera supports variable speed zoom.
     pub supports_variable_zoom: bool,
 
-    /// Conversion factor from magnification to VISCA units.
+    /// Optical zoom ratio of the profile's lens, when it is a profile fact.
     ///
-    /// This value represents the number of VISCA units per 1x of magnification.
-    /// For example, a 20x camera with `OPTICAL_ZOOM_MAX = 0x4000` has
-    /// `zoom_magnification_to_units ≈ 862.3` because `0x4000 / 19 ≈ 862.3`.
+    /// `None` for a profile that spans several lenses or whose ratio is
+    /// unsourced (see [`Zoom::OPTICAL_ZOOM_RATIO`]). [`Self::zoom_scale`]
+    /// turns it into the magnification conversion.
     ///
-    /// Use with helper methods:
-    /// - [`zoom_units_to_magnification`](Self::zoom_units_to_magnification) to convert VISCA units to magnification
-    /// - [`magnification_to_zoom_units`](Self::magnification_to_zoom_units) to convert magnification to VISCA units
-    /// - [`max_optical_zoom`](Self::max_optical_zoom) to get the maximum optical zoom magnification
-    pub zoom_magnification_to_units: f32,
+    /// [`Zoom::OPTICAL_ZOOM_RATIO`]: crate::capabilities::Zoom::OPTICAL_ZOOM_RATIO
+    // Required when deserializing: an absent key is not a declared `null`.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "<Option<f32> as serde::Deserialize>::deserialize")
+    )]
+    pub optical_zoom_ratio: Option<f32>,
 
     // Focus capabilities
     /// Whether camera supports focus control.
@@ -163,21 +138,22 @@ pub struct Capabilities {
     /// Valid focus speed range.
     pub focus_speed: RangeInclusive<u8>,
 
-    /// Whether profile metadata reports focus-zone selection.
-    ///
-    /// This is not permission to call typed focus zone APIs; use
-    /// [`supports_typed`](Self::supports_typed) with
-    /// [`TypedSupportSurface::FocusZone`] for that. The separately gated
-    /// [`TypedSupportSurface::FocusZoneInquiry`] controls the matching status
-    /// response.
-    pub has_focus_zone: bool,
-
     /// Whether profile metadata reports the focus-zone inquiry response.
     ///
     /// This is not permission to call the typed inquiry accessor; use
     /// [`supports_typed`](Self::supports_typed) with
     /// [`TypedSupportSurface::FocusZoneInquiry`] as well.
     pub has_focus_zone_inquiry: bool,
+
+    /// Focus-zone values the typed focus-zone setter may send; empty when the
+    /// camera has no focus-zone selection, and duplicate-free.
+    ///
+    /// This is discovery metadata, not permission to call typed focus-zone
+    /// APIs; use [`supports_typed`](Self::supports_typed) with
+    /// [`TypedSupportSurface::FocusZone`] for that. A value outside this list is rejected before any
+    /// I/O even when the focus-zone surface is supported, so evidence for one
+    /// camera's extra value never reaches another camera.
+    pub focus_zones: Vec<crate::command::FocusZone>,
 
     /// Whether profile metadata reports auto focus sensitivity adjustment.
     ///
@@ -193,9 +169,6 @@ pub struct Capabilities {
     /// Whether camera supports exposure control.
     pub has_exposure: bool,
 
-    /// Whether camera supports direct iris control.
-    pub has_iris_control: bool,
-
     /// Supported exposure modes for this profile.
     pub exposure_modes: Vec<ExposureMode>,
 
@@ -205,33 +178,25 @@ pub struct Capabilities {
     /// Whether camera supports WDR (Wide Dynamic Range).
     pub has_wdr: bool,
 
-    /// Whether camera supports exposure compensation.
-    pub has_exposure_comp: bool,
-
     /// Exposure compensation range, if supported.
     pub exposure_comp_range: Option<RangeInclusive<i8>>,
 
-    /// Exact profile exposure-compensation range constant, even when disabled.
-    ///
-    /// [`exposure_comp_range`](Self::exposure_comp_range) is the active view;
-    /// validated profiles require it to be either this exact range or `None`
-    /// according to [`has_exposure_comp`](Self::has_exposure_comp).
-    pub exposure_comp_profile_range: RangeInclusive<i8>,
-
-    /// Iris range in VISCA units, if iris control is supported.
-    pub iris_range: Option<RangeInclusive<u16>>,
+    /// Iris positions in VISCA units, if iris control is supported: the
+    /// profile iris table's bounds minus any position it does not list.
+    pub iris_range: Option<CapabilityDomain<u16>>,
 
     /// Gain range in VISCA units.
     pub gain_range: RangeInclusive<u8>,
 
     /// Exact supported shutter-speed labels and VISCA values.
-    pub shutter_speeds: Vec<RuntimeShutterSpeed>,
+    pub shutter_speeds: Vec<super::ShutterSpeedEntry>,
 
-    /// VISCA exposure bright range, if supported.
+    /// VISCA exposure bright positions, if supported: the profile Bright
+    /// table's bounds minus any position it does not list.
     ///
     /// This is the exposure brightness/bright-direct surface, not image
     /// luminance.
-    pub exposure_brightness_range: Option<RangeInclusive<u16>>,
+    pub exposure_brightness_range: Option<CapabilityDomain<u8>>,
 
     // White balance capabilities
     /// Whether camera supports white balance control.
@@ -240,10 +205,8 @@ pub struct Capabilities {
     /// Whether camera supports one-push white balance.
     pub has_one_push_wb: bool,
 
-    /// Whether camera supports color temperature control.
-    pub has_color_temp: bool,
-
-    /// Color temperature range if supported (in Kelvin).
+    /// Direct color temperature range in Kelvin, or `None` when direct color
+    /// temperature control is not supported.
     pub color_temp_range: Option<RangeInclusive<u16>>,
 
     /// RG tuning range if supported.
@@ -252,13 +215,11 @@ pub struct Capabilities {
     /// BG tuning range if supported.
     pub bg_tuning_range: Option<RangeInclusive<i8>>,
 
-    /// Whether camera supports manual RGB gain control (red/blue gain inquiries).
-    pub has_rgb_gain: bool,
-
-    /// Red gain range if supported.
+    /// Manual red gain range, or `None` when manual RGB gain is not supported.
+    /// Manual RGB gain needs both this and `blue_gain_range`.
     pub red_gain_range: Option<RangeInclusive<u8>>,
 
-    /// Blue gain range if supported.
+    /// Manual blue gain range, or `None` when manual RGB gain is not supported.
     pub blue_gain_range: Option<RangeInclusive<u8>>,
 
     /// Exact supported white-balance modes.
@@ -277,13 +238,13 @@ pub struct Capabilities {
     /// Saturation adjustment range if supported.
     pub saturation_range: Option<RangeInclusive<u8>>,
 
-    /// Hue adjustment range if supported.
+    /// Hue adjustment range, or `None` when hue is not supported.
     pub hue_range: Option<RangeInclusive<u8>>,
 
-    /// Image luminance range if supported.
+    /// Image luminance range, or `None` when luminance is not supported.
     pub luminance_range: Option<RangeInclusive<u8>>,
 
-    /// Gamma curve range if supported.
+    /// Gamma curve range, or `None` when gamma is not supported.
     pub gamma_range: Option<RangeInclusive<u8>>,
 
     /// Whether camera supports image flip.
@@ -292,17 +253,11 @@ pub struct Capabilities {
     /// Whether camera supports image mirror.
     pub supports_mirror: bool,
 
-    /// Whether camera supports hue adjustment.
-    pub supports_hue: bool,
-
     /// Whether flip and mirror share the combined VISCA command.
     pub uses_combined_flip_command: bool,
 
     /// Whether flip changes require an explicit settings-save command.
     pub requires_settings_save_for_flip: bool,
-
-    /// Whether camera supports noise reduction.
-    pub has_noise_reduction: bool,
 
     /// Whether camera supports 2D noise reduction.
     pub has_2d_nr: bool,
@@ -314,12 +269,6 @@ pub struct Capabilities {
     /// Model-specific values remain available through `PictureEffectMode::Unknown`.
     pub has_picture_effect: bool,
 
-    /// Whether camera supports gamma curve control.
-    pub has_gamma: bool,
-
-    /// Whether camera supports luminance (brightness) control.
-    pub has_luminance: bool,
-
     /// Whether camera supports tally light control.
     pub has_tally: bool,
 
@@ -327,11 +276,12 @@ pub struct Capabilities {
     /// Whether camera supports preset positions.
     pub has_presets: bool,
 
-    /// Maximum number of preset positions.
-    pub max_presets: u8,
+    /// The highest preset memory number: presets are `0..=highest_preset`.
+    pub highest_preset: u8,
 
-    /// Preset recall speed range.
-    pub preset_speed_range: RangeInclusive<u8>,
+    /// Preset recall speeds, or `None` when the camera documents no preset
+    /// recall speed.
+    pub preset_speed_range: Option<RangeInclusive<u8>>,
 
     /// Whether camera supports preset tours.
     pub supports_preset_tour: bool,
@@ -380,14 +330,9 @@ pub struct Capabilities {
     /// Explicit ND step count when supplied by the profile.
     pub nd_filter_steps: Option<u8>,
 
-    /// Whether camera supports motion sync.
-    pub has_motion_sync: bool,
-
-    /// Maximum motion sync speed if supported.
-    pub max_motion_sync_speed: Option<u8>,
-
-    /// Exact profile motion-sync maximum constant, even when disabled.
-    pub max_motion_sync_speed_profile: u8,
+    /// Motion-sync speeds the camera accepts, or `None` when it has no motion
+    /// sync.
+    pub motion_sync_speed_range: Option<RangeInclusive<u8>>,
 
     /// Whether camera supports direct menu control.
     pub has_direct_menu_control: bool,
@@ -415,7 +360,7 @@ pub struct Capabilities {
     /// Optional typed API surfaces this profile is permitted to expose.
     ///
     /// This is the runtime permission source for dyn-api optional typed
-    /// operations. Metadata fields such as [`has_digital_zoom`](Self::has_digital_zoom)
+    /// operations. Metadata fields such as [`zoom_range_digital`](Self::zoom_range_digital)
     /// and [`supports_direct_zoom`](Self::supports_direct_zoom) remain physical
     /// or protocol discovery facts and are not typed API permission checks.
     #[cfg_attr(feature = "schemars", schemars(with = "Vec<TypedSupportSurface>"))]
@@ -448,8 +393,6 @@ impl Capabilities {
             profile_id: None,
             model_name,
             default_camera_id,
-            default_tcp_port: None,
-            default_udp_port: None,
             has_pan_tilt: false,
             pan_speed: 0..=0,
             tilt_speed: 0..=0,
@@ -460,41 +403,35 @@ impl Capabilities {
             pan_tilt_simultaneous: false,
             preset_recovery_time: Duration::ZERO,
             has_zoom: false,
-            has_digital_zoom: false,
             zoom_range_optical: 0..=0,
             zoom_range_digital: None,
             zoom_speed: 0..=0,
             supports_direct_zoom: false,
             supports_variable_zoom: false,
-            zoom_magnification_to_units: 1.0,
+            optical_zoom_ratio: None,
             has_focus: false,
             has_auto_focus: false,
             has_one_push_focus: false,
             focus_range: 0..=0,
             focus_speed: 0..=0,
-            has_focus_zone: false,
             has_focus_zone_inquiry: false,
+            focus_zones: Vec::new(),
             has_af_sensitivity: false,
             has_focus_near_limit_inquiry: false,
             has_exposure: false,
-            has_iris_control: false,
             exposure_modes: Vec::new(),
             has_backlight_comp: false,
             has_wdr: false,
-            has_exposure_comp: false,
             exposure_comp_range: None,
-            exposure_comp_profile_range: -7..=7,
             iris_range: None,
             gain_range: 0..=0,
             shutter_speeds: Vec::new(),
             exposure_brightness_range: None,
             has_white_balance: false,
             has_one_push_wb: false,
-            has_color_temp: false,
             color_temp_range: None,
             rg_tuning_range: None,
             bg_tuning_range: None,
-            has_rgb_gain: false,
             red_gain_range: None,
             blue_gain_range: None,
             white_balance_modes: Vec::new(),
@@ -507,19 +444,15 @@ impl Capabilities {
             gamma_range: None,
             supports_flip: false,
             supports_mirror: false,
-            supports_hue: false,
             uses_combined_flip_command: false,
             requires_settings_save_for_flip: false,
-            has_noise_reduction: false,
             has_2d_nr: false,
             has_3d_nr: false,
             has_picture_effect: false,
-            has_gamma: false,
-            has_luminance: false,
             has_tally: false,
             has_presets: false,
-            max_presets: 0,
-            preset_speed_range: 0..=0,
+            highest_preset: 0,
+            preset_speed_range: None,
             supports_preset_tour: false,
             supports_preset_thumbnail: false,
             preset_recall_delay: Duration::ZERO,
@@ -535,9 +468,7 @@ impl Capabilities {
             has_nd_filter: false,
             nd_filter_mode: super::NdFilterMode::None,
             nd_filter_steps: None,
-            has_motion_sync: false,
-            max_motion_sync_speed: None,
-            max_motion_sync_speed_profile: 24,
+            motion_sync_speed_range: None,
             has_direct_menu_control: false,
             has_variable_speed: false,
             has_usb_audio: false,
@@ -555,30 +486,19 @@ impl Capabilities {
     where
         P: crate::capabilities::Profile,
     {
-        // Extract pan/tilt capabilities
-        let pan_start_deg = P::PAN_RANGE.min() as f32 / P::PAN_DEGREES_TO_UNITS;
-        let pan_end_deg = P::PAN_RANGE.max() as f32 / P::PAN_DEGREES_TO_UNITS;
-        let tilt_start_deg = P::TILT_RANGE.min() as f32 / P::TILT_DEGREES_TO_UNITS;
-        let tilt_end_deg = P::TILT_RANGE.max() as f32 / P::TILT_DEGREES_TO_UNITS;
-        // A profile may use a negative degree-to-unit scale when its raw axis
-        // polarity is opposite the library's degree convention. Capabilities
-        // always expose ordered logical-degree ranges.
-        let pan_min_deg = pan_start_deg.min(pan_end_deg);
-        let pan_max_deg = pan_start_deg.max(pan_end_deg);
-        let tilt_min_deg = tilt_start_deg.min(tilt_end_deg);
-        let tilt_max_deg = tilt_start_deg.max(tilt_end_deg);
-
+        // Extract pan/tilt capabilities. The profile's conversion orders the
+        // degree ranges even when a negative scale reverses raw-axis polarity.
+        let conversion = crate::PanTiltCoordinateConversion::for_profile::<P>();
         let pan_speed = 1..=P::MAX_PAN_SPEED;
         let tilt_speed = 1..=P::MAX_TILT_SPEED;
         let pan_range = P::PAN_RANGE.as_inclusive();
         let tilt_range = P::TILT_RANGE.as_inclusive();
-        let pan_range_degrees = pan_min_deg..=pan_max_deg;
-        let tilt_range_degrees = tilt_min_deg..=tilt_max_deg;
+        let pan_range_degrees = conversion.pan_degree_range(&pan_range);
+        let tilt_range_degrees = conversion.tilt_degree_range(&tilt_range);
         let pan_tilt_simultaneous = P::PAN_TILT_SIMULTANEOUS;
         let preset_recovery_time = P::PRESET_RECOVERY_TIME;
 
         // Extract zoom capabilities
-        let has_digital_zoom = P::DIGITAL_ZOOM_MAX.is_some();
         let zoom_range_digital = P::DIGITAL_ZOOM_MAX.map(|max| P::OPTICAL_ZOOM_MAX..=max);
 
         // Extract focus capabilities
@@ -586,20 +506,12 @@ impl Capabilities {
         let focus_speed = 0..=P::MAX_FOCUS_SPEED;
 
         // Extract exposure capabilities
-        let has_iris_control = P::IRIS_RANGE.is_some();
         let exposure_modes = P::EXPOSURE_MODES.to_vec();
-        let shutter_speeds = P::SHUTTER_SPEEDS
-            .iter()
-            .map(|speed| RuntimeShutterSpeed {
-                label: speed.label.to_owned(),
-                value: speed.value,
-            })
-            .collect();
-        let iris_range = P::IRIS_RANGE.map(|range| range.as_inclusive());
+        let shutter_speeds = P::SHUTTER_SPEEDS.to_vec();
+        let iris_range = P::IRIS_RANGE;
         let gain_range = P::GAIN_RANGE.as_inclusive();
-        let exposure_brightness_range = P::BRIGHTNESS_RANGE.map(|range| range.as_inclusive());
-        let exposure_comp_range =
-            P::SUPPORTS_EXPOSURE_COMP.then(|| P::EXPOSURE_COMP_RANGE.as_inclusive());
+        let exposure_brightness_range = P::BRIGHTNESS_RANGE;
+        let exposure_comp_range = P::EXPOSURE_COMP_RANGE.map(|range| range.as_inclusive());
 
         // Extract white balance capabilities
         let color_temp_range = P::COLOR_TEMP_RANGE.map(|range| range.as_inclusive());
@@ -621,28 +533,16 @@ impl Capabilities {
         let has_image_processing = P::SUPPORTS_IMAGE_PROCESSING;
 
         // Extract preset capabilities
-        let preset_speed_range = P::PRESET_SPEED_RANGE.as_inclusive();
+        let preset_speed_range = P::PRESET_SPEED_RANGE.map(|range| range.as_inclusive());
 
         // Extract ND filter capabilities from profile metadata.
         let has_nd_filter = !matches!(P::ND_MODE, crate::capabilities::NdFilterMode::None);
-
-        // Extract Motion Sync capabilities from profile metadata.
-        let has_motion_sync = P::SUPPORTS_MOTION_SYNC;
-        let max_motion_sync_speed = if has_motion_sync {
-            Some(P::MAX_MOTION_SYNC_SPEED)
-        } else {
-            None
-        };
 
         Self {
             // Camera identification
             profile_id: P::PROFILE_ID,
             model_name: P::MODEL_NAME.to_string(),
             default_camera_id: P::DEFAULT_CAMERA_ID,
-
-            // Network configuration
-            default_tcp_port: P::PROFILE_ID.and_then(|profile| profile.default_tcp_port()),
-            default_udp_port: P::PROFILE_ID.and_then(|profile| profile.default_udp_port()),
 
             // Pan/Tilt capabilities
             has_pan_tilt: true, // All cameras in Profile have pan/tilt
@@ -657,13 +557,12 @@ impl Capabilities {
 
             // Zoom capabilities
             has_zoom: true, // All cameras have zoom
-            has_digital_zoom,
             zoom_range_optical: 0x0000..=P::OPTICAL_ZOOM_MAX,
             zoom_range_digital,
             zoom_speed: P::ZOOM_SPEED_RANGE.as_inclusive(),
             supports_direct_zoom: P::SUPPORTS_DIRECT_ZOOM,
             supports_variable_zoom: P::SUPPORTS_VARIABLE_ZOOM,
-            zoom_magnification_to_units: P::ZOOM_MAGNIFICATION_TO_UNITS,
+            optical_zoom_ratio: P::OPTICAL_ZOOM_RATIO,
 
             // Focus capabilities
             has_focus: true, // All cameras have focus
@@ -671,20 +570,17 @@ impl Capabilities {
             has_one_push_focus: P::SUPPORTS_ONE_PUSH_FOCUS,
             focus_range,
             focus_speed,
-            has_focus_zone: P::SUPPORTS_FOCUS_ZONE,
             has_focus_zone_inquiry: P::SUPPORTS_FOCUS_ZONE_INQUIRY,
+            focus_zones: P::FOCUS_ZONES.to_vec(),
             has_af_sensitivity: P::SUPPORTS_AF_SENSITIVITY,
             has_focus_near_limit_inquiry: P::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY,
 
             // Exposure capabilities
             has_exposure: true, // All cameras have exposure control
-            has_iris_control,
             exposure_modes,
             has_backlight_comp: P::SUPPORTS_BACKLIGHT_COMP,
             has_wdr: P::SUPPORTS_WDR,
-            has_exposure_comp: P::SUPPORTS_EXPOSURE_COMP,
             exposure_comp_range,
-            exposure_comp_profile_range: P::EXPOSURE_COMP_RANGE.as_inclusive(),
             iris_range,
             gain_range,
             shutter_speeds,
@@ -693,11 +589,9 @@ impl Capabilities {
             // White balance capabilities
             has_white_balance: true, // All cameras have white balance
             has_one_push_wb: P::SUPPORTS_ONE_PUSH_WB,
-            has_color_temp: P::SUPPORTS_COLOR_TEMP,
             color_temp_range,
             rg_tuning_range,
             bg_tuning_range,
-            has_rgb_gain: P::SUPPORTS_RGB_GAIN,
             red_gain_range,
             blue_gain_range,
             white_balance_modes: P::WB_MODES.to_vec(),
@@ -712,20 +606,16 @@ impl Capabilities {
             gamma_range,
             supports_flip: P::SUPPORTS_FLIP,
             supports_mirror: P::SUPPORTS_MIRROR,
-            supports_hue: P::SUPPORTS_HUE,
             uses_combined_flip_command: P::USES_COMBINED_FLIP_COMMAND,
             requires_settings_save_for_flip: P::REQUIRES_SETTINGS_SAVE_FOR_FLIP,
-            has_noise_reduction: P::SUPPORTS_NOISE_REDUCTION,
             has_2d_nr: P::SUPPORTS_2D_NR,
             has_3d_nr: P::SUPPORTS_3D_NR,
             has_picture_effect: P::SUPPORTS_PICTURE_EFFECT,
-            has_gamma: P::SUPPORTS_GAMMA,
-            has_luminance: P::SUPPORTS_LUMINANCE,
             has_tally: P::SUPPORTS_TALLY,
 
             // Preset capabilities
             has_presets: true, // All cameras have presets
-            max_presets: P::MAX_PRESETS,
+            highest_preset: P::HIGHEST_PRESET,
             preset_speed_range,
             supports_preset_tour: P::SUPPORTS_PRESET_TOUR,
             supports_preset_thumbnail: P::SUPPORTS_PRESET_THUMBNAIL,
@@ -746,9 +636,7 @@ impl Capabilities {
             has_nd_filter,
             nd_filter_mode: P::ND_MODE,
             nd_filter_steps: P::ND_STEPS,
-            has_motion_sync,
-            max_motion_sync_speed,
-            max_motion_sync_speed_profile: P::MAX_MOTION_SYNC_SPEED,
+            motion_sync_speed_range: P::MOTION_SYNC_SPEED_RANGE.map(|range| range.as_inclusive()),
             has_direct_menu_control: P::SUPPORTS_DIRECT_CONTROL,
             has_variable_speed: P::SUPPORTS_VARIABLE_SPEED,
             has_usb_audio: P::SUPPORTS_USB_AUDIO,
@@ -777,6 +665,127 @@ impl Capabilities {
         self.inquiry_support == InquirySupport::Full
     }
 
+    /// What this inventory's discovery metadata says about one typed surface.
+    ///
+    /// This is the single surface-to-metadata rule. Profile validation
+    /// rejects a typed-support marker its metadata does not permit, the
+    /// built-in registry checks every row in both directions against it, and
+    /// request validation gates each typed request through
+    /// [`Self::permits_typed`].
+    pub(crate) fn surface_metadata(&self, surface: TypedSupportSurface) -> SurfaceMetadata {
+        use SurfaceMetadata::{Dedicated, ParentDomain};
+        use TypedSupportSurface as S;
+
+        let exposure = self.has_exposure;
+        let focus = self.has_focus;
+        let white_balance = self.has_white_balance;
+        let image = self.has_image_processing;
+        match surface {
+            S::DirectZoom => Dedicated(self.has_zoom && self.supports_direct_zoom),
+            S::DigitalZoomToggle => Dedicated(self.has_zoom && self.zoom_range_digital.is_some()),
+            S::DigitalZoomRange => Dedicated(self.has_zoom && self.zoom_range_digital.is_some()),
+            S::ExposureMode => Dedicated(exposure && !self.exposure_modes.is_empty()),
+            S::IrisControl => Dedicated(exposure && self.iris_range.is_some()),
+            S::BacklightCompensation => {
+                // Backlight is implemented by the canonical `image()` noun, so
+                // it also needs the base image surface; otherwise dynamic
+                // callers could advertise a typed row they cannot reach.
+                Dedicated(image && exposure && self.has_backlight_comp)
+            }
+            S::WideDynamicRange => Dedicated(exposure && self.has_wdr),
+            S::ExposureCompensation => Dedicated(exposure && self.exposure_comp_range.is_some()),
+            S::BrightnessControl => Dedicated(exposure && self.exposure_brightness_range.is_some()),
+            S::OnePushFocus => Dedicated(focus && self.has_one_push_focus),
+            S::FocusZone => Dedicated(focus && !self.focus_zones.is_empty()),
+            S::FocusZoneInquiry => Dedicated(focus && self.has_focus_zone_inquiry),
+            S::AutoFocusSensitivity => {
+                Dedicated(focus && self.has_auto_focus && self.has_af_sensitivity)
+            }
+            S::FocusNearLimitInquiry => Dedicated(focus && self.has_focus_near_limit_inquiry),
+            S::OnePushWhiteBalance => Dedicated(
+                white_balance
+                    && self.has_one_push_wb
+                    && self
+                        .white_balance_modes
+                        .contains(&WhiteBalanceMode::OnePush),
+            ),
+            S::AutoTrackingWhiteBalance => Dedicated(
+                white_balance && self.white_balance_modes.contains(&WhiteBalanceMode::ATW),
+            ),
+            S::ColorTemperature => Dedicated(
+                white_balance
+                    && self.color_temp_range.is_some()
+                    && self
+                        .white_balance_modes
+                        .contains(&WhiteBalanceMode::ColorTemperature),
+            ),
+            S::RgbGain => Dedicated(
+                white_balance && self.red_gain_range.is_some() && self.blue_gain_range.is_some(),
+            ),
+            S::RgbTuning => Dedicated(
+                white_balance && self.rg_tuning_range.is_some() && self.bg_tuning_range.is_some(),
+            ),
+            S::ImageFlip => Dedicated(image && self.supports_flip),
+            S::ImageMirror => Dedicated(image && self.supports_mirror),
+            S::CombinedImageFlip => Dedicated(
+                image
+                    && self.supports_flip
+                    && self.supports_mirror
+                    && self.uses_combined_flip_command,
+            ),
+            S::ContrastControl => Dedicated(image && self.contrast_range.is_some()),
+            S::SharpnessControl => Dedicated(image && self.sharpness_range.is_some()),
+            S::SaturationControl => Dedicated(image && self.saturation_range.is_some()),
+            S::HueControl => Dedicated(image && self.hue_range.is_some()),
+            S::LuminanceControl => Dedicated(image && self.luminance_range.is_some()),
+            S::GammaControl => Dedicated(image && self.gamma_range.is_some()),
+            S::NoiseReduction2D | S::NoiseReduction2DControl => Dedicated(image && self.has_2d_nr),
+            S::NoiseReduction3D | S::NoiseReduction3DControl => Dedicated(image && self.has_3d_nr),
+            S::PictureEffect => Dedicated(image && self.has_picture_effect),
+            S::Tally => Dedicated(self.has_tally),
+            S::DirectMenu => Dedicated(self.has_direct_menu_control),
+            S::NdFilter => Dedicated(self.has_nd_filter),
+            S::VariableSpeed => Dedicated(self.has_pan_tilt && self.has_variable_speed),
+            S::MotionSync => Dedicated(self.has_pan_tilt && self.motion_sync_speed_range.is_some()),
+            S::UsbAudio => Dedicated(self.has_usb_audio),
+            S::IrisControlInquiry
+            | S::PtzOpticsAntiFlicker
+            | S::SonySpotlight
+            | S::SonyAutoSlowShutter => ParentDomain(exposure),
+            S::PtzOpticsSnapFocus | S::FocusLock | S::PushAutoFocus => ParentDomain(focus),
+            // The recall-speed command carries a speed, so it needs the
+            // profile's preset speed range, not only the preset domain.
+            S::PtzOpticsPresetRecallSpeed => {
+                ParentDomain(self.has_presets && self.preset_speed_range.is_some())
+            }
+            S::AutoWhiteBalanceSensitivity => ParentDomain(white_balance),
+            S::ImageFreeze | S::DefogLevel => ParentDomain(image),
+            S::TallyBrightness | S::PtzOpticsTally => ParentDomain(self.has_tally),
+            // The color-temperature reply layout refines the color-temperature
+            // domain; the marker records only that the reply layout is sourced.
+            // The auto/manual mode refines the 2D noise-reduction domain; the
+            // marker records only that the `04 50` family is sourced.
+            S::NoiseReduction2DMode => ParentDomain(image && self.has_2d_nr),
+            S::ColorTemperatureInquiry => {
+                ParentDomain(self.surface_metadata(S::ColorTemperature).permits())
+            }
+            // The vendor settings-save and streaming controls and the version
+            // inquiry need no physical domain; the version surface records only
+            // that the reply has the decoded Sony layout.
+            S::PtzOpticsSettingsSave
+            | S::PtzOpticsMulticastStreaming
+            | S::PtzOpticsNdiQuality
+            | S::VersionInquiry => ParentDomain(true),
+        }
+    }
+
+    /// Returns whether a typed request for `surface` may encode for this
+    /// inventory: the typed-support marker grants it and the metadata permits
+    /// it ([`Self::surface_metadata`]).
+    pub(crate) fn permits_typed(&self, surface: TypedSupportSurface) -> bool {
+        self.supports_typed(surface) && self.surface_metadata(surface).permits()
+    }
+
     /// Returns true if the camera has all basic features.
     ///
     /// Basic features include: pan/tilt, zoom, focus, exposure, white balance,
@@ -797,14 +806,21 @@ impl Capabilities {
     /// Advanced features include: digital zoom, one-push focus/WB, WDR,
     /// color temperature control, preset tours, etc.
     pub fn has_advanced_features(&self) -> bool {
-        self.has_digital_zoom
+        self.zoom_range_digital.is_some()
             || self.has_one_push_focus
             || self.has_one_push_wb
             || self.has_wdr
-            || self.has_color_temp
+            || self.color_temp_range.is_some()
             || self.supports_preset_tour
             || self.has_nd_filter
-            || self.has_motion_sync
+            || self.motion_sync_speed_range.is_some()
+    }
+
+    /// Returns true if the typed focus-zone setter may send `zone` to this
+    /// camera.
+    #[must_use]
+    pub fn supports_focus_zone(&self, zone: crate::command::FocusZone) -> bool {
+        self.focus_zones.contains(&zone)
     }
 
     /// Returns true if the camera supports the requested exposure mode.
@@ -813,114 +829,96 @@ impl Capabilities {
         self.exposure_modes.contains(&mode)
     }
 
-    /// Returns the maximum optical zoom magnification (e.g., 20.0 for 20x).
+    /// Returns the magnification scale of this profile's optical zoom range.
     ///
-    /// This is calculated from the optical zoom range and the magnification
-    /// conversion factor.
-    ///
-    /// # Example
-    /// ```ignore
-    /// let caps = Capabilities::from_profile::<PtzOpticsG2>();
-    /// let max_zoom = caps.max_optical_zoom(); // ~20.0 for a 20x camera
-    /// println!("Max optical zoom: {:.1}x", max_zoom);
-    /// ```
-    #[must_use]
-    pub fn max_optical_zoom(&self) -> f32 {
-        self.zoom_units_to_magnification(*self.zoom_range_optical.end())
-    }
-
-    /// Returns the maximum combined zoom magnification (optical + digital).
-    ///
-    /// If the camera supports digital zoom, this returns the maximum digital
-    /// zoom magnification. Otherwise, it returns the maximum optical zoom.
-    ///
-    /// # Example
-    /// ```ignore
-    /// let caps = Capabilities::from_profile::<PtzOpticsG2>();
-    /// let max_combined = caps.max_combined_zoom();
-    /// if caps.has_digital_zoom {
-    ///     println!("Max combined zoom: {:.1}x (includes digital)", max_combined);
-    /// }
-    /// ```
-    #[must_use]
-    pub fn max_combined_zoom(&self) -> f32 {
-        match &self.zoom_range_digital {
-            Some(range) => self.zoom_units_to_magnification(*range.end()),
-            None => self.max_optical_zoom(),
-        }
-    }
-
-    /// Convert VISCA zoom units to magnification (e.g., 0x2000 → ~10x).
-    ///
-    /// # Arguments
-    /// * `units` - Zoom position in VISCA units
-    ///
-    /// # Returns
-    /// The zoom magnification, where 1.0 is no zoom and higher values
-    /// represent greater magnification.
-    ///
-    /// # Example
-    /// ```ignore
-    /// let caps = Capabilities::from_profile::<PtzOpticsG2>();
-    /// let magnification = caps.zoom_units_to_magnification(0x2000);
-    /// println!("Current zoom: {:.1}x", magnification); // ~10x
-    /// ```
-    #[must_use]
-    pub fn zoom_units_to_magnification(&self, units: u16) -> f32 {
-        1.0 + (units as f32 / self.zoom_magnification_to_units)
-    }
-
-    /// Convert magnification to VISCA zoom units (e.g., 10x → ~0x2000).
-    ///
-    /// # Arguments
-    /// * `magnification` - Desired zoom magnification (must be >= 1.0)
+    /// Available when the profile fixes its lens (`optical_zoom_ratio` is
+    /// `Some`): a built-in such as `PtzOptics30X`, or a custom profile that
+    /// declared its lens through the `optical_zoom_ratio` argument of
+    /// [`ProfileSpecBuilder::zoom`](crate::ProfileSpecBuilder::zoom). A
+    /// lens-dependent built-in, such as the PTZOptics G2 family's 12x, 20x and
+    /// 30x models, declares the installed lens with
+    /// [`Self::zoom_scale_for_lens`] instead.
     ///
     /// # Errors
-    /// Returns an error if the magnification is not finite, is below 1.0, or
-    /// maps past the documented optical or optical-plus-digital zoom range.
+    /// Returns [`Error::FeatureNotSupported`](crate::Error::FeatureNotSupported)
+    /// when the profile has no zoom, and
+    /// [`Error::InvalidRequest`](crate::Error::InvalidRequest) naming
+    /// [`Self::zoom_scale_for_lens`] when the profile does not fix its lens.
+    pub fn zoom_scale(&self) -> Result<super::ZoomScale, crate::Error> {
+        if !self.has_zoom {
+            return Err(crate::Error::FeatureNotSupported { feature: "zoom" });
+        }
+        let ratio = self.optical_zoom_ratio.ok_or_else(|| {
+            crate::Error::InvalidRequest(
+                format!(
+                    "{} does not fix its lens's optical zoom ratio; declare the installed lens \
+                     with `Capabilities::zoom_scale_for_lens(ratio)`, for example `20.0` for a \
+                     20x lens, or give a custom profile's fixed lens through the \
+                     `optical_zoom_ratio` argument of `ProfileSpecBuilder::zoom`",
+                    self.model_name
+                )
+                .into(),
+            )
+        })?;
+        super::ZoomScale::new(*self.zoom_range_optical.end(), ratio)
+    }
+
+    /// Returns the magnification scale for the lens installed on this camera.
     ///
-    /// # Example
-    /// ```ignore
-    /// let caps = Capabilities::from_profile::<PtzOpticsG2>();
-    /// let units = caps.magnification_to_zoom_units(10.0)?;
-    /// println!("10x zoom = 0x{:04X} units", units); // ~0x2000
-    /// ```
-    pub fn magnification_to_zoom_units(&self, magnification: f32) -> Result<u16, crate::Error> {
-        if !magnification.is_finite() {
-            return Err(crate::Error::InvalidParameter {
-                parameter: "zoom magnification",
-                value: Cow::Owned(magnification.to_string()),
-                reason: Cow::Borrowed("value must be finite"),
-            });
+    /// This is how a profile that spans several lenses is given its lens:
+    /// `caps.zoom_scale_for_lens(20.0)` for a PT20X-NDI G2 on the
+    /// `PtzOpticsG2` profile. The ratio maps exactly to the optical maximum.
+    ///
+    /// # Errors
+    /// Returns [`Error::FeatureNotSupported`](crate::Error::FeatureNotSupported)
+    /// when the profile has no zoom, and
+    /// [`Error::InvalidParameter`](crate::Error::InvalidParameter) when
+    /// `optical_ratio` is not finite and greater than `1.0`, or contradicts a
+    /// lens the profile fixes.
+    pub fn zoom_scale_for_lens(
+        &self,
+        optical_ratio: f32,
+    ) -> Result<super::ZoomScale, crate::Error> {
+        if !self.has_zoom {
+            return Err(crate::Error::FeatureNotSupported { feature: "zoom" });
         }
-
-        if magnification < 1.0 {
-            return Err(crate::Error::InvalidParameter {
-                parameter: "zoom magnification",
-                value: Cow::Owned(magnification.to_string()),
-                reason: Cow::Borrowed("value must be at least 1.0x"),
-            });
+        if let Some(fixed) = self.optical_zoom_ratio {
+            if fixed != optical_ratio {
+                return Err(crate::Error::InvalidParameter {
+                    parameter: "optical zoom ratio",
+                    value: Cow::Owned(optical_ratio.to_string()),
+                    reason: Cow::Owned(format!("{} fixes a {fixed}x lens", self.model_name)),
+                });
+            }
         }
+        super::ZoomScale::new(*self.zoom_range_optical.end(), optical_ratio)
+    }
 
-        let max_units = self
-            .zoom_range_digital
-            .as_ref()
-            .map_or(*self.zoom_range_optical.end(), |range| *range.end());
-        let units =
-            (f64::from(magnification - 1.0) * f64::from(self.zoom_magnification_to_units)).round();
-
-        if !units.is_finite() || units > f64::from(max_units) {
-            return Err(crate::Error::InvalidParameter {
-                parameter: "zoom magnification",
-                value: Cow::Owned(magnification.to_string()),
+    /// Returns this profile's shutter code for an exposure time.
+    ///
+    /// Shutter codes are camera-specific, so the lookup goes through the
+    /// profile's own [`Self::shutter_speeds`] table.
+    ///
+    /// # Errors
+    /// Returns [`Error::InvalidParameter`](crate::Error::InvalidParameter) when
+    /// the profile's table has no entry for `exposure`.
+    pub fn shutter_speed_for(
+        &self,
+        exposure: crate::units::Fraction,
+    ) -> Result<crate::types::ShutterSpeed, crate::Error> {
+        let entry = self
+            .shutter_speeds
+            .iter()
+            .find(|speed| speed.exposure == exposure)
+            .ok_or_else(|| crate::Error::InvalidParameter {
+                parameter: "shutter speed",
+                value: Cow::Owned(exposure.to_string()),
                 reason: Cow::Owned(format!(
-                    "resulting zoom units exceed documented maximum {max_units:#06X}"
+                    "{} has no shutter-table entry for this exposure time",
+                    self.model_name
                 )),
-            });
-        }
-
-        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
-        Ok(units as u16)
+            })?;
+        Ok(crate::types::ShutterSpeed::new(entry.value))
     }
 
     /// Returns a summary of key capabilities as a formatted string.
@@ -935,28 +933,52 @@ impl Capabilities {
                 "Tilt Range: {:?}° ({:?} units)",
                 self.tilt_range_degrees, self.tilt_range
             ),
-            format!(
-                "Optical Zoom: {:.0}x (0x{:04X} units)",
-                self.max_optical_zoom(),
-                self.zoom_range_optical.end()
-            ),
+            match self.optical_zoom_ratio {
+                Some(ratio) => format!(
+                    "Optical Zoom: {ratio:.0}x (0x{:04X} units)",
+                    self.zoom_range_optical.end()
+                ),
+                None => format!(
+                    "Optical Zoom: lens-dependent (0x{:04X} units)",
+                    self.zoom_range_optical.end()
+                ),
+            },
         ];
 
         if let Some(digital) = &self.zoom_range_digital {
-            lines.push(format!(
-                "Digital Zoom: {:.0}x (0x{:04X} units)",
-                self.zoom_units_to_magnification(*digital.end()),
-                digital.end()
-            ));
+            lines.push(format!("Digital Zoom: to 0x{:04X} units", digital.end()));
         }
 
-        lines.push(format!("Max Presets: {}", self.max_presets));
+        lines.push(format!("Presets: 0..={}", self.highest_preset));
 
         if self.has_nd_filter {
             lines.push(format!("ND Filter: {:?}", self.nd_filter_mode));
         }
 
         lines.join("\n")
+    }
+}
+
+/// What discovery metadata says about one typed surface
+/// ([`Capabilities::surface_metadata`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SurfaceMetadata {
+    /// The surface has its own discovery fact; `true` when the metadata
+    /// advertises it. For a built-in profile the typed-support marker must
+    /// agree exactly, unless the row's evidence records why it differs.
+    Dedicated(bool),
+    /// The surface has no discovery fact of its own and needs only its parent
+    /// domain (`true` when present). Its typed-support marker is the only
+    /// source-backed fact.
+    ParentDomain(bool),
+}
+
+impl SurfaceMetadata {
+    /// Whether the metadata permits a typed-support marker for the surface.
+    pub(crate) const fn permits(self) -> bool {
+        match self {
+            Self::Dedicated(permits) | Self::ParentDomain(permits) => permits,
+        }
     }
 }
 
@@ -969,9 +991,9 @@ mod tests {
         SonyBRCH900, SonyEVIH100, SonyFR7,
     };
     use crate::capabilities::{
-        exposure::ShutterSpeed, CapabilityRange, Exposure, Focus, ImageProcessing, MenuCapability,
-        MotionSyncMetadata, NdFilterMetadata, PanTilt, Power, Presets, ProfileMetadata,
-        ProfileTypedSupport, Tally, VariableSpeedMetadata, WhiteBalance, Zoom,
+        exposure::ShutterSpeedEntry, CapabilityRange, Exposure, Focus, ImageProcessing,
+        MenuCapability, MotionSyncMetadata, NdFilterMetadata, PanTilt, Power, Presets,
+        ProfileMetadata, ProfileTypedSupport, Tally, VariableSpeedMetadata, WhiteBalance, Zoom,
     };
     use crate::command::exposure::ExposureMode;
     use crate::transport::RawVisca;
@@ -980,7 +1002,13 @@ mod tests {
     use super::*;
 
     const SYNTHETIC_EXPOSURE_MODES: &[ExposureMode] = &[ExposureMode::Auto];
-    const SYNTHETIC_SHUTTER_SPEEDS: &[ShutterSpeed] = &[ShutterSpeed::new("1/60", 0x01)];
+    const SYNTHETIC_SHUTTER_SPEEDS: &[ShutterSpeedEntry] = &[ShutterSpeedEntry::new(
+        match crate::units::Fraction::new(1, 60) {
+            Some(exposure) => exposure,
+            None => panic!("nonzero denominator"),
+        },
+        0x01,
+    )];
     const SYNTHETIC_WB_MODES: &[WhiteBalanceMode] = &[WhiteBalanceMode::Auto];
 
     #[derive(Debug, Default, Clone, Copy)]
@@ -1014,7 +1042,7 @@ mod tests {
         const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
         const ZOOM_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 7);
         const SUPPORTS_DIRECT_ZOOM: bool = true;
-        const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3;
+        const OPTICAL_ZOOM_RATIO: Option<f32> = Some(20.0);
     }
 
     impl Focus for MetadataEnabledNoTypedSupport {
@@ -1022,14 +1050,15 @@ mod tests {
         const FOCUS_FAR_LIMIT: u16 = 0xF000;
         const SUPPORTS_AUTO_FOCUS: bool = true;
         const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
-        const SUPPORTS_FOCUS_ZONE: bool = true;
+        const FOCUS_ZONES: &'static [crate::command::FocusZone] =
+            crate::capabilities::focus::DOCUMENTED_FOCUS_ZONES;
         const SUPPORTS_AF_SENSITIVITY: bool = true;
     }
 
     impl Exposure for MetadataEnabledNoTypedSupport {
         const EXPOSURE_MODES: &'static [ExposureMode] = SYNTHETIC_EXPOSURE_MODES;
-        const IRIS_RANGE: Option<CapabilityRange<u16>> = None;
-        const SHUTTER_SPEEDS: &'static [ShutterSpeed] = SYNTHETIC_SHUTTER_SPEEDS;
+        const IRIS_RANGE: Option<CapabilityDomain<u16>> = None;
+        const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry] = SYNTHETIC_SHUTTER_SPEEDS;
         const GAIN_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 15);
         const SUPPORTS_BACKLIGHT_COMP: bool = false;
     }
@@ -1050,8 +1079,9 @@ mod tests {
     }
 
     impl Presets for MetadataEnabledNoTypedSupport {
-        const MAX_PRESETS: u8 = 6;
-        const PRESET_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(1, 23);
+        const HIGHEST_PRESET: u8 = 6;
+        const PRESET_SPEED_RANGE: Option<CapabilityRange<u8>> =
+            Some(CapabilityRange::<u8>::new(1, 23));
         const SUPPORTS_PRESET_TOUR: bool = false;
     }
 
@@ -1080,42 +1110,42 @@ mod tests {
         );
         assert_eq!(caps.model_name, "PtzOptics G2");
         assert_eq!(caps.default_camera_id, 1);
-        assert_eq!(caps.default_tcp_port, Some(5678));
-        assert_eq!(caps.default_udp_port, Some(1259));
+        let transports = <PtzOpticsG2 as crate::CompileTimeProfile>::TRANSPORTS;
+        assert_eq!(transports.tcp_port(), Some(5678));
+        assert_eq!(transports.udp_port(), Some(1259));
 
         assert!(caps.has_pan_tilt);
         assert_eq!(caps.pan_speed, 1..=24);
         assert_eq!(caps.tilt_speed, 1..=20);
 
         assert!(caps.has_zoom);
-        assert!(!caps.has_digital_zoom);
+        assert!(caps.zoom_range_digital.is_none());
         assert_eq!(caps.zoom_range_optical, 0x0000..=0x4000);
         assert_eq!(caps.zoom_range_digital, None);
 
         assert!(caps.has_auto_focus);
         assert!(!caps.has_one_push_focus);
-        assert!(caps.has_focus_zone);
+        assert!(!caps.focus_zones.is_empty());
         assert!(caps.has_focus_zone_inquiry);
         assert!(!caps.has_af_sensitivity);
         assert!(!caps.has_focus_near_limit_inquiry);
-        assert!(caps.has_iris_control);
+        assert!(caps.iris_range.is_some());
         assert!(caps.supports_exposure_mode(ExposureMode::Iris));
-        assert_eq!(caps.iris_range, Some(0..=12));
+        assert_eq!(caps.iris_range, Some(CapabilityDomain::<u16>::new(0, 12)));
         assert_eq!(caps.exposure_comp_range, Some(-7..=7));
-        assert_eq!(caps.exposure_comp_profile_range, -7..=7);
-        assert!(caps.has_rgb_gain);
         assert_eq!(caps.red_gain_range, Some(0..=255));
         assert_eq!(caps.blue_gain_range, Some(0..=255));
 
-        assert_eq!(caps.max_presets, 127);
+        assert_eq!(caps.highest_preset, 127);
         assert!(!caps.supports_preset_tour);
         assert!(!caps.has_nd_filter);
-        assert!(!caps.has_motion_sync);
-        assert_eq!(caps.max_motion_sync_speed, None);
-        assert_eq!(caps.max_motion_sync_speed_profile, 24);
+        assert_eq!(caps.motion_sync_speed_range, None);
         assert!(!caps.has_variable_speed);
         assert!(caps.has_usb_audio);
-        assert_eq!(caps.exposure_brightness_range, Some(0..=17));
+        assert_eq!(
+            caps.exposure_brightness_range,
+            Some(CapabilityDomain::<u8>::new(0, 17))
+        );
         assert!(caps.has_image_processing);
         assert_eq!(caps.contrast_range, Some(0..=14));
         assert_eq!(caps.sharpness_range, Some(0..=15));
@@ -1131,29 +1161,27 @@ mod tests {
         let caps = Capabilities::from_profile::<SonyFR7>();
 
         assert_eq!(caps.model_name, "Sony FR7");
-        assert_eq!(caps.default_tcp_port, None);
-        assert_eq!(caps.default_udp_port, Some(52381));
+        let transports = <SonyFR7 as crate::CompileTimeProfile>::TRANSPORTS;
+        assert_eq!(transports.tcp_port(), None);
+        assert_eq!(transports.udp_port(), Some(52381));
 
-        assert_eq!(caps.max_presets, 255);
+        assert_eq!(caps.highest_preset, 255);
         assert!(caps.supports_preset_tour);
         assert!(!caps.has_one_push_focus);
-        assert!(!caps.has_focus_zone);
+        assert!(caps.focus_zones.is_empty());
         assert!(!caps.has_focus_zone_inquiry);
         assert!(!caps.has_af_sensitivity);
         assert!(caps.has_focus_near_limit_inquiry);
-        assert!(caps.has_rgb_gain);
         assert_eq!(caps.red_gain_range, Some(0..=0xFF));
         assert_eq!(caps.blue_gain_range, Some(0..=0xFF));
         assert_eq!(caps.exposure_comp_range, Some(-7..=7));
-        assert!(!caps.has_color_temp);
         assert_eq!(caps.color_temp_range, None);
         assert!(caps.has_nd_filter);
         assert_eq!(
             caps.nd_filter_mode,
             crate::capabilities::NdFilterMode::Variable
         );
-        assert!(!caps.has_motion_sync);
-        assert_eq!(caps.max_motion_sync_speed, None);
+        assert_eq!(caps.motion_sync_speed_range, None);
         assert!(caps.has_variable_speed);
         assert!(!caps.has_usb_audio);
         assert_eq!(caps.exposure_brightness_range, None);
@@ -1210,7 +1238,7 @@ mod tests {
     #[test]
     fn iris_control_status_inquiry_is_not_inferred_from_other_iris_facts() {
         let g3 = Capabilities::from_profile::<PtzOpticsG3>();
-        assert!(g3.has_iris_control);
+        assert!(g3.iris_range.is_some());
         assert!(g3.supports_typed(TypedSupportSurface::IrisControl));
         assert!(!g3.supports_typed(TypedSupportSurface::IrisControlInquiry));
 
@@ -1293,7 +1321,7 @@ mod tests {
                 "Nearus BRC-300",
                 Capabilities::from_profile::<NearusBRC300>(),
                 false,
-                false,
+                true,
             ),
         ];
 
@@ -1316,9 +1344,9 @@ mod tests {
         let caps = Capabilities::from_profile::<MetadataEnabledNoTypedSupport>();
 
         assert!(caps.supports_direct_zoom);
-        assert!(caps.has_digital_zoom);
+        assert!(caps.zoom_range_digital.is_some());
         assert!(caps.has_one_push_focus);
-        assert!(caps.has_focus_zone);
+        assert!(!caps.focus_zones.is_empty());
         assert!(!caps.has_focus_zone_inquiry);
         assert!(caps.has_af_sensitivity);
         assert!(!caps.has_usb_audio);
@@ -1348,7 +1376,7 @@ mod tests {
         let thirty_x = Capabilities::from_profile::<PtzOptics30X>();
 
         for caps in [&g2, &g3, &thirty_x] {
-            assert!(caps.has_focus_zone);
+            assert!(!caps.focus_zones.is_empty());
             assert!(caps.supports_typed(TypedSupportSurface::FocusZone));
             assert!(caps.has_picture_effect);
             assert!(caps.supports_typed(TypedSupportSurface::PictureEffect));
@@ -1374,15 +1402,20 @@ mod tests {
             Capabilities::from_profile::<PtzOpticsG3>(),
             Capabilities::from_profile::<PtzOptics30X>(),
             Capabilities::from_profile::<SonyBRCH900>(),
-            Capabilities::from_profile::<SonyEVIH100>(),
         ] {
-            assert!(caps.has_color_temp);
             assert_eq!(caps.color_temp_range, Some(2500..=8000));
             assert_eq!(caps.white_balance_modes.len(), 6);
         }
 
+        // #828: the EVI-H100 manual (R8) has no color-temperature mode or
+        // command.
+        let evi = Capabilities::from_profile::<SonyEVIH100>();
+        assert_eq!(evi.color_temp_range, None);
+        assert!(!evi
+            .white_balance_modes
+            .contains(&WhiteBalanceMode::ColorTemperature));
+
         let fr7 = Capabilities::from_profile::<SonyFR7>();
-        assert!(!fr7.has_color_temp);
         assert_eq!(fr7.color_temp_range, None);
         assert_eq!(fr7.white_balance_modes.len(), 6);
     }
@@ -1392,10 +1425,11 @@ mod tests {
         let caps = Capabilities::from_profile::<GenericVisca>();
 
         assert_eq!(caps.model_name, "Generic VISCA Camera");
-        assert!(!caps.has_digital_zoom);
+        assert!(caps.zoom_range_digital.is_none());
         assert!(!caps.supports_direct_zoom);
-        assert_eq!(caps.max_presets, 6);
-        assert!(caps.has_iris_control);
+        assert_eq!(caps.highest_preset, 5);
+        assert_eq!(caps.preset_speed_range, None);
+        assert!(caps.iris_range.is_some());
         assert!(caps.supports_exposure_mode(ExposureMode::Iris));
 
         assert!(!caps.has_image_processing);
@@ -1409,8 +1443,7 @@ mod tests {
         // GenericVisca has one-push white balance, which counts as an advanced feature
         assert!(caps.has_one_push_wb);
         assert!(!caps.has_nd_filter);
-        assert!(!caps.has_motion_sync);
-        assert_eq!(caps.max_motion_sync_speed, None);
+        assert_eq!(caps.motion_sync_speed_range, None);
         assert!(!caps.has_variable_speed);
         assert!(caps.has_advanced_features());
     }
@@ -1422,10 +1455,10 @@ mod tests {
             ProfileSpec::from_compile_time::<SonyBRC300>().expect("Sony BRC-300 static profile");
         let caps = profile.capabilities();
 
-        assert_eq!(caps.max_presets, 5, "CAM_Memory p is 0 through 5");
+        assert_eq!(caps.highest_preset, 5, "CAM_Memory p is 0 through 5");
         assert_eq!(
             caps.preset_speed_range,
-            1..=24,
+            Some(1..=24),
             "Cmd_PT_M_Speed q is 1 through 24"
         );
     }
@@ -1434,8 +1467,8 @@ mod tests {
     fn brc300_discovery_keeps_preset_facts_separate_from_ptzoptics_typed_support() {
         let caps = Capabilities::from_profile::<SonyBRC300>();
 
-        assert_eq!(caps.max_presets, 5);
-        assert_eq!(caps.preset_speed_range, 1..=24);
+        assert_eq!(caps.highest_preset, 5);
+        assert_eq!(caps.preset_speed_range, Some(1..=24));
         assert_eq!(
             caps.typed_support,
             <SonyBRC300 as ProfileTypedSupport>::TYPED_SUPPORT,
@@ -1465,28 +1498,53 @@ mod tests {
         );
         assert_eq!(
             *caps.tilt_range_degrees.start(),
-            0x493D as f32 / -208.0,
-            "positive raw tilt is the up/negative-degree endpoint"
+            -0x186A as f32 / 208.0,
+            "negative raw tilt is the down/negative-degree endpoint"
         );
         assert_eq!(
             *caps.tilt_range_degrees.end(),
-            -0x186A as f32 / -208.0,
-            "negative raw tilt is the down/positive-degree endpoint"
+            0x493D as f32 / 208.0,
+            "positive raw tilt is the up/positive-degree endpoint"
         );
     }
 
     #[test]
     fn test_unsupported_quality_ranges_are_none() {
         for caps in [
-            Capabilities::from_profile::<SonyEVIH100>(),
             Capabilities::from_profile::<SonyBRC300>(),
             Capabilities::from_profile::<NearusBRC300>(),
             Capabilities::from_profile::<GenericVisca>(),
         ] {
-            assert_eq!(caps.exposure_brightness_range, None);
             assert_eq!(caps.contrast_range, None);
             assert_eq!(caps.sharpness_range, None);
         }
+        // R8 documents Aperture Level `00`..`0F` but no contrast control.
+        let evi = Capabilities::from_profile::<SonyEVIH100>();
+        assert_eq!(evi.contrast_range, None);
+        assert_eq!(evi.sharpness_range, Some(0x00..=0x0F));
+        // R8, R12 and R21 document `04 4D` Bright Direct with their own
+        // Bright tables; Generic VISCA does not assume it.
+        assert_eq!(
+            Capabilities::from_profile::<SonyEVIH100>().exposure_brightness_range,
+            Some(CapabilityDomain::<u8>::with_gaps(
+                0x00,
+                0x1F,
+                &[0x01, 0x02, 0x03, 0x04]
+            ))
+        );
+        for caps in [
+            Capabilities::from_profile::<SonyBRC300>(),
+            Capabilities::from_profile::<NearusBRC300>(),
+        ] {
+            assert_eq!(
+                caps.exposure_brightness_range,
+                Some(CapabilityDomain::<u8>::new(0x00, 0x17))
+            );
+        }
+        assert_eq!(
+            Capabilities::from_profile::<GenericVisca>().exposure_brightness_range,
+            None
+        );
 
         assert!(Capabilities::from_profile::<SonyEVIH100>().has_image_processing);
         assert!(Capabilities::from_profile::<SonyBRC300>().has_image_processing);
@@ -1502,8 +1560,7 @@ mod tests {
             assert!(!caps.has_one_push_focus);
             assert!(!caps.has_nd_filter);
             assert_eq!(caps.nd_filter_mode, crate::capabilities::NdFilterMode::None);
-            assert!(!caps.has_motion_sync);
-            assert_eq!(caps.max_motion_sync_speed, None);
+            assert_eq!(caps.motion_sync_speed_range, None);
             assert!(!caps.has_variable_speed);
         }
 
@@ -1514,8 +1571,7 @@ mod tests {
             crate::capabilities::NdFilterMode::Variable
         );
         assert!(!fr7.has_one_push_focus);
-        assert!(!fr7.has_motion_sync);
-        assert_eq!(fr7.max_motion_sync_speed, None);
+        assert_eq!(fr7.motion_sync_speed_range, None);
         assert!(fr7.has_variable_speed);
 
         for caps in [
@@ -1525,11 +1581,17 @@ mod tests {
             Capabilities::from_profile::<SonyBRC300>(),
             Capabilities::from_profile::<NearusBRC300>(),
         ] {
-            assert!(!caps.has_one_push_focus);
+            // R8, R12 and R21 document the One Push AF trigger; the BRC-H900
+            // source does not.
+            assert_eq!(
+                caps.has_one_push_focus,
+                caps.model_name != "Sony BRC-H900",
+                "{}",
+                caps.model_name
+            );
             assert!(!caps.has_nd_filter);
             assert_eq!(caps.nd_filter_mode, crate::capabilities::NdFilterMode::None);
-            assert!(!caps.has_motion_sync);
-            assert_eq!(caps.max_motion_sync_speed, None);
+            assert_eq!(caps.motion_sync_speed_range, None);
             assert!(!caps.has_variable_speed);
         }
     }
@@ -1540,123 +1602,54 @@ mod tests {
         let summary = caps.summary();
 
         assert!(summary.contains("Model: PtzOptics G2"));
-        assert!(summary.contains("Optical Zoom: 20x"));
+        assert!(summary.contains("Optical Zoom: lens-dependent"));
         assert!(summary.contains("0x4000"));
         assert!(!summary.contains("0x7000"));
-        assert!(summary.contains("Max Presets: 127"));
+        assert!(summary.contains("Presets: 0..=127"));
     }
 
+    /// #828 M2: the G2 family's lens is declared per camera; the legacy
+    /// PT30X profile's 30x lens is a profile fact (R3, docs/visca_reference.md
+    /// §4.1).
     #[test]
-    fn test_zoom_magnification_field() {
-        // PtzOpticsG2: 20x optical zoom with ZOOM_MAGNIFICATION_TO_UNITS = 862.3
-        let caps = Capabilities::from_profile::<PtzOpticsG2>();
-        assert!((caps.zoom_magnification_to_units - 862.3).abs() < 0.01);
-
-        // GenericVisca: ZOOM_MAGNIFICATION_TO_UNITS = 1000.0
-        let caps = Capabilities::from_profile::<GenericVisca>();
-        assert!((caps.zoom_magnification_to_units - 1000.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn test_max_optical_zoom() {
-        // PtzOpticsG2: 0x4000 / 862.3 + 1 ≈ 20x
-        let caps = Capabilities::from_profile::<PtzOpticsG2>();
-        let max_zoom = caps.max_optical_zoom();
+    #[allow(clippy::expect_used)]
+    fn zoom_scale_comes_from_the_profile_or_the_declared_lens() -> Result<(), crate::Error> {
+        let g2 = Capabilities::from_profile::<PtzOpticsG2>();
+        let undeclared = g2.zoom_scale().expect_err("G2 lens is not a profile fact");
         assert!(
-            (max_zoom - 20.0).abs() < 0.5,
-            "PtzOpticsG2 max optical zoom should be ~20x, got {max_zoom}"
+            matches!(&undeclared, crate::Error::InvalidRequest(message)
+                if message.contains("PtzOptics G2")
+                    && message.contains("Capabilities::zoom_scale_for_lens(ratio)")),
+            "{undeclared:?}"
         );
+        for ratio in [12.0, 20.0, 30.0] {
+            let lens = g2.zoom_scale_for_lens(ratio)?;
+            assert_eq!(lens.units(ratio)?, 0x4000);
+            assert_eq!(lens.units(1.0)?, 0);
+        }
+        for invalid in [1.0, 0.5, f32::NAN, f32::INFINITY] {
+            assert!(matches!(
+                g2.zoom_scale_for_lens(invalid),
+                Err(crate::Error::InvalidParameter {
+                    parameter: "optical zoom ratio",
+                    ..
+                })
+            ));
+        }
 
-        // GenericVisca: 0xFFFF / 1000.0 + 1 ≈ 66.5x
-        let caps = Capabilities::from_profile::<GenericVisca>();
-        let max_zoom = caps.max_optical_zoom();
-        assert!(
-            (max_zoom - 66.5).abs() < 1.0,
-            "GenericVisca max optical zoom should be ~66.5x, got {max_zoom}"
-        );
-    }
+        let pt30x = Capabilities::from_profile::<PtzOptics30X>();
+        // 29 × 565.0 = 16385 units: the former scale could not reach 30x.
+        assert_eq!(pt30x.zoom_scale()?.units(30.0)?, 0x4000);
+        assert_eq!(pt30x.zoom_scale_for_lens(30.0)?, pt30x.zoom_scale()?);
+        assert!(pt30x.zoom_scale_for_lens(20.0).is_err());
 
-    #[test]
-    fn test_max_combined_zoom() {
-        // SonyFR7 has digital zoom (0x7000)
-        let caps = Capabilities::from_profile::<SonyFR7>();
-        let max_combined = caps.max_combined_zoom();
-        let max_optical = caps.max_optical_zoom();
-        assert!(
-            max_combined > max_optical,
-            "Combined zoom should exceed optical zoom for cameras with digital zoom"
-        );
-
-        // PtzOpticsG2 has no digital zoom (cameras reject the VISCA command)
-        let caps = Capabilities::from_profile::<PtzOpticsG2>();
-        assert!(
-            !caps.has_digital_zoom,
-            "PtzOpticsG2 should not declare digital zoom support"
-        );
-        let max_combined = caps.max_combined_zoom();
-        let max_optical = caps.max_optical_zoom();
-        assert!(
-            (max_combined - max_optical).abs() < 0.01,
-            "Without digital zoom, combined should equal optical"
-        );
-
-        // GenericVisca has no digital zoom
-        let caps = Capabilities::from_profile::<GenericVisca>();
-        let max_combined = caps.max_combined_zoom();
-        let max_optical = caps.max_optical_zoom();
-        assert!(
-            (max_combined - max_optical).abs() < 0.01,
-            "Without digital zoom, combined should equal optical"
-        );
-    }
-
-    #[test]
-    fn test_zoom_unit_conversions() -> Result<(), crate::Error> {
-        let caps = Capabilities::from_profile::<PtzOpticsG2>();
-
-        // 1x magnification = 0 units
-        let units = caps.magnification_to_zoom_units(1.0)?;
-        assert_eq!(units, 0, "1x magnification should be 0 units");
-
-        // 0 units = 1x magnification
-        let mag = caps.zoom_units_to_magnification(0);
-        assert!(
-            (mag - 1.0).abs() < 0.01,
-            "0 units should be 1x magnification"
-        );
-
-        // Round-trip conversion
-        let original_mag = 10.0;
-        let units = caps.magnification_to_zoom_units(original_mag)?;
-        let recovered_mag = caps.zoom_units_to_magnification(units);
-        assert!(
-            (recovered_mag - original_mag).abs() < 0.1,
-            "Round-trip conversion failed: {original_mag} -> {units} -> {recovered_mag}"
-        );
-
-        // Max optical zoom units should give max optical magnification
-        let max_units = *caps.zoom_range_optical.end();
-        let max_mag = caps.zoom_units_to_magnification(max_units);
-        let expected_max = caps.max_optical_zoom();
-        assert!(
-            (max_mag - expected_max).abs() < 0.01,
-            "Max units should give max magnification"
-        );
+        let mut no_zoom = pt30x;
+        no_zoom.has_zoom = false;
+        assert!(matches!(
+            no_zoom.zoom_scale(),
+            Err(crate::Error::FeatureNotSupported { feature: "zoom" })
+        ));
+        assert!(no_zoom.zoom_scale_for_lens(20.0).is_err());
         Ok(())
-    }
-
-    #[test]
-    fn test_magnification_to_units_edge_cases() {
-        let caps = Capabilities::from_profile::<PtzOpticsG2>();
-
-        // Values below 1.0 are invalid and must not silently clamp to wide.
-        assert!(caps.magnification_to_zoom_units(0.5).is_err());
-        assert!(caps.magnification_to_zoom_units(0.0).is_err());
-        assert!(caps.magnification_to_zoom_units(-1.0).is_err());
-        assert!(caps.magnification_to_zoom_units(f32::NAN).is_err());
-        assert!(caps.magnification_to_zoom_units(f32::INFINITY).is_err());
-        assert!(caps
-            .magnification_to_zoom_units(caps.max_combined_zoom() + 1.0)
-            .is_err());
     }
 }

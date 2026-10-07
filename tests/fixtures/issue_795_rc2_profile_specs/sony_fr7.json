@@ -1,0 +1,367 @@
+{
+  "capabilities": {
+    "profile_id": "sony-fr7",
+    "model_name": "Sony FR7",
+    "default_camera_id": 1,
+    "default_tcp_port": null,
+    "default_udp_port": 52381,
+    "has_pan_tilt": true,
+    "pan_speed": {
+      "start": 1,
+      "end": 24
+    },
+    "tilt_speed": {
+      "start": 1,
+      "end": 24
+    },
+    "pan_range": {
+      "start": -2700,
+      "end": 2700
+    },
+    "tilt_range": {
+      "start": -300,
+      "end": 1200
+    },
+    "pan_range_degrees": {
+      "start": -170.02519,
+      "end": 170.02519
+    },
+    "tilt_range_degrees": {
+      "start": -20.0,
+      "end": 80.0
+    },
+    "pan_tilt_simultaneous": true,
+    "preset_recovery_time": {
+      "secs": 0,
+      "nanos": 0
+    },
+    "has_zoom": true,
+    "has_digital_zoom": true,
+    "zoom_range_optical": {
+      "start": 0,
+      "end": 16384
+    },
+    "zoom_range_digital": {
+      "start": 16384,
+      "end": 28672
+    },
+    "zoom_speed": {
+      "start": 0,
+      "end": 7
+    },
+    "supports_direct_zoom": true,
+    "supports_variable_zoom": true,
+    "zoom_magnification_to_units": 1000.0,
+    "has_focus": true,
+    "has_auto_focus": true,
+    "has_one_push_focus": false,
+    "focus_range": {
+      "start": 4096,
+      "end": 61440
+    },
+    "focus_speed": {
+      "start": 0,
+      "end": 7
+    },
+    "has_focus_zone": false,
+    "has_focus_zone_inquiry": false,
+    "has_af_sensitivity": false,
+    "has_focus_near_limit_inquiry": true,
+    "has_exposure": true,
+    "has_iris_control": false,
+    "exposure_modes": [],
+    "has_backlight_comp": true,
+    "has_wdr": true,
+    "has_exposure_comp": true,
+    "exposure_comp_range": {
+      "start": -7,
+      "end": 7
+    },
+    "exposure_comp_profile_range": {
+      "start": -7,
+      "end": 7
+    },
+    "iris_range": null,
+    "gain_range": {
+      "start": 0,
+      "end": 15
+    },
+    "shutter_speeds": [
+      {
+        "label": "1/30",
+        "value": 1
+      },
+      {
+        "label": "1/60",
+        "value": 2
+      },
+      {
+        "label": "1/90",
+        "value": 3
+      },
+      {
+        "label": "1/100",
+        "value": 4
+      },
+      {
+        "label": "1/125",
+        "value": 5
+      },
+      {
+        "label": "1/180",
+        "value": 6
+      },
+      {
+        "label": "1/250",
+        "value": 7
+      },
+      {
+        "label": "1/350",
+        "value": 8
+      },
+      {
+        "label": "1/500",
+        "value": 9
+      },
+      {
+        "label": "1/725",
+        "value": 10
+      },
+      {
+        "label": "1/1000",
+        "value": 11
+      },
+      {
+        "label": "1/1500",
+        "value": 12
+      },
+      {
+        "label": "1/2000",
+        "value": 13
+      },
+      {
+        "label": "1/3000",
+        "value": 14
+      },
+      {
+        "label": "1/4000",
+        "value": 15
+      },
+      {
+        "label": "1/6000",
+        "value": 16
+      },
+      {
+        "label": "1/10000",
+        "value": 17
+      }
+    ],
+    "exposure_brightness_range": null,
+    "has_white_balance": true,
+    "has_one_push_wb": true,
+    "has_color_temp": false,
+    "color_temp_range": null,
+    "rg_tuning_range": {
+      "start": -7,
+      "end": 7
+    },
+    "bg_tuning_range": {
+      "start": -7,
+      "end": 7
+    },
+    "has_rgb_gain": true,
+    "red_gain_range": {
+      "start": 0,
+      "end": 255
+    },
+    "blue_gain_range": {
+      "start": 0,
+      "end": 255
+    },
+    "white_balance_modes": [
+      "auto",
+      "indoor",
+      "outdoor",
+      "atw",
+      "one_push",
+      "manual"
+    ],
+    "has_image_processing": true,
+    "contrast_range": {
+      "start": 0,
+      "end": 14
+    },
+    "sharpness_range": {
+      "start": 0,
+      "end": 14
+    },
+    "saturation_range": {
+      "start": 0,
+      "end": 14
+    },
+    "hue_range": {
+      "start": 0,
+      "end": 14
+    },
+    "luminance_range": null,
+    "gamma_range": {
+      "start": 0,
+      "end": 4
+    },
+    "supports_flip": true,
+    "supports_mirror": true,
+    "supports_hue": true,
+    "uses_combined_flip_command": false,
+    "requires_settings_save_for_flip": false,
+    "has_noise_reduction": false,
+    "has_2d_nr": false,
+    "has_3d_nr": false,
+    "has_picture_effect": false,
+    "has_gamma": true,
+    "has_luminance": false,
+    "has_tally": true,
+    "has_presets": true,
+    "max_presets": 255,
+    "preset_speed_range": {
+      "start": 1,
+      "end": 24
+    },
+    "supports_preset_tour": true,
+    "supports_preset_thumbnail": true,
+    "preset_recall_delay": {
+      "secs": 0,
+      "nanos": 0
+    },
+    "supports_preset_names": false,
+    "max_preset_name_length": 0,
+    "has_power": true,
+    "supports_standby": true,
+    "supports_wake_on_lan": true,
+    "power_on_time": {
+      "secs": 15,
+      "nanos": 0
+    },
+    "standby_time": {
+      "secs": 1,
+      "nanos": 0
+    },
+    "retains_settings_on_power_off": true,
+    "home_on_power_up": false,
+    "has_nd_filter": true,
+    "nd_filter_mode": "Variable",
+    "nd_filter_steps": null,
+    "has_motion_sync": false,
+    "max_motion_sync_speed": null,
+    "max_motion_sync_speed_profile": 24,
+    "has_direct_menu_control": true,
+    "has_variable_speed": true,
+    "has_usb_audio": false,
+    "inquiry_support": "Full",
+    "supports_operation_complete": false,
+    "typed_support": [
+      "direct-zoom",
+      "digital-zoom-toggle",
+      "digital-zoom-range",
+      "push-auto-focus",
+      "focus-near-limit-inquiry",
+      "backlight-compensation",
+      "wide-dynamic-range",
+      "exposure-compensation",
+      "one-push-white-balance",
+      "auto-tracking-white-balance",
+      "rgb-gain",
+      "rgb-tuning",
+      "image-flip",
+      "image-mirror",
+      "contrast-control",
+      "sharpness-control",
+      "saturation-control",
+      "hue-control",
+      "gamma-control",
+      "tally",
+      "direct-menu",
+      "nd-filter",
+      "variable-speed",
+      "sony-spotlight"
+    ]
+  },
+  "pan_tilt_coordinates": {
+    "coordinate_system": "SignedCentered",
+    "wire_codec": "StandardVisca",
+    "pan_degrees_to_units": 15.88,
+    "tilt_degrees_to_units": 15.0
+  },
+  "transports": {
+    "tcp_port": null,
+    "udp_port": 52381,
+    "serial": false
+  },
+  "envelope": "SonyEncapsulated",
+  "timing": {
+    "ack_timeout": {
+      "secs": 0,
+      "nanos": 500000000
+    },
+    "command_timeouts": {
+      "quick_timeout": {
+        "secs": 8,
+        "nanos": 0
+      },
+      "movement_timeout": {
+        "secs": 30,
+        "nanos": 0
+      },
+      "preset_timeout": {
+        "secs": 60,
+        "nanos": 0
+      },
+      "long_running_timeout": {
+        "secs": 300,
+        "nanos": 0
+      },
+      "network_timeout": {
+        "secs": 8,
+        "nanos": 0
+      }
+    },
+    "inquiry_timeout": {
+      "secs": 1,
+      "nanos": 0
+    },
+    "cancellation_timeout": {
+      "secs": 1,
+      "nanos": 0
+    },
+    "ambiguity_timeout": {
+      "secs": 1,
+      "nanos": 0
+    },
+    "busy_timeout": {
+      "secs": 0,
+      "nanos": 240000000
+    },
+    "raw_inquiry_reply_skew": {
+      "secs": 0,
+      "nanos": 35000000
+    },
+    "minimum_inquiry_spacing": {
+      "secs": 0,
+      "nanos": 35000000
+    },
+    "minimum_command_spacing": {
+      "secs": 0,
+      "nanos": 35000000
+    }
+  },
+  "maximum_command_sockets": 2,
+  "supports_operation_complete": false,
+  "supports_command_cancel": true,
+  "preset_recall_axes": 7,
+  "position_inquiries": {
+    "pan_tilt": true,
+    "zoom": true,
+    "focus": true,
+    "iris": false,
+    "nd_filter": true
+  }
+}

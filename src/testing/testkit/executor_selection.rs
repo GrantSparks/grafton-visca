@@ -38,6 +38,7 @@
 ///
 /// This enum represents the different executor types available for testing.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum TestExecutorType {
     /// DeterministicExecutor - for logic and sequencing tests
     Deterministic,
@@ -82,47 +83,3 @@ pub trait TestExecutorSelector {
 pub struct TestExecutors;
 
 impl TestExecutorSelector for TestExecutors {}
-
-/// Macro to create a test with the appropriate executor for logic tests.
-///
-/// This macro sets up a test that uses DeterministicExecutor for deterministic
-/// logic and sequencing tests.
-#[macro_export]
-macro_rules! logic_test {
-    ($name:ident, $body:expr) => {
-        #[test]
-        fn $name() {
-            use $crate::testing::testkit::deterministic_executor::{
-                DeterministicClock, DeterministicExecutor,
-            };
-            let (executor, clock): (std::sync::Arc<DeterministicExecutor>, DeterministicClock) =
-                DeterministicExecutor::new();
-            $body(executor, clock)
-        }
-    };
-}
-
-/// Macro to create a test with the appropriate executor for timeout tests.
-///
-/// This macro sets up a test that uses a real runtime executor for tests
-/// that require actual timeout behavior.
-#[macro_export]
-macro_rules! timeout_test {
-    ($name:ident, $body:expr) => {
-        #[cfg(feature = "runtime-tokio")]
-        #[tokio::test]
-        async fn $name() {
-            use $crate::executor::TokioExecutor;
-            let executor = std::sync::Arc::new(TokioExecutor::from_current().unwrap());
-            $body(executor).await
-        }
-
-        #[cfg(all(not(feature = "runtime-tokio"), feature = "runtime-smol"))]
-        #[test]
-        fn $name() {
-            use $crate::executor::SmolExecutor;
-            let executor = std::sync::Arc::new(SmolExecutor);
-            smol::block_on(async { $body(executor).await })
-        }
-    };
-}

@@ -1,8 +1,9 @@
 //! Shared-session registry acceptance coverage.
 //!
 //! The registry is deliberately exercised through the public root and facade
-//! APIs.  The transport spies below never perform socket or serial I/O; they
-//! only provide deterministic VISCA frames when a request is admitted.
+//! APIs. The cameras below never perform socket or serial I/O; they only
+//! provide deterministic VISCA frames when a request is admitted, and expose
+//! the owner's write, receive and transport-configuration read counts.
 
 #[cfg(any(
     feature = "blocking",
@@ -10,6 +11,26 @@
     feature = "runtime-smol"
 ))]
 use std::time::Duration;
+
+#[cfg(any(
+    feature = "blocking",
+    feature = "runtime-tokio",
+    feature = "runtime-smol"
+))]
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
+
+#[cfg(any(
+    feature = "blocking",
+    feature = "runtime-tokio",
+    feature = "runtime-smol"
+))]
+use fake_camera::FakeCamera;
+
+#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
+#[macro_use]
+#[path = "common/matrix.rs"]
+mod matrix;
 
 use grafton_visca::{
     profile::ProfileSpec,
@@ -22,7 +43,11 @@ use grafton_visca::{
     feature = "runtime-tokio",
     feature = "runtime-smol"
 ))]
-use grafton_visca::OperationalTuning;
+use grafton_visca::{
+    camera::TransportKind,
+    transport::{AddressingMode, SendSemantics, TransportConfig},
+    OperationalTuning,
+};
 
 fn raw_profile() -> ProfileSpec {
     ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("raw profile")
@@ -30,6 +55,72 @@ fn raw_profile() -> ProfileSpec {
 
 fn sony_profile() -> ProfileSpec {
     ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony profile")
+}
+
+#[cfg(any(
+    feature = "blocking",
+    feature = "runtime-tokio",
+    feature = "runtime-smol"
+))]
+/// A camera that answers a raw inquiry with data and any other write with an
+/// ACK and a completion. A serial camera addresses its replies to the writing
+/// target; otherwise they come from source `0x90`.
+fn spy_camera(addressing: AddressingMode) -> FakeCamera {
+    FakeCamera::new(move |write, answer| {
+        let source = if addressing == AddressingMode::Serial {
+            let id = write.first().copied().unwrap_or(0x81) & 0x0f;
+            0x80 | (id.saturating_add(8) << 4)
+        } else {
+            0x90
+        };
+        if write.get(1) == Some(&0x09) {
+            answer.reply(vec![source, 0x50, 0x01, 0x02, 0xff]);
+        } else {
+            answer
+                .reply(vec![source, 0x41, 0xff])
+                .reply(vec![source, 0x51, 0xff]);
+        }
+    })
+}
+
+#[cfg(any(
+    feature = "blocking",
+    feature = "runtime-tokio",
+    feature = "runtime-smol"
+))]
+/// The transport configuration of a spy with `addressing`.
+fn spy_config(addressing: AddressingMode) -> TransportConfig {
+    let mut config = TransportConfig::default();
+    config.addressing = addressing;
+    config
+}
+
+#[cfg(any(
+    feature = "blocking",
+    feature = "runtime-tokio",
+    feature = "runtime-smol"
+))]
+/// A serial spy sends as a stream; otherwise as datagrams.
+fn spy_semantics(addressing: AddressingMode) -> SendSemantics {
+    if addressing == AddressingMode::Serial {
+        SendSemantics::Stream
+    } else {
+        SendSemantics::Datagram
+    }
+}
+
+#[cfg(any(
+    feature = "blocking",
+    feature = "runtime-tokio",
+    feature = "runtime-smol"
+))]
+/// The addressing hint a spy reports by default: only a standard serial
+/// transport names its addressing.
+fn spy_hint(
+    addressing: AddressingMode,
+    standard_kind: Option<TransportKind>,
+) -> Option<AddressingMode> {
+    (standard_kind == Some(TransportKind::Serial)).then_some(addressing)
 }
 
 #[test]
@@ -101,168 +192,47 @@ fn root_and_blocking_session_config_are_the_same_type() {
 ))]
 mod async_registry {
     use super::*;
-    use std::{
-        future::Future,
-        sync::{
-            atomic::{AtomicUsize, Ordering},
-            Arc, Mutex,
-        },
-    };
 
     #[cfg(feature = "runtime-tokio")]
     use std::num::NonZeroUsize;
 
-    use grafton_visca::{
-        camera::TransportKind,
-        request,
-        transport::{
-            AddressingMode, AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig,
-        },
-        ControlClass, Request, RetryClass, TimeoutClass,
-    };
+    use grafton_visca::{request, ControlClass, Request, RetryClass, TimeoutClass};
+
+    use fake_camera::AsyncWire;
 
     #[cfg(feature = "runtime-tokio")]
     use grafton_visca::{Inquiry, InquiryRoute, ResponseDecoder};
 
-    #[derive(Debug, Clone)]
-    struct SpyCounts {
-        config_reads: Arc<AtomicUsize>,
-        writes: Arc<AtomicUsize>,
-        reads: Arc<AtomicUsize>,
+    /// A spy camera and its wire: the shared wire with the spy's addressing
+    /// and, when `standard_kind` is a standard transport, its kind.
+    fn spy(
+        addressing: AddressingMode,
+        standard_kind: Option<TransportKind>,
+    ) -> (AsyncWire, FakeCamera) {
+        spy_with_hint(
+            addressing,
+            standard_kind,
+            spy_hint(addressing, standard_kind),
+        )
     }
 
-    impl SpyCounts {
-        fn new() -> Self {
-            Self {
-                config_reads: Arc::new(AtomicUsize::new(0)),
-                writes: Arc::new(AtomicUsize::new(0)),
-                reads: Arc::new(AtomicUsize::new(0)),
-            }
-        }
-    }
-
-    #[derive(Debug)]
-    struct AsyncSpy {
-        config: TransportConfig,
+    fn spy_with_hint(
+        addressing: AddressingMode,
         standard_kind: Option<TransportKind>,
         addressing_hint: Option<AddressingMode>,
-        responses: flume::Receiver<Vec<u8>>,
-        response_tx: flume::Sender<Vec<u8>>,
-        counts: SpyCounts,
-        writes: Arc<Mutex<Vec<Vec<u8>>>>,
-    }
-
-    impl AsyncSpy {
-        fn new(
-            addressing: AddressingMode,
-            standard_kind: Option<TransportKind>,
-        ) -> (Self, SpyCounts) {
-            Self::new_with_hint(
-                addressing,
-                standard_kind,
-                (standard_kind == Some(TransportKind::Serial)).then_some(addressing),
-            )
+    ) -> (AsyncWire, FakeCamera) {
+        let camera = spy_camera(addressing);
+        let mut wire = camera
+            .async_wire()
+            .with_config(spy_config(addressing))
+            .with_semantics(spy_semantics(addressing));
+        if let Some(hint) = addressing_hint {
+            wire = wire.with_addressing(hint);
         }
-
-        fn new_with_hint(
-            addressing: AddressingMode,
-            standard_kind: Option<TransportKind>,
-            addressing_hint: Option<AddressingMode>,
-        ) -> (Self, SpyCounts) {
-            let (response_tx, responses) = flume::unbounded();
-            let counts = SpyCounts::new();
-            let writes = Arc::new(Mutex::new(Vec::new()));
-            (
-                Self {
-                    config: TransportConfig {
-                        addressing,
-                        ..TransportConfig::default()
-                    },
-                    standard_kind,
-                    addressing_hint,
-                    responses,
-                    response_tx,
-                    counts: counts.clone(),
-                    writes,
-                },
-                counts,
-            )
+        if let Some(kind) = standard_kind {
+            wire = wire.with_transport_kind(kind);
         }
-
-        fn source_for(bytes: &[u8], addressing: AddressingMode) -> u8 {
-            if addressing == AddressingMode::Serial {
-                let id = bytes.first().copied().unwrap_or(0x81) & 0x0f;
-                0x80 | (id.saturating_add(8) << 4)
-            } else {
-                0x90
-            }
-        }
-    }
-
-    impl HasTransportConfig for AsyncSpy {
-        fn transport_config(&self) -> &TransportConfig {
-            self.counts.config_reads.fetch_add(1, Ordering::SeqCst);
-            &self.config
-        }
-
-        fn standard_transport_kind(&self) -> Option<TransportKind> {
-            self.standard_kind
-        }
-    }
-
-    impl AsyncTransport for AsyncSpy {
-        fn send(&mut self, bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
-            let bytes = bytes.to_vec();
-            self.counts.writes.fetch_add(1, Ordering::SeqCst);
-            self.writes.lock().expect("writes lock").push(bytes.clone());
-            let tx = self.response_tx.clone();
-            let source = Self::source_for(&bytes, self.config.addressing);
-            let inquiry = bytes.get(1) == Some(&0x09);
-            async move {
-                if inquiry {
-                    tx.send_async(vec![source, 0x50, 0x01, 0x02, 0xff])
-                        .await
-                        .map_err(|_| Error::ConnectionClosed { reason: None })?;
-                } else {
-                    tx.send_async(vec![source, 0x41, 0xff])
-                        .await
-                        .map_err(|_| Error::ConnectionClosed { reason: None })?;
-                    tx.send_async(vec![source, 0x51, 0xff])
-                        .await
-                        .map_err(|_| Error::ConnectionClosed { reason: None })?;
-                }
-                Ok(())
-            }
-        }
-
-        #[allow(clippy::manual_async_fn)]
-        fn recv_into<'a>(
-            &'a mut self,
-            dst: &'a mut [u8],
-        ) -> impl Future<Output = Result<usize, Error>> + Send {
-            self.counts.reads.fetch_add(1, Ordering::SeqCst);
-            async move {
-                let response = self
-                    .responses
-                    .recv_async()
-                    .await
-                    .map_err(|_| Error::ConnectionClosed { reason: None })?;
-                dst[..response.len()].copy_from_slice(&response);
-                Ok(response.len())
-            }
-        }
-
-        fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-            self.addressing_hint
-        }
-
-        fn send_semantics(&self) -> SendSemantics {
-            if self.config.addressing == AddressingMode::Serial {
-                SendSemantics::Stream
-            } else {
-                SendSemantics::Datagram
-            }
-        }
+        (wire, camera)
     }
 
     #[derive(Debug)]
@@ -318,12 +288,13 @@ mod async_registry {
             .expect("multi-target config")
     }
 
+    // The Tokio and smol serial-routing tests are separate: the Tokio one
+    // also drives raw inquiries and joins with `tokio::join!`, while the smol
+    // one covers commands only, joined with `futures_lite`.
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
     async fn tokio_serial_registry_routes_interleaved_commands_and_global_inquiries() {
-        let (transport, counts) =
-            AsyncSpy::new(AddressingMode::Serial, Some(TransportKind::Serial));
-        let writes = Arc::clone(&transport.writes);
+        let (transport, fake) = spy(AddressingMode::Serial, Some(TransportKind::Serial));
         let session = grafton_visca::Session::open(
             transport,
             multi_config(),
@@ -372,84 +343,20 @@ mod async_registry {
         assert_eq!(first.expect("camera 1 inquiry"), vec![1, 2]);
         assert_eq!(second.expect("camera 2 inquiry"), vec![1, 2]);
 
-        session.shutdown().await.expect("shutdown");
-        assert_eq!(counts.writes.load(Ordering::SeqCst), 4);
-        let writes = writes.lock().expect("writes lock");
+        session.shutdown().expect("shutdown");
+        assert_eq!(fake.write_count(), 4);
+        let writes = fake.writes();
         assert_eq!(writes[0][0], CameraId::CAMERA_1.to_address_byte());
         assert_eq!(writes[1][0], CameraId::CAMERA_2.to_address_byte());
         assert_eq!(writes[2][0], CameraId::CAMERA_1.to_address_byte());
         assert_eq!(writes[3][0], CameraId::CAMERA_2.to_address_byte());
     }
 
-    #[cfg(feature = "runtime-tokio")]
-    #[tokio::test]
-    async fn tokio_empty_registry_fails_before_transport_config_or_io() {
-        let (transport, counts) =
-            AsyncSpy::new(AddressingMode::Serial, Some(TransportKind::Serial));
-        let error = grafton_visca::Session::open(
-            transport,
-            SessionConfig::default(),
-            grafton_visca::TokioRuntime::from_current().expect("runtime"),
-        )
-        .await
-        .expect_err("empty registry");
-        assert!(matches!(error, Error::InvalidRequest(_)));
-        assert_eq!(counts.config_reads.load(Ordering::SeqCst), 0);
-        assert_eq!(counts.writes.load(Ordering::SeqCst), 0);
-        assert_eq!(counts.reads.load(Ordering::SeqCst), 0);
-    }
-
-    #[cfg(feature = "runtime-tokio")]
-    #[tokio::test]
-    async fn tokio_maximum_admission_capacity_fails_before_owner_construction() {
-        let (transport, counts) =
-            AsyncSpy::new(AddressingMode::Serial, Some(TransportKind::Serial));
-        let config = SessionConfig::new(raw_profile()).with_admission_capacity(
-            NonZeroUsize::new(usize::MAX).expect("usize::MAX is non-zero"),
-        );
-
-        let error = grafton_visca::Session::open(
-            transport,
-            config,
-            grafton_visca::TokioRuntime::from_current().expect("runtime"),
-        )
-        .await
-        .expect_err("maximum admission capacity must fail validation");
-
-        assert!(matches!(error, Error::InvalidRequest(_)));
-        // The rejection occurs before adapter construction, which would read
-        // transport configuration and then create/spawn the owner actor.
-        assert_eq!(counts.config_reads.load(Ordering::SeqCst), 0);
-        assert_eq!(counts.writes.load(Ordering::SeqCst), 0);
-        assert_eq!(counts.reads.load(Ordering::SeqCst), 0);
-    }
-
-    #[cfg(feature = "runtime-smol")]
-    #[test]
-    fn smol_empty_registry_fails_before_transport_config_or_io() {
-        smol::block_on(async {
-            let (transport, counts) =
-                AsyncSpy::new(AddressingMode::Serial, Some(TransportKind::Serial));
-            let error = grafton_visca::Session::open(
-                transport,
-                SessionConfig::default(),
-                grafton_visca::SmolRuntime::new(),
-            )
-            .await
-            .expect_err("empty registry");
-            assert!(matches!(error, Error::InvalidRequest(_)));
-            assert_eq!(counts.config_reads.load(Ordering::SeqCst), 0);
-            assert_eq!(counts.writes.load(Ordering::SeqCst), 0);
-            assert_eq!(counts.reads.load(Ordering::SeqCst), 0);
-        });
-    }
-
     #[cfg(feature = "runtime-smol")]
     #[test]
     fn smol_serial_registry_routes_interleaved_commands() {
         smol::block_on(async {
-            let (transport, counts) =
-                AsyncSpy::new(AddressingMode::Serial, Some(TransportKind::Serial));
+            let (transport, fake) = spy(AddressingMode::Serial, Some(TransportKind::Serial));
             let session = grafton_visca::Session::open(
                 transport,
                 multi_config(),
@@ -468,158 +375,129 @@ mod async_registry {
                     .await;
             one.expect("camera 1 command");
             two.expect("camera 2 command");
-            session.shutdown().await.expect("shutdown");
-            assert_eq!(counts.writes.load(Ordering::SeqCst), 2);
+            session.shutdown().expect("shutdown");
+            assert_eq!(fake.write_count(), 2);
         });
     }
 
-    async fn unsupported_multi_target_topologies_do_not_write_or_read<E, F>(runtime: F)
-    where
+    async fn empty_registry_fails_before_transport_config_or_io<E: grafton_visca::Executor>(
+        executor: E,
+    ) {
+        let (transport, fake) = spy(AddressingMode::Serial, Some(TransportKind::Serial));
+        let error = grafton_visca::Session::open(transport, SessionConfig::default(), executor)
+            .await
+            .expect_err("empty registry");
+        assert!(matches!(error, Error::InvalidRequest(_)));
+        assert_eq!(fake.config_reads(), 0);
+        assert_eq!(fake.write_count(), 0);
+        assert_eq!(fake.receive_calls(), 0);
+    }
+
+    // A single-runtime scenario: it runs under Tokio only.
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn tokio_maximum_admission_capacity_fails_before_owner_construction() {
+        let (transport, fake) = spy(AddressingMode::Serial, Some(TransportKind::Serial));
+        let config = SessionConfig::new(raw_profile()).with_admission_capacity(
+            NonZeroUsize::new(usize::MAX).expect("usize::MAX is non-zero"),
+        );
+
+        let error = grafton_visca::Session::open(
+            transport,
+            config,
+            grafton_visca::TokioRuntime::from_current().expect("runtime"),
+        )
+        .await
+        .expect_err("maximum admission capacity must fail validation");
+
+        assert!(matches!(error, Error::InvalidRequest(_)));
+        // The rejection occurs before adapter construction, which would read
+        // transport configuration and then create/spawn the owner actor.
+        assert_eq!(fake.config_reads(), 0);
+        assert_eq!(fake.write_count(), 0);
+        assert_eq!(fake.receive_calls(), 0);
+    }
+
+    async fn unsupported_multi_target_topologies_do_not_write_or_read<
         E: grafton_visca::Executor,
-        F: Fn() -> E,
-    {
+    >(
+        executor: E,
+    ) {
         let cases = [
             (TransportKind::Tcp, AddressingMode::Ip, raw_profile()),
             (TransportKind::Udp, AddressingMode::Ip, raw_profile()),
         ];
         for (kind, addressing, profile) in cases {
-            let (transport, counts) = AsyncSpy::new(addressing, Some(kind));
+            let (transport, fake) = spy(addressing, Some(kind));
             let config = SessionConfig::new(profile)
                 .with_target(CameraId::CAMERA_2, raw_profile())
                 .expect("config");
-            let error = grafton_visca::Session::open(transport, config, runtime()).await;
+            let error = grafton_visca::Session::open(transport, config, executor.clone()).await;
             assert!(matches!(error, Err(Error::NotSupported)));
-            assert_eq!(counts.config_reads.load(Ordering::SeqCst), 0);
-            assert_eq!(counts.writes.load(Ordering::SeqCst), 0);
-            assert_eq!(counts.reads.load(Ordering::SeqCst), 0);
+            assert_eq!(fake.config_reads(), 0);
+            assert_eq!(fake.write_count(), 0);
+            assert_eq!(fake.receive_calls(), 0);
         }
     }
 
-    async fn unsupported_envelopes_and_custom_ip_do_not_write_or_read<E, F>(runtime: F)
-    where
-        E: grafton_visca::Executor,
-        F: Fn() -> E,
-    {
+    async fn mixed_envelopes_and_custom_ip_fail_before_io<E: grafton_visca::Executor>(executor: E) {
         let cases = [
             (
-                AsyncSpy::new(AddressingMode::Serial, None),
+                spy(AddressingMode::Serial, None),
                 SessionConfig::new(raw_profile())
                     .with_target(CameraId::CAMERA_2, sony_profile())
                     .expect("mixed envelope config"),
             ),
             (
-                AsyncSpy::new(AddressingMode::Ip, None),
+                spy(AddressingMode::Ip, None),
                 SessionConfig::new(sony_profile())
                     .with_target(CameraId::CAMERA_2, sony_profile())
                     .expect("Sony multi-target config"),
             ),
             (
-                AsyncSpy::new(AddressingMode::Ip, Some(TransportKind::Custom)),
+                spy(AddressingMode::Ip, Some(TransportKind::Custom)),
                 SessionConfig::new(raw_profile())
                     .with_target(CameraId::CAMERA_2, raw_profile())
                     .expect("custom IP config"),
             ),
             (
-                AsyncSpy::new(AddressingMode::Ip, None),
+                spy(AddressingMode::Ip, None),
                 SessionConfig::new(raw_profile())
                     .with_target(CameraId::CAMERA_2, raw_profile())
                     .expect("unknown IP config"),
             ),
         ];
-        for ((transport, counts), config) in cases {
-            let error = grafton_visca::Session::open(transport, config, runtime()).await;
+        for ((transport, fake), config) in cases {
+            let error = grafton_visca::Session::open(transport, config, executor.clone()).await;
             assert!(matches!(error, Err(Error::NotSupported)));
-            assert_eq!(counts.config_reads.load(Ordering::SeqCst), 0);
-            assert_eq!(counts.writes.load(Ordering::SeqCst), 0);
-            assert_eq!(counts.reads.load(Ordering::SeqCst), 0);
+            assert_eq!(fake.config_reads(), 0);
+            assert_eq!(fake.write_count(), 0);
+            assert_eq!(fake.receive_calls(), 0);
         }
     }
 
-    #[cfg(feature = "runtime-tokio")]
-    #[tokio::test]
-    async fn tokio_custom_serial_opt_in_reads_config_and_starts() {
-        let (transport, counts) =
-            AsyncSpy::new_with_hint(AddressingMode::Serial, None, Some(AddressingMode::Serial));
-        let session = grafton_visca::Session::open(
-            transport,
-            multi_config(),
-            grafton_visca::TokioRuntime::from_current().expect("runtime"),
-        )
-        .await
-        .expect("explicit custom serial opt-in");
-        assert!(counts.config_reads.load(Ordering::SeqCst) > 0);
-        session.shutdown().await.expect("shutdown");
-    }
-
-    #[cfg(feature = "runtime-smol")]
-    #[test]
-    fn smol_custom_serial_opt_in_reads_config_and_starts() {
-        smol::block_on(async {
-            let (transport, counts) =
-                AsyncSpy::new_with_hint(AddressingMode::Serial, None, Some(AddressingMode::Serial));
-            let session = grafton_visca::Session::open(
-                transport,
-                multi_config(),
-                grafton_visca::SmolRuntime::new(),
-            )
+    async fn custom_serial_opt_in_reads_config_and_starts<E: grafton_visca::Executor>(executor: E) {
+        let (transport, fake) =
+            spy_with_hint(AddressingMode::Serial, None, Some(AddressingMode::Serial));
+        let session = grafton_visca::Session::open(transport, multi_config(), executor)
             .await
             .expect("explicit custom serial opt-in");
-            assert!(counts.config_reads.load(Ordering::SeqCst) > 0);
-            session.shutdown().await.expect("shutdown");
-        });
+        assert!(fake.config_reads() > 0);
+        session.shutdown().expect("shutdown");
     }
 
-    #[cfg(feature = "runtime-tokio")]
-    #[tokio::test]
-    async fn tokio_unsupported_multi_target_topologies_do_not_write_or_read() {
-        unsupported_multi_target_topologies_do_not_write_or_read::<_, _>(|| {
-            grafton_visca::TokioRuntime::from_current().expect("runtime")
-        })
-        .await;
-    }
-
-    #[cfg(feature = "runtime-smol")]
-    #[test]
-    fn smol_unsupported_multi_target_topologies_do_not_write_or_read() {
-        smol::block_on(unsupported_multi_target_topologies_do_not_write_or_read::<
-            _,
-            _,
-        >(grafton_visca::SmolRuntime::new));
-    }
-
-    #[cfg(feature = "runtime-tokio")]
-    #[tokio::test]
-    async fn tokio_mixed_envelopes_and_custom_ip_fail_before_io() {
-        unsupported_envelopes_and_custom_ip_do_not_write_or_read::<_, _>(|| {
-            grafton_visca::TokioRuntime::from_current().expect("runtime")
-        })
-        .await;
-    }
-
-    #[cfg(feature = "runtime-smol")]
-    #[test]
-    fn smol_mixed_envelopes_and_custom_ip_fail_before_io() {
-        smol::block_on(unsupported_envelopes_and_custom_ip_do_not_write_or_read::<
-            _,
-            _,
-        >(grafton_visca::SmolRuntime::new));
-    }
-
-    async fn strictest_pacing_applies_across_registered_targets<E>(runtime: E)
-    where
-        E: grafton_visca::Executor,
-    {
+    async fn strictest_profile_pacing_is_shared_by_all_targets<E: grafton_visca::Executor>(
+        runtime: E,
+    ) {
         let base = raw_profile();
         let strict = base.clone();
-        let (transport, counts) =
-            AsyncSpy::new(AddressingMode::Serial, Some(TransportKind::Serial));
+        let (transport, fake) = spy(AddressingMode::Serial, Some(TransportKind::Serial));
         let session = grafton_visca::Session::open(
             transport,
             SessionConfig::new(base)
                 .with_target(CameraId::CAMERA_2, strict)
                 .expect("strict multi-target config")
-                .with_tuning(OperationalTuning::new().command_spacing(Duration::from_millis(120)))
-                .expect("strict session pacing"),
+                .with_tuning(OperationalTuning::new().command_spacing(Duration::from_millis(120))),
             runtime,
         )
         .await
@@ -638,167 +516,55 @@ mod async_registry {
             .await
             .expect("second command");
         assert!(started.elapsed() >= Duration::from_millis(110));
-        assert_eq!(counts.writes.load(Ordering::SeqCst), 2);
-        session.shutdown().await.expect("shutdown");
+        assert_eq!(fake.write_count(), 2);
+        session.shutdown().expect("shutdown");
     }
 
-    #[cfg(feature = "runtime-tokio")]
-    #[tokio::test]
-    async fn tokio_strictest_profile_pacing_is_shared_by_all_targets() {
-        strictest_pacing_applies_across_registered_targets(
-            grafton_visca::TokioRuntime::from_current().expect("runtime"),
-        )
-        .await;
-    }
-
-    #[cfg(feature = "runtime-smol")]
-    #[test]
-    fn smol_strictest_profile_pacing_is_shared_by_all_targets() {
-        smol::block_on(strictest_pacing_applies_across_registered_targets(
-            grafton_visca::SmolRuntime::new(),
-        ));
-    }
+    runtime_matrix!(
+        empty_registry_fails_before_transport_config_or_io,
+        custom_serial_opt_in_reads_config_and_starts,
+        unsupported_multi_target_topologies_do_not_write_or_read,
+        mixed_envelopes_and_custom_ip_fail_before_io,
+        strictest_profile_pacing_is_shared_by_all_targets,
+    );
 }
 
 #[cfg(feature = "blocking")]
 mod blocking_registry {
     use super::*;
-    use std::{
-        collections::VecDeque,
-        sync::{
-            atomic::{AtomicUsize, Ordering},
-            Arc, Mutex,
-        },
-    };
 
-    use grafton_visca::{
-        camera::TransportKind,
-        command::CommandKind,
-        transport::{
-            AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
-        },
-    };
+    use fake_camera::BlockingWire;
 
-    #[derive(Debug, Clone)]
-    struct Counts {
-        config_reads: Arc<AtomicUsize>,
-        writes: Arc<AtomicUsize>,
-        reads: Arc<AtomicUsize>,
+    /// A spy camera and its wire: the shared wire with the spy's addressing
+    /// and, when `standard_kind` is a standard transport, its kind.
+    fn spy(
+        addressing: AddressingMode,
+        standard_kind: Option<TransportKind>,
+    ) -> (BlockingWire, FakeCamera) {
+        spy_with_hint(
+            addressing,
+            standard_kind,
+            spy_hint(addressing, standard_kind),
+        )
     }
 
-    impl Counts {
-        fn new() -> Self {
-            Self {
-                config_reads: Arc::new(AtomicUsize::new(0)),
-                writes: Arc::new(AtomicUsize::new(0)),
-                reads: Arc::new(AtomicUsize::new(0)),
-            }
-        }
-    }
-
-    #[derive(Debug)]
-    struct BlockingSpy {
-        config: TransportConfig,
+    fn spy_with_hint(
+        addressing: AddressingMode,
         standard_kind: Option<TransportKind>,
         addressing_hint: Option<AddressingMode>,
-        responses: VecDeque<Vec<u8>>,
-        counts: Counts,
-        writes: Arc<Mutex<Vec<Vec<u8>>>>,
-    }
-
-    impl BlockingSpy {
-        fn new(addressing: AddressingMode, standard_kind: Option<TransportKind>) -> (Self, Counts) {
-            Self::new_with_hint(
-                addressing,
-                standard_kind,
-                (standard_kind == Some(TransportKind::Serial)).then_some(addressing),
-            )
+    ) -> (BlockingWire, FakeCamera) {
+        let camera = spy_camera(addressing);
+        let mut wire = camera
+            .blocking_wire()
+            .with_config(spy_config(addressing))
+            .with_semantics(spy_semantics(addressing));
+        if let Some(hint) = addressing_hint {
+            wire = wire.with_addressing(hint);
         }
-
-        fn new_with_hint(
-            addressing: AddressingMode,
-            standard_kind: Option<TransportKind>,
-            addressing_hint: Option<AddressingMode>,
-        ) -> (Self, Counts) {
-            let counts = Counts::new();
-            let writes = Arc::new(Mutex::new(Vec::new()));
-            (
-                Self {
-                    config: TransportConfig {
-                        addressing,
-                        ..TransportConfig::default()
-                    },
-                    standard_kind,
-                    addressing_hint,
-                    responses: VecDeque::new(),
-                    counts: counts.clone(),
-                    writes,
-                },
-                counts,
-            )
+        if let Some(kind) = standard_kind {
+            wire = wire.with_transport_kind(kind);
         }
-
-        fn receive(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-            self.counts.reads.fetch_add(1, Ordering::SeqCst);
-            let response = self.responses.pop_front().ok_or(Error::Timeout)?;
-            dst[..response.len()].copy_from_slice(&response);
-            Ok(response.len())
-        }
-    }
-
-    impl HasTransportConfig for BlockingSpy {
-        fn transport_config(&self) -> &TransportConfig {
-            self.counts.config_reads.fetch_add(1, Ordering::SeqCst);
-            &self.config
-        }
-
-        fn standard_transport_kind(&self) -> Option<TransportKind> {
-            self.standard_kind
-        }
-    }
-
-    impl BlockingTransport for BlockingSpy {
-        fn send_with_timeout(
-            &mut self,
-            bytes: &[u8],
-            _kind: CommandKind,
-            _timeout: Duration,
-        ) -> Result<(), Error> {
-            self.counts.writes.fetch_add(1, Ordering::SeqCst);
-            self.writes
-                .lock()
-                .expect("writes lock")
-                .push(bytes.to_vec());
-            let id = bytes.first().copied().unwrap_or(0x81) & 0x0f;
-            let source = if self.config.addressing == AddressingMode::Serial {
-                0x80 | (id.saturating_add(8) << 4)
-            } else {
-                0x90
-            };
-            self.responses.push_back(vec![source, 0x41, 0xff]);
-            self.responses.push_back(vec![source, 0x51, 0xff]);
-            Ok(())
-        }
-
-        fn recv_into_with_timeout(
-            &mut self,
-            dst: &mut [u8],
-            _timeout: Duration,
-        ) -> Result<usize, Error> {
-            self.receive(dst)
-        }
-
-        fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-            self.addressing_hint
-        }
-
-        fn send_semantics(&self) -> SendSemantics {
-            if self.config.addressing == AddressingMode::Serial {
-                SendSemantics::Stream
-            } else {
-                SendSemantics::Datagram
-            }
-        }
+        (wire, camera)
     }
 
     #[derive(Debug)]
@@ -825,9 +591,7 @@ mod blocking_registry {
 
     #[test]
     fn blocking_serial_registry_routes_each_target_and_keeps_shutdown_local() {
-        let (transport, counts) =
-            BlockingSpy::new(AddressingMode::Serial, Some(TransportKind::Serial));
-        let writes = Arc::clone(&transport.writes);
+        let (transport, fake) = spy(AddressingMode::Serial, Some(TransportKind::Serial));
         let session =
             grafton_visca::blocking::Session::open(transport, multi_config()).expect("session");
         assert!(matches!(
@@ -845,8 +609,8 @@ mod blocking_registry {
             .execute(&Ping)
             .unwrap();
         session.shutdown().expect("shutdown");
-        assert_eq!(counts.writes.load(Ordering::SeqCst), 2);
-        let writes = writes.lock().expect("writes lock");
+        assert_eq!(fake.write_count(), 2);
+        let writes = fake.writes();
         assert_eq!(writes[0][0], CameraId::CAMERA_2.to_address_byte());
         assert_eq!(writes[1][0], CameraId::CAMERA_1.to_address_byte());
     }
@@ -854,67 +618,66 @@ mod blocking_registry {
     #[test]
     fn blocking_topology_rejects_before_config_or_io() {
         for kind in [TransportKind::Tcp, TransportKind::Udp] {
-            let (transport, counts) = BlockingSpy::new(AddressingMode::Ip, Some(kind));
+            let (transport, fake) = spy(AddressingMode::Ip, Some(kind));
             let error = grafton_visca::blocking::Session::open(transport, multi_config())
                 .expect_err("IP multi-target topology");
             assert!(matches!(error, Error::NotSupported));
-            assert_eq!(counts.config_reads.load(Ordering::SeqCst), 0);
-            assert_eq!(counts.writes.load(Ordering::SeqCst), 0);
-            assert_eq!(counts.reads.load(Ordering::SeqCst), 0);
+            assert_eq!(fake.config_reads(), 0);
+            assert_eq!(fake.write_count(), 0);
+            assert_eq!(fake.receive_calls(), 0);
         }
     }
 
     #[test]
     fn blocking_empty_registry_fails_before_transport_config_or_io() {
-        let (transport, counts) =
-            BlockingSpy::new(AddressingMode::Serial, Some(TransportKind::Serial));
+        let (transport, fake) = spy(AddressingMode::Serial, Some(TransportKind::Serial));
         let error = grafton_visca::blocking::Session::open(transport, SessionConfig::default())
             .expect_err("empty registry");
         assert!(matches!(error, Error::InvalidRequest(_)));
-        assert_eq!(counts.config_reads.load(Ordering::SeqCst), 0);
-        assert_eq!(counts.writes.load(Ordering::SeqCst), 0);
-        assert_eq!(counts.reads.load(Ordering::SeqCst), 0);
+        assert_eq!(fake.config_reads(), 0);
+        assert_eq!(fake.write_count(), 0);
+        assert_eq!(fake.receive_calls(), 0);
     }
 
     #[test]
     fn blocking_mixed_envelope_and_custom_ip_fail_before_io() {
         let cases = [
             (
-                BlockingSpy::new(AddressingMode::Serial, None),
+                spy(AddressingMode::Serial, None),
                 SessionConfig::new(raw_profile())
                     .with_target(CameraId::CAMERA_2, sony_profile())
                     .expect("mixed envelope config"),
             ),
             (
-                BlockingSpy::new(AddressingMode::Ip, Some(TransportKind::Custom)),
+                spy(AddressingMode::Ip, Some(TransportKind::Custom)),
                 SessionConfig::new(raw_profile())
                     .with_target(CameraId::CAMERA_2, raw_profile())
                     .expect("custom IP config"),
             ),
             (
-                BlockingSpy::new(AddressingMode::Ip, None),
+                spy(AddressingMode::Ip, None),
                 SessionConfig::new(raw_profile())
                     .with_target(CameraId::CAMERA_2, raw_profile())
                     .expect("unknown IP config"),
             ),
         ];
-        for ((transport, counts), config) in cases {
+        for ((transport, fake), config) in cases {
             let error = grafton_visca::blocking::Session::open(transport, config)
                 .expect_err("unsupported topology");
             assert!(matches!(error, Error::NotSupported));
-            assert_eq!(counts.config_reads.load(Ordering::SeqCst), 0);
-            assert_eq!(counts.writes.load(Ordering::SeqCst), 0);
-            assert_eq!(counts.reads.load(Ordering::SeqCst), 0);
+            assert_eq!(fake.config_reads(), 0);
+            assert_eq!(fake.write_count(), 0);
+            assert_eq!(fake.receive_calls(), 0);
         }
     }
 
     #[test]
     fn blocking_custom_serial_opt_in_reads_config_and_starts() {
-        let (transport, counts) =
-            BlockingSpy::new_with_hint(AddressingMode::Serial, None, Some(AddressingMode::Serial));
+        let (transport, fake) =
+            spy_with_hint(AddressingMode::Serial, None, Some(AddressingMode::Serial));
         let session = grafton_visca::blocking::Session::open(transport, multi_config())
             .expect("explicit custom serial opt-in");
-        assert!(counts.config_reads.load(Ordering::SeqCst) > 0);
+        assert!(fake.config_reads() > 0);
         session.shutdown().expect("shutdown");
     }
 
@@ -922,15 +685,13 @@ mod blocking_registry {
     fn blocking_strictest_profile_pacing_is_shared_by_all_targets() {
         let base = raw_profile();
         let strict = base.clone();
-        let (transport, counts) =
-            BlockingSpy::new(AddressingMode::Serial, Some(TransportKind::Serial));
+        let (transport, fake) = spy(AddressingMode::Serial, Some(TransportKind::Serial));
         let session = grafton_visca::blocking::Session::open(
             transport,
             SessionConfig::new(base)
                 .with_target(CameraId::CAMERA_2, strict)
                 .expect("strict multi-target config")
-                .with_tuning(OperationalTuning::new().command_spacing(Duration::from_millis(120)))
-                .expect("strict session pacing"),
+                .with_tuning(OperationalTuning::new().command_spacing(Duration::from_millis(120))),
         )
         .expect("session");
         session
@@ -945,7 +706,7 @@ mod blocking_registry {
             .execute(&Ping)
             .expect("second command");
         assert!(started.elapsed() >= Duration::from_millis(110));
-        assert_eq!(counts.writes.load(Ordering::SeqCst), 2);
+        assert_eq!(fake.write_count(), 2);
         session.shutdown().expect("shutdown");
     }
 }
@@ -953,116 +714,18 @@ mod blocking_registry {
 #[cfg(all(feature = "blocking", feature = "async", feature = "runtime-tokio"))]
 mod coexistence {
     use super::*;
-    use std::{collections::VecDeque, future::Future, time::Duration};
 
-    use grafton_visca::{
-        blocking::Session as BlockingSession,
-        command::CommandKind,
-        transport::{
-            AsyncTransport, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
-        },
-    };
-
-    #[derive(Debug)]
-    struct BlockingProbe {
-        config: TransportConfig,
-        responses: VecDeque<Vec<u8>>,
-    }
-
-    impl HasTransportConfig for BlockingProbe {
-        fn transport_config(&self) -> &TransportConfig {
-            &self.config
-        }
-    }
-
-    impl BlockingTransport for BlockingProbe {
-        fn send_with_timeout(
-            &mut self,
-            _bytes: &[u8],
-            _kind: CommandKind,
-            _timeout: Duration,
-        ) -> Result<(), Error> {
-            self.responses.push_back(vec![0x90, 0x41, 0xff]);
-            self.responses.push_back(vec![0x90, 0x51, 0xff]);
-            Ok(())
-        }
-        fn recv_into_with_timeout(
-            &mut self,
-            dst: &mut [u8],
-            _timeout: Duration,
-        ) -> Result<usize, Error> {
-            let bytes = self.responses.pop_front().ok_or(Error::Timeout)?;
-            dst[..bytes.len()].copy_from_slice(&bytes);
-            Ok(bytes.len())
-        }
-        fn send_semantics(&self) -> SendSemantics {
-            SendSemantics::Datagram
-        }
-    }
-
-    #[derive(Debug)]
-    struct AsyncProbe {
-        config: TransportConfig,
-        replies: flume::Receiver<Vec<u8>>,
-        reply_tx: flume::Sender<Vec<u8>>,
-    }
-
-    impl HasTransportConfig for AsyncProbe {
-        fn transport_config(&self) -> &TransportConfig {
-            &self.config
-        }
-    }
-
-    impl AsyncTransport for AsyncProbe {
-        fn send(&mut self, _bytes: &[u8]) -> impl Future<Output = Result<(), Error>> + Send {
-            let tx = self.reply_tx.clone();
-            async move {
-                tx.send_async(vec![0x90, 0x41, 0xff])
-                    .await
-                    .map_err(|_| Error::RuntimeShutdown)?;
-                tx.send_async(vec![0x90, 0x51, 0xff])
-                    .await
-                    .map_err(|_| Error::RuntimeShutdown)?;
-                Ok(())
-            }
-        }
-        #[allow(clippy::manual_async_fn)]
-        fn recv_into<'a>(
-            &'a mut self,
-            dst: &'a mut [u8],
-        ) -> impl Future<Output = Result<usize, Error>> + Send {
-            async move {
-                let bytes = self
-                    .replies
-                    .recv_async()
-                    .await
-                    .map_err(|_| Error::RuntimeShutdown)?;
-                dst[..bytes.len()].copy_from_slice(&bytes);
-                Ok(bytes.len())
-            }
-        }
-        fn send_semantics(&self) -> SendSemantics {
-            SendSemantics::Datagram
-        }
-    }
+    use grafton_visca::blocking::Session as BlockingSession;
 
     #[tokio::test]
     async fn blocking_and_async_sessions_have_one_owner_each_and_isolated_shutdown() {
         let blocking = BlockingSession::open(
-            BlockingProbe {
-                config: TransportConfig::default(),
-                responses: VecDeque::new(),
-            },
+            FakeCamera::acking(1).blocking_wire(),
             SessionConfig::new(raw_profile()),
         )
         .expect("blocking session");
-        let (reply_tx, replies) = flume::unbounded();
         let async_session = grafton_visca::Session::open(
-            AsyncProbe {
-                config: TransportConfig::default(),
-                replies,
-                reply_tx,
-            },
+            FakeCamera::acking(1).async_wire(),
             SessionConfig::new(raw_profile()),
             grafton_visca::TokioRuntime::from_current().expect("runtime"),
         )
@@ -1098,6 +761,6 @@ mod coexistence {
             .applied()
             .await
             .unwrap();
-        async_session.shutdown().await.expect("async shutdown");
+        async_session.shutdown().expect("async shutdown");
     }
 }

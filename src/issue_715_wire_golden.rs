@@ -1,22 +1,24 @@
 //! Exhaustive built-in encoder snapshot for issue #715.
 //!
-//! The fixture is the 484-row phase-4 mechanical comparison against the pinned
-//! 1.2 oracle, plus three v2-only 2D-NR mode rows. The original audit's 31
-//! changed output rows included two valid `Brightness::Direct` rows removed
-//! with the duplicate public surface in #727; the current fixture retains the
-//! other 29 source-backed 2.0 deltas ratified in D5. Expectations are literal
-//! text, never calculated through the encoder under test. The
+//! The fixture is the reviewed current wire inventory: one row per generated
+//! case, 476 rows, covering every built-in command encoder, every generated
+//! inquiry and the camera-address variants. Each row was reviewed against the
+//! source register in `docs/visca_reference.md` when it entered the fixture,
+//! including the source-backed 2.0 corrections ratified in D5 (#808, #819),
+//! the three 2D-NR mode rows, and the `FocusZone[Zone03]` row
+//! (`81 01 04 AA 03 FF`, PTZOptics G2 bench, 2026-10-04, #795). The
 //! semantic-ledger assertion below makes a newly added built-in command fail
 //! until it is deliberately represented by this generator and reviewed in the
 //! fixture; generated inquiry metadata is checked the same way.
+//!
+//! The fixture is literal text and every change to it is reviewed as a diff.
+//! After a deliberate encoder change, regenerate it from [`rows`] with
+//! `GRAFTON_VISCA_BLESS_WIRE_GOLDEN=1 cargo test --lib wire_ledger_matches_literal_golden_inventory`.
+//! The bless run writes the fixture and then fails on purpose, so it can never
+//! report green; it is refused when `CI` is set. Review the diff and rerun
+//! without the variable.
 
-#![allow(
-    clippy::redundant_closure_call,
-    unused_imports,
-    dead_code,
-    unused_qualifications,
-    deprecated
-)]
+#![allow(clippy::redundant_closure_call)]
 
 use std::collections::HashSet;
 
@@ -83,12 +85,6 @@ fn ps(v: u8) -> Result<PanSpeed, Error> {
 fn ts(v: u8) -> Result<TiltSpeed, Error> {
     TiltSpeed::new(v)
 }
-fn pp(v: i16) -> Result<PanPosition, Error> {
-    PanPosition::new(v)
-}
-fn tp(v: i16) -> Result<TiltPosition, Error> {
-    TiltPosition::new(v)
-}
 
 pub(crate) fn rows() -> Vec<String> {
     let mut o: Vec<String> = Vec::new();
@@ -144,23 +140,24 @@ pub(crate) fn rows() -> Vec<String> {
             })
         );
     }
+    // The profile-less frame carries any 16-bit word per axis.
     for (p, t) in [
         (144i16, -72i16),
         (0, 0),
         (-1, -1),
+        (-1, 0),
         (2448, 1296),
         (-2448, -432),
-        (2449, 0),
-        (0, 1297),
-        (0, -433),
+        (0x1234, 0xABCD_u16 as i16),
         (i16::MAX, i16::MIN),
+        (i16::MIN, i16::MAX),
     ] {
         rowr!(
             o,
             format!("PanTilt::AbsolutePosition[{p},{t}]"),
             Ok(PanTilt::AbsolutePosition {
-                pan: pp(p)?,
-                tilt: tp(t)?,
+                pan: p,
+                tilt: t,
                 pan_speed: ps(0x0A)?,
                 tilt_speed: ts(0x05)?
             })
@@ -169,68 +166,28 @@ pub(crate) fn rows() -> Vec<String> {
             o,
             format!("PanTilt::RelativePosition[{p},{t}]"),
             Ok(PanTilt::RelativePosition {
-                pan: pp(p)?,
-                tilt: tp(t)?,
-                pan_speed: ps(0x0A)?,
-                tilt_speed: ts(0x05)?
-            })
-        );
-        rowr!(
-            o,
-            format!("PanTilt::LimitSet[DownLeft,{p},{t}]"),
-            Ok(PanTilt::LimitSet {
-                corner: PanTiltLimitCorner::DownLeft,
-                pan: pp(p)?,
-                tilt: tp(t)?
-            })
-        );
-        rowr!(
-            o,
-            format!("PanTilt::LimitSet[UpRight,{p},{t}]"),
-            Ok(PanTilt::LimitSet {
-                corner: PanTiltLimitCorner::UpRight,
-                pan: pp(p)?,
-                tilt: tp(t)?
-            })
-        );
-    }
-    for (p, t) in [(0x0090u16, 0xFFB8u16), (0xFFFF, 0x0000), (0x1234, 0xABCD)] {
-        rowr!(
-            o,
-            format!("PanTilt::AbsolutePositionRaw[{p:04X},{t:04X}]"),
-            Ok(PanTilt::AbsolutePositionRaw {
-                pan_u16: p,
-                tilt_u16: t,
-                pan_speed: ps(0x0A)?,
-                tilt_speed: ts(0x05)?
-            })
-        );
-        rowr!(
-            o,
-            format!("PanTilt::RelativePositionRaw[{p:04X},{t:04X}]"),
-            Ok(PanTilt::RelativePositionRaw {
-                pan_u16: p,
-                tilt_u16: t,
+                pan: p,
+                tilt: t,
                 pan_speed: ps(0x0A)?,
                 tilt_speed: ts(0x05)?
             })
         );
         row!(
             o,
-            format!("PanTilt::LimitSetRaw[DownLeft,{p:04X},{t:04X}]"),
-            PanTilt::LimitSetRaw {
+            format!("PanTilt::LimitSet[DownLeft,{p},{t}]"),
+            PanTilt::LimitSet {
                 corner: PanTiltLimitCorner::DownLeft,
-                pan_u16: p,
-                tilt_u16: t
+                pan: p,
+                tilt: t
             }
         );
         row!(
             o,
-            format!("PanTilt::LimitSetRaw[UpRight,{p:04X},{t:04X}]"),
-            PanTilt::LimitSetRaw {
+            format!("PanTilt::LimitSet[UpRight,{p},{t}]"),
+            PanTilt::LimitSet {
                 corner: PanTiltLimitCorner::UpRight,
-                pan_u16: p,
-                tilt_u16: t
+                pan: p,
+                tilt: t
             }
         );
     }
@@ -312,16 +269,12 @@ pub(crate) fn rows() -> Vec<String> {
         rowr!(
             o,
             format!("Focus::FarWithSpeed[{s}]"),
-            Ok(Focus::FarWithSpeed(crate::command::focus::FocusSpeed::new(
-                s
-            )?))
+            Ok(Focus::FarWithSpeed(FocusSpeed::new(s)?))
         );
         rowr!(
             o,
             format!("Focus::NearWithSpeed[{s}]"),
-            Ok(Focus::NearWithSpeed(
-                crate::command::focus::FocusSpeed::new(s)?
-            ))
+            Ok(Focus::NearWithSpeed(FocusSpeed::new(s)?))
         );
     }
     for p in [0u16, 0x1234, 0xF000, 0xFFFF] {
@@ -352,6 +305,11 @@ pub(crate) fn rows() -> Vec<String> {
         o,
         "FocusZone[Bottom]",
         FocusZoneCommand::new(FocusZone::Bottom)
+    );
+    row!(
+        o,
+        "FocusZone[Zone03]",
+        FocusZoneCommand::new(FocusZone::Zone03)
     );
     row!(
         o,
@@ -477,11 +435,11 @@ pub(crate) fn rows() -> Vec<String> {
     row!(o, "Shutter::Reset", Shutter::Reset);
     row!(o, "Shutter::Up", Shutter::Up);
     row!(o, "Shutter::Down", Shutter::Down);
-    for l in [0u16, 5, 0x15, 0x16, 0x21, 0x22, 0xFFFF] {
-        rowr!(
+    for l in [0u8, 5, 0x15, 0x16, 0x21, 0x22, 0xFF] {
+        row!(
             o,
             format!("Shutter::SetSpeed[{l:04X}]"),
-            Ok(Shutter::SetSpeed(ShutterSpeed::new(l)?))
+            Shutter::SetSpeed(ShutterSpeed::new(l))
         );
     }
     row!(o, "Brightness::Reset", Brightness::Reset);
@@ -491,7 +449,7 @@ pub(crate) fn rows() -> Vec<String> {
         rowr!(
             o,
             format!("Brightness::SetLevel[{l:04X}]"),
-            Ok(Brightness::SetLevel(BrightnessLevel::new(l)?))
+            Ok(Brightness::SetLevel(BrightnessLevel::try_from(l)?))
         );
     }
     row!(
@@ -702,10 +660,12 @@ pub(crate) fn rows() -> Vec<String> {
     row!(o, "Sharpness::Up", Sharpness::Up);
     row!(o, "Sharpness::Down", Sharpness::Down);
     for v in [0u8, 5, 15, 16, 0xFF] {
-        row!(
+        rowr!(
             o,
             format!("Sharpness::SetLevel[{v:02X}]"),
-            Sharpness::SetLevel { value: v }
+            Ok(Sharpness::SetLevel {
+                value: SharpnessLevel::new(v)?
+            })
         );
     }
     row!(o, "Backlight[on]", BacklightCommand::new(true));
@@ -759,26 +719,10 @@ pub(crate) fn rows() -> Vec<String> {
             mode: PictureEffectMode::Unknown(0x02)
         }
     );
-    row!(
-        o,
-        "ImageFlip[On]",
-        crate::command::flip::ImageFlip { flip: Flip::On }
-    );
-    row!(
-        o,
-        "ImageFlip[Off]",
-        crate::command::flip::ImageFlip { flip: Flip::Off }
-    );
-    row!(
-        o,
-        "HorizontalFlip[on]",
-        crate::command::flip::HorizontalFlip { on: true }
-    );
-    row!(
-        o,
-        "HorizontalFlip[off]",
-        crate::command::flip::HorizontalFlip { on: false }
-    );
+    row!(o, "ImageFlip[On]", flip::ImageFlip { flip: Flip::On });
+    row!(o, "ImageFlip[Off]", flip::ImageFlip { flip: Flip::Off });
+    row!(o, "HorizontalFlip[on]", flip::HorizontalFlip { on: true });
+    row!(o, "HorizontalFlip[off]", flip::HorizontalFlip { on: false });
     row!(o, "ImageFreeze[on]", ImageFreeze { on: true });
     row!(o, "ImageFreeze[off]", ImageFreeze { on: false });
     // nd
@@ -965,7 +909,7 @@ pub(crate) fn rows() -> Vec<String> {
         rowr!(
             o,
             format!("MotionSyncPreset[{s}]"),
-            SetMotionSyncPreset::new(s)
+            MotionSyncSpeed::new(s).map(SetMotionSyncPreset::new)
         );
     }
     row!(
@@ -1062,8 +1006,22 @@ fn wire_ledger_matches_literal_golden_inventory() {
     assert_golden(&actual);
 }
 
+// A bless run must never report green, so it ends in a deliberate panic.
+#[allow(clippy::expect_used, clippy::panic)]
 fn assert_golden(actual: &str) {
     const EXPECTED: &str = include_str!("../tests/fixtures/issue_715_wire_golden.txt");
+    if std::env::var("GRAFTON_VISCA_BLESS_WIRE_GOLDEN").as_deref() == Ok("1") {
+        assert!(
+            std::env::var_os("CI").is_none(),
+            "GRAFTON_VISCA_BLESS_WIRE_GOLDEN regenerates the fixture and is refused under CI"
+        );
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/issue_715_wire_golden.txt"
+        );
+        std::fs::write(path, actual).expect("write the regenerated wire golden fixture");
+        panic!("fixture blessed; review the diff and rerun without the variable");
+    }
     let actual_rows = actual.lines().collect::<Vec<_>>();
     let expected_rows = EXPECTED.lines().collect::<Vec<_>>();
     assert_eq!(
@@ -1100,7 +1058,7 @@ fn assert_inquiry_coverage(rows: &[String]) {
     }
 }
 
-// ---- HEAD-specific prelude ----
+// ---- Shared row helpers ----
 use crate::command::encode::WireEncode as Enc;
 fn dmc(a: u8, b: u8) -> Result<DirectMenuControl, Error> {
     DirectMenuControl::new(a, b)

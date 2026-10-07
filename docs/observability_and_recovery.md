@@ -12,6 +12,8 @@ without granting control over the protocol engine.
 | --- | --- |
 | `admitted` | Requests admitted into authoritative engine state. |
 | `admission_rejected` | Requests rejected before admission. |
+| `control_reserve_admitted` | Urgent typed STOPs admitted into their camera's control reserve rather than an ordinary slot. |
+| `control_reserve_rejected` | Urgent typed STOPs rejected because their camera's control reserve and ordinary admission were both full (also counted in `admission_rejected`). |
 | `writes` | Transport writes attempted. |
 | `write_failures` | Writes that returned an error. |
 | `terminal` | Requests reaching a terminal outcome. |
@@ -28,7 +30,7 @@ without granting control over the protocol engine.
 | `ignored_malformed_frames` | Delimited frames, and consumed oversized/malformed datagrams rejected before framing, discarded because they did not classify as a valid VISCA response. |
 | `dropped_diagnostics` | Events evicted from bounded diagnostic staging or the owner diagnostic ring. |
 | `dropped_diagnostic_events` | Events dropped because a subscriber queue was full. |
-| `dropped_observer_events` | Completion-observer events dropped after receiver loss. |
+| `dropped_observer_events` | Operation-observer events (terminal outcomes and cancellation failures) dropped because their handle was already detached or dropped. |
 | `dropped_applied_events` | Applied-state events dropped by full subscriber queues. |
 | `dropped_boundary_work` | Boundary messages discarded during owner termination. |
 | `active` | Admitted, non-terminal requests currently retained. |
@@ -56,12 +58,11 @@ own ACK deadline — so it does not increment this retry path.
 
 ## Diagnostics
 
-Async sessions expose `subscribe_diagnostics(capacity)` and
-`DiagnosticSubscription::{try_recv,recv}`. Blocking sessions expose
-`drain_diagnostics()`. A subscription capacity must be `1..=128`, and one owner
-retains at most four live subscriptions. The owner ring retains at most 128
-events. Blocking drains return at most that ring bound; another drain after an
-empty drain is empty until a new event is recorded.
+Both facades expose `subscribe_diagnostics(capacity)`. An async subscription
+is read with `DiagnosticSubscription::{try_recv,recv}`, a blocking one with
+`try_recv` and `recv_timeout`. A subscription capacity must be `1..=128`, and
+one owner retains at most four live subscriptions. The owner ring retains at
+most 128 events.
 
 `DiagnosticEvent` is a bounded, `#[non_exhaustive]` enum containing only
 sanitized categories: admission, frame category, protocol phase transition,
@@ -201,7 +202,8 @@ at most one more attempt than its budget:
 | `Network` | base - 1, never below 1 | 3 |
 | `LongRunning` | 1 | 2 |
 
-`OperationalTuning::retry_limit` sets that base, which defaults to 3.
+`OperationalTuning::retry_limit` may lower that base, which defaults to 3;
+`validate_tuning` rejects a larger value, so tuning never adds retries.
 `RetryClass::Never` overrides the table with zero retries — one attempt — for
 every timeout category.
 
@@ -241,6 +243,62 @@ engine's seed, the request identity and the attempt number: it never reads the
 clock or process entropy, so the same engine input sequence produces identical
 scheduling.
 
+## Timeouts: stage and certainty
+
+A timeout says *which* deadline expired and *what is known* about the request
+it concerns. Read both with `Error::failure_context()`, which returns a
+`FailureContext { stage, certainty }` for every timeout and for the two
+unconfirmed outcomes (D20, #783). `is_retryable()` classifies the condition as
+temporary; it is not a replay-safety answer. Submitting the same request again
+is safe only after `Certainty::NotAccepted` or `Certainty::FailedConclusively`:
+in both, the request had no effect.
+
+| Stage | Error | Certainty | What it means | Recovery |
+| --- | --- | --- | --- | --- |
+| `PreAdmission` | `Timeout` | `NotAccepted` | The admission deadline passed before the owner accepted the request. | It never existed: submit it again if it is still wanted. |
+| `Observation` | `ObservationTimeout { operation }` | `StillLive` | Your wait expired; the owner still holds the request, which may yet take effect. Never retryable. | Wait again on the operation handle, or reconcile. Never resubmit. |
+| `Observation` | `Timeout` | `NotAccepted` | A read-only state query (`wait_until_idle`, `is_moving`) ran out of time. | Repeat the query if you still need the answer. |
+| `Terminal` | `Timeout` | `FailedConclusively` | An inquiry got no reply within its lifecycle. Inquiries change nothing. On a raw-VISCA stream (TCP) the inquiry is written once and fails at its first reply deadline (about 1 s), and its late reply is still owed (see below). | Retry the inquiry. |
+| `Terminal` | `InquiryCorrelationLost { camera }` | `NotAccepted` | Raw-VISCA stream only: a reply owed by an earlier timed-out inquiry to that camera did not arrive within the profile's ambiguity window, so this inquiry (or raw `CompletionOnly` command) was never written. Not retryable; `requires_new_session() == false` because the session is live. | Inquiries to this camera reopen when the owed reply arrives or when the camera answers any command written after the timed-out inquiry (it answers in order, so the reply will never come); close and reopen the session to recover them sooner. |
+| `Terminal` | `Timeout` | `Unconfirmed` | A command was sent but never acknowledged or completed in its lifecycle. It may have reached the camera. | Reconcile the camera's state before resubmitting. |
+| `Terminal` | `CommandCorrelationLost { camera }` | `NotAccepted` | Raw-VISCA stream only: an earlier command to that camera ended `UnsequencedCommandUnconfirmed` before its ACK (or completion) and that owed answer did not arrive within the owing command's ambiguity window, so this ordinary (or `NoReply`) command was never written. STOPs and inquiries are still sent. Not retryable; `requires_new_session() == false` (#795). | Commands to this camera resume when the owed answer arrives or when the camera answers a later inquiry or STOP (proving the answer will never come; a `CompletionOnly` completion is settled only by itself); close and reopen the session to recover them sooner. |
+| `Terminal` | `CommandFailedAfterAck { source }` | `Unconfirmed` | The camera acknowledged the command and then reported `source` (for example `CommandNotExecutable`). The command may have partly executed; it was never written again. Not retryable (#795). | Reconcile the camera's state before resubmitting. |
+| `Terminal` or `PreAdmission` | `MotionSuperseded { axes, context }` | `NotAccepted` or `Unconfirmed` | An owner halt superseded this motion. `NotAccepted` when it never reached the camera; `Unconfirmed` when an earlier attempt may have (#795). | Resubmit only on `NotAccepted`; otherwise reconcile. |
+| `Terminal` | `Timeout` | `NotAccepted` | A command's retry budget ran out before its first write. | Submit it again if it is still wanted. |
+| `Terminal` | `UnsequencedCommandUnconfirmed` | `Unconfirmed` | A raw command's correlation was lost. | Reconcile; never replay blindly. |
+| `CancellationAttempt` | `Timeout` | `StillLive` | An accepted cancellation did not resolve in time; the operation keeps running. | Wait on the operation's own outcome, or stop the axis. |
+| `CancellationAttempt` | `CancellationUnconfirmed` | `Unconfirmed` | A cancellation's outcome is unknowable, and so is the operation's. | Reconcile the original command. |
+| `Session` | `Timeout` | `NotAccepted` | Connecting or handshaking timed out. | Open the session again. |
+| `Session` | `Timeout` | `Unconfirmed` | One transport read or write timed out (`Error::io_timeout()`). Owners read an idle read as "no data". | Usually invisible; a write that timed out may or may not have left. |
+
+```rust
+use grafton_visca::{Certainty, Error, FailureStage};
+
+/// What to do after a failed submission or wait.
+enum Next {
+    Resubmit,
+    WaitAgain,
+    Reconcile,
+    GiveUp(Error),
+}
+
+fn next_step(error: Error) -> Next {
+    match error.failure_context() {
+        Some(context) => match context.certainty {
+            Certainty::NotAccepted | Certainty::FailedConclusively => Next::Resubmit,
+            Certainty::StillLive if context.stage == FailureStage::Observation => {
+                Next::WaitAgain
+            }
+            Certainty::StillLive | Certainty::Unconfirmed => Next::Reconcile,
+            _ => Next::GiveUp(error),
+        },
+        None => Next::GiveUp(error),
+    }
+}
+```
+
+The same function is a compiled example on `FailureContext`.
+
 ## Transient transport faults and session death
 
 Not every transport failure ends a session. A receive that fails without
@@ -264,13 +322,13 @@ verdict or call it stream poison. A failed read consumes nothing and so cannot
 desynchronize framing.
 
 A read that reports *no data* is a third case and not a fault at all.
-`Error::Timeout`, and the raw `Io` spellings `WouldBlock` and `Interrupted`,
+Any `Error::Timeout`, and the raw `Io` spellings `WouldBlock` and `Interrupted`,
 mean an idle read timeout expired with nothing to show for it.
 Both owners treat that as "this read produced no frames": the session lives,
 framing state is untouched, and no request's retry budget is spent. A transport
 with an internal read timeout — the shape `BlockingTransport::recv_into_with_timeout`
 documents, and the natural way to write a custom async transport — must return
-`Error::Timeout` rather than forwarding `io::ErrorKind::TimedOut`. UDP adapters
+`Error::io_timeout()` rather than forwarding `io::ErrorKind::TimedOut`. UDP adapters
 additionally discard valid zero-length datagrams
 inside the adapter and keep receiving; they never translate a datagram with no
 payload into the `Ok(0)` value reserved for stream EOF. A timed blocking
@@ -302,10 +360,12 @@ malformed, never `Unknown`. Variable data replies are reserved for socket 0
 with more than three bytes; the canonical three-byte `z0 50 FF` completion
 remains valid.
 
-UDP has an additional boundary check before this decode: a datagram that does
-not fit `recv_buffer_size` is discarded as `Error::ResponseTooLarge`. Its copied
-prefix is never treated as a complete frame, even when that prefix would itself
-be a valid ACK or completion.
+Datagram transports have an additional boundary check before this decode: every
+receive reports a `ReceiveOutcome`, and a datagram that is not complete (one the
+OS reported truncated, or one a custom transport could not prove fitted
+`recv_buffer_size`) is discarded as one malformed input on both facades. Its
+copied prefix is never treated as a complete frame, even when that prefix would
+itself be a valid ACK or completion.
 
 Decoding is classified by transport. On a byte stream, a frame that the framer
 has already delimited at its `FF` boundary but the strict decoder cannot
@@ -338,9 +398,41 @@ reporting the same peer-closure cause rather than a generic channel error. This
 is the failure a long-running supervisor must expect during quiet periods.
 
 Silence does **not** produce that verdict. A default built-in inquiry retries
-within its bounded policy and ordinarily reports `Error::Timeout` at the
-ten-second total retry-budget floor (roughly 10.05 seconds when the first
-backoff is included). That error is retryable and
+within its bounded policy and ordinarily reports `Error::Timeout` (stage
+`Terminal`, certainty `FailedConclusively`) at the ten-second total
+retry-budget floor (roughly 10.05 seconds when the first backoff is included).
+On a raw-VISCA stream (TCP) the inquiry is instead written once and fails at
+its first reply deadline: a stream cannot lose the request, so a resend would
+only add late replies. Its reply is then owed. Until it arrives, that camera's
+next inquiries wait; once the profile's ambiguity window has passed they fail
+at once, unwritten, with `Error::InquiryCorrelationLost { camera }`
+(`kind() == ErrorKind::NotExecutable`, `failure_context()` = `Terminal` /
+`NotAccepted`, `is_retryable() == false`). A silent camera therefore stops
+answering *inquiries* on that session. The session is still live, so
+`requires_new_session()` is `false`. Meanwhile ACK-bearing commands and stops
+to that camera are still written. The engine resolves every frame on a raw
+stream in write order (the correlation ledger in `docs/architecture_2_0.md`),
+and a camera answers in the order it reads: the owed reply — data or a
+socketless rejection — reopens the lane whenever it arrives, and so does the
+camera's answer to any command written after that inquiry, which proves the
+reply will never come. A camera that never answers one inquiry therefore keeps
+accepting commands, and its next command answer reopens its inquiries; a
+later command's own answer still reaches that command. To recover inquiries
+to a camera that answers nothing at all, close and reopen the session. A raw
+`CompletionOnly` command is exclusive on its camera until its completion or
+rejection arrives: inquiries and ordinary commands to that camera queue
+behind it (and fail with the errors above once its window ends unanswered),
+while STOPs are always sent. Everything that needs an inquiry to that
+camera fails with `InquiryCorrelationLost` meanwhile: `settled()`
+observed-stable settlement polling (as `SettlementObservationFailed` with that
+source), `is_moving`, and `wait_until_idle`. The same applies to commands: a
+command that ended `UnsequencedCommandUnconfirmed` before its ACK still owes
+that answer, and once its ambiguity window has passed ordinary commands to the
+camera fail unwritten with `CommandCorrelationLost { camera }` until it
+arrives or the camera answers a later inquiry or STOP (a `CompletionOnly`
+completion is settled only by itself); STOPs are always sent (#795).
+
+The inquiry timeout itself is retryable and
 `requires_new_session() == false`: it proves only that this request received no
 answer. A response-bearing command on a raw-VISCA envelope can instead end as
 `UnsequencedCommandUnconfirmed` once its ACK/completion and ambiguity windows
@@ -383,9 +475,10 @@ precise about which one a failure belongs to:
   drop correlated with network events) is the signature of this application-side
   timeout.
 
-The library never sends VISCA on its own — there are no per-camera background
-workers (see [`architecture_2_0.md`](architecture_2_0.md)) — so if a camera
-enforces an application idle timeout there are two application-side levers:
+The library never sends VISCA on its own: the owner, including a blocking
+session's worker thread, only carries out work the application submitted (see
+[`architecture_2_0.md`](architecture_2_0.md)). If a camera enforces an
+application idle timeout there are two application-side levers:
 
 1. **Detect or prevent it with an application heartbeat.** While the session would
    otherwise be idle, periodically issue a cheap inquiry (for example a power
@@ -403,7 +496,7 @@ enforces an application idle timeout there are two application-side levers:
            /* positive liveness; keep waiting for real work */
        }
        Err(error) if error.requires_new_session() => rebuild(&config)?,
-       Err(Error::Timeout) if session.metrics()?.received_frames == before => {
+       Err(Error::Timeout { .. }) if session.metrics()?.received_frames == before => {
            record_unanswered_heartbeat(); // rebuild when your threshold is met
        }
        Err(error) => return Err(error),
@@ -477,10 +570,10 @@ fixed; the remaining four are caller-tunable bounds:
 | Applied-state subscribers | 16 | no |
 | Events per applied subscriber | 64 | no |
 | Frames per receive batch | 64 | no |
-| Admitted request lifecycle entries (pending or active, including quarantine) | `SessionConfig::admission_capacity()` (64 by default) | yes — `SessionConfig::with_admission_capacity()` |
+| Admitted request lifecycle entries (pending or active, including quarantine) | `SessionConfig::admission_capacity()` (64 by default) for ordinary work, plus each camera's control reserve (one slot per supported typed STOP, at most three) | yes — `SessionConfig::with_admission_capacity()`; the reserve is set by each profile |
 | Owner transport-read scratch / largest copied read | see below | yes — `BufferConfig::recv_buffer_size` |
 | Single framed response | see below | yes — `BufferConfig::recv_buffer_size` |
-| Retained incomplete framing bytes | 8192 by default | yes — `BufferConfig::max_buffer_size` |
+| Stream input retained between reads | 8192 by default (the framer also holds one more read) | yes — `BufferConfig::max_buffer_size` |
 
 Admission capacity is fixed when the session opens and bounds each admitted
 boundary plus its pending/active owner lifecycle entry until safe terminal
@@ -488,35 +581,54 @@ removal, including ambiguity quarantine. It defaults to 64; callers may choose
 any non-zero value below `usize::MAX` with
 `SessionConfig::with_admission_capacity()`.
 
+The capacity bounds ordinary work. Each registered camera also reserves one
+admission slot per typed STOP its profile supports — pan/tilt, zoom, and focus,
+so at most three — and only an urgent typed STOP may use those slots. A STOP
+takes its camera's reserve first and an ordinary slot only when the reserve is
+held, so queued ordinary work cannot lock a STOP out, and one camera's stops
+cannot use another camera's reserve. When a camera's reserve and the ordinary
+budget are both full, the STOP fails with `Error::ControlReserveExhausted`
+(D26, #778). An admitted STOP still waits for protocol pacing, socket
+availability, and in-progress writes.
+
 The three transport-buffer rows are set from `TransportConfig::buffer_config`
 every time a production session is built, so the first two have no single
 number. `OwnerLimits::default()` retains internal 4096/8192 test defaults, but
 the production adapter replaces both values before allocating owner buffers.
-Reach the public configuration with
-`CameraConfig::<P>::transport_config(TransportConfig { buffer_config, .. })`
-for a standard transport, with the blocking `NetTransportBuilder`'s
-`recv_buffer_size` / `max_buffer_size` methods, or from a caller-owned
-transport's `HasTransportConfig::transport_config()`. The per-transport
-defaults are:
+Every built-in entry point — `CameraConfig`, the blocking `Transport` /
+`NetTransportBuilder`, the runtime connectors and the direct transport
+constructors — starts from the same per-transport defaults:
 
-| Buffer profile | `recv_buffer_size` | Selected by |
+| Defaults | `recv_buffer_size` | Used by |
 | --- | ---: | --- |
-| `BufferConfig::default()` | 128 | a caller-owned transport that does not override it |
-| `BufferConfig::for_udp()` | 1024 | the built-in UDP transports |
-| `BufferConfig::for_sony_ip()` | 512 | `NetTransportBuilder::sony_ip_buffers()` |
-| `BufferConfig::for_raw_ip()` | 256 | the built-in TCP transports |
-| `BufferConfig::for_serial()` | 256 | the built-in serial transports |
+| `TransportConfig::for_tcp()` | 256 | every built-in TCP transport |
+| `TransportConfig::for_udp()` | 1024 | every built-in UDP transport |
+| `TransportConfig::for_serial()` | 256 | every built-in serial transport |
+| `TransportConfig::default()` | 128 | the transport-neutral base for a caller-owned transport |
 
-Every one of these keeps `max_buffer_size` at 8192, which is where the retained
-incomplete-byte row's default comes from. A caller that raises
-`recv_buffer_size` raises the owner's per-session transport-read scratch
-allocation by exactly that amount; raising `max_buffer_size` raises the ceiling
-on retained incomplete framing bytes. `recv_buffer_size` is independently the
-framer's maximum accepted single-frame size, so
-lowering it below a profile's largest reply turns that reply into
-`Error::ResponseTooLarge`. For UDP it is also the maximum accepted datagram
-size: an over-size datagram is rejected before framing rather than silently
-truncated to this limit.
+Change one field by starting from the matching constructor, for example
+`let mut config = TransportConfig::for_tcp(); config.buffer_config.max_buffer_size = 16_384;`,
+then pass it to `CameraConfig::<P>::transport_config(config)`; a supplied
+configuration is used as given. The blocking `NetTransportBuilder` also has
+`recv_buffer_size` / `max_buffer_size` methods, and a caller-owned transport
+reports its own through `HasTransportConfig::transport_config()`.
+
+Every default keeps `max_buffer_size` at 8192. The two limits mean:
+
+- `recv_buffer_size` is the largest accepted reply frame — a raw VISCA frame
+  including its terminator, a Sony header plus payload, or one UDP datagram —
+  and the most bytes one transport read requests, so it is also the owner's
+  per-session read scratch. Validation requires at least
+  `BufferConfig::MIN_RECV_BUFFER_SIZE` (24 bytes: the largest VISCA reply, 16
+  bytes, behind Sony's 8-byte header), so every valid reply fits one read. An
+  over-size datagram is rejected before framing rather than silently
+  truncated.
+- `max_buffer_size` bounds the stream input carried from one read to the next:
+  an incomplete frame, or complete frames the owner has not delivered yet. The
+  framer always has room for one more full read on top of it, so a healthy
+  stream whose replies are split across reads never overflows, and a byte
+  stream never retains more than `max_buffer_size + recv_buffer_size` bytes.
+  Validation requires `recv_buffer_size <= max_buffer_size`.
 
 These are implementation policy limits surfaced here so integrations can
 budget memory. They are not permission to add per-frame, per-retry,

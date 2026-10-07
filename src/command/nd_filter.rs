@@ -12,7 +12,7 @@
 
 use crate::{
     command::{
-        bytes::{constants, ConstCommandBuilder},
+        bytes::{constants::nd_filter, FrameWriter, Step},
         encode::WireEncode,
     },
     error::Error,
@@ -57,12 +57,10 @@ impl WireEncode for NdFilterModeCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        ConstCommandBuilder::<7>::new()
-            .append(constants::nd_filter::CONTROL_PREFIX)
-            .push(u8::from(self.mode))
-            .with_camera_id(camera_id)
-            .terminate()
-            .build_into(buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&nd_filter::MODE)
+            .byte(u8::from(self.mode))
+            .finish()
     }
 }
 
@@ -97,33 +95,38 @@ impl WireEncode for NdFilterValue {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        ConstCommandBuilder::<9>::new()
-            .append(constants::nd_filter::DIRECT_PREFIX)
-            .push_nibble_pair(self.value)
-            .with_camera_id(camera_id)
-            .terminate()
-            .build_into(buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&nd_filter::DIRECT)
+            .nibbles::<2>(self.value)
+            .finish()
     }
 }
 
 impl NdFilterValue {
-    /// Create a new ND filter value command.
+    /// The densest variable-ND position.
+    pub(crate) const MAX_VALUE: u16 = 0x0014;
+
+    /// Create a new ND filter value.
     ///
     /// # Arguments
     /// * `value` - ND filter value (0x0000 to 0x0014)
     pub fn new(value: u16) -> Result<Self, Error> {
-        if value > 0x0014 {
-            return Err(Error::ParameterOutOfRange {
-                parameter: "ND filter value",
-                value: value as i32,
-                min: 0,
-                max: 20,
-            });
+        if value > Self::MAX_VALUE {
+            return Err(Error::parameter_out_of_range(
+                "ND filter value",
+                i32::from(value),
+                0,
+                i32::from(Self::MAX_VALUE),
+            ));
         }
         Ok(Self { value })
     }
 
     /// Create from a stop value (2.0 to 7.0 stops).
+    ///
+    /// Each raw unit is a quarter stop: `2.0` maps to the minimum density
+    /// (`0x0000`) and `7.0` to the maximum (`0x0014`). A fraction of a
+    /// quarter stop is truncated, so `2.3` maps to `0x0001`.
     pub fn from_stops(stops: f32) -> Result<Self, Error> {
         if !(2.0..=7.0).contains(&stops) {
             return Err(Error::ParameterOutOfRange {
@@ -162,9 +165,10 @@ pub enum NdFilterStep {
 impl From<NdFilterStep> for u8 {
     fn from(step: NdFilterStep) -> u8 {
         match step {
-            NdFilterStep::Up => 0x02,
-            NdFilterStep::Down => 0x03,
+            NdFilterStep::Up => Step::Up,
+            NdFilterStep::Down => Step::Down,
         }
+        .byte()
     }
 }
 
@@ -186,12 +190,10 @@ impl WireEncode for NdFilterStepCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        ConstCommandBuilder::<7>::new()
-            .append(constants::nd_filter::MODE_PREFIX)
-            .push(u8::from(self.direction))
-            .with_camera_id(camera_id)
-            .terminate()
-            .build_into(buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&nd_filter::STEP)
+            .byte(u8::from(self.direction))
+            .finish()
     }
 }
 
@@ -234,12 +236,10 @@ impl WireEncode for AutoNdCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        ConstCommandBuilder::<7>::new()
-            .append(constants::nd_filter::LEVEL_PREFIX)
-            .push(if self.enabled { 0x02 } else { 0x03 })
-            .with_camera_id(camera_id)
-            .terminate()
-            .build_into(buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&nd_filter::AUTO)
+            .byte(if self.enabled { 0x02 } else { 0x03 })
+            .finish()
     }
 }
 

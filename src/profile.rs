@@ -5,7 +5,11 @@ use std::{
     time::{Duration, Instant},
 };
 
-use crate::{capabilities, timeout::CommandTimeouts, AffectedAxes, Error, Result};
+use crate::{
+    capabilities,
+    timeout::{CommandCategory, CommandTimeouts},
+    AffectedAxes, Error, Result,
+};
 
 /// Builds one actionable profile-construction error. Validation can involve
 /// several coupled facts, so plural field names are retained instead of
@@ -248,15 +252,70 @@ pub struct ProfileTimingBuilder {
 }
 
 /// Profile-specified pan/tilt coordinate conversion owned by a validated profile.
+///
+/// This is the crate's single implementation of the degrees ↔ raw-unit
+/// conversion. Request preparation, [`PanTiltExt`], the position types'
+/// profile-aware helpers, and the capability degree ranges all delegate here,
+/// so every path produces the same units for the same angle.
+///
+/// The conversion rule, for each axis with its signed units-per-degree scale:
+///
+/// * degrees → units: `degrees × scale` in `f32`, rounded to the nearest
+///   unit with halves rounded away from zero. Non-finite input, or a result
+///   outside `i32`, has no unit value.
+/// * units → degrees: `units ÷ scale` in `f32`.
+///
+/// For example, with the PTZOptics G2 profile's 14.4 units per degree,
+/// `10.05°` is `145` units.
+///
+/// Deserialization rejects a zero or non-finite scale.
+///
+/// [`PanTiltExt`]: crate::capabilities::pan_tilt::PanTiltExt
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    feature = "serde",
+    serde(try_from = "PanTiltCoordinateConversionSerde")
+)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub struct PanTiltCoordinateConversion {
     coordinate_system: capabilities::CoordinateSystem,
-    #[cfg_attr(feature = "serde", serde(default))]
     wire_codec: capabilities::PanTiltWireCodec,
     pan_degrees_to_units: f32,
     tilt_degrees_to_units: f32,
+}
+
+/// Unvalidated wire form of [`PanTiltCoordinateConversion`].
+#[cfg(feature = "serde")]
+#[derive(serde::Deserialize)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+struct PanTiltCoordinateConversionSerde {
+    coordinate_system: capabilities::CoordinateSystem,
+    wire_codec: capabilities::PanTiltWireCodec,
+    pan_degrees_to_units: f32,
+    tilt_degrees_to_units: f32,
+}
+
+#[cfg(feature = "serde")]
+impl TryFrom<PanTiltCoordinateConversionSerde> for PanTiltCoordinateConversion {
+    type Error = Error;
+
+    fn try_from(value: PanTiltCoordinateConversionSerde) -> Result<Self> {
+        let valid = |scale: f32| scale.is_finite() && scale != 0.0;
+        if !valid(value.pan_degrees_to_units) || !valid(value.tilt_degrees_to_units) {
+            return Err(invalid_profile_fields(
+                &["pan_tilt_coordinates"],
+                "units-per-degree scales must be finite and nonzero",
+            ));
+        }
+        crate::command::pan_tilt::PanTiltFraming::new(value.wire_codec, value.coordinate_system)?;
+        Ok(Self {
+            coordinate_system: value.coordinate_system,
+            wire_codec: value.wire_codec,
+            pan_degrees_to_units: value.pan_degrees_to_units,
+            tilt_degrees_to_units: value.tilt_degrees_to_units,
+        })
+    }
 }
 
 impl PanTiltCoordinateConversion {
@@ -284,17 +343,171 @@ impl PanTiltCoordinateConversion {
     /// Returns the signed tilt degree-to-unit scale.
     ///
     /// A negative scale represents a raw tilt axis whose increasing values move
-    /// up while the library's negative degree convention is up.
+    /// down while the library's positive degree convention is up.
     #[must_use]
     pub const fn tilt_degrees_to_units(self) -> f32 {
         self.tilt_degrees_to_units
     }
 
-    pub(crate) fn camera_coordinates(self, pan_degrees: f32, tilt_degrees: f32) -> (i32, i32) {
-        let pan = (pan_degrees * self.pan_degrees_to_units).round() as i32;
-        let tilt = (tilt_degrees * self.tilt_degrees_to_units).round() as i32;
-        (pan, tilt)
+    /// Returns the conversion a compile-time profile declares.
+    ///
+    /// A profile whose wire codec cannot frame its coordinate system (Sony
+    /// BRC-300 framing with unsigned-centered coordinates) fails to build at
+    /// this call; `tests/api_contract/fail/inconsistent_pan_tilt_framing_fails_to_build.rs`
+    /// pins the error.
+    #[must_use]
+    pub const fn for_profile<P: capabilities::PanTilt + ?Sized>() -> Self {
+        const {
+            assert!(
+                crate::command::pan_tilt::PanTiltFraming::is_consistent(
+                    P::PAN_TILT_WIRE_CODEC,
+                    P::COORDINATE_SYSTEM,
+                ),
+                "Sony BRC-300 pan/tilt framing requires signed-centered coordinates",
+            );
+        }
+        Self {
+            coordinate_system: P::COORDINATE_SYSTEM,
+            wire_codec: P::PAN_TILT_WIRE_CODEC,
+            pan_degrees_to_units: P::PAN_DEGREES_TO_UNITS,
+            tilt_degrees_to_units: P::TILT_DEGREES_TO_UNITS,
+        }
     }
+
+    /// Converts a pan angle to raw units, or `None` when the angle is not
+    /// finite or the result does not fit `i32`.
+    #[must_use]
+    pub fn pan_units(self, degrees: f32) -> Option<i32> {
+        degrees_to_units(degrees, self.pan_degrees_to_units)
+    }
+
+    /// Converts a tilt angle to raw units, or `None` when the angle is not
+    /// finite or the result does not fit `i32`.
+    #[must_use]
+    pub fn tilt_units(self, degrees: f32) -> Option<i32> {
+        degrees_to_units(degrees, self.tilt_degrees_to_units)
+    }
+
+    /// Converts raw pan units to degrees.
+    #[must_use]
+    pub fn pan_degrees(self, units: i32) -> f32 {
+        units as f32 / self.pan_degrees_to_units
+    }
+
+    /// Converts raw tilt units to degrees.
+    #[must_use]
+    pub fn tilt_degrees(self, units: i32) -> f32 {
+        units as f32 / self.tilt_degrees_to_units
+    }
+
+    /// Returns the ordered degree range covered by a raw pan unit range.
+    ///
+    /// A negative scale reverses the endpoints, so the result is always
+    /// ordered in the library's degree convention.
+    #[must_use]
+    pub fn pan_degree_range(
+        self,
+        units: &std::ops::RangeInclusive<i32>,
+    ) -> std::ops::RangeInclusive<f32> {
+        ordered_degrees(
+            self.pan_degrees(*units.start()),
+            self.pan_degrees(*units.end()),
+        )
+    }
+
+    /// Returns the ordered degree range covered by a raw tilt unit range.
+    ///
+    /// A negative scale reverses the endpoints, so the result is always
+    /// ordered in the library's degree convention.
+    #[must_use]
+    pub fn tilt_degree_range(
+        self,
+        units: &std::ops::RangeInclusive<i32>,
+    ) -> std::ops::RangeInclusive<f32> {
+        ordered_degrees(
+            self.tilt_degrees(*units.start()),
+            self.tilt_degrees(*units.end()),
+        )
+    }
+
+    /// Converts a raw position to degrees.
+    #[must_use]
+    pub fn to_degrees(
+        self,
+        position: crate::camera::PanTiltPosition,
+    ) -> crate::inquiry_conversions::PanTiltPositionDeg {
+        crate::inquiry_conversions::PanTiltPositionDeg::new(
+            crate::units::Degrees(self.pan_degrees(position.pan)),
+            crate::units::Degrees(self.tilt_degrees(position.tilt)),
+        )
+    }
+
+    /// Converts a position in degrees to raw units, or `None` when either
+    /// axis has no unit value. Range validation is the caller's profile check.
+    #[must_use]
+    pub fn to_units(
+        self,
+        position: crate::inquiry_conversions::PanTiltPositionDeg,
+    ) -> Option<crate::camera::PanTiltPosition> {
+        Some(crate::camera::PanTiltPosition::new(
+            self.pan_units(position.pan.0)?,
+            self.tilt_units(position.tilt.0)?,
+        ))
+    }
+}
+
+/// A profile's validated pan/tilt ranges, in degrees and in raw units.
+pub(crate) struct PanTiltRanges<'a> {
+    pub(crate) pan_degrees: &'a std::ops::RangeInclusive<f32>,
+    pub(crate) tilt_degrees: &'a std::ops::RangeInclusive<f32>,
+    pub(crate) pan_units: &'a std::ops::RangeInclusive<i32>,
+    pub(crate) tilt_units: &'a std::ops::RangeInclusive<i32>,
+}
+
+impl PanTiltCoordinateConversion {
+    /// Converts a position in degrees to raw units and checks it against a
+    /// profile's ranges; the one range-checked conversion that request
+    /// preparation and `PanTiltPositionDeg::to_raw_with_profile` share.
+    pub(crate) fn checked_units(
+        self,
+        position: crate::inquiry_conversions::PanTiltPositionDeg,
+        ranges: PanTiltRanges<'_>,
+    ) -> Result<crate::camera::PanTiltPosition> {
+        let (pan, tilt) = (position.pan.0, position.tilt.0);
+        if !pan.is_finite()
+            || !tilt.is_finite()
+            || !ranges.pan_degrees.contains(&pan)
+            || !ranges.tilt_degrees.contains(&tilt)
+        {
+            return Err(Error::InvalidRequest(
+                "pan/tilt degrees are outside the validated profile range".into(),
+            ));
+        }
+        self.to_units(position)
+            .filter(|units| {
+                ranges.pan_units.contains(&units.pan) && ranges.tilt_units.contains(&units.tilt)
+            })
+            .ok_or_else(|| {
+                Error::InvalidRequest(
+                    "converted pan/tilt units are outside the validated profile range".into(),
+                )
+            })
+    }
+}
+
+/// The single degrees → raw-unit rule documented on
+/// [`PanTiltCoordinateConversion`].
+fn degrees_to_units(degrees: f32, units_per_degree: f32) -> Option<i32> {
+    // `i32::MIN` and `2^31` are exact in `f32`; every `f32` in between that
+    // rounds to an integer fits `i32`.
+    const LOWER: f32 = i32::MIN as f32;
+    const UPPER: f32 = -(i32::MIN as f32);
+    let units = (degrees * units_per_degree).round();
+    (units.is_finite() && (LOWER..UPPER).contains(&units)).then_some(units as i32)
+}
+
+fn ordered_degrees(start: f32, end: f32) -> std::ops::RangeInclusive<f32> {
+    start.min(end)..=start.max(end)
 }
 
 impl ProfileTiming {
@@ -336,6 +549,18 @@ impl ProfileTiming {
     /// declares no correlatable response. Once ACK establishes an exact socket,
     /// this window may extend but never shorten the command's completion
     /// deadline.
+    ///
+    /// On a raw-VISCA stream transport it also bounds how long a camera's next
+    /// inquiries wait for a timed-out inquiry's reply, which the stream still
+    /// owes. After it, they (and user `CompletionOnly` raw commands to that
+    /// camera) fail unwritten with [`Error::InquiryCorrelationLost`] until the
+    /// owed reply arrives or a new session is opened, because a later
+    /// unidentifiable reply could otherwise be returned as another inquiry's
+    /// data. Commands and stops to that camera are still sent, but its
+    /// socketless error frames stay filtered, so a command rejected with one
+    /// ends [`Error::UnsequencedCommandUnconfirmed`]; inquiry-based observation
+    /// of that camera (settlement polling, `is_moving`, `wait_until_idle`)
+    /// fails.
     #[must_use]
     pub const fn ambiguity_timeout(self) -> Duration {
         self.ambiguity_timeout
@@ -390,14 +615,10 @@ impl ProfileTiming {
             .map_err(|error| invalid_profile_fields(&["timing.command_timeouts"], error))?;
 
         let now = Instant::now();
-        let command_timeouts = self.command_timeouts;
-        let timing_values = [
+        let command_deadlines =
+            CommandCategory::ALL.map(|category| self.command_timeouts.get(category));
+        if [
             self.ack_timeout,
-            command_timeouts.quick_timeout(),
-            command_timeouts.movement_timeout(),
-            command_timeouts.preset_timeout(),
-            command_timeouts.long_running_timeout(),
-            command_timeouts.network_timeout(),
             self.inquiry_timeout,
             self.cancellation_timeout,
             self.ambiguity_timeout,
@@ -405,10 +626,10 @@ impl ProfileTiming {
             self.raw_inquiry_reply_skew,
             self.minimum_inquiry_spacing,
             self.minimum_command_spacing,
-        ];
-        if timing_values
-            .into_iter()
-            .any(|duration| !monotonic_duration_is_representable(now, duration))
+        ]
+        .into_iter()
+        .chain(command_deadlines)
+        .any(|duration| !monotonic_duration_is_representable(now, duration))
         {
             return Err(invalid_profile_fields(
                 &["timing"],
@@ -425,19 +646,13 @@ impl ProfileTiming {
             ));
         }
 
-        // `retry_policy` derives its default total budget as at least twice
-        // the governing command or inquiry deadline.  Validate those derived
-        // values here as well as the stored timing facts.
-        if [
-            command_timeouts.quick_timeout(),
-            command_timeouts.movement_timeout(),
-            command_timeouts.preset_timeout(),
-            command_timeouts.long_running_timeout(),
-            command_timeouts.network_timeout(),
-            self.inquiry_timeout,
-        ]
-        .into_iter()
-        .any(|deadline| !retry_budget_is_representable(now, deadline))
+        // `RetryBounds::for_request` derives the default total budget as at
+        // least twice the governing command or inquiry deadline. Validate
+        // those derived values here as well as the stored timing facts.
+        if command_deadlines
+            .into_iter()
+            .chain([self.inquiry_timeout])
+            .any(|deadline| !retry_budget_is_representable(now, deadline))
         {
             return Err(invalid_profile_fields(
                 &["timing.command_timeouts", "timing.inquiry_timeout"],
@@ -697,13 +912,16 @@ impl OperationalTuning {
         self
     }
 
-    /// Overrides the base bounded retry count.
+    /// Lowers the base bounded retry count.
     ///
-    /// Each request's own budget is derived from this base by its timeout
-    /// category: quick and inquiry work gets two more attempts, network work
-    /// one fewer, and a long-running command exactly one, so the effective
-    /// count is not always the number given here. A request whose retry class
-    /// is [`RetryClass::Never`](crate::RetryClass::Never) is never replayed
+    /// The default base is 3, and tuning may only reduce it:
+    /// [`ProfileSpec::validate_tuning`] rejects a larger value, so tuning can
+    /// never make retries more aggressive than the default. Each request's own
+    /// budget is derived from this base by its timeout category: quick and
+    /// inquiry work gets two more attempts, network work one fewer (at least
+    /// one), and a long-running command exactly one, so the effective count is
+    /// not always the number given here. A request whose retry class is
+    /// [`RetryClass::Never`](crate::RetryClass::Never) is never replayed
     /// regardless of this value.
     #[must_use]
     pub const fn retry_limit(mut self, maximum: u32) -> Self {
@@ -711,7 +929,17 @@ impl OperationalTuning {
         self
     }
 
-    /// Overrides retry backoff and total budget.
+    /// Lengthens retry backoff and the total retry budget.
+    ///
+    /// Retry timing is a validated profile bound that tuning may only
+    /// lengthen, like every other deadline. By default backoff begins at
+    /// 50 ms and is capped at the larger of 500 ms and the profile busy
+    /// timeout, and a request may retry for the largest of ten seconds, twice
+    /// its own governing deadline, and the busy timeout.
+    /// [`ProfileSpec::validate_tuning`] rejects an `initial` below 50 ms, a
+    /// `maximum` below that ceiling, and a `budget` below the ten-second (or
+    /// busy-timeout) floor. A request whose own default budget is longer than
+    /// `budget` keeps its default.
     #[must_use]
     pub const fn retry_timing(
         mut self,
@@ -741,24 +969,15 @@ impl OperationalTuning {
         self.ack_timeout
     }
 
-    pub(crate) const fn quick_timeout_override(self) -> Option<Duration> {
-        self.quick_timeout
-    }
-
-    pub(crate) const fn movement_timeout_override(self) -> Option<Duration> {
-        self.movement_timeout
-    }
-
-    pub(crate) const fn preset_timeout_override(self) -> Option<Duration> {
-        self.preset_timeout
-    }
-
-    pub(crate) const fn long_running_timeout_override(self) -> Option<Duration> {
-        self.long_running_timeout
-    }
-
-    pub(crate) const fn network_timeout_override(self) -> Option<Duration> {
-        self.network_timeout
+    /// The completion-deadline override for one command category.
+    pub(crate) const fn command_override(self, category: CommandCategory) -> Option<Duration> {
+        match category {
+            CommandCategory::Quick => self.quick_timeout,
+            CommandCategory::Movement => self.movement_timeout,
+            CommandCategory::Preset => self.preset_timeout,
+            CommandCategory::LongRunning => self.long_running_timeout,
+            CommandCategory::Network => self.network_timeout,
+        }
     }
 
     pub(crate) const fn settlement_timeout_override(self) -> Option<Duration> {
@@ -769,30 +988,99 @@ impl OperationalTuning {
         self.inquiry_timeout
     }
 
-    pub(crate) const fn retry_limit_override(self) -> Option<u32> {
-        self.retry_limit
+    /// Applies the retry-limit override to the default base retry count. The
+    /// override may only reduce it.
+    pub(crate) fn reduce_retry_base(self, default: u32) -> u32 {
+        self.retry_limit.map_or(default, |limit| limit.min(default))
     }
 
-    pub(crate) const fn retry_timing_override(
-        self,
-    ) -> (Option<Duration>, Option<Duration>, Option<Duration>) {
-        (
-            self.initial_retry_backoff,
-            self.maximum_retry_backoff,
-            self.retry_budget,
-        )
+    /// Applies the retry-timing overrides to a request's profile retry
+    /// bounds. Each override may only lengthen its bound, so a value below the
+    /// request's own bound leaves that bound in force.
+    pub(crate) fn lengthen_retry_bounds(self, profile: RetryBounds) -> RetryBounds {
+        let lengthen = |value: Option<Duration>, bound: Duration| {
+            value.map_or(bound, |value| value.max(bound))
+        };
+        RetryBounds {
+            initial_backoff: lengthen(self.initial_retry_backoff, profile.initial_backoff),
+            maximum_backoff: lengthen(self.maximum_retry_backoff, profile.maximum_backoff),
+            total_budget: lengthen(self.retry_budget, profile.total_budget),
+        }
+    }
+}
+
+/// Base retry count every request's per-category retry budget is derived
+/// from. [`OperationalTuning::retry_limit`] may only lower it.
+pub(crate) const DEFAULT_RETRY_BASE: u32 = 3;
+
+/// Smallest first retry backoff.
+const MINIMUM_INITIAL_RETRY_BACKOFF: Duration = Duration::from_millis(50);
+
+/// Smallest retry backoff ceiling; a profile busy timeout can raise it.
+const MINIMUM_MAXIMUM_RETRY_BACKOFF: Duration = Duration::from_millis(500);
+
+/// Floor for the total wall-clock a request may spend retrying, counted from
+/// admission. The governing request deadline and the profile busy timeout can
+/// raise it.
+pub(crate) const MINIMUM_RETRY_BUDGET: Duration = Duration::from_secs(10);
+
+/// Retry pacing bounds for one request.
+///
+/// [`Self::for_request`] is the profile's bound for a request;
+/// [`OperationalTuning::retry_timing`] may only lengthen each one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RetryBounds {
+    /// Delay before the first retry.
+    pub(crate) initial_backoff: Duration,
+    /// Ceiling for every later backoff.
+    pub(crate) maximum_backoff: Duration,
+    /// Total retry wall-clock counted from admission.
+    pub(crate) total_budget: Duration,
+}
+
+impl RetryBounds {
+    /// The profile's retry bounds for a request whose own governing deadline
+    /// (its completion deadline for a command, its reply deadline for an
+    /// inquiry) is `deadline`.
+    ///
+    /// Backoff starts at 50 ms and is capped at the larger of 500 ms and the
+    /// profile busy timeout. The total budget is the largest of ten seconds,
+    /// twice the governing deadline, and the busy timeout: a request must be
+    /// able to finish one governing attempt and still have room for a retry,
+    /// and the busy timeout covers camera-side recovery windows.
+    pub(crate) fn for_request(busy_timeout: Duration, deadline: Duration) -> Self {
+        Self {
+            initial_backoff: MINIMUM_INITIAL_RETRY_BACKOFF,
+            maximum_backoff: MINIMUM_MAXIMUM_RETRY_BACKOFF.max(busy_timeout),
+            total_budget: MINIMUM_RETRY_BUDGET
+                .max(deadline.saturating_mul(2))
+                .max(busy_timeout),
+        }
     }
 }
 
 /// Validated runtime form of compile-time and user-supplied profile facts.
+///
+/// With the `serde` feature a spec round-trips through JSON or another serde
+/// format. Deserialization requires every current field and validates the
+/// result: a spec saved by another release is refused with an instruction to
+/// regenerate it, and a built-in identity must match the current registry
+/// exactly.
+#[derive(Debug, Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize), serde(transparent))]
+pub struct ProfileSpec {
+    facts: ProfileFacts,
+}
+
+/// Every protocol fact of one profile.
+///
+/// [`ProfileSpec`] is the validated wrapper; this is also its persisted shape,
+/// and the compile-time identity check compares two of these with the derived
+/// equality, so a new fact is always part of both.
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(
-    feature = "serde",
-    serde(try_from = "ProfileSpecSerde", into = "ProfileSpecSerde")
-)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-pub struct ProfileSpec {
+pub(crate) struct ProfileFacts {
     capabilities: capabilities::Capabilities,
     pan_tilt_coordinates: Option<PanTiltCoordinateConversion>,
     transports: TransportCompatibility,
@@ -805,58 +1093,81 @@ pub struct ProfileSpec {
     position_inquiries: PositionInquirySupport,
 }
 
-#[cfg(feature = "serde")]
-#[derive(serde::Serialize, serde::Deserialize)]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-struct ProfileSpecSerde {
-    capabilities: capabilities::Capabilities,
-    pan_tilt_coordinates: Option<PanTiltCoordinateConversion>,
-    transports: TransportCompatibility,
-    envelope: ProfileEnvelope,
-    timing: ProfileTiming,
-    maximum_command_sockets: u8,
-    supports_operation_complete: bool,
-    supports_command_cancel: bool,
-    preset_recall_axes: Option<AffectedAxes>,
-    position_inquiries: PositionInquirySupport,
-}
-
-#[cfg(feature = "serde")]
-impl From<ProfileSpec> for ProfileSpecSerde {
-    fn from(spec: ProfileSpec) -> Self {
+impl ProfileFacts {
+    /// The facts a compile-time profile declares.
+    fn compile_time<P>() -> Self
+    where
+        P: CompileTimeProfile,
+    {
         Self {
-            capabilities: spec.capabilities,
-            pan_tilt_coordinates: spec.pan_tilt_coordinates,
-            transports: spec.transports,
-            envelope: spec.envelope,
-            timing: spec.timing,
-            maximum_command_sockets: spec.maximum_command_sockets,
-            supports_operation_complete: spec.supports_operation_complete,
-            supports_command_cancel: spec.supports_command_cancel,
-            preset_recall_axes: spec.preset_recall_axes,
-            position_inquiries: spec.position_inquiries,
+            capabilities: capabilities::Capabilities::from_profile::<P>(),
+            pan_tilt_coordinates: Some(PanTiltCoordinateConversion::for_profile::<P>()),
+            transports: P::TRANSPORTS,
+            envelope: if <P::Envelope as crate::transport::Envelope>::SUPPORTS_SEQUENCE_CORRELATION
+            {
+                ProfileEnvelope::SonyEncapsulated
+            } else {
+                ProfileEnvelope::RawVisca
+            },
+            timing: ProfileTiming {
+                ack_timeout: P::ACK_TIMEOUT,
+                command_timeouts: P::COMMAND_TIMEOUTS,
+                inquiry_timeout: P::INQUIRY_TIMEOUT,
+                cancellation_timeout: P::CANCELLATION_TIMEOUT,
+                ambiguity_timeout: P::AMBIGUITY_TIMEOUT,
+                busy_timeout: P::BUSY_TIMEOUT,
+                raw_inquiry_reply_skew: P::RAW_INQUIRY_REPLY_SKEW,
+                minimum_inquiry_spacing: P::MIN_INQUIRY_SPACING,
+                minimum_command_spacing: P::MIN_COMMAND_SPACING,
+            },
+            maximum_command_sockets: P::MAXIMUM_COMMAND_SOCKETS,
+            supports_operation_complete: P::SUPPORTS_OPERATION_COMPLETE,
+            supports_command_cancel: P::SUPPORTS_COMMAND_CANCEL,
+            preset_recall_axes: P::PRESET_RECALL_AXES,
+            position_inquiries: P::POSITION_INQUIRIES,
         }
+    }
+
+    /// Returns whether every fact equals the compile-time declaration of `P`.
+    ///
+    /// This compares the unvalidated declaration: it runs while validating,
+    /// so validating the declaration here would recurse back into this check.
+    pub(crate) fn matches_compile_time<P>(&self) -> bool
+    where
+        P: CompileTimeProfile,
+    {
+        *self == Self::compile_time::<P>()
     }
 }
 
+/// Instruction appended to every refused persisted spec.
 #[cfg(feature = "serde")]
-impl TryFrom<ProfileSpecSerde> for ProfileSpec {
-    type Error = Error;
+const REGENERATE_SPEC: &str = "the spec was saved by another release, so regenerate it with \
+     `ProfileSpec::from_compile_time::<P>()` for a built-in profile (or rebuild a custom \
+     profile with `ProfileSpec::builder`) and persist the result";
 
-    fn try_from(spec: ProfileSpecSerde) -> Result<Self> {
-        Self {
-            capabilities: spec.capabilities,
-            pan_tilt_coordinates: spec.pan_tilt_coordinates,
-            transports: spec.transports,
-            envelope: spec.envelope,
-            timing: spec.timing,
-            maximum_command_sockets: spec.maximum_command_sockets,
-            supports_operation_complete: spec.supports_operation_complete,
-            supports_command_cancel: spec.supports_command_cancel,
-            preset_recall_axes: spec.preset_recall_axes,
-            position_inquiries: spec.position_inquiries,
-        }
-        .validate()
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for ProfileSpec {
+    fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        use serde::de::Error as _;
+
+        let facts = ProfileFacts::deserialize(deserializer)
+            .map_err(|error| D::Error::custom(format_args!("{error}; {REGENERATE_SPEC}")))?;
+        Self::validated(facts).map_err(D::Error::custom)
+    }
+}
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for ProfileSpec {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        std::borrow::Cow::Borrowed("ProfileSpec")
+    }
+
+    fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        ProfileFacts::json_schema(generator)
     }
 }
 
@@ -875,7 +1186,12 @@ impl ProfileSpec {
     where
         P: CompileTimeProfile,
     {
-        ProfileSpecBuilder::from_compile_time::<P>().build()
+        Self::validated(ProfileFacts::compile_time::<P>())
+    }
+
+    /// The only constructor: every spec has passed validation.
+    fn validated(facts: ProfileFacts) -> Result<Self> {
+        facts.validate().map(|facts| Self { facts })
     }
 
     /// Returns the human-readable name of this runtime profile.
@@ -884,7 +1200,7 @@ impl ProfileSpec {
     /// profile's capability inventory.
     #[must_use]
     pub fn name(&self) -> &str {
-        self.capabilities.model_name.as_str()
+        self.facts.capabilities.model_name.as_str()
     }
 
     /// Checks that this validated runtime inventory has the same protocol
@@ -911,37 +1227,23 @@ impl ProfileSpec {
 
     /// Returns whether every protocol identity fact matches the generated
     /// compile-time projection for `P`.
-    ///
-    /// This deliberately compares the unvalidated builder projection. It is
-    /// used while validating a `ProfileSpec`, so constructing the validated
-    /// projection here would recurse back into this check.
     pub(crate) fn matches_compile_time_profile<P>(&self) -> bool
     where
         P: CompileTimeProfile,
     {
-        let expected = ProfileSpecBuilder::from_compile_time::<P>();
-        self.capabilities == expected.capabilities
-            && self.pan_tilt_coordinates == expected.pan_tilt_coordinates
-            && Some(self.transports) == expected.transports
-            && Some(self.envelope) == expected.envelope
-            && Some(self.timing) == expected.timing
-            && Some(self.maximum_command_sockets) == expected.maximum_command_sockets
-            && Some(self.supports_operation_complete) == expected.supports_operation_complete
-            && Some(self.supports_command_cancel) == expected.supports_command_cancel
-            && Some(self.preset_recall_axes) == expected.preset_recall_axes
-            && Some(self.position_inquiries) == expected.position_inquiries
+        self.facts.matches_compile_time::<P>()
     }
 
     /// Returns runtime feature and conversion facts.
     #[must_use]
     pub const fn capabilities(&self) -> &capabilities::Capabilities {
-        &self.capabilities
+        &self.facts.capabilities
     }
 
     /// Returns profile-specified pan/tilt coordinate facts when pan/tilt is supported.
     #[must_use]
     pub const fn pan_tilt_coordinates(&self) -> Option<PanTiltCoordinateConversion> {
-        self.pan_tilt_coordinates
+        self.facts.pan_tilt_coordinates
     }
 
     pub(crate) fn convert_pan_tilt_degrees(
@@ -949,81 +1251,76 @@ impl ProfileSpec {
         pan_degrees: f32,
         tilt_degrees: f32,
     ) -> Result<(i32, i32)> {
-        if !pan_degrees.is_finite()
-            || !tilt_degrees.is_finite()
-            || !self.capabilities.pan_range_degrees.contains(&pan_degrees)
-            || !self.capabilities.tilt_range_degrees.contains(&tilt_degrees)
-        {
-            return Err(Error::InvalidRequest(
-                "pan/tilt degrees are outside the validated profile range".into(),
-            ));
-        }
-        let conversion = self.pan_tilt_coordinates.ok_or_else(|| {
+        let conversion = self.facts.pan_tilt_coordinates.ok_or_else(|| {
             Error::InvalidRequest("profile has no pan/tilt coordinate conversion".into())
         })?;
-        let converted = conversion.camera_coordinates(pan_degrees, tilt_degrees);
-        if !self.capabilities.pan_range.contains(&converted.0)
-            || !self.capabilities.tilt_range.contains(&converted.1)
-        {
-            return Err(Error::InvalidRequest(
-                "converted pan/tilt units are outside the validated profile range".into(),
-            ));
-        }
-        Ok(converted)
+        let position = conversion.checked_units(
+            crate::inquiry_conversions::PanTiltPositionDeg::new(
+                crate::units::Degrees(pan_degrees),
+                crate::units::Degrees(tilt_degrees),
+            ),
+            PanTiltRanges {
+                pan_degrees: &self.facts.capabilities.pan_range_degrees,
+                tilt_degrees: &self.facts.capabilities.tilt_range_degrees,
+                pan_units: &self.facts.capabilities.pan_range,
+                tilt_units: &self.facts.capabilities.tilt_range,
+            },
+        )?;
+        Ok((position.pan, position.tilt))
     }
 
     /// Returns compatible standard transports.
     #[must_use]
     pub const fn transports(&self) -> TransportCompatibility {
-        self.transports
+        self.facts.transports
     }
 
     /// Returns the required wire envelope.
     #[must_use]
     pub const fn envelope(&self) -> ProfileEnvelope {
-        self.envelope
+        self.facts.envelope
     }
 
     /// Returns immutable deadline and pacing minima.
     #[must_use]
     pub const fn timing(&self) -> ProfileTiming {
-        self.timing
+        self.facts.timing
     }
 
     /// Returns the validated per-category command completion deadlines.
     #[must_use]
     pub const fn command_timeouts(&self) -> CommandTimeouts {
-        self.timing.command_timeouts()
+        self.facts.timing.command_timeouts()
     }
 
     /// Returns the maximum number of camera command sockets.
     #[must_use]
     pub const fn maximum_command_sockets(&self) -> u8 {
-        self.maximum_command_sockets
+        self.facts.maximum_command_sockets
     }
 
     /// Returns whether exact operation-complete messages are supported.
     #[must_use]
     pub const fn supports_operation_complete(&self) -> bool {
-        self.supports_operation_complete
+        self.facts.supports_operation_complete
     }
 
     /// Returns whether transmitted commands permit protocol cancellation.
     #[must_use]
     pub const fn supports_command_cancel(&self) -> bool {
-        self.supports_command_cancel
+        self.facts.supports_command_cancel
     }
 
     /// Returns the exact axes affected by preset recall.
     #[must_use]
     pub const fn preset_recall_axes(&self) -> Option<AffectedAxes> {
-        self.preset_recall_axes
+        self.facts.preset_recall_axes
     }
 
     /// Returns per-axis position-inquiry support used for settlement.
     #[must_use]
     pub const fn position_inquiries(&self) -> PositionInquirySupport {
-        self.position_inquiries
+        self.facts.position_inquiries
     }
 
     /// Returns whether the profile declares every selected physical axis.
@@ -1033,35 +1330,49 @@ impl ProfileSpec {
     /// [`PositionInquirySupport::supports`].
     #[must_use]
     pub const fn supports_axes(&self, axes: AffectedAxes) -> bool {
-        (!axes.contains(AffectedAxes::PAN_TILT) || self.capabilities.has_pan_tilt)
-            && (!axes.contains(AffectedAxes::ZOOM) || self.capabilities.has_zoom)
-            && (!axes.contains(AffectedAxes::FOCUS) || self.capabilities.has_focus)
-            && (!axes.contains(AffectedAxes::IRIS) || self.capabilities.has_iris_control)
-            && (!axes.contains(AffectedAxes::ND_FILTER) || self.capabilities.has_nd_filter)
+        (!axes.contains(AffectedAxes::PAN_TILT) || self.facts.capabilities.has_pan_tilt)
+            && (!axes.contains(AffectedAxes::ZOOM) || self.facts.capabilities.has_zoom)
+            && (!axes.contains(AffectedAxes::FOCUS) || self.facts.capabilities.has_focus)
+            && (!axes.contains(AffectedAxes::IRIS) || self.facts.capabilities.iris_range.is_some())
+            && (!axes.contains(AffectedAxes::ND_FILTER) || self.facts.capabilities.has_nd_filter)
+    }
+
+    /// The number of typed STOP paths (pan/tilt, zoom, focus) this profile
+    /// supports. Each one gets a control-reserve admission slot (D26, #778).
+    pub(crate) fn typed_stop_paths(&self) -> u8 {
+        [
+            AffectedAxes::PAN_TILT,
+            AffectedAxes::ZOOM,
+            AffectedAxes::FOCUS,
+        ]
+        .into_iter()
+        .filter(|axes| self.supports_axes(*axes))
+        .fold(0, |paths, _| paths + 1)
     }
 
     /// Validates operational overrides without changing profile safety facts.
+    ///
+    /// Tuning may only make a profile more conservative: pacing and every
+    /// deadline, including the retry backoff and budget, may be lengthened
+    /// but never shortened, and socket capacity may only be lowered.
     pub fn validate_tuning(&self, tuning: OperationalTuning) -> Result<()> {
         let now = Instant::now();
-        let tuning_values = [
+        let command_overrides =
+            CommandCategory::ALL.map(|category| tuning.command_override(category));
+        if [
             tuning.command_spacing,
             tuning.inquiry_spacing,
             tuning.ack_timeout,
-            tuning.quick_timeout,
-            tuning.movement_timeout,
-            tuning.preset_timeout,
-            tuning.long_running_timeout,
-            tuning.network_timeout,
             tuning.settlement_timeout,
             tuning.inquiry_timeout,
             tuning.initial_retry_backoff,
             tuning.maximum_retry_backoff,
             tuning.retry_budget,
-        ];
-        if tuning_values
-            .into_iter()
-            .flatten()
-            .any(|duration| !monotonic_duration_is_representable(now, duration))
+        ]
+        .into_iter()
+        .chain(command_overrides)
+        .flatten()
+        .any(|duration| !monotonic_duration_is_representable(now, duration))
         {
             return Err(Error::InvalidRequest(
                 "operational timing overrides must be representable by the monotonic clock".into(),
@@ -1070,17 +1381,11 @@ impl ProfileSpec {
 
         // Command and inquiry overrides feed the same derived retry-budget
         // calculation as their profile-owned counterparts.
-        if [
-            tuning.quick_timeout,
-            tuning.movement_timeout,
-            tuning.preset_timeout,
-            tuning.long_running_timeout,
-            tuning.network_timeout,
-            tuning.inquiry_timeout,
-        ]
-        .into_iter()
-        .flatten()
-        .any(|deadline| !retry_budget_is_representable(now, deadline))
+        if command_overrides
+            .into_iter()
+            .chain([tuning.inquiry_timeout])
+            .flatten()
+            .any(|deadline| !retry_budget_is_representable(now, deadline))
         {
             return Err(Error::InvalidRequest(
                 "operational retry deadlines must be representable by the monotonic clock".into(),
@@ -1089,10 +1394,10 @@ impl ProfileSpec {
 
         if tuning
             .command_spacing
-            .is_some_and(|value| value < self.timing.minimum_command_spacing)
+            .is_some_and(|value| value < self.facts.timing.minimum_command_spacing)
             || tuning
                 .inquiry_spacing
-                .is_some_and(|value| value < self.timing.minimum_inquiry_spacing)
+                .is_some_and(|value| value < self.facts.timing.minimum_inquiry_spacing)
         {
             return Err(Error::InvalidRequest(
                 "operational tuning cannot weaken profile pacing minima".into(),
@@ -1100,7 +1405,7 @@ impl ProfileSpec {
         }
         if tuning
             .maximum_command_sockets
-            .is_some_and(|value| value == 0 || value > self.maximum_command_sockets)
+            .is_some_and(|value| value == 0 || value > self.facts.maximum_command_sockets)
         {
             return Err(Error::InvalidRequest(
                 "operational tuning cannot raise the profile socket limit".into(),
@@ -1108,15 +1413,11 @@ impl ProfileSpec {
         }
         if [
             tuning.ack_timeout,
-            tuning.quick_timeout,
-            tuning.movement_timeout,
-            tuning.preset_timeout,
-            tuning.long_running_timeout,
-            tuning.network_timeout,
             tuning.settlement_timeout,
             tuning.inquiry_timeout,
         ]
         .into_iter()
+        .chain(command_overrides)
         .flatten()
         .any(|timeout| timeout.is_zero())
         {
@@ -1124,35 +1425,31 @@ impl ProfileSpec {
                 "operational timeout overrides must be non-zero".into(),
             ));
         }
-        if tuning
-            .ack_timeout
-            .is_some_and(|timeout| timeout < self.timing.ack_timeout)
-            || tuning
-                .quick_timeout
-                .is_some_and(|timeout| timeout < self.timing.command_timeouts.quick_timeout())
-            || tuning
-                .movement_timeout
-                .is_some_and(|timeout| timeout < self.timing.command_timeouts.movement_timeout())
-            || tuning
-                .preset_timeout
-                .is_some_and(|timeout| timeout < self.timing.command_timeouts.preset_timeout())
-            || tuning.long_running_timeout.is_some_and(|timeout| {
-                timeout < self.timing.command_timeouts.long_running_timeout()
+        let undercuts =
+            |value: Option<Duration>, floor: Duration| value.is_some_and(|value| value < floor);
+        if undercuts(tuning.ack_timeout, self.facts.timing.ack_timeout)
+            || undercuts(tuning.inquiry_timeout, self.facts.timing.inquiry_timeout)
+            || CommandCategory::ALL.into_iter().any(|category| {
+                undercuts(
+                    tuning.command_override(category),
+                    self.facts.timing.command_timeouts.get(category),
+                )
             })
-            || tuning
-                .network_timeout
-                .is_some_and(|timeout| timeout < self.timing.command_timeouts.network_timeout())
-            || tuning
-                .inquiry_timeout
-                .is_some_and(|timeout| timeout < self.timing.inquiry_timeout)
         {
             return Err(Error::InvalidRequest(
                 "operational timeout overrides cannot undercut profile deadlines".into(),
             ));
         }
-        if tuning.retry_limit.is_some_and(|limit| limit > 32) {
+        if tuning
+            .retry_limit
+            .is_some_and(|limit| limit > DEFAULT_RETRY_BASE)
+        {
             return Err(Error::InvalidRequest(
-                "operational retry limit exceeds the bounded maximum of 32".into(),
+                format!(
+                    "operational retry limit cannot exceed the default base retry count \
+                     of {DEFAULT_RETRY_BASE}"
+                )
+                .into(),
             ));
         }
         match (
@@ -1168,6 +1465,23 @@ impl ProfileSpec {
                     "retry timing requires non-zero ordered backoff and a sufficient budget".into(),
                 ));
             }
+        }
+        // The profile's request-independent retry floor: every request's own
+        // bound is at least this, so an override below it could only shorten
+        // retry timing.
+        let floor = RetryBounds::for_request(self.facts.timing.busy_timeout, Duration::ZERO);
+        if undercuts(tuning.initial_retry_backoff, floor.initial_backoff)
+            || undercuts(tuning.maximum_retry_backoff, floor.maximum_backoff)
+            || undercuts(tuning.retry_budget, floor.total_budget)
+        {
+            return Err(Error::InvalidRequest(
+                format!(
+                    "operational retry timing cannot undercut the profile retry bounds \
+                     (initial backoff {:?}, backoff ceiling {:?}, budget {:?})",
+                    floor.initial_backoff, floor.maximum_backoff, floor.total_budget,
+                )
+                .into(),
+            ));
         }
         // The ordering rule above keeps `initial` below both of these, so
         // bounding the ceiling and the budget bounds all three (see
@@ -1185,7 +1499,9 @@ impl ProfileSpec {
         }
         Ok(())
     }
+}
 
+impl ProfileFacts {
     fn validate(mut self) -> Result<Self> {
         fn range_ordered<T: PartialOrd>(range: &std::ops::RangeInclusive<T>) -> bool {
             range.start() <= range.end()
@@ -1249,7 +1565,41 @@ impl ProfileSpec {
             ));
         }
         if let Some(profile_id) = self.capabilities.profile_id {
-            if !profile_id.matches_profile_spec(&self) {
+            if !profile_id.matches_profile_facts(&self) {
+                let stored = self.capabilities.typed_support;
+                let registry = profile_id.registry_typed_support();
+                if stored != registry {
+                    // The common case is a spec persisted by an earlier
+                    // release whose registry granted a different typed
+                    // surface set (#795). Name the difference and the fix.
+                    let list =
+                        |set: capabilities::TypedSupportSet,
+                         other: capabilities::TypedSupportSet| {
+                            let names = set
+                                .iter()
+                                .filter(|surface| !other.contains(*surface))
+                                .map(|surface| format!("{surface:?}"))
+                                .collect::<Vec<_>>();
+                            if names.is_empty() {
+                                "none".to_owned()
+                            } else {
+                                names.join(", ")
+                            }
+                        };
+                    let type_name = profile_id.compile_time_type_name();
+                    return Err(invalid_profile_fields(
+                        &["capabilities.profile_id", "capabilities.typed_support"],
+                        format_args!(
+                            "built-in profile `{type_name}`: the stored typed-support set differs \
+                             from the current built-in registry (missing: {}; not in registry: {}); \
+                             the spec was saved by another release, so regenerate it with \
+                             `ProfileSpec::from_compile_time::<grafton_visca::profiles::{type_name}>()` \
+                             and persist the result",
+                            list(registry, stored),
+                            list(stored, registry),
+                        ),
+                    ));
+                }
                 return Err(invalid_profile_fields(
                     &[
                         "capabilities.profile_id",
@@ -1319,27 +1669,25 @@ impl ProfileSpec {
                     "is required when `capabilities.has_pan_tilt` is true",
                 ));
             };
+            crate::command::pan_tilt::PanTiltFraming::new(
+                conversion.wire_codec,
+                conversion.coordinate_system,
+            )?;
             if conversion.wire_codec == capabilities::PanTiltWireCodec::SonyBrc300
-                && (conversion.coordinate_system != capabilities::CoordinateSystem::SignedCentered
-                    || self
+                && self
+                    .capabilities
+                    .pan_speed
+                    .start()
+                    .max(self.capabilities.tilt_speed.start())
+                    > self
                         .capabilities
                         .pan_speed
-                        .start()
-                        .max(self.capabilities.tilt_speed.start())
-                        > self
-                            .capabilities
-                            .pan_speed
-                            .end()
-                            .min(self.capabilities.tilt_speed.end()))
+                        .end()
+                        .min(self.capabilities.tilt_speed.end())
             {
                 return Err(invalid_profile_fields(
-                    &[
-                        "pan_tilt_coordinates.wire_codec",
-                        "pan_tilt_coordinates.coordinate_system",
-                        "capabilities.pan_speed",
-                        "capabilities.tilt_speed",
-                    ],
-                    "Sony BRC-300 framing requires signed-centered coordinates and overlapping pan/tilt speeds",
+                    &["capabilities.pan_speed", "capabilities.tilt_speed"],
+                    "Sony BRC-300 one-speed framing requires overlapping pan/tilt speeds",
                 ));
             }
             if conversion.wire_codec == capabilities::PanTiltWireCodec::SonyBrc300
@@ -1428,8 +1776,11 @@ impl ProfileSpec {
                 || !range_fits_domain(&self.capabilities.zoom_speed, |value| {
                     crate::types::ZoomSpeed::new(value).is_ok()
                 })
-                || !self.capabilities.zoom_magnification_to_units.is_finite()
-                || self.capabilities.zoom_magnification_to_units <= 0.0
+                || self.capabilities.optical_zoom_ratio.is_some_and(|ratio| {
+                    !ratio.is_finite()
+                        || ratio <= 1.0
+                        || *self.capabilities.zoom_range_optical.end() == 0
+                })
                 || self
                     .capabilities
                     .zoom_range_digital
@@ -1444,19 +1795,18 @@ impl ProfileSpec {
                     "capabilities.zoom_range_optical",
                     "capabilities.zoom_range_digital",
                     "capabilities.zoom_speed",
-                    "capabilities.zoom_magnification_to_units",
+                    "capabilities.optical_zoom_ratio",
                 ],
                 "zoom ranges, converter, and speeds are invalid",
             ));
         }
         if !self.capabilities.has_zoom
-            && (self.capabilities.has_digital_zoom
-                || self.capabilities.zoom_range_optical != (0..=0)
+            && (self.capabilities.zoom_range_optical != (0..=0)
                 || self.capabilities.zoom_range_digital.is_some()
                 || self.capabilities.zoom_speed != (0..=0)
                 || self.capabilities.supports_direct_zoom
                 || self.capabilities.supports_variable_zoom
-                || self.capabilities.zoom_magnification_to_units != 1.0)
+                || self.capabilities.optical_zoom_ratio.is_some())
         {
             return Err(invalid_profile_fields(
                 &["capabilities.has_zoom", "capabilities"],
@@ -1477,10 +1827,7 @@ impl ProfileSpec {
         }
         let capabilities = &self.capabilities;
         if !optional_ordered(capabilities.exposure_comp_range.as_ref())
-            || !range_ordered(&capabilities.exposure_comp_profile_range)
-            || !optional_ordered(capabilities.iris_range.as_ref())
             || !range_ordered(&capabilities.gain_range)
-            || !optional_ordered(capabilities.exposure_brightness_range.as_ref())
             || !optional_ordered(capabilities.color_temp_range.as_ref())
             || !optional_ordered(capabilities.rg_tuning_range.as_ref())
             || !optional_ordered(capabilities.bg_tuning_range.as_ref())
@@ -1492,15 +1839,13 @@ impl ProfileSpec {
             || !optional_ordered(capabilities.hue_range.as_ref())
             || !optional_ordered(capabilities.luminance_range.as_ref())
             || !optional_ordered(capabilities.gamma_range.as_ref())
-            || !range_ordered(&capabilities.preset_speed_range)
+            || !optional_ordered(capabilities.preset_speed_range.as_ref())
+            || !optional_ordered(capabilities.motion_sync_speed_range.as_ref())
         {
             return Err(invalid_profile_fields(
                 &[
                     "capabilities.exposure_comp_range",
-                    "capabilities.exposure_comp_profile_range",
-                    "capabilities.iris_range",
                     "capabilities.gain_range",
-                    "capabilities.exposure_brightness_range",
                     "capabilities.color_temp_range",
                     "capabilities.rg_tuning_range",
                     "capabilities.bg_tuning_range",
@@ -1513,24 +1858,27 @@ impl ProfileSpec {
                     "capabilities.luminance_range",
                     "capabilities.gamma_range",
                     "capabilities.preset_speed_range",
+                    "capabilities.motion_sync_speed_range",
                 ],
                 "capability ranges must be ordered",
             ));
         }
-        if !range_fits_domain(&capabilities.exposure_comp_profile_range, |value| {
+        if !optional_range_fits_domain(capabilities.exposure_comp_range.as_ref(), |value| {
             crate::types::ExposureCompensationLevel::new(value).is_ok()
-        }) || !optional_range_fits_domain(capabilities.exposure_comp_range.as_ref(), |value| {
-            crate::types::ExposureCompensationLevel::new(value).is_ok()
-        }) || !optional_range_fits_domain(capabilities.iris_range.as_ref(), |value| {
-            u8::try_from(value)
-                .ok()
-                .is_some_and(|value| crate::types::IrisLevel::new(value).is_ok())
-        }) || !range_fits_domain(&capabilities.gain_range, |value| {
-            crate::types::GainLevel::new(value).is_ok()
         }) || !optional_range_fits_domain(
-            capabilities.exposure_brightness_range.as_ref(),
-            |value| crate::types::BrightnessLevel::new(value).is_ok(),
-        ) || !optional_range_fits_domain(capabilities.color_temp_range.as_ref(), |value| {
+            capabilities
+                .iris_range
+                .as_ref()
+                .map(capabilities::CapabilityDomain::bounds)
+                .as_ref(),
+            |value| {
+                u8::try_from(value)
+                    .ok()
+                    .is_some_and(|value| crate::types::IrisLevel::new(value).is_ok())
+            },
+        ) || !range_fits_domain(&capabilities.gain_range, |value| {
+            crate::types::GainLevel::new(value).is_ok()
+        }) || !optional_range_fits_domain(capabilities.color_temp_range.as_ref(), |value| {
             crate::types::ColorTemp::from_kelvin(value).is_ok()
         }) || !optional_range_fits_domain(capabilities.rg_tuning_range.as_ref(), |value| {
             crate::types::RedTuning::new(value).is_ok()
@@ -1552,14 +1900,15 @@ impl ProfileSpec {
             crate::types::LuminanceLevel::new(value).is_ok()
         }) || !optional_range_fits_domain(capabilities.gamma_range.as_ref(), |value| {
             crate::types::GammaLevel::new(value).is_ok()
-        }) {
+        }) || !optional_range_fits_domain(
+            capabilities.motion_sync_speed_range.as_ref(),
+            |value| crate::types::MotionSyncSpeed::new(value).is_ok(),
+        ) {
             return Err(invalid_profile_fields(
                 &[
                     "capabilities.exposure_comp_range",
-                    "capabilities.exposure_comp_profile_range",
                     "capabilities.iris_range",
                     "capabilities.gain_range",
-                    "capabilities.exposure_brightness_range",
                     "capabilities.color_temp_range",
                     "capabilities.rg_tuning_range",
                     "capabilities.bg_tuning_range",
@@ -1571,48 +1920,35 @@ impl ProfileSpec {
                     "capabilities.hue_range",
                     "capabilities.luminance_range",
                     "capabilities.gamma_range",
+                    "capabilities.motion_sync_speed_range",
                 ],
                 "advertised capability ranges must fit their typed value domains",
             ));
         }
-        if capabilities.has_digital_zoom != capabilities.zoom_range_digital.is_some()
-            || capabilities.has_iris_control != capabilities.iris_range.is_some()
-            || capabilities.exposure_comp_range.as_ref()
-                != capabilities
-                    .has_exposure_comp
-                    .then_some(&capabilities.exposure_comp_profile_range)
-            || capabilities.has_color_temp != capabilities.color_temp_range.is_some()
-            || capabilities.red_gain_range.is_some() != capabilities.blue_gain_range.is_some()
-            || capabilities.has_rgb_gain
-                != (capabilities.red_gain_range.is_some() && capabilities.blue_gain_range.is_some())
-            || capabilities.has_gamma != capabilities.gamma_range.is_some()
-            || capabilities.has_luminance != capabilities.luminance_range.is_some()
-        {
+        if capabilities.red_gain_range.is_some() != capabilities.blue_gain_range.is_some() {
             return Err(invalid_profile_fields(
-                &["capabilities"],
-                "capability flags and their corresponding ranges disagree",
+                &[
+                    "capabilities.red_gain_range",
+                    "capabilities.blue_gain_range",
+                ],
+                "manual RGB gain needs both the red and the blue range",
             ));
         }
         if (!capabilities.has_zoom
-            && (capabilities.has_digital_zoom
-                || capabilities.zoom_range_digital.is_some()
+            && (capabilities.zoom_range_digital.is_some()
                 || capabilities.supports_direct_zoom
                 || capabilities.supports_variable_zoom))
             || (!capabilities.has_exposure
-                && (capabilities.has_iris_control
-                    || capabilities.iris_range.is_some()
+                && (capabilities.iris_range.is_some()
                     || capabilities.has_backlight_comp
                     || capabilities.has_wdr
-                    || capabilities.has_exposure_comp
                     || capabilities.exposure_comp_range.is_some()
                     || capabilities.exposure_brightness_range.is_some()))
             || (!capabilities.has_white_balance
                 && (capabilities.has_one_push_wb
-                    || capabilities.has_color_temp
                     || capabilities.color_temp_range.is_some()
                     || capabilities.rg_tuning_range.is_some()
                     || capabilities.bg_tuning_range.is_some()
-                    || capabilities.has_rgb_gain
                     || capabilities.red_gain_range.is_some()
                     || capabilities.blue_gain_range.is_some()))
             || (!capabilities.has_image_processing
@@ -1624,12 +1960,9 @@ impl ProfileSpec {
                     || capabilities.gamma_range.is_some()
                     || capabilities.supports_flip
                     || capabilities.supports_mirror
-                    || capabilities.has_noise_reduction
                     || capabilities.has_2d_nr
                     || capabilities.has_3d_nr
-                    || capabilities.has_picture_effect
-                    || capabilities.has_gamma
-                    || capabilities.has_luminance))
+                    || capabilities.has_picture_effect))
         {
             return Err(invalid_profile_fields(
                 &[
@@ -1658,12 +1991,7 @@ impl ProfileSpec {
         );
         if capabilities.has_nd_filter != has_typed_nd_mode
             || !nd_facts_valid
-            || capabilities.max_motion_sync_speed.as_ref()
-                != capabilities
-                    .has_motion_sync
-                    .then_some(&capabilities.max_motion_sync_speed_profile)
-            || capabilities.max_motion_sync_speed_profile == 0
-            || ((capabilities.has_motion_sync || capabilities.has_variable_speed)
+            || ((capabilities.motion_sync_speed_range.is_some() || capabilities.has_variable_speed)
                 && !capabilities.has_pan_tilt)
         {
             return Err(invalid_profile_fields(
@@ -1671,9 +1999,7 @@ impl ProfileSpec {
                     "capabilities.has_nd_filter",
                     "capabilities.nd_filter_mode",
                     "capabilities.nd_filter_steps",
-                    "capabilities.has_motion_sync",
-                    "capabilities.max_motion_sync_speed",
-                    "capabilities.max_motion_sync_speed_profile",
+                    "capabilities.motion_sync_speed_range",
                     "capabilities.has_variable_speed",
                     "capabilities.has_pan_tilt",
                 ],
@@ -1683,7 +2009,7 @@ impl ProfileSpec {
         if (!capabilities.has_focus
             && (capabilities.has_auto_focus
                 || capabilities.has_one_push_focus
-                || capabilities.has_focus_zone
+                || !capabilities.focus_zones.is_empty()
                 || capabilities.has_focus_zone_inquiry
                 || capabilities.has_af_sensitivity
                 || capabilities.has_focus_near_limit_inquiry
@@ -1694,15 +2020,19 @@ impl ProfileSpec {
                 && (capabilities.pan_tilt_simultaneous
                     || !capabilities.preset_recovery_time.is_zero()))
             || (!capabilities.has_presets
-                && (capabilities.max_presets != 0
-                    || capabilities.preset_speed_range != (0..=0)
+                && (capabilities.highest_preset != 0
+                    || capabilities.preset_speed_range.is_some()
                     || capabilities.supports_preset_tour
                     || capabilities.supports_preset_thumbnail
                     || !capabilities.preset_recall_delay.is_zero()
                     || capabilities.supports_preset_names
                     || capabilities.max_preset_name_length != 0))
+            // `highest_preset` is an index, so `0` is one preset, not none.
             || (capabilities.has_presets
-                && (capabilities.max_presets == 0 || *capabilities.preset_speed_range.start() == 0))
+                && capabilities
+                    .preset_speed_range
+                    .as_ref()
+                    .is_some_and(|range| *range.start() == 0))
             || (capabilities.supports_preset_names != (capabilities.max_preset_name_length != 0))
             || (!capabilities.has_power
                 && (capabilities.supports_standby
@@ -1717,18 +2047,14 @@ impl ProfileSpec {
                 && (!capabilities.exposure_modes.is_empty()
                     || !capabilities.shutter_speeds.is_empty()
                     || capabilities.gain_range != (0..=0)))
-            || (capabilities.has_exposure && capabilities.shutter_speeds.is_empty())
             || (!capabilities.has_white_balance && !capabilities.white_balance_modes.is_empty())
             || (capabilities.has_white_balance && capabilities.white_balance_modes.is_empty())
-            || (capabilities.supports_hue != capabilities.hue_range.is_some())
             || (capabilities.uses_combined_flip_command
                 && !(capabilities.supports_flip && capabilities.supports_mirror))
             || (capabilities.uses_combined_flip_command
                 != capabilities
                     .supports_typed(capabilities::TypedSupportSurface::CombinedImageFlip))
             || (capabilities.requires_settings_save_for_flip && !capabilities.supports_flip)
-            || ((capabilities.has_2d_nr || capabilities.has_3d_nr)
-                && !capabilities.has_noise_reduction)
         {
             return Err(invalid_profile_fields(
                 &["capabilities"],
@@ -1747,12 +2073,9 @@ impl ProfileSpec {
             || capabilities.has_2d_nr != typed_2d_noise_control
             || capabilities.has_3d_nr != typed_3d_noise_inquiry
             || capabilities.has_3d_nr != typed_3d_noise_control
-            || capabilities.has_noise_reduction
-                != (capabilities.has_2d_nr || capabilities.has_3d_nr)
         {
             return Err(invalid_profile_fields(
                 &[
-                    "capabilities.has_noise_reduction",
                     "capabilities.has_2d_nr",
                     "capabilities.has_3d_nr",
                     "capabilities.typed_support",
@@ -1763,16 +2086,12 @@ impl ProfileSpec {
         if capabilities
             .shutter_speeds
             .iter()
-            .any(|speed| speed.label.trim().is_empty())
-            || capabilities
-                .shutter_speeds
-                .iter()
-                .enumerate()
-                .any(|(index, speed)| {
-                    capabilities.shutter_speeds[..index]
-                        .iter()
-                        .any(|earlier| earlier.value == speed.value || earlier.label == speed.label)
+            .enumerate()
+            .any(|(index, speed)| {
+                capabilities.shutter_speeds[..index].iter().any(|earlier| {
+                    earlier.value == speed.value || earlier.exposure == speed.exposure
                 })
+            })
             || capabilities
                 .exposure_modes
                 .iter()
@@ -1783,185 +2102,24 @@ impl ProfileSpec {
                 .iter()
                 .enumerate()
                 .any(|(index, mode)| capabilities.white_balance_modes[..index].contains(mode))
+            || capabilities
+                .focus_zones
+                .iter()
+                .enumerate()
+                .any(|(index, zone)| capabilities.focus_zones[..index].contains(zone))
         {
             return Err(invalid_profile_fields(
                 &[
                     "capabilities.shutter_speeds",
                     "capabilities.exposure_modes",
                     "capabilities.white_balance_modes",
+                    "capabilities.focus_zones",
                 ],
-                "shutter labels must be non-empty and inventories must be duplicate-free",
+                "shutter codes and exposure times, and every inventory, must be duplicate-free",
             ));
         }
         for surface in capabilities.typed_support.iter() {
-            let physically_supported = match surface {
-                capabilities::TypedSupportSurface::DirectZoom => {
-                    capabilities.has_zoom && capabilities.supports_direct_zoom
-                }
-                capabilities::TypedSupportSurface::DigitalZoomToggle => {
-                    capabilities.has_zoom && capabilities.has_digital_zoom
-                }
-                capabilities::TypedSupportSurface::DigitalZoomRange => {
-                    capabilities.has_zoom && capabilities.zoom_range_digital.is_some()
-                }
-                capabilities::TypedSupportSurface::ExposureMode => {
-                    capabilities.has_exposure && !capabilities.exposure_modes.is_empty()
-                }
-                capabilities::TypedSupportSurface::IrisControl => {
-                    capabilities.has_exposure && capabilities.iris_range.is_some()
-                }
-                capabilities::TypedSupportSurface::IrisControlInquiry => capabilities.has_exposure,
-                capabilities::TypedSupportSurface::OnePushFocus => {
-                    capabilities.has_focus && capabilities.has_one_push_focus
-                }
-                capabilities::TypedSupportSurface::PtzOpticsSnapFocus => capabilities.has_focus,
-                capabilities::TypedSupportSurface::PtzOpticsAntiFlicker
-                | capabilities::TypedSupportSurface::SonySpotlight
-                | capabilities::TypedSupportSurface::SonyAutoSlowShutter => {
-                    capabilities.has_exposure
-                }
-                capabilities::TypedSupportSurface::PtzOpticsPresetRecallSpeed => {
-                    capabilities.has_presets
-                }
-                // The vendor settings-save and streaming controls have no
-                // separate discovery metadata. Their typed-support fact is
-                // the complete source-backed permission.
-                capabilities::TypedSupportSurface::PtzOpticsSettingsSave
-                | capabilities::TypedSupportSurface::PtzOpticsMulticastStreaming
-                | capabilities::TypedSupportSurface::PtzOpticsNdiQuality => true,
-                capabilities::TypedSupportSurface::FocusLock
-                | capabilities::TypedSupportSurface::PushAutoFocus => capabilities.has_focus,
-                capabilities::TypedSupportSurface::FocusZone => {
-                    capabilities.has_focus && capabilities.has_focus_zone
-                }
-                capabilities::TypedSupportSurface::FocusZoneInquiry => {
-                    capabilities.has_focus && capabilities.has_focus_zone_inquiry
-                }
-                capabilities::TypedSupportSurface::AutoFocusSensitivity => {
-                    capabilities.has_focus
-                        && capabilities.has_auto_focus
-                        && capabilities.has_af_sensitivity
-                }
-                capabilities::TypedSupportSurface::FocusNearLimitInquiry => {
-                    capabilities.has_focus && capabilities.has_focus_near_limit_inquiry
-                }
-                capabilities::TypedSupportSurface::BacklightCompensation => {
-                    // Backlight is implemented by the canonical `image()`
-                    // noun. Runtime profiles must therefore retain the base
-                    // image surface as well as the source-backed exposure
-                    // fact; otherwise dynamic callers could advertise a
-                    // typed row they cannot reach.
-                    capabilities.has_image_processing
-                        && capabilities.has_exposure
-                        && capabilities.has_backlight_comp
-                }
-                capabilities::TypedSupportSurface::WideDynamicRange => {
-                    capabilities.has_exposure && capabilities.has_wdr
-                }
-                capabilities::TypedSupportSurface::ExposureCompensation => {
-                    capabilities.has_exposure && capabilities.exposure_comp_range.is_some()
-                }
-                capabilities::TypedSupportSurface::BrightnessControl => {
-                    capabilities.has_exposure && capabilities.exposure_brightness_range.is_some()
-                }
-                capabilities::TypedSupportSurface::OnePushWhiteBalance => {
-                    capabilities.has_white_balance
-                        && capabilities.has_one_push_wb
-                        && capabilities
-                            .white_balance_modes
-                            .contains(&crate::command::WhiteBalanceMode::OnePush)
-                }
-                capabilities::TypedSupportSurface::AutoTrackingWhiteBalance => {
-                    capabilities.has_white_balance
-                        && capabilities
-                            .white_balance_modes
-                            .contains(&crate::command::WhiteBalanceMode::ATW)
-                }
-                capabilities::TypedSupportSurface::AutoWhiteBalanceSensitivity => {
-                    capabilities.has_white_balance
-                }
-                capabilities::TypedSupportSurface::ColorTemperature => {
-                    capabilities.has_white_balance
-                        && capabilities.color_temp_range.is_some()
-                        && capabilities
-                            .white_balance_modes
-                            .contains(&crate::command::WhiteBalanceMode::ColorTemperature)
-                }
-                capabilities::TypedSupportSurface::RgbGain => {
-                    capabilities.has_white_balance
-                        && capabilities.has_rgb_gain
-                        && capabilities.red_gain_range.is_some()
-                        && capabilities.blue_gain_range.is_some()
-                }
-                capabilities::TypedSupportSurface::RgbTuning => {
-                    capabilities.has_white_balance
-                        && capabilities.rg_tuning_range.is_some()
-                        && capabilities.bg_tuning_range.is_some()
-                }
-                capabilities::TypedSupportSurface::ImageFlip => {
-                    capabilities.has_image_processing && capabilities.supports_flip
-                }
-                capabilities::TypedSupportSurface::ImageMirror => {
-                    capabilities.has_image_processing && capabilities.supports_mirror
-                }
-                capabilities::TypedSupportSurface::CombinedImageFlip => {
-                    capabilities.has_image_processing
-                        && capabilities.supports_flip
-                        && capabilities.supports_mirror
-                        && capabilities.uses_combined_flip_command
-                }
-                capabilities::TypedSupportSurface::ContrastControl => {
-                    capabilities.has_image_processing && capabilities.contrast_range.is_some()
-                }
-                capabilities::TypedSupportSurface::SharpnessControl => {
-                    capabilities.has_image_processing && capabilities.sharpness_range.is_some()
-                }
-                capabilities::TypedSupportSurface::SaturationControl => {
-                    capabilities.has_image_processing && capabilities.saturation_range.is_some()
-                }
-                capabilities::TypedSupportSurface::HueControl => {
-                    capabilities.has_image_processing && capabilities.hue_range.is_some()
-                }
-                capabilities::TypedSupportSurface::LuminanceControl => {
-                    capabilities.has_image_processing && capabilities.luminance_range.is_some()
-                }
-                capabilities::TypedSupportSurface::GammaControl => {
-                    capabilities.has_image_processing && capabilities.gamma_range.is_some()
-                }
-                capabilities::TypedSupportSurface::NoiseReduction2D => {
-                    capabilities.has_image_processing && capabilities.has_2d_nr
-                }
-                capabilities::TypedSupportSurface::NoiseReduction3D => {
-                    capabilities.has_image_processing && capabilities.has_3d_nr
-                }
-                capabilities::TypedSupportSurface::NoiseReduction2DControl => {
-                    capabilities.has_image_processing && capabilities.has_2d_nr
-                }
-                capabilities::TypedSupportSurface::NoiseReduction3DControl => {
-                    capabilities.has_image_processing && capabilities.has_3d_nr
-                }
-                capabilities::TypedSupportSurface::PictureEffect => {
-                    capabilities.has_image_processing && capabilities.has_picture_effect
-                }
-                capabilities::TypedSupportSurface::ImageFreeze
-                | capabilities::TypedSupportSurface::DefogLevel => {
-                    capabilities.has_image_processing
-                }
-                capabilities::TypedSupportSurface::Tally => capabilities.has_tally,
-                capabilities::TypedSupportSurface::TallyBrightness
-                | capabilities::TypedSupportSurface::PtzOpticsTally => capabilities.has_tally,
-                capabilities::TypedSupportSurface::DirectMenu => {
-                    capabilities.has_direct_menu_control
-                }
-                capabilities::TypedSupportSurface::NdFilter => capabilities.has_nd_filter,
-                capabilities::TypedSupportSurface::VariableSpeed => {
-                    capabilities.has_pan_tilt && capabilities.has_variable_speed
-                }
-                capabilities::TypedSupportSurface::MotionSync => {
-                    capabilities.has_pan_tilt && capabilities.has_motion_sync
-                }
-                capabilities::TypedSupportSurface::UsbAudio => capabilities.has_usb_audio,
-            };
+            let physically_supported = capabilities.surface_metadata(surface).permits();
             if !physically_supported {
                 return Err(invalid_profile_fields(
                     &["capabilities.typed_support", "capabilities"],
@@ -1997,7 +2155,7 @@ impl ProfileSpec {
         if (self.position_inquiries.pan_tilt && !self.capabilities.has_pan_tilt)
             || (self.position_inquiries.zoom && !self.capabilities.has_zoom)
             || (self.position_inquiries.focus && !self.capabilities.has_focus)
-            || (self.position_inquiries.iris && !self.capabilities.has_iris_control)
+            || (self.position_inquiries.iris && self.capabilities.iris_range.is_none())
             || (self.position_inquiries.nd_filter && !self.capabilities.has_nd_filter)
         {
             return Err(invalid_profile_fields(
@@ -2048,7 +2206,7 @@ impl ProfileSpec {
                 self.capabilities.has_pan_tilt,
                 self.capabilities.has_zoom,
                 self.capabilities.has_focus,
-                self.capabilities.has_iris_control,
+                self.capabilities.iris_range.is_some(),
                 self.capabilities.has_nd_filter,
             )
             .map_err(|error| invalid_profile_fields(&["capabilities"], error))?;
@@ -2101,8 +2259,6 @@ pub trait CompileTimeProfile: capabilities::Profile {
 #[derive(Debug, Clone)]
 pub struct ProfileSpecBuilder {
     capabilities: capabilities::Capabilities,
-    tcp_port_inferred: bool,
-    udp_port_inferred: bool,
     pan_tilt_coordinates: Option<PanTiltCoordinateConversion>,
     pan_tilt_wire_codec: capabilities::PanTiltWireCodec,
     transports: Option<TransportCompatibility>,
@@ -2117,12 +2273,8 @@ pub struct ProfileSpecBuilder {
 
 impl ProfileSpecBuilder {
     fn runtime(capabilities: capabilities::Capabilities) -> Self {
-        let tcp_port_inferred = capabilities.default_tcp_port.is_none();
-        let udp_port_inferred = capabilities.default_udp_port.is_none();
         Self {
             capabilities,
-            tcp_port_inferred,
-            udp_port_inferred,
             pan_tilt_coordinates: None,
             pan_tilt_wire_codec: capabilities::PanTiltWireCodec::StandardVisca,
             transports: None,
@@ -2136,64 +2288,10 @@ impl ProfileSpecBuilder {
         }
     }
 
-    fn from_compile_time<P>() -> Self
-    where
-        P: CompileTimeProfile,
-    {
-        let mut capabilities = capabilities::Capabilities::from_profile::<P>();
-        capabilities.default_tcp_port = P::TRANSPORTS.tcp_port();
-        capabilities.default_udp_port = P::TRANSPORTS.udp_port();
-        Self {
-            capabilities,
-            tcp_port_inferred: false,
-            udp_port_inferred: false,
-            pan_tilt_coordinates: Some(PanTiltCoordinateConversion {
-                coordinate_system: P::COORDINATE_SYSTEM,
-                wire_codec: P::PAN_TILT_WIRE_CODEC,
-                pan_degrees_to_units: P::PAN_DEGREES_TO_UNITS,
-                tilt_degrees_to_units: P::TILT_DEGREES_TO_UNITS,
-            }),
-            pan_tilt_wire_codec: P::PAN_TILT_WIRE_CODEC,
-            transports: Some(P::TRANSPORTS),
-            envelope: Some(
-                if <P::Envelope as crate::transport::Envelope>::SUPPORTS_SEQUENCE_CORRELATION {
-                    ProfileEnvelope::SonyEncapsulated
-                } else {
-                    ProfileEnvelope::RawVisca
-                },
-            ),
-            timing: Some(ProfileTiming {
-                ack_timeout: P::ACK_TIMEOUT,
-                command_timeouts: P::COMMAND_TIMEOUTS,
-                inquiry_timeout: P::INQUIRY_TIMEOUT,
-                cancellation_timeout: P::CANCELLATION_TIMEOUT,
-                ambiguity_timeout: P::AMBIGUITY_TIMEOUT,
-                busy_timeout: P::BUSY_TIMEOUT,
-                raw_inquiry_reply_skew: P::RAW_INQUIRY_REPLY_SKEW,
-                minimum_inquiry_spacing: P::MIN_INQUIRY_SPACING,
-                minimum_command_spacing: P::MIN_COMMAND_SPACING,
-            }),
-            maximum_command_sockets: Some(P::MAXIMUM_COMMAND_SOCKETS),
-            supports_operation_complete: Some(P::SUPPORTS_OPERATION_COMPLETE),
-            supports_command_cancel: Some(P::SUPPORTS_COMMAND_CANCEL),
-            preset_recall_axes: Some(P::PRESET_RECALL_AXES),
-            position_inquiries: Some(P::POSITION_INQUIRIES),
-        }
-    }
-
-    /// Sets the authoritative standard transport compatibility facts.
-    ///
-    /// Unspecified capability port mirrors are filled from this value. An
-    /// explicitly populated capability port remains an assertion and a
-    /// mismatch is rejected by [`Self::build`].
+    /// Sets the standard transport compatibility facts and their default
+    /// ports.
     #[must_use]
     pub fn transports(mut self, transports: TransportCompatibility) -> Self {
-        if self.tcp_port_inferred {
-            self.capabilities.default_tcp_port = transports.tcp_port();
-        }
-        if self.udp_port_inferred {
-            self.capabilities.default_udp_port = transports.udp_port();
-        }
         self.transports = Some(transports);
         self
     }
@@ -2251,22 +2349,17 @@ impl ProfileSpecBuilder {
         self.capabilities.tilt_range = tilt_range.clone();
         self.capabilities.pan_speed = 1..=maximum_pan_speed;
         self.capabilities.tilt_speed = 1..=maximum_tilt_speed;
-        let pan_start_degrees = *pan_range.start() as f32 / pan_degrees_to_units;
-        let pan_end_degrees = *pan_range.end() as f32 / pan_degrees_to_units;
-        let tilt_start_degrees = *tilt_range.start() as f32 / tilt_degrees_to_units;
-        let tilt_end_degrees = *tilt_range.end() as f32 / tilt_degrees_to_units;
-        self.capabilities.pan_range_degrees =
-            pan_start_degrees.min(pan_end_degrees)..=pan_start_degrees.max(pan_end_degrees);
-        self.capabilities.tilt_range_degrees =
-            tilt_start_degrees.min(tilt_end_degrees)..=tilt_start_degrees.max(tilt_end_degrees);
-        self.capabilities.pan_tilt_simultaneous = simultaneous;
-        self.capabilities.has_pan_tilt = true;
-        self.pan_tilt_coordinates = Some(PanTiltCoordinateConversion {
+        let conversion = PanTiltCoordinateConversion {
             coordinate_system,
             wire_codec: self.pan_tilt_wire_codec,
             pan_degrees_to_units,
             tilt_degrees_to_units,
-        });
+        };
+        self.capabilities.pan_range_degrees = conversion.pan_degree_range(&pan_range);
+        self.capabilities.tilt_range_degrees = conversion.tilt_degree_range(&tilt_range);
+        self.capabilities.pan_tilt_simultaneous = simultaneous;
+        self.capabilities.has_pan_tilt = true;
+        self.pan_tilt_coordinates = Some(conversion);
         self
     }
 
@@ -2302,7 +2395,11 @@ impl ProfileSpecBuilder {
         self
     }
 
-    /// Sets zoom range, speed, positioning, and conversion facts.
+    /// Sets zoom range, speed, positioning, and lens facts.
+    ///
+    /// `optical_zoom_ratio` is the lens's optical ratio (`Some(20.0)` for a
+    /// 20x lens), or `None` when the profile does not fix the lens; see
+    /// [`capabilities::Zoom::OPTICAL_ZOOM_RATIO`].
     #[must_use]
     pub fn zoom(
         mut self,
@@ -2311,7 +2408,7 @@ impl ProfileSpecBuilder {
         speed_range: std::ops::RangeInclusive<u8>,
         supports_direct: bool,
         supports_variable: bool,
-        magnification_to_units: f32,
+        optical_zoom_ratio: Option<f32>,
     ) -> Self {
         self.capabilities.zoom_range_optical = 0..=optical_maximum;
         self.capabilities.zoom_range_digital =
@@ -2319,8 +2416,7 @@ impl ProfileSpecBuilder {
         self.capabilities.zoom_speed = speed_range;
         self.capabilities.supports_direct_zoom = supports_direct;
         self.capabilities.supports_variable_zoom = supports_variable;
-        self.capabilities.zoom_magnification_to_units = magnification_to_units;
-        self.capabilities.has_digital_zoom = digital_maximum.is_some();
+        self.capabilities.optical_zoom_ratio = optical_zoom_ratio;
         self.capabilities.has_zoom = true;
         self
     }
@@ -2384,27 +2480,12 @@ impl ProfileSpecBuilder {
             value.ok_or_else(|| invalid_profile_fields(&[field], "is required"))
         }
 
-        let transports = required(self.transports, "transports")?;
-        let capabilities = self.capabilities;
-        if capabilities.default_tcp_port != transports.tcp_port
-            || capabilities.default_udp_port != transports.udp_port
-        {
-            return Err(invalid_profile_fields(
-                &[
-                    "capabilities.default_tcp_port",
-                    "capabilities.default_udp_port",
-                    "transports",
-                ],
-                "capability default ports must exactly match profile transports",
-            ));
-        }
-        let timing = required(self.timing, "timing")?;
-        ProfileSpec {
-            capabilities,
+        ProfileSpec::validated(ProfileFacts {
+            capabilities: self.capabilities,
             pan_tilt_coordinates: self.pan_tilt_coordinates,
-            transports,
+            transports: required(self.transports, "transports")?,
             envelope: required(self.envelope, "envelope")?,
-            timing,
+            timing: required(self.timing, "timing")?,
             maximum_command_sockets: required(
                 self.maximum_command_sockets,
                 "maximum_command_sockets",
@@ -2419,8 +2500,7 @@ impl ProfileSpecBuilder {
             )?,
             preset_recall_axes: required(self.preset_recall_axes, "preset_recall_axes")?,
             position_inquiries: required(self.position_inquiries, "position_inquiries")?,
-        }
-        .validate()
+        })
     }
 }
 
@@ -2429,7 +2509,7 @@ impl ProfileSpecBuilder {
 mod tests {
     use super::*;
     use crate::{
-        capabilities::{Capabilities, RuntimeShutterSpeed, TypedSupportSet, TypedSupportSurface},
+        capabilities::{Capabilities, ShutterSpeedEntry, TypedSupportSet, TypedSupportSurface},
         request::builtin::PresetRecall,
         ExposureMode, OperationCommand, PresetNumber,
     };
@@ -2447,13 +2527,13 @@ mod tests {
         capabilities.has_zoom = true;
         capabilities.zoom_range_optical = 0..=1_000;
         capabilities.zoom_speed = 0..=7;
-        capabilities.zoom_magnification_to_units = 100.0;
+        capabilities.optical_zoom_ratio = Some(10.0);
         capabilities.has_focus = true;
         capabilities.focus_range = 0..=2_000;
         capabilities.focus_speed = 0..=7;
         capabilities.has_presets = true;
-        capabilities.max_presets = 10;
-        capabilities.preset_speed_range = 1..=8;
+        capabilities.highest_preset = 10;
+        capabilities.preset_speed_range = Some(1..=8);
         capabilities.inquiry_support = capabilities::InquirySupport::Partial;
         capabilities
     }
@@ -2581,7 +2661,7 @@ mod tests {
                 0x18,
                 0x18,
                 -208.0,
-                -208.0,
+                208.0,
                 capabilities::CoordinateSystem::SignedCentered,
                 true,
             )
@@ -2607,11 +2687,11 @@ mod tests {
 
             let conversion = profile.pan_tilt_coordinates().expect("BRC-300 coordinates");
             let (pan, tilt) = profile
-                .convert_pan_tilt_degrees(45.0, -15.0)
+                .convert_pan_tilt_degrees(45.0, 15.0)
                 .expect("right/up BRC-300 target");
             assert_eq!((pan, tilt), (-0x02490, 0x0C30));
             assert_eq!(pan as f32 / conversion.pan_degrees_to_units(), 45.0);
-            assert_eq!(tilt as f32 / conversion.tilt_degrees_to_units(), -15.0);
+            assert_eq!(tilt as f32 / conversion.tilt_degrees_to_units(), 15.0);
         }
     }
 
@@ -2687,13 +2767,12 @@ mod tests {
         let mut iris_metadata = valid_runtime_capabilities();
         iris_metadata.has_exposure = true;
         iris_metadata.exposure_modes.push(ExposureMode::Auto);
-        iris_metadata.shutter_speeds.push(RuntimeShutterSpeed {
-            label: "1/60".into(),
+        iris_metadata.shutter_speeds.push(ShutterSpeedEntry {
+            exposure: crate::units::Fraction::new(1, 60).expect("nonzero denominator"),
             value: 1,
         });
         iris_metadata.gain_range = 0..=1;
-        iris_metadata.has_iris_control = true;
-        iris_metadata.iris_range = Some(0..=1);
+        iris_metadata.iris_range = Some(capabilities::CapabilityDomain::<u16>::new(0, 1));
 
         // Discovery metadata alone does not promise a future typed targeted
         // Iris request, so a completionless profile remains valid without the
@@ -2706,12 +2785,12 @@ mod tests {
         // requirement.
         let mut typed_iris_status = valid_runtime_capabilities();
         typed_iris_status.has_exposure = true;
-        typed_iris_status.shutter_speeds.push(RuntimeShutterSpeed {
-            label: "1/60".into(),
+        typed_iris_status.shutter_speeds.push(ShutterSpeedEntry {
+            exposure: crate::units::Fraction::new(1, 60).expect("nonzero denominator"),
             value: 1,
         });
         typed_iris_status.gain_range = 0..=1;
-        assert!(!typed_iris_status.has_iris_control);
+        assert!(typed_iris_status.iris_range.is_none());
         assert_eq!(typed_iris_status.iris_range, None);
         typed_iris_status.typed_support =
             TypedSupportSet::from_surface(TypedSupportSurface::IrisControlInquiry);
@@ -2753,16 +2832,15 @@ mod tests {
         let exposure_capabilities = || {
             let mut capabilities = valid_runtime_capabilities();
             capabilities.has_exposure = true;
-            capabilities.shutter_speeds.push(RuntimeShutterSpeed {
-                label: "1/60".into(),
+            capabilities.shutter_speeds.push(ShutterSpeedEntry {
+                exposure: crate::units::Fraction::new(1, 60).expect("nonzero denominator"),
                 value: 1,
             });
             capabilities
         };
 
         let mut iris_outside_domain = exposure_capabilities();
-        iris_outside_domain.has_iris_control = true;
-        iris_outside_domain.iris_range = Some(0..=0x1F);
+        iris_outside_domain.iris_range = Some(capabilities::CapabilityDomain::<u16>::new(0, 0x1F));
         let error = invalid_request_message(runtime_builder(iris_outside_domain).build())
             .expect("out-of-domain iris range must be rejected");
         assert!(error.contains("`capabilities.iris_range`"), "{error}");
@@ -2787,7 +2865,6 @@ mod tests {
 
         let mut missing_noise_reduction_surfaces = valid_runtime_capabilities();
         missing_noise_reduction_surfaces.has_image_processing = true;
-        missing_noise_reduction_surfaces.has_noise_reduction = true;
         missing_noise_reduction_surfaces.has_2d_nr = true;
         let error = invalid_request_message(
             runtime_builder(missing_noise_reduction_surfaces.clone()).build(),
@@ -2825,8 +2902,8 @@ mod tests {
     fn runtime_builder_allows_exposure_without_shared_ae_modes() {
         let mut capabilities = valid_runtime_capabilities();
         capabilities.has_exposure = true;
-        capabilities.shutter_speeds.push(RuntimeShutterSpeed {
-            label: "1/60".into(),
+        capabilities.shutter_speeds.push(ShutterSpeedEntry {
+            exposure: crate::units::Fraction::new(1, 60).expect("nonzero denominator"),
             value: 1,
         });
         capabilities.gain_range = 0..=1;
@@ -2837,12 +2914,272 @@ mod tests {
         assert!(profile.capabilities().exposure_modes.is_empty());
     }
 
+    /// `highest_preset` is the highest preset memory number, so presets are
+    /// `0..=highest_preset` and `0` is one preset (#828 nit).
+    #[test]
+    fn highest_preset_is_an_inclusive_index() {
+        use crate::request::builtin::PresetSet;
+
+        let mut capabilities = valid_runtime_capabilities();
+        capabilities.has_presets = true;
+        capabilities.highest_preset = 0;
+        let single = runtime_builder(capabilities)
+            .build()
+            .expect("one preset, number 0");
+        let set = |number: u8| {
+            crate::Request::validate_for_profile(
+                &PresetSet::new(crate::command::PresetNumber::new(number).expect("preset number")),
+                &single,
+            )
+        };
+        set(0).expect("preset 0 is the highest");
+        assert!(matches!(
+            set(1),
+            Err(Error::ParameterOutOfRange { min: 0, max: 0, .. })
+        ));
+
+        for (name, profile) in [
+            (
+                "SonyEVIH100",
+                ProfileSpec::from_compile_time::<crate::profiles::SonyEVIH100>(),
+            ),
+            (
+                "NearusBRC300",
+                ProfileSpec::from_compile_time::<crate::profiles::NearusBRC300>(),
+            ),
+            (
+                "GenericVisca",
+                ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>(),
+            ),
+        ] {
+            let profile = profile.expect("built-in profile");
+            assert_eq!(
+                profile.capabilities().highest_preset,
+                5,
+                "{name}: R8/R21 p = 0 to 5"
+            );
+        }
+    }
+
+    /// The PTZOptics preset recall-speed surface needs a preset speed range:
+    /// a profile granting it without one is refused when it is built, not on
+    /// every request.
+    #[test]
+    fn preset_recall_speed_marker_requires_a_preset_speed_range() {
+        let mut capabilities = valid_runtime_capabilities();
+        capabilities.has_presets = true;
+        capabilities.highest_preset = 5;
+        capabilities.typed_support =
+            TypedSupportSet::from_surface(TypedSupportSurface::PtzOpticsPresetRecallSpeed);
+
+        capabilities.preset_speed_range = None;
+        assert!(matches!(
+            runtime_builder(capabilities.clone()).build(),
+            Err(Error::InvalidRequest(message)) if message.contains("ptz-optics-preset-recall-speed")
+                || message.contains("PtzOpticsPresetRecallSpeed")
+        ));
+
+        capabilities.preset_speed_range = Some(1..=24);
+        let profile = runtime_builder(capabilities)
+            .build()
+            .expect("marker with a preset speed range");
+        crate::Request::validate_for_profile(
+            &crate::command::preset::PresetRecallSpeedCommand::new(
+                crate::command::preset::PresetRecallSpeed::new(24).expect("preset speed"),
+            ),
+            &profile,
+        )
+        .expect("in-range recall speed");
+    }
+
+    /// #818: the motion-sync speed range is the only motion-sync fact. `None`
+    /// is no motion sync; `Some` bounds every typed speed, and the typed
+    /// surface needs it.
+    #[test]
+    fn motion_sync_speed_range_is_the_one_motion_sync_fact() {
+        use crate::command::{SetMotionSyncMode, SetMotionSyncPreset};
+        use crate::types::MotionSyncSpeed;
+        use crate::MotionSyncMode;
+
+        let validate = |profile: &ProfileSpec, speed: u8| {
+            crate::Request::validate_for_profile(
+                &SetMotionSyncPreset::new(MotionSyncSpeed::new(speed).expect("speed")),
+                profile,
+            )
+        };
+
+        let mut bounded = valid_runtime_capabilities();
+        bounded.motion_sync_speed_range = Some(1..=16);
+        bounded.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::MotionSync);
+        let bounded = runtime_builder(bounded)
+            .build()
+            .expect("motion-sync profile");
+        validate(&bounded, 16).expect("in-range speed");
+        crate::Request::validate_for_profile(&SetMotionSyncMode::new(MotionSyncMode::On), &bounded)
+            .expect("motion-sync mode");
+        assert!(matches!(
+            validate(&bounded, 17),
+            Err(Error::ParameterOutOfRange {
+                parameter: "motion sync speed",
+                value: 17,
+                min: 1,
+                max: 16,
+            })
+        ));
+
+        let none = runtime_builder(valid_runtime_capabilities())
+            .build()
+            .expect("profile without motion sync");
+        assert!(matches!(
+            validate(&none, 1),
+            Err(Error::FeatureNotSupported {
+                feature: "motion sync"
+            })
+        ));
+
+        // The typed marker needs the range.
+        let mut marker_only = valid_runtime_capabilities();
+        marker_only.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::MotionSync);
+        assert!(runtime_builder(marker_only).build().is_err());
+    }
+
+    /// #828 L2: a pan/tilt conversion pairing Sony BRC-300 framing with
+    /// unsigned-centered coordinates is refused where the profile is built,
+    /// in either builder order, so encoding and decoding never see it.
+    #[test]
+    fn builder_rejects_brc300_framing_with_unsigned_centered_coordinates() {
+        let unsigned = capabilities::CoordinateSystem::UnsignedCentered;
+        let brc300 = capabilities::PanTiltWireCodec::SonyBrc300;
+        let is_framing_error = |result: Result<ProfileSpec>| {
+            matches!(
+                result,
+                Err(Error::InvalidRequest(message))
+                    if message.as_ref() == "profile field `pan_tilt_coordinates`: Sony BRC-300 pan/tilt framing requires signed-centered coordinates"
+            )
+        };
+
+        assert!(is_framing_error(
+            runtime_builder(valid_runtime_capabilities())
+                .pan_tilt_coordinates(unsigned, 1.0, 1.0)
+                .pan_tilt_wire_codec(brc300)
+                .build()
+        ));
+        assert!(is_framing_error(
+            runtime_builder(valid_runtime_capabilities())
+                .pan_tilt_wire_codec(brc300)
+                .pan_tilt_coordinates(unsigned, 1.0, 1.0)
+                .build()
+        ));
+    }
+
+    /// The compile-time path: every built-in conversion passes the same rule
+    /// that `PanTiltCoordinateConversion::for_profile` asserts at compile
+    /// time (`inconsistent_pan_tilt_framing_fails_to_build.rs` pins the
+    /// rejection).
+    #[test]
+    fn compile_time_conversions_satisfy_the_framing_rule() {
+        use crate::command::pan_tilt::PanTiltFraming;
+        use capabilities::{CoordinateSystem, PanTiltWireCodec};
+
+        assert!(!PanTiltFraming::is_consistent(
+            PanTiltWireCodec::SonyBrc300,
+            CoordinateSystem::UnsignedCentered
+        ));
+        for (codec, system) in [
+            (
+                PanTiltWireCodec::SonyBrc300,
+                CoordinateSystem::SignedCentered,
+            ),
+            (
+                PanTiltWireCodec::StandardVisca,
+                CoordinateSystem::SignedCentered,
+            ),
+            (
+                PanTiltWireCodec::StandardVisca,
+                CoordinateSystem::UnsignedCentered,
+            ),
+        ] {
+            assert!(PanTiltFraming::is_consistent(codec, system));
+            assert!(PanTiltFraming::new(codec, system).is_ok());
+        }
+        let brc300 = PanTiltCoordinateConversion::for_profile::<crate::profiles::SonyBRC300>();
+        assert_eq!(
+            PanTiltFraming::for_conversion(brc300),
+            PanTiltFraming::SonyBrc300
+        );
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn pan_tilt_conversion_deserialization_rejects_brc300_unsigned_framing() {
+        let json = |system: &str| {
+            format!(
+                r#"{{"coordinate_system":"{system}","wire_codec":"SonyBrc300","pan_degrees_to_units":14.4,"tilt_degrees_to_units":14.4}}"#
+            )
+        };
+        serde_json::from_str::<PanTiltCoordinateConversion>(&json("SignedCentered"))
+            .expect("BRC-300 framing with signed coordinates");
+        let error = serde_json::from_str::<PanTiltCoordinateConversion>(&json("UnsignedCentered"))
+            .expect_err("BRC-300 framing is signed")
+            .to_string();
+        assert!(
+            error.contains("`pan_tilt_coordinates`") && error.contains("signed-centered"),
+            "{error}"
+        );
+
+        // A whole serialized profile goes through the same rule.
+        let spec = ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>()
+            .expect("BRC-300 profile");
+        let mut value = serde_json::to_value(&spec).expect("serialize profile");
+        let pointer = find_key(&mut value, "pan_tilt_coordinates").expect("serialized conversion");
+        pointer["coordinate_system"] = serde_json::Value::from("UnsignedCentered");
+        let error = serde_json::from_value::<ProfileSpec>(value)
+            .expect_err("inconsistent serialized framing")
+            .to_string();
+        assert!(error.contains("signed-centered"), "{error}");
+    }
+
+    #[cfg(feature = "serde")]
+    fn find_key<'a>(
+        value: &'a mut serde_json::Value,
+        key: &str,
+    ) -> Option<&'a mut serde_json::Value> {
+        match value {
+            serde_json::Value::Object(map) => {
+                if map.contains_key(key) {
+                    return map.get_mut(key);
+                }
+                map.values_mut().find_map(|child| find_key(child, key))
+            }
+            _ => None,
+        }
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn pan_tilt_conversion_deserialization_rejects_unusable_scales() {
+        let json = |pan: &str| {
+            format!(
+                r#"{{"coordinate_system":"SignedCentered","wire_codec":"StandardVisca","pan_degrees_to_units":{pan},"tilt_degrees_to_units":14.4}}"#
+            )
+        };
+        let valid: PanTiltCoordinateConversion =
+            serde_json::from_str(&json("14.4")).expect("finite nonzero scale");
+        assert_eq!(valid.pan_units(10.05), Some(145));
+        for invalid in ["0.0", "-0.0"] {
+            let error = serde_json::from_str::<PanTiltCoordinateConversion>(&json(invalid))
+                .expect_err("unusable scale")
+                .to_string();
+            assert!(error.contains("finite and nonzero"), "{invalid}: {error}");
+        }
+    }
+
     #[test]
     fn runtime_builder_requires_mode_inventory_for_typed_shared_ae_support() {
         let mut capabilities = valid_runtime_capabilities();
         capabilities.has_exposure = true;
-        capabilities.shutter_speeds.push(RuntimeShutterSpeed {
-            label: "1/60".into(),
+        capabilities.shutter_speeds.push(ShutterSpeedEntry {
+            exposure: crate::units::Fraction::new(1, 60).expect("nonzero denominator"),
             value: 1,
         });
         capabilities.gain_range = 0..=1;
@@ -2910,8 +3247,8 @@ mod tests {
 
         let mut no_presets = valid_runtime_capabilities();
         no_presets.has_presets = false;
-        no_presets.max_presets = 0;
-        no_presets.preset_speed_range = 0..=0;
+        no_presets.highest_preset = 0;
+        no_presets.preset_speed_range = None;
         let error = invalid_request_message(runtime_builder(no_presets).build())
             .expect("preset mismatch must return InvalidRequest");
         assert!(error.contains("`preset_recall_axes`"), "{error}");
@@ -3283,6 +3620,102 @@ mod tests {
             .is_ok());
     }
 
+    /// #828 M3: retry timing is a validated profile bound that tuning may only
+    /// lengthen. Each value below the profile's request-independent floor
+    /// (50 ms first backoff, a ceiling of the larger of 500 ms and the busy
+    /// timeout, a budget of the larger of ten seconds and the busy timeout) is
+    /// rejected; values at or above it are accepted.
+    #[test]
+    fn retry_timing_tuning_may_only_lengthen_the_profile_bounds() {
+        let profile = runtime_builder(valid_runtime_capabilities())
+            .build()
+            .expect("valid runtime profile");
+        let tuning = |initial: u64, maximum: u64, budget: u64| {
+            OperationalTuning::new().retry_timing(
+                Duration::from_millis(initial),
+                Duration::from_millis(maximum),
+                Duration::from_millis(budget),
+            )
+        };
+        for (initial, maximum, budget) in [(49, 500, 10_000), (50, 499, 10_000), (50, 500, 9_999)] {
+            let error =
+                invalid_request_message(profile.validate_tuning(tuning(initial, maximum, budget)))
+                    .expect("a shortened retry bound must be rejected");
+            assert!(
+                error.contains("cannot undercut the profile retry bounds"),
+                "{initial}/{maximum}/{budget}: {error}"
+            );
+        }
+        assert!(profile.validate_tuning(tuning(50, 500, 10_000)).is_ok());
+        assert!(profile.validate_tuning(tuning(200, 2_000, 30_000)).is_ok());
+
+        // A profile busy timeout raises the floors it governs.
+        let busy = ProfileSpec::builder(valid_runtime_capabilities())
+            .pan_tilt_coordinates(capabilities::CoordinateSystem::SignedCentered, 10.0, 10.0)
+            .transports(TransportCompatibility::new(Some(5678), None, false))
+            .envelope(ProfileEnvelope::RawVisca)
+            .timing(
+                ProfileTiming::builder()
+                    .ack_timeout(Duration::from_millis(100))
+                    .command_timeouts(CommandTimeouts::DEFAULT)
+                    .inquiry_timeout(Duration::from_secs(1))
+                    .cancellation_timeout(Duration::from_secs(1))
+                    .ambiguity_timeout(Duration::from_secs(1))
+                    .busy_timeout(Duration::from_secs(12))
+                    .raw_inquiry_reply_skew(Duration::from_millis(25))
+                    .minimum_inquiry_spacing(Duration::from_millis(25))
+                    .minimum_command_spacing(Duration::from_millis(25))
+                    .build()
+                    .expect("valid timing"),
+            )
+            .maximum_command_sockets(1)
+            .supports_operation_complete(false)
+            .supports_command_cancel(false)
+            .preset_recall_axes(Some(AffectedAxes::PAN_TILT.union(AffectedAxes::ZOOM)))
+            .position_inquiries(PositionInquirySupport::new(true, true, true))
+            .build()
+            .expect("valid busy-timeout profile");
+        assert!(busy.validate_tuning(tuning(50, 11_999, 12_000)).is_err());
+        assert!(busy.validate_tuning(tuning(50, 12_000, 11_999)).is_err());
+        assert!(busy.validate_tuning(tuning(50, 12_000, 12_000)).is_ok());
+    }
+
+    /// #828: like retry timing, the retry count may only be made more
+    /// conservative. The default base is 3; a lower override is accepted and
+    /// a higher one is rejected.
+    #[test]
+    fn retry_limit_tuning_may_only_lower_the_default_base() {
+        let profile = runtime_builder(valid_runtime_capabilities())
+            .build()
+            .expect("valid runtime profile");
+        for limit in 0..=DEFAULT_RETRY_BASE {
+            assert!(profile
+                .validate_tuning(OperationalTuning::new().retry_limit(limit))
+                .is_ok());
+            assert_eq!(
+                OperationalTuning::new()
+                    .retry_limit(limit)
+                    .reduce_retry_base(DEFAULT_RETRY_BASE),
+                limit
+            );
+        }
+        let error = invalid_request_message(
+            profile.validate_tuning(OperationalTuning::new().retry_limit(DEFAULT_RETRY_BASE + 1)),
+        )
+        .expect("a raised retry limit must be rejected");
+        assert!(
+            error.contains("cannot exceed the default base retry count"),
+            "{error}"
+        );
+        // Even unvalidated, an override never raises the base.
+        assert_eq!(
+            OperationalTuning::new()
+                .retry_limit(32)
+                .reduce_retry_base(DEFAULT_RETRY_BASE),
+            DEFAULT_RETRY_BASE
+        );
+    }
+
     /// The engine's own deadline arithmetic is what makes the bound necessary:
     /// an unbounded budget saturates instead of extending.
     #[test]
@@ -3423,8 +3856,8 @@ mod tests {
         let mut backlight = valid_runtime_capabilities();
         backlight.has_exposure = true;
         backlight.exposure_modes.push(ExposureMode::Auto);
-        backlight.shutter_speeds.push(RuntimeShutterSpeed {
-            label: "1/60".into(),
+        backlight.shutter_speeds.push(ShutterSpeedEntry {
+            exposure: crate::units::Fraction::new(1, 60).expect("nonzero denominator"),
             value: 1,
         });
         backlight.gain_range = 0..=1;
@@ -3465,7 +3898,6 @@ mod tests {
 
         let mut color_temperature =
             runtime_white_balance_capabilities(vec![crate::WhiteBalanceMode::Manual]);
-        color_temperature.has_color_temp = true;
         color_temperature.color_temp_range = Some(2_500..=8_000);
         color_temperature.typed_support =
             TypedSupportSet::from_surface(TypedSupportSurface::ColorTemperature);
@@ -3488,7 +3920,6 @@ mod tests {
 
         let mut color_temperature =
             runtime_white_balance_capabilities(vec![crate::WhiteBalanceMode::ColorTemperature]);
-        color_temperature.has_color_temp = true;
         color_temperature.color_temp_range = Some(2_500..=8_000);
         color_temperature.typed_support =
             TypedSupportSet::from_surface(TypedSupportSurface::ColorTemperature);
@@ -3510,15 +3941,14 @@ mod tests {
         focus.focus_speed = 0..=0;
         focus.has_auto_focus = true;
         focus.has_one_push_focus = false;
-        focus.has_focus_zone = false;
         focus.has_af_sensitivity = false;
         focus.has_focus_near_limit_inquiry = false;
         assert!(runtime_builder(focus).build().is_err());
 
         let mut preset = valid_runtime_capabilities();
         preset.has_presets = false;
-        preset.max_presets = 0;
-        preset.preset_speed_range = 0..=0;
+        preset.highest_preset = 0;
+        preset.preset_speed_range = None;
         preset.supports_preset_tour = true;
         assert!(runtime_builder(preset).build().is_err());
 
@@ -3541,8 +3971,13 @@ mod tests {
         assert!(runtime_builder(nd_filter).build().is_err());
 
         let mut motion = valid_runtime_capabilities();
-        motion.max_motion_sync_speed = Some(24);
-        assert!(runtime_builder(motion).build().is_err());
+        motion.motion_sync_speed_range = Some(0..=24);
+        assert!(matches!(
+            runtime_builder(motion).build(),
+            Err(Error::InvalidRequest(message))
+                if message.contains("`capabilities.motion_sync_speed_range`")
+                    && message.contains("typed value domains")
+        ));
     }
 
     #[test]
@@ -3555,12 +3990,12 @@ mod tests {
         shutter.has_exposure = true;
         shutter.exposure_modes = vec![crate::ExposureMode::Auto];
         shutter.shutter_speeds = vec![
-            capabilities::RuntimeShutterSpeed {
-                label: "1/60".to_owned(),
+            capabilities::ShutterSpeedEntry {
+                exposure: crate::units::Fraction::new(1, 60).expect("nonzero denominator"),
                 value: 1,
             },
-            capabilities::RuntimeShutterSpeed {
-                label: "1/60".to_owned(),
+            capabilities::ShutterSpeedEntry {
+                exposure: crate::units::Fraction::new(1, 60).expect("nonzero denominator"),
                 value: 2,
             },
         ];
@@ -3600,23 +4035,16 @@ mod tests {
         strategy_without_combined.uses_combined_flip_command = true;
         assert!(runtime_builder(strategy_without_combined).build().is_err());
 
-        let mut rgb_flag_without_ranges = valid_runtime_capabilities();
-        rgb_flag_without_ranges.has_white_balance = true;
-        rgb_flag_without_ranges.white_balance_modes = vec![crate::WhiteBalanceMode::Auto];
-        rgb_flag_without_ranges.has_rgb_gain = true;
-        assert!(runtime_builder(rgb_flag_without_ranges).build().is_err());
-
-        let mut rgb_ranges_without_flag = valid_runtime_capabilities();
-        rgb_ranges_without_flag.has_white_balance = true;
-        rgb_ranges_without_flag.white_balance_modes = vec![crate::WhiteBalanceMode::Auto];
-        rgb_ranges_without_flag.red_gain_range = Some(0..=255);
-        rgb_ranges_without_flag.blue_gain_range = Some(0..=255);
-        assert!(runtime_builder(rgb_ranges_without_flag).build().is_err());
+        // RGB gain is one fact: both ranges, or neither.
+        let mut red_without_blue = valid_runtime_capabilities();
+        red_without_blue.has_white_balance = true;
+        red_without_blue.white_balance_modes = vec![crate::WhiteBalanceMode::Auto];
+        red_without_blue.red_gain_range = Some(0..=255);
+        assert!(runtime_builder(red_without_blue).build().is_err());
 
         let mut rgb_typed_without_ranges = valid_runtime_capabilities();
         rgb_typed_without_ranges.has_white_balance = true;
         rgb_typed_without_ranges.white_balance_modes = vec![crate::WhiteBalanceMode::Auto];
-        rgb_typed_without_ranges.has_rgb_gain = true;
         rgb_typed_without_ranges.typed_support =
             TypedSupportSet::from_surface(TypedSupportSurface::RgbGain);
         assert!(runtime_builder(rgb_typed_without_ranges).build().is_err());
@@ -3642,15 +4070,14 @@ mod tests {
                 caps.preset_recovery_time = Duration::from_millis(1);
             }),
             ("optical range", |caps| caps.zoom_range_optical = 0..=1),
-            ("digital flag", |caps| caps.has_digital_zoom = true),
             ("digital range", |caps| {
                 caps.zoom_range_digital = Some(0..=1)
             }),
             ("zoom speed", |caps| caps.zoom_speed = 0..=1),
             ("direct zoom", |caps| caps.supports_direct_zoom = true),
             ("variable zoom", |caps| caps.supports_variable_zoom = true),
-            ("zoom converter", |caps| {
-                caps.zoom_magnification_to_units = 2.0
+            ("optical zoom ratio", |caps| {
+                caps.optical_zoom_ratio = Some(2.0)
             }),
         ];
         let baseline =
@@ -3679,30 +4106,25 @@ mod tests {
         assert!(runtime_builder(nonzero_optical).build().is_err());
 
         let mut digital_gap = valid_runtime_capabilities();
-        digital_gap.has_digital_zoom = true;
         digital_gap.zoom_range_digital = Some(1_001..=2_000);
         assert!(runtime_builder(digital_gap).build().is_err());
 
         let mut digital_overlap = valid_runtime_capabilities();
-        digital_overlap.has_digital_zoom = true;
         digital_overlap.zoom_range_digital = Some(999..=2_000);
         assert!(runtime_builder(digital_overlap).build().is_err());
     }
 
+    /// #822: default ports are transport facts only; the capability
+    /// inventory carries no second copy that could disagree.
     #[test]
-    fn transport_ports_fill_from_the_authority_and_explicit_mismatches_fail() {
+    fn transport_ports_come_only_from_the_transport_facts() {
         let baseline =
             Capabilities::runtime_baseline("Runtime transport camera", 1).expect("baseline");
-        let profile = conservative_runtime_builder(baseline.clone())
+        let profile = conservative_runtime_builder(baseline)
             .build()
-            .expect("transport setter fills an unspecified capability mirror");
+            .expect("runtime profile");
         assert_eq!(profile.capabilities().profile_id, None);
-        assert_eq!(profile.capabilities().default_tcp_port, Some(5678));
         assert_eq!(profile.transports().tcp_port(), Some(5678));
-
-        let mut mismatched = baseline;
-        mismatched.default_tcp_port = Some(9_999);
-        assert!(conservative_runtime_builder(mismatched).build().is_err());
     }
 
     #[test]
@@ -3764,25 +4186,6 @@ mod tests {
             .is_ok());
     }
 
-    #[test]
-    fn all_builtin_profiles_lower_from_registry_facts() {
-        macro_rules! assert_profile {
-            ($profile:ty) => {
-                let result = ProfileSpec::from_compile_time::<$profile>();
-                assert!(result.is_ok(), "{}: {result:?}", stringify!($profile));
-            };
-        }
-        assert_profile!(crate::profiles::PtzOpticsG2);
-        assert_profile!(crate::profiles::PtzOpticsG3);
-        assert_profile!(crate::profiles::PtzOptics30X);
-        assert_profile!(crate::profiles::SonyFR7);
-        assert_profile!(crate::profiles::SonyBRCH900);
-        assert_profile!(crate::profiles::SonyEVIH100);
-        assert_profile!(crate::profiles::SonyBRC300);
-        assert_profile!(crate::profiles::NearusBRC300);
-        assert_profile!(crate::profiles::GenericVisca);
-    }
-
     #[cfg(feature = "serde")]
     #[test]
     fn profile_deserialization_revalidates_invariants() {
@@ -3792,5 +4195,156 @@ mod tests {
         let mut value = serde_json::to_value(profile).expect("serialize profile");
         value["maximum_command_sockets"] = serde_json::json!(9);
         assert!(serde_json::from_value::<ProfileSpec>(value).is_err());
+    }
+
+    /// No older shape is upgraded: a spec without a current key, built-in or
+    /// custom, is refused with the regeneration instruction (#795).
+    #[cfg(feature = "serde")]
+    #[test]
+    fn profile_without_a_current_key_is_refused_with_the_regeneration_instruction() {
+        let g2 = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2");
+        let mut custom = g2.capabilities().clone();
+        custom.profile_id = None;
+        let custom = runtime_copy(&g2, custom);
+        for spec in [&g2, &custom] {
+            for (object, key) in [
+                ("capabilities", "focus_zones"),
+                ("capabilities", "optical_zoom_ratio"),
+                ("pan_tilt_coordinates", "wire_codec"),
+            ] {
+                let mut value = serde_json::to_value(spec).expect("serialize profile");
+                value[object].as_object_mut().expect("object").remove(key);
+                let error = serde_json::from_value::<ProfileSpec>(value)
+                    .expect_err("a missing current key must not load")
+                    .to_string();
+                assert!(error.contains(&format!("missing field `{key}`")), "{error}");
+                assert!(error.contains(REGENERATE_SPEC), "{error}");
+            }
+        }
+    }
+
+    #[cfg(feature = "serde")]
+    fn runtime_copy(g2: &ProfileSpec, capabilities: Capabilities) -> ProfileSpec {
+        let coordinates = g2.pan_tilt_coordinates().expect("G2 coordinates");
+        ProfileSpec::builder(capabilities)
+            .pan_tilt_coordinates(
+                coordinates.coordinate_system(),
+                coordinates.pan_degrees_to_units(),
+                coordinates.tilt_degrees_to_units(),
+            )
+            .pan_tilt_wire_codec(coordinates.wire_codec())
+            .transports(g2.transports())
+            .envelope(g2.envelope())
+            .timing(g2.timing())
+            .maximum_command_sockets(g2.maximum_command_sockets())
+            .supports_operation_complete(g2.supports_operation_complete())
+            .supports_command_cancel(g2.supports_command_cancel())
+            .preset_recall_axes(g2.preset_recall_axes())
+            .position_inquiries(g2.position_inquiries())
+            .build()
+            .expect("custom copy of G2")
+    }
+
+    /// An explicit empty `focus_zones` list is rejected when focus-zone
+    /// selection is supported and accepted when it is not (#795).
+    #[cfg(feature = "serde")]
+    #[test]
+    fn explicit_focus_zones_are_validated_as_written() {
+        let g2 = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2");
+        let mut custom = g2.capabilities().clone();
+        custom.profile_id = None;
+        let custom = runtime_copy(&g2, custom);
+        let value = serde_json::to_value(&custom).expect("serialize profile");
+        assert_eq!(
+            value["capabilities"]["focus_zones"],
+            serde_json::json!(["top", "center", "bottom", "zone03"]),
+            "serialization writes the list once, from the capabilities"
+        );
+
+        // Explicit `[]` with focus-zone support: rejected.
+        let mut empty = value.clone();
+        empty["capabilities"]["focus_zones"] = serde_json::json!([]);
+        let error = serde_json::from_value::<ProfileSpec>(empty)
+            .expect_err("an explicit empty list with focus-zone support is invalid");
+        assert!(
+            error
+                .to_string()
+                .contains("typed support FocusZone cannot enable an absent physical capability"),
+            "unexpected error: {error}"
+        );
+
+        // Explicit `[]` without focus-zone support: accepted.
+        let mut unsupported = value.clone();
+        unsupported["capabilities"]["focus_zones"] = serde_json::json!([]);
+        let tags = unsupported["capabilities"]["typed_support"]
+            .as_array_mut()
+            .expect("typed_support list");
+        tags.retain(|tag| tag != "focus-zone");
+        let restored: ProfileSpec =
+            serde_json::from_value(unsupported).expect("no zones without support is valid");
+        assert!(restored.capabilities().focus_zones.is_empty());
+
+        // Explicit list: kept exactly.
+        let restored: ProfileSpec = serde_json::from_value(value).expect("current shape");
+        assert_eq!(restored, custom);
+    }
+
+    #[test]
+    fn focus_zone_inventory_must_match_support_and_be_duplicate_free() {
+        use crate::command::FocusZone;
+
+        let g3 = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG3>().expect("G3");
+        let rebuild = |capabilities: capabilities::Capabilities| {
+            ProfileSpec::builder(capabilities)
+                .pan_tilt_coordinates(
+                    g3.pan_tilt_coordinates()
+                        .expect("G3 coordinates")
+                        .coordinate_system(),
+                    g3.pan_tilt_coordinates()
+                        .expect("G3 coordinates")
+                        .pan_degrees_to_units(),
+                    g3.pan_tilt_coordinates()
+                        .expect("G3 coordinates")
+                        .tilt_degrees_to_units(),
+                )
+                .pan_tilt_wire_codec(
+                    g3.pan_tilt_coordinates()
+                        .expect("G3 coordinates")
+                        .wire_codec(),
+                )
+                .transports(g3.transports())
+                .envelope(g3.envelope())
+                .timing(g3.timing())
+                .maximum_command_sockets(g3.maximum_command_sockets())
+                .supports_operation_complete(g3.supports_operation_complete())
+                .supports_command_cancel(g3.supports_command_cancel())
+                .preset_recall_axes(g3.preset_recall_axes())
+                .position_inquiries(g3.position_inquiries())
+                .build()
+        };
+        let mut base = g3.capabilities().clone();
+        base.profile_id = None;
+
+        let mut extended = base.clone();
+        extended.focus_zones.push(FocusZone::Zone03);
+        let extended = rebuild(extended).expect("a runtime profile may opt in to Zone03");
+        assert!(extended
+            .capabilities()
+            .supports_focus_zone(FocusZone::Zone03));
+
+        let mut empty = base.clone();
+        empty.focus_zones.clear();
+        assert!(rebuild(empty).is_err(), "focus-zone support needs a zone");
+
+        let mut duplicate = base.clone();
+        duplicate.focus_zones.push(FocusZone::Top);
+        assert!(rebuild(duplicate).is_err(), "zones must be duplicate-free");
+
+        // Zones without the typed marker are discovery metadata only.
+        let mut metadata_only = base;
+        metadata_only.typed_support = metadata_only
+            .typed_support
+            .without(capabilities::TypedSupportSurface::FocusZone);
+        assert!(rebuild(metadata_only).is_ok());
     }
 }

@@ -7,18 +7,22 @@
 
 A pure Rust library for controlling PTZ cameras via the VISCA protocol. Supports blocking and async APIs with built-in runtime adapters (Tokio and smol), TCP/UDP/serial transports, and type-safe camera profiles.
 
-> **2.0.0-rc.2** — The prerelease owner-backed API is available for review. It
+> **2.0.0-rc.3** — The prerelease owner-backed API is available for review. It
 > keeps one protocol owner per session and exposes typed static, blocking, async,
 > and dynamic views over that owner.
 >
-> **Hardware status** — No physical hardware validation has been performed, and
-> no hardware support has been verified for this release candidate. Software
-> contract coverage is not physical-camera evidence; see the
-> [hardware release checklist](docs/hardware_release_checklist.md).
+> **Hardware validation status** — Verified on a PTZOptics G2 bench
+> (PT30X-NDI G2, SOC 6.3.32 / ARM 6.3.51THI; PT20X-NDI G2, SOC 6.3.22 /
+> ARM 6.3.76THI; PT12X-NDI G2, SOC 6.3.62 / ARM 6.4.18SHI) for Raw VISCA over
+> TCP and UDP: commands, inquiries, motion stop, owner halt, disconnect
+> recovery, the corrected wire rows, and concurrent use of five cameras. Raw
+> serial and Sony UDP are implemented and tested in software but **not verified
+> on hardware**; this is a known limitation. Evidence and firmware details are
+> in the [hardware release checklist](docs/hardware_release_checklist.md).
 
 ---
 
-## 2.0.0-rc.2 Support Matrix
+## 2.0.0-rc.3 Support Matrix
 
 The 2.0 contract is owner-backed construction, mode-native sessions, typed
 profile views, and one request path for each semantic class. Hardware validation
@@ -58,9 +62,9 @@ transports.
 | Profile family | Protocol | 2.0 support |
 | -------------- | -------- | ----------- |
 | `GenericVisca` | Raw VISCA | Supported baseline profile with conservative capabilities |
-| `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` | Raw VISCA | Supported by the software/profile registry; all physical profile/transport validation remains pending, including G2, G3, and 30X (every [hardware release checklist](docs/hardware_release_checklist.md) row is `Pending (Not run)`) |
-| `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` | Raw VISCA | Supported through profile capability gates and protocol tests |
-| `SonyBRCH900`, `SonyFR7` | Sony encapsulation | Supported through Sony encapsulation, profile capability gates, and protocol tests |
+| `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` | Raw VISCA | `PtzOpticsG2` verified over TCP and UDP on the PTZOptics G2 bench; `PtzOptics30X` verified for the corrected wire rows on a PT30X-NDI G2; `PtzOpticsG3` not verified on hardware (see the [hardware release checklist](docs/hardware_release_checklist.md)) |
+| `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` | Raw VISCA | Supported through profile capability gates and protocol tests; not verified on hardware |
+| `SonyBRCH900`, `SonyFR7` | Sony encapsulation | Supported through Sony encapsulation, profile capability gates, and protocol tests; not verified on hardware (known limitation) |
 
 ### Profile-Gated Vendor Controls
 
@@ -83,7 +87,7 @@ custom integrations.
 | PTZOptics settings-save command | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | PTZOptics preset-recall speed control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Sony spotlight controls | `SonyFR7`, `SonyBRCH900` |
-| Sony automatic slow-shutter controls | `SonyEVIH100`, `SonyBRC300` |
+| Sony automatic slow-shutter controls | `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | PTZOptics multicast-streaming controls | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | PTZOptics NDI-quality control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Motion Sync controls and inquiries | Custom/evidenced profiles that explicitly implement `HasMotionSync`; no built-in profile is marked from the current specs |
@@ -101,45 +105,50 @@ focus methods.
 
 Dynamic callers get the same marker-derived permission model through
 `Capabilities::typed_support` and `Capabilities::supports_typed(...)`. Metadata
-fields such as `has_digital_zoom` and `supports_direct_zoom` remain runtime
+fields such as `zoom_range_digital` and `supports_direct_zoom` remain runtime
 discovery facts; use typed support checks before calling optional dyn typed
 operations.
 
 | Typed control surface | Built-in profiles |
 | --------------------- | ----------------- |
 | Direct absolute zoom positioning | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
-| VISCA digital zoom toggle and optical-plus-digital positioning | `SonyFR7`, `SonyBRCH900` |
+| VISCA digital zoom toggle and optical-plus-digital positioning | `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | Shared VISCA exposure mode control and inquiry (including `ExposureMode::Iris`) | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | Standard iris reset/up/down/direct control and `09 04 4B` iris-position inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | Standard `09 04 2B` iris auto/manual-status inquiry (`iris_control()`) | No built-in profile currently marks this typed capability |
-| Standard one-push focus | No built-in profile currently marks this typed capability |
+| Standard one-push focus | `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | PTZOptics snap focus | No built-in profile currently marks this typed capability |
 | Focus lock | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Push auto focus | `SonyFR7` |
 | Focus zone control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Focus zone inquiry | `PtzOpticsG2`, `PtzOptics30X` |
 | Auto focus sensitivity | No built-in profile currently marks this typed capability |
-| Focus near-limit inquiry | `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
+| Focus near-limit inquiry | `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
 | Backlight compensation | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | Wide dynamic range | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
-| Exposure compensation | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7` |
-| Exposure brightness control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
-| One-push white balance | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `GenericVisca` |
+| Exposure compensation | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
+| Exposure brightness control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
+| One-push white balance | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | Auto-tracking white balance | `SonyFR7` |
 | Auto white-balance sensitivity | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
-| Color temperature controls and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100` |
-| RGB gain controls and inquiries | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7` |
-| RGB tuning controls and inquiries | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
-| Flip and mirror controls | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
+| Color temperature controls | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900` |
+| Color temperature inquiry (sourced one-byte `pq` reply) | `PtzOpticsG2`, `PtzOptics30X` |
+| RGB gain controls and inquiries | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
+| RGB tuning controls and inquiries | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
+| Vertical image flip control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyBRC300`, `NearusBRC300` |
+| Horizontal image mirror control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
 | Combined image flip mode | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Contrast control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
 | Sharpness control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
-| Saturation control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `NearusBRC300` |
-| Hue control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7` |
+| Saturation control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
+| Hue control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyEVIH100` |
 | Luminance control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Gamma control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
-| 2D mode and 2D/3D noise-reduction level inquiries | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
-| 2D mode and 2D/3D noise-reduction level controls | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| 2D noise-reduction level inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyEVIH100` |
+| 3D noise-reduction level inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| 2D noise-reduction level control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyEVIH100` |
+| 3D noise-reduction level control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| 2D noise-reduction auto/manual mode control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Picture effects | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | USB audio control and inquiry | `PtzOpticsG2`, `PtzOptics30X` |
 
@@ -147,10 +156,10 @@ operations.
 exposure-mode command and inquiry are separately guarded by `HasExposureMode`;
 every built-in profile except `SonyFR7` has a nonempty shared-mode inventory and
 grants this typed surface. The PTZOptics profiles use R1/R10/R14 evidence;
-`SonyBRCH900` and `SonyBRC300` use R11/R12; `NearusBRC300` follows its BRC-300
-compatibility contract; `GenericVisca` deliberately assumes the standard Sony
-family; and `SonyEVIH100` retains its 1.2 compatibility breadth pending the R8
-line-item audit. A discovery inventory and the marker agree for every built-in;
+`SonyBRCH900`, `SonyEVIH100`, `SonyBRC300` and `NearusBRC300` use the command
+and inquiry rows of their own model sources (R11, R8, R12 and R21);
+`GenericVisca` grants only the Sony-standard families that R8, R12 and R21 all
+document. A discovery inventory and the marker agree for every built-in;
 custom runtime profiles must still supply both before encoding.
 
 `HasIrisControl` covers standard iris reset/up/down/direct control and the
@@ -159,7 +168,7 @@ surface specifically for `PtzOpticsG3`; the current PTZOptics G2/G3 Developer
 Portal (R14 in [`docs/visca_reference.md`](docs/visca_reference.md)) sources it
 for `PtzOpticsG2` and `PtzOpticsG3`; raw `PtzOptics30X` uses separate
 PTZOptics Gen-2/R1 evidence; and the Sony-standard profiles follow the same
-R11/R12/R8 and compatibility evidence described above. `iris_control()` instead
+R11/R8/R12/R21 model rows described above. `iris_control()` instead
 sends the separate `09 04 2B` auto/manual-status inquiry and requires
 `HasIrisControlInquiry` / `TypedSupportSurface::IrisControlInquiry`; none of the
 checked sources establishes that distinct row, so no built-in profile enables
@@ -177,13 +186,15 @@ not document it. Coarse `SpeedLevel` position requests similarly clamp to each
 profile's documented pan and tilt maxima; `Fastest` therefore means the fastest
 valid speed for that selected camera.
 
-Noise-reduction inquiries remain independently gated by
-`HasNoiseReduction2D` and `HasNoiseReduction3D`; controls require the separate
-`HasNoiseReduction2DControl` and `HasNoiseReduction3DControl` markers. The
-control surface restores `set_noise_reduction_2d_mode`,
-`set_noise_reduction_2d`, `disable_noise_reduction_2d`,
-`set_noise_reduction_3d`, and `disable_noise_reduction_3d` only for the three
-profiles in the table. This is exact source-backed scope, not a grant inferred
+Noise-reduction level inquiries are gated by `HasNoiseReduction2D` and
+`HasNoiseReduction3D`; the level controls (`set_noise_reduction_2d`,
+`disable_noise_reduction_2d`, `set_noise_reduction_3d`,
+`disable_noise_reduction_3d`) require the separate
+`HasNoiseReduction2DControl` and `HasNoiseReduction3DControl` markers, and the
+`04 50` auto/manual mode (`noise_reduction_2d_mode`,
+`set_noise_reduction_2d_mode`) requires `HasNoiseReduction2DMode`. The
+EVI-H100 carries only the 2D level pair, because R8 documents `CAM_NR`
+`04 53` and its inquiry but no mode or 3D level. This is exact source-backed scope, not a grant inferred
 from a PTZOptics family grouping: `PtzOptics30X` is the explicitly legacy
 PT30X SDI/NDI G2/Gen-2 profile, and it does not extend to Move, Link, or newer
 30X models. See the separate R14 command-input and query-output domains in
@@ -208,7 +219,7 @@ matrix fit together.
 | `serde` | Stable serialization/deserialization for public value and configuration types |
 | `schemars` | Stable JSON Schema generation for serde-backed public types |
 | `ts-rs` | Stable TypeScript type generation for supported exported types |
-| `dyn-api` | Runtime-profile camera projections; native blocking with `blocking`, plus object-safe noun/custom-operation views and erased lifecycle handles with `async` |
+| `dyn-api` | Runtime-profile camera projections; native blocking with `blocking`, plus object-safe noun/custom-operation views and erased lifecycle handles with `async`. It projects the enabled facades, so enabling it without `blocking` or `async` is a compile error |
 | `test-utils` | Exposes the stable `grafton_visca::testing` module. It enables no facade of its own, so what it exposes depends on the union: `testkit::{Step, helpers}` always, `ScriptedBlockingTransport` with `blocking`, `ScriptedTransport` and the deterministic executor with `async`, and `ViscaCameraSimulator` only with `runtime-tokio`. Neither `runtime-tokio` nor `blocking` exposes any of it on its own. |
 
 ### Feature-union checks
@@ -323,7 +334,7 @@ fn move_home() -> Result<(), grafton_visca::Error> {
     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
     let camera = session.camera();
 
-    // Blocking submit performs initial synchronous dispatch before returning.
+    // Blocking submit returns after owner admission; waits observe the outcome.
     camera.submit(&PanTiltHome)?.settled()?;
 
     // Applied-only commands have no meaningful settled state.
@@ -352,7 +363,8 @@ async fn move_home() -> Result<(), grafton_visca::Error> {
     let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
     let camera = session.camera();
 
-    let handle = camera.submit(&PanTiltHome).await?;
+    let mut handle = camera.submit(&PanTiltHome).await?;
+    handle.applied().await?;
     handle.settled().await?;
 
     camera.submit(&ZoomStop).await?.applied().await?;
@@ -362,16 +374,23 @@ async fn move_home() -> Result<(), grafton_visca::Error> {
 ```
 
 - `applied` means the exact command was accepted and protocol-completed.
-- `settled` additionally means the targeted operation meets the profile-selected
-  protocol settlement condition: a profile-declared completion-is-settled
-  signal, or two affected-axis position samples within tolerance. It is an
-  intended indication of target rest, not a 2.0.0-rc.2 bench-verified assertion
-  that physical motion ended; exact model/firmware/transport/command evidence
-  remains in the [hardware release checklist](docs/hardware_release_checklist.md).
-- `cancel` requests owner-owned, ID/socket-safe cancellation. Queued work is
-  removable locally; sent work requires profile support and otherwise returns
-  `Error::NotSupported`. Success does not prove physical motion stopped, so use
-  a bounded STOP for continuous movement.
+- `settled` returns `Settlement` evidence: exact profile-declared completion,
+  or stable samples reporting their axes, window, and tolerance. Stable samples
+  do not prove arrival at the requested endpoint. A later conflicting admission
+  supersedes unfinished polled settlement; previously cached evidence remains
+  valid. Physical bench evidence remains in the
+  [hardware release checklist](docs/hardware_release_checklist.md).
+- Waits borrow the handle, and the handle caches what it observes: `applied`
+  then `settled` on one handle continues from the cached application, a
+  repeated wait answers from the cache, and a wait that times out or loses a
+  `select!` ends only that wait.
+- `cancel` requests owner-owned, ID/socket-safe cancellation and waits for its
+  conclusion: `Cancelled`, or `Completed` when the operation applied first.
+  It is idempotent; a handle has one cancellation intent, and a repeated
+  `cancel` observes it. Queued work is removable locally; sent work requires
+  profile support and otherwise returns `Error::NotSupported`, leaving the
+  operation running and the handle observing it. Success does not prove
+  physical motion stopped, so use a bounded STOP for continuous movement.
 - Dropping a handle never stops hardware. Drop is `detach`: the submitted
   command remains owner-owned, may still be dispatched and complete, and
   physical movement continues, so an early `?` or a panic leaves the camera
@@ -390,9 +409,10 @@ close the session on every path and bound movement with a stop-on-exit guard.
 ### Checked normalized input
 
 `UnitInterval` is the checked `0.0..=1.0` value the zoom noun accepts directly.
-`set_normalized` always maps across the profile's documented optical range;
-`set_normalized_in_domain` selects the domain explicitly and refuses
-`OpticalPlusDigital` on a profile with no documented digital maximum.
+`set_normalized(position, domain)` maps it across the selected `ZoomDomain`:
+`Optical` spans the profile's documented optical range, and
+`OpticalPlusDigital` is refused on a profile with no documented digital maximum
+rather than falling back to the optical range.
 
 ```rust
 use grafton_visca::blocking::Connect;
@@ -406,13 +426,13 @@ fn half_zoom() -> Result<(), grafton_visca::Error> {
 
     camera
         .zoom()
-        .set_normalized(UnitInterval::new(0.5)?)?
+        .set_normalized(UnitInterval::new(0.5)?, ZoomDomain::Optical)?
         .settled()?;
 
     session.close()
 }
 
-// `set_normalized_in_domain` requires `HasDirectZoom`; only
+// `set_normalized` requires `HasDirectZoom`; only
 // `OpticalPlusDigital` additionally requires `HasDigitalZoomRange` at runtime.
 fn full_range_zoom() -> Result<(), grafton_visca::Error> {
     let session = Connect::open_udp::<SonyFR7>("192.168.0.110")?;
@@ -420,7 +440,7 @@ fn full_range_zoom() -> Result<(), grafton_visca::Error> {
 
     camera
         .zoom()
-        .set_normalized_in_domain(UnitInterval::ONE, ZoomDomain::OpticalPlusDigital)?
+        .set_normalized(UnitInterval::ONE, ZoomDomain::OpticalPlusDigital)?
         .settled()?;
 
     session.close()
@@ -449,8 +469,8 @@ fn full_range_zoom() -> Result<(), grafton_visca::Error> {
   low-level extensions and may supply their own validation.
 - Use `UnitInterval::new(value)?` or `UnitInterval::try_from(value)?` for the
   checked `0.0..=1.0` values taken by `camera.zoom().set_normalized(..)` and
-  `set_normalized_in_domain(..)`, and by the inquiry conversion helpers such as
-  `ZoomPositionExt::normalize_with_max` and `zoom_from_normalized`. Other typed
+  by the inquiry conversion helpers such as
+  `ZoomPosition::normalize_with_max` and `zoom_from_normalized`. Other typed
   control input uses `Degrees`, `SpeedLevel`, and the profile-checked `types`
   values.
 - Use `CameraId` with `camera_id(...)`, or `try_camera_id(u8)` when converting
@@ -462,27 +482,27 @@ fn full_range_zoom() -> Result<(), grafton_visca::Error> {
 
 ```toml
 [dependencies]
-grafton-visca = "=2.0.0-rc.2"
+grafton-visca = "=2.0.0-rc.3"
 ```
 
 ### Common configurations
 
 ```toml
 # Runtime-agnostic async (bring your own executor)
-grafton-visca = { version = "=2.0.0-rc.2", features = ["async"] }
+grafton-visca = { version = "=2.0.0-rc.3", features = ["async"] }
 
 # Async with Tokio
-grafton-visca = { version = "=2.0.0-rc.2", features = ["runtime-tokio"] }
+grafton-visca = { version = "=2.0.0-rc.3", features = ["runtime-tokio"] }
 tokio = { version = "1", features = ["full"] }
 
 # With serialization
-grafton-visca = { version = "=2.0.0-rc.2", features = ["serde"] }
+grafton-visca = { version = "=2.0.0-rc.3", features = ["serde"] }
 
 # Serial transport (blocking)
-grafton-visca = { version = "=2.0.0-rc.2", features = ["transport-serial"] }
+grafton-visca = { version = "=2.0.0-rc.3", features = ["transport-serial"] }
 
 # Serial transport (Tokio)
-grafton-visca = { version = "=2.0.0-rc.2", features = ["runtime-tokio", "transport-serial-tokio"] }
+grafton-visca = { version = "=2.0.0-rc.3", features = ["runtime-tokio", "transport-serial-tokio"] }
 ```
 
 ### Configuring Standard Transport Behavior
@@ -496,12 +516,9 @@ use std::time::Duration;
 
 let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
     .camera_id(CameraId::CAMERA_1)
-    .transport_config(TransportConfig {
-        tcp_keepalive: Some(grafton_visca::transport::TcpKeepaliveConfig::new(
+    .transport_config({ let mut config = TransportConfig::for_tcp(); config.tcp_keepalive = Some(grafton_visca::transport::TcpKeepaliveConfig::new(
             Duration::from_secs(30),
-        )),
-        ..TransportConfig::default()
-    });
+        )); config });
 ```
 
 TCP keepalive is a socket-level liveness mechanism. It can detect broken peers
@@ -531,7 +548,7 @@ resubmission. Never blindly replay an operation whose completion is uncertain.
 | `serde`                | Serialize/deserialize public value and configuration types |
 | `schemars`             | JSON Schema generation                     |
 | `ts-rs`                | TypeScript type generation                 |
-| `dyn-api`              | Runtime-profile projections (blocking and, with `async`, object-safe async traits) |
+| `dyn-api`              | Runtime-profile projections (blocking and, with `async`, object-safe async traits); requires `blocking` or `async` |
 
 ---
 
@@ -539,15 +556,18 @@ resubmission. Never blindly replay an operation whose completion is uncertain.
 
 Profiles define protocol format, supported standard transports, and default ports:
 
-| Profile              | Protocol           | TCP Port | UDP Port |
-| -------------------- | ------------------ | -------: | -------: |
-| `GenericVisca`       | Raw VISCA          |     5678 |     1259 |
-| `PtzOpticsG2/G3/30X` | Raw VISCA          |     5678 |     1259 |
-| `SonyEVIH100`       | Raw VISCA          |     5678 |     1259 |
-| `SonyBRC300`         | Raw VISCA          |     5678 |     1259 |
-| `NearusBRC300`       | Raw VISCA          |     5678 |     1259 |
-| `SonyBRCH900`        | Sony encapsulation |      n/a |    52381 |
-| `SonyFR7`            | Sony encapsulation |      n/a |    52381 |
+| Profile              | Protocol           | TCP Port | UDP Port | Serial |
+| -------------------- | ------------------ | -------: | -------: | :----: |
+| `GenericVisca`       | Raw VISCA          |     5678 |     1259 |  yes   |
+| `PtzOpticsG2/G3/30X` | Raw VISCA          |     5678 |     1259 |  yes   |
+| `SonyEVIH100`        | Raw VISCA          |      n/a |      n/a |  yes   |
+| `SonyBRC300`         | Raw VISCA          |      n/a |      n/a |  yes   |
+| `NearusBRC300`       | Raw VISCA          |      n/a |      n/a |  yes   |
+| `SonyBRCH900`        | Sony encapsulation |      n/a |    52381 |   no   |
+| `SonyFR7`            | Sony encapsulation |      n/a |    52381 |   no   |
+
+The EVI-H100, BRC-300 and Nearus BRC-300 sources document VISCA over RS-232C
+and RS-422 only, so those profiles are serial-only.
 
 Port can be omitted for supported network transports; the profile default for
 that transport is used. Unsupported profile/transport pairs are rejected by the

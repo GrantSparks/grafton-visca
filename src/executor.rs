@@ -317,7 +317,7 @@ mod tokio_impl {
             async move {
                 match timeout.await {
                     Ok(value) => Ok(value),
-                    Err(_) => Err(Error::Timeout),
+                    Err(_) => Err(Error::io_timeout()),
                 }
             }
         }
@@ -399,7 +399,7 @@ mod smol_impl {
     ) -> Result<T, Error> {
         futures_lite::future::race(async { Ok(fut.await) }, async {
             smol::Timer::after(duration).await;
-            Err(Error::Timeout)
+            Err(Error::io_timeout())
         })
         .await
     }
@@ -508,7 +508,7 @@ mod smol_tests {
         let executor = SmolExecutor::new();
         let (never_complete, _poll_count) = NeverComplete::new();
         let result = executor.block_on(executor.timeout(Duration::from_millis(10), never_complete));
-        assert!(matches!(result, Err(Error::Timeout)));
+        assert!(matches!(result, Err(Error::Timeout { .. })));
     }
 
     /// Test that an immediately completing future returns success.
@@ -541,7 +541,7 @@ mod smol_tests {
         let (never_complete, poll_count) = NeverComplete::new();
 
         let result = executor.block_on(executor.timeout(Duration::from_millis(50), never_complete));
-        assert!(matches!(result, Err(Error::Timeout)));
+        assert!(matches!(result, Err(Error::Timeout { .. })));
 
         let polls = poll_count.load(Ordering::SeqCst);
         // A waker-driven implementation polls very few times (typically 1-2).

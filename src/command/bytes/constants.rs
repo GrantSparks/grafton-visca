@@ -1,676 +1,598 @@
-//! Compile-time VISCA command constants.
+//! The VISCA command byte catalogue.
 //!
-//! This module provides centralized constants for all VISCA protocol byte sequences.
-//! Constants are organized hierarchically by:
-//! - Command category (power, zoom, focus, etc.)
-//! - Operation type (control commands vs inquiry commands)
-//! - Vendor-specific vs standard VISCA commands
+//! Every built-in command encoder reads its bytes from here, so each command
+//! byte sequence is written exactly once. Each constant is an address-free
+//! *body*: [`FrameWriter`](super::FrameWriter) supplies the camera address
+//! byte and the terminator. A `*_STEP` prefix is followed by a
+//! [`Step`](super::Step) byte, a prefix named for a direct value by that
+//! value's encoding, and any other prefix by the parameter its encoder
+//! documents.
+//!
+//! A register that both a command family and an inquiry use is declared once,
+//! with [`shared_register!`], which derives the command prefix (`01 r r …`)
+//! and the inquiry body (`09 r r`) from the same two bytes; the built-in
+//! inquiry table reads those `*_INQUIRY` bodies. Other shared bytes (two
+//! command families on one opcode, the tally and USB-audio registers) are
+//! assembled from one declaration with [`concat`]. Inquiries whose register no
+//! command uses keep their bodies in the inquiry table
+//! (`crate::command::inquiry_structs`).
 
-use crate::macros::support::{visca_bytes, visca_prefix};
+use super::concat;
 
-/// Power command constants.
-#[cfg(test)]
-pub mod power {
-    use super::*;
+/// The VISCA command category byte.
+pub const COMMAND: u8 = 0x01;
 
-    /// Power on command.
-    pub const ON: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x00, 0x02];
+/// The VISCA inquiry category byte.
+pub const INQUIRY: u8 = 0x09;
 
-    /// Power off/standby command.
-    pub const OFF: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x00, 0x03];
+/// Declares one register shared by a command family and its inquiry.
+///
+/// `COMMAND_NAME [suffix…], INQUIRY_NAME = [r0, r1];` declares the command
+/// prefix `01 r0 r1 suffix…` and the inquiry body `09 r0 r1`, writing the
+/// register bytes once.
+macro_rules! shared_register {
+    (
+        $(#[$command_meta:meta])*
+        $command:ident $([$($suffix:literal),+])?,
+        $(#[$inquiry_meta:meta])*
+        $inquiry:ident = [$r0:literal, $r1:literal];
+    ) => {
+        $(#[$command_meta])*
+        pub const $command: [u8; 3 $($(+ shared_register!(@one $suffix))+)?] =
+            [super::COMMAND, $r0, $r1 $($(, $suffix)+)?];
+
+        $(#[$inquiry_meta])*
+        pub const $inquiry: [u8; 3] = [super::INQUIRY, $r0, $r1];
+    };
+    (@one $byte:literal) => {
+        1
+    };
 }
 
-/// Pan/Tilt command constants.
+/// Power commands.
+pub mod power {
+    use super::concat;
+
+    shared_register! {
+        /// Power state prefix.
+        STATE,
+        /// Power state inquiry.
+        STATE_INQUIRY = [0x04, 0x00];
+    }
+
+    /// Power on.
+    pub const ON: [u8; 4] = concat(&[&STATE, &[0x02]]);
+
+    /// Power off (standby).
+    pub const STANDBY: [u8; 4] = concat(&[&STATE, &[0x03]]);
+}
+
+/// Pan/tilt commands.
 pub mod pan_tilt {
-    use super::*;
+    use super::COMMAND;
 
-    /// Home position command.
-    pub const HOME: &[u8] = visca_bytes![0x81, 0x01, 0x06, 0x04];
-
-    /// Reset pan/tilt.
-    pub const RESET: &[u8] = visca_bytes![0x81, 0x01, 0x06, 0x05];
-
-    /// Pan/tilt directional movement prefix.
-    pub const MOVE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x06, 0x01];
+    /// Drive prefix, followed by pan speed, tilt speed and a direction pair.
+    pub const DRIVE: [u8; 3] = [COMMAND, 0x06, 0x01];
 
     /// Absolute position prefix.
-    pub const ABSOLUTE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x06, 0x02];
+    pub const ABSOLUTE: [u8; 3] = [COMMAND, 0x06, 0x02];
 
     /// Relative position prefix.
-    pub const RELATIVE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x06, 0x03];
+    pub const RELATIVE: [u8; 3] = [COMMAND, 0x06, 0x03];
 
-    /// Limit set command prefix.
-    pub const LIMIT_SET_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x06, 0x07, 0x00];
+    /// Home.
+    pub const HOME: [u8; 3] = [COMMAND, 0x06, 0x04];
 
-    /// Limit clear command prefix.
-    pub const LIMIT_CLEAR_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x06, 0x07, 0x01];
+    /// Reset.
+    pub const RESET: [u8; 3] = [COMMAND, 0x06, 0x05];
+
+    /// Limit set prefix, followed by the corner and the position.
+    pub const LIMIT_SET: [u8; 4] = [COMMAND, 0x06, 0x07, 0x00];
+
+    /// Limit clear prefix, followed by the corner and the cleared position.
+    pub const LIMIT_CLEAR: [u8; 4] = [COMMAND, 0x06, 0x07, 0x01];
 }
 
-/// Zoom command constants.
+/// Zoom commands.
 pub mod zoom {
-    use super::*;
+    use super::COMMAND;
 
-    /// Stop zoom.
-    pub const STOP: &[u8] = visca_bytes![0x81, 0x01, 0x04, 0x07, 0x00];
+    /// Drive prefix: stop, tele and wide steps or variable-speed drive bytes.
+    pub const DRIVE: [u8; 3] = [COMMAND, 0x04, 0x07];
 
-    /// Zoom in (telephoto) standard speed.
-    pub const TELE_STD: &[u8] = visca_bytes![0x81, 0x01, 0x04, 0x07, 0x02];
+    shared_register! {
+        /// Direct position prefix, followed by four position nibbles.
+        DIRECT,
+        /// Zoom position inquiry.
+        POSITION_INQUIRY = [0x04, 0x47];
+    }
 
-    /// Zoom out (wide) standard speed.
-    pub const WIDE_STD: &[u8] = visca_bytes![0x81, 0x01, 0x04, 0x07, 0x03];
-
-    /// Variable speed zoom prefix (for both tele and wide).
-    pub const VARIABLE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x07];
-
-    /// Direct zoom position prefix.
-    pub const POSITION_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x47];
-
-    /// Digital zoom control prefix.
-    pub const DIGITAL_ZOOM_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x06];
+    /// Digital zoom on (`02`) / off (`03`) prefix.
+    pub const DIGITAL: [u8; 3] = [COMMAND, 0x04, 0x06];
 }
 
-/// Preset command constants.
+/// Preset commands.
 pub mod preset {
-    use super::*;
+    use super::COMMAND;
 
-    /// Preset control prefix (reset/set/recall).
-    pub const CONTROL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x3F];
+    /// Memory prefix, followed by the action and the preset number.
+    pub const MEMORY: [u8; 3] = [COMMAND, 0x04, 0x3F];
 
-    /// Preset recall speed prefix (PTZOptics specific).
-    /// Note: Shares the same 4-byte prefix as pan_tilt::MOVE_PREFIX but uses
-    /// only a single speed byte (6-byte command) vs pan/tilt's multi-byte format.
-    pub const RECALL_SPEED_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x06, 0x01];
-}
-
-/// Focus command constants.
-pub mod focus {
-    use super::*;
-
-    /// Focus movement control prefix (stop/far/near).
-    pub const MOVEMENT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x08];
-
-    /// Focus direct position control prefix.
-    pub const POSITION_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x48];
-
-    /// Focus mode control prefix (auto/manual).
-    pub const MODE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x38];
-
-    /// One-push focus trigger control prefix.
-    pub const ONE_PUSH_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x18];
-
-    /// Focus lock control prefix.
-    pub const LOCK_PREFIX: &[u8] = visca_prefix![0x81, 0x0A, 0x04, 0x68];
-
-    /// Focus zone control prefix.
-    #[cfg(test)]
-    pub const ZONE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0xAA];
-
-    /// Auto focus sensitivity prefix.
-    #[cfg(test)]
-    pub const AF_SENSITIVITY_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x58];
-
-    /// Focus range/near limit prefix.
-    #[cfg(test)]
-    pub const NEAR_LIMIT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x28];
-
-    /// Push AF control prefix (Sony FR7).
-    pub const PUSH_AF_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x04, 0x58];
-}
-
-/// Exposure command constants.
-pub mod exposure {
-    use super::*;
-
-    /// Exposure mode control prefix.
-    #[cfg(test)]
-    pub const MODE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x39];
-
-    /// Anti-flicker mode prefix.
-    #[cfg(test)]
-    pub const ANTI_FLICKER_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x23];
-
-    /// Spotlight prefix (Sony models).
-    #[cfg(test)]
-    pub const SPOTLIGHT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x3A];
-
-    /// Exposure compensation on/off prefix.
-    pub const COMPENSATION_ON_OFF_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x3E];
-
-    /// Exposure compensation control prefix (reset/up/down).
-    pub const COMPENSATION_CONTROL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x0E];
-
-    /// Exposure compensation direct level prefix.
-    pub const COMPENSATION_LEVEL_PREFIX: &[u8] =
-        visca_prefix![0x81, 0x01, 0x04, 0x4E, 0x00, 0x00, 0x00];
-
-    /// Dynamic range control prefix.
-    #[cfg(test)]
-    pub const DYNAMIC_RANGE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x25, 0x00, 0x00, 0x00];
-
-    /// Iris control prefix (reset/up/down).
-    pub const IRIS_CONTROL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x0B];
-
-    /// Iris direct value prefix.
-    pub const IRIS_DIRECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x4B, 0x00, 0x00];
-
-    /// Shutter control prefix (reset/up/down).
-    pub const SHUTTER_CONTROL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x0A];
-
-    /// Shutter direct value prefix.
-    pub const SHUTTER_DIRECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x4A, 0x00, 0x00];
-
-    /// Brightness control prefix (reset/up/down).
-    pub const BRIGHTNESS_CONTROL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x0D];
-
-    /// Brightness direct value prefix.
-    pub const BRIGHTNESS_DIRECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x4D, 0x00, 0x00];
-
-    /// Spot AE (auto exposure) control prefix.
-    #[cfg(test)]
-    pub const SPOT_AE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x5A];
-}
-
-/// Image flip command constants.
-#[cfg(test)]
-pub mod flip {
-    use super::*;
-
-    /// Image flip prefix.
-    pub const PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x66];
-
-    /// Horizontal flip prefix.
-    pub const HFLIP_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x61];
-
-    /// Image freeze prefix.
-    pub const FREEZE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x62];
-}
-
-/// Image adjustment command constants.
-pub mod image {
-    use super::*;
-
-    /// Backlight compensation prefix.
-    #[cfg(test)]
-    pub const BACKLIGHT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x33];
-
-    /// Image flip combined mode prefix (PtzOptics specific).
-    #[cfg(test)]
-    pub const FLIP_COMBINED_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0xA4];
-
-    /// Picture effect mode prefix.
-    #[cfg(test)]
-    pub const PICTURE_EFFECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x63];
-
-    /// Luminance/brightness adjustment prefix.
-    #[cfg(test)]
-    pub const LUMINANCE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0xA1, 0x00, 0x00, 0x00];
-
-    /// Contrast adjustment prefix.
-    #[cfg(test)]
-    pub const CONTRAST_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0xA2, 0x00, 0x00, 0x00];
-
-    /// Sharpness mode control prefix (auto/manual).
-    pub const SHARPNESS_MODE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x05];
-
-    /// Sharpness control prefix (reset/up/down).
-    pub const SHARPNESS_CONTROL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x02];
-
-    /// Sharpness direct level prefix.
-    pub const SHARPNESS_LEVEL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x42, 0x00, 0x00];
-
-    /// Gamma curve selection prefix.
+    /// Preset recall speed prefix, followed by one speed byte.
     ///
-    /// VISCA command `81 01 04 5B 0p FF` where p selects the gamma curve
-    /// (0=Standard, 1-4=different gamma curves).
-    #[cfg(test)]
-    pub const GAMMA_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x5B];
+    /// PTZOptics overloads the pan/tilt drive opcode with this shorter
+    /// one-parameter form, so the bytes are the drive prefix's.
+    pub const RECALL_SPEED: [u8; 3] = super::pan_tilt::DRIVE;
 }
 
-/// System command constants.
-pub mod system {
-    // Constants moved to macro-based implementations in system.rs:
-    // - ADDRESS_SET → AddressSetCommand using visca_const_command!
-    // - INTERFACE_CLEAR → InterfaceClearCommand using visca_const_command!
-    // - COMMAND_CANCEL_PREFIX → CommandCancelCommand with direct encoding
+/// Focus commands.
+pub mod focus {
+    use super::COMMAND;
+
+    /// Drive prefix: stop, far and near steps or variable-speed drive bytes.
+    pub const DRIVE: [u8; 3] = [COMMAND, 0x04, 0x08];
+
+    shared_register! {
+        /// Direct position prefix, followed by four position nibbles.
+        DIRECT,
+        /// Focus position inquiry.
+        POSITION_INQUIRY = [0x04, 0x48];
+    }
+
+    shared_register! {
+        /// Mode prefix: auto, manual, snap or toggle.
+        MODE,
+        /// Focus mode inquiry.
+        MODE_INQUIRY = [0x04, 0x38];
+    }
+
+    /// One-push trigger (`01`) / infinity (`02`) prefix.
+    pub const ONE_PUSH: [u8; 3] = [COMMAND, 0x04, 0x18];
+
+    /// PTZOptics focus lock on (`02`) / off (`03`) prefix (vendor category
+    /// `0A`).
+    pub const LOCK: [u8; 3] = [0x0A, 0x04, 0x68];
+
+    /// Sony FR7 push AF press (`01`) / release (`00`) prefix.
+    pub const PUSH_AF: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x58];
+
+    shared_register! {
+        /// AF zone prefix, followed by the zone byte.
+        ZONE,
+        /// AF zone inquiry.
+        ZONE_INQUIRY = [0x04, 0xAA];
+    }
+
+    shared_register! {
+        /// AF sensitivity prefix, followed by the sensitivity byte.
+        AF_SENSITIVITY,
+        /// AF sensitivity inquiry.
+        AF_SENSITIVITY_INQUIRY = [0x04, 0x58];
+    }
+
+    shared_register! {
+        /// Near limit prefix, followed by four position nibbles.
+        NEAR_LIMIT,
+        /// Focus near limit inquiry.
+        NEAR_LIMIT_INQUIRY = [0x04, 0x28];
+    }
 }
 
-/// White balance command constants.
-#[cfg(test)]
-pub mod white_balance {
-    use super::*;
+/// Exposure commands.
+pub mod exposure {
+    use super::{concat, COMMAND};
 
-    /// White balance mode control prefix.
-    pub const MODE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x35];
+    shared_register! {
+        /// AE mode prefix, followed by the mode byte.
+        MODE,
+        /// AE mode inquiry.
+        MODE_INQUIRY = [0x04, 0x39];
+    }
 
-    /// Auto white balance sensitivity prefix.
-    pub const AWB_SENSITIVITY_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0xA9];
+    shared_register! {
+        /// Exposure compensation on (`02`) / off (`03`) prefix.
+        COMPENSATION_SWITCH,
+        /// Exposure compensation on/off inquiry.
+        COMPENSATION_SWITCH_INQUIRY = [0x04, 0x3E];
+    }
 
-    /// One push white balance trigger command.
-    /// Note: Currently unused in production code because visca_const_command! macro doesn't support constant references.
-    /// The command is defined with hardcoded bytes in color.rs.
-    #[cfg(test)]
-    pub const ONE_PUSH_TRIGGER: &[u8] = visca_bytes![0x81, 0x01, 0x04, 0x10, 0x05];
+    /// Exposure compensation step prefix.
+    pub const COMPENSATION_STEP: [u8; 3] = [COMMAND, 0x04, 0x0E];
+
+    shared_register! {
+        /// Exposure compensation direct prefix, followed by `0p 0q`.
+        COMPENSATION_DIRECT [0x00, 0x00],
+        /// Exposure compensation position inquiry.
+        COMPENSATION_INQUIRY = [0x04, 0x4E];
+    }
+
+    /// Iris step prefix.
+    pub const IRIS_STEP: [u8; 3] = [COMMAND, 0x04, 0x0B];
+
+    shared_register! {
+        /// Iris direct prefix, followed by `0p 0q`.
+        IRIS_DIRECT [0x00, 0x00],
+        /// Iris position inquiry.
+        IRIS_INQUIRY = [0x04, 0x4B];
+    }
+
+    /// Shutter step prefix.
+    pub const SHUTTER_STEP: [u8; 3] = [COMMAND, 0x04, 0x0A];
+
+    shared_register! {
+        /// Shutter direct prefix, followed by `0p 0q`.
+        SHUTTER_DIRECT [0x00, 0x00],
+        /// Shutter position inquiry.
+        SHUTTER_INQUIRY = [0x04, 0x4A];
+    }
+
+    /// Bright step prefix.
+    pub const BRIGHT_STEP: [u8; 3] = [COMMAND, 0x04, 0x0D];
+
+    shared_register! {
+        /// Bright direct prefix (`04 4D`, see the reference's Bright Direct
+        /// erratum), followed by `0p 0q`.
+        BRIGHT_DIRECT [0x00, 0x00],
+        /// Bright position inquiry.
+        BRIGHT_INQUIRY = [0x04, 0x4D];
+    }
+
+    /// PTZOptics anti-flicker prefix, followed by the mode byte.
+    pub const ANTI_FLICKER: [u8; 3] = [COMMAND, 0x04, 0x23];
+
+    shared_register! {
+        /// PTZOptics dynamic range control prefix, followed by `0p`.
+        DYNAMIC_RANGE [0x00, 0x00, 0x00],
+        /// Dynamic range inquiry.
+        DYNAMIC_RANGE_INQUIRY = [0x04, 0x25];
+    }
+
+    const SPOTLIGHT: [u8; 3] = [COMMAND, 0x04, 0x3A];
+
+    /// Spotlight on.
+    pub const SPOTLIGHT_ON: [u8; 4] = concat(&[&SPOTLIGHT, &[0x02]]);
+
+    /// Spotlight off.
+    pub const SPOTLIGHT_OFF: [u8; 4] = concat(&[&SPOTLIGHT, &[0x03]]);
+
+    const AUTO_SLOW_SHUTTER: [u8; 3] = [COMMAND, 0x04, 0x5A];
+
+    /// Automatic slow shutter on.
+    pub const AUTO_SLOW_SHUTTER_ON: [u8; 4] = concat(&[&AUTO_SLOW_SHUTTER, &[0x02]]);
+
+    /// Automatic slow shutter off.
+    pub const AUTO_SLOW_SHUTTER_OFF: [u8; 4] = concat(&[&AUTO_SLOW_SHUTTER, &[0x03]]);
 }
 
-/// Color adjustment command constants.
-pub mod color {
-    use super::*;
-
-    /// Color saturation prefix.
-    #[cfg(test)]
-    pub const SATURATION_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x49, 0x00, 0x00, 0x00];
-
-    /// Color hue prefix.
-    #[cfg(test)]
-    pub const HUE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x4F, 0x00, 0x00, 0x00];
-
-    /// Red gain direct prefix (for WB fine-tuning).
-    pub const RED_GAIN_DIRECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x43, 0x00, 0x00];
-
-    /// Blue gain direct prefix (for WB fine-tuning).
-    pub const BLUE_GAIN_DIRECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x44, 0x00, 0x00];
-
-    /// Red gain control prefix (reset/up/down).
-    pub const RED_GAIN_CONTROL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x03];
-
-    /// Blue gain control prefix (reset/up/down).
-    pub const BLUE_GAIN_CONTROL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x04];
-
-    /// Color temperature control prefix (reset/up/down/direct).
-    pub const TEMPERATURE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x20];
-}
-
-/// Gain command constants.
+/// Gain commands.
 pub mod gain {
-    use super::*;
+    use super::COMMAND;
 
-    /// Gain control prefix (reset/up/down).
-    pub const CONTROL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x0C];
+    /// Gain step prefix.
+    pub const STEP: [u8; 3] = [COMMAND, 0x04, 0x0C];
 
-    /// Gain direct value prefix.
-    pub const DIRECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x4C, 0x00, 0x00];
+    shared_register! {
+        /// Gain direct prefix, followed by `0p 0q`.
+        DIRECT [0x00, 0x00],
+        /// Gain position inquiry.
+        INQUIRY = [0x04, 0x4C];
+    }
 
-    /// Gain limit prefix.
-    #[cfg(test)]
-    pub const GAIN_LIMIT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x04, 0x2C];
+    shared_register! {
+        /// Gain limit prefix, followed by `0p`.
+        LIMIT,
+        /// Gain limit inquiry.
+        LIMIT_INQUIRY = [0x04, 0x2C];
+    }
 }
 
-/// Tally command constants.
-#[cfg(test)]
-pub mod tally {
-    use super::*;
+/// White balance commands.
+pub mod white_balance {
+    use super::COMMAND;
 
-    /// Tally control prefix.
-    pub const TALLY_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x01, 0x0A, 0x00];
+    shared_register! {
+        /// White balance mode prefix, followed by the mode byte.
+        MODE,
+        /// White balance mode inquiry.
+        MODE_INQUIRY = [0x04, 0x35];
+    }
 
-    /// Tally brightness prefix (Sony BRC models).
-    pub const TALLY_BRIGHT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x01, 0x0A, 0x01];
+    shared_register! {
+        /// PTZOptics AWB sensitivity prefix, followed by the sensitivity byte.
+        AWB_SENSITIVITY,
+        /// AWB sensitivity inquiry (PTZOptics also reads it as tally auto-adjust).
+        AWB_SENSITIVITY_INQUIRY = [0x04, 0xA9];
+    }
 
-    /// Green tally prefix (Sony FR7).
-    pub const TALLY_GREEN_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x04, 0x1A, 0x00];
-
-    /// PtzOptics tally prefix.
-    pub const TALLY_PTZO_PREFIX: &[u8] = visca_prefix![0x81, 0x0A, 0x02, 0x02];
-
-    /// Tally inquiry prefix.
-    pub const TALLY_INQUIRY_PREFIX: &[u8] = visca_prefix![0x81, 0x09, 0x7E, 0x01, 0x0A, 0x00];
+    /// One-push white balance trigger.
+    pub const ONE_PUSH_TRIGGER: [u8; 4] = [COMMAND, 0x04, 0x10, 0x05];
 }
 
-/// Inquiry command constants generated from the built-in inquiry table.
-pub mod inquiry {
-    #[allow(unused_imports)]
-    pub use crate::command::inquiry_structs::bytes::*;
+/// Color commands.
+pub mod color {
+    use super::{concat, COMMAND};
+
+    /// Red gain step prefix.
+    pub const RED_GAIN_STEP: [u8; 3] = [COMMAND, 0x04, 0x03];
+
+    shared_register! {
+        /// Red gain direct prefix, followed by `0p 0q`.
+        RED_GAIN_DIRECT [0x00, 0x00],
+        /// Red gain inquiry (also read as red tuning).
+        RED_GAIN_INQUIRY = [0x04, 0x43];
+    }
+
+    /// Red tuning prefix on the red gain opcode, followed by the whole tuning
+    /// code in one byte (the reference's color-tuning erratum).
+    pub const RED_TUNING_DIRECT: [u8; 6] = concat(&[&RED_GAIN_DIRECT, &[0x00]]);
+
+    /// Blue gain step prefix.
+    pub const BLUE_GAIN_STEP: [u8; 3] = [COMMAND, 0x04, 0x04];
+
+    shared_register! {
+        /// Blue gain direct prefix, followed by `0p 0q`.
+        BLUE_GAIN_DIRECT [0x00, 0x00],
+        /// Blue gain inquiry (also read as blue tuning).
+        BLUE_GAIN_INQUIRY = [0x04, 0x44];
+    }
+
+    /// Blue tuning prefix on the blue gain opcode, followed by the whole
+    /// tuning code in one byte.
+    pub const BLUE_TUNING_DIRECT: [u8; 6] = concat(&[&BLUE_GAIN_DIRECT, &[0x00]]);
+
+    shared_register! {
+        /// Color temperature register: steps and the direct `0p 0q` value share
+        /// it.
+        TEMPERATURE,
+        /// Color temperature inquiry.
+        TEMPERATURE_INQUIRY = [0x04, 0x20];
+    }
+
+    shared_register! {
+        /// Saturation prefix, followed by `0p`.
+        SATURATION [0x00, 0x00, 0x00],
+        /// Saturation inquiry.
+        SATURATION_INQUIRY = [0x04, 0x49];
+    }
+
+    shared_register! {
+        /// Hue prefix, followed by `0p`.
+        HUE [0x00, 0x00, 0x00],
+        /// Hue inquiry.
+        HUE_INQUIRY = [0x04, 0x4F];
+    }
 }
 
-/// Menu command constants.
-#[cfg(test)]
+/// Image processing commands.
+pub mod image {
+    use super::COMMAND;
+
+    shared_register! {
+        /// Sharpness mode prefix, followed by the mode byte.
+        SHARPNESS_MODE,
+        /// Sharpness mode inquiry.
+        SHARPNESS_MODE_INQUIRY = [0x04, 0x05];
+    }
+
+    /// Sharpness step prefix.
+    pub const SHARPNESS_STEP: [u8; 3] = [COMMAND, 0x04, 0x02];
+
+    shared_register! {
+        /// Sharpness direct prefix, followed by `0p 0q`.
+        SHARPNESS_DIRECT [0x00, 0x00],
+        /// Sharpness position inquiry.
+        SHARPNESS_INQUIRY = [0x04, 0x42];
+    }
+
+    shared_register! {
+        /// Luminance direct prefix, followed by `0p 0q`.
+        LUMINANCE [0x00, 0x00],
+        /// Luminance inquiry.
+        LUMINANCE_INQUIRY = [0x04, 0xA1];
+    }
+
+    shared_register! {
+        /// Contrast direct prefix, followed by `0p 0q`.
+        CONTRAST [0x00, 0x00],
+        /// Contrast inquiry.
+        CONTRAST_INQUIRY = [0x04, 0xA2];
+    }
+
+    shared_register! {
+        /// Gamma prefix, followed by `0p`.
+        GAMMA,
+        /// Gamma inquiry.
+        GAMMA_INQUIRY = [0x04, 0x5B];
+    }
+
+    shared_register! {
+        /// Backlight compensation on (`02`) / off (`03`) prefix.
+        BACKLIGHT,
+        /// Backlight inquiry.
+        BACKLIGHT_INQUIRY = [0x04, 0x33];
+    }
+
+    shared_register! {
+        /// 2D noise-reduction mode prefix, followed by the mode byte.
+        NOISE_REDUCTION_2D_MODE,
+        /// 2D noise-reduction mode inquiry.
+        NOISE_REDUCTION_2D_MODE_INQUIRY = [0x04, 0x50];
+    }
+
+    shared_register! {
+        /// 2D noise-reduction level prefix, followed by `0p`.
+        NOISE_REDUCTION_2D,
+        /// 2D noise-reduction level inquiry.
+        NOISE_REDUCTION_2D_INQUIRY = [0x04, 0x53];
+    }
+
+    shared_register! {
+        /// 3D noise-reduction level prefix, followed by `0p`.
+        NOISE_REDUCTION_3D,
+        /// 3D noise-reduction level inquiry.
+        NOISE_REDUCTION_3D_INQUIRY = [0x04, 0x54];
+    }
+
+    shared_register! {
+        /// PTZOptics combined flip prefix, followed by the flip mode byte.
+        FLIP_COMBINED,
+        /// Combined flip inquiry.
+        FLIP_COMBINED_INQUIRY = [0x04, 0xA4];
+    }
+
+    shared_register! {
+        /// Picture effect prefix, followed by the effect byte.
+        PICTURE_EFFECT,
+        /// Picture effect inquiry.
+        PICTURE_EFFECT_INQUIRY = [0x04, 0x63];
+    }
+}
+
+/// Legacy flip, mirror and freeze commands.
+pub mod flip {
+    use super::COMMAND;
+
+    /// Vertical picture flip on (`02`) / off (`03`) prefix.
+    pub const VERTICAL: [u8; 3] = [COMMAND, 0x04, 0x66];
+
+    /// Horizontal mirror on (`02`) / off (`03`) prefix.
+    pub const HORIZONTAL: [u8; 3] = [COMMAND, 0x04, 0x61];
+
+    /// Image freeze on (`02`) / off (`03`) prefix.
+    pub const FREEZE: [u8; 3] = [COMMAND, 0x04, 0x62];
+}
+
+/// PTZOptics OSD menu commands.
 pub mod menu {
-    use super::*;
+    use super::{concat, COMMAND};
 
-    /// Menu toggle command prefix.
-    pub const TOGGLE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x06, 0x06];
+    shared_register! {
+        /// Menu register: display on (`02`) / off (`03`), enter (`05`) and
+        /// return (`04`).
+        MENU,
+        /// Menu open/close inquiry.
+        MENU_INQUIRY = [0x06, 0x06];
+    }
 
-    /// Menu navigation command prefix.
-    pub const NAVIGATE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x06, 0x01, 0x0E, 0x0E];
+    /// OSD navigation prefix: the pan/tilt drive at the fixed `0E 0E` speed
+    /// pair, followed by a pan/tilt direction pair.
+    pub const NAVIGATE: [u8; 5] = concat(&[&super::pan_tilt::DRIVE, &[0x0E, 0x0E]]);
 
-    /// Menu settings control prefix.
-    pub const SETTINGS_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x04, 0x72];
+    /// Sony FR7 direct menu prefix, followed by the two control bytes.
+    pub const DIRECT: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x72];
 }
 
-/// Streaming command constants.
-///
-/// Note: These constants document the byte sequences used by streaming commands.
-/// They cannot be directly used in macro-based commands due to macro limitations
-/// requiring literal arrays, but serve as documentation and validation references.
+/// Tally commands and the registers their inquiries share.
+pub mod tally {
+    use super::{concat, COMMAND, INQUIRY};
+
+    /// Sony FR7 red tally register (`7E 01 0A`).
+    const RED: [u8; 3] = [0x7E, 0x01, 0x0A];
+
+    /// Sony FR7 green tally register (`7E 04 1A`).
+    const GREEN: [u8; 3] = [0x7E, 0x04, 0x1A];
+
+    /// Red tally on.
+    pub const RED_ON: [u8; 6] = concat(&[&[COMMAND], &RED, &[0x00, 0x02]]);
+
+    /// Red tally off.
+    pub const RED_OFF: [u8; 6] = concat(&[&[COMMAND], &RED, &[0x00, 0x03]]);
+
+    /// Tally lamp brightness low.
+    pub const BRIGHT_LOW: [u8; 6] = concat(&[&[COMMAND], &RED, &[0x01, 0x04]]);
+
+    /// Tally lamp brightness high.
+    pub const BRIGHT_HIGH: [u8; 6] = concat(&[&[COMMAND], &RED, &[0x01, 0x05]]);
+
+    /// Red tally inquiry.
+    pub const RED_INQUIRY: [u8; 4] = concat(&[&[INQUIRY], &RED]);
+
+    /// Green tally on.
+    pub const GREEN_ON: [u8; 6] = concat(&[&[COMMAND], &GREEN, &[0x00, 0x02]]);
+
+    /// Green tally off.
+    pub const GREEN_OFF: [u8; 6] = concat(&[&[COMMAND], &GREEN, &[0x00, 0x03]]);
+
+    /// Green tally inquiry.
+    pub const GREEN_INQUIRY: [u8; 4] = concat(&[&[INQUIRY], &GREEN]);
+
+    const PTZOPTICS: [u8; 3] = [0x0A, 0x02, 0x02];
+
+    /// PTZOptics tally flash.
+    pub const PTZOPTICS_FLASH: [u8; 4] = concat(&[&PTZOPTICS, &[0x01]]);
+
+    /// PTZOptics tally on.
+    pub const PTZOPTICS_ON: [u8; 4] = concat(&[&PTZOPTICS, &[0x02]]);
+
+    /// PTZOptics tally off.
+    pub const PTZOPTICS_OFF: [u8; 4] = concat(&[&PTZOPTICS, &[0x03]]);
+}
+
+/// PTZOptics streaming and USB audio commands.
 pub mod streaming {
-    use super::*;
+    /// Multicast on (`01`) / off (`02`) prefix.
+    pub const MULTICAST: [u8; 3] = [0x0B, 0x01, 0x23];
 
-    /// Multicast streaming control prefix.
-    /// **Vendor-Specific**: PtzOptics streaming commands.
-    /// Used by: MulticastStreamingInternal in streaming.rs
-    #[cfg(test)]
-    pub const MULTICAST_PREFIX: &[u8] = visca_prefix![0x81, 0x0B, 0x01, 0x23];
+    /// NDI quality prefix, followed by the quality byte.
+    pub const NDI_QUALITY: [u8; 3] = [0x0B, 0x01, 0x01];
 
-    /// Ndi quality control prefix.
-    /// **Vendor-Specific**: PtzOptics Ndi streaming commands.
-    /// Used by: NdiQualityCommandInternal in streaming.rs
-    #[cfg(test)]
-    pub const NDI_QUALITY_PREFIX: &[u8] = visca_prefix![0x81, 0x0B, 0x01, 0x01];
-
-    /// USB audio control prefix.
-    /// **Vendor-Specific**: PtzOptics USB audio toggle.
-    pub const USB_AUDIO_PREFIX: &[u8] = visca_prefix![0x81, 0x2A, 0x02, 0xA0, 0x04];
+    /// USB audio (UAC) register: the command appends on (`02`) / off (`03`)
+    /// and the inquiry is the bare register.
+    pub const USB_AUDIO: [u8; 4] = [0x2A, 0x02, 0xA0, 0x04];
 }
 
-/// ND filter command constants.
+/// Sony FR7 ND filter commands.
 pub mod nd_filter {
-    use super::*;
+    use super::COMMAND;
 
-    /// ND filter control prefix.
-    pub const CONTROL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x04, 0x52];
+    /// Preset (`00`) / variable (`01`) mode prefix.
+    pub const MODE: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x52];
 
-    /// ND filter level control prefix.
-    pub const LEVEL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x04, 0x53];
+    /// Variable ND direct prefix, followed by `0p 0q`.
+    pub const DIRECT: [u8; 5] = [COMMAND, 0x7E, 0x04, 0x42, 0x00];
 
-    /// ND filter mode prefix.
-    pub const MODE_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x04, 0x12];
+    /// Variable ND step prefix.
+    pub const STEP: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x12];
 
-    /// ND filter direct value prefix.
-    pub const DIRECT_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x7E, 0x04, 0x42, 0x00];
+    /// Automatic ND on (`02`) / off (`03`) prefix.
+    pub const AUTO: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x53];
 }
 
-/// Motion sync command constants (PtzOptics specific).
+/// PTZOptics motion sync commands.
 pub mod motion_sync {
-    use super::*;
+    /// Motion sync mode prefix, followed by the mode byte.
+    pub const MODE: [u8; 3] = [0x0A, 0x11, 0x13];
 
-    /// Motion sync mode control prefix.
-    pub const MODE_PREFIX: &[u8] = visca_prefix![0x81, 0x0A, 0x11, 0x13];
-
-    /// Motion sync speed control prefix.
-    pub const SPEED_PREFIX: &[u8] = visca_prefix![0x81, 0x0A, 0x11, 0x14];
+    /// Motion sync speed prefix, followed by the speed byte.
+    pub const SPEED: [u8; 3] = [0x0A, 0x11, 0x14];
 }
 
-/// Sony FR7 pan/tilt speed-step command constants.
+/// Sony FR7 pan/tilt speed-step range command.
 pub mod variable_speed {
-    use super::*;
+    use super::COMMAND;
 
-    /// Normal/extended pan/tilt speed-step control prefix.
-    pub const CONTROL_PREFIX: &[u8] = visca_prefix![0x81, 0x01, 0x06, 0x45];
+    /// Speed-step range prefix, followed by `08` (24 steps) or `18` (50 steps).
+    pub const STEP_RANGE: [u8; 3] = [COMMAND, 0x06, 0x45];
 }
 
-/// System command-related constants.
-#[cfg(test)]
-pub mod system_cmd {
-    use super::*;
+/// System commands. Address Set and I/F Clear are broadcast (`88`) frames.
+pub mod system {
+    use super::COMMAND;
 
-    /// Command cancel prefix (socket number follows).
-    pub const CANCEL_PREFIX: &[u8] = visca_prefix![0x81];
-}
+    /// Address Set command byte: the command is `88 30 01 FF` and the final
+    /// reply `88 30 0p FF`.
+    pub const ADDRESS_SET_REGISTER: u8 = 0x30;
 
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod validation_tests {
-    use super::*;
-    use crate::command::bytes::VISCA_TERMINATOR;
-    use crate::command::inquiry_structs::{BuiltinInquiryQuery, BUILTIN_INQUIRIES};
+    /// Address Set body; the broadcast frame is `88 30 01 FF`.
+    pub const ADDRESS_SET: [u8; 2] = [ADDRESS_SET_REGISTER, 0x01];
 
-    /// This test validates that all constants are correctly formed at compile time.
-    /// The visca_bytes! and visca_prefix! macros already perform compile-time validation,
-    /// but this test ensures that:
-    /// 1. All constants compile without errors
-    /// 2. Constants have the expected format (proper camera ID, terminator, etc.)
-    #[test]
-    fn test_constants_compile_time_validation() {
-        // Power constants (using visca_prefix! so no terminator)
-        assert_eq!(power::ON[0], 0x81); // Camera ID
-        assert_ne!(power::ON[power::ON.len() - 1], 0xFF); // No Terminator
-        assert_eq!(power::OFF[0], 0x81);
-        assert_ne!(power::OFF[power::OFF.len() - 1], 0xFF); // No Terminator
+    /// I/F Clear body; the broadcast frame is `88 01 00 01 FF`.
+    pub const INTERFACE_CLEAR: [u8; 3] = [COMMAND, 0x00, 0x01];
 
-        // Pan/Tilt constants
-        assert_eq!(pan_tilt::HOME[0], 0x81);
-        assert_eq!(pan_tilt::HOME[pan_tilt::HOME.len() - 1], 0xFF);
-        assert_eq!(pan_tilt::RESET[0], 0x81);
-        assert_eq!(pan_tilt::RESET[pan_tilt::RESET.len() - 1], 0xFF);
+    /// Command Cancel opcode nibble: the frame is `8x 2y FF`, whose one body
+    /// byte carries the socket `y` in its low nibble.
+    pub const COMMAND_CANCEL: u8 = 0x20;
 
-        // Zoom constants
-        assert_eq!(zoom::STOP[0], 0x81);
-        assert_eq!(zoom::STOP[zoom::STOP.len() - 1], 0xFF);
-        assert_eq!(zoom::TELE_STD[0], 0x81);
-        assert_eq!(zoom::TELE_STD[zoom::TELE_STD.len() - 1], 0xFF);
-        assert_eq!(zoom::WIDE_STD[0], 0x81);
-        assert_eq!(zoom::WIDE_STD[zoom::WIDE_STD.len() - 1], 0xFF);
-
-        // Prefix validation - should not have terminators
-        assert_eq!(zoom::DIGITAL_ZOOM_PREFIX[0], 0x81);
-        assert_ne!(
-            zoom::DIGITAL_ZOOM_PREFIX[zoom::DIGITAL_ZOOM_PREFIX.len() - 1],
-            0xFF
-        );
-
-        // Focus prefixes
-        assert_eq!(focus::MOVEMENT_PREFIX[0], 0x81);
-        assert_ne!(
-            focus::MOVEMENT_PREFIX[focus::MOVEMENT_PREFIX.len() - 1],
-            0xFF
-        );
-
-        // Inquiry commands - all should have 0x09 as second byte
-        assert_eq!(inquiry::POWER[0], 0x81);
-        assert_eq!(inquiry::POWER[1], 0x09);
-        assert_eq!(inquiry::POWER[inquiry::POWER.len() - 1], 0xFF);
-
-        assert_eq!(inquiry::ZOOM_POSITION[0], 0x81);
-        assert_eq!(inquiry::ZOOM_POSITION[1], 0x09);
-        assert_eq!(
-            inquiry::ZOOM_POSITION[inquiry::ZOOM_POSITION.len() - 1],
-            0xFF
-        );
-
-        // Vendor-specific constants
-        assert_eq!(streaming::MULTICAST_PREFIX[0], 0x81);
-        assert_eq!(tally::TALLY_PTZO_PREFIX[0], 0x81);
-        assert_eq!(tally::TALLY_PTZO_PREFIX[1], 0x0A); // Different command type
-    }
-
-    /// Test that inquiry constants follow their standard or validated vendor format.
-    #[test]
-    fn test_inquiry_format_validation() {
-        // All inquiry commands should:
-        // 1. Start with 0x81 (camera ID)
-        // 2. Use standard 0x09 inquiry framing, except the validated UAC extension
-        // 3. End with 0xFF (terminator)
-        // 4. Duplicate bytes must be explicitly classified in metadata.
-
-        const UAC_INQUIRY: &[u8] = &[0x81, 0x2A, 0x02, 0xA0, 0x04, 0xFF];
-
-        let mut seen = Vec::new();
-
-        for meta in BUILTIN_INQUIRIES {
-            let Some(inq) = meta.bytes else {
-                continue;
-            };
-            // Check format
-            assert_eq!(inq[0], 0x81, "Inquiry {} should start with 0x81", meta.name);
-            assert!(
-                inq[1] == 0x09 || (meta.vendor_specific && inq == UAC_INQUIRY),
-                "Inquiry {} should use standard 0x09 framing or the validated UAC extension",
-                meta.name,
-            );
-            assert_eq!(
-                inq[inq.len() - 1],
-                0xFF,
-                "Inquiry {} should end with 0xFF",
-                meta.name
-            );
-
-            for (prev_name, prev_query, prev_bytes) in &seen {
-                if *prev_bytes == inq {
-                    let prev_explicit = matches!(
-                        prev_query,
-                        BuiltinInquiryQuery::Alias { .. }
-                            | BuiltinInquiryQuery::AlternateTypedInterpretation { .. }
-                    );
-                    let current_explicit = matches!(
-                        meta.query,
-                        BuiltinInquiryQuery::Alias { .. }
-                            | BuiltinInquiryQuery::AlternateTypedInterpretation { .. }
-                    );
-                    assert!(
-                        prev_explicit || current_explicit,
-                        "Duplicate inquiry bytes for {prev_name} and {} must be explicit",
-                        meta.name
-                    );
-                }
-            }
-            seen.push((meta.name, meta.query, inq));
-        }
-    }
-
-    /// Test that prefix constants don't have terminators
-    #[test]
-    fn test_prefix_format_validation() {
-        let prefixes = vec![
-            // Focus prefixes
-            focus::MOVEMENT_PREFIX,
-            focus::POSITION_PREFIX,
-            focus::MODE_PREFIX,
-            focus::ONE_PUSH_PREFIX,
-            focus::LOCK_PREFIX,
-            focus::ZONE_PREFIX,
-            focus::AF_SENSITIVITY_PREFIX,
-            focus::NEAR_LIMIT_PREFIX,
-            // Exposure prefixes
-            exposure::MODE_PREFIX,
-            exposure::ANTI_FLICKER_PREFIX,
-            exposure::SPOTLIGHT_PREFIX,
-            exposure::COMPENSATION_ON_OFF_PREFIX,
-            exposure::COMPENSATION_CONTROL_PREFIX,
-            exposure::COMPENSATION_LEVEL_PREFIX,
-            exposure::DYNAMIC_RANGE_PREFIX,
-            exposure::IRIS_CONTROL_PREFIX,
-            exposure::IRIS_DIRECT_PREFIX,
-            exposure::SHUTTER_CONTROL_PREFIX,
-            exposure::SHUTTER_DIRECT_PREFIX,
-            exposure::BRIGHTNESS_CONTROL_PREFIX,
-            exposure::BRIGHTNESS_DIRECT_PREFIX,
-            exposure::SPOT_AE_PREFIX,
-            // Flip and image-processing prefixes
-            flip::PREFIX,
-            flip::HFLIP_PREFIX,
-            flip::FREEZE_PREFIX,
-            image::BACKLIGHT_PREFIX,
-            image::FLIP_COMBINED_PREFIX,
-            image::PICTURE_EFFECT_PREFIX,
-            image::LUMINANCE_PREFIX,
-            image::CONTRAST_PREFIX,
-            image::GAMMA_PREFIX,
-            // White balance prefixes
-            white_balance::MODE_PREFIX,
-            white_balance::AWB_SENSITIVITY_PREFIX,
-            // Other prefixes
-            gain::CONTROL_PREFIX,
-            gain::DIRECT_PREFIX,
-            gain::GAIN_LIMIT_PREFIX,
-            color::SATURATION_PREFIX,
-            color::HUE_PREFIX,
-            color::RED_GAIN_DIRECT_PREFIX,
-            color::BLUE_GAIN_DIRECT_PREFIX,
-            color::RED_GAIN_CONTROL_PREFIX,
-            color::BLUE_GAIN_CONTROL_PREFIX,
-            color::TEMPERATURE_PREFIX,
-            tally::TALLY_PREFIX,
-            tally::TALLY_BRIGHT_PREFIX,
-            tally::TALLY_GREEN_PREFIX,
-            tally::TALLY_INQUIRY_PREFIX,
-            menu::TOGGLE_PREFIX,
-            menu::NAVIGATE_PREFIX,
-            menu::SETTINGS_PREFIX,
-            streaming::NDI_QUALITY_PREFIX,
-            system_cmd::CANCEL_PREFIX,
-        ];
-
-        for (idx, &prefix) in prefixes.iter().enumerate() {
-            assert_ne!(
-                prefix[prefix.len() - 1],
-                0xFF,
-                "Prefix {idx} should not end with terminator 0xFF"
-            );
-        }
-    }
-
-    /// Test that constants are actually being used by commands
-    #[test]
-    fn test_constant_usage_in_commands() {
-        use crate::camera_id::CameraId;
-        use crate::command::encode::WireEncode;
-
-        // Test gain commands use constants
-        let mut buffer = [0u8; 32];
-
-        // Test Gain::Reset uses CONTROL_PREFIX
-        let gain_reset = crate::command::gain::Gain::Reset;
-        let len = gain_reset
-            .write_into(CameraId::CAMERA_1, &mut buffer)
-            .unwrap();
-        assert_eq!(&buffer[0..4], gain::CONTROL_PREFIX);
-        assert_eq!(buffer[4], 0x00); // Reset control byte
-        assert_eq!(buffer[5], 0xFF); // Terminator
-        assert_eq!(len, 6);
-
-        // Test Gain::SetValue uses DIRECT_PREFIX
-        let gain_value =
-            crate::command::gain::Gain::SetValue(crate::types::GainLevel::new(0x05).unwrap());
-        let _len = gain_value
-            .write_into(CameraId::CAMERA_1, &mut buffer)
-            .unwrap();
-        assert_eq!(&buffer[0..6], gain::DIRECT_PREFIX);
-
-        // Test GainLimit uses GAIN_LIMIT_PREFIX
-        let gain_limit = crate::command::gain::GainLimitCommand::new(
-            crate::types::GainLimit::new(0x03).unwrap(),
-        );
-        let len = gain_limit
-            .write_into(CameraId::CAMERA_1, &mut buffer)
-            .unwrap();
-        assert_eq!(&buffer[0..4], gain::GAIN_LIMIT_PREFIX);
-        assert_eq!(buffer[4], 0x03); // Limit value
-        assert_eq!(buffer[5], 0xFF); // Terminator
-        assert_eq!(len, 6);
-    }
-
-    /// Test that the visca_test! macro test cases match our constants
-    #[test]
-    fn test_visca_test_macro_consistency() {
-        // The visca_test! macro in tests should use the same byte sequences
-        // as our constants. This test ensures they stay in sync.
-
-        // Power commands (using visca_prefix! so no terminator)
-        assert_eq!(power::ON, &[0x81, 0x01, 0x04, 0x00, 0x02]);
-        assert_eq!(power::OFF, &[0x81, 0x01, 0x04, 0x00, 0x03]);
-
-        // Pan/Tilt commands
-        assert_eq!(pan_tilt::HOME, &[0x81, 0x01, 0x06, 0x04, VISCA_TERMINATOR]);
-        assert_eq!(pan_tilt::RESET, &[0x81, 0x01, 0x06, 0x05, VISCA_TERMINATOR]);
-
-        // Zoom commands
-        assert_eq!(
-            zoom::STOP,
-            &[0x81, 0x01, 0x04, 0x07, 0x00, VISCA_TERMINATOR]
-        );
-        assert_eq!(
-            zoom::TELE_STD,
-            &[0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR]
-        );
-        assert_eq!(
-            zoom::WIDE_STD,
-            &[0x81, 0x01, 0x04, 0x07, 0x03, VISCA_TERMINATOR]
-        );
-
-        // White balance one-push trigger (note: visca_bytes! adds terminator)
-        assert_eq!(
-            white_balance::ONE_PUSH_TRIGGER,
-            &[0x81, 0x01, 0x04, 0x10, 0x05, VISCA_TERMINATOR]
-        );
-    }
+    /// PTZOptics settings save.
+    pub const SETTINGS_SAVE: [u8; 4] = [COMMAND, 0x04, 0xA5, 0x10];
 }

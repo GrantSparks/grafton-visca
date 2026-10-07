@@ -3,43 +3,40 @@
 use std::time::Duration;
 
 use super::*;
-use crate::{
-    runtime::engine::{CancellationPolicy, EnvelopeKind, TransportKind},
-    CameraId,
-};
+use crate::{runtime::engine::CancellationPolicy, CameraId};
 
 fn policy_for_target_validation() -> ProtocolPolicy {
     ProtocolPolicy {
         capacity: 1,
-        envelope: EnvelopeKind::Raw,
-        transport: TransportKind::Datagram,
         inquiry_capacity: 1,
-        command_spacing: Duration::ZERO,
-        inquiry_spacing: Duration::ZERO,
         inquiry_cooldown: Duration::ZERO,
         raw_inquiry_release_hold: Duration::ZERO,
-        raw_release_grace: Duration::from_millis(100),
-        strict_unconfirmed_poison: false,
+        ..ProtocolPolicy::test_default()
     }
 }
 
 fn target_policy_for_validation() -> TargetPolicy {
     TargetPolicy {
         command_sockets: 1,
-        cancellation: CancellationPolicy::Supported,
+        ..TargetPolicy::test_default()
     }
 }
 
-#[cfg(all(feature = "blocking", not(feature = "async")))]
-fn cached_projection(
-    owner: &OwnerState,
-    target: CameraId,
-    state: WriteOnlyState,
-) -> Option<AppliedStateProjection> {
-    owner
-        .target_cache
-        .get(usize::from(target.id()))
-        .and_then(|slot| slot.lock().ok().and_then(|cache| cache.get(state)))
+/// Stage one admission with a fresh observer slot and admission reply, as a
+/// handle's boundary message would carry them.
+fn stage_admission(
+    state: &mut OwnerState,
+    request: RuntimeRequest,
+    permit: AdmissionPermit,
+) -> (
+    Input,
+    TerminalObserver,
+    flume::Receiver<Result<Admitted, Error>>,
+) {
+    let (observer, cell) = TerminalObserver::pair();
+    let (reply, admission) = flume::bounded(1);
+    let input = state.stage_admission_with(request, permit, cell, reply);
+    (input, observer, admission)
 }
 
 #[test]
@@ -68,15 +65,9 @@ fn reconfigurable_owner_state() -> OwnerState {
     let mut protocol = policy_for_target_validation();
     protocol.command_spacing = Duration::from_millis(10);
     protocol.inquiry_spacing = Duration::from_millis(20);
-    let policy = OwnerPolicy::single_target(
-        protocol,
-        CameraId::CAMERA_1,
-        TargetPolicy {
-            command_sockets: 2,
-            cancellation: CancellationPolicy::Supported,
-        },
-    )
-    .expect("single-target owner policy");
+    let policy =
+        OwnerPolicy::single_target(protocol, CameraId::CAMERA_1, TargetPolicy::test_default())
+            .expect("single-target owner policy");
     OwnerState::new(policy).expect("owner state")
 }
 
@@ -168,85 +159,63 @@ fn a_rejected_retune_changes_neither_the_live_tuning_nor_the_policy() {
     assert_eq!(command_sockets(&state), 2);
 }
 
+/// The owner's cell is the slot's only strong owner (#777): dropping it
+/// unresolved disconnects the observer, and a handle can tell that the owner
+/// no longer holds the intent.
+#[test]
+fn dropping_an_unresolved_cell_disconnects_its_observer() {
+    let (observer, cell) = TerminalObserver::pair();
+    assert!(observer.cell().is_some());
+    drop(cell);
+    assert!(observer.cell().is_none());
+    assert!(observer.receiver.is_disconnected());
+    assert!(observer.try_recv().is_none());
+
+    let (observer, cell) = TerminalObserver::pair();
+    assert_eq!(
+        cell.resolve(RuntimeOutcome::Applied),
+        ObserverResolution::Delivered
+    );
+    drop(cell);
+    assert!(
+        matches!(observer.try_recv(), Some(RuntimeOutcome::Applied)),
+        "a delivered value outlives the cell"
+    );
+}
+
 #[test]
 fn observer_resolution_distinguishes_receiver_loss_from_duplicate_delivery() {
-    let (cell, observer) = completion_pair();
+    let (observer, cell) = TerminalObserver::pair();
     assert_eq!(
-        cell.resolve(ReceiptObservation::Terminal(RuntimeOutcome::Applied)),
+        cell.resolve(RuntimeOutcome::Applied),
         ObserverResolution::Delivered
     );
     drop(observer);
     assert_eq!(
-        cell.resolve(ReceiptObservation::Terminal(RuntimeOutcome::Applied)),
+        cell.resolve(RuntimeOutcome::Applied),
         ObserverResolution::AlreadyResolved,
         "dropping a receiver after delivery cannot turn a duplicate into loss"
     );
 
-    let (cell, observer) = completion_pair();
+    let (observer, cell) = TerminalObserver::pair();
     drop(observer);
     assert_eq!(
-        cell.resolve(ReceiptObservation::Terminal(RuntimeOutcome::Applied)),
+        cell.resolve(RuntimeOutcome::Applied),
         ObserverResolution::ReceiverLost
     );
 }
 
-#[cfg(all(feature = "blocking", not(feature = "async")))]
-mod blocking {
-    use std::{
-        collections::{BTreeMap, VecDeque},
-        sync::{Arc, Mutex},
-        time::{Duration, Instant},
-    };
+/// D26 (#778): the permit pool's two budgets.
+mod control_reserve {
+    use super::*;
+    use crate::runtime::engine::{ControlPolicy, ReplyShape, RetryPolicy, TimeoutPolicy};
 
-    use crate::{
-        command::CommandKind,
-        completion,
-        protocol::framer::RawIncompletePrefix,
-        protocol::response::{decode_basic, BasicKind},
-        transport::{builder::AddressingMode, Envelope, FrameSequence, RawVisca, SonyEncapsulated},
-        CameraId, Error, ViscaSocket,
-    };
-
-    use super::super::*;
-    use super::cached_projection;
-    use crate::runtime::engine::{
-        CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, EnvelopeKind,
-        EnvelopeSequence, InquiryRoute, RawPrefixEvidence, ReplyShape, RequestContext, RetryPolicy,
-        SequenceWidth, TimeoutPolicy, TransportKind,
-    };
-
-    fn policy(capacity: usize, transport: TransportKind) -> OwnerPolicy {
-        let protocol = ProtocolPolicy {
-            capacity,
-            envelope: EnvelopeKind::Raw,
-            transport,
-            inquiry_capacity: capacity,
-            command_spacing: Duration::ZERO,
-            inquiry_spacing: Duration::ZERO,
-            inquiry_cooldown: Duration::ZERO,
-            raw_inquiry_release_hold: Duration::from_millis(10),
-            raw_release_grace: Duration::from_millis(100),
-            strict_unconfirmed_poison: false,
-        };
-        let mut owner = OwnerPolicy::single_target(
-            protocol,
-            CameraId::CAMERA_1,
-            TargetPolicy {
-                command_sockets: 2,
-                cancellation: CancellationPolicy::Supported,
-            },
-        )
-        .unwrap();
-        owner.targets[usize::from(CameraId::CAMERA_2.id())] = Some(TargetPolicy {
-            command_sockets: 2,
-            cancellation: CancellationPolicy::Supported,
-        });
-        owner
-    }
-
-    fn context(target: CameraId, cancellation: CancellationPolicy) -> RequestContext {
+    fn context(target: u8, class: ControlClass) -> RequestContext {
         RequestContext {
-            target,
+            motion: None,
+            submission_order: 0,
+            dispatch_deadline: None,
+            target: CameraId::new(target).unwrap(),
             timeout: TimeoutPolicy {
                 ack: Duration::from_millis(10),
                 completion: Duration::from_millis(20),
@@ -255,5687 +224,108 @@ mod blocking {
                 ambiguity: Duration::from_millis(10),
             },
             retry: RetryPolicy::NEVER,
-            control: ControlPolicy::default(),
-            cancellation,
+            control: ControlPolicy {
+                class,
+                ..ControlPolicy::default()
+            },
+            cancellation: CancellationPolicy::Supported,
             reply_shape: ReplyShape::AckThenCompletion,
         }
     }
 
-    fn command(
-        target: CameraId,
-        cancellation: CancellationPolicy,
-        applied_state: Option<AppliedStateProjection>,
-    ) -> RuntimeRequest {
-        RuntimeRequest::Command {
-            wire: Arc::new(
-                EncodedMessage::new(&[target.to_address_byte(), 0x01, 0x04, 0x00, 0xff]).unwrap(),
-            ),
-            context: context(target, cancellation),
-            applied_state,
-        }
+    /// One ordinary slot; cameras 1 and 2 reserve two and one control slots.
+    fn pool() -> AdmissionPermitPool {
+        let mut reserves = [0; 9];
+        reserves[1] = 2;
+        reserves[2] = 1;
+        AdmissionPermitPool::new(1, reserves)
     }
 
-    fn raw_inquiry(
-        target: CameraId,
-        route: InquiryRoute,
-        total_budget: Duration,
-    ) -> RuntimeRequest {
-        let mut inquiry_context = context(target, CancellationPolicy::Supported);
-        inquiry_context.retry = RetryPolicy {
-            total_budget,
-            ..RetryPolicy::NEVER
-        };
-        RuntimeRequest::Inquiry {
-            wire: Arc::new(
-                EncodedMessage::new(&[target.to_address_byte(), 0x09, 0x04, 0xff]).unwrap(),
-            ),
-            context: inquiry_context,
-            route,
-        }
-    }
-
-    fn raw_inquiry_with_immediate_timeout(
-        target: CameraId,
-        route: InquiryRoute,
-        total_budget: Duration,
-    ) -> RuntimeRequest {
-        let mut request = raw_inquiry(target, route, total_budget);
-        let RuntimeRequest::Inquiry { context, .. } = &mut request else {
-            unreachable!("raw_inquiry always constructs an inquiry");
-        };
-        context.timeout.inquiry = Duration::ZERO;
-        request
-    }
-
-    fn frame(target: CameraId, response: DecodedResponse) -> DecodedFrame {
-        DecodedFrame {
-            target,
-            sequence: None,
-            response,
-        }
-    }
-
-    #[derive(Debug, Default)]
-    struct FakeDriver {
-        writes: Vec<(RequestId, Vec<u8>, bool)>,
-        results: VecDeque<Result<TransmissionMeta, Error>>,
-    }
-
-    impl BlockingWireDriver for FakeDriver {
-        fn write(&mut self, write: WireWrite<'_>) -> Result<TransmissionMeta, Error> {
-            self.writes
-                .push((write.request, write.bytes.to_vec(), write.cancellation));
-            self.results
-                .pop_front()
-                .unwrap_or(Ok(TransmissionMeta { sequence: None }))
-        }
-    }
-
-    fn raw_inquiry_tombstone(
-        transport: TransportKind,
-        route: InquiryRoute,
-        ambiguity: Duration,
-    ) -> (BlockingOwner, FakeDriver, Instant) {
-        let mut owner_policy = policy(4, transport);
-        owner_policy.protocol.inquiry_capacity = 1;
-        owner_policy.protocol.raw_inquiry_release_hold = ambiguity;
-        let mut owner = BlockingOwner::new(owner_policy).unwrap();
-        let mut driver = FakeDriver::default();
-        let first = owner
-            .submit(
-                &mut driver,
-                raw_inquiry_with_immediate_timeout(
-                    CameraId::CAMERA_1,
-                    route,
-                    Duration::from_secs(1),
-                ),
-            )
-            .expect("first raw inquiry writes");
-        owner.wake(&mut driver, Instant::now()).unwrap();
+    #[test]
+    fn urgent_requests_take_their_reserve_first_then_ordinary_slots() {
+        let pool = pool();
+        let urgent = context(1, ControlClass::Urgent);
+        let first = pool.try_acquire(&urgent).unwrap();
+        let second = pool.try_acquire(&urgent).unwrap();
+        assert_eq!(first.slot(), AdmissionSlot::ControlReserve);
+        assert_eq!(second.slot(), AdmissionSlot::ControlReserve);
+        let third = pool.try_acquire(&urgent).unwrap();
+        assert_eq!(third.slot(), AdmissionSlot::Ordinary, "the reserve is held");
         assert!(matches!(
-            first.terminal(),
-            Some(RuntimeOutcome::Failed(Error::Timeout))
-        ));
-        let hold_until = owner
-            .state()
-            .next_wake()
-            .expect("timed-out raw inquiry retains a target tombstone");
-        (owner, driver, hold_until)
-    }
-
-    /// Build the same low-level policy as [`policy`], but with Sony's
-    /// sequence-bearing envelope.  Tests that intentionally exercise
-    /// pre-ACK concurrency or safe retry must use this envelope: raw VISCA
-    /// cannot identify two same-target commands until one ACK assigns a
-    /// socket.
-    fn sony_policy(capacity: usize, transport: TransportKind) -> OwnerPolicy {
-        let mut owner = policy(capacity, transport);
-        owner.protocol.envelope = EnvelopeKind::Sony;
-        owner
-    }
-
-    /// Seed the fake driver's transmission metadata with the sequence values
-    /// that a Sony envelope would have returned.  The fake driver does not
-    /// frame bytes itself, so the test supplies the envelope metadata at the
-    /// driver boundary explicitly.
-    fn sony_driver(sequences: impl IntoIterator<Item = u32>) -> FakeDriver {
-        FakeDriver {
-            writes: Vec::new(),
-            results: sequences
-                .into_iter()
-                .map(|sequence| {
-                    Ok(TransmissionMeta {
-                        sequence: Some(sequence),
-                    })
-                })
-                .collect(),
-        }
-    }
-
-    fn sony_frame(target: CameraId, sequence: u32, response: DecodedResponse) -> DecodedFrame {
-        DecodedFrame {
-            target,
-            sequence: Some(EnvelopeSequence {
-                value: sequence,
-                width: SequenceWidth::Full32,
-            }),
-            response,
-        }
-    }
-
-    #[derive(Debug)]
-    enum TestEnvelope {
-        Raw(RawVisca),
-        Sony(SonyEncapsulated),
-    }
-
-    #[derive(Debug)]
-    struct FramingDriver {
-        envelope: TestEnvelope,
-        raw_pointers: Vec<usize>,
-        frame_pointers: Vec<usize>,
-        frame_capacities: Vec<usize>,
-        frames: Vec<Vec<u8>>,
-        /// The envelope sequence this driver stamped on each write, in write
-        /// order, exactly as it was reported back to the owner.
-        sequences: Vec<Option<u32>>,
-    }
-
-    impl FramingDriver {
-        fn new(envelope: EnvelopeKind) -> Self {
-            let envelope = match envelope {
-                EnvelopeKind::Raw => TestEnvelope::Raw(RawVisca::new(AddressingMode::Ip)),
-                EnvelopeKind::Sony => TestEnvelope::Sony(SonyEncapsulated::new(AddressingMode::Ip)),
-            };
-            Self {
-                envelope,
-                raw_pointers: Vec::new(),
-                frame_pointers: Vec::new(),
-                frame_capacities: Vec::new(),
-                frames: Vec::new(),
-                sequences: Vec::new(),
-            }
-        }
-    }
-
-    impl BlockingWireDriver for FramingDriver {
-        fn write(&mut self, write: WireWrite<'_>) -> Result<TransmissionMeta, Error> {
-            let kind = if write.inquiry {
-                CommandKind::Inquiry
-            } else {
-                CommandKind::Command
-            };
-            self.raw_pointers.push(write.bytes.as_ptr() as usize);
-            let meta = match &self.envelope {
-                TestEnvelope::Raw(envelope) => envelope.frame_into_with_sequence(
-                    write.bytes,
-                    kind,
-                    write.requested_sequence,
-                    write.frame_buffer,
-                )?,
-                TestEnvelope::Sony(envelope) => envelope.frame_into_with_sequence(
-                    write.bytes,
-                    kind,
-                    write.requested_sequence,
-                    write.frame_buffer,
-                )?,
-            };
-            self.frame_pointers
-                .push(write.frame_buffer.as_ptr() as usize);
-            self.frame_capacities.push(write.frame_buffer.capacity());
-            self.frames.push(write.frame_buffer.to_vec());
-            self.sequences.push(meta.sequence.map(FrameSequence::value));
-            Ok(TransmissionMeta {
-                sequence: meta.sequence.map(FrameSequence::value),
-            })
-        }
-    }
-
-    #[derive(Debug, Default)]
-    struct DeadlineReader {
-        deadline: Option<Instant>,
-        result: Option<Result<BlockingReceive, Error>>,
-    }
-
-    impl BlockingReadDriver for DeadlineReader {
-        fn receive(
-            &mut self,
-            _receive_buffer: &mut [u8],
-            owner_deadline: Option<Instant>,
-        ) -> Result<BlockingReceive, Error> {
-            self.deadline = owner_deadline;
-            self.result.take().unwrap_or(Ok(BlockingReceive::TimedOut))
-        }
-    }
-
-    #[derive(Debug, Default)]
-    struct EmptyDecoder;
-
-    impl BlockingFrameDecoder for EmptyDecoder {
-        fn decode(
-            &mut self,
-            _buffers: &mut OwnerBuffers,
-            _received: usize,
-            _frame_limit: usize,
-        ) -> Result<Vec<DecodedFrame>, Error> {
-            Ok(Vec::new())
-        }
-    }
-
-    #[derive(Debug, Default)]
-    struct ScriptedReader;
-
-    impl BlockingReadDriver for ScriptedReader {
-        fn receive(
-            &mut self,
-            receive_buffer: &mut [u8],
-            _owner_deadline: Option<Instant>,
-        ) -> Result<BlockingReceive, Error> {
-            receive_buffer[0] = 1;
-            Ok(BlockingReceive::Bytes(1))
-        }
-    }
-
-    #[derive(Debug)]
-    struct ScriptedDecoder {
-        batches: VecDeque<Vec<DecodedFrame>>,
-    }
-
-    impl BlockingFrameDecoder for ScriptedDecoder {
-        fn decode(
-            &mut self,
-            _buffers: &mut OwnerBuffers,
-            _received: usize,
-            _frame_limit: usize,
-        ) -> Result<Vec<DecodedFrame>, Error> {
-            self.batches
-                .pop_front()
-                .ok_or_else(|| Error::InvalidState("scripted frame batch exhausted".into()))
-        }
-    }
-
-    #[derive(Debug)]
-    enum FragmentDecode {
-        Prefix,
-        /// A source byte alone is still ambiguous at a narrow inquiry release
-        /// (issue #542 design review §18), so a later tail must be received
-        /// rather than treating this test fixture's prefix as an owned named
-        /// terminal.
-        SourceOnlyPrefix,
-        /// A stream framer is called with zero newly read bytes at H.  This
-        /// models a genuine post-H idle receive without clearing its retained
-        /// prefix; `docs/architecture_2_0.md` requires that input-first pass.
-        ZeroByteNoFrame,
-        Frames(Vec<DecodedFrame>),
-        Malformed,
-    }
-
-    /// Models the production framer contract at the blocking owner seam: a
-    /// prefix is retained across turns, a tail clears it by producing a frame,
-    /// and the tombstone boundary can explicitly discard an orphaned prefix.
-    #[derive(Debug)]
-    struct FragmentTrackingDecoder {
-        steps: VecDeque<FragmentDecode>,
-        pending: bool,
-        pending_kind: Option<RawIncompletePrefix>,
-        discarded_fragments: usize,
-    }
-
-    impl FragmentTrackingDecoder {
-        fn new(steps: impl IntoIterator<Item = FragmentDecode>) -> Self {
-            Self {
-                steps: steps.into_iter().collect(),
-                pending: false,
-                pending_kind: None,
-                discarded_fragments: 0,
-            }
-        }
-    }
-
-    impl BlockingFrameDecoder for FragmentTrackingDecoder {
-        fn decode(
-            &mut self,
-            buffers: &mut OwnerBuffers,
-            received: usize,
-            _frame_limit: usize,
-        ) -> Result<Vec<DecodedFrame>, Error> {
-            match self
-                .steps
-                .pop_front()
-                .ok_or_else(|| Error::InvalidState("fragment decoder exhausted".into()))?
-            {
-                FragmentDecode::Prefix => {
-                    self.pending = true;
-                    self.pending_kind = Some(RawIncompletePrefix::NamedCompletionOrError(
-                        crate::ViscaSocket::S1,
-                    ));
-                    Ok(Vec::new())
-                }
-                FragmentDecode::SourceOnlyPrefix => {
-                    self.pending = true;
-                    self.pending_kind = Some(RawIncompletePrefix::SourceOnly);
-                    Ok(Vec::new())
-                }
-                FragmentDecode::ZeroByteNoFrame => {
-                    if received != 0 {
-                        return Err(Error::InvalidState(
-                            "zero-byte stream decoder step received input".into(),
-                        ));
-                    }
-                    Ok(Vec::new())
-                }
-                FragmentDecode::Frames(frames) => {
-                    self.pending = false;
-                    self.pending_kind = None;
-                    Ok(frames)
-                }
-                FragmentDecode::Malformed => {
-                    self.pending = false;
-                    self.pending_kind = None;
-                    buffers.set_discarded_malformed(1);
-                    Ok(Vec::new())
-                }
-            }
-        }
-
-        fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
-            Ok(self.pending)
-        }
-
-        fn buffered_stream_input_target(&mut self) -> Result<Option<CameraId>, Error> {
-            Ok(self.pending.then_some(CameraId::CAMERA_1))
-        }
-
-        fn buffered_raw_prefix_evidence(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
-            Ok(self.pending.then(|| RawPrefixEvidence::Incomplete {
-                target: CameraId::CAMERA_1,
-                kind: self
-                    .pending_kind
-                    .unwrap_or(RawIncompletePrefix::NamedCompletionOrError(
-                        crate::ViscaSocket::S1,
-                    )),
-            }))
-        }
-
-        fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
-            if self.pending {
-                self.pending = false;
-                self.pending_kind = None;
-                self.discarded_fragments = self.discarded_fragments.saturating_add(1);
-            }
-            Ok(())
-        }
-    }
-
-    /// A deliberately broken decoder used to prove the tombstone boundary
-    /// verifies the discard postcondition instead of trusting `Ok(())`.
-    #[derive(Debug, Default)]
-    struct NonClearingFragmentDecoder {
-        pending: bool,
-        discard_calls: usize,
-    }
-
-    impl BlockingFrameDecoder for NonClearingFragmentDecoder {
-        fn decode(
-            &mut self,
-            _buffers: &mut OwnerBuffers,
-            _received: usize,
-            _frame_limit: usize,
-        ) -> Result<Vec<DecodedFrame>, Error> {
-            self.pending = true;
-            Ok(Vec::new())
-        }
-
-        fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
-            Ok(self.pending)
-        }
-
-        fn buffered_stream_input_target(&mut self) -> Result<Option<CameraId>, Error> {
-            Ok(self.pending.then_some(CameraId::CAMERA_1))
-        }
-
-        fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
-            self.discard_calls = self.discard_calls.saturating_add(1);
-            Ok(())
-        }
-    }
-
-    /// The submission-side raw tombstone test needs a real bounded wait rather
-    /// than a test-thread sleep. The first read supplies an already-buffered
-    /// stale frame; the second sleeps only to the exact owner deadline and
-    /// reports idle, so `pump_once_inner` performs its no-dispatch due turn.
-    #[derive(Debug, Default)]
-    struct TombstoneWaitReader {
-        calls: usize,
-        deadlines: Vec<Instant>,
-        stale_first: bool,
-    }
-
-    impl BlockingReadDriver for TombstoneWaitReader {
-        fn receive(
-            &mut self,
-            receive_buffer: &mut [u8],
-            owner_deadline: Option<Instant>,
-        ) -> Result<BlockingReceive, Error> {
-            let deadline = owner_deadline.expect("tombstone wait carries an owner deadline");
-            self.calls = self.calls.saturating_add(1);
-            self.deadlines.push(deadline);
-            if self.stale_first && self.calls == 1 {
-                receive_buffer[0] = 1;
-                return Ok(BlockingReceive::Bytes(1));
-            }
-            let now = Instant::now();
-            if deadline > now {
-                std::thread::sleep(deadline.duration_since(now));
-            }
-            Ok(BlockingReceive::TimedOut)
-        }
-    }
-
-    /// Delivers one raw stream frame in a prefix and tail. The tail waits for
-    /// the tombstone deadline so the test exercises input-first processing at
-    /// the exact ambiguity boundary.
-    #[derive(Debug, Default)]
-    struct FragmentedTombstoneWaitReader {
-        calls: usize,
-        deadlines: Vec<Instant>,
-    }
-
-    impl BlockingReadDriver for FragmentedTombstoneWaitReader {
-        fn receive(
-            &mut self,
-            receive_buffer: &mut [u8],
-            owner_deadline: Option<Instant>,
-        ) -> Result<BlockingReceive, Error> {
-            let deadline = owner_deadline.expect("tombstone wait carries an owner deadline");
-            self.calls = self.calls.saturating_add(1);
-            self.deadlines.push(deadline);
-            receive_buffer[0] = 1;
-            match self.calls {
-                // The decoder retains this prefix and produces no frame.
-                1 => Ok(BlockingReceive::Bytes(1)),
-                // The tail becomes available at the precise hold deadline.
-                2 => {
-                    let now = Instant::now();
-                    if deadline > now {
-                        std::thread::sleep(deadline.duration_since(now));
-                    }
-                    Ok(BlockingReceive::Bytes(1))
-                }
-                // Once the successor is safely written, deliver its own reply
-                // in a normal receipt pump.
-                3 => Ok(BlockingReceive::Bytes(1)),
-                _ => Err(Error::InvalidState(
-                    "fragmented tombstone reader exhausted".into(),
-                )),
-            }
-        }
-    }
-
-    /// Models an arbitrary burst of already-queued complete stale replies,
-    /// followed by early and post-deadline idle observations.
-    #[derive(Debug)]
-    struct QueuedCompleteFramesReader {
-        calls: usize,
-        remaining: usize,
-    }
-
-    impl QueuedCompleteFramesReader {
-        fn new(remaining: usize) -> Self {
-            Self {
-                calls: 0,
-                remaining,
-            }
-        }
-    }
-
-    impl BlockingReadDriver for QueuedCompleteFramesReader {
-        fn receive(
-            &mut self,
-            receive_buffer: &mut [u8],
-            _owner_deadline: Option<Instant>,
-        ) -> Result<BlockingReceive, Error> {
-            self.calls = self.calls.saturating_add(1);
-            if self.remaining > 0 {
-                self.remaining = self.remaining.saturating_sub(1);
-                receive_buffer[0] = 1;
-                Ok(BlockingReceive::Bytes(1))
-            } else {
-                Ok(BlockingReceive::TimedOut)
-            }
-        }
-    }
-
-    #[derive(Debug)]
-    struct CompleteStaleFrameDecoder {
-        route: InquiryRoute,
-    }
-
-    impl BlockingFrameDecoder for CompleteStaleFrameDecoder {
-        fn decode(
-            &mut self,
-            _buffers: &mut OwnerBuffers,
-            _received: usize,
-            _frame_limit: usize,
-        ) -> Result<Vec<DecodedFrame>, Error> {
-            Ok(vec![frame(
-                CameraId::CAMERA_1,
-                DecodedResponse::InquiryReply {
-                    route: Some(self.route),
-                    payload: smallvec::smallvec![0x11],
-                },
-            )])
-        }
-    }
-
-    #[derive(Debug)]
-    enum TombstoneRead {
-        Bytes,
-        TransientFault,
-        Idle,
-        TimeoutAtDeadline,
-    }
-
-    #[derive(Debug)]
-    struct ScriptedTombstoneReader {
-        reads: VecDeque<TombstoneRead>,
-        calls: usize,
-        deadlines: Vec<Instant>,
-    }
-
-    impl ScriptedTombstoneReader {
-        fn new(reads: impl IntoIterator<Item = TombstoneRead>) -> Self {
-            Self {
-                reads: reads.into_iter().collect(),
-                calls: 0,
-                deadlines: Vec::new(),
-            }
-        }
-    }
-
-    impl BlockingReadDriver for ScriptedTombstoneReader {
-        fn receive(
-            &mut self,
-            receive_buffer: &mut [u8],
-            owner_deadline: Option<Instant>,
-        ) -> Result<BlockingReceive, Error> {
-            let deadline = owner_deadline.expect("tombstone wait carries an owner deadline");
-            self.calls = self.calls.saturating_add(1);
-            self.deadlines.push(deadline);
-            match self
-                .reads
-                .pop_front()
-                .ok_or_else(|| Error::InvalidState("tombstone reader exhausted".into()))?
-            {
-                TombstoneRead::Bytes => {
-                    receive_buffer[0] = 1;
-                    Ok(BlockingReceive::Bytes(1))
-                }
-                TombstoneRead::TransientFault => Err(Error::Io(Arc::new(std::io::Error::from(
-                    std::io::ErrorKind::ConnectionRefused,
-                )))),
-                TombstoneRead::Idle => Ok(BlockingReceive::TimedOut),
-                TombstoneRead::TimeoutAtDeadline => {
-                    let now = Instant::now();
-                    if deadline > now {
-                        std::thread::sleep(deadline.duration_since(now));
-                    }
-                    Ok(BlockingReceive::TimedOut)
-                }
-            }
-        }
-    }
-
-    fn prepared_focus(
-        profile: &crate::ProfileSpec,
-        target: CameraId,
-    ) -> crate::prepared::PreparedCommand {
-        crate::prepared::prepare_command(
-            &crate::request::builtin::FocusModeCommand::Manual,
-            target,
-            profile,
-            crate::OperationalTuning::new(),
-            crate::prepared::ClassSelection::Request,
-        )
-        .unwrap()
-    }
-
-    fn prepared_limit_clear(
-        profile: &crate::ProfileSpec,
-        target: CameraId,
-    ) -> crate::prepared::PreparedCommand {
-        crate::prepared::prepare_command(
-            &crate::request::builtin::PanTiltLimitClear::for_profile(
-                crate::command::PanTiltLimitCorner::DownLeft,
-                profile,
-            )
-            .unwrap(),
-            target,
-            profile,
-            crate::OperationalTuning::new(),
-            crate::prepared::ClassSelection::Request,
-        )
-        .unwrap()
-    }
-
-    /// A deterministic owner clock shared by the receipt observer and engine.
-    /// Each scripted receive advances it to the next relevant deadline without
-    /// putting a wall-clock delay in the regression.
-    #[derive(Clone, Debug)]
-    struct ReplayClock(Arc<Mutex<Instant>>);
-
-    impl ReplayClock {
-        fn new(now: Instant) -> Self {
-            Self(Arc::new(Mutex::new(now)))
-        }
-
-        fn now(&self) -> Instant {
-            *self.0.lock().expect("replay clock lock")
-        }
-
-        fn set(&self, now: Instant) {
-            *self.0.lock().expect("replay clock lock") = now;
-        }
-    }
-
-    impl BlockingClock for ReplayClock {
-        fn now(&self) -> Instant {
-            self.now()
-        }
-
-        fn sleep(&self, duration: Duration) {
-            self.set(
-                self.now()
-                    .checked_add(duration)
-                    .expect("replay clock remains representable"),
-            );
-        }
-    }
-
-    /// Supplies scripted camera responses, otherwise advancing to the owner's
-    /// exact requested deadline. The latter makes a default wait reach its
-    /// observer boundary deterministically.
-    #[derive(Debug)]
-    enum ReplayFrameAt {
-        At(Instant),
-        Now,
-        Timeout,
-    }
-
-    #[derive(Debug)]
-    struct ReplayReader {
-        clock: ReplayClock,
-        frames: VecDeque<ReplayFrameAt>,
-        deadlines: Vec<Instant>,
-    }
-
-    impl ReplayReader {
-        fn with_frame(clock: ReplayClock, frame_at: Instant) -> Self {
-            Self::with_frames(clock, [ReplayFrameAt::At(frame_at)])
-        }
-
-        fn with_frames(
-            clock: ReplayClock,
-            frames: impl IntoIterator<Item = ReplayFrameAt>,
-        ) -> Self {
-            Self {
-                clock,
-                frames: frames.into_iter().collect(),
-                deadlines: Vec::new(),
-            }
-        }
-    }
-
-    impl BlockingReadDriver for ReplayReader {
-        fn receive(
-            &mut self,
-            receive_buffer: &mut [u8],
-            owner_deadline: Option<Instant>,
-        ) -> Result<BlockingReceive, Error> {
-            let deadline = owner_deadline.expect("receipt pump carries a deadline");
-            self.deadlines.push(deadline);
-            if let Some(frame_at) = self.frames.pop_front() {
-                let frame_at = match frame_at {
-                    ReplayFrameAt::At(frame_at) => frame_at,
-                    ReplayFrameAt::Now => self.clock.now(),
-                    ReplayFrameAt::Timeout => {
-                        self.clock.set(deadline);
-                        return Ok(BlockingReceive::TimedOut);
-                    }
-                };
-                assert!(
-                    frame_at <= deadline,
-                    "scripted response must be visible before the owner deadline"
-                );
-                self.clock.set(frame_at);
-                receive_buffer[0] = 1;
-                return Ok(BlockingReceive::Bytes(1));
-            }
-            self.clock.set(deadline);
-            Ok(BlockingReceive::TimedOut)
-        }
-    }
-
-    /// After the configured default observer boundary, run the engine past
-    /// any remaining scheduler wake. The receipt may report `Timeout` or an
-    /// engine terminal result at the shared boundary, but its retry budget has
-    /// elapsed in either case and must not permit another physical write.
-    fn assert_no_rewrite_after_default_observer_boundary(
-        owner: &mut BlockingOwner,
-        driver: &mut FakeDriver,
-        clock: &ReplayClock,
-        observer_deadline: Instant,
-    ) {
-        let writes_before = driver.writes.len();
-        clock.set(observer_deadline + Duration::from_secs(10));
-        owner
-            .wake(driver, clock.now())
-            .expect("engine processes work after the observer detached");
-        assert_eq!(
-            driver.writes.len(),
-            writes_before,
-            "the engine must not physically rewrite after the default observer boundary"
-        );
-    }
-
-    /// Issue #749: a movement-class Sony command can safely replay a lost ACK,
-    /// but the replay must happen before the default observer can return
-    /// `Timeout`. The owner is driven at exact synthetic instants rather than
-    /// sleeping through the 30 s movement deadline.
-    #[test]
-    fn lost_movement_ack_rewrite_stays_inside_the_default_observer_window() {
-        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().unwrap();
-        let tuning = crate::OperationalTuning::new()
-            .ack_timeout(Duration::from_secs(30))
-            .movement_timeout(Duration::from_secs(30))
-            .retry_timing(
-                Duration::from_secs(2),
-                Duration::from_secs(2),
-                Duration::from_secs(60),
-            );
-        let start = Instant::now();
-        let clock = ReplayClock::new(start);
-        let mut owner = BlockingOwner::with_clock(
-            sony_policy(1, TransportKind::Datagram),
-            Arc::new(clock.clone()),
-        )
-        .unwrap();
-        let mut driver = sony_driver([0, 0]);
-        let receipt = owner
-            .submit_operation(
-                &mut driver,
-                crate::prepared::prepare_builtin_operation::<completion::Targeted, _>(
-                    &crate::request::builtin::PanTiltHome,
-                    CameraId::CAMERA_1,
-                    &profile,
-                    tuning,
-                )
-                .unwrap(),
-            )
-            .unwrap();
-        let observer_deadline = start + Duration::from_secs(60);
-        let mut reader = ReplayReader::with_frame(clock.clone(), start + Duration::from_secs(30));
-        let mut decoder = EmptyDecoder;
-        let error = {
-            let mut control = owner.receipt_control(&mut driver, &mut reader, &mut decoder);
-            receipt
-                .applied(&mut control)
-                .expect_err("the configured default observer expires only after its retry budget")
-        };
-
-        assert!(
-            matches!(error, Error::Timeout),
-            "got {error:?} at {:?} after writes {:?} and deadlines {:?}",
-            clock.now(),
-            driver.writes,
-            reader.deadlines,
-        );
-        assert_eq!(clock.now(), observer_deadline);
-        assert_eq!(driver.writes.len(), 2, "the lost ACK reissues the movement");
-        assert!(
-            reader.deadlines.contains(&observer_deadline),
-            "the observer remains alive past the legacy 30 s completion bound"
-        );
-        assert_no_rewrite_after_default_observer_boundary(
-            &mut owner,
-            &mut driver,
-            &clock,
-            observer_deadline,
-        );
-    }
-
-    /// Issue #749: a camera can answer CommandBufferFull at t=2 s, with its
-    /// retry write delayed past a quick command's old 5 s observer. The exact
-    /// owner timeline proves the physical rewrite remains before the 10 s
-    /// retry-budget observer and that no later rewrite survives it.
-    #[test]
-    fn command_buffer_full_at_two_seconds_stays_inside_the_default_observer_window() {
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().unwrap();
-        let tuning = crate::OperationalTuning::new()
-            .ack_timeout(Duration::from_secs(10))
-            .retry_timing(
-                Duration::from_secs(6),
-                Duration::from_secs(6),
-                Duration::from_secs(10),
-            );
-        let retry = crate::prepared::prepare_command(
-            &crate::request::builtin::FocusModeCommand::Manual,
-            CameraId::CAMERA_1,
-            &profile,
-            tuning,
-            crate::prepared::ClassSelection::Request,
-        )
-        .unwrap()
-        .admit_with(|request, _timeout| request.context().retry);
-        assert!(
-            retry.buffer_full,
-            "a standard command retries CommandBufferFull"
-        );
-        let start = Instant::now();
-        let clock = ReplayClock::new(start);
-        let mut owner = BlockingOwner::with_clock(
-            sony_policy(1, TransportKind::Datagram),
-            Arc::new(clock.clone()),
-        )
-        .unwrap();
-        let mut driver = sony_driver([17, 17]);
-        let receipt = owner
-            .submit_command(
-                &mut driver,
-                crate::prepared::prepare_command(
-                    &crate::request::builtin::FocusModeCommand::Manual,
-                    CameraId::CAMERA_1,
-                    &profile,
-                    tuning,
-                    crate::prepared::ClassSelection::Request,
-                )
-                .unwrap(),
-            )
-            .unwrap();
-        let observer_deadline = start + Duration::from_secs(10);
-        let mut reader = ReplayReader::with_frame(clock.clone(), start + Duration::from_secs(2));
-        let mut decoder = ScriptedDecoder {
-            batches: VecDeque::from([vec![sony_frame(
-                CameraId::CAMERA_1,
-                17,
-                DecodedResponse::Error {
-                    socket: None,
-                    code: 0x03,
-                },
-            )]]),
-        };
-        let error = {
-            let mut control = owner.receipt_control(&mut driver, &mut reader, &mut decoder);
-            receipt
-                .wait(&mut control)
-                .expect_err("the configured default observer expires only after its retry budget")
-        };
-
-        assert!(
-            matches!(error, Error::CommandBufferFull),
-            "the engine's total-budget terminal result wins at the shared observer boundary, got {error:?}"
-        );
-        assert_eq!(clock.now(), observer_deadline);
-        assert_eq!(
-            driver.writes.len(),
-            2,
-            "the busy command is physically reissued"
-        );
-        assert!(
-            reader.deadlines.contains(&observer_deadline),
-            "the observer remains alive past the legacy 5 s completion bound"
-        );
-        assert_no_rewrite_after_default_observer_boundary(
-            &mut owner,
-            &mut driver,
-            &clock,
-            observer_deadline,
-        );
-    }
-
-    /// Issue #749: Sony's sequence correlation permits a post-ACK completion
-    /// retry at the 30 s movement deadline. That retry must also remain inside
-    /// an operation's default observer, not become a physical rewrite after a
-    /// detached `Timeout`.
-    #[test]
-    fn sony_completion_retry_stays_inside_the_default_operation_observer_window() {
-        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().unwrap();
-        let tuning = crate::OperationalTuning::new()
-            .movement_timeout(Duration::from_secs(30))
-            .retry_timing(
-                Duration::from_secs(2),
-                Duration::from_secs(2),
-                Duration::from_secs(60),
-            );
-        let start = Instant::now();
-        let clock = ReplayClock::new(start);
-        let mut owner = BlockingOwner::with_clock(
-            sony_policy(1, TransportKind::Datagram),
-            Arc::new(clock.clone()),
-        )
-        .unwrap();
-        let mut driver = sony_driver([0, 0]);
-        let receipt = owner
-            .submit_operation(
-                &mut driver,
-                crate::prepared::prepare_builtin_operation::<completion::Targeted, _>(
-                    &crate::request::builtin::PanTiltHome,
-                    CameraId::CAMERA_1,
-                    &profile,
-                    tuning,
-                )
-                .unwrap(),
-            )
-            .unwrap();
-        let observer_deadline = start + Duration::from_secs(60);
-        let mut reader = ReplayReader::with_frames(
-            clock.clone(),
-            [
-                ReplayFrameAt::At(start + Duration::from_millis(1)),
-                // Let the first attempt's completion deadline schedule and
-                // dispatch its retry before supplying the retry's ACK.
-                ReplayFrameAt::Timeout,
-                ReplayFrameAt::Timeout,
-                // Once the completion retry is physically sent, acknowledge
-                // its new attempt so the test isolates the completion retry
-                // rather than exercising a later lost-ACK recovery as well.
-                ReplayFrameAt::Now,
-            ],
-        );
-        let mut decoder = ScriptedDecoder {
-            batches: VecDeque::from([
-                vec![sony_frame(
-                    CameraId::CAMERA_1,
-                    0,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                )],
-                vec![sony_frame(
-                    CameraId::CAMERA_1,
-                    0,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                )],
-            ]),
-        };
-        let error = {
-            let control = owner.receipt_control(&mut driver, &mut reader, &mut decoder);
-            receipt
-                .settled(control)
-                .wait()
-                .expect_err("the configured default observer expires only after its retry budget")
-        };
-
-        assert!(
-            matches!(error, Error::Timeout),
-            "got {error:?} at {:?} after writes {:?} and deadlines {:?}",
-            clock.now(),
-            driver.writes,
-            reader.deadlines,
-        );
-        assert_eq!(clock.now(), observer_deadline);
-        assert_eq!(
-            driver.writes.len(),
-            2,
-            "the Sony operation is physically reissued after completion timeout"
-        );
-        assert!(
-            reader.deadlines.contains(&observer_deadline),
-            "the observer remains alive past the legacy 30 s completion bound"
-        );
-        assert_no_rewrite_after_default_observer_boundary(
-            &mut owner,
-            &mut driver,
-            &clock,
-            observer_deadline,
-        );
-    }
-
-    /// Out-of-order peer-receipt retention on the Sony sequence-bearing
-    /// envelope: multiple in-flight blocking waits each keep their own exact
-    /// terminal outcome. The 1.x oracle recorded this on raw `PtzOpticsG2`; the
-    /// v2 replay uses a Sony policy, so the name says so rather than implying
-    /// the raw pairing still holds.
-    #[test]
-    fn sony_typed_blocking_wait_pumps_and_retains_out_of_order_peer_results() {
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut owner = BlockingOwner::new(sony_policy(8, TransportKind::Datagram)).unwrap();
-        let mut driver = sony_driver(0..4);
-        let a = owner
-            .submit_command(&mut driver, prepared_focus(&profile, CameraId::CAMERA_1))
-            .unwrap();
-        let b = owner
-            .submit_command(&mut driver, prepared_focus(&profile, CameraId::CAMERA_1))
-            .unwrap();
-        let c = owner
-            .submit_command(&mut driver, prepared_focus(&profile, CameraId::CAMERA_2))
-            .unwrap();
-        let d = owner
-            .submit_command(&mut driver, prepared_focus(&profile, CameraId::CAMERA_2))
-            .unwrap();
-
-        let mut reader = ScriptedReader;
-        let mut decoder = ScriptedDecoder {
-            batches: VecDeque::from([
-                vec![
-                    sony_frame(
-                        CameraId::CAMERA_1,
-                        0,
-                        DecodedResponse::Ack {
-                            socket: Some(ViscaSocket::S1),
-                        },
-                    ),
-                    sony_frame(
-                        CameraId::CAMERA_1,
-                        1,
-                        DecodedResponse::Ack {
-                            socket: Some(ViscaSocket::S2),
-                        },
-                    ),
-                    sony_frame(
-                        CameraId::CAMERA_2,
-                        2,
-                        DecodedResponse::Ack {
-                            socket: Some(ViscaSocket::S1),
-                        },
-                    ),
-                    sony_frame(
-                        CameraId::CAMERA_2,
-                        3,
-                        DecodedResponse::Ack {
-                            socket: Some(ViscaSocket::S2),
-                        },
-                    ),
-                ],
-                vec![sony_frame(
-                    CameraId::CAMERA_1,
-                    0,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                )],
-                vec![sony_frame(
-                    CameraId::CAMERA_2,
-                    3,
-                    DecodedResponse::Error {
-                        socket: Some(ViscaSocket::S2),
-                        code: 0x02,
-                    },
-                )],
-                vec![sony_frame(
-                    CameraId::CAMERA_1,
-                    1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S2),
-                    },
-                )],
-                vec![sony_frame(
-                    CameraId::CAMERA_2,
-                    2,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                )],
-            ]),
-        };
-
-        b.wait(&mut owner.receipt_control(&mut driver, &mut reader, &mut decoder))
-            .unwrap();
-        a.wait(&mut owner.receipt_control(&mut driver, &mut reader, &mut decoder))
-            .unwrap();
-        assert!(matches!(
-            d.wait(&mut owner.receipt_control(&mut driver, &mut reader, &mut decoder,)),
-            Err(Error::SyntaxError)
-        ));
-        c.wait(&mut owner.receipt_control(&mut driver, &mut reader, &mut decoder))
-            .unwrap();
-        assert!(decoder.batches.is_empty());
-        assert_eq!(owner.state().active_len(), 0);
-    }
-
-    #[test]
-    fn typed_inquiry_keeps_its_decoder_and_normalizes_the_reply() {
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().unwrap();
-        let prepared = crate::prepared::prepare_builtin_inquiry(
-            &crate::command::PowerInquiry,
-            CameraId::CAMERA_1,
-            &profile,
-            crate::OperationalTuning::new(),
-        )
-        .unwrap();
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let receipt = owner.submit_inquiry(&mut driver, prepared).unwrap();
-        let mut reader = ScriptedReader;
-        let mut decoder = ScriptedDecoder {
-            batches: VecDeque::from([vec![frame(
-                CameraId::CAMERA_1,
-                DecodedResponse::InquiryReply {
-                    route: None,
-                    payload: smallvec::smallvec![0x02],
-                },
-            )]]),
-        };
-        assert!(receipt
-            .wait(&mut owner.receipt_control(&mut driver, &mut reader, &mut decoder,))
-            .unwrap());
-    }
-
-    /// A blocking first-write submission must service the earlier ready
-    /// request budget while a raw predecessor's target tombstone still holds.
-    /// The former implementation slept straight to the tombstone and wrote B
-    /// after B had already expired.
-    #[test]
-    fn pumped_raw_tombstone_submission_expires_ready_budget_before_a_write() {
-        let mut owner_policy = policy(4, TransportKind::Datagram);
-        owner_policy.protocol.inquiry_capacity = 1;
-        let mut owner = BlockingOwner::new(owner_policy).unwrap();
-        let mut driver = FakeDriver::default();
-        let first_route = InquiryRoute(0x41);
-        let first = owner
-            .submit(
-                &mut driver,
-                raw_inquiry_with_immediate_timeout(
-                    CameraId::CAMERA_1,
-                    first_route,
-                    Duration::from_secs(1),
-                ),
-            )
-            .expect("first raw inquiry writes");
-        owner.wake(&mut driver, Instant::now()).unwrap();
-        assert!(matches!(
-            first.terminal(),
-            Some(RuntimeOutcome::Failed(Error::Timeout))
-        ));
-        let hold_until = owner
-            .state()
-            .next_wake()
-            .expect("the timed-out raw inquiry leaves its target hold");
-
-        let mut reader = TombstoneWaitReader::default();
-        let mut decoder = EmptyDecoder;
-        let error = {
-            let host = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
-            BlockingControlHost::submit_inquiry_until(
-                &host,
-                raw_inquiry(
-                    CameraId::CAMERA_1,
-                    InquiryRoute(0x42),
-                    Duration::from_nanos(1),
-                ),
-                Duration::from_secs(1),
-                Instant::now() + Duration::from_secs(1),
-            )
-        }
-        .expect_err("a ready budget before the raw hold cannot reach the wire");
-
-        assert!(matches!(error, Error::Timeout));
-        assert_eq!(driver.writes.len(), 1, "expired B never writes");
-        assert_eq!(
-            reader.calls, 1,
-            "the bounded owner pump serviced B's due wake"
-        );
-        assert!(
-            reader.deadlines[0] < hold_until,
-            "the pump used B's total budget rather than sleeping to the later raw hold"
-        );
-        assert_eq!(
-            owner.state().next_wake(),
-            Some(hold_until),
-            "B did not install its own raw quarantine while still unwritten"
-        );
-        assert_eq!(owner.state().active_len(), 0);
-    }
-
-    /// The no-reader test seam fails closed while a raw tombstone owns the
-    /// target's correlation boundary. Its returned error must still remove the
-    /// just-admitted ordinary receipt, rather than leaving it to write after a
-    /// later scheduler wake.
-    #[test]
-    fn no_reader_raw_tombstone_failure_terminalizes_queue_allowed_successor() {
-        let mut owner_policy = policy(1, TransportKind::Datagram);
-        owner_policy.protocol.inquiry_capacity = 1;
-        let mut owner = BlockingOwner::new(owner_policy).unwrap();
-        let permit_capacity = owner.state().permits().capacity();
-        let mut driver = FakeDriver::default();
-        let predecessor_route = InquiryRoute(0x43);
-        let predecessor = owner
-            .submit(
-                &mut driver,
-                raw_inquiry_with_immediate_timeout(
-                    CameraId::CAMERA_1,
-                    predecessor_route,
-                    Duration::from_secs(1),
-                ),
-            )
-            .expect("predecessor raw inquiry writes");
-        owner.wake(&mut driver, Instant::now()).unwrap();
-        assert!(matches!(
-            predecessor.terminal(),
-            Some(RuntimeOutcome::Failed(Error::Timeout))
-        ));
-        let hold_until = owner
-            .state()
-            .next_wake()
-            .expect("the timed-out raw inquiry leaves its target hold");
-
-        let error = owner
-            .submit(
-                &mut driver,
-                raw_inquiry(
-                    CameraId::CAMERA_1,
-                    InquiryRoute(0x44),
-                    Duration::from_secs(1),
-                ),
-            )
-            .expect_err("the no-reader seam fails closed at the raw tombstone");
-
-        assert!(matches!(error, Error::TransportBusy));
-        assert_eq!(driver.writes.len(), 1, "the successor never writes");
-        assert_eq!(
-            owner.state().active_len(),
-            0,
-            "the successor is terminalized"
-        );
-        assert_eq!(
-            owner.state().permits().available(),
-            permit_capacity,
-            "the successor returns its admission permit"
-        );
-
-        owner.wake(&mut driver, hold_until).unwrap();
-        assert_eq!(
-            driver.writes.len(),
-            1,
-            "releasing the tombstone cannot dispatch the returned successor"
-        );
-        assert_eq!(owner.state().active_len(), 0);
-        assert_eq!(owner.state().permits().available(), permit_capacity);
-    }
-
-    /// A buffered stale A reply must be consumed while A's raw tombstone is
-    /// still live, before the no-dispatch due turn releases B. A different
-    /// target remains independently writable; a later B reply then resolves B
-    /// rather than the stale A payload having been misattributed to it.
-    #[test]
-    fn pumped_raw_tombstone_submission_consumes_stale_input_before_successor_write() {
-        let mut owner_policy = policy(4, TransportKind::Datagram);
-        owner_policy.protocol.inquiry_capacity = 1;
-        let mut owner = BlockingOwner::new(owner_policy).unwrap();
-        let mut driver = FakeDriver::default();
-        let first_route = InquiryRoute(0x51);
-        let successor_route = InquiryRoute(0x52);
-        let first = owner
-            .submit(
-                &mut driver,
-                raw_inquiry_with_immediate_timeout(
-                    CameraId::CAMERA_1,
-                    first_route,
-                    Duration::from_secs(1),
-                ),
-            )
-            .expect("first raw inquiry writes");
-        owner.wake(&mut driver, Instant::now()).unwrap();
-        assert!(matches!(
-            first.terminal(),
-            Some(RuntimeOutcome::Failed(Error::Timeout))
-        ));
-
-        let mut other_target = command(CameraId::CAMERA_2, CancellationPolicy::Supported, None);
-        if let RuntimeRequest::Command { context, .. } = &mut other_target {
-            context.timeout.ack = Duration::from_secs(1);
-        }
-        let other = owner
-            .submit(&mut driver, other_target)
-            .expect("the raw target hold does not block camera two");
-        let other_id = other.id();
-        assert_eq!(driver.writes.len(), 2);
-        assert_eq!(driver.writes[1].0, other_id);
-
-        let mut reader = TombstoneWaitReader {
-            stale_first: true,
-            ..TombstoneWaitReader::default()
-        };
-        let mut decoder = ScriptedDecoder {
-            batches: VecDeque::from([vec![frame(
-                CameraId::CAMERA_1,
-                DecodedResponse::InquiryReply {
-                    route: Some(first_route),
-                    payload: smallvec::smallvec![0x0a],
-                },
-            )]]),
-        };
-        let successor = {
-            let host = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
-            BlockingControlHost::submit_inquiry_until(
-                &host,
-                raw_inquiry(CameraId::CAMERA_1, successor_route, Duration::from_secs(1)),
-                Duration::from_secs(1),
-                Instant::now() + Duration::from_secs(1),
-            )
-        }
-        .expect("the raw hold releases only after the stale frame is consumed");
-        let successor_id = successor.id();
-
-        assert_eq!(
-            reader.calls, 2,
-            "stale input is consumed before the hold wake"
-        );
-        assert_eq!(driver.writes.len(), 3);
-        assert_eq!(
-            driver.writes[2].0, successor_id,
-            "B writes only after A is inert"
-        );
-        assert!(
-            successor.terminal().is_none(),
-            "the stale A reply did not resolve B before B's own reply"
-        );
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::InquiryReply {
-                        route: Some(successor_route),
-                        payload: smallvec::smallvec![0x0b],
-                    },
-                ),
-                Instant::now(),
-            )
-            .expect("B's own reply is accepted after its write");
-        assert!(matches!(
-            successor.terminal(),
-            Some(RuntimeOutcome::Reply { route, payload })
-                if route == Some(successor_route) && payload.as_slice() == [0x0b]
-        ));
-        drop(other);
-    }
-
-    /// A raw TCP prefix must not make the submission-side tombstone wait look
-    /// idle. Its tail is available exactly at expiry, so it has to be decoded
-    /// and ignored before the successor inquiry is written; otherwise a later
-    /// receipt pump can misattribute that stale reply to the successor.
-    #[test]
-    fn pumped_stream_raw_tombstone_consumes_fragmented_stale_input_before_successor_write() {
-        let mut owner_policy = policy(4, TransportKind::Stream);
-        owner_policy.protocol.inquiry_capacity = 1;
-        owner_policy.protocol.raw_inquiry_release_hold = Duration::from_millis(100);
-        let mut owner = BlockingOwner::new(owner_policy).unwrap();
-        let mut driver = FakeDriver::default();
-        let first_route = InquiryRoute(0x53);
-        let successor_route = InquiryRoute(0x54);
-        let first = owner
-            .submit(
-                &mut driver,
-                raw_inquiry_with_immediate_timeout(
-                    CameraId::CAMERA_1,
-                    first_route,
-                    Duration::from_secs(1),
-                ),
-            )
-            .expect("first raw inquiry writes");
-        owner.wake(&mut driver, Instant::now()).unwrap();
-        assert!(matches!(
-            first.terminal(),
-            Some(RuntimeOutcome::Failed(Error::Timeout))
-        ));
-        let hold_until = owner
-            .state()
-            .next_wake()
-            .expect("the timed-out raw inquiry leaves its target hold");
-
-        let mut reader = FragmentedTombstoneWaitReader::default();
-        let mut decoder = FragmentTrackingDecoder::new([
-            FragmentDecode::Prefix,
-            FragmentDecode::Frames(vec![frame(
-                CameraId::CAMERA_1,
-                DecodedResponse::InquiryReply {
-                    route: Some(first_route),
-                    payload: smallvec::smallvec![0x0c],
-                },
-            )]),
-            FragmentDecode::Frames(vec![frame(
-                CameraId::CAMERA_1,
-                DecodedResponse::InquiryReply {
-                    route: Some(successor_route),
-                    payload: smallvec::smallvec![0x0d],
-                },
-            )]),
-        ]);
-        let successor = {
-            let host = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
-            BlockingControlHost::submit_inquiry_until(
-                &host,
-                raw_inquiry(CameraId::CAMERA_1, successor_route, Duration::from_secs(1)),
-                Duration::from_secs(1),
-                Instant::now() + Duration::from_secs(1),
-            )
-        }
-        .expect("the tombstone consumes the fragmented stale reply before B writes");
-        let successor_id = successor.id();
-
-        assert_eq!(
-            reader.calls, 2,
-            "both prefix and tail are consumed while the tombstone is active"
-        );
-        assert_eq!(reader.deadlines[0], hold_until);
-        assert!(
-            reader.deadlines[1] >= hold_until,
-            "the post-H raw probe has one small positive transport-read ceiling"
-        );
-        assert_eq!(driver.writes.len(), 2);
-        assert_eq!(
-            driver.writes[1].0, successor_id,
-            "B writes only after the stale A frame has become inert"
-        );
-        assert!(
-            successor.terminal().is_none(),
-            "the stale A reply did not resolve B before B's own reply"
-        );
-
-        assert_eq!(
-            owner
-                .pump_once(&mut driver, &mut reader, &mut decoder)
-                .unwrap(),
-            1
-        );
-        assert_eq!(reader.calls, 3, "the next receipt pump gets B's own reply");
-        assert!(matches!(
-            successor.terminal(),
-            Some(RuntimeOutcome::Reply { route, payload })
-                if route == Some(successor_route) && payload.as_slice() == [0x0d]
-        ));
-    }
-
-    #[test]
-    fn stream_source_only_prefix_survives_transient_fault_until_post_h_tail() {
-        let first_route = InquiryRoute(0x55);
-        let successor_route = InquiryRoute(0x56);
-        let (mut owner, mut driver, hold_until) = raw_inquiry_tombstone(
-            TransportKind::Stream,
-            first_route,
-            Duration::from_millis(60),
-        );
-        let mut reader = ScriptedTombstoneReader::new([
-            TombstoneRead::Bytes,
-            TombstoneRead::TransientFault,
-            TombstoneRead::Idle,
-            TombstoneRead::Bytes,
-        ]);
-        let mut decoder = FragmentTrackingDecoder::new([
-            // §18 deliberately discards an unowned *named* terminal at H.
-            // This test's stated source-only-prefix scenario instead remains
-            // ambiguous through the transient fault and post-H idle probe,
-            // then is completed by its next real input read.
-            FragmentDecode::SourceOnlyPrefix,
-            FragmentDecode::ZeroByteNoFrame,
-            FragmentDecode::Frames(vec![frame(
-                CameraId::CAMERA_1,
-                DecodedResponse::InquiryReply {
-                    route: Some(first_route),
-                    payload: smallvec::smallvec![0x0e],
-                },
-            )]),
-        ]);
-
-        let successor = {
-            let host = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
-            BlockingControlHost::submit_inquiry_until(
-                &host,
-                raw_inquiry(CameraId::CAMERA_1, successor_route, Duration::from_secs(1)),
-                Duration::from_secs(1),
-                Instant::now() + Duration::from_secs(1),
-            )
-        }
-        .expect("the transient fault does not abandon the retained prefix");
-
-        assert_eq!(
-            reader.calls, 4,
-            "prefix, transient fault, post-H idle probe, then source-only tail"
-        );
-        assert_eq!(reader.deadlines[0], hold_until);
-        assert!(
-            reader
-                .deadlines
-                .iter()
-                .skip(1)
-                .all(|deadline| *deadline >= hold_until),
-            "the post-H input-first probes may use the bounded positive read ceiling"
-        );
-        assert_eq!(decoder.discarded_fragments, 0, "the tail completed cleanly");
-        assert_eq!(driver.writes.len(), 2, "B writes only after the hold");
-        assert!(successor.terminal().is_none(), "stale A never resolves B");
-    }
-
-    #[test]
-    fn orphaned_stream_prefix_is_discarded_before_successor_correlation_releases() {
-        let first_route = InquiryRoute(0x57);
-        let successor_route = InquiryRoute(0x58);
-        let (mut owner, mut driver, _) = raw_inquiry_tombstone(
-            TransportKind::Stream,
-            first_route,
-            Duration::from_millis(20),
-        );
-        let mut reader = ScriptedTombstoneReader::new([
-            TombstoneRead::Bytes,
-            TombstoneRead::TimeoutAtDeadline,
-            TombstoneRead::Bytes,
-            TombstoneRead::Bytes,
-        ]);
-        let mut decoder = FragmentTrackingDecoder::new([
-            FragmentDecode::Prefix,
-            // A real zero-byte stream decode retains the prefix so the raw
-            // classifier, not a fake malformed decode, discards it at H.
-            // This is the input-first case from issue #542 design review §18.
-            FragmentDecode::ZeroByteNoFrame,
-            // The post-boundary tail is malformed after that explicit discard;
-            // it cannot join A's prefix and look like B's reply.
-            FragmentDecode::Malformed,
-            FragmentDecode::Frames(vec![frame(
-                CameraId::CAMERA_1,
-                DecodedResponse::InquiryReply {
-                    route: Some(successor_route),
-                    payload: smallvec::smallvec![0x10],
-                },
-            )]),
-        ]);
-
-        let successor = {
-            let host = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
-            BlockingControlHost::submit_inquiry_until(
-                &host,
-                raw_inquiry(CameraId::CAMERA_1, successor_route, Duration::from_secs(1)),
-                Duration::from_secs(1),
-                Instant::now() + Duration::from_secs(1),
-            )
-        }
-        .expect("B writes after the orphaned prefix is removed");
-        assert_eq!(decoder.discarded_fragments, 1);
-        assert_eq!(driver.writes.len(), 2);
-
-        assert_eq!(
-            owner
-                .pump_once(&mut driver, &mut reader, &mut decoder)
-                .unwrap(),
-            0,
-            "the isolated post-boundary tail is malformed"
-        );
-        assert!(
-            successor.terminal().is_none(),
-            "the isolated tail cannot bind B"
-        );
-        assert_eq!(
-            owner
-                .pump_once(&mut driver, &mut reader, &mut decoder)
-                .unwrap(),
-            1
-        );
-        assert!(matches!(
-            successor.terminal(),
-            Some(RuntimeOutcome::Reply { route, payload })
-                if route == Some(successor_route) && payload.as_slice() == [0x10]
-        ));
-    }
-
-    #[test]
-    fn tombstone_boundary_poisons_if_decoder_does_not_clear_retained_fragment() {
-        let first_route = InquiryRoute(0x5d);
-        let successor_route = InquiryRoute(0x5e);
-        let (mut owner, mut driver, _) = raw_inquiry_tombstone(
-            TransportKind::Stream,
-            first_route,
-            Duration::from_millis(20),
-        );
-        let mut reader =
-            ScriptedTombstoneReader::new([TombstoneRead::Bytes, TombstoneRead::TimeoutAtDeadline]);
-        let mut decoder = NonClearingFragmentDecoder::default();
-
-        let error = {
-            let host = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
-            BlockingControlHost::submit_inquiry_until(
-                &host,
-                raw_inquiry(CameraId::CAMERA_1, successor_route, Duration::from_secs(1)),
-                Duration::from_secs(1),
-                Instant::now() + Duration::from_secs(1),
-            )
-        }
-        .expect_err("a decoder that refuses to clear must fail the session closed");
-
-        assert_eq!(reader.calls, 2, "the boundary follows one prefix read");
-        assert_eq!(decoder.discard_calls, 1, "discard progress is checked once");
-        let Error::StreamPoisoned { reason } = &error else {
-            panic!("retained framing must poison the stream, got {error:?}");
-        };
-        assert!(reason.contains("did not consume the discarded prefix"));
-        assert_eq!(
-            driver.writes.len(),
-            1,
-            "B cannot write after the discard postcondition fails"
-        );
-        assert!(matches!(
-            owner.state().boundary_error(),
-            Some(Error::StreamPoisoned { reason })
-                if reason.contains("did not consume the discarded prefix")
-        ));
-        assert_eq!(owner.state().active_len(), 0, "poison terminalizes B");
-    }
-
-    #[test]
-    fn tombstone_drains_more_than_64_complete_stale_frames_before_release() {
-        let first_route = InquiryRoute(0x5f);
-        let successor_route = InquiryRoute(0x60);
-        let (mut owner, mut driver, _) =
-            raw_inquiry_tombstone(TransportKind::Stream, first_route, Duration::from_secs(1));
-        let mut reader = QueuedCompleteFramesReader::new(65);
-        let mut decoder = CompleteStaleFrameDecoder { route: first_route };
-
-        let successor = {
-            let host = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
-            BlockingControlHost::submit_inquiry_until(
-                &host,
-                raw_inquiry(CameraId::CAMERA_1, successor_route, Duration::from_secs(2)),
-                Duration::from_secs(2),
-                Instant::now() + Duration::from_secs(2),
-            )
-        }
-        .expect("a frame count cannot poison a wall-clock-bounded tombstone");
-
-        assert!(
-            reader.calls > 65,
-            "all 65 frames are followed by the required idle boundary probes"
-        );
-        assert_eq!(
-            reader.remaining, 0,
-            "every complete stale reply was consumed under the old scope"
-        );
-        assert_eq!(driver.writes.len(), 2, "B writes after the real idle fence");
-        assert!(owner.state().boundary_error().is_none());
-        assert!(
-            successor.terminal().is_none(),
-            "B still awaits its own reply"
-        );
-    }
-
-    #[test]
-    fn early_idle_after_malformed_stream_frame_is_paced_to_tombstone_deadline() {
-        let first_route = InquiryRoute(0x59);
-        let successor_route = InquiryRoute(0x5a);
-        let (mut owner, mut driver, hold_until) = raw_inquiry_tombstone(
-            TransportKind::Stream,
-            first_route,
-            Duration::from_millis(15),
-        );
-        let mut reader = ScriptedTombstoneReader::new([TombstoneRead::Bytes, TombstoneRead::Idle]);
-        let mut decoder = FragmentTrackingDecoder::new([
-            FragmentDecode::Malformed,
-            // A stream's post-H empty receive still has to decode zero bytes
-            // before it can earn the raw release fence (§18).
-            FragmentDecode::ZeroByteNoFrame,
-        ]);
-
-        let successor = {
-            let host = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
-            BlockingControlHost::submit_inquiry_until(
-                &host,
-                raw_inquiry(CameraId::CAMERA_1, successor_route, Duration::from_secs(1)),
-                Duration::from_secs(1),
-                Instant::now() + Duration::from_secs(1),
-            )
-        }
-        .expect("one malformed frame is ignored and the bounded hold releases");
-
-        assert_eq!(
-            reader.calls, 2,
-            "a malformed frame is not a post-H empty-input fence"
-        );
-        assert!(
-            Instant::now() >= hold_until,
-            "production pacing, not the fake reader, slept to the hold boundary"
-        );
-        assert_eq!(driver.writes.len(), 2);
-        assert!(successor.terminal().is_none());
-    }
-
-    #[test]
-    fn malformed_datagram_requires_post_h_receive_before_tombstone_release() {
-        let first_route = InquiryRoute(0x5b);
-        let successor_route = InquiryRoute(0x5c);
-        let (mut owner, mut driver, hold_until) = raw_inquiry_tombstone(
-            TransportKind::Datagram,
-            first_route,
-            Duration::from_millis(15),
-        );
-        let mut reader =
-            ScriptedTombstoneReader::new([TombstoneRead::Bytes, TombstoneRead::TimeoutAtDeadline]);
-        let mut decoder = FragmentTrackingDecoder::new([FragmentDecode::Malformed]);
-
-        let successor = {
-            let host = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
-            BlockingControlHost::submit_inquiry_until(
-                &host,
-                raw_inquiry(CameraId::CAMERA_1, successor_route, Duration::from_secs(1)),
-                Duration::from_secs(1),
-                Instant::now() + Duration::from_secs(1),
-            )
-        }
-        .expect("the malformed datagram is ignored only after the post-H probe");
-
-        assert_eq!(
-            reader.calls, 2,
-            "a malformed datagram requires a real post-H timeout receive"
-        );
-        assert!(Instant::now() >= hold_until);
-        assert_eq!(driver.writes.len(), 2);
-        assert!(successor.terminal().is_none());
-    }
-
-    #[test]
-    fn settlement_query_pacing_timeout_terminalizes_without_a_late_orphan_write() {
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().unwrap();
-        let tuning = crate::OperationalTuning::new().inquiry_spacing(Duration::from_millis(8));
-        let prepare = |target| {
-            crate::prepared::prepare_builtin_inquiry(
-                &crate::command::PowerInquiry,
-                target,
-                &profile,
-                tuning,
-            )
-            .unwrap()
-        };
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let first = owner
-            .submit_inquiry(&mut driver, prepare(CameraId::CAMERA_1))
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::InquiryReply {
-                        route: None,
-                        payload: smallvec::smallvec![0x02],
-                    },
-                ),
-                Instant::now(),
-            )
-            .unwrap();
-        let mut reader = DeadlineReader::default();
-        let mut decoder = EmptyDecoder;
-        assert!(first
-            .wait(&mut owner.receipt_control(&mut driver, &mut reader, &mut decoder))
-            .unwrap());
-
-        let deadline = Instant::now() + Duration::from_millis(1);
-        assert!(matches!(
-            owner.submit_inquiry_until(&mut driver, prepare(CameraId::CAMERA_2), deadline),
-            Err(Error::Timeout)
-        ));
-        assert_eq!(driver.writes.len(), 1, "expired pacing writes no query");
-        assert_eq!(
-            owner.state().active_len(),
-            0,
-            "a submission that returned no receipt cannot remain engine-owned"
-        );
-        assert_eq!(
-            owner.state().permits().available(),
-            1,
-            "terminal rejection releases the admission permit"
-        );
-        assert!(owner.state().diagnostics().all(|event| !matches!(
-            event,
-            DiagnosticEvent::CancellationRecorded { .. }
-                | DiagnosticEvent::CancellationObserved { .. }
-        )));
-
-        std::thread::sleep(Duration::from_millis(9));
-        owner
-            .pump_once(&mut driver, &mut reader, &mut decoder)
-            .unwrap();
-        assert_eq!(
-            driver.writes.len(),
-            1,
-            "ordinary engine work cannot dispatch the timed-out orphan"
-        );
-        assert_eq!(owner.state().active_len(), 0);
-        assert_eq!(owner.state().permits().available(), 1);
-    }
-
-    fn prepared_zoom<K>(profile: &crate::ProfileSpec) -> crate::prepared::PreparedOperation<K>
-    where
-        K: completion::Kind,
-        crate::request::builtin::ZoomTarget: crate::OperationCommand<K>,
-    {
-        crate::prepared::prepare_builtin_operation::<K, _>(
-            &crate::request::builtin::ZoomTarget::new(
-                crate::types::ZoomPosition::new(0x0100).unwrap(),
-            ),
-            CameraId::CAMERA_1,
-            profile,
-            crate::OperationalTuning::new(),
-        )
-        .unwrap()
-    }
-
-    fn prepared_zoom_drive(
-        profile: &crate::ProfileSpec,
-    ) -> crate::prepared::PreparedOperation<completion::AppliedOnly> {
-        crate::prepared::prepare_builtin_operation::<completion::AppliedOnly, _>(
-            &crate::request::builtin::ZoomDrive::Tele,
-            CameraId::CAMERA_1,
-            profile,
-            crate::OperationalTuning::new(),
-        )
-        .unwrap()
-    }
-
-    fn prepared_zoom_stop(
-        profile: &crate::ProfileSpec,
-    ) -> crate::prepared::PreparedOperation<completion::AppliedOnly> {
-        crate::prepared::prepare_builtin_operation::<completion::AppliedOnly, _>(
-            &crate::request::builtin::ZoomStop,
-            CameraId::CAMERA_1,
-            profile,
-            crate::OperationalTuning::new(),
-        )
-        .unwrap()
-    }
-
-    #[test]
-    fn typed_operation_cancel_preserves_buffered_completion_and_exact_origin() {
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let operation = owner
-            .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
-            .unwrap();
-        let now = Instant::now();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        let cancellation = operation.cancel_test(&mut owner, &mut driver).unwrap();
-        let mut reader = DeadlineReader::default();
-        let mut decoder = EmptyDecoder;
-        assert_eq!(
-            cancellation
-                .outcome(
-                    &mut owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                    Duration::ZERO,
-                )
-                .unwrap(),
-            CancellationOutcome::Completed
-        );
-        assert_eq!(
-            driver.writes.len(),
-            1,
-            "buffered completion sends no cancel"
-        );
-
-        let mut first = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
-        let mut second = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
-        let mut first_driver = FakeDriver::default();
-        let mut second_driver = FakeDriver::default();
-        let operation = first
-            .submit_operation(
-                &mut first_driver,
-                prepared_zoom::<completion::Targeted>(&profile),
-            )
-            .unwrap();
-        let mut wrong_reader = DeadlineReader::default();
-        let mut wrong_decoder = EmptyDecoder;
-        assert!(matches!(
-            operation.applied_with_timeout(
-                &mut second.receipt_control(
-                    &mut second_driver,
-                    &mut wrong_reader,
-                    &mut wrong_decoder,
-                ),
-                Duration::ZERO,
-            ),
-            Err(Error::InvalidState(_))
-        ));
-        assert!(wrong_reader.deadline.is_none(), "wrong owner never pumps");
-    }
-
-    #[test]
-    fn shared_blocking_control_allows_two_public_handles() {
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut owner = BlockingOwner::new(sony_policy(2, TransportKind::Datagram)).unwrap();
-        let mut driver = sony_driver(0..2);
-        let first_receipt = owner
-            .submit_operation(&mut driver, prepared_zoom_drive(&profile))
-            .unwrap();
-        let second_receipt = owner
-            .submit_operation(&mut driver, prepared_zoom_drive(&profile))
-            .unwrap();
-        let mut reader = DeadlineReader::default();
-        let mut decoder = EmptyDecoder;
-        let core = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
-        let first = crate::blocking::Operation::from_receipt(first_receipt, &core);
-        let second = crate::blocking::Operation::from_receipt(second_receipt, &core);
-
-        assert!(matches!(
-            first.applied_with_timeout(Duration::ZERO),
-            Err(Error::Timeout)
+            pool.try_acquire(&urgent),
+            Err(Error::ControlReserveExhausted { target, reserve: 2 })
+                if target == CameraId::CAMERA_1
         ));
         assert!(matches!(
-            second.applied_with_timeout(Duration::ZERO),
-            Err(Error::Timeout)
-        ));
-    }
-
-    #[test]
-    fn shared_blocking_handles_retain_out_of_order_success_and_error() {
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut owner = BlockingOwner::new(sony_policy(2, TransportKind::Datagram)).unwrap();
-        let mut driver = sony_driver(0..2);
-        let first_receipt = owner
-            .submit_operation(&mut driver, prepared_zoom_drive(&profile))
-            .unwrap();
-        let second_receipt = owner
-            .submit_operation(&mut driver, prepared_zoom_drive(&profile))
-            .unwrap();
-        let now = Instant::now();
-
-        // Route both ACKs before delivering terminals, then deliberately
-        // complete the second request before failing the first one.  The
-        // owner must retain each exact terminal outcome independently of the
-        // order in which its handles are consumed.
-        owner
-            .inject_frame(
-                &mut driver,
-                sony_frame(
-                    CameraId::CAMERA_1,
-                    0,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                sony_frame(
-                    CameraId::CAMERA_1,
-                    1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S2),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                sony_frame(
-                    CameraId::CAMERA_1,
-                    1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S2),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                sony_frame(
-                    CameraId::CAMERA_1,
-                    0,
-                    DecodedResponse::Error {
-                        socket: Some(ViscaSocket::S1),
-                        code: 0x02,
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-
-        let mut reader = DeadlineReader::default();
-        let mut decoder = EmptyDecoder;
-        let core = BlockingSessionCore::new(&mut owner, &mut driver, &mut reader, &mut decoder);
-        let first = crate::blocking::Operation::from_receipt(first_receipt, &core);
-        let second = crate::blocking::Operation::from_receipt(second_receipt, &core);
-
-        assert!(matches!(
-            first.applied_with_timeout(Duration::ZERO),
-            Err(Error::SyntaxError)
-        ));
-        assert!(second.applied_with_timeout(Duration::ZERO).is_ok());
-    }
-
-    #[test]
-    fn targeted_settlement_selection_retains_one_absolute_deadline() {
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let operation = owner
-            .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
-            .unwrap();
-        let now = Instant::now();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        let mut reader = DeadlineReader::default();
-        let mut decoder = EmptyDecoder;
-        let selection = operation.settled_with_timeout(
-            owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-            Duration::from_millis(321),
-        );
-        assert_eq!(
-            selection.selection(),
-            WaitSelection::Override(Duration::from_millis(321))
-        );
-        let deadline = Instant::now() + Duration::from_secs(1);
-        let BlockingAfterApplied::Poll(continuation) =
-            selection.wait_applied_until(deadline).unwrap()
-        else {
-            panic!("Sony BRC-300 targeted operation must delegate polling");
-        };
-        assert_eq!(continuation.target, CameraId::CAMERA_1);
-        assert_eq!(continuation.axes, crate::AffectedAxes::ZOOM);
-        assert_eq!(continuation.deadline, deadline);
-        assert!(matches!(
-            continuation.plan,
-            crate::prepared::SettlementPlan::Poll { .. }
-        ));
-    }
-
-    #[test]
-    fn completion_is_settled_submits_no_position_inquiries() {
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG3>().unwrap();
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let operation = owner
-            .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
-            .unwrap();
-        let now = Instant::now();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        let mut reader = DeadlineReader::default();
-        let mut decoder = EmptyDecoder;
-        {
-            let _settled = operation
-                .settled(owner.receipt_control(&mut driver, &mut reader, &mut decoder))
-                .wait()
-                .unwrap();
-        }
-        assert_eq!(driver.writes.len(), 1);
-        assert!(reader.deadline.is_none());
-    }
-
-    #[test]
-    fn settlement_deadline_detaches_inquiry_and_late_reply_finishes_lifecycle() {
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let operation = owner
-            .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
-            .unwrap();
-        let now = Instant::now();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        let mut reader = DeadlineReader::default();
-        let mut decoder = EmptyDecoder;
-        assert!(matches!(
-            operation
-                .settled_with_timeout(
-                    owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                    Duration::from_millis(1),
-                )
-                .wait(),
-            Err(Error::Timeout)
-        ));
-        assert_eq!(driver.writes.len(), 2);
-        assert_eq!(owner.state().active_len(), 1);
-        assert_eq!(owner.state().permits().available(), 0);
-        assert!(owner.state().diagnostics().all(|event| !matches!(
-            event,
-            DiagnosticEvent::CancellationRecorded { .. }
-                | DiagnosticEvent::CancellationObserved { .. }
-        )));
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::InquiryReply {
-                        route: None,
-                        payload: smallvec::smallvec![0x0, 0x1, 0x0, 0x0],
-                    },
-                ),
-                Instant::now(),
-            )
-            .unwrap();
-        assert_eq!(owner.state().active_len(), 0);
-        assert_eq!(owner.state().permits().available(), 1);
-    }
-
-    #[test]
-    fn settlement_query_propagates_capacity_and_transport_errors_exactly() {
-        fn complete_operation(
-            owner: &mut BlockingOwner,
-            driver: &mut FakeDriver,
-            profile: &crate::ProfileSpec,
-        ) -> BlockingOperationReceipt<completion::Targeted> {
-            let operation = owner
-                .submit_operation(driver, prepared_zoom::<completion::Targeted>(profile))
-                .unwrap();
-            let now = Instant::now();
-            owner
-                .inject_frame(
-                    driver,
-                    frame(
-                        CameraId::CAMERA_1,
-                        DecodedResponse::Ack {
-                            socket: Some(ViscaSocket::S1),
-                        },
-                    ),
-                    now,
-                )
-                .unwrap();
-            owner
-                .inject_frame(
-                    driver,
-                    frame(
-                        CameraId::CAMERA_1,
-                        DecodedResponse::Completion {
-                            socket: Some(ViscaSocket::S1),
-                        },
-                    ),
-                    now,
-                )
-                .unwrap();
-            operation
-        }
-
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let operation = complete_operation(&mut owner, &mut driver, &profile);
-        let _peer = owner
-            .submit_command(&mut driver, prepared_focus(&profile, CameraId::CAMERA_1))
-            .unwrap();
-        let mut reader = DeadlineReader::default();
-        let mut decoder = EmptyDecoder;
-        assert!(matches!(
-            operation
-                .settled_with_timeout(
-                    owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                    Duration::from_secs(1),
-                )
-                .wait(),
+            pool.try_acquire(&context(1, ControlClass::User)),
             Err(Error::RuntimeQueueFull { capacity: 1 })
         ));
-        assert_eq!(driver.writes.len(), 2, "capacity failure writes no query");
-        assert_eq!(owner.state().active_len(), 1, "peer remains untouched");
-
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let operation = complete_operation(&mut owner, &mut driver, &profile);
-        driver
-            .results
-            .push_back(Err(Error::TransportError("settlement query write".into())));
-        let mut reader = DeadlineReader::default();
-        let mut decoder = EmptyDecoder;
-        assert!(matches!(
-            operation
-                .settled_with_timeout(
-                    owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                    Duration::from_secs(1),
-                )
-                .wait(),
-            Err(Error::TransportError(reason)) if reason == "settlement query write"
-        ));
-
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let operation = complete_operation(&mut owner, &mut driver, &profile);
-        let mut reader = ScriptedReader;
-        let mut decoder = ScriptedDecoder {
-            batches: VecDeque::from([vec![frame(
-                CameraId::CAMERA_1,
-                DecodedResponse::InquiryReply {
-                    route: None,
-                    payload: smallvec::smallvec![0x0],
-                },
-            )]]),
-        };
-        assert!(matches!(
-            operation
-                .settled_with_timeout(
-                    owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                    Duration::from_secs(1),
-                )
-                .wait(),
-            Err(Error::InvalidResponseLength {
-                expected: 4,
-                actual: 1,
-                ..
-            })
-        ));
-        assert_eq!(owner.state().active_len(), 0);
+        // Camera 1 cannot use camera 2's reserve.
+        let other = pool.try_acquire(&context(2, ControlClass::Urgent)).unwrap();
+        assert_eq!(other.slot(), AdmissionSlot::ControlReserve);
     }
 
     #[test]
-    fn blocking_targeted_settlement_reuses_prepared_query_until_two_snapshots_settle() {
-        #[derive(Debug)]
-        struct SettlementReader {
-            events: VecDeque<BlockingReceive>,
-        }
+    fn ordinary_requests_never_take_a_reserve_and_slots_return_to_their_budget() {
+        let pool = pool();
+        let ordinary = context(1, ControlClass::Normal);
+        let held = pool.try_acquire(&ordinary).unwrap();
+        assert_eq!(held.slot(), AdmissionSlot::Ordinary);
+        assert!(matches!(
+            pool.try_acquire(&ordinary),
+            Err(Error::RuntimeQueueFull { capacity: 1 })
+        ));
 
-        impl BlockingReadDriver for SettlementReader {
-            fn receive(
-                &mut self,
-                receive_buffer: &mut [u8],
-                owner_deadline: Option<Instant>,
-            ) -> Result<BlockingReceive, Error> {
-                let event = self.events.pop_front().ok_or_else(|| {
-                    Error::InvalidState("settlement reader event exhausted".into())
-                })?;
-                if event == BlockingReceive::TimedOut {
-                    if let Some(deadline) = owner_deadline {
-                        let now = Instant::now();
-                        if deadline > now {
-                            std::thread::sleep(deadline.duration_since(now));
-                        }
-                    }
-                } else {
-                    receive_buffer[0] = 1;
-                }
-                Ok(event)
-            }
-        }
-
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let operation = owner
-            .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
-            .unwrap();
-        let now = Instant::now();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        let mut reader = SettlementReader {
-            events: VecDeque::from([
-                BlockingReceive::Bytes(1),
-                BlockingReceive::TimedOut,
-                BlockingReceive::Bytes(1),
-                BlockingReceive::TimedOut,
-                BlockingReceive::Bytes(1),
-            ]),
-        };
-        let mut decoder = ScriptedDecoder {
-            batches: VecDeque::from([
-                vec![frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::InquiryReply {
-                        route: None,
-                        payload: smallvec::smallvec![0x0, 0x1, 0x0, 0x0],
-                    },
-                )],
-                vec![frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::InquiryReply {
-                        route: None,
-                        payload: smallvec::smallvec![0x0, 0x1, 0x2, 0x0],
-                    },
-                )],
-                vec![frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::InquiryReply {
-                        route: None,
-                        payload: smallvec::smallvec![0x0, 0x1, 0x2, 0x0],
-                    },
-                )],
-            ]),
-        };
-        let control = operation.settled_with_timeout(
-            owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-            Duration::from_secs(1),
-        );
-        {
-            let _settled = control.wait().unwrap();
-        }
-
-        assert!(reader.events.is_empty());
-        assert!(decoder.batches.is_empty());
-        assert_eq!(driver.writes.len(), 4);
-        assert_eq!(driver.writes[1].1, driver.writes[2].1);
-        assert_eq!(driver.writes[2].1, driver.writes[3].1);
-        assert_eq!(driver.writes[1].1, vec![0x81, 0x09, 0x04, 0x47, 0xff]);
-        assert_eq!(owner.state().active_len(), 0);
-    }
-
-    #[test]
-    fn blocking_poll_interval_pumps_peer_frame_at_peer_deadline() {
-        #[derive(Debug)]
-        struct PeerReader {
-            events: VecDeque<(BlockingReceive, bool)>,
-            frame_deadline: Option<Instant>,
-            frame_received_at: Option<Instant>,
-        }
-
-        impl BlockingReadDriver for PeerReader {
-            fn receive(
-                &mut self,
-                receive_buffer: &mut [u8],
-                owner_deadline: Option<Instant>,
-            ) -> Result<BlockingReceive, Error> {
-                let (event, wait_for_deadline) = self
-                    .events
-                    .pop_front()
-                    .ok_or_else(|| Error::InvalidState("peer reader event exhausted".into()))?;
-                if wait_for_deadline || matches!(event, BlockingReceive::TimedOut) {
-                    if let Some(deadline) = owner_deadline {
-                        let now = Instant::now();
-                        // A real sleep cannot reliably land on an exact
-                        // `Instant`. The engine treats a strictly-late frame
-                        // as inert, so the peer frame wakes inside its owner
-                        // deadline. A timeout carries no frame, so it may run
-                        // through the sample boundary and let the polling loop
-                        // submit its next query before the next scripted reply.
-                        let pause = if wait_for_deadline {
-                            deadline
-                                .saturating_duration_since(now)
-                                .saturating_sub(Duration::from_millis(5))
-                        } else {
-                            deadline.saturating_duration_since(now)
-                        };
-                        if !pause.is_zero() {
-                            std::thread::sleep(pause);
-                        }
-                    }
-                }
-                if matches!(event, BlockingReceive::Bytes(_)) {
-                    receive_buffer[0] = 1;
-                }
-                if wait_for_deadline {
-                    self.frame_deadline = owner_deadline;
-                    self.frame_received_at = Some(Instant::now());
-                }
-                Ok(event)
-            }
-        }
-
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut owner = BlockingOwner::new(policy(3, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let operation = owner
-            .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
-            .unwrap();
-        let now = Instant::now();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-
-        let mut peer_request = command(CameraId::CAMERA_2, CancellationPolicy::Supported, None);
-        if let RuntimeRequest::Command { context, .. } = &mut peer_request {
-            // This stays ahead of the 25 ms settlement sampling interval while
-            // leaving room to deliver the frame inside its strict-late bound.
-            context.timeout.ack = Duration::from_millis(20);
-        }
-        let peer = owner.submit(&mut driver, peer_request).unwrap();
-        let peer_ack_deadline = match owner.state().request_state(peer.id()) {
-            Some((Phase::AwaitingAck { deadline, .. }, CancelState::None)) => deadline,
-            state => panic!("peer did not await its ACK: {state:?}"),
-        };
-        let mut reader = PeerReader {
-            events: VecDeque::from([
-                (BlockingReceive::Bytes(1), false),
-                (BlockingReceive::Bytes(1), true),
-                (BlockingReceive::TimedOut, false),
-                (BlockingReceive::Bytes(1), false),
-            ]),
-            frame_deadline: None,
-            frame_received_at: None,
-        };
-        let mut decoder = ScriptedDecoder {
-            batches: VecDeque::from([
-                vec![frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::InquiryReply {
-                        route: None,
-                        payload: smallvec::smallvec![0x0, 0x1, 0x0, 0x0],
-                    },
-                )],
-                vec![
-                    frame(
-                        CameraId::CAMERA_2,
-                        DecodedResponse::Ack {
-                            socket: Some(ViscaSocket::S1),
-                        },
-                    ),
-                    frame(
-                        CameraId::CAMERA_2,
-                        DecodedResponse::Completion {
-                            socket: Some(ViscaSocket::S1),
-                        },
-                    ),
-                ],
-                vec![frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::InquiryReply {
-                        route: None,
-                        payload: smallvec::smallvec![0x0, 0x1, 0x0, 0x0],
-                    },
-                )],
-            ]),
-        };
-
-        {
-            let _settled = operation
-                .settled_with_timeout(
-                    owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                    Duration::from_secs(1),
-                )
-                .wait()
-                .unwrap();
-        }
+        let urgent = context(1, ControlClass::Urgent);
+        let reserved = pool.try_acquire(&urgent).unwrap();
+        drop(reserved);
         assert_eq!(
-            reader.frame_deadline,
-            Some(peer_ack_deadline),
-            "the interval pump must be bounded by the peer ACK deadline"
-        );
-        assert!(
-            reader
-                .frame_received_at
-                .is_some_and(|received| received <= peer_ack_deadline),
-            "the peer frame must reach the strict-late boundary on time"
-        );
-        assert!(matches!(peer.terminal(), Some(RuntimeOutcome::Applied)));
-        assert_eq!(owner.state().active_len(), 0);
-        assert_eq!(owner.state().permits().available(), 3);
-        assert_eq!(driver.writes.len(), 4);
-    }
-
-    #[test]
-    fn observer_timeout_detaches_without_cancel_and_late_applied_still_caches() {
-        use crate::command::semantics::WriteOnlyState;
-
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().unwrap();
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let receipt = owner
-            .submit_command(
-                &mut driver,
-                prepared_limit_clear(&profile, CameraId::CAMERA_1),
-            )
-            .unwrap();
-        let mut reader = DeadlineReader::default();
-        let mut decoder = EmptyDecoder;
-        assert!(matches!(
-            receipt.wait_with_timeout(
-                &mut owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                Duration::ZERO,
-            ),
-            Err(Error::Timeout)
-        ));
-        assert_eq!(driver.writes.len(), 1);
-        assert!(!driver.writes[0].2);
-        assert_eq!(owner.state().active_len(), 1);
-
-        let now = Instant::now();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        assert!(cached_projection(
-            owner.state(),
-            CameraId::CAMERA_1,
-            WriteOnlyState::PanTiltLimits,
-        )
-        .is_some());
-    }
-
-    #[test]
-    fn terminalized_stream_pump_outcome_precedes_local_pump_error() {
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().unwrap();
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Stream)).unwrap();
-        let mut driver = FakeDriver::default();
-        let receipt = owner
-            .submit_command(&mut driver, prepared_focus(&profile, CameraId::CAMERA_1))
-            .unwrap();
-        let mut reader = DeadlineReader {
-            deadline: None,
-            result: Some(Err(Error::ConnectionClosed {
-                reason: Some("peer closed".into()),
-            })),
-        };
-        let mut decoder = EmptyDecoder;
-        assert!(matches!(
-            receipt.wait(&mut owner.receipt_control(&mut driver, &mut reader, &mut decoder,)),
-            Err(Error::ConnectionClosed { .. })
-        ));
-    }
-
-    /// Issue #565: on the Sony sequence-bearing envelope a transient read
-    /// failure retries the in-flight command and leaves the session running;
-    /// the pump reports "no frames", not an error. The raw envelope has no
-    /// request identity after a successful write, so the same fault poisons
-    /// there (see the raw fault targets); this case is Sony-only by name.
-    #[test]
-    fn sony_transient_blocking_read_fault_retries_and_keeps_the_session() {
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut owner = BlockingOwner::new(sony_policy(1, TransportKind::Datagram)).unwrap();
-        let mut driver = sony_driver([0, 0]);
-        let _receipt = owner
-            .submit_command(&mut driver, prepared_focus(&profile, CameraId::CAMERA_1))
-            .unwrap();
-        let mut reader = DeadlineReader {
-            deadline: None,
-            result: Some(Err(Error::Io(std::sync::Arc::new(std::io::Error::from(
-                std::io::ErrorKind::ConnectionRefused,
-            ))))),
-        };
-        let mut decoder = EmptyDecoder;
-        assert_eq!(
-            owner
-                .pump_once(&mut driver, &mut reader, &mut decoder)
-                .unwrap(),
+            pool.available(),
             0,
-            "a transient read fault produces no frames and no error"
-        );
-        assert_eq!(owner.state().state(), SessionState::Running);
-        assert_eq!(
-            owner.state().active_len(),
-            1,
-            "the in-flight command is retried, not failed"
-        );
-        // The retry is dispatched by an ordinary later owner turn.
-        for _ in 0..4 {
-            if driver.writes.len() >= 2 {
-                break;
-            }
-            let Some(wake) = owner.state().next_wake() else {
-                break;
-            };
-            owner.wake(&mut driver, wake).unwrap();
-        }
-        assert_eq!(driver.writes.len(), 2, "the same request is written again");
-        assert_eq!(driver.writes[0].0, driver.writes[1].0);
-    }
-
-    /// A transient read fault is an input turn: after applying it, the engine
-    /// runs already-due retry work. A failed stream retry write in that work
-    /// poisons the owner, so this otherwise recoverable receive result must
-    /// report the boundary instead of pretending that the pump made no progress.
-    #[test]
-    fn transient_receive_fault_due_stream_retry_write_failure_reports_poison() {
-        #[derive(Debug, Default)]
-        struct DueFaultReader {
-            deadline: Option<Instant>,
-        }
-
-        impl BlockingReadDriver for DueFaultReader {
-            fn receive(
-                &mut self,
-                _receive_buffer: &mut [u8],
-                owner_deadline: Option<Instant>,
-            ) -> Result<BlockingReceive, Error> {
-                let deadline = owner_deadline.expect("retry deadline bounds transient read");
-                self.deadline = Some(deadline);
-                let pause = deadline.saturating_duration_since(Instant::now());
-                if !pause.is_zero() {
-                    std::thread::sleep(pause);
-                }
-                Err(Error::Io(Arc::new(std::io::Error::from(
-                    std::io::ErrorKind::ConnectionRefused,
-                ))))
-            }
-        }
-
-        let mut retry = command(CameraId::CAMERA_1, CancellationPolicy::Supported, None);
-        if let RuntimeRequest::Command { context, .. } = &mut retry {
-            context.retry = RetryPolicy {
-                max_retries: 1,
-                initial_backoff: Duration::from_millis(30),
-                maximum_backoff: Duration::from_millis(30),
-                total_budget: Duration::from_secs(1),
-                ack_timeout: false,
-                completion_timeout: false,
-                inquiry_timeout: false,
-                buffer_full: true,
-                movement_not_executable: false,
-                builtin_inquiry_syntax: false,
-            };
-        }
-
-        let mut owner = BlockingOwner::new(sony_policy(1, TransportKind::Stream)).unwrap();
-        let mut driver = sony_driver([0]);
-        let receipt = owner.submit(&mut driver, retry).unwrap();
-        let id = receipt.id();
-        owner
-            .inject_frame(
-                &mut driver,
-                sony_frame(
-                    CameraId::CAMERA_1,
-                    0,
-                    DecodedResponse::Error {
-                        socket: None,
-                        code: 0x03,
-                    },
-                ),
-                Instant::now(),
-            )
-            .unwrap();
-        let retry_deadline = owner
-            .state()
-            .next_wake()
-            .expect("buffer-full retry has a due deadline");
-        driver.results.push_back(Err(Error::TransportError(
-            "transient fault due retry stream write failed".into(),
-        )));
-
-        let mut reader = DueFaultReader::default();
-        let mut decoder = EmptyDecoder;
-        let error = owner
-            .pump_once(&mut driver, &mut reader, &mut decoder)
-            .expect_err("the due retry's stream write poisons this transient-fault pump");
-
-        let Error::StreamPoisoned { reason } = &error else {
-            panic!("the transient-fault pump must report stream poison, got {error:?}");
-        };
-        assert!(reason.contains("transient fault due retry stream write failed"));
-        assert_eq!(reader.deadline, Some(retry_deadline));
-        assert_eq!(driver.writes.len(), 2);
-        assert_eq!(driver.writes[0].0, id);
-        assert_eq!(driver.writes[1].0, id);
-        assert!(matches!(
-            receipt.terminal(),
-            Some(RuntimeOutcome::Failed(Error::StreamPoisoned { .. }))
-        ));
-        assert_eq!(owner.state().state(), SessionState::Poisoned);
-    }
-
-    /// A fatal read ends the session on a stream transport as a close, not as
-    /// a byte-stream poison: the read consumed nothing to desynchronize.
-    #[test]
-    fn fatal_blocking_read_fault_closes_the_stream_session() {
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().unwrap();
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Stream)).unwrap();
-        let mut driver = FakeDriver::default();
-        let _receipt = owner
-            .submit_command(&mut driver, prepared_focus(&profile, CameraId::CAMERA_1))
-            .unwrap();
-        let mut reader = DeadlineReader {
-            deadline: None,
-            result: Some(Err(Error::Io(std::sync::Arc::new(std::io::Error::from(
-                std::io::ErrorKind::BrokenPipe,
-            ))))),
-        };
-        let mut decoder = EmptyDecoder;
-        let error = owner
-            .pump_once(&mut driver, &mut reader, &mut decoder)
-            .expect_err("a fatal read ends the session");
-        // Issue #629: the caller is told the session's verdict, not the raw
-        // read fault. `Error::Io` classifies as survivable, so returning it here
-        // would tell an auto-reconnect loop to keep using a dead session.
-        let Error::ConnectionClosed { reason } = &error else {
-            panic!("a fatal read must report the session close, got {error:?}");
-        };
-        let reason = reason.as_ref().expect("the read fault names the close");
-        assert!(
-            reason.contains("broken pipe"),
-            "the transport cause must survive in the close reason: {reason}"
-        );
-        assert!(
-            error.requires_new_session(),
-            "a closed session must classify as needing a replacement"
-        );
-        assert_eq!(owner.state().state(), SessionState::Closed);
-    }
-
-    /// Issue #629 probe: a fatal read during settlement polling escaped through
-    /// `pump_until_sample_boundary`, which has no receipt to consult, and
-    /// reached the caller as the raw `Error::Io` while the session was already
-    /// `Closed`.
-    #[test]
-    fn fatal_read_during_settlement_polling_reports_the_session_boundary_error() {
-        #[derive(Debug)]
-        struct PollingFaultReader {
-            events: VecDeque<Result<BlockingReceive, Error>>,
-        }
-
-        impl BlockingReadDriver for PollingFaultReader {
-            fn receive(
-                &mut self,
-                receive_buffer: &mut [u8],
-                _owner_deadline: Option<Instant>,
-            ) -> Result<BlockingReceive, Error> {
-                let event = self.events.pop_front().ok_or_else(|| {
-                    Error::InvalidState("polling fault reader event exhausted".into())
-                })?;
-                if matches!(event, Ok(BlockingReceive::Bytes(_))) {
-                    receive_buffer[0] = 1;
-                }
-                event
-            }
-        }
-
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut owner = BlockingOwner::new(policy(2, TransportKind::Stream)).unwrap();
-        let mut driver = FakeDriver::default();
-        let operation = owner
-            .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
-            .unwrap();
-        let now = Instant::now();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-
-        // The baseline snapshot succeeds; the connection dies in the interval
-        // pump before the next sample can be taken.
-        let mut reader = PollingFaultReader {
-            events: VecDeque::from([
-                Ok(BlockingReceive::Bytes(1)),
-                Err(Error::Io(std::sync::Arc::new(std::io::Error::from(
-                    std::io::ErrorKind::ConnectionReset,
-                )))),
-            ]),
-        };
-        let mut decoder = ScriptedDecoder {
-            batches: VecDeque::from([vec![frame(
-                CameraId::CAMERA_1,
-                DecodedResponse::InquiryReply {
-                    route: None,
-                    payload: smallvec::smallvec![0x0, 0x1, 0x0, 0x0],
-                },
-            )]]),
-        };
-        let error = operation
-            .settled_with_timeout(
-                owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                Duration::from_secs(1),
-            )
-            .wait()
-            .expect_err("a fatal read during polling ends the settlement wait");
-        assert!(
-            matches!(error, Error::ConnectionClosed { .. }),
-            "settlement must report the session close, got {error:?}"
-        );
-        assert!(
-            error.requires_new_session(),
-            "the settlement error must classify as needing a replacement session"
-        );
-        assert_eq!(owner.state().state(), SessionState::Closed);
-    }
-
-    /// A retry can become due while a targeted operation is between position
-    /// samples. A failed stream retry write poisons the whole owner even though
-    /// that pump iteration received no bytes, so the settlement must surface
-    /// the owner boundary rather than waiting out its observer budget.
-    #[test]
-    fn due_stream_retry_write_failure_ends_settlement_with_poison() {
-        #[derive(Debug)]
-        struct SettlementReader {
-            events: VecDeque<BlockingReceive>,
-        }
-
-        impl BlockingReadDriver for SettlementReader {
-            fn receive(
-                &mut self,
-                receive_buffer: &mut [u8],
-                owner_deadline: Option<Instant>,
-            ) -> Result<BlockingReceive, Error> {
-                let event = self.events.pop_front().ok_or_else(|| {
-                    Error::InvalidState("due-retry settlement reader event exhausted".into())
-                })?;
-                match event {
-                    BlockingReceive::Bytes(_) => receive_buffer[0] = 1,
-                    BlockingReceive::TimedOut => {
-                        if let Some(deadline) = owner_deadline {
-                            let now = Instant::now();
-                            if deadline > now {
-                                std::thread::sleep(deadline.duration_since(now));
-                            }
-                        }
-                    }
-                }
-                Ok(event)
-            }
-        }
-
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut owner = BlockingOwner::new(policy(4, TransportKind::Stream)).unwrap();
-        let mut driver = FakeDriver::default();
-        let operation = owner
-            .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
-            .unwrap();
-        let now = Instant::now();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-
-        let mut retry = command(CameraId::CAMERA_2, CancellationPolicy::Supported, None);
-        if let RuntimeRequest::Command { context, .. } = &mut retry {
-            context.retry = RetryPolicy {
-                max_retries: 1,
-                initial_backoff: Duration::from_millis(60),
-                maximum_backoff: Duration::from_millis(60),
-                total_budget: Duration::from_secs(1),
-                ack_timeout: false,
-                completion_timeout: false,
-                inquiry_timeout: false,
-                buffer_full: true,
-                movement_not_executable: false,
-                builtin_inquiry_syntax: false,
-            };
-        }
-        let peer = owner.submit(&mut driver, retry).unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_2,
-                    DecodedResponse::Error {
-                        socket: None,
-                        code: 0x03,
-                    },
-                ),
-                Instant::now(),
-            )
-            .unwrap();
-
-        // The baseline position inquiry succeeds. The retry becomes due while
-        // the settlement loop waits for its next sample.
-        driver
-            .results
-            .push_back(Ok(TransmissionMeta { sequence: None }));
-        driver.results.push_back(Err(Error::TransportError(
-            "due retry stream write failed".into(),
-        )));
-
-        let mut reader = SettlementReader {
-            events: VecDeque::from([
-                BlockingReceive::Bytes(1),
-                BlockingReceive::TimedOut,
-                BlockingReceive::Bytes(1),
-                BlockingReceive::TimedOut,
-            ]),
-        };
-        let mut decoder = ScriptedDecoder {
-            batches: VecDeque::from([
-                vec![frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::InquiryReply {
-                        route: None,
-                        payload: smallvec::smallvec![0x0, 0x1, 0x0, 0x0],
-                    },
-                )],
-                vec![frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::InquiryReply {
-                        route: None,
-                        payload: smallvec::smallvec![0x0, 0x2, 0x0, 0x0],
-                    },
-                )],
-            ]),
-        };
-
-        let error = operation
-            .settled_with_timeout(
-                owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                Duration::from_secs(1),
-            )
-            .wait()
-            .expect_err("a due stream retry write poisons settlement");
-        let Error::StreamPoisoned { reason } = &error else {
-            panic!("settlement must report stream poison, got {error:?}");
-        };
-        assert!(reason.contains("due retry stream write failed"));
-        assert!(error.requires_new_session());
-        assert!(matches!(
-            peer.terminal(),
-            Some(RuntimeOutcome::Failed(Error::StreamPoisoned { .. }))
-        ));
-        assert_eq!(owner.state().state(), SessionState::Poisoned);
-    }
-
-    /// A frame for a separate target can free its queued work at the end of a
-    /// decoded source batch. If that queued stream write fails, the targeted
-    /// settlement being observed must receive the poison immediately.
-    #[test]
-    fn unrelated_decoded_frame_stream_write_failure_ends_settlement_with_poison() {
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut owner = BlockingOwner::new(policy(4, TransportKind::Stream)).unwrap();
-        let mut driver = FakeDriver::default();
-        let operation = owner
-            .submit_operation(&mut driver, prepared_zoom::<completion::Targeted>(&profile))
-            .unwrap();
-        let now = Instant::now();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-
-        let peer = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_2, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        let queued = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_2, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        assert_eq!(driver.writes.len(), 2, "the second peer request is queued");
-
-        // The settlement baseline writes successfully. The unrelated camera-2
-        // ACK below frees the queued request and its dispatch fails.
-        driver
-            .results
-            .push_back(Ok(TransmissionMeta { sequence: None }));
-        driver.results.push_back(Err(Error::TransportError(
-            "decoded queued stream write failed".into(),
-        )));
-        let mut reader = ScriptedReader;
-        let mut decoder = ScriptedDecoder {
-            batches: VecDeque::from([
-                vec![frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::InquiryReply {
-                        route: None,
-                        payload: smallvec::smallvec![0x0, 0x1, 0x0, 0x0],
-                    },
-                )],
-                vec![frame(
-                    CameraId::CAMERA_2,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                )],
-            ]),
-        };
-
-        let error = operation
-            .settled_with_timeout(
-                owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                Duration::from_secs(1),
-            )
-            .wait()
-            .expect_err("a queued stream write after an unrelated frame poisons settlement");
-        let Error::StreamPoisoned { reason } = &error else {
-            panic!("settlement must report stream poison, got {error:?}");
-        };
-        assert!(reason.contains("decoded queued stream write failed"));
-        assert!(error.requires_new_session());
-        assert!(matches!(
-            peer.terminal(),
-            Some(RuntimeOutcome::Failed(Error::StreamPoisoned { .. }))
-        ));
-        assert!(matches!(
-            queued.terminal(),
-            Some(RuntimeOutcome::Failed(Error::StreamPoisoned { .. }))
-        ));
-        assert_eq!(owner.state().state(), SessionState::Poisoned);
-    }
-
-    #[test]
-    fn decoded_datagram_write_failure_remains_per_request_and_keeps_pumping() {
-        let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let peer = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        let queued = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        assert_eq!(driver.writes.len(), 1, "the second request is queued");
-        driver.results.push_back(Err(Error::TransportError(
-            "decoded queued datagram write failed".into(),
-        )));
-
-        let mut reader = ScriptedReader;
-        let mut decoder = ScriptedDecoder {
-            batches: VecDeque::from([vec![frame(
-                CameraId::CAMERA_1,
-                DecodedResponse::Ack {
-                    socket: Some(ViscaSocket::S1),
-                },
-            )]]),
-        };
-        assert_eq!(
-            owner
-                .pump_once(&mut driver, &mut reader, &mut decoder)
-                .expect("a failed datagram dispatch leaves the pump usable"),
-            1
-        );
-        assert_eq!(owner.state().state(), SessionState::Running);
-        assert!(owner.state().boundary_error().is_none());
-        assert!(
-            peer.terminal().is_none(),
-            "the first request remains active"
-        );
-        assert!(matches!(
-            queued.terminal(),
-            Some(RuntimeOutcome::Failed(Error::TransportError(reason)))
-                if reason == "decoded queued datagram write failed"
-        ));
-    }
-
-    /// Issue #629: the cancellation observer's pump is the other escape site.
-    /// Its own terminal observation wins; without one the session's boundary
-    /// error must be reported, never the raw read fault.
-    #[test]
-    fn fatal_read_while_observing_cancellation_reports_the_session_boundary_error() {
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Stream)).unwrap();
-        let mut driver = FakeDriver::default();
-        let operation = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        let cancellation = owner.cancel_test(&mut driver, operation).unwrap();
-        let mut reader = DeadlineReader {
-            deadline: None,
-            result: Some(Err(Error::Io(std::sync::Arc::new(std::io::Error::from(
-                std::io::ErrorKind::ConnectionReset,
-            ))))),
-        };
-        let mut decoder = EmptyDecoder;
-        let error = cancellation
-            .outcome(
-                &mut owner.receipt_control(&mut driver, &mut reader, &mut decoder),
-                Duration::from_secs(1),
-            )
-            .expect_err("a fatal read ends the cancellation observation");
-        assert!(
-            matches!(error, Error::ConnectionClosed { .. }),
-            "cancellation must report the session close, got {error:?}"
-        );
-        assert!(
-            error.requires_new_session(),
-            "the cancellation error must classify as needing a replacement session"
-        );
-        assert_eq!(owner.state().state(), SessionState::Closed);
-    }
-
-    #[test]
-    fn decoded_batch_drains_ack_effects_before_equal_completion_deadline() {
-        let mut a_request = command(CameraId::CAMERA_1, CancellationPolicy::Supported, None);
-        match &mut a_request {
-            RuntimeRequest::Command { context, .. } => {
-                context.timeout.ack = Duration::from_secs(2);
-                context.timeout.completion = Duration::from_secs(1);
-            }
-            RuntimeRequest::Inquiry { .. } => unreachable!(),
-        }
-        let mut b_request = command(CameraId::CAMERA_1, CancellationPolicy::Supported, None);
-        match &mut b_request {
-            RuntimeRequest::Command { context, .. } => {
-                context.timeout.ack = Duration::from_secs(2);
-                // The synthetic decoded batch below is replayed at
-                // `a_ack_at + 1s`, after B's cancellation is issued. Keep B's
-                // ambiguity window open through that timestamp: strict-late
-                // response handling correctly treats a post-window ACK as
-                // inert, which would no longer exercise the recursive cancel
-                // effect this fixture is asserting.
-                context.timeout.ambiguity = Duration::from_secs(2);
-            }
-            RuntimeRequest::Inquiry { .. } => unreachable!(),
-        }
-
-        let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let a = owner.submit(&mut driver, a_request).unwrap();
-        let a_id = a.id();
-        let a_ack_at = Instant::now();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                a_ack_at,
-            )
-            .unwrap();
-        let deadline = a_ack_at + Duration::from_secs(1);
-
-        let b = owner.submit(&mut driver, b_request).unwrap();
-        let b_id = b.id();
-        let _cancellation = owner.cancel_test(&mut driver, b).unwrap();
-        let _ = owner.drain_diagnostics();
-
-        // This is the exact validated-batch replay seam used by pump_once: B's
-        // ACK must be fully drained (including its cancel write/result) before
-        // A's completion, and only then may due work run at the shared instant.
-        owner.drive_decoded_batch(
-            &mut driver,
-            vec![
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S2),
-                    },
-                ),
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-            ],
-            deadline,
-        );
-
-        assert!(matches!(a.terminal(), Some(RuntimeOutcome::Applied)));
-        let diagnostics: Vec<_> = owner.state().diagnostics().copied().collect();
-        let ack_b = diagnostics
-            .iter()
-            .position(|event| {
-                matches!(
-                    event,
-                    DiagnosticEvent::FrameReceived {
-                        response: ResponseDiagnostic::Ack(Some(ViscaSocket::S2)),
-                        ..
-                    }
-                )
-            })
-            .expect("B ACK diagnostic");
-        let cancel_write = diagnostics
-            .iter()
-            .position(|event| {
-                matches!(
-                    event,
-                    DiagnosticEvent::WriteFinished {
-                        id,
-                        cancellation: true,
-                        ..
-                    } if *id == b_id
-                )
-            })
-            .expect("recursive B cancel write diagnostic");
-        let completion_a = diagnostics
-            .iter()
-            .position(|event| {
-                matches!(
-                    event,
-                    DiagnosticEvent::FrameReceived {
-                        response: ResponseDiagnostic::Completion(Some(ViscaSocket::S1)),
-                        ..
-                    }
-                )
-            })
-            .expect("A completion diagnostic");
-        let applied_a = diagnostics
-            .iter()
-            .position(|event| {
-                matches!(
-                    event,
-                    DiagnosticEvent::Terminal {
-                        id,
-                        outcome: OutcomeDiagnostic::Applied,
-                        ..
-                    } if *id == a_id
-                )
-            })
-            .expect("A applied diagnostic");
-        assert!(ack_b < cancel_write);
-        assert!(cancel_write < completion_a);
-        assert!(completion_a < applied_a);
-        assert!(!diagnostics.iter().any(|event| matches!(
-            event,
-            DiagnosticEvent::RetryScheduled { id, .. } if *id == a_id
-        )));
-    }
-
-    #[test]
-    fn blocking_pump_uses_recursive_turn_order_for_a_decoded_batch() {
-        let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let a = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        let now = Instant::now();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        let b = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        let b_id = b.id();
-        let _cancellation = owner.cancel_test(&mut driver, b).unwrap();
-        let _ = owner.drain_diagnostics();
-
-        let mut reader = ScriptedReader;
-        let mut decoder = ScriptedDecoder {
-            batches: VecDeque::from([vec![
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S2),
-                    },
-                ),
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-            ]]),
-        };
-        assert_eq!(
-            owner
-                .pump_once(&mut driver, &mut reader, &mut decoder)
-                .unwrap(),
-            2
-        );
-        assert!(matches!(a.terminal(), Some(RuntimeOutcome::Applied)));
-
-        let diagnostics: Vec<_> = owner.state().diagnostics().copied().collect();
-        let cancel_write = diagnostics
-            .iter()
-            .position(|event| {
-                matches!(
-                    event,
-                    DiagnosticEvent::WriteFinished {
-                        id,
-                        cancellation: true,
-                        ..
-                    } if *id == b_id
-                )
-            })
-            .expect("recursive cancel write");
-        let completion = diagnostics
-            .iter()
-            .position(|event| {
-                matches!(
-                    event,
-                    DiagnosticEvent::FrameReceived {
-                        response: ResponseDiagnostic::Completion(Some(ViscaSocket::S1)),
-                        ..
-                    }
-                )
-            })
-            .expect("wire-next completion");
-        assert!(cancel_write < completion);
-    }
-
-    #[test]
-    fn blocking_fixture_first_write_and_out_of_order_retention() {
-        let mut owner = BlockingOwner::new(sony_policy(8, TransportKind::Datagram)).unwrap();
-        let mut driver = sony_driver(0..2);
-        let a = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        let b = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        assert_eq!(
-            driver.writes.len(),
-            2,
-            "submission performs one exact write"
-        );
-        assert!(a.terminal().is_none());
-        assert!(b.terminal().is_none());
-
-        let now = Instant::now();
-        owner
-            .inject_frame(
-                &mut driver,
-                sony_frame(
-                    CameraId::CAMERA_1,
-                    0,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                sony_frame(
-                    CameraId::CAMERA_1,
-                    1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S2),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                sony_frame(
-                    CameraId::CAMERA_1,
-                    1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S2),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                sony_frame(
-                    CameraId::CAMERA_1,
-                    0,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-
-        assert!(matches!(b.terminal(), Some(RuntimeOutcome::Applied)));
-        assert!(matches!(a.terminal(), Some(RuntimeOutcome::Applied)));
-        assert_eq!(owner.state().permits().available(), 8);
-    }
-
-    #[test]
-    fn blocking_owner_matches_canonical_lifecycle_trace() {
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let receipt = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        let now = Instant::now();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        assert!(matches!(receipt.terminal(), Some(RuntimeOutcome::Applied)));
-        assert_eq!(
-            canonical_owner_trace(owner.state().diagnostics().copied()),
-            CANONICAL_OWNER_TRACE
-        );
-    }
-
-    #[test]
-    fn ready_effects_preserve_source_order_and_write_completion_is_recursive() {
-        let mut state = OwnerState::new(policy(2, TransportKind::Datagram)).unwrap();
-        let permit = state.permits().try_acquire().unwrap();
-        let (input, _observer, _admission) = state.stage_admission(
-            command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            permit,
-        );
-        let mut effects = state.input(input, Instant::now());
-        // Models an unrelated already-ready source following the engine batch.
-        effects.push_back(Effect::Ignored(IgnoreReason::MalformedFrame));
-        let mut driver = FakeDriver::default();
-        while let Some(effect) = effects.pop_front() {
-            if let AppliedEffect::Transmit(staged) = state.apply_effect(effect) {
-                let result = match state.prepare_write(&staged) {
-                    Ok(write) => driver.write(write),
-                    Err(error) => Err(error),
-                };
-                let produced = state.finish_write(&staged, result, Instant::now());
-                prepend_effects(&mut effects, produced);
-            }
-        }
-        let diagnostics: Vec<_> = state.diagnostics().copied().collect();
-        let write = diagnostics
-            .iter()
-            .position(|event| matches!(event, DiagnosticEvent::WriteFinished { .. }))
-            .unwrap();
-        let completion_transition = diagnostics
-            .iter()
-            .position(|event| {
-                matches!(
-                    event,
-                    DiagnosticEvent::Transition {
-                        to: Phase::AwaitingAck { .. },
-                        ..
-                    }
-                )
-            })
-            .unwrap();
-        let unrelated = diagnostics
-            .iter()
-            .position(|event| {
-                matches!(
-                    event,
-                    DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
-                )
-            })
-            .unwrap();
-        assert!(write < completion_transition);
-        assert!(completion_transition < unrelated);
-        assert_eq!(driver.writes.len(), 1);
-    }
-
-    #[test]
-    fn capacity_failure_creates_no_id_observer_or_write() {
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let first = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        let error = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap_err();
-        assert!(matches!(error, Error::RuntimeQueueFull { capacity: 1 }));
-        assert_eq!(owner.state().active_len(), 1);
-        assert_eq!(owner.state().metrics().admitted, 1);
-        assert_eq!(driver.writes.len(), 1);
-        drop(first);
-        // Detach is observer-only; capacity remains owned by engine state.
-        assert_eq!(owner.state().permits().available(), 0);
-    }
-
-    /// Issue #561: a submission that cannot win the socket queues instead of
-    /// terminalizing, and it never waits on or disturbs the busy peer.
-    #[test]
-    fn blocking_submission_queues_instead_of_waiting_for_another_socket() {
-        let mut owner_policy = policy(3, TransportKind::Datagram);
-        owner_policy.targets[usize::from(CameraId::CAMERA_1.id())] = Some(TargetPolicy {
-            command_sockets: 1,
-            cancellation: CancellationPolicy::Supported,
-        });
-        let mut owner = BlockingOwner::new(owner_policy).unwrap();
-        let mut driver = FakeDriver::default();
-        let first = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        let first_id = first.id();
-        let first_before = owner.state().request_state(first_id).unwrap();
-        let _ = owner.drain_diagnostics();
-        let queued = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .expect("a busy socket queues rather than failing the submission");
-        let queued_id = queued.id();
-        assert!(queued.terminal().is_none());
-        assert!(matches!(
-            owner.state().request_state(queued_id),
-            Some((Phase::Ready { .. }, _))
-        ));
-        assert_eq!(
-            driver.writes.len(),
-            1,
-            "the queued request performs no write"
-        );
-        assert_eq!(owner.state().request_state(first_id), Some(first_before));
-        assert_eq!(owner.state().active_len(), 2);
-        assert_eq!(owner.state().permits().available(), 1);
-        assert_eq!(
-            driver
-                .writes
-                .iter()
-                .filter(|(_, _, cancellation)| *cancellation)
-                .count(),
-            0
-        );
-        assert!(!owner.state().diagnostics().any(|event| matches!(
-            event,
-            DiagnosticEvent::CancellationRecorded { .. }
-                | DiagnosticEvent::CancellationObserved { .. }
-        )));
-
-        // Freeing the only socket drains the queue on the very same turn.
-        let now = Instant::now();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        assert!(matches!(first.terminal(), Some(RuntimeOutcome::Applied)));
-        assert_eq!(driver.writes.len(), 2, "the queued request is written next");
-        assert_eq!(driver.writes[1].0, queued_id);
-        drop(queued);
-    }
-
-    /// Issue #542: a public operation handle cannot name an unwritten request.
-    /// The rejection must travel through the normal terminal effect so the
-    /// owner drops the engine entry and queue ticket, resolves the temporary
-    /// observer, and returns the shared admission permit.
-    #[test]
-    fn blocking_operation_rejection_terminalizes_only_the_new_request() {
-        let mut owner_policy = policy(2, TransportKind::Datagram);
-        owner_policy.targets[usize::from(CameraId::CAMERA_1.id())] = Some(TargetPolicy {
-            command_sockets: 1,
-            cancellation: CancellationPolicy::Supported,
-        });
-        let mut owner = BlockingOwner::new(owner_policy).unwrap();
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut driver = FakeDriver::default();
-        let first = owner
-            .submit_operation(&mut driver, prepared_zoom_drive(&profile))
-            .unwrap();
-        let first_operation_id = first.id();
-        let first_id = owner.state().diagnostics().find_map(|event| match event {
-            DiagnosticEvent::Admitted { id, .. } => Some(*id),
-            _ => None,
-        });
-        let first_id = first_id.expect("first operation has one admission diagnostic");
-        let first_state = owner.state().request_state(first_id);
-
-        let error = owner
-            .submit_operation(&mut driver, prepared_zoom_drive(&profile))
-            .unwrap_err();
-        assert!(matches!(error, Error::TransportBusy));
-        assert_eq!(driver.writes.len(), 1);
-        assert_eq!(owner.state().active_len(), 1);
-        assert_eq!(owner.state().permits().available(), 1);
-        assert_eq!(owner.state().metrics().admitted, 2);
-        assert_eq!(owner.state().metrics().terminal, 1);
-        assert_eq!(owner.state().request_state(first_id), first_state);
-
-        let rejected_id = owner.state().diagnostics().find_map(|event| match event {
-            DiagnosticEvent::Terminal {
-                id,
-                outcome: OutcomeDiagnostic::Failed(ErrorKind::Busy),
-                ..
-            } => Some(*id),
-            _ => None,
-        });
-        let rejected_id = rejected_id.expect("rejected operation has one terminal diagnostic");
-        assert_ne!(rejected_id, first_id);
-        assert_eq!(first_operation_id, first_id.get());
-        assert!(owner.state().request_state(rejected_id).is_none());
-        assert!(owner.state().engine.entry(rejected_id).is_none());
-        owner.state().engine.assert_invariants().unwrap();
-        drop(first);
-    }
-
-    /// Issue #561: queueing is bounded by admission capacity, not by sockets.
-    #[test]
-    fn blocking_queue_depth_still_rejects_beyond_admission_capacity() {
-        let mut owner_policy = policy(2, TransportKind::Datagram);
-        owner_policy.targets[usize::from(CameraId::CAMERA_1.id())] = Some(TargetPolicy {
-            command_sockets: 1,
-            cancellation: CancellationPolicy::Supported,
-        });
-        let mut owner = BlockingOwner::new(owner_policy).unwrap();
-        let mut driver = FakeDriver::default();
-        let written = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        let queued = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .expect("the second request fills the bounded queue");
-        let error = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap_err();
-        assert!(matches!(error, Error::RuntimeQueueFull { capacity: 2 }));
-        assert_eq!(driver.writes.len(), 1);
-        assert_eq!(owner.state().active_len(), 2);
-        drop(written);
-        drop(queued);
-    }
-
-    /// Issue #561: three concurrent blocking submissions over two sockets all
-    /// succeed, and the queued one is written and completed in submit order.
-    #[test]
-    fn blocking_submissions_beyond_the_socket_count_all_complete_in_order() {
-        let mut owner = BlockingOwner::new(sony_policy(8, TransportKind::Datagram)).unwrap();
-        let mut driver = sony_driver(0..3);
-        let receipts: Vec<_> = (0..3)
-            .map(|index| {
-                owner
-                    .submit(
-                        &mut driver,
-                        command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-                    )
-                    .unwrap_or_else(|error| panic!("submission {index} must not fail: {error:?}"))
-            })
-            .collect();
-        let ids: Vec<_> = receipts.iter().map(ReceiptCore::id).collect();
-        assert_eq!(driver.writes.len(), 2, "only two sockets are available");
-        assert_eq!(
-            driver
-                .writes
-                .iter()
-                .map(|(id, _, _)| *id)
-                .collect::<Vec<_>>(),
-            ids[..2]
-        );
-        assert!(receipts.iter().all(|receipt| receipt.terminal().is_none()));
-
-        let now = Instant::now();
-        for socket in [ViscaSocket::S1, ViscaSocket::S2] {
-            owner
-                .inject_frame(
-                    &mut driver,
-                    sony_frame(
-                        CameraId::CAMERA_1,
-                        u32::from(socket.as_socket_number() - 1),
-                        DecodedResponse::Ack {
-                            socket: Some(socket),
-                        },
-                    ),
-                    now,
-                )
-                .unwrap();
-        }
-        owner
-            .inject_frame(
-                &mut driver,
-                sony_frame(
-                    CameraId::CAMERA_1,
-                    0,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        assert!(matches!(
-            receipts[0].terminal(),
-            Some(RuntimeOutcome::Applied)
-        ));
-        assert_eq!(driver.writes.len(), 3, "the queued request drains next");
-        assert_eq!(driver.writes[2].0, ids[2]);
-
-        owner
-            .inject_frame(
-                &mut driver,
-                sony_frame(
-                    CameraId::CAMERA_1,
-                    1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S2),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        assert!(matches!(
-            receipts[1].terminal(),
-            Some(RuntimeOutcome::Applied)
-        ));
-        owner
-            .inject_frame(
-                &mut driver,
-                sony_frame(
-                    CameraId::CAMERA_1,
-                    2,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                sony_frame(
-                    CameraId::CAMERA_1,
-                    2,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        assert!(matches!(
-            receipts[2].terminal(),
-            Some(RuntimeOutcome::Applied)
-        ));
-        assert_eq!(owner.state().active_len(), 0);
-    }
-
-    #[test]
-    fn paced_submission_does_not_advance_an_unrelated_ack_deadline() {
-        let mut owner_policy = policy(2, TransportKind::Datagram);
-        owner_policy.protocol.command_spacing = Duration::from_millis(30);
-        let mut owner = BlockingOwner::new(owner_policy).unwrap();
-        let mut driver = FakeDriver::default();
-
-        let mut a_request = command(CameraId::CAMERA_1, CancellationPolicy::Supported, None);
-        match &mut a_request {
-            RuntimeRequest::Command { context, .. } => {
-                context.timeout.ack = Duration::from_millis(5);
-            }
-            RuntimeRequest::Inquiry { .. } => unreachable!(),
-        }
-        let a = owner.submit(&mut driver, a_request).unwrap();
-        let a_id = a.id();
-        let before = owner.state().request_state(a_id).unwrap();
-        assert!(matches!(before.0, Phase::AwaitingAck { .. }));
-
-        let b = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        assert_eq!(
-            driver.writes.len(),
-            1,
-            "raw same-target B waits for A's ACK before it can be written"
-        );
-        assert_eq!(owner.state().request_state(a_id), Some(before));
-        assert!(a.terminal().is_none());
-        assert_eq!(owner.state().active_len(), 2);
-
-        let ack_deadline = match before.0 {
-            Phase::AwaitingAck { deadline, .. } => deadline,
-            phase => panic!("request A was not awaiting an ACK: {phase:?}"),
-        };
-        owner.wake(&mut driver, ack_deadline).unwrap();
-        // Issue #671/#723: A's own deadline still fires exactly here and emits
-        // its per-request terminal. The inert raw hold keeps B waiting without
-        // retaining A as a live phase.
-        assert!(matches!(
-            a.terminal(),
-            Some(RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed))
-        ));
-        assert!(owner.state().request_state(a_id).is_none());
-        assert_eq!(owner.state().active_len(), 1);
-        assert_eq!(owner.state().state(), SessionState::Running);
-        drop(b);
-    }
-
-    /// Issue #673/#723: the blocking pre-ACK drain skips a predecessor that
-    /// cannot accept an ACK. Completion-only commands retain raw exclusivity
-    /// without an ACK path, and a terminal keyed hold has no live request to
-    /// drain for.
-    #[test]
-    fn blocking_preack_drain_skips_completion_only_and_terminal_hold() {
-        let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-
-        let mut completion_only = command(CameraId::CAMERA_1, CancellationPolicy::Supported, None);
-        if let RuntimeRequest::Command { context, .. } = &mut completion_only {
-            context.reply_shape = ReplyShape::CompletionOnly;
-        }
-        let completion = owner.submit(&mut driver, completion_only).unwrap();
-        assert!(matches!(
-            owner.state().request_state(completion.id()),
-            Some((Phase::AwaitingCompletion { .. }, CancelState::None))
-        ));
-        assert!(!owner
-            .state()
-            .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1));
-
-        // A fatal reader proves the drain was not entered: if this path called
-        // pump_once, it would return the reader's boundary error.
-        let mut reader = DeadlineReader {
-            deadline: None,
-            result: Some(Err(Error::ConnectionClosed {
-                reason: Some("unexpected completion-only ACK pump".into()),
-            })),
-        };
-        let mut decoder = EmptyDecoder;
-        owner
-            .drain_raw_preack_gate_for_test(
-                &mut driver,
-                &mut reader,
-                &mut decoder,
-                CameraId::CAMERA_1,
-                Duration::from_millis(1),
-            )
-            .expect("completion-only submission must not pump for an ACK");
-        drop(completion);
-
-        let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let quarantine = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        let ack_deadline = match owner.state().request_state(quarantine.id()) {
-            Some((Phase::AwaitingAck { deadline, .. }, CancelState::None)) => deadline,
-            state => panic!("request did not await its ACK: {state:?}"),
-        };
-        owner
-            .wake(&mut driver, ack_deadline + Duration::from_millis(1))
-            .unwrap();
-        assert!(matches!(
-            quarantine.terminal(),
-            Some(RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed))
-        ));
-        assert!(owner.state().request_state(quarantine.id()).is_none());
-        assert!(!owner
-            .state()
-            .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1));
-
-        let mut reader = DeadlineReader {
-            deadline: None,
-            result: Some(Err(Error::ConnectionClosed {
-                reason: Some("unexpected terminal-hold ACK pump".into()),
-            })),
-        };
-        let mut decoder = EmptyDecoder;
-        owner
-            .drain_raw_preack_gate_for_test(
-                &mut driver,
-                &mut reader,
-                &mut decoder,
-                CameraId::CAMERA_1,
-                Duration::from_millis(1),
-            )
-            .expect("a terminal keyed hold must not pump for an ACK");
-        assert!(owner.state().request_state(quarantine.id()).is_none());
-        assert!(!owner
-            .state()
-            .raw_ack_input_may_enable_dispatch(CameraId::CAMERA_1));
-        drop(quarantine);
-    }
-
-    /// Issue #673's pre-ACK drain must leave ordinary queued work untouched
-    /// until the submitting operation has joined the scheduler. Otherwise the
-    /// ACK below frees a raw command socket and `finish_input_turn` can send
-    /// `ordinary` before the urgent stop is even admitted, causing that stop's
-    /// `RequireFirstWrite` boundary to reject it as `TransportBusy`.
-    #[test]
-    fn blocking_preack_drain_defers_ordinary_dispatch_until_urgent_admission() {
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut owner = BlockingOwner::new(policy(3, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-
-        let predecessor = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        let ordinary = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        assert_eq!(
-            driver.writes.len(),
-            1,
-            "ordinary work is queued behind raw ACK"
-        );
-
-        let mut reader = DeadlineReader {
-            deadline: None,
-            result: Some(Ok(BlockingReceive::Bytes(1))),
-        };
-        let mut decoder = ScriptedDecoder {
-            batches: VecDeque::from([vec![frame(
-                CameraId::CAMERA_1,
-                DecodedResponse::Ack {
-                    socket: Some(ViscaSocket::S1),
-                },
-            )]]),
-        };
-        owner
-            .drain_raw_preack_gate_for_test(
-                &mut driver,
-                &mut reader,
-                &mut decoder,
-                CameraId::CAMERA_1,
-                Duration::from_millis(100),
-            )
-            .unwrap();
-
-        assert_eq!(
-            driver.writes.len(),
-            1,
-            "the ACK drain does not dispatch ordinary work"
-        );
-        assert!(matches!(
-            owner.state().request_state(ordinary.id()),
-            Some((Phase::Ready { .. }, CancelState::None))
-        ));
-        assert!(matches!(
-            owner.state().request_state(predecessor.id()),
-            Some((
-                Phase::Executing {
-                    socket: ViscaSocket::S1,
-                    ..
-                },
-                CancelState::None
-            ))
-        ));
-
-        let urgent = owner
-            .submit_operation(&mut driver, prepared_zoom_stop(&profile))
-            .expect("urgent first write must win after the ACK drain");
-        assert_eq!(driver.writes.len(), 2);
-        assert_eq!(
-            driver.writes[1].0.get(),
-            urgent.id(),
-            "the urgent operation, not the queued ordinary command, consumes the freed socket"
-        );
-        assert_ne!(driver.writes[1].0, ordinary.id());
-        assert!(matches!(
-            owner.state().request_state(ordinary.id()),
-            Some((Phase::Ready { .. }, CancelState::None))
-        ));
-
-        drop(urgent);
-        drop(ordinary);
-        drop(predecessor);
-    }
-
-    /// Issue #673: a dispatch-suppressed drain must not turn an unrelated
-    /// ready request into an immediate receive wake.  The target-2 request is
-    /// made ready by acknowledging its predecessor in a suppressed turn; the
-    /// target-1 predecessor then remains in `AwaitingAck` while target 2 is
-    /// genuinely dispatch-eligible.  The target-1 ACK still has to arrive and
-    /// make room for the urgent operation.
-    #[test]
-    fn blocking_preack_drain_ignores_unrelated_ready_wake() {
-        #[derive(Debug)]
-        struct CountingReader {
-            events: VecDeque<BlockingReceive>,
-            calls: usize,
-            deadlines: Vec<Instant>,
-            first_call_at: Option<Instant>,
-        }
-
-        impl BlockingReadDriver for CountingReader {
-            fn receive(
-                &mut self,
-                receive_buffer: &mut [u8],
-                owner_deadline: Option<Instant>,
-            ) -> Result<BlockingReceive, Error> {
-                let call_at = Instant::now();
-                let deadline = owner_deadline.expect("pre-ACK drain must carry a budget");
-                assert!(
-                    deadline > call_at + Duration::from_millis(1),
-                    "an unrelated ready request made the receive deadline immediate: {deadline:?} at {call_at:?}"
-                );
-                self.calls = self.calls.saturating_add(1);
-                self.first_call_at.get_or_insert(call_at);
-                self.deadlines.push(deadline);
-                let event = self
-                    .events
-                    .pop_front()
-                    .ok_or_else(|| Error::InvalidState("counting reader exhausted".into()))?;
-                if self.calls == 1 {
-                    // A real blocking transport sleeps in receive until its
-                    // deadline.  Keep the fixture honest enough to catch a
-                    // hot loop while leaving time for the predecessor ACK.
-                    std::thread::sleep(Duration::from_millis(2));
-                }
-                if matches!(event, BlockingReceive::Bytes(_)) {
-                    receive_buffer[0] = 1;
-                }
-                Ok(event)
-            }
-        }
-
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().unwrap();
-        let mut owner_policy = policy(4, TransportKind::Datagram);
-        owner_policy.targets[usize::from(CameraId::CAMERA_2.id())]
-            .as_mut()
-            .expect("camera two is registered")
-            .command_sockets = 2;
-        let mut owner = BlockingOwner::new(owner_policy).unwrap();
-        let mut driver = FakeDriver::default();
-
-        let mut target1_request = command(CameraId::CAMERA_1, CancellationPolicy::Supported, None);
-        if let RuntimeRequest::Command { context, .. } = &mut target1_request {
-            context.timeout.ack = Duration::from_secs(1);
-        }
-        let target1 = owner.submit(&mut driver, target1_request).unwrap();
-        assert!(matches!(
-            owner.state().request_state(target1.id()),
-            Some((Phase::AwaitingAck { .. }, CancelState::None))
-        ));
-
-        // Queue a target-2 command behind its raw predecessor.  The
-        // predecessor's ACK is drained in suppressed mode, leaving this
-        // second command ready but now capacity-eligible.
-        let target2_first = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_2, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        let target2_ready = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_2, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        assert!(matches!(
-            owner.state().request_state(target2_ready.id()),
-            Some((Phase::Ready { .. }, CancelState::None))
-        ));
-
-        let mut target2_reader = DeadlineReader {
-            result: Some(Ok(BlockingReceive::Bytes(1))),
-            ..DeadlineReader::default()
-        };
-        let mut target2_decoder = ScriptedDecoder {
-            batches: VecDeque::from([vec![frame(
-                CameraId::CAMERA_2,
-                DecodedResponse::Ack {
-                    socket: Some(ViscaSocket::S1),
-                },
-            )]]),
-        };
-        owner
-            .drain_raw_preack_gate_for_test(
-                &mut driver,
-                &mut target2_reader,
-                &mut target2_decoder,
-                CameraId::CAMERA_2,
-                Duration::from_millis(100),
-            )
-            .unwrap();
-        assert!(matches!(
-            owner.state().request_state(target2_first.id()),
-            Some((Phase::Executing { .. }, CancelState::None))
-        ));
-        assert!(matches!(
-            owner.state().request_state(target2_ready.id()),
-            Some((Phase::Ready { .. }, CancelState::None))
-        ));
-
-        let ack_budget = Duration::from_millis(100);
-        let drain_started = Instant::now();
-        let mut reader = CountingReader {
-            events: VecDeque::from([BlockingReceive::TimedOut, BlockingReceive::Bytes(1)]),
-            calls: 0,
-            deadlines: Vec::new(),
-            first_call_at: None,
-        };
-        let mut decoder = ScriptedDecoder {
-            batches: VecDeque::from([vec![frame(
-                CameraId::CAMERA_1,
-                DecodedResponse::Ack {
-                    socket: Some(ViscaSocket::S1),
-                },
-            )]]),
-        };
-        owner
-            .drain_raw_preack_gate_for_test(
-                &mut driver,
-                &mut reader,
-                &mut decoder,
-                CameraId::CAMERA_1,
-                ack_budget,
-            )
-            .unwrap();
-
-        assert_eq!(
-            reader.calls, 2,
-            "the drain should block once, then read the ACK"
-        );
-        assert!(reader
-            .first_call_at
-            .is_some_and(|first_call| first_call >= drain_started));
-        assert!(reader
-            .deadlines
-            .first()
-            .is_some_and(|deadline| *deadline > drain_started));
-        assert!(reader
-            .deadlines
-            .first()
-            .is_some_and(|deadline| *deadline <= drain_started + ack_budget));
-        assert!(matches!(
-            owner.state().request_state(target1.id()),
-            Some((Phase::Executing { .. }, CancelState::None))
-        ));
-        assert!(matches!(
-            owner.state().request_state(target2_ready.id()),
-            Some((Phase::Ready { .. }, CancelState::None))
-        ));
-
-        let urgent = owner
-            .submit_operation(&mut driver, prepared_zoom_stop(&profile))
-            .expect("the predecessor ACK must free a target-1 socket");
-        assert_eq!(driver.writes.len(), 3);
-        assert_eq!(driver.writes[2].0.get(), urgent.id());
-
-        drop(urgent);
-        drop(target2_ready);
-        drop(target2_first);
-        drop(target1);
-    }
-
-    #[test]
-    fn blocking_reentrancy_fails_before_admission_or_write() {
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
-        owner.mark_pumping_for_test();
-        let mut driver = FakeDriver::default();
-        let error = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap_err();
-        assert!(matches!(error, Error::TransportBusy));
-        assert_eq!(owner.state().active_len(), 0);
-        assert!(driver.writes.is_empty());
-    }
-
-    #[test]
-    fn detached_late_completion_still_updates_cache_and_subscription() {
-        let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
-        let subscription = owner
-            .state_mut()
-            .subscribe_applied(Some(CameraId::CAMERA_1), 1)
-            .unwrap();
-        let projection = AppliedStateProjection::set(
-            WriteOnlyState::PanTiltLimits,
-            &[
-                i64::from(crate::command::PanTiltLimitCorner::UpRight.to_byte()),
-                42,
-                -3,
-            ],
-        )
-        .unwrap();
-        let mut driver = FakeDriver::default();
-        let receipt = owner
-            .submit(
-                &mut driver,
-                command(
-                    CameraId::CAMERA_1,
-                    CancellationPolicy::Supported,
-                    Some(projection),
-                ),
-            )
-            .unwrap();
-        drop(receipt);
-        let now = Instant::now();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        assert_eq!(
-            owner.state().metrics_snapshot().dropped_observer_events,
-            1,
-            "the detached receipt loses exactly its terminal observation"
+            "a reserved slot never frees an ordinary one"
         );
         assert_eq!(
-            cached_projection(
-                owner.state(),
-                CameraId::CAMERA_1,
-                WriteOnlyState::PanTiltLimits,
-            ),
-            Some(projection)
+            pool.try_acquire(&urgent).unwrap().slot(),
+            AdmissionSlot::ControlReserve,
+            "the released reserved slot returned to camera 1's reserve"
         );
-        assert_eq!(subscription.try_recv().unwrap().0.projection, projection);
-        assert_eq!(owner.state().active_len(), 0);
-    }
-
-    #[test]
-    fn prepared_pan_tilt_limit_updates_target_cache_only_after_applied() {
-        use crate::{
-            command::{semantics::WriteOnlyState, PanTiltLimitCorner},
-            prepared::prepare_command,
-            request::builtin::{PanTiltLimitClear, PanTiltLimitSet},
-            units::Degrees,
-            OperationalTuning, ProfileSpec,
-        };
-
-        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
-            .expect("built-in profile");
-        let set = PanTiltLimitSet::for_profile(
-            PanTiltLimitCorner::UpRight,
-            Degrees(45.0),
-            Degrees(-15.0),
-            &profile,
-        )
-        .expect("pan/tilt limit preparation");
-        let request = prepare_command(
-            &set,
-            CameraId::CAMERA_1,
-            &profile,
-            OperationalTuning::new(),
-            crate::prepared::ClassSelection::Request,
-        )
-        .expect("pan/tilt limit preparation")
-        .admit_with(|request, _timeout| request);
-        let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let receipt = owner.submit(&mut driver, request).unwrap();
-        assert_eq!(
-            cached_projection(
-                owner.state(),
-                CameraId::CAMERA_1,
-                WriteOnlyState::PanTiltLimits,
-            ),
-            None
-        );
-        drop(receipt);
-
-        let now = Instant::now();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        assert_eq!(
-            cached_projection(
-                owner.state(),
-                CameraId::CAMERA_1,
-                WriteOnlyState::PanTiltLimits,
-            ),
-            None
-        );
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        let cached = cached_projection(
-            owner.state(),
-            CameraId::CAMERA_1,
-            WriteOnlyState::PanTiltLimits,
-        )
-        .expect("pan/tilt limit cached after exact application");
-        assert!(matches!(
-            cached,
-            AppliedStateProjection::Set { value, .. }
-                if value.value_count == 3
-        ));
-
-        let clear = prepare_command(
-            &PanTiltLimitClear::new(PanTiltLimitCorner::UpRight),
-            CameraId::CAMERA_1,
-            &profile,
-            OperationalTuning::new(),
-            crate::prepared::ClassSelection::Request,
-        )
-        .expect("pan/tilt limit clear preparation")
-        .admit_with(|request, _timeout| request);
-        let clear_receipt = owner.submit(&mut driver, clear).unwrap();
-        assert_eq!(
-            cached_projection(
-                owner.state(),
-                CameraId::CAMERA_1,
-                WriteOnlyState::PanTiltLimits,
-            ),
-            Some(cached)
-        );
-        drop(clear_receipt);
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        assert_eq!(
-            cached_projection(
-                owner.state(),
-                CameraId::CAMERA_1,
-                WriteOnlyState::PanTiltLimits,
-            ),
-            Some(cached)
-        );
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        assert_eq!(
-            cached_projection(
-                owner.state(),
-                CameraId::CAMERA_1,
-                WriteOnlyState::PanTiltLimits,
-            ),
-            Some(
-                AppliedStateProjection::clear_with_values(
-                    WriteOnlyState::PanTiltLimits,
-                    &[i64::from(PanTiltLimitCorner::UpRight.to_byte())],
-                )
-                .expect("corner discriminator"),
-            )
-        );
-    }
-
-    #[test]
-    fn target_cache_preserves_set_clear_and_invalidate_with_bounded_targets() {
-        use crate::command::semantics::WriteOnlyState;
-
-        let set = AppliedStateProjection::set(WriteOnlyState::Spotlight, &[1]).unwrap();
-        let clear = AppliedStateProjection::clear(WriteOnlyState::ImageFreeze);
-        let invalidate = AppliedStateProjection::invalidate(WriteOnlyState::TallyMode);
-        let mut cache = TargetStateCache::default();
-
-        cache.apply(set, 2);
-        cache.apply(clear, 2);
-        cache.apply(invalidate, 2);
-
-        // The oldest key is evicted, while Clear and Invalidate remain
-        // distinguishable entries rather than collapsing to `None`.
-        assert_eq!(cache.get(WriteOnlyState::Spotlight), None);
-        assert_eq!(cache.get(WriteOnlyState::ImageFreeze), Some(clear));
-        assert_eq!(cache.get(WriteOnlyState::TallyMode), Some(invalidate));
-
-        let mut target_one = [TargetStateCache::default(), TargetStateCache::default()];
-        target_one[0].apply(set, 1);
-        target_one[1].apply(clear, 1);
-        assert_eq!(target_one[0].get(WriteOnlyState::Spotlight), Some(set));
-        assert_eq!(target_one[0].get(WriteOnlyState::ImageFreeze), None);
-        assert_eq!(target_one[1].get(WriteOnlyState::ImageFreeze), Some(clear));
-        assert_eq!(target_one[1].get(WriteOnlyState::Spotlight), None);
-    }
-
-    #[test]
-    fn prepared_plain_and_inquiry_admit_on_cancellation_capable_target() {
-        use crate::{
-            command::PowerInquiry,
-            prepared::{prepare_command, prepare_inquiry},
-            request::builtin::FocusModeCommand,
-            OperationalTuning, ProfileSpec,
-        };
-
-        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
-            .expect("built-in profile");
-        let plain = prepare_command(
-            &FocusModeCommand::Manual,
-            CameraId::CAMERA_1,
-            &profile,
-            OperationalTuning::new(),
-            crate::prepared::ClassSelection::Request,
-        )
-        .expect("plain preparation")
-        .admit_with(|request, _timeout| request);
-        let inquiry = prepare_inquiry(
-            &PowerInquiry,
-            CameraId::CAMERA_1,
-            &profile,
-            OperationalTuning::new(),
-            crate::prepared::ClassSelection::Request,
-        )
-        .expect("inquiry preparation")
-        .admit_with(|request, _decoder, _timeout| request);
-
-        for request in [plain, inquiry] {
-            let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
-            let mut driver = FakeDriver::default();
-            let receipt = owner.submit(&mut driver, request).unwrap();
-            assert_eq!(driver.writes.len(), 1);
-            drop(receipt);
-        }
-    }
-
-    #[test]
-    fn unsupported_sent_cancellation_emits_no_cancel_write() {
-        let mut owner_policy = policy(2, TransportKind::Datagram);
-        owner_policy.targets[usize::from(CameraId::CAMERA_1.id())] = Some(TargetPolicy {
-            command_sockets: 2,
-            cancellation: CancellationPolicy::Unsupported,
-        });
-        let mut owner = BlockingOwner::new(owner_policy).unwrap();
-        let mut driver = FakeDriver::default();
-        let operation = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Unsupported, None),
-            )
-            .unwrap();
-        let id = operation.id();
-        let before = owner.state().request_state(id).unwrap();
-        let rejected = owner.cancel_test(&mut driver, operation).unwrap_err();
-        assert!(matches!(rejected.error, Error::NotSupported));
-        // A refused cancellation returns the receipt so the caller keeps the
-        // observer for the request the engine deliberately left running (#612).
-        let operation = rejected
-            .receipt
-            .expect("a refused cancellation returns the operation receipt");
-        assert_eq!(operation.id, id);
-        assert_eq!(owner.state().request_state(id), Some(before));
-        assert_eq!(owner.state().active_len(), 1);
-        assert_eq!(
-            driver
-                .writes
-                .iter()
-                .filter(|(_, _, cancellation)| *cancellation)
-                .count(),
-            0
-        );
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                Instant::now(),
-            )
-            .unwrap();
-        assert_eq!(owner.state().active_len(), 1);
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                Instant::now(),
-            )
-            .unwrap();
-        assert_eq!(owner.state().active_len(), 0);
-    }
-
-    #[test]
-    fn datagram_cancel_write_failure_resolves_token_and_retains_late_routing() {
-        let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let operation = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                Instant::now(),
-            )
-            .unwrap();
-        driver
-            .results
-            .push_back(Err(Error::TransportError("cancel write failed".into())));
-
-        let cancellation = owner.cancel_test(&mut driver, operation).unwrap();
-        match cancellation.recv_test().unwrap() {
-            CancellationObservation::Failed(Error::TransportError(reason)) => {
-                assert_eq!(reason, "cancel write failed");
-            }
-            other => panic!("unexpected cancellation observation: {other:?}"),
-        }
-        assert_eq!(owner.state().state(), SessionState::Running);
-        assert_eq!(owner.state().active_len(), 1);
-
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                Instant::now(),
-            )
-            .unwrap();
-        assert_eq!(owner.state().active_len(), 0);
-    }
-
-    #[test]
-    fn stream_cancel_write_failure_poisons_token_session_and_peers() {
-        let mut owner = BlockingOwner::new(policy(2, TransportKind::Stream)).unwrap();
-        let mut driver = FakeDriver::default();
-        let operation = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                Instant::now(),
-            )
-            .unwrap();
-        let peer = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_2, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        driver.results.push_back(Err(Error::Timeout));
-
-        let cancellation = owner.cancel_test(&mut driver, operation).unwrap();
-        assert!(matches!(
-            cancellation.recv_test().unwrap(),
-            CancellationObservation::Failed(Error::StreamPoisoned { .. })
-        ));
-        assert!(matches!(
-            peer.terminal(),
-            Some(RuntimeOutcome::Failed(Error::StreamPoisoned { .. }))
-        ));
-        assert_eq!(owner.state().state(), SessionState::Poisoned);
-        assert_eq!(owner.state().active_len(), 0);
-    }
-
-    #[test]
-    fn cancellation_receipt_retains_terminal_observation_after_recorded() {
-        let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let operation = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                Instant::now(),
-            )
-            .unwrap();
-        let cancellation = owner.cancel_test(&mut driver, operation).unwrap();
-        assert_eq!(
-            driver
-                .writes
-                .iter()
-                .filter(|(_, _, cancellation)| *cancellation)
-                .count(),
-            1
-        );
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Error {
-                        socket: Some(ViscaSocket::S1),
-                        code: 0x04,
-                    },
-                ),
-                Instant::now(),
-            )
-            .unwrap();
-        assert!(matches!(
-            cancellation.recv_test().unwrap(),
-            CancellationObservation::Cancelled
-        ));
-        assert_eq!(owner.state().active_len(), 0);
-    }
-
-    #[test]
-    fn already_buffered_completion_wins_cancellation_race() {
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let operation = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        let now = Instant::now();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Ack {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        owner
-            .inject_frame(
-                &mut driver,
-                frame(
-                    CameraId::CAMERA_1,
-                    DecodedResponse::Completion {
-                        socket: Some(ViscaSocket::S1),
-                    },
-                ),
-                now,
-            )
-            .unwrap();
-        let cancellation = owner.cancel_test(&mut driver, operation).unwrap();
-        assert!(matches!(
-            cancellation.recv_test().unwrap(),
-            CancellationObservation::Completed
-        ));
-    }
-
-    #[test]
-    fn blocking_receive_uses_earliest_observer_or_engine_deadline() {
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver::default();
-        let receipt = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        let observer_deadline = Instant::now() + Duration::from_millis(2);
-        let mut reader = DeadlineReader::default();
-        let mut decoder = EmptyDecoder;
-        assert_eq!(
-            owner
-                .pump_once_until(
-                    &mut driver,
-                    &mut reader,
-                    &mut decoder,
-                    Some(observer_deadline),
-                )
-                .unwrap(),
-            0
-        );
-        assert!(reader
-            .deadline
-            .is_some_and(|deadline| deadline <= observer_deadline));
-        assert_eq!(owner.state().active_len(), 1);
-        drop(receipt);
-    }
-
-    #[test]
-    fn diagnostics_have_bounded_stream_and_blocking_drain() {
-        let mut owner_policy = policy(1, TransportKind::Datagram);
-        owner_policy.limits.diagnostics = 4;
-        owner_policy.limits.diagnostic_events_per_subscription = 1;
-        let mut owner = BlockingOwner::new(owner_policy).unwrap();
-        let subscription = owner.state_mut().subscribe_diagnostics(1).unwrap();
-        let mut driver = FakeDriver::default();
-        let receipt = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        assert!(matches!(
-            subscription.try_recv(),
-            Some(DiagnosticEvent::Admitted {
-                target: CameraId::CAMERA_1,
-                ..
-            })
-        ));
-        assert!(owner.state().metrics().dropped_diagnostic_events > 0);
-        let drained = owner.drain_diagnostics();
-        assert!(!drained.is_empty());
-        assert_eq!(owner.state().diagnostics().count(), 0);
-        drop(receipt);
-    }
-
-    #[test]
-    fn warmed_raw_and_sony_retries_reuse_owner_buffers() {
-        for envelope in [EnvelopeKind::Raw, EnvelopeKind::Sony] {
-            let mut owner_policy = policy(1, TransportKind::Datagram);
-            owner_policy.protocol.envelope = envelope;
-            let mut owner = BlockingOwner::new(owner_policy).unwrap();
-            let mut request = command(CameraId::CAMERA_1, CancellationPolicy::Supported, None);
-            if let RuntimeRequest::Command { context, .. } = &mut request {
-                context.retry = RetryPolicy {
-                    max_retries: 1,
-                    initial_backoff: Duration::ZERO,
-                    maximum_backoff: Duration::ZERO,
-                    total_budget: Duration::from_secs(1),
-                    ack_timeout: false,
-                    completion_timeout: false,
-                    inquiry_timeout: false,
-                    buffer_full: true,
-                    movement_not_executable: false,
-                    builtin_inquiry_syntax: false,
-                };
-            }
-            let mut driver = FramingDriver::new(envelope);
-            let receipt = owner.submit(&mut driver, request).unwrap();
-            let sequence = match envelope {
-                EnvelopeKind::Raw => None,
-                EnvelopeKind::Sony => Some(EnvelopeSequence {
-                    value: 0,
-                    width: SequenceWidth::Full32,
-                }),
-            };
-            owner
-                .inject_frame(
-                    &mut driver,
-                    DecodedFrame {
-                        target: CameraId::CAMERA_1,
-                        sequence,
-                        response: DecodedResponse::Error {
-                            socket: None,
-                            code: 0x03,
-                        },
-                    },
-                    Instant::now(),
-                )
-                .unwrap();
-            assert_eq!(driver.frames.len(), 2, "{envelope:?} retry write");
-            assert_eq!(driver.raw_pointers[0], driver.raw_pointers[1]);
-            assert_eq!(driver.frame_pointers[0], driver.frame_pointers[1]);
-            assert_eq!(driver.frame_capacities[0], driver.frame_capacities[1]);
-            if envelope == EnvelopeKind::Sony {
-                assert_eq!(driver.sequences, vec![Some(0), Some(0)]);
-                assert_eq!(driver.frames[0], driver.frames[1]);
-            }
-            drop(receipt);
-        }
-    }
-
-    #[test]
-    fn deadline_detach_diagnostics_and_buffers_remain_bounded() {
-        let mut owner_policy = policy(2, TransportKind::Datagram);
-        // Exercise the detached deadline lifecycle through the no-reader
-        // `wake` seam without pretending that a wake can release raw
-        // correlation. Issue #542 decisions 7 and 18 require real input-first
-        // evidence at that raw boundary; a uniquely sequenced Sony write has
-        // no such release gate and may safely expire at its own ACK deadline.
-        owner_policy.protocol.envelope = EnvelopeKind::Sony;
-        owner_policy.limits.diagnostics = 3;
-        owner_policy.limits.state_keys_per_target = 2;
-        let mut owner = BlockingOwner::new(owner_policy).unwrap();
-        let send_ptr = owner.state_mut().buffers().send.as_ptr();
-        let receive_ptr = owner.state_mut().buffers().receive_mut().as_ptr();
-        let mut driver = sony_driver([0x1020_3040]);
-        let receipt = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        let request = receipt.id;
-        assert_eq!(driver.writes.len(), 1, "the request reached the wire");
-        assert!(
-            receipt.terminal().is_none(),
-            "the sequenced write remains live while awaiting its ACK"
-        );
-        assert_eq!(owner.state().active_len(), 1);
-        assert_eq!(owner.state().permits().available(), 1);
-        let ack_deadline = owner
-            .state()
-            .next_wake()
-            .expect("the live request owns an ACK deadline");
-        assert!(
-            matches!(
-                owner.state().request_state(request),
-                Some((Phase::AwaitingAck { deadline, .. }, CancelState::None))
-                    if deadline == ack_deadline
-            ),
-            "the sequenced write owns the engine's next ACK deadline"
-        );
-
-        drop(receipt);
-        assert!(
-            matches!(
-                owner.state().request_state(request),
-                Some((Phase::AwaitingAck { deadline, .. }, CancelState::None))
-                    if deadline == ack_deadline
-            ),
-            "detaching the observer does not alter protocol ownership"
-        );
-        assert_eq!(owner.state().active_len(), 1);
-        assert_eq!(owner.state().permits().available(), 1);
-
-        owner.wake(&mut driver, ack_deadline).unwrap();
-
-        assert_eq!(
-            driver.writes.len(),
-            1,
-            "RetryPolicy::NEVER must not emit a second transmission"
-        );
-        let metrics = owner.state().metrics();
-        assert_eq!(metrics.ack_timeouts, 1);
-        assert_eq!(metrics.retries_scheduled, 0);
-        assert!(owner.state().diagnostics().count() <= 3);
-        assert!(metrics.dropped_diagnostics > 0);
-        assert_eq!(owner.state_mut().buffers().send.as_ptr(), send_ptr);
-        assert_eq!(
-            owner.state_mut().buffers().receive_mut().as_ptr(),
-            receive_ptr
-        );
-        assert_eq!(owner.state().active_len(), 0);
-        assert_eq!(owner.state().permits().available(), 2);
-        assert!(owner.state().request_state(request).is_none());
-    }
-
-    #[test]
-    fn write_failure_and_shutdown_resolve_and_release_once() {
-        let mut owner = BlockingOwner::new(policy(2, TransportKind::Datagram)).unwrap();
-        let mut driver = FakeDriver {
-            results: VecDeque::from([Err(Error::Timeout)]),
-            ..FakeDriver::default()
-        };
-        let error = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap_err();
-        assert!(matches!(error, Error::Timeout));
-        assert_eq!(owner.state().active_len(), 0);
-        assert_eq!(owner.state().permits().available(), 2);
-
-        let mut stream_owner = BlockingOwner::new(policy(1, TransportKind::Stream)).unwrap();
-        let mut stream_driver = FakeDriver {
-            results: VecDeque::from([Err(Error::Timeout)]),
-            ..FakeDriver::default()
-        };
-        let stream_error = stream_owner
-            .submit(
-                &mut stream_driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap_err();
-        assert!(matches!(stream_error, Error::StreamPoisoned { .. }));
-        assert_eq!(stream_owner.state().state(), SessionState::Poisoned);
-        assert_eq!(stream_owner.state().active_len(), 0);
-        assert_eq!(stream_owner.state().permits().available(), 1);
-
-        let receipt = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        owner.shutdown(&mut driver).unwrap();
-        assert!(matches!(
-            receipt.terminal(),
-            Some(RuntimeOutcome::Failed(Error::RuntimeShutdown))
-        ));
-        assert_eq!(owner.state().active_len(), 0);
-        assert_eq!(owner.state().permits().available(), 2);
-
-        // A repeated explicit shutdown is an idempotent no-op: it must not
-        // write again or resolve another terminal event.
-        let writes_after_shutdown = driver.writes.len();
-        let terminals_after_shutdown = owner.state().metrics().terminal;
-        owner.shutdown(&mut driver).unwrap();
-        assert_eq!(driver.writes.len(), writes_after_shutdown);
-        assert_eq!(owner.state().metrics().terminal, terminals_after_shutdown);
-
-        // A different fatal boundary must remain visible to a later explicit
-        // shutdown instead of being mistaken for an idempotent repeat.
-        let writes_after_poison = stream_driver.writes.len();
-        let error = stream_owner
-            .shutdown(&mut stream_driver)
-            .expect_err("stream poison must not be hidden by shutdown");
-        assert!(matches!(error, Error::StreamPoisoned { .. }));
-        assert_eq!(stream_driver.writes.len(), writes_after_poison);
-    }
-
-    #[test]
-    fn blocking_shutdown_preserves_reentrancy_error() {
-        let mut owner = BlockingOwner::new(policy(1, TransportKind::Datagram)).unwrap();
-        owner.mark_pumping_for_test();
-        let mut driver = FakeDriver::default();
-
-        let error = owner
-            .shutdown(&mut driver)
-            .expect_err("re-entrant shutdown must be rejected");
-        assert!(matches!(error, Error::TransportBusy));
-        assert!(driver.writes.is_empty());
-    }
-
-    /// Issue #634: the blocking facade is replayed against every expectation
-    /// column the facade can observe.
-    ///
-    /// `BlockingOwner::submit` admits, dispatches and completes the initial
-    /// write as one operation, so the fixture's intermediate `ready`/`sending`
-    /// transitions are not facade-observable; the record-for-record replay of
-    /// the same fixture at the owner-state seam lives in `lifecycle_trace`.
-    /// Everything the facade *can* see is asserted here against the fixture's
-    /// own columns: the exact wire bytes of every transmission, the engine
-    /// identity behind every ticket, the socket every ACK claimed, terminal
-    /// removal and permit release, retention of an unwaited outcome, and the
-    /// exact terminal outcome each wait observes.
-    #[test]
-    fn blocking_out_of_order_fixture_replays_through_production_owner() {
-        const FIXTURE: &str =
-            include_str!("../../../tests/fixtures/issue_542/lifecycle/blocking_out_of_order.trace");
-
-        let mut owner: Option<BlockingOwner> = None;
-        let mut driver = FakeDriver::default();
-        let mut receipts = BTreeMap::<String, ReceiptCore>::new();
-        let mut identities = BTreeMap::<u64, RequestId>::new();
-        let mut waited: Option<String> = None;
-        let mut transmits = 0_usize;
-        let mut records = 0_usize;
-        let base = Instant::now();
-
-        for line in FIXTURE.lines().map(str::trim) {
-            if line.is_empty() || line.starts_with('#') {
-                continue;
-            }
-            records += 1;
-            let fields: Vec<_> = line.split_ascii_whitespace().collect();
-            let at = fields[0].parse::<u64>().unwrap();
-            match (fields[1], fields[2]) {
-                ("input", "session") => {
-                    let capacity = trace_field(&fields, "capacity").parse().unwrap();
-                    owner = Some(
-                        BlockingOwner::new(policy(capacity, TransportKind::Datagram)).unwrap(),
-                    );
-                }
-                ("effect", "session") => {
-                    let owner = owner.as_ref().unwrap();
-                    assert_eq!(
-                        owner.state().state(),
-                        SessionState::Running,
-                        "fixture session state: {line}"
-                    );
-                    assert_eq!(
-                        owner.state().policy().protocol.transport,
-                        TransportKind::Datagram
-                    );
-                    assert_eq!(
-                        owner.state().permits().capacity().to_string(),
-                        trace_field(&fields, "capacity"),
-                        "fixture admission capacity: {line}"
-                    );
-                    assert_eq!(
-                        owner.state().policy().targets[1].unwrap().cancellation,
-                        CancellationPolicy::Supported
-                    );
-                }
-                ("input", "blocking-submit") => {
-                    let owner = owner.as_mut().unwrap();
-                    let label = fields[3].to_owned();
-                    let target =
-                        CameraId::new(trace_field(&fields, "target").parse::<u8>().unwrap())
-                            .unwrap();
-                    let mut request = command(target, CancellationPolicy::Supported, None);
-                    if let RuntimeRequest::Command { wire, context, .. } = &mut request {
-                        // The fixture's own wire bytes, so the transmission
-                        // expectation below compares against the real write.
-                        *wire = Arc::new(
-                            EncodedMessage::new(&trace_bytes(trace_field(&fields, "wire")))
-                                .unwrap(),
-                        );
-                        context.timeout.ack = Duration::from_secs(60);
-                        context.timeout.completion = Duration::from_secs(60);
-                    }
-                    let receipt = owner.submit(&mut driver, request).unwrap();
-                    assert!(receipts.insert(label, receipt).is_none());
-                }
-                ("effect", "admitted") => {
-                    let owner = owner.as_ref().unwrap();
-                    let receipt = &receipts[trace_field(&fields, "ticket")];
-                    let id: u64 = trace_field(&fields, "id").parse().unwrap();
-                    identities.insert(id, receipt.id);
-                    assert_eq!(receipt.id.get(), id, "fixture engine identity: {line}");
-                    assert_eq!(
-                        receipt.target,
-                        CameraId::new(trace_field(&fields, "target").parse::<u8>().unwrap())
-                            .unwrap(),
-                        "fixture admission target: {line}"
-                    );
-                    assert_eq!(
-                        owner.state().permits().available(),
-                        owner.state().permits().capacity() - owner.state().active_len(),
-                        "an admitted request holds exactly one permit: {line}"
-                    );
-                    assert_eq!(trace_field(&fields, "observer"), "blocking");
-                }
-                ("outcome", "admission") => {
-                    let receipt = &receipts[trace_field(&fields, "ticket")];
-                    assert_eq!(
-                        receipt.id.get().to_string(),
-                        trace_field(&fields, "id"),
-                        "fixture admission reply: {line}"
-                    );
-                }
-                ("effect", "state") => {
-                    let owner = owner.as_ref().unwrap();
-                    let id = identities[&trace_field(&fields, "id").parse().unwrap()];
-                    let to = trace_field(&fields, "to");
-                    let phase = owner.state().request_state(id).map(|state| state.0);
-                    match to {
-                        // Admission, dispatch and the initial write are one
-                        // facade operation; only their settled result is
-                        // observable here.
-                        "sending" | "awaiting-ack" => assert!(
-                            matches!(phase, Some(Phase::AwaitingAck { .. })),
-                            "fixture phase {to}: {line} (actual {phase:?})"
-                        ),
-                        other => {
-                            let socket = trace_socket_suffix(other);
-                            assert!(
-                                matches!(phase, Some(Phase::Executing { socket: owned, .. }) if owned == socket),
-                                "fixture phase {other}: {line} (actual {phase:?})"
-                            );
-                        }
-                    }
-                }
-                ("effect", "transmit") => {
-                    let index: usize = trace_field(&fields, "tx").parse().unwrap();
-                    transmits = transmits.max(index);
-                    let id = identities[&trace_field(&fields, "id").parse().unwrap()];
-                    let (written, bytes, cancellation) = &driver.writes[index - 1];
-                    assert_eq!(*written, id, "fixture transmission owner: {line}");
-                    assert_eq!(
-                        bytes.as_slice(),
-                        trace_bytes(trace_field(&fields, "wire")).as_slice(),
-                        "fixture transmission bytes: {line}"
-                    );
-                    assert!(!cancellation, "fixture request transmission: {line}");
-                    assert_eq!(trace_field(&fields, "kind"), "request");
-                }
-                ("driver-input", "transmission-finished") => {
-                    let index: usize = trace_field(&fields, "tx").parse().unwrap();
-                    assert_eq!(trace_field(&fields, "result"), "ok");
-                    assert!(driver.writes.len() >= index, "fixture write result: {line}");
-                }
-                ("outcome", "blocking-handle") => {
-                    let receipt = &receipts[trace_field(&fields, "ticket")];
-                    assert_eq!(
-                        receipt.id.get().to_string(),
-                        trace_field(&fields, "id"),
-                        "fixture blocking handle identity: {line}"
-                    );
-                    assert_eq!(
-                        driver.writes.len(),
-                        transmits,
-                        "a blocking handle is returned only after its initial write: {line}"
-                    );
-                    assert_eq!(trace_field(&fields, "initial-write"), "complete");
-                }
-                ("input", "frame") => {
-                    let owner = owner.as_mut().unwrap();
-                    let bytes = trace_bytes(trace_field(&fields, "bytes"));
-                    let decoded = decode_basic(&bytes).expect("fixture frame bytes decode");
-                    let response = match (fields[3], decoded.kind) {
-                        ("ack", BasicKind::Ack) => DecodedResponse::Ack {
-                            socket: decoded.socket,
-                        },
-                        ("complete", BasicKind::Completion) => DecodedResponse::Completion {
-                            socket: decoded.socket,
-                        },
-                        ("error", BasicKind::Error(code)) => DecodedResponse::Error {
-                            socket: decoded.socket,
-                            code,
-                        },
-                        other => panic!("fixture frame {other:?} disagrees with its own bytes"),
-                    };
-                    owner
-                        .inject_frame(
-                            &mut driver,
-                            frame(decoded.source, response),
-                            base + Duration::from_millis(at),
-                        )
-                        .unwrap();
-                }
-                ("effect", "frame-routed") => {
-                    let owner = owner.as_ref().unwrap();
-                    let id = identities[&trace_field(&fields, "id").parse().unwrap()];
-                    let socket = trace_socket(&fields);
-                    let phase = owner.state().request_state(id).map(|state| state.0);
-                    assert!(
-                        match phase {
-                            Some(Phase::Executing { socket: owned, .. }) => owned == socket,
-                            // A routed completion or error terminalizes the
-                            // request that owned the frame's socket.
-                            None => true,
-                            _ => false,
-                        },
-                        "fixture frame routing: {line} (actual {phase:?})"
-                    );
-                    assert_eq!(trace_field(&fields, "via"), "target-socket");
-                }
-                ("effect", "terminal") => {
-                    let owner = owner.as_ref().unwrap();
-                    let id = identities[&trace_field(&fields, "id").parse().unwrap()];
-                    assert!(
-                        owner.state().request_state(id).is_none(),
-                        "fixture terminal removes the engine entry: {line}"
-                    );
-                    assert_eq!(trace_field(&fields, "state"), "removed");
-                    assert_eq!(trace_field(&fields, "permit"), "released");
-                    assert_eq!(
-                        owner.state().permits().available(),
-                        owner.state().permits().capacity() - owner.state().active_len(),
-                        "a terminal request releases its permit: {line}"
-                    );
-                }
-                ("effect", "outcome-retained") => {
-                    let id: u64 = trace_field(&fields, "id").parse().unwrap();
-                    let receipt = receipts
-                        .values()
-                        .find(|receipt| receipt.id.get() == id)
-                        .expect("an attached blocking receipt");
-                    assert!(
-                        !receipt.completion.receiver.is_empty(),
-                        "a blocking receipt retains its outcome until it waits: {line}"
-                    );
-                    assert_eq!(trace_field(&fields, "observer"), "blocking");
-                }
-                ("input", "blocking-wait") => waited = Some(fields[3].to_owned()),
-                ("outcome", "blocking-wait") => {
-                    let label = waited.take().expect("a preceding blocking wait");
-                    let receipt = receipts.remove(&label).unwrap();
-                    assert_eq!(
-                        receipt.id.get().to_string(),
-                        trace_field(&fields, "id"),
-                        "fixture wait identity: {line}"
-                    );
-                    let outcome = receipt.terminal().expect("a settled blocking receipt");
-                    let expected = fields[4];
-                    let matched = matches!(
-                        (&outcome, expected),
-                        (RuntimeOutcome::Applied, "Applied")
-                            | (RuntimeOutcome::Cancelled, "Cancelled")
-                            | (
-                                RuntimeOutcome::Failed(Error::SyntaxError),
-                                "Error::SyntaxError"
-                            )
-                    );
-                    assert!(matched, "fixture wait outcome: {line} (actual {outcome:?})");
-                }
-                other => panic!("unsupported blocking fixture record {other:?}"),
-            }
-        }
-
-        assert_eq!(records, 70, "every fixture record must be consumed");
-        assert!(receipts.is_empty());
-        assert_eq!(owner.as_ref().unwrap().state().active_len(), 0);
-    }
-
-    fn trace_field<'a>(fields: &[&'a str], name: &str) -> &'a str {
-        fields
-            .iter()
-            .find_map(|field| field.split_once('=').filter(|(key, _)| *key == name))
-            .map(|(_, value)| value)
-            .unwrap_or_else(|| panic!("fixture field {name}"))
-    }
-
-    fn trace_bytes(text: &str) -> Vec<u8> {
-        assert!(text.len().is_multiple_of(2), "fixture byte string {text}");
-        (0..text.len() / 2)
-            .map(|index| u8::from_str_radix(&text[index * 2..index * 2 + 2], 16).unwrap())
-            .collect()
-    }
-
-    fn trace_socket(fields: &[&str]) -> ViscaSocket {
-        match trace_field(fields, "socket") {
-            "1" => ViscaSocket::S1,
-            "2" => ViscaSocket::S2,
-            other => panic!("fixture socket {other}"),
-        }
-    }
-
-    fn trace_socket_suffix(phase: &str) -> ViscaSocket {
-        match phase {
-            "executing(socket=1)" => ViscaSocket::S1,
-            "executing(socket=2)" => ViscaSocket::S2,
-            other => panic!("fixture phase {other}"),
-        }
-    }
-
-    /// The envelope sequence is decoder-owned end to end: the owner carries the
-    /// value its *driver* stamped on the write into the engine's correlation
-    /// table, rather than inventing one or matching on arrival order. A
-    /// socketless Sony reply naming a different sequence therefore belongs to
-    /// some other write and must leave this request exactly where it was.
-    #[test]
-    fn a_sony_reply_is_correlated_by_the_sequence_the_driver_stamped() {
-        let mut owner_policy = policy(1, TransportKind::Datagram);
-        owner_policy.protocol.envelope = EnvelopeKind::Sony;
-        let mut owner = BlockingOwner::new(owner_policy).unwrap();
-        let mut driver = FramingDriver::new(EnvelopeKind::Sony);
-        let receipt = owner
-            .submit(
-                &mut driver,
-                command(CameraId::CAMERA_1, CancellationPolicy::Supported, None),
-            )
-            .unwrap();
-        let stamped = driver.sequences[0].expect("the Sony envelope stamps every write");
-        let now = Instant::now();
-
-        let sequenced = |value: u32, response| DecodedFrame {
-            target: CameraId::CAMERA_1,
-            sequence: Some(EnvelopeSequence {
-                value,
-                width: SequenceWidth::Full32,
-            }),
-            response,
-        };
-        let phase = |owner: &BlockingOwner| {
-            owner
-                .state()
-                .request_state(receipt.id)
-                .map(|state| state.0)
-                .expect("the request is still tracked")
-        };
-
-        owner
-            .inject_frame(
-                &mut driver,
-                sequenced(
-                    stamped.wrapping_add(1),
-                    DecodedResponse::Ack { socket: None },
-                ),
-                now,
-            )
-            .unwrap();
-        assert!(
-            matches!(phase(&owner), Phase::AwaitingAck { .. }),
-            "a foreign sequence must not acknowledge this request"
-        );
-
-        owner
-            .inject_frame(
-                &mut driver,
-                sequenced(stamped, DecodedResponse::Ack { socket: None }),
-                now,
-            )
-            .unwrap();
-        assert!(
-            matches!(phase(&owner), Phase::Executing { .. }),
-            "the stamped sequence is this request's acknowledgement"
-        );
-
-        owner
-            .inject_frame(
-                &mut driver,
-                sequenced(
-                    stamped.wrapping_add(1),
-                    DecodedResponse::Completion { socket: None },
-                ),
-                now,
-            )
-            .unwrap();
-        assert!(
-            matches!(phase(&owner), Phase::Executing { .. }),
-            "a foreign sequence must not complete this request"
-        );
-
-        owner
-            .inject_frame(
-                &mut driver,
-                sequenced(stamped, DecodedResponse::Completion { socket: None }),
-                now,
-            )
-            .unwrap();
-        assert!(
-            matches!(receipt.terminal(), Some(RuntimeOutcome::Applied)),
-            "the stamped sequence completes this request"
-        );
+        drop(held);
+        assert_eq!(pool.available(), 1);
     }
 }
 
 #[test]
 fn pan_tilt_limit_cache_rejects_unknown_corner_discriminators() {
     let mut cache = TargetStateCache::default();
-    let known = AppliedStateProjection::set(WriteOnlyState::PanTiltLimits, &[0, 12, -4])
+    let known = AppliedStateProjection::set(StateKey::PanTiltLimits, &[0, 12, -4])
         .expect("valid down-left limit projection");
-    let malformed_set = AppliedStateProjection::set(WriteOnlyState::PanTiltLimits, &[3, 9, 8])
+    let malformed_set = AppliedStateProjection::set(StateKey::PanTiltLimits, &[3, 9, 8])
         .expect("bounded malformed projection");
-    let malformed_clear =
-        AppliedStateProjection::clear_with_values(WriteOnlyState::PanTiltLimits, &[3])
-            .expect("bounded malformed projection");
+    let malformed_clear = AppliedStateProjection::clear_with_values(StateKey::PanTiltLimits, &[3])
+        .expect("bounded malformed projection");
 
     cache.apply(known, 1);
     cache.apply(malformed_set, 1);
     assert_eq!(
-        cache.get(WriteOnlyState::PanTiltLimits),
+        cache.get(StateKey::PanTiltLimits),
         Some(known),
         "a malformed set must not replace the known corner"
     );
 
     cache.apply(malformed_clear, 1);
     assert_eq!(
-        cache.get(WriteOnlyState::PanTiltLimits),
+        cache.get(StateKey::PanTiltLimits),
         Some(known),
         "a malformed clear must not replace the known corner"
+    );
+
+    // A limit clear is local to one corner like a limit set; one that names
+    // no corner is malformed, not a whole-key clear.
+    cache.apply(AppliedStateProjection::clear(StateKey::PanTiltLimits), 1);
+    assert_eq!(
+        cache.get(StateKey::PanTiltLimits),
+        Some(known),
+        "a clear that names no corner must not replace the known corner"
     );
 }
 
@@ -5957,7 +347,6 @@ mod metrics {
             CancellationPolicy, ControlPolicy, DeadlineKind, DecodedFrame, DecodedResponse,
             EncodedMessage, EnvelopeKind, EnvelopeSequence, InquiryRoute, ReplyShape,
             RequestContext, RetryPolicy, SequenceWidth, TimeoutPolicy, TransmissionMeta,
-            TransportKind,
         },
         CameraId, Error, ViscaSocket,
     };
@@ -5985,28 +374,20 @@ mod metrics {
         let protocol = ProtocolPolicy {
             capacity: 4,
             envelope,
-            transport: TransportKind::Datagram,
             inquiry_capacity: 2,
-            command_spacing: Duration::ZERO,
-            inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
             raw_inquiry_release_hold: Duration::from_millis(10),
-            raw_release_grace: Duration::from_millis(100),
-            strict_unconfirmed_poison: false,
+            ..ProtocolPolicy::test_default()
         };
-        OwnerPolicy::single_target(
-            protocol,
-            CameraId::CAMERA_1,
-            TargetPolicy {
-                command_sockets: 2,
-                cancellation: CancellationPolicy::Supported,
-            },
-        )
-        .unwrap()
+        OwnerPolicy::single_target(protocol, CameraId::CAMERA_1, TargetPolicy::test_default())
+            .unwrap()
     }
 
     fn request_context(retry: RetryPolicy) -> RequestContext {
         RequestContext {
+            motion: None,
+            submission_order: 0,
+            dispatch_deadline: None,
             target: CameraId::CAMERA_1,
             timeout: TimeoutPolicy {
                 ack: ACK,
@@ -6076,9 +457,12 @@ mod metrics {
         request: RuntimeRequest,
         sequence: Option<u32>,
         now: Instant,
-    ) -> CompletionObserver {
-        let permit = state.permits().try_acquire().expect("admission permit");
-        let (input, observer, _admission) = state.stage_admission(request, permit);
+    ) -> TerminalObserver {
+        let permit = state
+            .permits()
+            .try_acquire_ordinary()
+            .expect("admission permit");
+        let (input, observer, _admission) = super::stage_admission(state, request, permit);
         let effects = state.input(input, now);
         drain(state, effects, sequence, now);
         observer
@@ -6150,7 +534,10 @@ mod metrics {
         let metrics = state.metrics();
         assert_eq!(metrics.completion_timeouts, 1);
         assert_eq!(metrics.ack_timeouts, 0);
-        assert!(saw_deadline(&state, DeadlineKind::Completion, true));
+        // #795: an acknowledged Sony command is never rewritten, so its
+        // completion deadline is reported without a retry.
+        assert_eq!(metrics.retries_scheduled, 0);
+        assert!(saw_deadline(&state, DeadlineKind::Completion, false));
     }
 
     #[test]
@@ -6305,7 +692,354 @@ mod metrics {
         const fn assert_copy<T: Copy>() {}
         assert_copy::<OwnerMetrics>();
         assert_copy::<DiagnosticEvent>();
-        assert_eq!(size_of::<OwnerMetrics>(), 21 * size_of::<u64>());
+        assert_eq!(size_of::<OwnerMetrics>(), 23 * size_of::<u64>());
+    }
+    fn admit_observation(
+        state: &mut OwnerState,
+        request: RuntimeRequest,
+        now: Instant,
+    ) -> (OperationObservation, Arc<ObserverCell<RuntimeOutcome>>) {
+        let permit = state.permits.try_acquire(request.context()).unwrap();
+        let (observer, cell) = TerminalObserver::pair();
+        let (reply, admitted) = flume::bounded(1);
+        let input = state.stage_admission_with(request, permit, Arc::clone(&cell), reply);
+        let turn = state.begin_input_turn(now);
+        for effect in state.input_in_turn(&turn, input) {
+            let _ = state.apply_effect(effect);
+        }
+        let _ = state.finish_input_turn(turn, EngineTurn::INPUT_ONLY);
+        let core = ReceiptCore::admitted(
+            admitted.recv().unwrap().unwrap(),
+            CameraId::CAMERA_1,
+            observer,
+            ACK,
+        );
+        (OperationObservation::new(core, ACK), cell)
+    }
+
+    fn observation_fixture() -> (OperationObservation, Arc<ObserverCell<RuntimeOutcome>>) {
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        admit_observation(&mut state, command(retrying()), Instant::now())
+    }
+
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[test]
+    fn admission_supersedes_even_if_cancelled_before_write_but_rejection_does_not() {
+        use crate::AffectedAxes;
+        let now = Instant::now();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let mut request = command(retrying());
+        request.context_mut().motion = Some(crate::runtime::engine::MotionEffect {
+            axes: AffectedAxes::PAN_TILT,
+            stop: false,
+        });
+        request.context_mut().submission_order = 1;
+        let (mut original, _) = admit_observation(&mut state, request.clone(), now);
+        // A same-target, same-axis request rejected before admission cannot
+        // steal attribution from the operation occupying the owner.
+        let held: Vec<_> = (0..3)
+            .map(|_| state.permits.try_acquire_ordinary().unwrap())
+            .collect();
+        let (handle, _ends) = boundary::OwnerHandleCore::new(&state);
+        assert!(matches!(
+            handle.enqueue_admission(request.clone(), None),
+            Err(Error::RuntimeQueueFull { .. })
+        ));
+        assert!(original.check_settlement().is_ok());
+        drop(held);
+        request.context_mut().submission_order = 2;
+        let permit = state.permits.try_acquire(request.context()).unwrap();
+        let (input, completion, reply) = super::stage_admission(&mut state, request, permit);
+        let admission_turn = state.begin_input_turn(now);
+        let effects = state.input_in_turn(&admission_turn, input);
+        assert!(
+            matches!(
+                original.check_settlement(),
+                Err(Error::SettlementSuperseded { .. })
+            ),
+            "engine admission invalidates attribution before its Admitted effect drains"
+        );
+        for effect in effects {
+            let _ = state.apply_effect(effect);
+        }
+        let _ = state.finish_input_turn(admission_turn, EngineTurn::INPUT_ONLY);
+        let later = OperationObservation::new(
+            ReceiptCore::admitted(
+                reply.recv().unwrap().unwrap(),
+                CameraId::CAMERA_1,
+                completion,
+                ACK,
+            ),
+            ACK,
+        );
+        let turn = state.begin_input_turn(now);
+        for effect in state.input_in_turn(&turn, Input::Cancel { id: later.id() }) {
+            let _ = state.apply_effect(effect);
+        }
+        let _ = state.finish_input_turn(turn, EngineTurn::INPUT_ONLY);
+        assert!(matches!(
+            original.check_settlement(),
+            Err(Error::SettlementSuperseded { .. })
+        ));
+        assert!(matches!(
+            later
+                .core
+                .completion
+                .try_observed()
+                .map(|event| event.value),
+            Some(RuntimeOutcome::Cancelled)
+        ));
+    }
+
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[test]
+    fn halt_owner_acceptance_orders_concurrent_ingress_and_settlement_generation() {
+        use crate::AffectedAxes;
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let (handle, ends) = boundary::OwnerHandleCore::new(&state);
+        let stamp = state
+            .motion
+            .establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 0);
+        let barrier = Arc::new(std::sync::Barrier::new(2));
+        let producer = handle.clone();
+        let ready = Arc::clone(&barrier);
+        let request = command(retrying());
+        let joined = std::thread::spawn(move || {
+            ready.wait();
+            producer.enqueue_admission(request, None).unwrap()
+        });
+        barrier.wait();
+        let cutoff = ends
+            .lifecycle
+            .fence_order(
+                &state.motion,
+                CameraId::CAMERA_1,
+                Some(AffectedAxes::PAN_TILT),
+            )
+            .unwrap();
+        let _held = joined.join().unwrap();
+        let concurrent = ends.receivers.admissions.recv().unwrap();
+        let order = concurrent.request.context().submission_order;
+        assert_ne!(
+            order, cutoff,
+            "concurrent enqueue has exactly one side of acceptance"
+        );
+        assert!(
+            stamp.check(crate::OperationId::from_raw(1)).is_err(),
+            "generation publishes at acceptance"
+        );
+        let _later = handle.enqueue_admission(command(retrying()), None).unwrap();
+        assert!(
+            ends.receivers
+                .admissions
+                .recv()
+                .unwrap()
+                .request
+                .context()
+                .submission_order
+                > cutoff
+        );
+        // The engine uses the actual acceptance cutoff, whichever side the
+        // concurrent enqueue took; an earlier halt enqueue is not the fence.
+        let mut motion = command(retrying());
+        motion.context_mut().motion = Some(crate::runtime::engine::MotionEffect {
+            axes: AffectedAxes::PAN_TILT,
+            stop: false,
+        });
+        motion.context_mut().submission_order = order;
+        let _ = state
+            .engine
+            .halt(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, cutoff);
+        let effects = state.engine.handle_turn(
+            Input::Admit {
+                ticket: AdmissionTicket(99),
+                request: motion,
+                slot: AdmissionSlot::Ordinary,
+            },
+            Instant::now(),
+            EngineTurn::INPUT_ONLY,
+        );
+        assert_eq!(
+            effects.iter().any(|effect| matches!(
+                effect,
+                Effect::AdmissionRejected {
+                    error: Error::MotionSuperseded { .. },
+                    ..
+                }
+            )),
+            order < cutoff
+        );
+    }
+
+    #[test]
+    fn operation_delivery_before_equal_and_after_deadline_is_cached_honestly() {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        for delivered in [
+            deadline - Duration::from_nanos(1),
+            deadline,
+            deadline + Duration::from_nanos(1),
+        ] {
+            let (mut observation, cell) = observation_fixture();
+            cell.resolve_at(RuntimeOutcome::Applied, delivered);
+            assert_eq!(
+                observation.applied(deadline).is_some(),
+                delivered <= deadline
+            );
+            assert!(
+                matches!(
+                    observation.applied(deadline + Duration::from_secs(1)),
+                    Some(Ok(()))
+                ),
+                "late result stays reusable"
+            );
+        }
+    }
+
+    #[test]
+    fn timely_cancel_failure_wins_over_late_terminal_then_reobservation_gets_terminal() {
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let (mut observation, terminal) = observation_fixture();
+        let cancel = observation.cancellation_request();
+        cancel.observer.resolve_at(Error::NotSupported, deadline);
+        terminal.resolve_at(RuntimeOutcome::Applied, deadline + Duration::from_nanos(1));
+        assert!(matches!(
+            observation.cancellation(deadline),
+            Some(Err(Error::NotSupported))
+        ));
+        assert!(matches!(
+            observation.cancellation(deadline + Duration::from_nanos(1)),
+            Some(Ok(CancellationOutcome::Completed))
+        ));
+        let (mut observation, _) = observation_fixture();
+        observation
+            .cancellation_request()
+            .observer
+            .resolve_at(Error::NotSupported, deadline + Duration::from_nanos(1));
+        assert!(observation.cancellation(deadline).is_none());
+        assert!(matches!(
+            observation.cancellation(deadline + Duration::from_nanos(1)),
+            Some(Err(Error::NotSupported))
+        ));
+    }
+
+    #[test]
+    fn settlement_attribution_is_axis_local_cached_and_profile_completion_is_exact() {
+        use crate::{AffectedAxes, Settlement};
+        let registry = Arc::new(MotionRegistry::default());
+        let (mut observation, _) = observation_fixture();
+        observation.core.motion =
+            Some(registry.establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 1));
+        registry.establish(CameraId::CAMERA_1, AffectedAxes::ZOOM, 2);
+        registry.establish(CameraId::new(2).unwrap(), AffectedAxes::PAN_TILT, 3);
+        assert!(observation.check_settlement().is_ok());
+        let evidence = Settlement::observed_stable(
+            AffectedAxes::PAN_TILT,
+            ACK,
+            crate::camera::MovementTolerance::default(),
+        );
+        assert_eq!(
+            observation.commit_settlement(Ok(evidence), true).unwrap(),
+            evidence
+        );
+        registry.establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 4);
+        assert_eq!(
+            observation.settled().unwrap().unwrap(),
+            evidence,
+            "established evidence persists"
+        );
+        let (mut superseded, _) = observation_fixture();
+        superseded.core.motion =
+            Some(registry.establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 5));
+        registry.establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 6);
+        assert!(matches!(
+            superseded.commit_settlement(Ok(evidence), true),
+            Err(Error::SettlementSuperseded { .. })
+        ));
+        let (mut exact, _) = observation_fixture();
+        exact.core.motion = Some(registry.establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 7));
+        registry.establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 8);
+        let exact_evidence = Settlement::profile_completion(AffectedAxes::PAN_TILT);
+        assert_eq!(
+            exact.commit_settlement(Ok(exact_evidence), false).unwrap(),
+            exact_evidence
+        );
+    }
+
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[test]
+    fn failed_settlement_poll_retains_cause_without_granting_original_move_replay() {
+        let (observation, _) = observation_fixture();
+        let error = settlement_error(
+            Error::timeout(
+                crate::FailureStage::Terminal,
+                crate::Certainty::FailedConclusively,
+            ),
+            observation.id(),
+        );
+        assert_eq!(
+            error.failure_context(),
+            Some(crate::FailureContext::new(
+                crate::FailureStage::Observation,
+                crate::Certainty::Unconfirmed
+            ))
+        );
+        assert!(!error.is_retryable());
+        assert!(
+            matches!(error, Error::SettlementObservationFailed { operation, source } if operation.get() == observation.id().get() && source.failure_context() == Some(crate::FailureContext::new(crate::FailureStage::Terminal, crate::Certainty::FailedConclusively)))
+        );
+    }
+
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[test]
+    fn halt_reserve_exhaustion_counts_each_axis_and_releases_no_held_permit() {
+        let now = Instant::now();
+        let mut policy = owner_policy(EnvelopeKind::Raw);
+        policy.targets[1].as_mut().unwrap().control_reserve = 2;
+        let mut state = OwnerState::new(policy).unwrap();
+        let held: Vec<_> = (0..4)
+            .map(|_| state.permits.try_acquire_ordinary().unwrap())
+            .collect();
+        let mut stop = command(retrying());
+        stop.context_mut().control.class = ControlClass::Urgent;
+        let reserved: Vec<_> = (0..2)
+            .map(|_| state.permits.try_acquire(stop.context()).unwrap())
+            .collect();
+        assert!(reserved
+            .iter()
+            .all(|permit| permit.slot() == AdmissionSlot::ControlReserve));
+        let stop_context = *stop.context();
+        let receipt = state.accept_halt(
+            crate::prepared::PreparedHalt {
+                target: CameraId::CAMERA_1,
+                axes: Some(crate::AffectedAxes::MOVEMENT),
+                requests: [
+                    Some(Ok(stop.clone())),
+                    Some(Ok(stop.clone())),
+                    Some(Ok(stop)),
+                ],
+                budget: ACK,
+            },
+            now + ACK,
+            1,
+            now,
+        );
+        for slot in receipt.slots {
+            assert!(matches!(
+                slot,
+                Some(Err(Error::ControlReserveExhausted { .. }))
+            ));
+        }
+        assert_eq!(state.metrics.admission_rejected, 3);
+        assert_eq!(state.metrics.control_reserve_rejected, 3);
+        assert_eq!(state.permits.available(), 0);
+        drop(reserved);
+        assert_eq!(
+            state.permits.try_acquire(&stop_context).unwrap().slot(),
+            AdmissionSlot::ControlReserve
+        );
+        assert_eq!(state.permits.available(), 0);
+        drop(held);
+        assert_eq!(state.permits.available(), 4);
     }
 }
 
@@ -6317,10 +1051,10 @@ fn an_idle_read_error_reports_no_data_rather_than_a_fault() {
     use std::sync::Arc;
 
     for idle in [
-        Error::Timeout,
+        Error::io_timeout(),
         Error::Io(Arc::new(std::io::Error::from(ErrorKind::WouldBlock))),
         Error::Io(Arc::new(std::io::Error::from(ErrorKind::Interrupted))),
-        Error::Timeout.with_context("idle poll"),
+        Error::io_timeout().with_context("idle poll"),
     ] {
         assert!(
             receive_reported_no_data(&idle),
@@ -6393,14 +1127,15 @@ fn a_datagram_send_failure_is_normalized_to_a_per_request_error() {
 
     // Errors that are already per-request are passed through untouched.
     assert!(matches!(
-        normalize_datagram_send_error(Error::Timeout),
-        Error::Timeout
+        normalize_datagram_send_error(Error::io_timeout()),
+        Error::Timeout { .. }
     ));
     assert!(matches!(
         normalize_datagram_send_error(Error::TransportError("serial encode failed".into())),
         Error::TransportError(_)
     ));
 }
+
 /// Issue #634: every normative issue-542 lifecycle fixture replays through the
 /// production owner and engine.
 ///
@@ -6428,8 +1163,8 @@ mod lifecycle_trace {
     use crate::{
         protocol::response::{decode_basic, BasicKind},
         runtime::engine::{
-            CancellationPolicy, ControlPolicy, EncodedMessage, EnvelopeKind, InquiryRoute,
-            ReplyShape, RequestContext, RetryPolicy, TimeoutPolicy, TransportKind,
+            CancellationPolicy, ControlPolicy, EncodedMessage, InquiryRoute, ReplyShape,
+            RequestContext, RetryPolicy, TimeoutPolicy, TransportKind,
         },
         CameraId, Error,
     };
@@ -6457,16 +1192,16 @@ mod lifecycle_trace {
     struct ObserverSlot {
         kind: ObserverKind,
         /// Dropping the observer *is* the detach operation.
-        observer: Option<CompletionObserver>,
-        cell: Arc<ObserverCell>,
+        observer: Option<TerminalObserver>,
+        cell: Arc<ObserverCell<RuntimeOutcome>>,
         terminal_source: Option<&'static str>,
     }
 
     struct Pending {
         label: String,
         kind: ObserverKind,
-        observer: CompletionObserver,
-        admission: flume::Receiver<Result<RequestId, Error>>,
+        observer: TerminalObserver,
+        admission: flume::Receiver<Result<Admitted, Error>>,
         permits_before: usize,
         active_before: usize,
     }
@@ -6560,8 +1295,13 @@ mod lifecycle_trace {
     /// that substitutes or collapses errors renders a different label.
     fn error_label(error: &Error) -> String {
         match error {
-            Error::Timeout => "Timeout".to_owned(),
+            Error::Timeout { .. } => "Timeout".to_owned(),
             Error::SyntaxError => "SyntaxError".to_owned(),
+            // #795: an error after the request's ACK keeps the camera's exact
+            // error as its source.
+            Error::CommandFailedAfterAck { source, .. } => {
+                format!("CommandFailedAfterAck({})", error_label(source))
+            }
             Error::MessageLengthError => "MessageLengthError".to_owned(),
             Error::CommandBufferFull => "CommandBufferFull".to_owned(),
             Error::CommandCanceled => "CommandCanceled".to_owned(),
@@ -6591,7 +1331,7 @@ mod lifecycle_trace {
     fn write_result(label: &str) -> Result<TransmissionMeta, Error> {
         match label {
             "ok" => Ok(TransmissionMeta { sequence: None }),
-            "Timeout" => Err(Error::Timeout),
+            "Timeout" => Err(Error::io_timeout()),
             other => Err(Error::TransportError(Cow::Owned(other.to_owned()))),
         }
     }
@@ -6619,21 +1359,17 @@ mod lifecycle_trace {
     ) -> OwnerPolicy {
         let protocol = ProtocolPolicy {
             capacity,
-            envelope: EnvelopeKind::Raw,
             transport,
             inquiry_capacity: capacity,
-            command_spacing: Duration::ZERO,
-            inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
             raw_inquiry_release_hold: Duration::from_millis(10),
-            raw_release_grace: Duration::from_millis(100),
-            strict_unconfirmed_poison: false,
+            ..ProtocolPolicy::test_default()
         };
         let mut targets = [None; 9];
         for slot in targets.iter_mut().take(4).skip(1) {
             *slot = Some(TargetPolicy {
-                command_sockets: 2,
                 cancellation,
+                ..TargetPolicy::test_default()
             });
         }
         OwnerPolicy::with_targets(protocol, targets).unwrap()
@@ -6648,6 +1384,9 @@ mod lifecycle_trace {
         RuntimeRequest::Command {
             wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
             context: RequestContext {
+                motion: None,
+                submission_order: 0,
+                dispatch_deadline: None,
                 target,
                 timeout: TimeoutPolicy {
                     ack,
@@ -6663,9 +1402,7 @@ mod lifecycle_trace {
             },
             // Applied-state delivery is one of the normative observations, and
             // an unsubscribed fixture simply produces no subscriber record.
-            applied_state: Some(
-                AppliedStateProjection::set(WriteOnlyState::Spotlight, &[1]).unwrap(),
-            ),
+            applied_state: Some(AppliedStateProjection::set(StateKey::Spotlight, &[1]).unwrap()),
         }
     }
 
@@ -6678,6 +1415,9 @@ mod lifecycle_trace {
         RuntimeRequest::Inquiry {
             wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
             context: RequestContext {
+                motion: None,
+                submission_order: 0,
+                dispatch_deadline: None,
                 target,
                 timeout: TimeoutPolicy {
                     ack: UNREACHABLE,
@@ -6839,7 +1579,7 @@ mod lifecycle_trace {
 
             let permits_before = self.state().permits().available();
             let active_before = self.state().active_len();
-            let Some(permit) = self.state().permits().try_acquire() else {
+            let Ok(permit) = self.state().permits().try_acquire_ordinary() else {
                 out.push(format!(
                     "{} outcome admission ticket={label} error=Capacity capacity={} engine-entry=none observer=none transmission=none",
                     self.at,
@@ -6859,8 +1599,14 @@ mod lifecycle_trace {
                 other => panic!("unknown fixture request kind {other}"),
             };
             let now = self.now;
-            let (staged, observer, admission) = self.state_mut().stage_admission(request, permit);
-            let Input::Admit { ticket, request } = staged else {
+            let (staged, observer, admission) =
+                super::stage_admission(self.state_mut(), request, permit);
+            let Input::Admit {
+                ticket,
+                request,
+                slot,
+            } = staged
+            else {
                 panic!("staged admission did not produce an admit input")
             };
             self.pending = Some(Pending {
@@ -6871,10 +1617,20 @@ mod lifecycle_trace {
                 permits_before,
                 active_before,
             });
-            let effects = self.state_mut().input_with_turn(
-                Input::Admit { ticket, request },
-                now,
-                EngineTurn::INPUT_ONLY,
+            // Admission alone: the fixture's own `dispatch` step decides when
+            // the scheduler writes.
+            let turn = self.state().begin_input_turn(now);
+            let mut effects = self.state_mut().input_in_turn(
+                &turn,
+                Input::Admit {
+                    ticket,
+                    request,
+                    slot,
+                },
+            );
+            effects.extend(
+                self.state_mut()
+                    .finish_input_turn(turn, EngineTurn::INPUT_ONLY),
             );
             self.drain(effects, "admission", out);
             assert!(
@@ -6883,32 +1639,25 @@ mod lifecycle_trace {
             );
         }
 
+        /// A blocking submission is admission followed, in the same owner
+        /// turn, by the scheduler's ordinary dispatch of the admitted request.
         fn blocking_submit(&mut self, input: &[&str], out: &mut Vec<String>) {
             self.admit(input, out);
-            let label = input[3];
-            let id = self.id(label);
+            let id = self.id(input[3]);
             self.dispatch(id, "ok", out);
-            assert!(
-                matches!(
-                    self.state().request_state(id),
-                    Some((Phase::AwaitingAck { .. }, _))
-                ),
-                "a blocking handle is returned only after its initial write completes"
-            );
-            out.push(format!(
-                "{} outcome blocking-handle ticket={label} id={} initial-write=complete",
-                self.at,
-                id.get()
-            ));
         }
 
         fn dispatch(&mut self, id: RequestId, result: &str, out: &mut Vec<String>) {
             self.write_label = result.to_owned();
             let now = self.now;
-            match self.state_mut().first_dispatch(id, now) {
-                FirstDispatch::Effects(effects) => self.drain(effects.into(), "transport", out),
-                other => panic!("fixture dispatch is not the scheduler winner: {other:?}"),
-            }
+            let effects = self.state_mut().advance(now);
+            assert!(
+                effects.iter().any(
+                    |effect| matches!(effect, Effect::Transmit { request, .. } if *request == id)
+                ),
+                "fixture dispatch is not the scheduler winner"
+            );
+            self.drain(effects, "transport", out);
         }
 
         fn frame(&mut self, input: &[&str], out: &mut Vec<String>) {
@@ -7012,7 +1761,7 @@ mod lifecycle_trace {
                     "{} outcome operation id={} Error::{} source=observer",
                     self.at,
                     id.get(),
-                    error_label(&Error::Timeout)
+                    error_label(&Error::io_timeout())
                 ));
             }
             let (phase, _) = self
@@ -7093,11 +1842,9 @@ mod lifecycle_trace {
                 .get_mut(&id)
                 .expect("fixture observer is registered");
             let observer = slot.observer.take().expect("a retained blocking observer");
-            let outcome = observation_outcome(
-                observer
-                    .try_recv()
-                    .expect("a blocking wait consumes its retained terminal outcome"),
-            );
+            let outcome = observer
+                .try_recv()
+                .expect("a blocking wait consumes its retained terminal outcome");
             out.push(format!(
                 "{} outcome blocking-wait id={} {} source={}",
                 self.at,
@@ -7331,7 +2078,10 @@ mod lifecycle_trace {
                 id,
                 ObserverSlot {
                     kind: pending.kind,
-                    cell: Arc::clone(&pending.observer.cell),
+                    cell: pending
+                        .observer
+                        .cell()
+                        .expect("the owner holds the admitted cell"),
                     observer: Some(pending.observer),
                     terminal_source: None,
                 },
@@ -7440,11 +2190,9 @@ mod lifecycle_trace {
             };
             match slot.kind {
                 ObserverKind::Async => {
-                    let outcome = observation_outcome(
-                        observer
-                            .try_recv()
-                            .expect("an attached observer receives its terminal outcome"),
-                    );
+                    let outcome = observer
+                        .try_recv()
+                        .expect("an attached observer receives its terminal outcome");
                     out.push(format!(
                         "{at} outcome operation id={} {} source={source}",
                         id.get(),
@@ -7573,19 +2321,19 @@ mod lifecycle_trace {
     }
 
     #[test]
-    fn blocking_handles_follow_initial_write_and_retain_exact_out_of_order_outcomes() {
+    fn blocking_observers_retain_exact_out_of_order_outcomes() {
         let records = replay(BLOCKING_OUT_OF_ORDER);
-        let first_write = records
+        let retained = records
             .iter()
-            .position(|line| line.contains("transmission-finished tx=1 result=ok"))
-            .expect("first initial write result");
-        let first_handle = records
+            .position(|line| line.contains("outcome-retained id=1 observer=blocking"))
+            .expect("the first request's outcome is retained");
+        let waited = records
             .iter()
-            .position(|line| line.contains("blocking-handle ticket=a"))
-            .expect("first blocking handle");
+            .position(|line| line.contains("outcome blocking-wait id=1 Applied"))
+            .expect("the first request's wait");
         assert!(
-            first_write < first_handle,
-            "a blocking handle is returned only after its initial write completes"
+            retained < waited,
+            "an out-of-order outcome is retained until its own wait reads it"
         );
     }
 }

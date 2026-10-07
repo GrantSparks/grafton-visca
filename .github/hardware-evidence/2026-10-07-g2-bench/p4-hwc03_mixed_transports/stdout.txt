@@ -1,0 +1,207 @@
+
+running 1 test
+test hwc03_mixed_transports ... HW|t=0|cameras=["cam1", "cam2", "cam3", "cam4", "cam5"] profile=PtzOpticsG2
+HW|t=0|cam=cam1|connect.tcp=cam1:5678
+HW|t=234|cam=cam1|baseline.rest[0].sample[0]=Ok((PanTiltPosition { pan: 0, tilt: -203 }, ZoomPosition(0)))
+HW|t=657|cam=cam1|baseline.rest[0].sample[1]=Ok((PanTiltPosition { pan: 0, tilt: -203 }, ZoomPosition(0)))
+HW|t=1065|cam=cam1|baseline.rest[0].sample[2]=Ok((PanTiltPosition { pan: 0, tilt: -203 }, ZoomPosition(0)))
+HW|t=1465|cam=cam1|baseline.rest[0].sample[3]=Ok((PanTiltPosition { pan: 0, tilt: -203 }, ZoomPosition(0)))
+HW|t=1866|cam=cam1|baseline.rest[0].sample[4]=Ok((PanTiltPosition { pan: 0, tilt: -203 }, ZoomPosition(0)))
+HW|t=1866|cam=cam1|baseline.rest[0].rest_stable=true
+HW|t=2635|cam=cam1|baseline=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=2635|cam=cam2|connect.udp=cam2:1259
+HW|t=2859|cam=cam2|baseline.rest[0].sample[0]=Ok((PanTiltPosition { pan: 208, tilt: -207 }, ZoomPosition(0)))
+HW|t=3259|cam=cam2|baseline.rest[0].sample[1]=Ok((PanTiltPosition { pan: 208, tilt: -207 }, ZoomPosition(0)))
+HW|t=3659|cam=cam2|baseline.rest[0].sample[2]=Ok((PanTiltPosition { pan: 208, tilt: -207 }, ZoomPosition(0)))
+HW|t=4059|cam=cam2|baseline.rest[0].sample[3]=Ok((PanTiltPosition { pan: 208, tilt: -207 }, ZoomPosition(0)))
+HW|t=4460|cam=cam2|baseline.rest[0].sample[4]=Ok((PanTiltPosition { pan: 208, tilt: -207 }, ZoomPosition(0)))
+HW|t=4460|cam=cam2|baseline.rest[0].rest_stable=true
+HW|t=5224|cam=cam2|baseline=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=5224|cam=cam3|connect.tcp=cam3:5678
+HW|t=5477|cam=cam3|baseline.rest[0].sample[0]=Ok((PanTiltPosition { pan: -856, tilt: -233 }, ZoomPosition(0)))
+HW|t=5877|cam=cam3|baseline.rest[0].sample[1]=Ok((PanTiltPosition { pan: -856, tilt: -233 }, ZoomPosition(0)))
+HW|t=6275|cam=cam3|baseline.rest[0].sample[2]=Ok((PanTiltPosition { pan: -856, tilt: -233 }, ZoomPosition(0)))
+HW|t=6676|cam=cam3|baseline.rest[0].sample[3]=Ok((PanTiltPosition { pan: -856, tilt: -233 }, ZoomPosition(0)))
+HW|t=7075|cam=cam3|baseline.rest[0].sample[4]=Ok((PanTiltPosition { pan: -856, tilt: -233 }, ZoomPosition(0)))
+HW|t=7076|cam=cam3|baseline.rest[0].rest_stable=true
+HW|t=7833|cam=cam3|baseline=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=7833|cam=cam4|connect.udp=cam4:1259
+HW|t=8029|cam=cam4|baseline.rest[0].sample[0]=Ok((PanTiltPosition { pan: 814, tilt: 0 }, ZoomPosition(0)))
+HW|t=8430|cam=cam4|baseline.rest[0].sample[1]=Ok((PanTiltPosition { pan: 814, tilt: 0 }, ZoomPosition(0)))
+HW|t=8830|cam=cam4|baseline.rest[0].sample[2]=Ok((PanTiltPosition { pan: 814, tilt: 0 }, ZoomPosition(0)))
+HW|t=9230|cam=cam4|baseline.rest[0].sample[3]=Ok((PanTiltPosition { pan: 814, tilt: 0 }, ZoomPosition(0)))
+HW|t=9630|cam=cam4|baseline.rest[0].sample[4]=Ok((PanTiltPosition { pan: 814, tilt: 0 }, ZoomPosition(0)))
+HW|t=9630|cam=cam4|baseline.rest[0].rest_stable=true
+HW|t=10390|cam=cam4|baseline=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=10391|cam=cam5|connect.tcp=cam5:5678
+HW|t=10640|cam=cam5|baseline.rest[0].sample[0]=Ok((PanTiltPosition { pan: 1000, tilt: -239 }, ZoomPosition(0)))
+HW|t=11040|cam=cam5|baseline.rest[0].sample[1]=Ok((PanTiltPosition { pan: 1000, tilt: -239 }, ZoomPosition(0)))
+HW|t=11441|cam=cam5|baseline.rest[0].sample[2]=Ok((PanTiltPosition { pan: 1000, tilt: -239 }, ZoomPosition(0)))
+HW|t=11841|cam=cam5|baseline.rest[0].sample[3]=Ok((PanTiltPosition { pan: 1000, tilt: -239 }, ZoomPosition(0)))
+HW|t=12254|cam=cam5|baseline.rest[0].sample[4]=Ok((PanTiltPosition { pan: 1000, tilt: -239 }, ZoomPosition(0)))
+HW|t=12254|cam=cam5|baseline.rest[0].rest_stable=true
+HW|t=12992|cam=cam5|baseline=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=12992|ATTRIBUTION_FIELDS cam=cam1 cam=cam2 differ=["pan_tilt"]
+HW|t=12992|ATTRIBUTION_FIELDS cam=cam1 cam=cam3 differ=["pan_tilt"]
+HW|t=12992|ATTRIBUTION_FIELDS cam=cam1 cam=cam4 differ=["pan_tilt"]
+HW|t=12992|ATTRIBUTION_FIELDS cam=cam1 cam=cam5 differ=["pan_tilt"]
+HW|t=12992|ATTRIBUTION_FIELDS cam=cam2 cam=cam3 differ=["pan_tilt"]
+HW|t=12992|ATTRIBUTION_FIELDS cam=cam2 cam=cam4 differ=["pan_tilt"]
+HW|t=12992|ATTRIBUTION_FIELDS cam=cam2 cam=cam5 differ=["pan_tilt"]
+HW|t=12992|ATTRIBUTION_FIELDS cam=cam3 cam=cam4 differ=["pan_tilt"]
+HW|t=12992|ATTRIBUTION_FIELDS cam=cam3 cam=cam5 differ=["pan_tilt"]
+HW|t=12993|ATTRIBUTION_FIELDS cam=cam4 cam=cam5 differ=["pan_tilt"]
+HW|t=12993|check.pan_tilt_distinguishes_every_pair=true
+HW|t=12993|cam=cam4|rounds.start
+HW|t=12993|cam=cam2|rounds.start
+HW|t=12993|cam=cam3|rounds.start
+HW|t=12993|cam=cam5|rounds.start
+HW|t=12993|cam=cam1|rounds.start
+HW|t=13634|cam=cam3|round[0]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=13636|cam=cam1|round[0]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=13660|cam=cam2|round[0]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=13660|cam=cam4|round[0]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=13752|cam=cam5|round[0]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=14390|cam=cam4|round[1]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=14404|cam=cam1|round[1]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=14424|cam=cam2|round[1]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=14434|cam=cam3|round[1]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=14522|cam=cam5|round[1]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=15160|cam=cam4|round[2]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=15160|cam=cam2|round[2]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=15165|cam=cam1|round[2]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=15184|cam=cam3|round[2]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=15292|cam=cam5|round[2]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=15924|cam=cam2|round[3]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=15924|cam=cam1|round[3]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=15925|cam=cam3|round[3]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=15930|cam=cam4|round[3]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=16041|cam=cam5|round[3]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=16666|cam=cam1|round[4]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=16677|cam=cam3|round[4]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=16685|cam=cam2|round[4]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=16690|cam=cam4|round[4]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=16793|cam=cam5|round[4]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=17422|cam=cam4|round[5]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=17424|cam=cam2|round[5]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=17434|cam=cam3|round[5]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=17435|cam=cam1|round[5]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=17523|cam=cam5|round[5]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=18185|cam=cam3|round[6]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=18185|cam=cam2|round[6]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=18189|cam=cam1|round[6]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=18190|cam=cam4|round[6]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=18282|cam=cam5|round[6]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=18924|cam=cam2|round[7]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=18930|cam=cam4|round[7]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=18935|cam=cam3|round[7]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=18957|cam=cam1|round[7]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=19082|cam=cam5|round[7]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=19685|cam=cam3|round[8]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=19685|cam=cam2|round[8]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=19690|cam=cam4|round[8]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=19724|cam=cam1|round[8]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=19792|cam=cam5|round[8]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=20461|cam=cam2|round[9]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=20461|cam=cam4|round[9]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=20466|cam=cam1|round[9]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=20475|cam=cam3|round[9]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=20573|cam=cam5|round[9]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=21190|cam=cam4|round[10]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=21209|cam=cam1|round[10]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=21224|cam=cam2|round[10]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=21234|cam=cam3|round[10]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=21322|cam=cam5|round[10]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=21955|cam=cam1|round[11]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=21960|cam=cam4|round[11]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=21960|cam=cam2|round[11]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=21984|cam=cam3|round[11]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=22084|cam=cam5|round[11]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=22724|cam=cam2|round[12]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=22730|cam=cam4|round[12]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=22735|cam=cam3|round[12]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=22735|cam=cam1|round[12]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=22882|cam=cam5|round[12]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=23460|cam=cam2|round[13]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=23460|cam=cam4|round[13]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=23484|cam=cam3|round[13]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=23497|cam=cam1|round[13]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=23616|cam=cam5|round[13]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=24222|cam=cam4|round[14]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=24225|cam=cam2|round[14]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=24234|cam=cam3|round[14]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=24256|cam=cam1|round[14]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=24353|cam=cam5|round[14]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=24984|cam=cam3|round[15]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=24984|cam=cam2|round[15]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=24990|cam=cam4|round[15]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=24991|cam=cam1|round[15]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=25122|cam=cam5|round[15]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=25724|cam=cam2|round[16]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=25730|cam=cam4|round[16]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=25765|cam=cam1|round[16]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=25784|cam=cam3|round[16]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=25884|cam=cam5|round[16]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=26484|cam=cam2|round[17]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=26490|cam=cam4|round[17]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=26496|cam=cam1|round[17]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=26534|cam=cam3|round[17]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=26640|cam=cam5|round[17]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=27256|cam=cam1|round[18]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=27259|cam=cam2|round[18]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=27260|cam=cam4|round[18]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=27300|cam=cam3|round[18]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=27393|cam=cam5|round[18]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=28017|cam=cam1|round[19]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1661), pan_tilt: PanTiltPosition { pan: 0, tilt: -203 }, focus_mode: Auto })
+HW|t=28022|cam=cam4|round[19]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2737), pan_tilt: PanTiltPosition { pan: 814, tilt: 0 }, focus_mode: Auto })
+HW|t=28024|cam=cam2|round[19]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1705), pan_tilt: PanTiltPosition { pan: 208, tilt: -207 }, focus_mode: Auto })
+HW|t=28054|cam=cam3|round[19]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(1653), pan_tilt: PanTiltPosition { pan: -856, tilt: -233 }, focus_mode: Auto })
+HW|t=28153|cam=cam5|round[19]=Ok(Snapshot { power_on: true, zoom: ZoomPosition(0), focus: FocusPosition(2745), pan_tilt: PanTiltPosition { pan: 1000, tilt: -239 }, focus_mode: Auto })
+HW|t=28159|cam=cam1|summary rounds=20 decoded=20 failed=0 mismatched=0 inquiries=100 latency_p50_ms=155.9 latency_max_ms=250.0
+HW|t=28159|cam=cam1|metrics.before=Ok(MetricsSnapshot { admitted: 0, admission_rejected: 0, control_reserve_admitted: 0, control_reserve_rejected: 0, writes: 0, write_failures: 0, terminal: 0, cancellations: 0, cache_updates: 0, ack_timeouts: 0, completion_timeouts: 0, inquiry_timeouts: 0, busy_errors: 0, protocol_errors: 0, retries_scheduled: 0, received_frames: 0, ignored_unmatched_sequenced_replies: 0, ignored_malformed_frames: 0, dropped_diagnostics: 0, dropped_diagnostic_events: 0, dropped_observer_events: 0, dropped_applied_events: 0, dropped_boundary_work: 0, active: 0, pending: 0, session: Running })
+HW|t=28160|cam=cam1|metrics.after=Ok(MetricsSnapshot { admitted: 115, admission_rejected: 0, control_reserve_admitted: 0, control_reserve_rejected: 0, writes: 115, write_failures: 0, terminal: 115, cancellations: 0, cache_updates: 0, ack_timeouts: 0, completion_timeouts: 0, inquiry_timeouts: 0, busy_errors: 0, protocol_errors: 0, retries_scheduled: 0, received_frames: 115, ignored_unmatched_sequenced_replies: 0, ignored_malformed_frames: 0, dropped_diagnostics: 562, dropped_diagnostic_events: 0, dropped_observer_events: 0, dropped_applied_events: 0, dropped_boundary_work: 0, active: 0, pending: 0, session: Running })
+HW|t=28160|cam=cam1|metrics.new_timeouts=Ok(0)
+HW|t=28160|cam=cam1|check.every_reply_decoded=true
+HW|t=28160|cam=cam1|check.replies_attributed_to_own_camera=true
+HW|t=28160|cam=cam1|check.no_timeouts=true
+HW|t=28160|cam=cam1|check.session_running=true
+HW|t=28171|cam=cam1|session.close=Ok(())
+HW|t=28177|cam=cam2|summary rounds=20 decoded=20 failed=0 mismatched=0 inquiries=100 latency_p50_ms=160.0 latency_max_ms=240.9
+HW|t=28177|cam=cam2|metrics.before=Ok(MetricsSnapshot { admitted: 0, admission_rejected: 0, control_reserve_admitted: 0, control_reserve_rejected: 0, writes: 0, write_failures: 0, terminal: 0, cancellations: 0, cache_updates: 0, ack_timeouts: 0, completion_timeouts: 0, inquiry_timeouts: 0, busy_errors: 0, protocol_errors: 0, retries_scheduled: 0, received_frames: 0, ignored_unmatched_sequenced_replies: 0, ignored_malformed_frames: 0, dropped_diagnostics: 0, dropped_diagnostic_events: 0, dropped_observer_events: 0, dropped_applied_events: 0, dropped_boundary_work: 0, active: 0, pending: 0, session: Running })
+HW|t=28178|cam=cam2|metrics.after=Ok(MetricsSnapshot { admitted: 115, admission_rejected: 0, control_reserve_admitted: 0, control_reserve_rejected: 0, writes: 115, write_failures: 0, terminal: 115, cancellations: 0, cache_updates: 0, ack_timeouts: 0, completion_timeouts: 0, inquiry_timeouts: 0, busy_errors: 0, protocol_errors: 0, retries_scheduled: 0, received_frames: 115, ignored_unmatched_sequenced_replies: 0, ignored_malformed_frames: 0, dropped_diagnostics: 562, dropped_diagnostic_events: 0, dropped_observer_events: 0, dropped_applied_events: 0, dropped_boundary_work: 0, active: 0, pending: 0, session: Running })
+HW|t=28178|cam=cam2|metrics.new_timeouts=Ok(0)
+HW|t=28178|cam=cam2|check.every_reply_decoded=true
+HW|t=28178|cam=cam2|check.replies_attributed_to_own_camera=true
+HW|t=28178|cam=cam2|check.no_timeouts=true
+HW|t=28178|cam=cam2|check.session_running=true
+HW|t=28188|cam=cam2|session.close=Ok(())
+HW|t=28196|cam=cam3|summary rounds=20 decoded=20 failed=0 mismatched=0 inquiries=100 latency_p50_ms=150.0 latency_max_ms=258.9
+HW|t=28196|cam=cam3|metrics.before=Ok(MetricsSnapshot { admitted: 0, admission_rejected: 0, control_reserve_admitted: 0, control_reserve_rejected: 0, writes: 0, write_failures: 0, terminal: 0, cancellations: 0, cache_updates: 0, ack_timeouts: 0, completion_timeouts: 0, inquiry_timeouts: 0, busy_errors: 0, protocol_errors: 0, retries_scheduled: 0, received_frames: 0, ignored_unmatched_sequenced_replies: 0, ignored_malformed_frames: 0, dropped_diagnostics: 0, dropped_diagnostic_events: 0, dropped_observer_events: 0, dropped_applied_events: 0, dropped_boundary_work: 0, active: 0, pending: 0, session: Running })
+HW|t=28197|cam=cam3|metrics.after=Ok(MetricsSnapshot { admitted: 115, admission_rejected: 0, control_reserve_admitted: 0, control_reserve_rejected: 0, writes: 115, write_failures: 0, terminal: 115, cancellations: 0, cache_updates: 0, ack_timeouts: 0, completion_timeouts: 0, inquiry_timeouts: 0, busy_errors: 0, protocol_errors: 0, retries_scheduled: 0, received_frames: 115, ignored_unmatched_sequenced_replies: 0, ignored_malformed_frames: 0, dropped_diagnostics: 562, dropped_diagnostic_events: 0, dropped_observer_events: 0, dropped_applied_events: 0, dropped_boundary_work: 0, active: 0, pending: 0, session: Running })
+HW|t=28197|cam=cam3|metrics.new_timeouts=Ok(0)
+HW|t=28197|cam=cam3|check.every_reply_decoded=true
+HW|t=28197|cam=cam3|check.replies_attributed_to_own_camera=true
+HW|t=28197|cam=cam3|check.no_timeouts=true
+HW|t=28197|cam=cam3|check.session_running=true
+HW|t=28207|cam=cam3|session.close=Ok(())
+HW|t=28208|cam=cam4|summary rounds=20 decoded=20 failed=0 mismatched=0 inquiries=100 latency_p50_ms=159.9 latency_max_ms=240.0
+HW|t=28208|cam=cam4|metrics.before=Ok(MetricsSnapshot { admitted: 0, admission_rejected: 0, control_reserve_admitted: 0, control_reserve_rejected: 0, writes: 0, write_failures: 0, terminal: 0, cancellations: 0, cache_updates: 0, ack_timeouts: 0, completion_timeouts: 0, inquiry_timeouts: 0, busy_errors: 0, protocol_errors: 0, retries_scheduled: 0, received_frames: 0, ignored_unmatched_sequenced_replies: 0, ignored_malformed_frames: 0, dropped_diagnostics: 0, dropped_diagnostic_events: 0, dropped_observer_events: 0, dropped_applied_events: 0, dropped_boundary_work: 0, active: 0, pending: 0, session: Running })
+HW|t=28209|cam=cam4|metrics.after=Ok(MetricsSnapshot { admitted: 115, admission_rejected: 0, control_reserve_admitted: 0, control_reserve_rejected: 0, writes: 115, write_failures: 0, terminal: 115, cancellations: 0, cache_updates: 0, ack_timeouts: 0, completion_timeouts: 0, inquiry_timeouts: 0, busy_errors: 0, protocol_errors: 0, retries_scheduled: 0, received_frames: 115, ignored_unmatched_sequenced_replies: 0, ignored_malformed_frames: 0, dropped_diagnostics: 562, dropped_diagnostic_events: 0, dropped_observer_events: 0, dropped_applied_events: 0, dropped_boundary_work: 0, active: 0, pending: 0, session: Running })
+HW|t=28209|cam=cam4|metrics.new_timeouts=Ok(0)
+HW|t=28209|cam=cam4|check.every_reply_decoded=true
+HW|t=28209|cam=cam4|check.replies_attributed_to_own_camera=true
+HW|t=28209|cam=cam4|check.no_timeouts=true
+HW|t=28209|cam=cam4|check.session_running=true
+HW|t=28219|cam=cam4|session.close=Ok(())
+HW|t=28229|cam=cam5|summary rounds=20 decoded=20 failed=0 mismatched=0 inquiries=100 latency_p50_ms=158.7 latency_max_ms=251.4
+HW|t=28229|cam=cam5|metrics.before=Ok(MetricsSnapshot { admitted: 0, admission_rejected: 0, control_reserve_admitted: 0, control_reserve_rejected: 0, writes: 0, write_failures: 0, terminal: 0, cancellations: 0, cache_updates: 0, ack_timeouts: 0, completion_timeouts: 0, inquiry_timeouts: 0, busy_errors: 0, protocol_errors: 0, retries_scheduled: 0, received_frames: 0, ignored_unmatched_sequenced_replies: 0, ignored_malformed_frames: 0, dropped_diagnostics: 0, dropped_diagnostic_events: 0, dropped_observer_events: 0, dropped_applied_events: 0, dropped_boundary_work: 0, active: 0, pending: 0, session: Running })
+HW|t=28230|cam=cam5|metrics.after=Ok(MetricsSnapshot { admitted: 115, admission_rejected: 0, control_reserve_admitted: 0, control_reserve_rejected: 0, writes: 115, write_failures: 0, terminal: 115, cancellations: 0, cache_updates: 0, ack_timeouts: 0, completion_timeouts: 0, inquiry_timeouts: 0, busy_errors: 0, protocol_errors: 0, retries_scheduled: 0, received_frames: 115, ignored_unmatched_sequenced_replies: 0, ignored_malformed_frames: 0, dropped_diagnostics: 562, dropped_diagnostic_events: 0, dropped_observer_events: 0, dropped_applied_events: 0, dropped_boundary_work: 0, active: 0, pending: 0, session: Running })
+HW|t=28230|cam=cam5|metrics.new_timeouts=Ok(0)
+HW|t=28230|cam=cam5|check.every_reply_decoded=true
+HW|t=28230|cam=cam5|check.replies_attributed_to_own_camera=true
+HW|t=28230|cam=cam5|check.no_timeouts=true
+HW|t=28230|cam=cam5|check.session_running=true
+HW|t=28240|cam=cam5|session.close=Ok(())
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 4 filtered out; finished in 28.24s

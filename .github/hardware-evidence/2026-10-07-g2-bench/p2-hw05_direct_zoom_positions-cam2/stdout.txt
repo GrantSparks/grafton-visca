@@ -1,0 +1,33 @@
+
+running 1 test
+test hw05_direct_zoom_positions ... HW|t=0|profile.selected=G2 VISCA_PROFILE="g2"
+HW|t=0|profile.type=grafton_visca::camera::profiles::PtzOpticsG2 model_name="PtzOptics G2"
+HW|t=0|connect.tcp=cam2:5678
+HW|t=85|zoom.before=Ok(ZoomPosition(0))
+HW|t=85|profile.zoom model_name="PtzOptics G2" optical_range=0x0000..=0x4000 digital_range=None optical_zoom_ratio=None supports_direct=true
+HW|t=85|zoom.before.magnification=None
+HW|t=96|zoom.raw_target=0x0800 id=OperationId(2)
+HW|t=593|zoom.raw.settled=Ok(ProfileCompletion { axes: AffectedAxes { pan_tilt: false, zoom: true, focus: false, iris: false, nd_filter: false } })
+HW|t=644|zoom.raw.readback=Ok(ZoomPosition(2046))
+HW|t=644|observation.zoom.raw_readback=0x07FE target=0x0800 delta=-2 magnification=None
+HW|t=654|zoom.normalized_target=0.25 domain=Optical expected_raw_from_optical_max=0x1000 id=OperationId(4)
+HW|t=1127|zoom.normalized.settled=Ok(ProfileCompletion { axes: AffectedAxes { pan_tilt: false, zoom: true, focus: false, iris: false, nd_filter: false } })
+HW|t=1194|zoom.normalized.readback=Ok(ZoomPosition(4096))
+HW|t=1194|observation.zoom.normalized_readback=0x1000 expected_raw=0x1000 delta=0 magnification=None profile_optical_max=0x4000 profile_optical_zoom_ratio=None model_name="PtzOptics G2"
+HW|t=2427|restore.preset1.settled=Ok(ProfileCompletion { axes: AffectedAxes { pan_tilt: true, zoom: true, focus: true, iris: false, nd_filter: false } })
+HW|t=2648|restored.pan_tilt=Ok(PanTiltPosition { pan: 208, tilt: -207 })
+HW|t=2648|restored.zoom=Ok(ZoomPosition(0))
+HW|t=2648|RESTORED pan=208 tilt=-207 zoom=0
+HW|t=2648|check.zoom_before_readable=true
+HW|t=2648|check.raw_zoom_settled_ok=true
+HW|t=2648|check.raw_zoom_readback_ok=true
+HW|t=2648|check.normalized_zoom_settled_ok=true
+HW|t=2648|check.normalized_zoom_readback_ok=true
+HW|t=2648|guard.begin
+HW|t=2694|guard.pan_tilt_stop=Ok(())
+HW|t=2826|guard.zoom_stop=Ok(())
+HW|t=2826|guard.end
+HW|t=2837|session.close=Ok(())
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 2.84s

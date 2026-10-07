@@ -6,13 +6,17 @@
 
 use grafton_visca_macros::ViscaEnum;
 
-use std::borrow::Cow;
-
 use crate::{
-    command::{encode::WireEncode, resolution::PictureEffectMode},
+    command::{
+        bytes::{constants::image, nibbles, step_command_encoder, FrameWriter},
+        encode::WireEncode,
+        inquiry_types::FlipState,
+        resolution::PictureEffectMode,
+    },
     error::Error,
     types::{
         ContrastLevel, GammaLevel, LuminanceLevel, NoiseReduction2DLevel, NoiseReduction3DLevel,
+        SharpnessLevel,
     },
     visca_command,
 };
@@ -60,85 +64,25 @@ pub enum Sharpness {
     /// Set sharpness to specific value (0-15).
     SetLevel {
         /// Sharpness value (0 = minimum, 15 = maximum).
-        value: u8,
+        value: SharpnessLevel,
     },
 }
 
-impl WireEncode for Sharpness {
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        use crate::command::bytes::{constants, ConstCommandBuilder};
-
-        match self {
-            Self::Mode(mode) => {
-                let mode_byte = match mode {
-                    SharpnessMode::Auto => 0x02,
-                    SharpnessMode::Manual => 0x03,
-                };
-                let mut builder = ConstCommandBuilder::<6>::new();
-                builder.append_mut(constants::image::SHARPNESS_MODE_PREFIX);
-                builder.push_mut(mode_byte);
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-            Self::Reset => {
-                let mut builder = ConstCommandBuilder::<6>::new();
-                builder.append_mut(constants::image::SHARPNESS_CONTROL_PREFIX);
-                builder.push_mut(0x00);
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-            Self::Up => {
-                let mut builder = ConstCommandBuilder::<6>::new();
-                builder.append_mut(constants::image::SHARPNESS_CONTROL_PREFIX);
-                builder.push_mut(0x02);
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-            Self::Down => {
-                let mut builder = ConstCommandBuilder::<6>::new();
-                builder.append_mut(constants::image::SHARPNESS_CONTROL_PREFIX);
-                builder.push_mut(0x03);
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-            Self::SetLevel { value } => {
-                if *value > 15 {
-                    return Err(Error::InvalidParameter {
-                        parameter: "value",
-                        value: Cow::Owned(value.to_string()),
-                        reason: Cow::Borrowed("Sharpness value must be in the range 0..=15"),
-                    });
-                }
-                let mut builder = ConstCommandBuilder::<9>::new();
-                builder.append_mut(constants::image::SHARPNESS_LEVEL_PREFIX);
-                builder.push_nibble_pair_mut(*value as u16);
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-        }
+step_command_encoder! {
+    Sharpness {
+        control: image::SHARPNESS_STEP,
+        direct: image::SHARPNESS_DIRECT,
+        SetLevel { value } => nibbles::<2>(value.value()),
+        Self::Mode(mode) => |frame| frame.bytes(&image::SHARPNESS_MODE).byte(u8::from(*mode)),
     }
 }
 
 visca_command! {
         /// Command to set the luminance (brightness) level.
     pub struct Luminance { value: LuminanceLevel };
-    prefix = [0x01, 0x04, 0xA1, 0x00, 0x00, 0x00];
-    param = value.value();
-    max_param_size = 1;
+    prefix = image::LUMINANCE;
+    param = nibbles::<2>(value.value().into());
+    max_param_size = 2;
 }
 
 impl Luminance {
@@ -151,9 +95,9 @@ impl Luminance {
 visca_command! {
         /// Command to set the contrast level.
     pub struct Contrast { value: ContrastLevel };
-    prefix = [0x01, 0x04, 0xA2, 0x00, 0x00, 0x00];
-    param = value.value();
-    max_param_size = 1;
+    prefix = image::CONTRAST;
+    param = nibbles::<2>(value.value().into());
+    max_param_size = 2;
 }
 
 impl Contrast {
@@ -173,7 +117,7 @@ visca_command! {
     ///
     /// Use the image accessor's `gamma` inquiry to query the current value.
     pub struct GammaCommand { level: GammaLevel };
-    prefix = [0x01, 0x04, 0x5B];
+    prefix = image::GAMMA;
     param = level.value();
     max_param_size = 1;
 }
@@ -191,7 +135,7 @@ visca_command! {
     /// Enables or disables backlight compensation, which helps properly expose
     /// subjects that are backlit (have a bright light source behind them).
     pub struct BacklightCommand { enabled: bool };
-    prefix = [0x01, 0x04, 0x33];
+    prefix = image::BACKLIGHT;
     param = if *enabled { 0x02 } else { 0x03 };
     max_param_size = 1;
 }
@@ -206,8 +150,8 @@ impl BacklightCommand {
 visca_command! {
     /// Command to select the 2D noise-reduction mode.
     pub struct NoiseReduction2DModeCommand { mode: NoiseReduction2DMode };
-    prefix = [0x01, 0x04, 0x50];
-    param = *mode as u8;
+    prefix = image::NOISE_REDUCTION_2D_MODE;
+    param = u8::from(*mode);
     max_param_size = 1;
 }
 
@@ -222,7 +166,7 @@ impl NoiseReduction2DModeCommand {
 visca_command! {
     /// Command to set or disable 2D noise reduction.
     pub struct NoiseReduction2D { level: Option<NoiseReduction2DLevel> };
-    prefix = [0x01, 0x04, 0x53];
+    prefix = image::NOISE_REDUCTION_2D;
     param = match level { None => 0x00, Some(level) => level.value() };
     max_param_size = 1;
 }
@@ -246,7 +190,7 @@ impl NoiseReduction2D {
 visca_command! {
     /// Command to set or disable 3D noise reduction.
     pub struct NoiseReduction3D { level: Option<NoiseReduction3DLevel> };
-    prefix = [0x01, 0x04, 0x54];
+    prefix = image::NOISE_REDUCTION_3D;
     param = match level { None => 0x00, Some(level) => level.value() };
     max_param_size = 1;
 }
@@ -271,32 +215,38 @@ impl NoiseReduction3D {
 ///
 /// Allows flipping the image horizontally, vertically, or both.
 /// Useful for when cameras are mounted upside down or need mirror effects.
-#[derive(Debug, Copy, Clone)]
+/// The discriminants are the PTZOptics `04 A4` combined flip codes that the
+/// command sends and the combined flip inquiry reports.
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub enum ImageFlipMode {
     /// No image flipping.
-    Off,
+    Off = 0x00,
     /// Flip image horizontally (mirror).
-    Horizontal,
+    Horizontal = 0x01,
     /// Flip image vertically (upside down).
-    Vertical,
+    Vertical = 0x02,
     /// Flip image both horizontally and vertically (180° rotation).
-    Both,
+    Both = 0x03,
+}
+
+impl From<ImageFlipMode> for FlipState {
+    fn from(mode: ImageFlipMode) -> Self {
+        Self {
+            horizontal: matches!(mode, ImageFlipMode::Horizontal | ImageFlipMode::Both),
+            vertical: matches!(mode, ImageFlipMode::Vertical | ImageFlipMode::Both),
+        }
+    }
 }
 
 visca_command! {
         /// Command to set the combined image flip mode.
     pub struct ImageFlipCombinedCommand { mode: ImageFlipMode };
-    prefix = [0x01, 0x04, 0xA4];
-    param = match mode {
-        ImageFlipMode::Off => 0x00,
-        ImageFlipMode::Horizontal => 0x01,
-        ImageFlipMode::Vertical => 0x02,
-        ImageFlipMode::Both => 0x03,
-    };
+    prefix = image::FLIP_COMBINED;
+    param = u8::from(*mode);
     max_param_size = 1;
 }
 
@@ -331,15 +281,10 @@ impl WireEncode for PictureEffectCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
-        let effect = self.mode.as_byte();
-
-        let mut builder = ConstCommandBuilder::<6>::new();
-        builder.push_mut(camera_id.to_address_byte());
-        builder.append_mut(&[0x01, 0x04, 0x63]);
-        builder.push_mut(effect);
-        builder.terminate().build_into(buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&image::PICTURE_EFFECT)
+            .byte(self.mode.as_byte())
+            .finish()
     }
 }
 
@@ -353,6 +298,13 @@ impl WireEncode for PictureEffectCommand {
 mod tests {
     use super::*;
     use crate::{command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test};
+
+    fn sharpness(value: u8) -> SharpnessLevel {
+        match SharpnessLevel::new(value) {
+            Ok(level) => level,
+            Err(error) => panic!("sharpness level within 0..=15: {error}"),
+        }
+    }
 
     visca_test!(
         BacklightCommand,
@@ -538,7 +490,9 @@ mod tests {
     visca_test!(
         Sharpness,
         test_sharpness_level_0,
-        Sharpness::SetLevel { value: 0 },
+        Sharpness::SetLevel {
+            value: sharpness(0)
+        },
         &[
             0x81,
             0x01,
@@ -555,7 +509,9 @@ mod tests {
     visca_test!(
         Sharpness,
         test_sharpness_level_5,
-        Sharpness::SetLevel { value: 5 },
+        Sharpness::SetLevel {
+            value: sharpness(5)
+        },
         &[
             0x81,
             0x01,
@@ -571,7 +527,9 @@ mod tests {
     visca_test!(
         Sharpness,
         test_sharpness_level_11,
-        Sharpness::SetLevel { value: 11 },
+        Sharpness::SetLevel {
+            value: sharpness(11)
+        },
         &[
             0x81,
             0x01,
@@ -587,7 +545,9 @@ mod tests {
     visca_test!(
         Sharpness,
         test_sharpness_level_15,
-        Sharpness::SetLevel { value: 15 },
+        Sharpness::SetLevel {
+            value: sharpness(15)
+        },
         &[
             0x81,
             0x01,
@@ -603,11 +563,11 @@ mod tests {
 
     #[test]
     fn test_sharpness_valid_values() {
-        use crate::types::SharpnessLevel;
-
         // Test valid values (hardware-validated: PTZOptics G2 accepts 0-15)
         for value in 0..=15 {
-            let _cmd = Sharpness::SetLevel { value };
+            let _cmd = Sharpness::SetLevel {
+                value: sharpness(value),
+            };
         }
 
         // Test invalid value
@@ -781,7 +741,9 @@ mod tests {
         let cmds: Vec<Box<dyn std::fmt::Debug>> = vec![
             Box::new(Sharpness::Reset),
             Box::new(Sharpness::Mode(SharpnessMode::Auto)),
-            Box::new(Sharpness::SetLevel { value: 5 }),
+            Box::new(Sharpness::SetLevel {
+                value: sharpness(5),
+            }),
             Box::new(Luminance::new(
                 LuminanceLevel::new(7).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}")),
             )),
@@ -798,7 +760,9 @@ mod tests {
         }
 
         // Test Clone
-        let sharp_cmd1 = Sharpness::SetLevel { value: 5 };
+        let sharp_cmd1 = Sharpness::SetLevel {
+            value: sharpness(5),
+        };
         let sharp_cmd2 = sharp_cmd1;
         match (sharp_cmd1, sharp_cmd2) {
             (Sharpness::SetLevel { value: v1 }, Sharpness::SetLevel { value: v2 }) => {
@@ -811,12 +775,16 @@ mod tests {
     #[test]
     fn test_edge_cases_extended() {
         // Test boundary values for sharpness
-        let cmd = Sharpness::SetLevel { value: 0 };
+        let cmd = Sharpness::SetLevel {
+            value: sharpness(0),
+        };
         assert!(
             crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).is_ok()
         );
 
-        let cmd = Sharpness::SetLevel { value: 15 };
+        let cmd = Sharpness::SetLevel {
+            value: sharpness(15),
+        };
         assert!(
             crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1).is_ok()
         );
@@ -855,19 +823,25 @@ mod tests {
     #[test]
     fn test_nibble_encoding_sharpness() {
         // Test that SetLevel command properly encodes value as nibbles
-        let cmd = Sharpness::SetLevel { value: 0x0B };
+        let cmd = Sharpness::SetLevel {
+            value: sharpness(0x0B),
+        };
         let bytes = crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
             .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         assert_eq!(bytes[6], 0x00); // High nibble
         assert_eq!(bytes[7], 0x0B); // Low nibble
 
-        let cmd = Sharpness::SetLevel { value: 0x05 };
+        let cmd = Sharpness::SetLevel {
+            value: sharpness(0x05),
+        };
         let bytes = crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
             .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         assert_eq!(bytes[6], 0x00); // High nibble
         assert_eq!(bytes[7], 0x05); // Low nibble
 
-        let cmd = Sharpness::SetLevel { value: 0x0F };
+        let cmd = Sharpness::SetLevel {
+            value: sharpness(0x0F),
+        };
         let bytes = crate::command::test_wire_bytes(&cmd, crate::camera_id::CameraId::CAMERA_1)
             .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
         assert_eq!(bytes[6], 0x00);

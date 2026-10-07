@@ -7,6 +7,7 @@ use std::{borrow::Cow, fmt};
 #[non_exhaustive]
 pub enum ValidationError {
     /// Parameter is out of the valid range.
+    #[non_exhaustive]
     OutOfRange {
         /// Name of the parameter.
         parameter: &'static str,
@@ -19,6 +20,7 @@ pub enum ValidationError {
     },
 
     /// Parameter has an invalid value.
+    #[non_exhaustive]
     InvalidValue {
         /// Name of the parameter.
         parameter: &'static str,
@@ -28,6 +30,27 @@ pub enum ValidationError {
 
     /// Feature is not supported by this camera.
     NotSupported(&'static str),
+}
+
+impl ValidationError {
+    /// Reports a value outside its inclusive capability bounds.
+    #[must_use]
+    pub const fn out_of_range(parameter: &'static str, value: f64, min: f64, max: f64) -> Self {
+        Self::OutOfRange {
+            parameter,
+            value,
+            min,
+            max,
+        }
+    }
+    /// Reports a value rejected by a capability's validation policy.
+    #[must_use]
+    pub fn invalid_value(parameter: &'static str, message: impl Into<Cow<'static, str>>) -> Self {
+        Self::InvalidValue {
+            parameter,
+            message: message.into(),
+        }
+    }
 }
 
 impl fmt::Display for ValidationError {

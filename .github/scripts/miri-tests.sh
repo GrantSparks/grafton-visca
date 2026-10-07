@@ -19,6 +19,9 @@ readonly RED='\033[0;31m'
 readonly NC='\033[0m'
 readonly GRAFTON_VISCA_MIRI_TOOLCHAIN='nightly-2026-08-26'
 
+# shellcheck source=engine-model-tests.sh
+source "$(dirname "${BASH_SOURCE[0]}")/engine-model-tests.sh"
+
 cargo_miri_nightly() {
     command cargo +"${GRAFTON_VISCA_MIRI_TOOLCHAIN}" "$@"
 }
@@ -68,13 +71,17 @@ cargo_miri_nightly miri setup
 # Miri is applicable to the synchronous, I/O-free domain boundary.  A library
 # test target still compiles every unit-test module once, so keep that expensive
 # compilation to one no-default build and bound execution to pure modules.  The
-# long deterministic trace and generated property test remain covered by the
-# ordinary engine/property CI jobs, not by an unbounded Miri run.
+# engine's model tests (`engine-model-tests.sh`: the long deterministic trace,
+# the generated property test, the randomized raw-stream session model and the
+# ten-thousand-halt ledger bound) remain covered by their designated
+# feature-matrix leg, not by an unbounded Miri run.
+miri_engine_skips=()
+for model_test in "${ENGINE_MODEL_TESTS[@]}"; do
+    miri_engine_skips+=(--skip "$model_test")
+done
 run_miri "deterministic protocol engine" \
     --no-default-features --lib 'runtime::engine::tests::' -- \
-    --test-threads=1 \
-    --skip arbitrary_stale_and_reordered_inputs_preserve_invariants \
-    --skip arbitrary_ordered_and_stale_inputs_preserve_invariants_property
+    --test-threads=1 "${miri_engine_skips[@]}"
 run_miri "prepared request domain" --no-default-features --lib 'prepared::tests::' -- --test-threads=1
 run_miri "raw request contracts" --no-default-features --lib 'raw::tests::' -- --test-threads=1
 run_miri "VISCA frame parsing" \

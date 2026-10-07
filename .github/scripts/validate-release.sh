@@ -203,8 +203,48 @@ if requires_hardware_evidence:
             r"(?:\.\.\.|…|-+|–+|—+)", value
         )
 
+    # Maintainer decision of 2026-10-07 (superseding #753's five-row rule):
+    # HW-01, HW-04 and HW-05 must pass; HW-02 (Raw serial) and HW-03 (Sony
+    # UDP) may instead be an accepted known limitation with a dated decision.
+    limitation_ids = {"HW-02", "HW-03"}
+    limitation_status = re.compile(
+        r"Not verified — accepted known limitation \((?P<reason>[^()]*\S[^()]*)\)"
+    )
+    maintainer_decision = re.compile(
+        r"\bMaintainer decision (?P<date>\d{4}-\d{2}-\d{2})\b"
+    )
+
     for identifier in required_ids:
         line_number, cells = row_map[identifier][0]
+        if cells[2] != "Pass" and identifier in limitation_ids:
+            if limitation_status.fullmatch(cells[2]) is None:
+                raise SystemExit(
+                    "stable 2.0+ release publication requires "
+                    f"{identifier} status to be exactly Pass or "
+                    "'Not verified — accepted known limitation (<reason>)'; "
+                    f"{identifier} at line {line_number} is {cells[2] or '<empty>'}"
+                )
+            if not recorded(cells[1]):
+                raise SystemExit(
+                    "stable 2.0+ release publication requires every row to "
+                    f"record non-placeholder Required scenario; {identifier} at "
+                    f"line {line_number} is {cells[1] or '<empty>'}"
+                )
+            decision = maintainer_decision.search(cells[4])
+            try:
+                valid_date = decision is not None and bool(
+                    date.fromisoformat(decision.group("date"))
+                )
+            except ValueError:
+                valid_date = False
+            if not valid_date:
+                raise SystemExit(
+                    "stable 2.0+ release publication requires an accepted known "
+                    f"limitation to record 'Maintainer decision YYYY-MM-DD' in "
+                    f"Transcript / evidence; {identifier} at line {line_number} "
+                    f"is {cells[4] or '<empty>'}"
+                )
+            continue
         if cells[2] != "Pass":
             raise SystemExit(
                 "stable 2.0+ release publication requires every hardware matrix "

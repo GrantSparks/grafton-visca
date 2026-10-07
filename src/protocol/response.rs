@@ -195,7 +195,13 @@ pub(crate) fn decode_basic_for_source(frame: &[u8], source: CameraId) -> Option<
 /// both socketless and invalid values, so the outer `Option` here preserves
 /// that distinction for strict fixed-frame parsing: `Some(None)` is valid
 /// socketless evidence and `None` is a malformed socket nibble.
-fn decode_fixed_socket(nibble: u8) -> Option<Option<ViscaSocket>> {
+///
+/// This is the one socket-nibble grammar: the framer's incomplete-prefix
+/// classifier uses it for completion and error prefixes, so a prefix and the
+/// complete frame it becomes can never disagree about the socket. An ACK is
+/// the one deliberate asymmetry: its incomplete prefix is classified by the
+/// message nibble alone, while the complete ACK frame is checked here.
+pub(crate) fn decode_fixed_socket(nibble: u8) -> Option<Option<ViscaSocket>> {
     match nibble {
         0 => Some(None),
         1 | 2 => ViscaSocket::from_protocol_byte(nibble).map(Some),
@@ -209,6 +215,7 @@ mod tests {
     use super::*;
 
     use crate::command::{
+        pan_tilt::PanTiltFraming,
         response::{lift_inquiry, InquiryKind, Response},
         InquiryData,
     };
@@ -440,7 +447,8 @@ mod tests {
             socket: Some(ViscaSocket::S1),
             payload: Payload::new(&[]),
         };
-        let lifted = lift_inquiry(&basic, None).expect("Failed to lift ACK");
+        let lifted =
+            lift_inquiry(&basic, None, PanTiltFraming::STANDARD).expect("Failed to lift ACK");
         assert!(matches!(lifted, Response::CmdAck { socket } if socket == Some(ViscaSocket::S1)));
 
         // Test Completion lifting
@@ -450,7 +458,8 @@ mod tests {
             socket: Some(ViscaSocket::S2),
             payload: Payload::new(&[]),
         };
-        let lifted = lift_inquiry(&basic, None).expect("Failed to lift Completion");
+        let lifted = lift_inquiry(&basic, None, PanTiltFraming::STANDARD)
+            .expect("Failed to lift Completion");
         assert!(
             matches!(lifted, Response::Completion { socket } if socket == Some(ViscaSocket::S2))
         );
@@ -462,7 +471,8 @@ mod tests {
             socket: None,
             payload: Payload::new(&[]),
         };
-        let lifted = lift_inquiry(&basic, None).expect("Failed to lift Error");
+        let lifted =
+            lift_inquiry(&basic, None, PanTiltFraming::STANDARD).expect("Failed to lift Error");
         assert!(matches!(lifted, Response::Error(_)));
 
         // Test DataReply without expected type
@@ -472,7 +482,8 @@ mod tests {
             socket: None,
             payload: Payload::new(&[0x02]),
         };
-        let lifted = lift_inquiry(&basic, None).expect("Failed to lift DataReply");
+        let lifted =
+            lift_inquiry(&basic, None, PanTiltFraming::STANDARD).expect("Failed to lift DataReply");
         assert!(matches!(
             lifted,
             Response::Unknown { data, .. } if data == vec![0x02]
@@ -485,8 +496,8 @@ mod tests {
             socket: None,
             payload: Payload::new(&[0x02]),
         };
-        let lifted =
-            lift_inquiry(&basic, Some(&InquiryKind::Power)).expect("Failed to lift Power inquiry");
+        let lifted = lift_inquiry(&basic, Some(&InquiryKind::Power), PanTiltFraming::STANDARD)
+            .expect("Failed to lift Power inquiry");
         match lifted {
             Response::Inquiry(InquiryData::Power { on }) => assert!(on),
             _ => panic!("Expected Power inquiry response"),

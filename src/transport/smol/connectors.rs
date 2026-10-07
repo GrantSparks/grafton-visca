@@ -1,44 +1,69 @@
-//! smol-specific implementations of unified async I/O connectors.
+//! smol's I/O primitives for the shared async transports.
 
-use std::time::Instant;
+use std::{io, net::SocketAddr, time::Duration};
 
-use async_io::Timer;
-use futures_lite::future::race;
 use smol::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpStream, UdpSocket},
 };
 
-#[cfg(any(unix, windows))]
-use crate::transport::async_io::recv_datagram_with_outcome;
-
 use crate::{
-    timeout::Deadline,
     transport::{
-        address::AddressResolver,
+        async_connect::AsyncNet,
         async_io::{
             AsyncDatagram, AsyncReadExt as AsyncReadExtTrait, AsyncWriteExt as AsyncWriteExtTrait,
         },
-        socket_options::{apply_tcp_socket_options, TcpConnectionConfig, UdpSocketConfig},
+        async_tcp::NetStream,
+        async_udp::NetDatagram,
+        datagram::recv_datagram,
         ReceiveOutcome,
     },
     Error,
 };
 
-/// Combined TCP stream wrapper that implements both read and write traits.
+/// smol's connect primitives.
+#[derive(Debug, Clone, Copy)]
+pub struct SmolNet;
+
+impl AsyncNet for SmolNet {
+    type TcpStream = TcpStream;
+    type UdpSocket = UdpSocket;
+
+    async fn lookup(endpoint: String) -> io::Result<Vec<SocketAddr>> {
+        // smol has no native resolver; this runs the standard library's
+        // blocking lookup on smol's blocking pool.
+        smol::net::resolve(endpoint).await
+    }
+
+    async fn connect_tcp(address: SocketAddr) -> io::Result<TcpStream> {
+        TcpStream::connect(address).await
+    }
+
+    async fn bind_udp(address: SocketAddr) -> io::Result<UdpSocket> {
+        UdpSocket::bind(address).await
+    }
+
+    async fn connect_udp(socket: &UdpSocket, address: SocketAddr) -> io::Result<()> {
+        socket.connect(address).await
+    }
+
+    fn tcp_socket(stream: &TcpStream) -> socket2::SockRef<'_> {
+        socket2::SockRef::from(stream)
+    }
+
+    fn udp_socket(socket: &UdpSocket) -> socket2::SockRef<'_> {
+        socket2::SockRef::from(socket)
+    }
+
+    async fn sleep(duration: Duration) {
+        async_io::Timer::after(duration).await;
+    }
+}
+
+/// smol TCP stream; its halves are clones of the same socket.
 #[derive(Debug)]
 pub struct SmolTcpStream {
     stream: TcpStream,
-}
-
-impl SmolTcpStream {
-    pub fn new(stream: TcpStream) -> Self {
-        Self { stream }
-    }
-
-    pub fn clone_stream(&self) -> TcpStream {
-        self.stream.clone()
-    }
 }
 
 impl AsyncReadExtTrait for SmolTcpStream {
@@ -57,90 +82,25 @@ impl AsyncWriteExtTrait for SmolTcpStream {
     }
 }
 
-/// Create a configured TCP connection using unified helpers.
-pub async fn connect_tcp(
-    address: &str,
-    config: TcpConnectionConfig,
-) -> Result<SmolTcpStream, Error> {
-    // Connect with timeout using race pattern
-    let stream = race(async { Ok(TcpStream::connect(address).await?) }, async {
-        Timer::after(config.connect_timeout).await;
-        Err(Error::Timeout)
-    })
-    .await?;
+impl NetStream for SmolTcpStream {
+    type Net = SmolNet;
+    type Reader = Self;
+    type Writer = Self;
 
-    apply_tcp_socket_options(&stream, config)?;
+    fn from_connected(stream: TcpStream) -> Self {
+        Self { stream }
+    }
 
-    Ok(SmolTcpStream::new(stream))
+    fn split(self) -> (Self, Self) {
+        let writer = Self {
+            stream: self.stream.clone(),
+        };
+        (self, writer)
+    }
 }
 
-/// Create a configured UDP socket using unified helpers.
-///
-/// Uses a single end-to-end deadline for the entire connect operation,
-/// ensuring that the total time spent on DNS resolution + socket connect
-/// does not exceed `config.connect_timeout`.
-pub async fn connect_udp(address: &str, config: UdpSocketConfig) -> Result<UdpSocket, Error> {
-    // Create a single deadline for the entire operation
-    let deadline = Deadline::from_timeout(config.connect_timeout)?;
-
-    // Perform DNS resolution with remaining budget using unblock (smol doesn't have native async DNS)
-    let remaining = deadline.remaining_at(Instant::now());
-    if remaining.is_zero() {
-        return Err(Error::Timeout);
-    }
-
-    let address_owned = address.to_string();
-    let target_addr = race(
-        async {
-            smol::unblock(move || {
-                use std::net::ToSocketAddrs;
-                address_owned
-                    .to_socket_addrs()
-                    .map_err(Error::from)?
-                    .next()
-                    .ok_or_else(|| Error::InvalidAddress {
-                        reason: "No addresses resolved".into(),
-                    })
-            })
-            .await
-        },
-        async {
-            Timer::after(remaining).await;
-            Err(Error::Timeout)
-        },
-    )
-    .await?;
-
-    // Bind to the appropriate unspecified address based on target family
-    let resolver = AddressResolver::new();
-    let bind_addr = resolver.bind_address_for(&target_addr);
-
-    let socket = UdpSocket::bind(bind_addr).await?;
-
-    // Connect with remaining budget
-    let remaining = deadline.remaining_at(Instant::now());
-    if remaining.is_zero() {
-        return Err(Error::Timeout);
-    }
-
-    race(
-        async {
-            socket.connect(target_addr).await?;
-            Ok(())
-        },
-        async {
-            Timer::after(remaining).await;
-            Err(Error::Timeout)
-        },
-    )
-    .await?;
-
-    // Apply socket options
-    if let Some(ttl) = config.ttl {
-        socket.set_ttl(ttl)?;
-    }
-
-    Ok(socket)
+impl NetDatagram for UdpSocket {
+    type Net = SmolNet;
 }
 
 /// Implement AsyncDatagram for smol's UdpSocket
@@ -149,222 +109,10 @@ impl AsyncDatagram for UdpSocket {
         Ok(UdpSocket::send(self, buf).await?)
     }
 
-    async fn recv(&self, buf: &mut [u8]) -> Result<usize, Error> {
-        Ok(UdpSocket::recv(self, buf).await?)
-    }
-
-    async fn recv_with_outcome(&self, buf: &mut [u8]) -> Result<ReceiveOutcome, Error> {
-        #[cfg(any(unix, windows))]
-        {
-            let socket: std::sync::Arc<async_io::Async<std::net::UdpSocket>> = self.clone().into();
-            Ok(socket
-                .read_with(|socket| recv_datagram_with_outcome(socket, buf))
-                .await?)
-        }
-
-        #[cfg(not(any(unix, windows)))]
-        {
-            let bytes = UdpSocket::recv(self, buf).await?;
-            Ok(if bytes == buf.len() {
-                ReceiveOutcome::PossiblyTruncated { copied: bytes }
-            } else {
-                ReceiveOutcome::Complete { bytes }
-            })
-        }
-    }
-}
-
-// Miri skip: every test in this module drives `smol::Timer`, whose reactor calls
-// `timerfd_create` — a foreign function Miri does not implement (a Miri
-// limitation, not undefined behaviour in this crate). Miri aborts the whole test
-// binary on the first unsupported call, so each test carries
-// `#[cfg_attr(miri, ignore = ...)]`. They still run in the normal CI matrix.
-// See https://github.com/GrantSparks/grafton-visca/issues/585.
-#[cfg(test)]
-#[allow(clippy::expect_used)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-
-    #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "smol::Timer needs timerfd_create, unsupported by Miri (issue #585)"
-    )]
-    fn udp_receive_reports_truncation_without_accepting_the_prefix() {
-        smol::block_on(async {
-            let receiver = UdpSocket::bind("127.0.0.1:0").await.expect("bind receiver");
-            let sender = UdpSocket::bind("127.0.0.1:0").await.expect("bind sender");
-            receiver
-                .connect(sender.local_addr().expect("sender address"))
-                .await
-                .expect("connect receiver");
-
-            sender
-                .send_to(
-                    &[0x90, 0x41, 0xff, 0x00],
-                    receiver.local_addr().expect("receiver address"),
-                )
-                .await
-                .expect("send datagram");
-
-            let mut destination = [0; 3];
-            let received = AsyncDatagram::recv_with_outcome(&receiver, &mut destination)
-                .await
-                .expect("receive datagram");
-
-            assert_eq!(
-                received,
-                ReceiveOutcome::Truncated { copied: 3 },
-                "a valid ACK prefix must not certify a larger UDP datagram"
-            );
-            assert_eq!(destination, [0x90, 0x41, 0xff]);
-        });
-    }
-
-    #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "smol::Timer needs timerfd_create, unsupported by Miri (issue #585)"
-    )]
-    fn udp_receive_accepts_an_exact_buffer_sized_datagram() {
-        smol::block_on(async {
-            let receiver = UdpSocket::bind("127.0.0.1:0").await.expect("bind receiver");
-            let sender = UdpSocket::bind("127.0.0.1:0").await.expect("bind sender");
-            receiver
-                .connect(sender.local_addr().expect("sender address"))
-                .await
-                .expect("connect receiver");
-
-            sender
-                .send_to(
-                    &[0x90, 0x41, 0xff],
-                    receiver.local_addr().expect("receiver address"),
-                )
-                .await
-                .expect("send datagram");
-
-            let mut destination = [0; 3];
-            let received = AsyncDatagram::recv_with_outcome(&receiver, &mut destination)
-                .await
-                .expect("receive datagram");
-
-            assert_eq!(received, ReceiveOutcome::Complete { bytes: 3 });
-            assert_eq!(destination, [0x90, 0x41, 0xff]);
-        });
-    }
-
-    /// Test that verifies deadline budget consumption across sequential steps.
-    ///
-    /// This test validates the "single budget across steps" property:
-    /// - Creates a deadline with timeout T
-    /// - Step A sleeps for ~T * 0.6 and must succeed
-    /// - Step B sleeps for ~T * 0.6 and must fail with Timeout because only ~T * 0.4 remains
-    #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "smol::Timer needs timerfd_create, unsupported by Miri (issue #585)"
-    )]
-    fn test_deadline_budget_consumption() {
-        smol::block_on(async {
-            let total_timeout = Duration::from_millis(200);
-            let step_duration = Duration::from_millis(120); // 60% of total
-
-            let deadline = Deadline::from_timeout(total_timeout).expect("finite test timeout");
-
-            // Step A: Should succeed with ~60% of budget
-            let remaining = deadline.remaining_at(Instant::now());
-            assert!(
-                !remaining.is_zero(),
-                "Should have remaining time before step A"
-            );
-
-            let step_a_result = race(
-                async {
-                    Timer::after(step_duration).await;
-                    Ok::<_, Error>(())
-                },
-                async {
-                    Timer::after(remaining).await;
-                    Err(Error::Timeout)
-                },
-            )
-            .await;
-
-            assert!(
-                step_a_result.is_ok(),
-                "Step A should complete within remaining budget"
-            );
-
-            // Step B: Should fail because only ~40% of budget remains but needs 60%
-            let remaining = deadline.remaining_at(Instant::now());
-
-            let step_b_result = race(
-                async {
-                    Timer::after(step_duration).await;
-                    Ok::<_, Error>(())
-                },
-                async {
-                    Timer::after(remaining).await;
-                    Err(Error::Timeout)
-                },
-            )
-            .await;
-
-            assert!(
-                step_b_result.is_err(),
-                "Step B should timeout because remaining budget is insufficient"
-            );
-        });
-    }
-
-    /// Test that an already-expired deadline returns zero remaining time.
-    #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "smol::Timer needs timerfd_create, unsupported by Miri (issue #585)"
-    )]
-    fn test_deadline_expired_returns_zero() {
-        smol::block_on(async {
-            let timeout = Duration::from_millis(10);
-            let deadline = Deadline::from_timeout(timeout).expect("finite test timeout");
-
-            // Wait for deadline to expire
-            Timer::after(Duration::from_millis(20)).await;
-
-            let remaining = deadline.remaining_at(Instant::now());
-            assert!(
-                remaining.is_zero(),
-                "Expired deadline should return zero remaining time"
-            );
-        });
-    }
-
-    /// Test that deadline correctly tracks remaining time across multiple checks.
-    #[test]
-    #[cfg_attr(
-        miri,
-        ignore = "smol::Timer needs timerfd_create, unsupported by Miri (issue #585)"
-    )]
-    fn test_deadline_remaining_decreases() {
-        smol::block_on(async {
-            let timeout = Duration::from_millis(100);
-            let deadline = Deadline::from_timeout(timeout).expect("finite test timeout");
-
-            let remaining_before = deadline.remaining_at(Instant::now());
-
-            Timer::after(Duration::from_millis(30)).await;
-
-            let remaining_after = deadline.remaining_at(Instant::now());
-
-            assert!(
-                remaining_after < remaining_before,
-                "Remaining time should decrease after sleep"
-            );
-            assert!(
-                remaining_after <= Duration::from_millis(75),
-                "Remaining time should be roughly 70ms or less after 30ms sleep"
-            );
-        });
+    async fn recv(&self, buf: &mut [u8]) -> Result<ReceiveOutcome, Error> {
+        let socket: std::sync::Arc<async_io::Async<std::net::UdpSocket>> = self.clone().into();
+        Ok(socket
+            .read_with(|socket| recv_datagram(socket, buf))
+            .await?)
     }
 }

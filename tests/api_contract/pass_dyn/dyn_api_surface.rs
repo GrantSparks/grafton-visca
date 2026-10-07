@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use std::marker::PhantomData;
+use std::{marker::PhantomData, time::Duration};
 
 use grafton_visca::{
     camera::{IdleWait, MotionQuery},
@@ -8,8 +8,8 @@ use grafton_visca::{
     command::{
         AntiFlickerMode, AutoFocusSensitivity, AutoWhiteBalanceSensitivity, FocusLock, FocusMode,
         FocusRange, FocusZone, ImageFlipMode, MenuDirection, MotionSyncMode, MotionSyncPreset,
-        NdFilterMode, PanTiltDirection, PanTiltLimitCorner, PictureEffectMode, PresetNumber,
-        SharpnessMode, TallyStatusState, VariableSpeedMode, WhiteBalanceMode,
+        NdFilterMode, NdFilterValue, PanTiltDirection, PanTiltLimitCorner, PictureEffectMode,
+        PresetNumber, SharpnessMode, TallyStatusState, VariableSpeedMode, WhiteBalanceMode,
     },
     dynapi::{
         DynAppliedOperation, DynAppliedRequest, DynFuture, DynMotion, DynPower, DynSessionCamera,
@@ -25,7 +25,7 @@ use grafton_visca::{
         ZoomSpeed,
     },
     units::{Degrees, UnitInterval},
-    AffectedAxes, CameraId, Error, Session, ZoomDomain,
+    AffectedAxes, CameraId, CancellationOutcome, Error, Session, ZoomDomain,
 };
 
 fn camera_surface(camera: &dyn DynSessionCameraControl) {
@@ -35,10 +35,9 @@ fn camera_surface(camera: &dyn DynSessionCameraControl) {
 }
 
 fn motion_surface(motion: &dyn DynMotion) {
-    let _: DynFuture<'_, Result<(), Error>> = motion.stop_all_motion();
-    let _: DynFuture<'_, Result<bool, Error>> = motion.is_moving();
+    let _: DynFuture<'_, Result<grafton_visca::HaltReport, Error>> = motion.stop_all_motion();
     let _: DynFuture<'_, Result<bool, Error>> =
-        motion.is_moving_axes(MotionQuery::new(AffectedAxes::ZOOM));
+        motion.is_moving(MotionQuery::new(AffectedAxes::ZOOM));
     let _: DynFuture<'_, Result<(), Error>> = motion.wait_until_idle(IdleWait::new(
         AffectedAxes::ZOOM,
         std::time::Duration::from_secs(1),
@@ -64,9 +63,7 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
         zoom.set_position(ZoomPosition::MIN);
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
-        zoom.set_normalized(UnitInterval::ZERO);
-    let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
-        zoom.set_normalized_in_domain(UnitInterval::ONE, ZoomDomain::Optical);
+        zoom.set_normalized(UnitInterval::ONE, ZoomDomain::Optical);
     let _: DynFuture<'_, Result<(), Error>> = zoom.set_digital_zoom(false);
 
     let system = camera.system();
@@ -83,14 +80,6 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
         PanSpeed::new(1).unwrap(),
         TiltSpeed::new(1).unwrap(),
     );
-    let _: DynFuture<'_, Result<DynAppliedOperation, Error>> =
-        pan_tilt.up(PanSpeed::new(1).unwrap(), TiltSpeed::new(1).unwrap());
-    let _: DynFuture<'_, Result<DynAppliedOperation, Error>> =
-        pan_tilt.down(PanSpeed::new(1).unwrap(), TiltSpeed::new(1).unwrap());
-    let _: DynFuture<'_, Result<DynAppliedOperation, Error>> =
-        pan_tilt.left(PanSpeed::new(1).unwrap(), TiltSpeed::new(1).unwrap());
-    let _: DynFuture<'_, Result<DynAppliedOperation, Error>> =
-        pan_tilt.right(PanSpeed::new(1).unwrap(), TiltSpeed::new(1).unwrap());
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> = pan_tilt.stop();
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
         pan_tilt.absolute(Degrees::new(0.0), Degrees::new(0.0), SpeedLevel::Medium);
@@ -109,9 +98,9 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> = focus.far();
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> = focus.near();
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> =
-        focus.far_variable(grafton_visca::command::FocusSpeed::new(1).unwrap());
+        focus.far_variable(grafton_visca::FocusSpeed::new(1).unwrap());
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> =
-        focus.near_variable(grafton_visca::command::FocusSpeed::new(1).unwrap());
+        focus.near_variable(grafton_visca::FocusSpeed::new(1).unwrap());
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> = focus.stop();
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
         focus.set_position(FocusPosition::new(0));
@@ -148,7 +137,7 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<(), Error>> = exposure.shutter_reset();
     let _: DynFuture<'_, Result<(), Error>> = exposure.shutter_up();
     let _: DynFuture<'_, Result<(), Error>> = exposure.shutter_down();
-    let _: DynFuture<'_, Result<(), Error>> = exposure.shutter_direct(ShutterSpeed::MIN);
+    let _: DynFuture<'_, Result<(), Error>> = exposure.shutter_direct(ShutterSpeed::new(0));
     let _: DynFuture<'_, Result<ExposureCompensationLevel, Error>> = exposure.compensation();
     let _: DynFuture<'_, Result<bool, Error>> = exposure.compensation_enabled();
     let _: DynFuture<'_, Result<ExposureCompensationPosition, Error>> =
@@ -173,7 +162,7 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<(), Error>> = exposure.brightness_reset();
     let _: DynFuture<'_, Result<(), Error>> = exposure.brightness_up();
     let _: DynFuture<'_, Result<(), Error>> = exposure.brightness_down();
-    let _: DynFuture<'_, Result<(), Error>> = exposure.brightness_set(BrightnessLevel::MIN);
+    let _: DynFuture<'_, Result<(), Error>> = exposure.brightness_set(BrightnessLevel::new(0));
     let _: DynFuture<'_, Result<GainLevel, Error>> = exposure.gain();
     let _: DynFuture<'_, Result<(), Error>> = exposure.gain_reset();
     let _: DynFuture<'_, Result<(), Error>> = exposure.gain_up();
@@ -283,8 +272,10 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<grafton_visca::command::NdFilterPosition, Error>> = nd.position();
     let _: DynFuture<'_, Result<NdFilterPreset, Error>> = nd.preset();
     let _: DynFuture<'_, Result<(), Error>> = nd.set_mode(NdFilterMode::Preset);
-    let _: DynFuture<'_, Result<DynTargetedOperation, Error>> = nd.set_value(1);
-    let _: DynFuture<'_, Result<DynTargetedOperation, Error>> = nd.set_stops(2.0);
+    let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
+        nd.set_value(NdFilterValue::new(1).unwrap());
+    let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
+        nd.set_value(NdFilterValue::from_stops(2.0).unwrap());
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> = nd.step_up();
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> = nd.step_down();
     let _: DynFuture<'_, Result<(), Error>> = nd.auto_on();
@@ -294,7 +285,6 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<MotionSyncMode, Error>> = sync.mode();
     let _: DynFuture<'_, Result<MotionSyncPreset, Error>> = sync.preset();
     let _: DynFuture<'_, Result<(), Error>> = sync.set_mode(MotionSyncMode::On);
-    let _: DynFuture<'_, Result<(), Error>> = sync.set_preset(1);
     let _: DynFuture<'_, Result<(), Error>> = sync.set_speed(MotionSyncSpeed::new(1).unwrap());
 
     let menu = camera.menu();
@@ -344,27 +334,42 @@ fn assert_session_selectors(session: &Session) {
     let _: Result<DynSessionCamera, Error> = session.camera_dyn_for(CameraId::CAMERA_1);
 }
 
-fn assert_targeted_settled(targeted: DynTargetedOperation) {
-    let _ = targeted.settled();
+/// Waits borrow the handle (#777): application then settlement on one handle,
+/// cached results, and idempotent cancellation.
+async fn assert_targeted_lifecycle(mut targeted: DynTargetedOperation) -> Result<grafton_visca::Settlement, Error> {
+    targeted
+        .applied_with_timeout(Duration::from_millis(1))
+        .await?;
+    targeted.applied().await?;
+    targeted.settled().await?;
+    targeted.settled_with_timeout(Duration::from_secs(1)).await
 }
 
-fn assert_targeted_applied(targeted: DynTargetedOperation) {
-    let _ = targeted.applied();
-}
-
-fn assert_applied_wait(applied: DynAppliedOperation) {
-    let _ = applied.applied();
-}
-
-fn assert_applied_detach(applied: DynAppliedOperation) {
+async fn assert_applied_lifecycle(
+    mut applied: DynAppliedOperation,
+) -> Result<CancellationOutcome, Error> {
+    applied.applied().await?;
+    let _ = applied.cancel_with_timeout(Duration::from_secs(1)).await;
+    let outcome = applied.cancel().await?;
     applied.detach();
+    Ok(outcome)
+}
+
+fn assert_wait_futures_are_send(targeted: &mut DynTargetedOperation) {
+    fn assert_send<T: Send>(_: &T) {}
+    assert_send(&targeted.applied());
+    assert_send(&targeted.settled());
+    assert_send(&targeted.cancel());
 }
 
 fn assert_handle_shapes(targeted: DynTargetedOperation, applied: DynAppliedOperation) {
     let _: grafton_visca::OperationId = targeted.id();
     let _: grafton_visca::OperationId = applied.id();
-    assert_targeted_settled(targeted);
-    assert_applied_wait(applied);
+    let _ = (
+        assert_targeted_lifecycle,
+        assert_applied_lifecycle,
+        assert_wait_futures_are_send,
+    );
 }
 
 fn main() {

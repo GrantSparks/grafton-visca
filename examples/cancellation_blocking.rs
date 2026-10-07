@@ -14,7 +14,9 @@ use grafton_visca::{
     command::CommandKind,
     profile::ProfileSpec,
     profiles::SonyFR7,
-    transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+    transport::{
+        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
+    },
     CancellationOutcome, Error,
 };
 
@@ -80,10 +82,9 @@ impl BlockingTransport for CancelCamera {
         &mut self,
         destination: &mut [u8],
         _timeout: Duration,
-    ) -> Result<usize, Error> {
-        let reply = self.replies.pop_front().ok_or(Error::Timeout)?;
-        destination[..reply.len()].copy_from_slice(&reply);
-        Ok(reply.len())
+    ) -> Result<ReceiveOutcome, Error> {
+        let reply = self.replies.pop_front().ok_or(Error::io_timeout())?;
+        Ok(ReceiveOutcome::copy_message(&reply, destination))
     }
 
     fn send_semantics(&self) -> SendSemantics {
@@ -96,9 +97,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let session = Session::open(CancelCamera::new(), config)?;
     let camera = session.camera::<SonyFR7>()?;
 
-    let drive = camera.zoom().tele()?;
-    let cancellation = drive.cancel().map_err(|rejected| rejected.into_error())?;
-    let outcome = cancellation.outcome(Duration::from_secs(1))?;
+    let mut drive = camera.zoom().tele()?;
+    let outcome = drive.cancel_with_timeout(Duration::from_secs(1))?;
     if outcome != CancellationOutcome::Cancelled {
         return Err(format!("cancellation lost to unexpected outcome {outcome:?}").into());
     }

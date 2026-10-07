@@ -3,7 +3,7 @@
 //! This module provides comprehensive testing for inquiry command types
 //! using real-world response patterns (golden replies) from PTZ cameras.
 
-use grafton_visca::command::{InquiryData, InquiryKind, Response};
+use grafton_visca::command::{InquiryData, InquiryKind, Response, VersionInfo};
 
 #[test]
 fn test_power_inquiry_on() {
@@ -142,8 +142,11 @@ fn test_image_flip_inquiry() {
 
     match result.unwrap() {
         Response::Inquiry(InquiryData::FlipState {
-            vertical,
-            horizontal,
+            state:
+                grafton_visca::command::FlipState {
+                    vertical,
+                    horizontal,
+                },
         }) => {
             assert!(vertical, "Vertical flip should be on");
             assert!(horizontal, "Horizontal flip should be on");
@@ -216,10 +219,13 @@ fn test_version_inquiry() {
 
     match result.unwrap() {
         Response::Inquiry(InquiryData::Version {
-            vendor,
-            model,
-            rom_version,
-            max_socket,
+            info:
+                VersionInfo {
+                    vendor,
+                    model,
+                    rom_version,
+                    max_socket,
+                },
         }) => {
             assert_eq!(vendor, 0x0014, "Vendor ID mismatch");
             assert_eq!(model, 0x0010, "Model code mismatch");

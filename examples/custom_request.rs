@@ -58,10 +58,7 @@ impl Request for SetVendorTone {
             0xFF,
         ];
         if buffer.len() < bytes.len() {
-            return Err(Error::BufferTooSmall {
-                required: bytes.len(),
-                actual: buffer.len(),
-            });
+            return Err(Error::buffer_too_small(bytes.len(), buffer.len()));
         }
         buffer[..bytes.len()].copy_from_slice(&bytes);
         Ok(bytes.len())
@@ -83,10 +80,7 @@ impl Request for VendorNudge {
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         let bytes = [camera_id.to_address_byte(), 0x01, 0x06, 0x7F, 0x03, 0xFF];
         if buffer.len() < bytes.len() {
-            return Err(Error::BufferTooSmall {
-                required: bytes.len(),
-                actual: buffer.len(),
-            });
+            return Err(Error::buffer_too_small(bytes.len(), buffer.len()));
         }
         buffer[..bytes.len()].copy_from_slice(&bytes);
         Ok(bytes.len())
@@ -176,7 +170,7 @@ fn runtime_profile_spec() -> Result<ProfileSpec, Error> {
         .build()
 }
 
-fn submit_custom(camera: &BlockingDynSessionCamera<'_>) -> Result<(), Error> {
+fn submit_custom(camera: &BlockingDynSessionCamera) -> Result<(), Error> {
     // A plain command returns one final `Result`.
     camera.execute(&SetVendorTone(3))?;
     // An applied-only operation returns a handle you wait on with `applied`.

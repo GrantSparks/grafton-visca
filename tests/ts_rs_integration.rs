@@ -10,9 +10,9 @@ use ts_rs::{Config, TS};
 
 use grafton_visca::{
     camera::{profiles::ProfileId, TransportOptions},
-    command::{FocusSpeed as CommandFocusSpeed, PresetRecallSpeed},
+    command::PresetRecallSpeed,
     types::{SpeedLevel, ZoomPosition},
-    AffectedAxes, PanTiltDirection, PresetNumber, SubmissionClass,
+    AffectedAxes, FocusSpeed, PanTiltDirection, PresetNumber, SubmissionClass,
 };
 
 #[test]
@@ -93,10 +93,10 @@ fn test_range_macro_types_use_real_newtype_derive_semantics() {
             PresetRecallSpeed::output_path(),
         ),
         (
-            CommandFocusSpeed::name(&cfg),
-            CommandFocusSpeed::decl(&cfg),
-            CommandFocusSpeed::docs(),
-            CommandFocusSpeed::output_path(),
+            FocusSpeed::name(&cfg),
+            FocusSpeed::decl(&cfg),
+            FocusSpeed::docs(),
+            FocusSpeed::output_path(),
         ),
     ] {
         assert_eq!(decl, format!("type {name} = number;"));
@@ -110,9 +110,9 @@ fn test_range_macro_types_use_real_newtype_derive_semantics() {
     assert!(PresetRecallSpeed::docs()
         .as_deref()
         .is_some_and(|docs| docs.contains("Preset recall speed.")));
-    assert!(CommandFocusSpeed::docs()
+    assert!(FocusSpeed::docs()
         .as_deref()
-        .is_some_and(|docs| docs.contains("Variable focus speed.")));
+        .is_some_and(|docs| docs.contains("Focus speed value for camera focus control.")));
     assert!(std::panic::catch_unwind(|| PresetNumber::inline_flattened(&cfg)).is_err());
 }
 
@@ -128,7 +128,7 @@ fn test_profile_group_export() {
 fn test_value_types_export() {
     use grafton_visca::types::{
         BrightnessLevel, ColorTemp, ContrastLevel, DefogLevel, FocusPosition, GainLevel, GainLimit,
-        IrisLevel, MotionSyncSpeed, PanPosition, PanSpeed, TiltPosition, TiltSpeed,
+        IrisLevel, MotionSyncSpeed, PanSpeed, TiltSpeed,
     };
 
     let cfg = Config::default();
@@ -154,12 +154,6 @@ fn test_value_types_export() {
         .is_empty());
     assert!(!FocusPosition::export_to_string(&cfg)
         .expect("Failed to export FocusPosition")
-        .is_empty());
-    assert!(!PanPosition::export_to_string(&cfg)
-        .expect("Failed to export PanPosition")
-        .is_empty());
-    assert!(!TiltPosition::export_to_string(&cfg)
-        .expect("Failed to export TiltPosition")
         .is_empty());
     assert!(!PanSpeed::export_to_string(&cfg)
         .expect("Failed to export PanSpeed")

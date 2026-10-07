@@ -4,8 +4,6 @@
 //! to eliminate manual slicing errors and provide compile-time guarantees about
 //! payload shape and size.
 
-use std::borrow::Cow;
-
 use crate::error::Error;
 
 /// VISCA boolean encoding convention.
@@ -120,7 +118,8 @@ impl<'a> Payload<'a> {
     ///
     /// Returns an error if:
     /// - The payload is not exactly one byte (`InvalidResponseLength`)
-    /// - The byte is not `0x02` or `0x03` (`InvalidParameter`)
+    /// - The byte is not `0x02` or `0x03` (`InvalidResponse`, the variant
+    ///   every inquiry decoder uses for a value outside its code set)
     ///
     /// # Examples
     ///
@@ -145,11 +144,10 @@ impl<'a> Payload<'a> {
             (0x03, BoolConvention::OnIs03) => Ok(true),
             (0x02, BoolConvention::OnIs02) => Ok(true),
             (0x03, BoolConvention::OnIs02) => Ok(false),
-            _ => Err(Error::InvalidParameter {
-                parameter: param_name,
-                value: Cow::Owned(format!("0x{byte:02X}")),
-                reason: Cow::Borrowed("Expected 0x02 or 0x03"),
-            }),
+            _ => Err(Error::invalid_response(
+                format!("{param_name}: 0x02 or 0x03"),
+                vec![byte],
+            )),
         }
     }
 }
@@ -180,18 +178,6 @@ impl<'a, const N: usize> Nibbles<'a, N> {
         self.0[index]
     }
 
-    /// Combine two nibbles into a u8 value.
-    ///
-    /// Takes bytes at positions \[start\] and \[start+1\] and combines them as:
-    /// (byte\[start\] << 4) | byte\[start+1\]
-    ///
-    /// Each nibble is masked with 0x0F to ensure only the lower 4 bits are used.
-    #[inline]
-    pub fn u8_pair(&self, start: usize) -> u8 {
-        debug_assert!(start + 1 < N, "u8_pair index out of bounds");
-        ((self.0[start] & 0x0F) << 4) | (self.0[start + 1] & 0x0F)
-    }
-
     /// Combine four nibbles into a u16 value.
     ///
     /// Takes bytes at positions \[start..start+4\] and combines them as:
@@ -201,10 +187,7 @@ impl<'a, const N: usize> Nibbles<'a, N> {
     #[inline]
     pub fn u16_quad(&self, start: usize) -> u16 {
         debug_assert!(start + 3 < N, "u16_quad index out of bounds");
-        (((self.0[start] & 0x0F) as u16) << 12)
-            | (((self.0[start + 1] & 0x0F) as u16) << 8)
-            | (((self.0[start + 2] & 0x0F) as u16) << 4)
-            | ((self.0[start + 3] & 0x0F) as u16)
+        combine(&self.0[start..start + 4]) as u16
     }
 
     /// Combine four nibbles into an i16 value.
@@ -217,11 +200,7 @@ impl<'a, const N: usize> Nibbles<'a, N> {
     #[inline]
     pub(crate) fn u20_penta(&self, start: usize) -> u32 {
         debug_assert!(start + 4 < N, "u20_penta index out of bounds");
-        (((self.0[start] & 0x0F) as u32) << 16)
-            | (((self.0[start + 1] & 0x0F) as u32) << 12)
-            | (((self.0[start + 2] & 0x0F) as u32) << 8)
-            | (((self.0[start + 3] & 0x0F) as u32) << 4)
-            | ((self.0[start + 4] & 0x0F) as u32)
+        combine(&self.0[start..start + 5])
     }
 
     /// Combine five nibbles into a signed two's-complement 20-bit value.
@@ -235,11 +214,50 @@ impl<'a, const N: usize> Nibbles<'a, N> {
         }
     }
 
-    /// Get the last nibble in the array.
-    #[inline]
-    pub fn last_nibble(&self) -> u8 {
-        self.0[N - 1]
+    /// The value of the trailing two nibbles of a zero-padded reply
+    /// (`00 … 0p 0q` → `pq`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidResponseFormat`] when a leading padding nibble
+    /// is not zero (the reply carries a value the field cannot hold) or the
+    /// view is shorter than two nibbles.
+    pub fn zero_extended_u8(&self) -> Result<u8, Error> {
+        self.zero_extended(2)
     }
+
+    /// The value of the trailing nibble of a zero-padded reply
+    /// (`00 … 00 0p` → `p`).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidResponseFormat`] when a leading padding nibble
+    /// is not zero or the view is empty.
+    pub fn zero_extended_nibble(&self) -> Result<u8, Error> {
+        self.zero_extended(1)
+    }
+
+    /// Combines the trailing `digits` nibbles, requiring every leading nibble
+    /// to be zero, as the reference's padded reply layouts do.
+    fn zero_extended(&self, digits: usize) -> Result<u8, Error> {
+        let Some(padding) = N.checked_sub(digits) else {
+            return Err(Error::InvalidResponseFormat);
+        };
+        let (padding, value) = self.0.split_at(padding);
+        if padding.iter().any(|&nibble| nibble != 0) {
+            return Err(Error::InvalidResponseFormat);
+        }
+        Ok(combine(value) as u8)
+    }
+}
+
+/// Combines nibble bytes, most significant first, masking each to its low
+/// four bits. This is the decode side's one nibble combiner.
+#[inline]
+fn combine(nibbles: &[u8]) -> u32 {
+    nibbles
+        .iter()
+        .fold(0, |value, &nibble| (value << 4) | u32::from(nibble & 0x0F))
 }
 
 impl<'a, const N: usize> TryFrom<Payload<'a>> for Nibbles<'a, N> {
@@ -353,10 +371,7 @@ mod tests {
         let nibbles = Nibbles::<4>::from_array(&data);
         assert_eq!(nibbles.byte(0), 0x01);
         assert_eq!(nibbles.byte(3), 0x04);
-        assert_eq!(nibbles.u8_pair(0), 0x12);
-        assert_eq!(nibbles.u8_pair(2), 0x34);
         assert_eq!(nibbles.u16_quad(0), 0x1234);
-        assert_eq!(nibbles.last_nibble(), 0x04);
     }
 
     #[test]
@@ -446,17 +461,44 @@ mod tests {
 
     #[test]
     fn test_nibbles_masking() {
-        // Even if we somehow construct Nibbles with invalid data,
-        // the u8_pair and u16_quad methods should mask the values
         let data = [0x0F, 0x0F, 0x0F, 0x0F];
         let nibbles = Nibbles::<4>::from_array(&data);
 
-        // Test u8_pair masking
-        assert_eq!(nibbles.u8_pair(0), 0xFF); // (0x0F << 4) | 0x0F = 0xFF
-        assert_eq!(nibbles.u8_pair(2), 0xFF);
-
-        // Test u16_quad masking
         assert_eq!(nibbles.u16_quad(0), 0xFFFF); // All nibbles are 0x0F
+    }
+
+    /// Issue #828 L1: a padded `00 … 0p 0q` reply whose padding is not zero
+    /// carries a value its field cannot hold. The accessors used to drop the
+    /// leading nibbles silently; they now reject them.
+    #[test]
+    fn zero_extended_accessors_reject_nonzero_padding() {
+        let pair = Nibbles::<4>::from_array(&[0x00, 0x00, 0x0A, 0x05]);
+        assert_eq!(pair.zero_extended_u8().unwrap(), 0xA5);
+        let single = Nibbles::<4>::from_array(&[0x00, 0x00, 0x00, 0x0E]);
+        assert_eq!(single.zero_extended_nibble().unwrap(), 0x0E);
+        assert_eq!(
+            Nibbles::<2>::from_array(&[0x01, 0x0F])
+                .zero_extended_u8()
+                .unwrap(),
+            0x1F
+        );
+
+        for padded in [[0x01, 0x00, 0x0A, 0x05], [0x00, 0x0F, 0x0A, 0x05]] {
+            assert!(matches!(
+                Nibbles::<4>::from_array(&padded).zero_extended_u8(),
+                Err(Error::InvalidResponseFormat)
+            ));
+        }
+        for padded in [[0x00, 0x00, 0x01, 0x0E], [0x08, 0x00, 0x00, 0x0E]] {
+            assert!(matches!(
+                Nibbles::<4>::from_array(&padded).zero_extended_nibble(),
+                Err(Error::InvalidResponseFormat)
+            ));
+        }
+        assert!(matches!(
+            Nibbles::<1>::from_array(&[0x01]).zero_extended_u8(),
+            Err(Error::InvalidResponseFormat)
+        ));
     }
 
     #[test]
@@ -474,12 +516,10 @@ mod tests {
 
             if let Ok(nibbles) = result {
                 // Verify the values are correctly combined
-                let expected_u8 = (value << 4) | value;
                 let expected_u16 = ((value as u16) << 12)
                     | ((value as u16) << 8)
                     | ((value as u16) << 4)
                     | (value as u16);
-                assert_eq!(nibbles.u8_pair(0), expected_u8);
                 assert_eq!(nibbles.u16_quad(0), expected_u16);
             }
         }
@@ -545,19 +585,18 @@ mod tests {
             let data = vec![invalid_byte];
             let payload = Payload::new(&data);
 
-            let result = payload.parse_bool("test_param", BoolConvention::OnIs03);
-            assert!(
-                matches!(result, Err(Error::InvalidParameter { .. })),
-                "Expected InvalidParameter for byte 0x{:02X}",
-                invalid_byte
-            );
-
-            let result = payload.parse_bool("test_param", BoolConvention::OnIs02);
-            assert!(
-                matches!(result, Err(Error::InvalidParameter { .. })),
-                "Expected InvalidParameter for byte 0x{:02X}",
-                invalid_byte
-            );
+            // A camera reply outside the code set is a protocol error, the
+            // variant every inquiry decoder uses (#809).
+            for convention in [BoolConvention::OnIs03, BoolConvention::OnIs02] {
+                let result = payload.parse_bool("test_param", convention);
+                assert!(
+                    matches!(
+                        &result,
+                        Err(Error::InvalidResponse { actual, .. }) if actual == &[invalid_byte]
+                    ),
+                    "Expected InvalidResponse for byte 0x{invalid_byte:02X}: {result:?}",
+                );
+            }
         }
     }
 
@@ -601,10 +640,10 @@ mod tests {
 
         let result = payload.parse_bool("autofocus_status", BoolConvention::OnIs03);
         match result {
-            Err(Error::InvalidParameter { parameter, .. }) => {
-                assert_eq!(parameter, "autofocus_status");
+            Err(Error::InvalidResponse { expected, .. }) => {
+                assert!(expected.contains("autofocus_status"), "{expected}");
             }
-            _ => panic!("Expected InvalidParameter error"),
+            _ => panic!("Expected InvalidResponse error"),
         }
     }
 

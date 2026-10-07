@@ -53,7 +53,7 @@ async fn async_receive_batch_precedes_a_completion_deadline_at_equality() {
     );
 
     drop(second);
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// A receive sampled even one nanosecond after its correlated completion
@@ -109,7 +109,7 @@ async fn async_receive_batch_rejects_an_overdue_completion() {
         RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed)
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// Datagram input has no retained framer, but the pre-H idle/readiness
@@ -147,6 +147,18 @@ async fn raw_stream_release_idle_fault_fences_once() {
     assert_raw_release_idle_fault_fences_once(stream_policy(1)).await;
 }
 
+/// The earliest sleep one actor selection parked on.
+///
+/// A paced receive waits in the selection beside the engine or grace timer,
+/// so one selection can start several sleeps. The test runtime is
+/// single-threaded, so every sleep of that selection is announced before
+/// this task runs again; virtual time must advance only to the earliest.
+#[cfg(feature = "runtime-tokio")]
+async fn next_selection_sleep(sleeps: &flume::Receiver<Duration>) -> Duration {
+    let first = sleeps.recv_async().await.unwrap();
+    sleeps.try_iter().fold(first, Duration::min)
+}
+
 /// Both documented eager-idle transport shapes must make the raw stream
 /// release grace progress in virtual elapsed time, not in an unbounded number
 /// of receive polls.
@@ -180,36 +192,43 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
     // first observed sleep attributable to A's raw hold rather than to a
     // pre-admission read timeout race.
     let (predecessor_completion, predecessor_admitted) =
-        handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
-    let predecessor_boundary = actor.admissions.try_recv().unwrap();
+        handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let predecessor_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
-        .handle_admission(
-            predecessor_boundary,
+        .handle_event(
+            OwnerEvent::Admission(Ok(predecessor_boundary)),
             &mut driver,
             &runtime,
             Executor::now(&runtime),
+            false,
         )
         .await;
     let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();
-    assert_eq!(writes.recv_async().await.unwrap(), predecessor);
+    assert_eq!(writes.recv_async().await.unwrap(), predecessor.id);
+    reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
-        ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
+        RuntimeOutcome::Failed(Error::CommandNotExecutable)
     ));
     let actor_task = tokio::spawn(actor.run(driver));
 
-    // Queue B while the eager driver walks its paced idle pauses toward H. At
-    // H, its admission must be selected through the ordinary boundary lane
-    // before the raw release Wake dispatches it.
+    // Submit B while the eager driver walks its paced idle pauses toward H.
+    // A pause keeps the boundary lanes live (#780), so B is admitted through
+    // the ordinary boundary lane before H, and only the raw release Wake may
+    // dispatch it.
     let successor_handle = handle.clone();
     let successor_task = tokio::spawn(async move { successor_handle.submit(inquiry()).await });
-    while handle.admissions.is_empty() {
+    while !successor_task.is_finished() {
         tokio::task::yield_now().await;
     }
+    assert!(
+        writes.is_empty(),
+        "an admission during a pause must not dispatch before the raw release"
+    );
     let reads_before_h = reads.load(Ordering::Relaxed);
     let mut until_hold = Duration::ZERO;
     while until_hold < HOLD {
-        let pause = sleeps.recv_async().await.unwrap();
+        let pause = next_selection_sleep(&sleeps).await;
         assert!(
             !pause.is_zero() && pause <= HOLD.saturating_sub(until_hold),
             "eager pre-release read must be paced, got {pause:?} after {until_hold:?}"
@@ -224,7 +243,7 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
     // after the final slice, the boundary-first grace Wake discards it.
     let mut elapsed = Duration::ZERO;
     while elapsed < GRACE {
-        let pause = sleeps.recv_async().await.unwrap();
+        let pause = next_selection_sleep(&sleeps).await;
         assert!(
             !pause.is_zero() && pause <= GRACE.saturating_sub(elapsed),
             "raw grace must install a real positive idle pause, got {pause:?} after {elapsed:?}"
@@ -269,7 +288,7 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
         SessionState::Running
     );
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     runtime.advance(Duration::from_secs(1));
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
@@ -286,13 +305,23 @@ async fn raw_stream_immediate_timeout_grace_is_elapsed_bounded() {
     assert_immediate_idle_raw_grace_is_bounded(ImmediateRawIdle::Timeout).await;
 }
 
-/// Build the async half of #747's facade differential from the same caller
-/// observer contract as the blocking path. A's raw tombstone is already due
-/// when B's observer expires; the actor must reject B before staging it, so
-/// the deadline cannot poison the session or become a later successor write.
-#[cfg(all(feature = "blocking", feature = "runtime-tokio"))]
-async fn async_raw_tombstone_timeout_verdict(
-) -> super::super::super::RawReleaseObserverDeadlineVerdict {
+/// The caller-observed verdict of a raw release whose successor's observer
+/// deadline expires first (#747).
+#[cfg(feature = "runtime-tokio")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RawReleaseObserverDeadlineVerdict {
+    timed_out: bool,
+    session: SessionState,
+    elapsed: Duration,
+    limit: Duration,
+    successor_written: bool,
+}
+
+/// A's raw tombstone is already due when B's observer expires; the actor must
+/// reject B before staging it, so the deadline cannot poison the session or
+/// become a later successor write.
+#[cfg(feature = "runtime-tokio")]
+async fn raw_tombstone_timeout_verdict() -> RawReleaseObserverDeadlineVerdict {
     const HOLD: Duration = Duration::from_millis(15);
     const OBSERVER: Duration = Duration::from_millis(20);
 
@@ -314,19 +343,21 @@ async fn async_raw_tombstone_timeout_verdict(
     let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
 
     let (_predecessor_completion, predecessor_admitted) = handle
+        .core
         .enqueue_admission(no_reply_command_for(CameraId::CAMERA_1, HOLD), None)
         .unwrap();
-    let predecessor_boundary = actor.admissions.try_recv().unwrap();
+    let predecessor_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
-        .handle_admission(
-            predecessor_boundary,
+        .handle_event(
+            OwnerEvent::Admission(Ok(predecessor_boundary)),
             &mut driver,
             &runtime,
             Executor::now(&runtime),
+            false,
         )
         .await;
     let predecessor = predecessor_admitted.recv_async().await.unwrap().unwrap();
-    assert_eq!(writes.recv_async().await.unwrap(), predecessor);
+    assert_eq!(writes.recv_async().await.unwrap(), predecessor.id);
 
     let deadline = initial + OBSERVER;
     let expiring_handle = handle.clone();
@@ -335,7 +366,7 @@ async fn async_raw_tombstone_timeout_verdict(
             .submit_with_timeout_until(command(), Duration::from_secs(1), deadline)
             .await
     });
-    while handle.admissions.is_empty() {
+    while handle.core.admissions.is_empty() {
         tokio::task::yield_now().await;
     }
     // `enqueue_admission` runs before the caller installs its clock sleep;
@@ -347,53 +378,60 @@ async fn async_raw_tombstone_timeout_verdict(
         .await
         .expect("the caller observer expires at its bounded deadline")
         .unwrap();
-    assert!(matches!(result, Err(Error::Timeout)));
+    assert!(matches!(result, Err(Error::Timeout { .. })));
 
     let now = Executor::now(&runtime);
     assert!(
-        !actor.state.raw_correlation_releases_due(now).is_empty(),
+        !actor
+            .core
+            .state
+            .raw_correlation_releases_due(now)
+            .is_empty(),
         "B expires while A's raw tombstone release is due"
     );
-    let expired_successor = actor.admissions.try_recv().unwrap();
+    let expired_successor = actor.core.receivers.admissions.try_recv().unwrap();
     actor
-        .handle_admission(expired_successor, &mut driver, &runtime, now)
+        .handle_event(
+            OwnerEvent::Admission(Ok(expired_successor)),
+            &mut driver,
+            &runtime,
+            now,
+            false,
+        )
         .await;
     assert!(
         writes.try_recv().is_err(),
         "an observer-expired successor must not become a later write"
     );
-    assert_eq!(actor.state.state(), SessionState::Running);
+    assert_eq!(actor.core.state.state(), SessionState::Running);
 
-    super::super::super::RawReleaseObserverDeadlineVerdict {
+    RawReleaseObserverDeadlineVerdict {
         timed_out: true,
-        session: actor.state.state(),
+        session: actor.core.state.state(),
         elapsed: now.saturating_duration_since(initial),
         limit: OBSERVER,
         successor_written: false,
     }
 }
 
-/// Blocking pumps its due raw tombstone through repeated receive faults; async
-/// expires the same pre-admission observer before staging its queued boundary.
-/// The mechanisms differ by facade, but the contractual verdict is identical:
-/// a bounded Timeout, a live session, and no successor write (#747).
-#[cfg(all(feature = "blocking", feature = "runtime-tokio"))]
+/// An observer deadline that expires while a raw tombstone holds its target
+/// is a bounded Timeout with a live session and no successor write (#747).
+/// Both facades run this one owner core, so the verdict holds for each.
+#[cfg(feature = "runtime-tokio")]
 #[tokio::test]
-async fn raw_release_observer_deadline_verdict_matches_blocking() {
-    let blocking = super::super::super::raw_tombstone_fault_timeout_verdict();
-    let asynchronous = async_raw_tombstone_timeout_verdict().await;
+async fn raw_release_observer_deadline_expires_before_staging() {
+    let verdict = raw_tombstone_timeout_verdict().await;
 
-    assert_eq!(blocking, asynchronous);
-    assert!(blocking.timed_out, "both facades return Timeout");
-    assert_eq!(blocking.session, SessionState::Running);
+    assert!(verdict.timed_out, "the caller observes Timeout");
+    assert_eq!(verdict.session, SessionState::Running);
     assert!(
-        blocking.elapsed <= blocking.limit,
+        verdict.elapsed <= verdict.limit,
         "raw release wait exceeded the observer deadline: {:?} > {:?}",
-        blocking.elapsed,
-        blocking.limit
+        verdict.elapsed,
+        verdict.limit
     );
     assert!(
-        !blocking.successor_written,
+        !verdict.successor_written,
         "an observer-expired successor is never written"
     );
 }
@@ -419,41 +457,64 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
 
     // A creates S1's inquiry hold. C independently creates S2's broad raw
     // hold at a later deadline; B remains queued behind S1.
-    let (a_completion, a_admitted) = handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
-    let a_boundary = actor.admissions.try_recv().unwrap();
+    let (a_completion, a_admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let a_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
-        .handle_admission(a_boundary, &mut driver, &runtime, Executor::now(&runtime))
+        .handle_event(
+            OwnerEvent::Admission(Ok(a_boundary)),
+            &mut driver,
+            &runtime,
+            Executor::now(&runtime),
+            false,
+        )
         .await;
     let a = a_admitted.recv_async().await.unwrap().unwrap();
-    assert_eq!(harness.writes.recv_async().await.unwrap(), a);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), a.id);
+    reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         a_completion.recv_async().await.unwrap(),
-        ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
+        RuntimeOutcome::Failed(Error::CommandNotExecutable)
     ));
 
     let (_c_completion, c_admitted) = handle
+        .core
         .enqueue_admission(no_reply_command_for(CameraId::CAMERA_2, SECOND_HOLD), None)
         .unwrap();
-    let c_boundary = actor.admissions.try_recv().unwrap();
+    let c_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
-        .handle_admission(c_boundary, &mut driver, &runtime, Executor::now(&runtime))
+        .handle_event(
+            OwnerEvent::Admission(Ok(c_boundary)),
+            &mut driver,
+            &runtime,
+            Executor::now(&runtime),
+            false,
+        )
         .await;
     let c = c_admitted.recv_async().await.unwrap().unwrap();
-    assert_eq!(harness.writes.recv_async().await.unwrap(), c);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), c.id);
 
-    let (_b_completion, b_admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
-    let b_boundary = actor.admissions.try_recv().unwrap();
+    let (_b_completion, b_admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let b_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
-        .handle_admission(b_boundary, &mut driver, &runtime, Executor::now(&runtime))
+        .handle_event(
+            OwnerEvent::Admission(Ok(b_boundary)),
+            &mut driver,
+            &runtime,
+            Executor::now(&runtime),
+            false,
+        )
         .await;
     let b = b_admitted.recv_async().await.unwrap().unwrap();
     assert!(harness.writes.try_recv().is_err());
 
     runtime.advance(FIRST_HOLD);
     let first_set = actor
-        .raw_release
+        .core
+        .coordinator
+        .release_mut()
         .observe(
             actor
+                .core
                 .state
                 .raw_correlation_releases_due(Executor::now(&runtime)),
         )
@@ -461,13 +522,14 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
 
     runtime.advance(SECOND_HOLD - FIRST_HOLD);
     let combined_set = actor
+        .core
         .state
         .raw_correlation_releases_due(Executor::now(&runtime));
     assert_ne!(combined_set, first_set, "S2 grows the due release set");
     assert_eq!(
         actor
             .handle_event(
-                ActorEvent::Wake,
+                OwnerEvent::Wake,
                 &mut driver,
                 &runtime,
                 Executor::now(&runtime),
@@ -477,7 +539,10 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
         TurnOutcome::Continue,
         "a grown release set restarts at receive-first rather than advancing"
     );
-    assert_eq!(actor.raw_release.latched(), Some(combined_set));
+    assert_eq!(
+        actor.core.coordinator.release().latched(),
+        Some(combined_set)
+    );
     assert!(
         harness.writes.try_recv().is_err(),
         "S1's old proof cannot release B after S2 became due"
@@ -489,8 +554,8 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
     assert_eq!(
         actor
             .handle_event(
-                ActorEvent::Receive {
-                    result: Ok(AsyncReceive::NoData),
+                OwnerEvent::Receive {
+                    result: Ok(OwnerReceive::NoData),
                     received_at: now,
                 },
                 &mut driver,
@@ -501,11 +566,11 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
             .await,
         TurnOutcome::YieldBoundaries
     );
-    assert!(actor.raw_release.is_pending());
+    assert!(actor.core.coordinator.release().is_pending());
     assert_eq!(
         actor
             .handle_event(
-                ActorEvent::Wake,
+                OwnerEvent::Wake,
                 &mut driver,
                 &runtime,
                 Executor::now(&runtime),
@@ -514,7 +579,7 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
             .await,
         TurnOutcome::Continue
     );
-    assert_eq!(harness.writes.recv_async().await.unwrap(), b);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), b.id);
 }
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
@@ -593,7 +658,7 @@ async fn raw_stream_more_than_sixty_four_retained_turns_release_by_progress() {
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// A tail ready at the exact raw tombstone expiry is decoded and made
@@ -631,7 +696,7 @@ async fn raw_stream_split_tail_at_tombstone_boundary_precedes_release() {
     ));
     assert_eq!(harness.discards.load(Ordering::Relaxed), 0);
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// Retained stream input survives a transient-fault turn. Even when both
@@ -674,7 +739,7 @@ async fn raw_stream_prefix_fault_tail_keeps_boundary_input_precedence() {
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// The idle/no-data classification also preserves a positively identified
@@ -711,7 +776,7 @@ async fn raw_stream_prefix_idle_tail_keeps_boundary_input_precedence() {
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// If no completing tail is ready at release, the old prefix is discarded
@@ -754,7 +819,7 @@ async fn raw_stream_orphan_prefix_is_reset_before_successor_dispatch() {
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// A decoder that claims to discard but retains the old prefix makes safe
@@ -839,7 +904,7 @@ async fn raw_stream_ambiguous_prefix_expires_without_poisoning_successor() {
             .unwrap(),
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// A completed tail can perform the due release from `finish_input_turn`,
@@ -857,24 +922,39 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
     // grace deadline rather than discarding immediately.
     driver.prefix_kind = crate::protocol::framer::RawIncompletePrefix::SourceOnly;
 
-    // A times out after its successful write, which installs the genuine
-    // late-reply hold retained by #712. B remains queued behind it.
-    let (a_completion, a_admitted) = handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
-    let a_boundary = actor.admissions.try_recv().unwrap();
+    // A is answered by a socketless rejection after its successful write,
+    // which installs the releasable inquiry hold retained by #712 (a
+    // timed-out stream inquiry now owes its reply instead; see
+    // `raw_inquiry_rejection`). B remains queued behind it.
+    let (a_completion, a_admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let a_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
-        .handle_admission(a_boundary, &mut driver, &runtime, Executor::now(&runtime))
+        .handle_event(
+            OwnerEvent::Admission(Ok(a_boundary)),
+            &mut driver,
+            &runtime,
+            Executor::now(&runtime),
+            false,
+        )
         .await;
     let a = a_admitted.recv_async().await.unwrap().unwrap();
-    assert_eq!(harness.writes.recv_async().await.unwrap(), a);
+    assert_eq!(harness.writes.recv_async().await.unwrap(), a.id);
+    reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         a_completion.recv_async().await.unwrap(),
-        ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
+        RuntimeOutcome::Failed(Error::CommandNotExecutable)
     ));
 
-    let (b_completion, b_admitted) = handle.enqueue_admission(timed_out_inquiry(), None).unwrap();
-    let b_boundary = actor.admissions.try_recv().unwrap();
+    let (b_completion, b_admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let b_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
-        .handle_admission(b_boundary, &mut driver, &runtime, Executor::now(&runtime))
+        .handle_event(
+            OwnerEvent::Admission(Ok(b_boundary)),
+            &mut driver,
+            &runtime,
+            Executor::now(&runtime),
+            false,
+        )
         .await;
     let _b = b_admitted.recv_async().await.unwrap().unwrap();
     assert!(harness.writes.try_recv().is_err());
@@ -884,7 +964,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
     assert_eq!(
         actor
             .handle_event(
-                ActorEvent::Wake,
+                OwnerEvent::Wake,
                 &mut driver,
                 &runtime,
                 Executor::now(&runtime),
@@ -893,7 +973,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
             .await,
         TurnOutcome::ContinueBuffered
     );
-    assert!(actor.raw_release.await_until().is_some());
+    assert!(actor.core.coordinator.release().await_until().is_some());
 
     // The completing tail is real decoded input. Because no fragment is
     // retained, this turn runs the due release and dispatches B directly.
@@ -902,7 +982,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
     assert_eq!(
         actor
             .handle_event(
-                ActorEvent::Receive {
+                OwnerEvent::Receive {
                     result: batch(vec![raw_inquiry_reply(0xa1)]),
                     received_at: now,
                 },
@@ -914,21 +994,28 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
             .await,
         TurnOutcome::Continue
     );
-    assert!(actor.raw_release.await_until().is_none());
-    assert_eq!(harness.writes.recv_async().await.unwrap(), _b);
+    assert!(actor.core.coordinator.release().await_until().is_none());
+    assert_eq!(harness.writes.recv_async().await.unwrap(), _b.id);
 
-    // B's zero-length response deadline creates its own timeout hold as
-    // soon as that dispatch succeeds. C waits behind the new hold and must
-    // receive a fresh grace budget rather than inheriting A's deadline.
+    // B's rejection creates its own inquiry hold as soon as it is answered,
+    // at the same instant as its dispatch. C waits behind the new hold and
+    // must receive a fresh grace budget rather than inheriting A's deadline.
+    reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         b_completion.recv_async().await.unwrap(),
-        ReceiptObservation::Terminal(RuntimeOutcome::Failed(Error::Timeout))
+        RuntimeOutcome::Failed(Error::CommandNotExecutable)
     ));
 
-    let (_c_completion, c_admitted) = handle.enqueue_admission(inquiry(), None).unwrap();
-    let c_boundary = actor.admissions.try_recv().unwrap();
+    let (_c_completion, c_admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let c_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
-        .handle_admission(c_boundary, &mut driver, &runtime, Executor::now(&runtime))
+        .handle_event(
+            OwnerEvent::Admission(Ok(c_boundary)),
+            &mut driver,
+            &runtime,
+            Executor::now(&runtime),
+            false,
+        )
         .await;
     let c = c_admitted.recv_async().await.unwrap().unwrap();
     assert!(harness.writes.try_recv().is_err());
@@ -938,7 +1025,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
     assert_eq!(
         actor
             .handle_event(
-                ActorEvent::Wake,
+                OwnerEvent::Wake,
                 &mut driver,
                 &runtime,
                 Executor::now(&runtime),
@@ -954,7 +1041,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
     assert_eq!(
         actor
             .handle_event(
-                ActorEvent::Receive {
+                OwnerEvent::Receive {
                     result: batch(vec![raw_inquiry_reply(0xb2)]),
                     received_at: now,
                 },
@@ -966,8 +1053,8 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
             .await,
         TurnOutcome::Continue
     );
-    assert!(actor.raw_release.await_until().is_none());
-    assert_eq!(harness.writes.recv_async().await.unwrap(), c);
+    assert!(actor.core.coordinator.release().await_until().is_none());
+    assert_eq!(harness.writes.recv_async().await.unwrap(), c.id);
 }
 /// Production adapter/framer coverage for the original literal-byte hole:
 /// a raw reply split at the exact tombstone boundary remains attributed to
@@ -997,15 +1084,19 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
     let (handle, actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
     let actor_task = tokio::spawn(actor.run(adapter));
 
-    let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
+    let predecessor = handle.submit(inquiry()).await.unwrap();
     let _ = sent_rx.recv_async().await.unwrap();
+    chunk_tx
+        .send_async(RAW_INQUIRY_REJECTION_BYTES.to_vec())
+        .await
+        .unwrap();
     assert!(matches!(
         terminal_within_test_deadline(
             &predecessor,
             "the production split-tail predecessor terminalizes",
         )
         .await,
-        RuntimeOutcome::Failed(Error::Timeout)
+        RuntimeOutcome::Failed(Error::CommandNotExecutable)
     ));
 
     let successor = handle.submit(inquiry()).await.unwrap();
@@ -1034,7 +1125,7 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// A byte-stream release gives an ownerless prefix one real grace interval,
@@ -1066,15 +1157,19 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
         let (handle, actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
         let actor_task = tokio::spawn(actor.run(adapter));
 
-        let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
+        let predecessor = handle.submit(inquiry()).await.unwrap();
         let _ = sent_rx.recv_async().await.unwrap();
+        chunk_tx
+            .send_async(RAW_INQUIRY_REJECTION_BYTES.to_vec())
+            .await
+            .unwrap();
         assert!(matches!(
             terminal_within_test_deadline(
                 &predecessor,
                 "the ambiguous-prefix predecessor terminalizes",
             )
             .await,
-            RuntimeOutcome::Failed(Error::Timeout)
+            RuntimeOutcome::Failed(Error::CommandNotExecutable)
         ));
         let successor = handle.submit(inquiry()).await.unwrap();
         assert!(sent_rx.try_recv().is_err());
@@ -1113,7 +1208,7 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
             .await,
             RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
         ));
-        handle.shutdown().await.unwrap();
+        handle.shutdown().unwrap();
         assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
     }
 }
@@ -1169,7 +1264,7 @@ async fn production_raw_s1_split_tail_precedes_same_target_s2_release() {
         "Z may write only after X's equal-boundary completion is correlated",
     );
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// An already-buffered named S1 prefix is exact evidence for live X, not
@@ -1216,7 +1311,7 @@ async fn production_raw_live_s1_prefix_survives_same_target_s2_release() {
         RuntimeOutcome::Applied
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// Conversely, a named prefix for the releasing S2 is stale. It is
@@ -1273,7 +1368,7 @@ async fn production_raw_stale_s2_prefix_is_discarded_before_successor_write() {
         RuntimeOutcome::Applied
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// Raw serial holds are target-local. While camera C has a retained partial
@@ -1367,7 +1462,7 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 /// A frame-limit batch can leave a complete camera-C reply ahead of an
@@ -1477,7 +1572,7 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xa1]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 #[cfg(feature = "runtime-tokio")]
@@ -1512,12 +1607,16 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
     let (handle, actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
     let actor_task = tokio::spawn(actor.run(adapter));
 
-    let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
+    let predecessor = handle.submit(inquiry()).await.unwrap();
     let _ = sent_rx.recv_async().await.unwrap();
+    chunk_tx
+        .send_async(RAW_INQUIRY_REJECTION_BYTES.to_vec())
+        .await
+        .unwrap();
     assert!(matches!(
         terminal_within_test_deadline(&predecessor, "the invalid-prefix predecessor terminalizes",)
             .await,
-        RuntimeOutcome::Failed(Error::Timeout)
+        RuntimeOutcome::Failed(Error::CommandNotExecutable)
     ));
     let successor = handle.submit(inquiry()).await.unwrap();
     assert!(sent_rx.try_recv().is_err());
@@ -1553,7 +1652,7 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.state, SessionState::Shutdown);
     assert_eq!(
@@ -1657,7 +1756,381 @@ async fn stream_reply_split_across_two_reads_keeps_the_session_running() {
         RuntimeOutcome::Applied
     ));
     assert_eq!(handle.snapshot().await.unwrap().active, 0);
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.state, SessionState::Shutdown);
+}
+
+/// Bounds one await of the #795 owed-reply tests so that a broken
+/// implementation fails with `context` instead of hanging the suite.
+#[cfg(feature = "runtime-tokio")]
+async fn within<F: std::future::Future>(future: F, context: &'static str) -> F::Output {
+    tokio::time::timeout(Duration::from_secs(1), future)
+        .await
+        .expect(context)
+}
+
+/// Bounded spin for a harness flag the actor flips when it consumes a read.
+#[cfg(feature = "runtime-tokio")]
+async fn until_flag(flag: &std::sync::atomic::AtomicBool, want: bool, context: &'static str) {
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    while flag.load(Ordering::Acquire) != want {
+        assert!(std::time::Instant::now() < deadline, "{context}");
+        tokio::task::yield_now().await;
+    }
+}
+
+/// #795 stream-stall fix through the async actor: a stream inquiry that
+/// timed out after its write owes its reply. Starts the owner on a
+/// single-flight raw stream, times out A, and queues B behind A's owed hold
+/// (window = the request's one-second ambiguity, at least the reply skew).
+#[cfg(feature = "runtime-tokio")]
+async fn owed_stream_inquiry_fixture() -> (
+    ManualRuntime,
+    AsyncOwnerHandle,
+    ScriptedRawHarness,
+    tokio::task::JoinHandle<OwnerSnapshot>,
+    ReceiptCore,
+) {
+    let runtime = ManualRuntime::with_polling_sleeps(Instant::now());
+    let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
+    let mut harness = boundary_stream_harness(false);
+    let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
+    let predecessor = within(handle.submit(timed_out_inquiry()), "A is admitted")
+        .await
+        .unwrap();
+    assert_eq!(
+        within(harness.writes.recv_async(), "A is written")
+            .await
+            .unwrap(),
+        predecessor.id
+    );
+    assert!(matches!(
+        terminal_within_test_deadline(&predecessor, "A times out at its reply deadline").await,
+        RuntimeOutcome::Failed(Error::Timeout { .. })
+    ));
+    let successor = within(handle.submit(inquiry()), "B is admitted")
+        .await
+        .unwrap();
+    assert!(
+        harness.writes.try_recv().is_err(),
+        "B waits for A's owed reply"
+    );
+    (runtime, handle, harness, actor_task, successor)
+}
+
+/// A split owed reply that completes inside the window settles the debt: it
+/// is discarded, and B is written only after the ordinary reply skew counted
+/// from the settling input — not at the window end — and receives only its
+/// own reply.
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn raw_stream_owed_split_reply_settles_before_the_window_and_reopens_after_skew() {
+    let (runtime, handle, harness, actor_task, successor) = owed_stream_inquiry_fixture().await;
+
+    runtime.advance(Duration::from_millis(500));
+    harness
+        .reads
+        .send_async(ScriptedRawRead::Prefix)
+        .await
+        .unwrap();
+    until_flag(&harness.buffered, true, "the prefix is read").await;
+    harness
+        .reads
+        .send_async(ScriptedRawRead::Tail(raw_inquiry_reply(0xa1)))
+        .await
+        .unwrap();
+    until_flag(&harness.buffered, false, "the tail is read").await;
+    let _ = within(handle.snapshot(), "the actor answers a snapshot")
+        .await
+        .unwrap();
+
+    // The original window end no longer matters; the skew runs from 500 ms.
+    // A due wake may let one control observation through before it runs, so
+    // the second snapshot is the one that proves the 1 s turn has executed.
+    runtime.advance(Duration::from_millis(500));
+    let _ = within(handle.snapshot(), "the actor answers a snapshot")
+        .await
+        .unwrap();
+    let _ = within(handle.snapshot(), "the actor answers a second snapshot")
+        .await
+        .unwrap();
+    assert!(
+        harness.writes.try_recv().is_err(),
+        "B is still inside the skew restarted by the settling reply"
+    );
+    runtime.advance(Duration::from_millis(500));
+    assert_eq!(
+        within(harness.writes.recv_async(), "B is written after the skew")
+            .await
+            .unwrap(),
+        successor.id
+    );
+    harness
+        .reads
+        .send_async(ScriptedRawRead::Complete(raw_inquiry_reply(0xb2)))
+        .await
+        .unwrap();
+    assert!(matches!(
+        terminal_within_test_deadline(&successor, "B receives its own reply").await,
+        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+    ));
+    assert_eq!(harness.discards.load(Ordering::Relaxed), 0);
+
+    handle.shutdown().unwrap();
+    assert_eq!(
+        within(actor_task, "the actor exits").await.unwrap().state,
+        SessionState::Shutdown
+    );
+}
+
+/// A retained prefix at the owed window end is not a release: nothing is
+/// discarded and the lane is not handed to B. The window end instead
+/// latches the target, failing the waiting B and every new inquiry with
+/// `InquiryCorrelationLost` without a write. When the owed reply's tail
+/// finally completes, it settles the latch and the lane reopens after the
+/// skew with correct data.
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn raw_stream_owed_prefix_at_window_end_latches_instead_of_releasing() {
+    let (runtime, handle, harness, actor_task, successor) = owed_stream_inquiry_fixture().await;
+
+    harness
+        .reads
+        .send_async(ScriptedRawRead::Prefix)
+        .await
+        .unwrap();
+    until_flag(&harness.buffered, true, "the prefix is read").await;
+    runtime.advance(Duration::from_secs(1));
+    assert!(matches!(
+        terminal_within_test_deadline(&successor, "B fails at the latch").await,
+        RuntimeOutcome::Failed(Error::InquiryCorrelationLost { camera })
+            if camera == CameraId::CAMERA_1
+    ));
+    runtime.advance(Duration::from_secs(5));
+    let snapshot = within(handle.snapshot(), "the actor answers a snapshot")
+        .await
+        .unwrap();
+    assert_eq!(snapshot.state, SessionState::Running);
+    assert!(harness.writes.try_recv().is_err(), "nothing was released");
+    assert_eq!(
+        harness.discards.load(Ordering::Relaxed),
+        0,
+        "the owed reply's prefix is retained, not discarded as an orphan"
+    );
+    assert!(matches!(
+        within(handle.submit(inquiry()), "admission answers promptly").await,
+        Err(Error::InquiryCorrelationLost { .. })
+    ));
+
+    harness
+        .reads
+        .send_async(ScriptedRawRead::Tail(raw_inquiry_reply(0xa1)))
+        .await
+        .unwrap();
+    // The idle actor is parked in its paced receive pause; let virtual time
+    // reach the next poll so it reads the tail.
+    for _ in 0..100 {
+        if !harness.buffered.load(Ordering::Acquire) {
+            break;
+        }
+        runtime.advance(Duration::from_millis(10));
+        tokio::task::yield_now().await;
+    }
+    assert!(
+        !harness.buffered.load(Ordering::Acquire),
+        "the tail completing the owed reply is read"
+    );
+    let _ = within(handle.snapshot(), "the actor answers a snapshot")
+        .await
+        .unwrap();
+    runtime.advance(Duration::from_secs(1));
+    let reopened = within(handle.submit(inquiry()), "the reopened inquiry is admitted")
+        .await
+        .unwrap();
+    assert_eq!(
+        within(
+            harness.writes.recv_async(),
+            "the reopened inquiry is written"
+        )
+        .await
+        .unwrap(),
+        reopened.id
+    );
+    harness
+        .reads
+        .send_async(ScriptedRawRead::Complete(raw_inquiry_reply(0xb2)))
+        .await
+        .unwrap();
+    assert!(matches!(
+        terminal_within_test_deadline(&reopened, "the reopened lane binds its own reply").await,
+        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+    ));
+
+    handle.shutdown().unwrap();
+    assert_eq!(
+        within(actor_task, "the actor exits").await.unwrap().state,
+        SessionState::Shutdown
+    );
+}
+
+/// A latched target fails the waiting inquiry, but an urgent STOP-class and
+/// an ordinary ACK-bearing command to the same target are still written and
+/// complete normally; the session is not poisoned.
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn raw_stream_latched_target_still_writes_stop_and_ack_bearing_commands() {
+    let (runtime, handle, harness, actor_task, successor) = owed_stream_inquiry_fixture().await;
+
+    runtime.advance(Duration::from_secs(1));
+    assert!(matches!(
+        terminal_within_test_deadline(&successor, "B fails at the latch").await,
+        RuntimeOutcome::Failed(Error::InquiryCorrelationLost { .. })
+    ));
+
+    for request in [urgent_command(), command()] {
+        let receipt = within(handle.submit(request), "the command is admitted")
+            .await
+            .unwrap();
+        assert_eq!(
+            within(
+                harness.writes.recv_async(),
+                "the command is written to the latched target"
+            )
+            .await
+            .unwrap(),
+            receipt.id
+        );
+        harness
+            .reads
+            .send_async(ScriptedRawRead::Complete(ack(ViscaSocket::S1)))
+            .await
+            .unwrap();
+        harness
+            .reads
+            .send_async(ScriptedRawRead::Complete(completion(ViscaSocket::S1)))
+            .await
+            .unwrap();
+        assert!(matches!(
+            terminal_within_test_deadline(&receipt, "the command applies").await,
+            RuntimeOutcome::Applied
+        ));
+    }
+    assert_eq!(
+        within(handle.snapshot(), "the actor answers a snapshot")
+            .await
+            .unwrap()
+            .state,
+        SessionState::Running
+    );
+
+    handle.shutdown().unwrap();
+    assert_eq!(
+        within(actor_task, "the actor exits").await.unwrap().state,
+        SessionState::Shutdown
+    );
+}
+
+/// Production adapter/framer twin of the owed-reply rules (#795), beside
+/// `production_raw_ambiguous_prefixes_expire_by_time_without_poison`, which
+/// keeps the #713 grace for an *answered* predecessor's hold. After a stream
+/// inquiry times out, the start of its owed reply (`90 50`) retained at the
+/// window end is neither granted grace nor discarded: the target latches, the
+/// waiting B fails with `InquiryCorrelationLost`, and only when the literal
+/// tail completes the owed reply does the lane reopen after the skew.
+#[cfg(feature = "runtime-tokio")]
+#[tokio::test]
+async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles() {
+    let runtime = ManualRuntime::with_polling_sleeps(Instant::now());
+    let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+        .expect("generic raw profile");
+    let (chunk_tx, chunks) = flume::bounded(16);
+    let (sent, sent_rx) = flume::bounded(16);
+    let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
+        ChunkedStreamTransport {
+            config: crate::transport::builder::TransportConfig::default(),
+            chunks,
+            sent,
+        },
+        &profile,
+        CameraId::CAMERA_1,
+    )
+    .unwrap();
+    let mut actor_policy = adapter.policy().clone();
+    actor_policy.limits.frames_per_receive = 1;
+    actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
+    let (handle, actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+    let actor_task = tokio::spawn(actor.run(adapter));
+
+    let predecessor = within(handle.submit(timed_out_inquiry()), "A is admitted")
+        .await
+        .unwrap();
+    let _ = within(sent_rx.recv_async(), "the inquiry is written")
+        .await
+        .unwrap();
+    assert!(matches!(
+        terminal_within_test_deadline(&predecessor, "A times out at its reply deadline").await,
+        RuntimeOutcome::Failed(Error::Timeout { .. })
+    ));
+    let successor = within(handle.submit(inquiry()), "B is admitted")
+        .await
+        .unwrap();
+    assert!(sent_rx.try_recv().is_err());
+
+    chunk_tx.send_async(vec![0x90, 0x50]).await.unwrap();
+    let _ = within(handle.snapshot(), "the actor answers a snapshot")
+        .await
+        .unwrap();
+    runtime.advance(Duration::from_secs(1));
+    assert!(matches!(
+        terminal_within_test_deadline(&successor, "B fails at the latch").await,
+        RuntimeOutcome::Failed(Error::InquiryCorrelationLost { .. })
+    ));
+    runtime.advance(Duration::from_millis(500));
+    let snapshot = within(handle.snapshot(), "the actor answers a snapshot")
+        .await
+        .unwrap();
+    assert_eq!(snapshot.state, SessionState::Running);
+    assert!(
+        sent_rx.try_recv().is_err(),
+        "the retained prefix released nothing"
+    );
+    assert!(
+        !snapshot.diagnostics.iter().any(|event| matches!(
+            event,
+            DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
+        )),
+        "the owed reply's prefix is not discarded as an orphan"
+    );
+
+    // The literal tail completes the owed reply, which settles the latch.
+    chunk_tx.send_async(vec![0x02, 0xff]).await.unwrap();
+    for _ in 0..20 {
+        runtime.advance(Duration::from_millis(10));
+        tokio::task::yield_now().await;
+    }
+    let _ = within(handle.snapshot(), "the actor answers a snapshot")
+        .await
+        .unwrap();
+    runtime.advance(Duration::from_secs(1));
+    let reopened = within(handle.submit(inquiry()), "the reopened inquiry is admitted")
+        .await
+        .unwrap();
+    let _ = within(sent_rx.recv_async(), "the inquiry is written")
+        .await
+        .unwrap();
+    chunk_tx
+        .send_async(vec![0x90, 0x50, 0xb2, 0xff])
+        .await
+        .unwrap();
+    assert!(matches!(
+        terminal_within_test_deadline(&reopened, "the reopened lane binds its own reply").await,
+        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+    ));
+
+    handle.shutdown().unwrap();
+    assert_eq!(
+        within(actor_task, "the actor exits").await.unwrap().state,
+        SessionState::Shutdown
+    );
 }

@@ -1,8 +1,6 @@
 //! Neutral Density (ND) filter metadata trait and associated types.
 
-use std::borrow::Cow;
-
-use crate::capabilities::ValidationError;
+use crate::capabilities::{CapabilityRange, ValidationError};
 
 /// Metadata for a camera profile's ND filter capability.
 ///
@@ -33,25 +31,14 @@ pub trait NdFilterMetadataExt: NdFilterMetadata {
                 if value == 0 || value == fixed_value {
                     Ok(value)
                 } else {
-                    Err(ValidationError::InvalidValue {
-                        parameter: "ND filter",
-                        message: Cow::Owned(format!(
-                            "Only 0 (off) or {fixed_value} (on) are valid"
-                        )),
-                    })
+                    Err(ValidationError::invalid_value(
+                        "ND filter",
+                        format!("Only 0 (off) or {fixed_value} (on) are valid"),
+                    ))
                 }
             }
             NdFilterMode::Stepped(steps) => {
-                if value <= steps {
-                    Ok(value)
-                } else {
-                    Err(ValidationError::OutOfRange {
-                        parameter: "ND filter step",
-                        value: value as f64,
-                        min: 0.0,
-                        max: steps as f64,
-                    })
-                }
+                CapabilityRange::<u8>::new(0, steps).validate("ND filter step", value)
             }
             NdFilterMode::Variable => {
                 // For variable ND, typically 0-255 range

@@ -9,7 +9,7 @@
 
 use std::fmt;
 
-#[cfg(feature = "async")]
+#[cfg(any(feature = "async", feature = "blocking"))]
 use crate::Error;
 use crate::{state_cache::StateKey, CameraId, ErrorKind};
 
@@ -34,11 +34,19 @@ pub enum SessionStatus {
 /// immutable session admission policy.  A snapshot contains only scalar data
 /// and therefore does not clone the diagnostic ring or any subscriber queue.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct MetricsSnapshot {
     /// Requests admitted into authoritative engine state.
     pub admitted: u64,
     /// Requests rejected before admission.
     pub admission_rejected: u64,
+    /// Urgent typed STOPs admitted into their target's control reserve
+    /// rather than an ordinary admission slot (D26, #778).
+    pub control_reserve_admitted: u64,
+    /// Urgent typed STOPs rejected because their target's control reserve
+    /// and the ordinary admission budget were both full. Included in
+    /// `admission_rejected`.
+    pub control_reserve_rejected: u64,
     /// Transport writes attempted.
     pub writes: u64,
     /// Transport writes that returned an error.
@@ -100,7 +108,8 @@ pub struct MetricsSnapshot {
     pub dropped_diagnostics: u64,
     /// Diagnostic events dropped because a subscriber queue was full.
     pub dropped_diagnostic_events: u64,
-    /// Completion-observer events dropped after their receiver disappeared.
+    /// Operation-observer events — terminal outcomes and cancellation
+    /// failures — dropped because their handle was already gone.
     pub dropped_observer_events: u64,
     /// Applied-state events dropped because a subscriber queue was full.
     pub dropped_applied_events: u64,
@@ -180,6 +189,7 @@ pub enum DiagnosticResponse {
     /// A protocol error response was received.
     Error,
     /// A Sony transport-control reply was received.
+    #[non_exhaustive]
     SonyControl {
         /// The one- or two-byte control reply code, stored in network order.
         code: u16,
@@ -271,6 +281,7 @@ pub enum DiagnosticIgnoreReason {
 #[non_exhaustive]
 pub enum DiagnosticEvent {
     /// A request entered authoritative owner state.
+    #[non_exhaustive]
     Admitted {
         /// Opaque request lifecycle identity.
         id: DiagnosticId,
@@ -280,6 +291,7 @@ pub enum DiagnosticEvent {
         lane: DiagnosticLane,
     },
     /// Admission was rejected before an identity was allocated.
+    #[non_exhaustive]
     AdmissionRejected {
         /// Target camera.
         target: CameraId,
@@ -289,6 +301,7 @@ pub enum DiagnosticEvent {
         error: ErrorKind,
     },
     /// A response frame reached the owner.
+    #[non_exhaustive]
     FrameReceived {
         /// Target camera.
         target: CameraId,
@@ -296,6 +309,7 @@ pub enum DiagnosticEvent {
         response: DiagnosticResponse,
     },
     /// A request changed private protocol phase.
+    #[non_exhaustive]
     Transition {
         /// Opaque request lifecycle identity.
         id: DiagnosticId,
@@ -307,6 +321,7 @@ pub enum DiagnosticEvent {
         to: DiagnosticPhase,
     },
     /// A transport write completed.
+    #[non_exhaustive]
     WriteFinished {
         /// Opaque request lifecycle identity.
         id: DiagnosticId,
@@ -318,6 +333,7 @@ pub enum DiagnosticEvent {
         success: bool,
     },
     /// A retry was scheduled.
+    #[non_exhaustive]
     RetryScheduled {
         /// Opaque request lifecycle identity.
         id: DiagnosticId,
@@ -331,6 +347,7 @@ pub enum DiagnosticEvent {
     /// `will_retry` is the scheduler's decision for this exact expiry, so a
     /// subscriber never has to infer it from a [`DiagnosticEvent::Transition`]
     /// and the absence of a following [`DiagnosticEvent::RetryScheduled`].
+    #[non_exhaustive]
     DeadlineExpired {
         /// Opaque request lifecycle identity.
         id: DiagnosticId,
@@ -342,6 +359,7 @@ pub enum DiagnosticEvent {
         will_retry: bool,
     },
     /// Cancellation entered the owner.
+    #[non_exhaustive]
     CancellationRecorded {
         /// Opaque request lifecycle identity.
         id: DiagnosticId,
@@ -349,6 +367,7 @@ pub enum DiagnosticEvent {
         target: CameraId,
     },
     /// Cancellation changed observation state.
+    #[non_exhaustive]
     CancellationObserved {
         /// Opaque request lifecycle identity.
         id: DiagnosticId,
@@ -358,6 +377,7 @@ pub enum DiagnosticEvent {
         observation: DiagnosticCancellation,
     },
     /// An exact applied-state effect was committed.
+    #[non_exhaustive]
     AppliedState {
         /// Opaque request lifecycle identity.
         id: DiagnosticId,
@@ -367,6 +387,7 @@ pub enum DiagnosticEvent {
         key: StateKey,
     },
     /// A request reached a terminal outcome.
+    #[non_exhaustive]
     Terminal {
         /// Opaque request lifecycle identity.
         id: DiagnosticId,
@@ -376,6 +397,7 @@ pub enum DiagnosticEvent {
         outcome: DiagnosticOutcome,
     },
     /// Session state changed.
+    #[non_exhaustive]
     SessionChanged {
         /// Previous session state.
         from: SessionStatus,
@@ -385,6 +407,7 @@ pub enum DiagnosticEvent {
         reason: ErrorKind,
     },
     /// The engine deliberately ignored an input.
+    #[non_exhaustive]
     Ignored {
         /// Bounded reason.
         reason: DiagnosticIgnoreReason,
@@ -403,7 +426,7 @@ pub struct DiagnosticSubscription {
 }
 
 impl DiagnosticSubscription {
-    #[cfg(feature = "async")]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn from_owner(inner: crate::runtime::owner::DiagnosticSubscription) -> Self {
         Self { inner }
     }
@@ -422,13 +445,28 @@ impl DiagnosticSubscription {
             .await
             .map(DiagnosticEvent::from_owner)
     }
+
+    /// Waits up to `timeout` for one event on the calling thread.
+    ///
+    /// Returns `Ok(None)` when no event arrived in time, and
+    /// [`Error::RuntimeShutdown`] once the owner has ended and every queued
+    /// event has been received.
+    #[cfg(feature = "blocking")]
+    pub fn recv_timeout(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Result<Option<DiagnosticEvent>, Error> {
+        self.inner
+            .recv_timeout(timeout)
+            .map(|event| event.map(DiagnosticEvent::from_owner))
+    }
 }
 
 impl DiagnosticEvent {
     pub(crate) fn from_owner(event: crate::runtime::owner::DiagnosticEvent) -> Self {
-        use crate::runtime::engine::{DeadlineKind, IgnoreReason, Phase, SessionState};
+        use crate::runtime::engine::{DeadlineKind, IgnoreReason, Lane, Phase};
         use crate::runtime::owner::{
-            CancellationDiagnostic, DiagnosticEvent as OwnerEvent, OutcomeDiagnostic, RequestLane,
+            CancellationDiagnostic, DiagnosticEvent as OwnerEvent, OutcomeDiagnostic,
             ResponseDiagnostic,
         };
 
@@ -444,15 +482,9 @@ impl DiagnosticEvent {
                 DiagnosticPhase::AwaitingCancellationResolution
             }
         };
-        let session = |value: SessionState| match value {
-            SessionState::Running => SessionStatus::Running,
-            SessionState::Closed => SessionStatus::Closed,
-            SessionState::Shutdown => SessionStatus::Shutdown,
-            SessionState::Poisoned => SessionStatus::Poisoned,
-        };
-        let lane = |value: RequestLane| match value {
-            RequestLane::Command => DiagnosticLane::Command,
-            RequestLane::Inquiry => DiagnosticLane::Inquiry,
+        let lane = |value: Lane| match value {
+            Lane::Command => DiagnosticLane::Command,
+            Lane::Inquiry => DiagnosticLane::Inquiry,
         };
         let response = |value: ResponseDiagnostic| match value {
             ResponseDiagnostic::Ack(_) => DiagnosticResponse::Ack,
@@ -605,13 +637,27 @@ impl DiagnosticEvent {
                 outcome: outcome(value),
             },
             OwnerEvent::SessionChanged { from, to, reason } => Self::SessionChanged {
-                from: session(from),
-                to: session(to),
+                from: SessionStatus::from_engine(from),
+                to: SessionStatus::from_engine(to),
                 reason,
             },
             OwnerEvent::Ignored(value) => Self::Ignored {
                 reason: ignored(value),
             },
+        }
+    }
+}
+
+impl SessionStatus {
+    /// The public status of one engine session state.
+    pub(crate) const fn from_engine(state: crate::runtime::engine::SessionState) -> Self {
+        use crate::runtime::engine::SessionState;
+
+        match state {
+            SessionState::Running => Self::Running,
+            SessionState::Closed => Self::Closed,
+            SessionState::Shutdown => Self::Shutdown,
+            SessionState::Poisoned => Self::Poisoned,
         }
     }
 }
@@ -622,15 +668,12 @@ pub(crate) fn metrics_snapshot(
     pending: usize,
     session: crate::runtime::engine::SessionState,
 ) -> MetricsSnapshot {
-    let session = match session {
-        crate::runtime::engine::SessionState::Running => SessionStatus::Running,
-        crate::runtime::engine::SessionState::Closed => SessionStatus::Closed,
-        crate::runtime::engine::SessionState::Shutdown => SessionStatus::Shutdown,
-        crate::runtime::engine::SessionState::Poisoned => SessionStatus::Poisoned,
-    };
+    let session = SessionStatus::from_engine(session);
     MetricsSnapshot {
         admitted: metrics.admitted,
         admission_rejected: metrics.admission_rejected,
+        control_reserve_admitted: metrics.control_reserve_admitted,
+        control_reserve_rejected: metrics.control_reserve_rejected,
         writes: metrics.writes,
         write_failures: metrics.write_failures,
         terminal: metrics.terminal,

@@ -2,181 +2,84 @@
 //! even while the caller still holds an un-awaited operation handle.
 //!
 //! On raw VISCA the engine normally keeps one *unacknowledged* command in flight
-//! (the single-candidate gate), so a socketless ACK is never guessed.
-//! Before the fix, a second operation submitted while a first raw command was
-//! still awaiting its ACK lost the first-dispatch race and — under the
-//! operation handle's `RequireFirstWrite` contract — was rejected
-//! `Error::TransportBusy` with **zero** bytes on the wire, so
+//! (the single-candidate gate), so a socketless ACK is never guessed. Before
+//! the fix, a second operation submitted while a first raw command was still
+//! awaiting its ACK was rejected with zero bytes on the wire, so
 //! `motion().stop_all_motion()` and typed `Urgent` stops (`ZoomStop`,
-//! `FocusStop`, `PanTiltStop`) could not reach a moving camera. The blocking
-//! owner drains that pre-ACK gate for ordinary ACK-bearing work. Issue #714
-//! gives intrinsic `Urgent` stops a different safety contract: they bypass the
-//! drain and write within physical pacing; if two raw candidates are then open,
-//! an ACK binds to neither. Genuine socket-capacity contention still fails
-//! fast, as it must.
+//! `FocusStop`, `PanTiltStop`) could not reach a moving camera.
+//!
+//! The blocking owner is now a native worker thread (#780): a submission is
+//! admitted into its queue and written when the scheduler allows, exactly as
+//! on the async owner. Ordinary work waits for the gate (and for #714's
+//! bounded lost-ACK quarantine); intrinsic `Urgent` stops bypass it and write
+//! within physical pacing, and if two raw candidates are then open an ACK
+//! binds to neither. Socket-capacity contention queues instead of failing.
 
 #![cfg(feature = "blocking")]
 
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
 #[path = "common/profile_fixtures.rs"]
 mod profile_fixtures;
 
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex},
+    thread,
     time::{Duration, Instant},
 };
 
 use grafton_visca::{
     blocking::{Session, SessionConfig},
-    command::CommandKind,
     completion::{AppliedOnly, Targeted},
-    profile::ProfileSpec,
     raw::{self, RawReplyShape},
     request::builtin::{FocusStop, ZoomDrive},
-    transport::{
-        AddressingMode, BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
-    },
+    transport::{AddressingMode, TransportConfig},
     AffectedAxes, CameraId, ControlClass, Error, OperationalTuning, RetryClass, TimeoutClass,
 };
 
-use profile_fixtures::NonDefaultCompileTimeProfile;
+use fake_camera::{frames, FakeCamera, ZOOM_STOP};
+use profile_fixtures::{session_config, two_camera_session_config, NonDefaultCompileTimeProfile};
 
-const ACK_SOCKET_ONE: &[u8] = &[0x90, 0x41, 0xff];
-const ACK_SOCKET_TWO: &[u8] = &[0x90, 0x42, 0xff];
-const CAMERA_TWO_ACK_SOCKET_ONE: &[u8] = &[0xa0, 0x41, 0xff];
-const COMPLETE_SOCKET_ONE: &[u8] = &[0x90, 0x51, 0xff];
-const COMPLETE_SOCKET_TWO: &[u8] = &[0x90, 0x52, 0xff];
-const RAW_ZOOM_STOP: [u8; 6] = [0x81, 0x01, 0x04, 0x07, 0x00, 0xff];
-
-type WriteLog = Arc<Mutex<Vec<Vec<u8>>>>;
-
-/// A raw datagram camera whose reads are scripted per write. The reads a send
-/// queues are only consumed by a *later* pump, so a command written but never
-/// awaited stays `AwaitingAck` with its ACK waiting on the wire — exactly the
-/// state that arms the single-candidate pre-ACK gate.
-#[derive(Debug)]
-struct RawProbeTransport {
-    config: TransportConfig,
-    per_send: VecDeque<Vec<Vec<u8>>>,
-    reads: VecDeque<Vec<u8>>,
-    writes: WriteLog,
-    read_count: Arc<Mutex<usize>>,
-}
-
-impl RawProbeTransport {
-    fn new(per_send: Vec<Vec<Vec<u8>>>) -> Self {
-        let config = TransportConfig {
-            addressing: AddressingMode::Serial,
-            ..TransportConfig::default()
-        };
-        Self {
-            config,
-            per_send: per_send.into(),
-            reads: VecDeque::new(),
-            writes: Arc::new(Mutex::new(Vec::new())),
-            read_count: Arc::new(Mutex::new(0)),
+/// A raw datagram camera whose replies are scripted per write: each write
+/// queues its step's replies, which the owner worker reads as soon as they
+/// are on the wire. Writes past the script draw no reply. The test can also
+/// deliver a late reply on its own with `push`.
+fn scripted_camera(steps: Vec<Vec<Vec<u8>>>) -> FakeCamera {
+    let mut steps: VecDeque<_> = steps.into();
+    FakeCamera::new(move |_, answer| {
+        for reply in steps.pop_front().unwrap_or_default() {
+            answer.reply(reply);
         }
-    }
-
-    fn writes(&self) -> WriteLog {
-        Arc::clone(&self.writes)
-    }
-
-    fn read_counter(&self) -> Arc<Mutex<usize>> {
-        Arc::clone(&self.read_count)
-    }
+    })
 }
 
-impl HasTransportConfig for RawProbeTransport {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
+/// Asserts that no further write appears while the scheduler deliberately
+/// holds the queued work.
+fn assert_stable_write_count(camera: &FakeCamera, count: usize) {
+    thread::sleep(Duration::from_millis(20));
+    assert_eq!(
+        camera.write_count(),
+        count,
+        "queued work must stay unwritten"
+    );
 }
 
-impl BlockingTransport for RawProbeTransport {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
-        self.writes
-            .lock()
-            .expect("write log lock")
-            .push(bytes.to_vec());
-        for read in self.per_send.pop_front().unwrap_or_default() {
-            self.reads.push_back(read);
-        }
-        Ok(())
-    }
-
-    fn recv_into_with_timeout(
-        &mut self,
-        dst: &mut [u8],
-        _timeout: Duration,
-    ) -> Result<usize, Error> {
-        *self.read_count.lock().expect("read count lock") += 1;
-        let bytes = self.reads.pop_front().ok_or(Error::Timeout)?;
-        dst[..bytes.len()].copy_from_slice(&bytes);
-        Ok(bytes.len())
-    }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        Some(self.config.addressing)
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
-    }
+fn session_with_config(steps: Vec<Vec<Vec<u8>>>, config: SessionConfig) -> (Session, FakeCamera) {
+    let camera = scripted_camera(steps);
+    let wire = camera
+        .blocking_wire()
+        .with_config({
+            let mut config = TransportConfig::default();
+            config.addressing = AddressingMode::Serial;
+            config
+        })
+        .with_addressing(AddressingMode::Serial);
+    let session = Session::open(wire, config).expect("owner session");
+    (session, camera)
 }
 
-fn session_with_counters(per_send: Vec<Vec<Vec<u8>>>) -> (Session, WriteLog, Arc<Mutex<usize>>) {
-    session_with_config(per_send, session_config())
-}
-
-fn session_config() -> SessionConfig {
-    SessionConfig::new(
-        ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
-            .expect("two-socket raw runtime profile"),
-    )
-}
-
-fn two_camera_session_config(command_spacing: Duration) -> SessionConfig {
-    let mut config = session_config();
-    config
-        .register_target(
-            CameraId::CAMERA_2,
-            ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
-                .expect("two-socket raw runtime profile"),
-        )
-        .expect("second serial target");
-    config
-        .with_tuning(OperationalTuning::new().command_spacing(command_spacing))
-        .expect("test command spacing")
-}
-
-fn session_with_config(
-    per_send: Vec<Vec<Vec<u8>>>,
-    config: SessionConfig,
-) -> (Session, WriteLog, Arc<Mutex<usize>>) {
-    let transport = RawProbeTransport::new(per_send);
-    let writes = transport.writes();
-    let reads = transport.read_counter();
-    let session = Session::open(transport, config).expect("owner session");
-    (session, writes, reads)
-}
-
-fn session(per_send: Vec<Vec<Vec<u8>>>) -> (Session, WriteLog) {
-    let (session, writes, _reads) = session_with_counters(per_send);
-    (session, writes)
-}
-
-fn write_count(writes: &WriteLog) -> usize {
-    writes.lock().expect("write log lock").len()
-}
-
-fn read_count(reads: &Arc<Mutex<usize>>) -> usize {
-    *reads.lock().expect("read count lock")
+fn session(steps: Vec<Vec<Vec<u8>>>) -> (Session, FakeCamera) {
+    session_with_config(steps, session_config())
 }
 
 fn raw_policy(reply_shape: RawReplyShape) -> raw::Policy {
@@ -186,87 +89,64 @@ fn raw_policy(reply_shape: RawReplyShape) -> raw::Policy {
 }
 
 fn raw_applied_only(reply_shape: RawReplyShape) -> raw::AppliedOnly {
-    raw::AppliedOnly::with_policy(RAW_ZOOM_STOP, AffectedAxes::ZOOM, raw_policy(reply_shape))
+    raw::AppliedOnly::with_policy(ZOOM_STOP, AffectedAxes::ZOOM, raw_policy(reply_shape))
         .expect("raw applied-only operation")
 }
 
 fn raw_applied_only_for(target: CameraId, reply_shape: RawReplyShape) -> raw::AppliedOnly {
-    let mut wire = RAW_ZOOM_STOP;
+    let mut wire = ZOOM_STOP.to_vec();
     wire[0] = target.to_address_byte();
     raw::AppliedOnly::with_policy(wire, AffectedAxes::ZOOM, raw_policy(reply_shape))
         .expect("targeted raw applied-only operation")
 }
 
 fn raw_targeted(reply_shape: RawReplyShape) -> raw::Targeted {
-    raw::Targeted::with_policy(RAW_ZOOM_STOP, AffectedAxes::ZOOM, raw_policy(reply_shape))
+    raw::Targeted::with_policy(ZOOM_STOP, AffectedAxes::ZOOM, raw_policy(reply_shape))
         .expect("raw targeted operation")
 }
 
 /// The core defect: a typed `Urgent` stop submitted behind a live, un-awaited
-/// raw operation handle must reach the wire, not fail `TransportBusy` with no
-/// bytes written.
+/// raw operation handle reaches the wire and applies.
 #[test]
 fn urgent_stop_reaches_the_wire_behind_a_live_raw_operation_handle() {
-    // send #1 (drive) queues only its ACK — read later, by the stop's drain.
-    // send #2 (stop) queues the stop's own ACK + completion.
-    let (session, writes) = session(vec![
-        vec![ACK_SOCKET_ONE.to_vec()],
-        vec![ACK_SOCKET_TWO.to_vec(), COMPLETE_SOCKET_TWO.to_vec()],
+    let (session, probe) = session(vec![
+        vec![frames::ack(1)],
+        vec![frames::ack(2), frames::complete(2)],
     ]);
     let camera = session
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
 
     // A continuous zoom drive is submitted and its handle held un-awaited: its
-    // command is on the wire but still awaiting its ACK, arming the gate.
-    let _drive = camera
+    // command is on the wire and executing on socket one.
+    let drive = camera
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
         .expect("drive submitted");
-    assert_eq!(
-        write_count(&writes),
-        1,
-        "the drive command is on the wire and awaiting its ACK"
-    );
+    probe.wait_for_writes(1);
+    probe.wait_for_reads(1);
 
-    // Before the fix this returned Err(TransportBusy) with the write count
-    // still at 1 while the camera kept moving.
-    let stop = camera
+    let mut stop = camera
         .submit::<AppliedOnly, _>(&FocusStop)
-        .expect("the emergency stop must reach the wire behind the live drive handle");
+        .expect("the emergency stop is admitted behind the live drive handle");
+    stop.applied()
+        .expect("the stop reaches the wire and applies on the free socket");
     assert_eq!(
-        write_count(&writes),
+        probe.write_count(),
         2,
-        "the stop's first write wins once the drive's ACK frees a socket"
+        "the drive and the stop are on the wire"
     );
 
-    // Both ACKs were observed while two positional candidates were open, so
-    // neither may be guessed. The physical stop still reached the camera.
-    assert!(matches!(
-        stop.applied(),
-        Err(Error::UnsequencedCommandUnconfirmed)
-    ));
-    assert!(matches!(
-        _drive.applied(),
-        Err(Error::UnsequencedCommandUnconfirmed)
-    ));
-
+    drive.detach();
     session.shutdown().expect("owner shutdown");
 }
 
-/// Two un-awaited operation handles can be held at once: the second wins its
-/// first write by pumping the first's ACK, and both then settle.
+/// Two un-awaited operation handles can be held at once: the second is
+/// written once the first's ACK clears the gate, and both then settle.
 #[test]
-fn two_unawaited_operation_handles_both_win_their_first_write() {
-    let (session, writes) = session(vec![
-        // send #1 (first op): its ACK, drained by the second submit.
-        vec![ACK_SOCKET_ONE.to_vec()],
-        // send #2 (second op): both operations' completions and the second's
-        // ACK, consumed when the handles are awaited.
-        vec![
-            ACK_SOCKET_TWO.to_vec(),
-            COMPLETE_SOCKET_ONE.to_vec(),
-            COMPLETE_SOCKET_TWO.to_vec(),
-        ],
+fn two_unawaited_operation_handles_both_reach_the_wire() {
+    let (session, probe) = session(vec![
+        vec![frames::ack(1)],
+        vec![frames::ack(2), frames::complete(1), frames::complete(2)],
     ]);
     let camera = session
         .camera::<NonDefaultCompileTimeProfile>()
@@ -274,69 +154,63 @@ fn two_unawaited_operation_handles_both_win_their_first_write() {
 
     let first_request = raw_applied_only(RawReplyShape::AckThenCompletion);
     let second_request = raw_applied_only(RawReplyShape::AckThenCompletion);
-    let first = camera
+    let mut first = camera
         .submit::<AppliedOnly, _>(&first_request)
         .expect("first submission");
-    let second = camera
+    let mut second = camera
         .submit::<AppliedOnly, _>(&second_request)
-        .expect("second submission wins its first write via the pump");
-    assert_eq!(
-        write_count(&writes),
-        2,
-        "both operation handles named a request whose first write succeeded"
-    );
+        .expect("second submission");
 
     first.applied().expect("first operation settles");
     second.applied().expect("second operation settles");
+    assert_eq!(probe.write_count(), 2, "both operations reached the wire");
 
     session.shutdown().expect("owner shutdown");
 }
 
-/// The #673 drain is valid only when the submitting operation can become
-/// eligible from the peer ACK alone. CompletionOnly still requires total
-/// target idleness after that ACK, so the architecture's "sole obstacle"
-/// contract requires a fail-fast `TransportBusy` with no peer read.
+/// A completion-only raw operation cannot become eligible from a peer ACK
+/// alone: it requires total target idleness, so it stays queued while an
+/// acknowledged raw predecessor is still executing and is written once that
+/// predecessor completes.
 #[test]
-fn completion_only_raw_operations_do_not_drain_an_unacknowledged_peer() {
-    macro_rules! assert_completion_only_busy {
+fn completion_only_raw_operations_wait_for_an_idle_target() {
+    macro_rules! assert_completion_only_waits {
         ($kind:ty, $operation:expr, $label:literal) => {{
-            let (session, writes, reads) =
-                session_with_counters(vec![vec![ACK_SOCKET_ONE.to_vec()]]);
+            let (session, probe) = session(vec![vec![frames::ack(1)]]);
             let camera = session
                 .camera::<NonDefaultCompileTimeProfile>()
                 .expect("camera view");
             let predecessor = raw_applied_only(RawReplyShape::AckThenCompletion);
-            let _predecessor = camera
+            let mut predecessor = camera
                 .submit::<AppliedOnly, _>(&predecessor)
-                .expect("raw predecessor is written and awaits its ACK");
-            assert_eq!(write_count(&writes), 1);
-            assert_eq!(read_count(&reads), 0);
+                .expect("raw predecessor is admitted");
+            probe.wait_for_writes(1);
 
             let operation = $operation;
-            let error = camera
+            let successor = camera
                 .submit::<$kind, _>(&operation)
-                .expect_err("completion-only successor cannot reach first write");
-            assert!(matches!(error, Error::TransportBusy), "{error:?}");
+                .expect("completion-only successor is admitted");
+            assert_stable_write_count(&probe, 1);
+
+            probe.push(frames::complete(1));
+            predecessor.applied().expect("the predecessor completes");
+            probe.wait_for_writes(2);
             assert_eq!(
-                read_count(&reads),
-                0,
-                concat!($label, " must not drain the predecessor ACK")
+                probe.writes()[1],
+                ZOOM_STOP.to_vec(),
+                concat!($label, " is written once the target is idle")
             );
-            assert_eq!(
-                write_count(&writes),
-                1,
-                concat!($label, " must fail before its first write")
-            );
+            successor.detach();
             session.shutdown().expect("owner shutdown");
         }};
     }
 
-    assert_completion_only_busy!(
+    assert_completion_only_waits!(
         Targeted,
         raw_targeted(RawReplyShape::CompletionOnly),
         "targeted completion-only operation"
     );
-    assert_completion_only_busy!(
+    assert_completion_only_waits!(
         AppliedOnly,
         raw_applied_only(RawReplyShape::CompletionOnly),
         "applied-only completion-only operation"
@@ -345,121 +219,108 @@ fn completion_only_raw_operations_do_not_drain_an_unacknowledged_peer() {
 
 /// The issue's exact scenario: `motion().stop_all_motion()` reaches the wire
 /// while a drive handle is live. It submits pan/tilt, zoom, and focus stops in
-/// turn; the first crosses the drive candidate, so its ACK outcome is
-/// deliberately unconfirmed while the later stops still settle.
+/// turn, each of which applies on the socket the drive leaves free.
 #[test]
 fn stop_all_motion_reaches_the_wire_while_a_drive_handle_is_live() {
-    let (session, writes) = session(vec![
-        // send #1 (drive): its ACK remains queued until after the pan/tilt stop
-        // crosses the candidate gate.
-        vec![ACK_SOCKET_ONE.to_vec()],
-        // send #2 (pan/tilt): its ACK is ambiguous with the drive. After both
-        // requests time out, send #3/#4 settle normally.
-        vec![ACK_SOCKET_TWO.to_vec(), COMPLETE_SOCKET_TWO.to_vec()],
-        vec![ACK_SOCKET_TWO.to_vec(), COMPLETE_SOCKET_TWO.to_vec()],
-        vec![ACK_SOCKET_TWO.to_vec(), COMPLETE_SOCKET_TWO.to_vec()],
+    let (session, probe) = session(vec![
+        vec![frames::ack(1)],
+        vec![frames::ack(2), frames::complete(2)],
+        vec![frames::ack(2), frames::complete(2)],
+        vec![frames::ack(2), frames::complete(2)],
     ]);
     let camera = session
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
 
-    let _drive = camera
+    let drive = camera
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
         .expect("drive submitted");
-    assert_eq!(write_count(&writes), 1, "the drive is on the wire");
+    probe.wait_for_writes(1);
+    probe.wait_for_reads(1);
 
-    assert!(matches!(
-        camera.motion().stop_all_motion(),
-        Err(Error::UnsequencedCommandUnconfirmed)
-    ));
+    camera
+        .motion()
+        .stop_all_motion()
+        .expect("every stop applies while the drive is live")
+        .into_result()
+        .expect("each supported STOP applied");
     assert_eq!(
-        write_count(&writes),
+        probe.write_count(),
         4,
         "the drive plus the three stop commands are all on the wire"
     );
 
+    drive.detach();
     session.shutdown().expect("owner shutdown");
 }
 
 /// #714: after the predecessor's ACK deadline, its raw ambiguity quarantine is
-/// a bounded wait, not generic contention. The blocking first-write contract
-/// waits through that release and returns a live handle instead of refusing it
-/// with `TransportBusy`.
+/// a bounded wait, not generic contention. An ordinary successor is admitted
+/// at once and written when the quarantine releases.
 #[test]
-fn ordinary_submit_waits_for_lost_ack_quarantine_instead_of_transport_busy() {
-    let (session, writes) = session(vec![
-        vec![],
-        vec![ACK_SOCKET_ONE.to_vec(), COMPLETE_SOCKET_ONE.to_vec()],
-    ]);
+fn ordinary_successor_waits_for_lost_ack_quarantine() {
+    let (session, probe) = session(vec![vec![], vec![frames::ack(1), frames::complete(1)]]);
     let camera = session
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
 
-    let predecessor = camera
+    let mut predecessor = camera
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
-        .expect("predecessor reaches the wire");
+        .expect("predecessor admission");
+    probe.wait_for_writes(1);
+    let first_written_at = Instant::now();
+    thread::sleep(Duration::from_millis(150));
     let ordinary = raw_applied_only(RawReplyShape::AckThenCompletion);
-    let submitted_at = Instant::now();
-    let successor = camera
+    let mut successor = camera
         .submit::<AppliedOnly, _>(&ordinary)
-        .expect("ordinary successor waits for the lost-ACK quarantine");
-    let elapsed = submitted_at.elapsed();
+        .expect("ordinary successor admission");
+    probe.wait_for_writes(2);
+    let release_elapsed = first_written_at.elapsed();
 
     assert!(
-        elapsed >= Duration::from_millis(900),
-        "ordinary successor escaped before the ambiguity release: {elapsed:?}"
+        release_elapsed >= Duration::from_millis(950),
+        "ordinary successor wrote before quarantine release: {release_elapsed:?}"
     );
     assert!(
-        elapsed < Duration::from_secs(2),
-        "bounded lost-ACK wait overran its release: {elapsed:?}"
+        release_elapsed < Duration::from_secs(2),
+        "ordinary successor missed quarantine release: {release_elapsed:?}"
     );
-    assert_eq!(write_count(&writes), 2);
     assert!(matches!(
         predecessor.applied(),
         Err(Error::UnsequencedCommandUnconfirmed)
     ));
     successor
         .applied()
-        .expect("successor settles after its delayed first write");
+        .expect("ordinary successor settles after release");
 
     session.shutdown().expect("owner shutdown");
 }
 
-/// #714: an intrinsic Urgent stop never enters the blocking #673 pre-ACK
-/// drain. It writes within physical pacing even with a lost predecessor ACK;
-/// ACKs observed while both positional candidates are open bind to neither.
+/// #714: an intrinsic Urgent stop never waits on the pre-ACK gate. It writes
+/// within physical pacing even with a lost predecessor ACK; ACKs observed
+/// while both positional candidates are open bind to neither.
 #[test]
 fn urgent_stop_bypasses_lost_ack_gate_and_ambiguous_ack_binds_to_neither() {
-    let (session, writes, reads) = session_with_counters(vec![
+    let (session, probe) = session(vec![
         vec![],
-        vec![
-            ACK_SOCKET_ONE.to_vec(),
-            ACK_SOCKET_TWO.to_vec(),
-            COMPLETE_SOCKET_TWO.to_vec(),
-        ],
+        vec![frames::ack(1), frames::ack(2), frames::complete(2)],
     ]);
     let camera = session
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
 
-    let predecessor = camera
+    let mut predecessor = camera
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
-        .expect("predecessor reaches the wire");
-    let submitted_at = Instant::now();
-    let urgent = camera
+        .expect("predecessor admission");
+    probe.wait_for_writes(1);
+    let urgent_started = Instant::now();
+    let mut urgent = camera
         .submit::<AppliedOnly, _>(&FocusStop)
-        .expect("urgent stop reaches the wire without an ACK drain");
-    let elapsed = submitted_at.elapsed();
-
+        .expect("urgent admission");
+    probe.wait_for_writes(2);
     assert!(
-        elapsed < Duration::from_millis(50),
-        "urgent first write exceeded its pacing bound: {elapsed:?}"
-    );
-    assert_eq!(write_count(&writes), 2);
-    assert_eq!(
-        read_count(&reads),
-        0,
-        "urgent submission must bypass the pre-ACK peer drain"
+        urgent_started.elapsed() < Duration::from_millis(50),
+        "urgent first write exceeded its pacing bound"
     );
     assert!(matches!(
         urgent.applied(),
@@ -475,22 +336,22 @@ fn urgent_stop_bypasses_lost_ack_gate_and_ambiguous_ack_binds_to_neither() {
 
 /// #744: a cancellation that has an exact socket on camera 2 is local to
 /// that camera. Camera 1's ordinary raw submission waits through physical
-/// pacing, but must not be rejected as `TransportBusy` before its first write.
+/// pacing, but is not held behind camera 2's pending cancellation.
 #[test]
-fn pending_camera_two_cancel_does_not_reject_camera_one_first_write() {
+fn pending_camera_two_cancel_does_not_hold_camera_one_work() {
     const SPACING: Duration = Duration::from_millis(10);
 
     // Camera 2's first ACK lets its successor establish the predecessor's
     // socket. Cancelling that predecessor then leaves a paced socket-cancel
     // pending exactly while camera 1 submits ordinary raw work.
-    let (session, writes, _reads) = session_with_config(
+    let (session, probe) = session_with_config(
         vec![
-            vec![CAMERA_TWO_ACK_SOCKET_ONE.to_vec()],
+            vec![frames::ack_from(2, 1)],
             vec![],
             vec![],
-            vec![ACK_SOCKET_ONE.to_vec(), COMPLETE_SOCKET_ONE.to_vec()],
+            vec![frames::ack(1), frames::complete(1)],
         ],
-        two_camera_session_config(SPACING),
+        two_camera_session_config().with_tuning(OperationalTuning::new().command_spacing(SPACING)),
     );
     let camera_one = session
         .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)
@@ -499,53 +360,56 @@ fn pending_camera_two_cancel_does_not_reject_camera_one_first_write() {
         .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_2)
         .expect("camera two view");
 
-    let predecessor = camera_two
+    let mut predecessor = camera_two
         .submit::<AppliedOnly, _>(&ZoomDrive::Tele)
-        .expect("camera two predecessor reaches the wire");
-    let _socket_successor = camera_two
+        .expect("camera two predecessor admission");
+    probe.wait_for_writes(1);
+    let socket_successor = camera_two
         .submit::<AppliedOnly, _>(&raw_applied_only_for(
             CameraId::CAMERA_2,
             RawReplyShape::AckThenCompletion,
         ))
-        .expect("camera two ACK is drained before the successor writes");
-    let _cancellation = predecessor
-        .cancel()
-        .expect("camera two cancellation is recorded and paced");
+        .expect("camera two successor admission");
+    probe.wait_for_writes(2);
+    // A zero-length wait records the intent and returns before the paced
+    // socket-cancel is written; the camera never answers it.
+    assert!(matches!(
+        predecessor.cancel_with_timeout(Duration::ZERO),
+        Err(Error::ObservationTimeout { .. })
+    ));
 
     let camera_one_request = raw_applied_only(RawReplyShape::AckThenCompletion);
-    let camera_one_operation = camera_one
+    let mut camera_one_operation = camera_one
         .submit::<AppliedOnly, _>(&camera_one_request)
-        .expect("camera two's pending cancel cannot reject camera one");
+        .expect("camera one admission");
     camera_one_operation
         .applied()
         .expect("camera one operation settles after its first write");
 
     assert_eq!(
-        writes.lock().expect("write log lock").as_slice(),
+        probe.writes(),
         [
-            &[0x82, 0x01, 0x04, 0x07, 0x02, 0xff][..],
-            &[0x82, 0x01, 0x04, 0x07, 0x00, 0xff][..],
-            &[0x82, 0x21, 0xff][..],
-            &RAW_ZOOM_STOP[..],
+            vec![0x82, 0x01, 0x04, 0x07, 0x02, 0xff],
+            vec![0x82, 0x01, 0x04, 0x07, 0x00, 0xff],
+            vec![0x82, 0x21, 0xff],
+            ZOOM_STOP.to_vec(),
         ],
         "the camera two cancel consumes the shared pacing slot, but camera one writes next"
     );
 
+    socket_successor.detach();
     session.shutdown().expect("owner shutdown");
 }
 
-/// Genuine socket-capacity contention is *not* the pre-ACK gate and must still
-/// fail fast: with both command sockets occupied, pumping the pending ACK would
-/// not free one, so the fail-fast rejection stands with no extra write.
+/// Socket-capacity contention is not the pre-ACK gate: with both command
+/// sockets occupied, a third request is admitted and waits for a socket,
+/// writing nothing until one frees.
 #[test]
-fn genuine_socket_capacity_contention_still_fails_fast() {
-    let (session, writes) = session(vec![
-        // send #1 (op one): its ACK, drained by op two so op one becomes
-        // Executing and holds socket one.
-        vec![ACK_SOCKET_ONE.to_vec()],
-        // send #2 (op two): its ACK is left on the wire so op two stays
-        // AwaitingAck and holds socket two — both sockets are now occupied.
-        vec![ACK_SOCKET_TWO.to_vec()],
+fn socket_capacity_contention_queues_until_a_socket_frees() {
+    let (session, probe) = session(vec![
+        vec![frames::ack(1)],
+        vec![frames::ack(2)],
+        vec![frames::ack(1), frames::complete(1)],
     ]);
     let camera = session
         .camera::<NonDefaultCompileTimeProfile>()
@@ -554,29 +418,27 @@ fn genuine_socket_capacity_contention_still_fails_fast() {
     let first_request = raw_applied_only(RawReplyShape::AckThenCompletion);
     let second_request = raw_applied_only(RawReplyShape::AckThenCompletion);
     let third_request = raw_applied_only(RawReplyShape::AckThenCompletion);
-    let _first = camera
+    let mut first = camera
         .submit::<AppliedOnly, _>(&first_request)
         .expect("first submission");
-    let _second = camera
+    let second = camera
         .submit::<AppliedOnly, _>(&second_request)
-        .expect("second submission drains the first ACK and takes the other socket");
-    assert_eq!(write_count(&writes), 2, "both sockets are now occupied");
+        .expect("second submission");
+    probe.wait_for_writes(2);
+    probe.wait_for_reads(2);
 
-    // Both sockets are genuinely full: even pumping the pending ACK only moves a
-    // command from awaiting-ACK to executing without releasing a socket. The
-    // third submit must fail fast, immediately, with no third write.
-    let error = camera
+    let mut third = camera
         .submit::<AppliedOnly, _>(&third_request)
-        .expect_err("a third command under genuine contention must fail fast");
-    assert!(
-        matches!(error, Error::TransportBusy),
-        "genuine socket contention fails fast as TransportBusy, got {error:?}"
-    );
-    assert_eq!(
-        write_count(&writes),
-        2,
-        "the fail-fast rejection writes nothing"
-    );
+        .expect("a third command under socket contention is admitted");
+    assert_stable_write_count(&probe, 2);
 
+    probe.push(frames::complete(1));
+    first.applied().expect("the first command completes");
+    third
+        .applied()
+        .expect("the third command is written on the freed socket and settles");
+    assert_eq!(probe.write_count(), 3);
+
+    second.detach();
     session.shutdown().expect("owner shutdown");
 }

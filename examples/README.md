@@ -54,7 +54,7 @@ If you're new to the library, start with these examples in order:
 - **[preset_demo.rs](preset_demo.rs)** - Single preset set, recall, or clear operation
 - **[operation_handles.rs](operation_handles.rs)** - Blocking applied/settled waits, explicit detach, and a session closed on every path
 - **[operation_handles_async.rs](operation_handles_async.rs)** - Tokio applied/settled waits, explicit detach, and a session closed on every path
-- **[motion_safety.rs](motion_safety.rs)** - Blocking `motion()` view: `is_moving`, `is_moving_axes`, `wait_until_idle`, and the `stop_all_motion` composite
+- **[motion_safety.rs](motion_safety.rs)** - Blocking `motion()` view: `is_moving`, `wait_until_idle`, and the `stop_all_motion` owner halt with per-axis outcomes (a G2 in auto focus reports a focus STOP failure that is not a motion hazard)
 - **[type_safe_commands.rs](type_safe_commands.rs)** - Compile-time profile and capability safety (no camera required)
 
 ### Connection, Transport, and Configuration
@@ -69,7 +69,7 @@ If you're new to the library, start with these examples in order:
 - **[runtime_demo.rs](runtime_demo.rs)** - Tokio runtime setup with concurrent read-only inquiries
 - **[concurrent_control.rs](concurrent_control.rs)** - A read and movement joined concurrently under one serialized async owner
 - **[error_handling.rs](error_handling.rs)** - Error classification with propagated connection and inquiry failures
-- **[cancellation.rs](cancellation.rs)** - Tokio `.cancel()` on cancel-capable G3 hardware; `--g2-unsupported` demonstrates `NotSupported`/`CancelRejected` recovery
+- **[cancellation.rs](cancellation.rs)** - Tokio `.cancel()` on a cancel-capable EVI-H100 over RS-232C; `--g2-unsupported` demonstrates the G2 path, where `cancel()` is refused with `NotSupported` or (usually on hardware) returns `Completed` while the zoom keeps moving; an explicit STOP is always applied
 - **[cancellation_blocking.rs](cancellation_blocking.rs)** - Hardware-free blocking confirmed cancellation on a cancel-capable Sony profile
 - **[custom_request.rs](custom_request.rs)** - A custom runtime `ProfileSpec` driven through blocking `camera_dyn`, including downstream `PlainCommand` and `OperationCommand` submission (requires `dyn-api`)
 - **[dyn_quickstart.rs](dyn_quickstart.rs)** - Profile-erased `DynSessionCamera` with a `DynTargetedOperation` and a `DynAppliedOperation` (requires `dyn-api`)
@@ -122,8 +122,8 @@ cargo run --example quickstart_async --features runtime-tokio -- 192.168.0.110
 cargo run --example operation_handles_async --features runtime-tokio -- 192.168.0.110
 cargo run --example concurrent_control --features runtime-tokio -- 192.168.0.110
 cargo run --example error_handling --features runtime-tokio -- 192.168.0.110
-cargo run --example cancellation --features runtime-tokio -- 192.168.0.110
-cargo run --example cancellation --features runtime-tokio -- 192.168.0.110 --g2-unsupported
+cargo run --example cancellation --features runtime-tokio,transport-serial-tokio -- /dev/ttyUSB0
+cargo run --example cancellation --features runtime-tokio,transport-serial-tokio -- 192.168.0.110 --g2-unsupported
 cargo run --example dyn_quickstart --features runtime-tokio,dyn-api -- 192.168.0.110
 cargo run --example runtime_demo --features runtime-tokio -- 192.168.0.110
 cargo run --example sony_encapsulation --features runtime-tokio -- 192.168.0.110
@@ -178,10 +178,7 @@ blocking_session.close()?;
 
 let runtime = TokioRuntime::from_current()?;
 let async_session = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-    .transport_config(TransportConfig {
-        tcp_keepalive: Some(TcpKeepaliveConfig::default()),
-        ..TransportConfig::default()
-    })
+    .transport_config({ let mut config = TransportConfig::for_tcp(); config.tcp_keepalive = Some(TcpKeepaliveConfig::default()); config })
     .open_async(runtime)
     .await?;
 let async_camera = async_session.camera();

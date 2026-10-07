@@ -66,7 +66,7 @@
 /// With `async`, it additionally includes the object-safe dynamic noun and
 /// custom-operation surface. Every projection keeps its facade's canonical
 /// owner and operation lifecycle.
-#[cfg(feature = "dyn-api")]
+#[cfg(all(feature = "dyn-api", any(feature = "async", feature = "blocking")))]
 pub mod dyn_api {
     pub use crate::dynapi::*;
 }
@@ -88,22 +88,22 @@ pub mod dyn_api {
 pub mod r#async {
     // Common enums for camera settings
     pub use crate::{
-        AdvancedAccessor, AutoWhiteBalanceSensitivity, Camera, CancelRejected, Cancellation, Error,
-        ExposureAccessor, ExposureMode, FocusAccessor, ImageAccessor, MenuAccessor, MotionAccessor,
-        MotionSyncAccessor, NdFilterAccessor, NdFilterMode, Operation, OperationId,
-        PanTiltAccessor, PanTiltDirection, PanTiltLimitCorner, PanTiltLimitUpdate, PowerAccessor,
-        PresetNumber, PresetsAccessor, Session, SessionConfig, StateCache, StateEntry, StateKey,
-        StateValue, SystemAccessor, TallyAccessor, WhiteBalanceAccessor, WhiteBalanceMode,
-        ZoomAccessor,
+        AutoWhiteBalanceSensitivity, Camera, CancellationOutcome, Error, ExposureMode,
+        NdFilterMode, Operation, OperationId, PanTiltDirection, PanTiltLimitCorner,
+        PanTiltLimitUpdate, PresetNumber, Session, SessionConfig, StateCache, StateEntry, StateKey,
+        StateValue, WhiteBalanceMode,
     };
+    // The noun accessors and the motion view, one per noun-table header.
+    use crate::noun_table::reexport_nouns;
+    crate::noun_table::noun_table!(reexport_nouns, [accessor], [crate]);
+    crate::noun_table::motion_table!(reexport_nouns, [accessor], [crate]);
     // High-level camera construction and configuration
     pub use crate::camera::{CameraConfig, IdleWait, MotionQuery};
     pub use crate::Connect;
     // Camera profiles - these are the primary way to configure camera behavior
-    pub use crate::camera::profiles::{
-        GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
-        SonyBRCH900, SonyEVIH100, SonyFR7,
-    };
+    crate::camera::profiles::profile_registry::builtin_profile_registry!(
+        crate::camera::profiles::profile_registry::reexport_builtin_profiles
+    );
     // Type-safe parameter types for camera control
     pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
     pub use crate::units::{Degrees, Percentage, Raw, UnitInterval};
@@ -111,14 +111,15 @@ pub mod r#async {
     // Owner-backed dynamic noun and custom-operation projections.
     #[cfg(feature = "dyn-api")]
     pub use crate::dynapi::{
-        submit_applied, submit_targeted, DynAdvanced, DynAppliedOperation, DynAppliedRequest,
-        DynCancellation, DynCustomOperations, DynExposure, DynFocus, DynFuture, DynImage, DynMenu,
-        DynMotion, DynMotionSync, DynNdFilter, DynPanTilt, DynPower, DynPresets, DynSessionCamera,
-        DynSessionCameraControl, DynSessionCameraNouns, DynSystem, DynTally, DynTargetedOperation,
-        DynTargetedRequest, DynWhiteBalance, DynZoom, DYN_NOUN_CONVENIENCE_METHODS,
-        DYN_NOUN_CONVENIENCE_METHOD_COUNT, DYN_NOUN_COUNT, DYN_NOUN_INQUIRY_METHOD_COUNT,
-        DYN_NOUN_TARGET_METHOD_COUNT,
+        submit_applied, submit_targeted, DynAppliedOperation, DynAppliedRequest,
+        DynCustomOperations, DynFuture, DynSessionCamera, DynSessionCameraControl,
+        DynSessionCameraNouns, DynTargetedOperation, DynTargetedRequest,
     };
+    // The noun traits and the motion trait, one per noun-table header.
+    #[cfg(feature = "dyn-api")]
+    crate::noun_table::noun_table!(reexport_nouns, [dyn_trait], [crate::dynapi]);
+    #[cfg(feature = "dyn-api")]
+    crate::noun_table::motion_table!(reexport_nouns, [dyn_trait], [crate::dynapi]);
 
     // Runtime support for async operations
     #[cfg(feature = "runtime-smol")]
@@ -143,18 +144,17 @@ pub mod r#async {
 pub mod blocking {
     // Common enums for camera settings
     pub use crate::{
-        AutoWhiteBalanceSensitivity, CancelRejected, Error, ExposureMode, MetricsSnapshot,
+        AutoWhiteBalanceSensitivity, CancellationOutcome, Error, ExposureMode, MetricsSnapshot,
         MotionSyncMode, NdFilterMode, PanTiltDirection, PanTiltLimitCorner, PanTiltLimitUpdate,
         PresetNumber, SessionStatus, StateCache, StateEntry, StateKey, StateValue,
         WhiteBalanceMode,
     };
     // High-level owner-backed blocking session facade and camera view.
-    pub use crate::blocking::{
-        AdvancedAccessor, Camera, Cancellation, ExposureAccessor, FocusAccessor, ImageAccessor,
-        MenuAccessor, MotionAccessor, MotionSyncAccessor, NdFilterAccessor, Operation, OperationId,
-        PanTiltAccessor, PowerAccessor, PresetsAccessor, Session, SessionConfig, SystemAccessor,
-        TallyAccessor, WhiteBalanceAccessor, ZoomAccessor,
-    };
+    pub use crate::blocking::{Camera, Operation, OperationId, Session, SessionConfig};
+    // The noun accessors and the motion view, one per noun-table header.
+    use crate::noun_table::reexport_nouns;
+    crate::noun_table::noun_table!(reexport_nouns, [accessor], [crate::blocking]);
+    crate::noun_table::motion_table!(reexport_nouns, [accessor], [crate::blocking]);
     #[cfg(feature = "dyn-api")]
     pub use crate::dynapi::BlockingDynSessionCamera;
     // Final owner-backed construction in the blocking-only feature build.
@@ -162,10 +162,9 @@ pub mod blocking {
     pub use crate::blocking::{CameraConfig, Connect};
     pub use crate::camera::{IdleWait, MotionQuery};
     // Camera profiles - these are the primary way to configure camera behavior
-    pub use crate::camera::profiles::{
-        GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
-        SonyBRCH900, SonyEVIH100, SonyFR7,
-    };
+    crate::camera::profiles::profile_registry::builtin_profile_registry!(
+        crate::camera::profiles::profile_registry::reexport_builtin_profiles
+    );
     // Type-safe parameter types for camera control
     pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
     pub use crate::units::{Degrees, Percentage, Raw, UnitInterval};

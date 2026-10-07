@@ -20,7 +20,8 @@ async fn test_simulator_power_inquiry_direct() {
     let n = simulator
         .recv_into(&mut buf)
         .await
-        .expect("should receive response");
+        .expect("should receive response")
+        .copied_len();
     let response = &buf[..n];
 
     // Verify it's a data reply (0x90 0x50)
@@ -46,7 +47,8 @@ async fn test_simulator_zoom_inquiry_direct() {
     let n = simulator
         .recv_into(&mut buf)
         .await
-        .expect("should receive response");
+        .expect("should receive response")
+        .copied_len();
     let response = &buf[..n];
 
     // Verify it's a data reply with zoom position
@@ -78,7 +80,8 @@ async fn test_simulator_pan_tilt_inquiry_direct() {
     let n = simulator
         .recv_into(&mut buf)
         .await
-        .expect("should receive response");
+        .expect("should receive response")
+        .copied_len();
     let response = &buf[..n];
 
     // Verify it's a data reply with pan/tilt positions
@@ -113,7 +116,8 @@ async fn test_simulator_exposure_compensation_inquiry() {
     let n = simulator
         .recv_into(&mut buf)
         .await
-        .expect("should receive response");
+        .expect("should receive response")
+        .copied_len();
     let response = &buf[..n];
 
     // Verify it's a data reply (0x90 0x50)
@@ -147,7 +151,8 @@ async fn test_simulator_mixed_commands_and_inquiries() {
     let ack_n = simulator
         .recv_into(&mut ack_buf)
         .await
-        .expect("should receive ACK");
+        .expect("should receive ACK")
+        .copied_len();
     let response = &ack_buf[..ack_n];
     assert_eq!(response[0], 0x90);
     assert_eq!(response[1] & 0xF0, 0x40, "Should be ACK");
@@ -164,7 +169,8 @@ async fn test_simulator_mixed_commands_and_inquiries() {
     let n2 = simulator
         .recv_into(&mut buf2)
         .await
-        .expect("should receive inquiry response");
+        .expect("should receive inquiry response")
+        .copied_len();
     let response = &buf2[..n2];
     assert_eq!(response[0], 0x90);
     assert_eq!(response[1], 0x50, "Should be data reply");

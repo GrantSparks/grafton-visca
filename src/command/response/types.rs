@@ -45,11 +45,13 @@ impl RawInquiryPayload {
 #[non_exhaustive]
 pub enum Response {
     /// Acknowledgment that the command was received and is being processed
+    #[non_exhaustive]
     CmdAck {
         /// Socket that acknowledged, if available
         socket: Option<ViscaSocket>,
     },
     /// Command completed successfully (no data returned)
+    #[non_exhaustive]
     Completion {
         /// Socket that completed, if available
         socket: Option<ViscaSocket>,
@@ -61,6 +63,7 @@ pub enum Response {
     /// Raw custom inquiry response containing the VISCA data payload.
     RawInquiry(RawInquiryPayload),
     /// Unknown response format with type information and raw data
+    #[non_exhaustive]
     Unknown {
         /// The response type that could not be parsed
         response_type: Option<InquiryKind>,
@@ -70,6 +73,25 @@ pub enum Response {
 }
 
 impl Response {
+    /// Constructs an acknowledgment from a custom response parser.
+    #[must_use]
+    pub const fn cmd_ack(socket: Option<ViscaSocket>) -> Self {
+        Self::CmdAck { socket }
+    }
+    /// Constructs a successful completion from a custom response parser.
+    #[must_use]
+    pub const fn completion(socket: Option<ViscaSocket>) -> Self {
+        Self::Completion { socket }
+    }
+    /// Preserves an unrecognized response and its raw payload.
+    #[must_use]
+    pub fn unknown(response_type: Option<InquiryKind>, data: Vec<u8>) -> Self {
+        Self::Unknown {
+            response_type,
+            data,
+        }
+    }
+
     /// Convert response to a Result, treating Completion as Ok and Error as Err.
     ///
     /// Note: ACK responses are treated as an error because they only indicate

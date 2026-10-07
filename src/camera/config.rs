@@ -4,18 +4,17 @@
 //! needed to establish a camera connection. The configuration is separate from the
 //! actual connection process, allowing for easy cloning, reuse, and modification.
 
-use std::{marker::PhantomData, num::NonZeroUsize};
+use std::marker::PhantomData;
 
 use crate::{
     camera_id::CameraId,
     capabilities::{Profile, SupportsSerial, SupportsTcp, SupportsUdp},
     error::Error,
     transport::builder::TransportConfig,
-    OperationalTuning,
 };
 
 #[cfg(any(feature = "async", feature = "blocking"))]
-use crate::transport::{buffer::BufferConfig, builder::AddressingMode};
+use crate::transport::builder::AddressingMode;
 
 /// Standard transport kind used for profile support validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -62,17 +61,20 @@ impl std::fmt::Display for TransportKind {
 pub enum TransportOptions {
     /// TCP connection with address.
     #[cfg_attr(feature = "serde", serde(rename = "TCP"))]
+    #[non_exhaustive]
     Tcp {
         /// Host:port string (e.g., "192.168.0.110:5678")
         address: String,
     },
     /// UDP connection with address.
     #[cfg_attr(feature = "serde", serde(rename = "UDP"))]
+    #[non_exhaustive]
     Udp {
         /// Host:port string (e.g., "192.168.0.110:1259")
         address: String,
     },
     /// Serial connection.
+    #[non_exhaustive]
     Serial {
         /// Serial port path (e.g., "/dev/ttyUSB0")
         port: String,
@@ -81,21 +83,6 @@ pub enum TransportOptions {
     },
     /// Custom transport provided by user.
     Custom,
-}
-
-/// How a standard network constructor obtains a port for a host-only address.
-///
-/// An `Option<u16>` cannot distinguish an explicitly selected default from
-/// the normal profile-default behavior, so keep those policies separate until
-/// endpoint canonicalization.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum NetworkDefaultPort {
-    /// Use the selected profile's TCP or UDP default port.
-    Profile,
-    /// Use this constructor-selected default instead of looking up profile facts.
-    Explicit(u16),
-    /// Require an explicit port in the supplied endpoint.
-    Disabled,
 }
 
 impl TransportOptions {
@@ -190,18 +177,14 @@ impl TransportOptions {
 pub struct CameraConfig<P> {
     /// Transport configuration.
     pub(crate) transport: TransportOptions,
-    /// Policy for resolving a missing TCP or UDP port.
-    network_default_port: NetworkDefaultPort,
-    /// Validated operational overrides applied to prepared requests.
-    pub(crate) tuning: OperationalTuning,
-    /// Immutable request-admission capacity passed to the owner session.
-    pub(crate) admission_capacity: NonZeroUsize,
-    /// Whether to reset Sony VISCA-over-IP sequence state during session open.
-    pub(crate) sony_sequence_reset_on_connect: bool,
-    /// Whether raw correlation uncertainty poisons the entire session.
-    pub(crate) strict_unconfirmed_poison: bool,
-    /// Transport configuration for the underlying connection.
-    pub(crate) transport_config: TransportConfig,
+    /// The session policy passed to the owner session.
+    policy: crate::session_config::SessionPolicy,
+    /// Caller-supplied transport configuration; `None` selects the
+    /// transport's own defaults ([`TransportConfig::for_tcp`] and friends).
+    pub(crate) transport_config: Option<TransportConfig>,
+    /// Bus writes a serial transport performs while opening.
+    #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
+    pub(crate) serial_startup: crate::transport::serial::Startup,
     /// Camera VISCA address (usually 1).
     pub(crate) camera_id: CameraId,
     /// Profile marker.
@@ -220,12 +203,10 @@ where
     pub fn new() -> Self {
         Self {
             transport: TransportOptions::Custom,
-            network_default_port: NetworkDefaultPort::Profile,
-            tuning: OperationalTuning::new(),
-            admission_capacity: crate::SessionConfig::default().admission_capacity(),
-            sony_sequence_reset_on_connect: false,
-            strict_unconfirmed_poison: false,
-            transport_config: TransportConfig::default(),
+            policy: crate::session_config::SessionPolicy::DEFAULT,
+            transport_config: None,
+            #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
+            serial_startup: crate::transport::serial::Startup::default(),
             camera_id: CameraId::new(P::DEFAULT_CAMERA_ID).unwrap_or_default(),
             _phantom: PhantomData,
         }
@@ -243,25 +224,43 @@ where
     }
 
     /// Create a TCP camera configuration.
+    ///
+    /// A host-only address uses the profile's TCP port
+    /// ([`crate::CompileTimeProfile::TRANSPORTS`]), exactly as
+    /// `CameraConfig::new().transport(TransportOptions::tcp(address))` does.
+    /// A profile that implements [`SupportsTcp`] without declaring a TCP port
+    /// in `TRANSPORTS` fails to build at this call.
     pub fn tcp(address: impl Into<String>) -> Self
     where
-        P: SupportsTcp,
+        P: SupportsTcp + crate::CompileTimeProfile,
     {
-        Self::new().with_transport(
-            TransportOptions::tcp(address),
-            NetworkDefaultPort::Explicit(<P as SupportsTcp>::DEFAULT_TCP_PORT),
-        )
+        const {
+            assert!(
+                P::TRANSPORTS.tcp_port().is_some(),
+                "a profile implementing `SupportsTcp` must declare a TCP port in `TRANSPORTS`"
+            );
+        }
+        Self::new().transport(TransportOptions::tcp(address))
     }
 
     /// Create a UDP camera configuration.
+    ///
+    /// A host-only address uses the profile's UDP port
+    /// ([`crate::CompileTimeProfile::TRANSPORTS`]), exactly as
+    /// `CameraConfig::new().transport(TransportOptions::udp(address))` does.
+    /// A profile that implements [`SupportsUdp`] without declaring a UDP port
+    /// in `TRANSPORTS` fails to build at this call.
     pub fn udp(address: impl Into<String>) -> Self
     where
-        P: SupportsUdp,
+        P: SupportsUdp + crate::CompileTimeProfile,
     {
-        Self::new().with_transport(
-            TransportOptions::udp(address),
-            NetworkDefaultPort::Explicit(<P as SupportsUdp>::DEFAULT_UDP_PORT),
-        )
+        const {
+            assert!(
+                P::TRANSPORTS.udp_port().is_some(),
+                "a profile implementing `SupportsUdp` must declare a UDP port in `TRANSPORTS`"
+            );
+        }
+        Self::new().transport(TransportOptions::udp(address))
     }
 
     /// Create a serial camera configuration.
@@ -269,20 +268,7 @@ where
     where
         P: SupportsSerial,
     {
-        Self::new().with_transport(
-            TransportOptions::serial(port, baud_rate),
-            NetworkDefaultPort::Disabled,
-        )
-    }
-
-    fn with_transport(
-        mut self,
-        transport: TransportOptions,
-        default_port: NetworkDefaultPort,
-    ) -> Self {
-        self.transport = transport;
-        self.network_default_port = default_port;
-        self
+        Self::new().transport(TransportOptions::serial(port, baud_rate))
     }
 
     /// Set the connection address.
@@ -314,78 +300,34 @@ where
 
     /// Set custom transport options.
     pub fn transport(mut self, transport: TransportOptions) -> Self {
-        self.network_default_port = match transport.kind() {
-            TransportKind::Tcp | TransportKind::Udp => NetworkDefaultPort::Profile,
-            TransportKind::Serial | TransportKind::Custom => NetworkDefaultPort::Disabled,
-        };
         self.transport = transport;
         self
     }
 
-    /// Set operational overrides for prepared requests.
-    pub fn with_tuning(mut self, tuning: OperationalTuning) -> Self {
-        self.tuning = tuning;
-        self
-    }
+    crate::session_config::session_policy_accessors!();
 
-    /// Returns the operational overrides stored in this configuration.
-    #[must_use]
-    pub const fn tuning(&self) -> OperationalTuning {
-        self.tuning
-    }
-
-    /// Sets the immutable request-admission capacity for sessions opened from
-    /// this configuration.
+    /// Replace the selected transport's default configuration.
     ///
-    /// Admission is fail-fast once this many requests are pending or active;
-    /// it is independent of transport buffers and per-camera VISCA socket
-    /// capacity.
-    #[must_use]
-    pub const fn with_admission_capacity(mut self, capacity: NonZeroUsize) -> Self {
-        self.admission_capacity = capacity;
-        self
-    }
-
-    /// Returns the request-admission capacity stored in this configuration.
-    #[must_use]
-    pub const fn admission_capacity(&self) -> NonZeroUsize {
-        self.admission_capacity
-    }
-
-    /// Opt in to sending Sony's sequence-number RESET control command when a
-    /// session opened from this configuration connects.
-    #[must_use]
-    pub const fn with_sony_sequence_reset_on_connect(mut self, enabled: bool) -> Self {
-        self.sony_sequence_reset_on_connect = enabled;
-        self
-    }
-
-    /// Returns whether Sony sequence state is reset when the session connects.
-    #[must_use]
-    pub const fn sony_sequence_reset_on_connect(&self) -> bool {
-        self.sony_sequence_reset_on_connect
-    }
-
-    /// Selects strict whole-session poisoning for unconfirmable raw commands.
-    ///
-    /// This is immutable construction policy; runtime tuning remains fully
-    /// replaceable after the session opens. See
-    /// [`crate::SessionConfig::with_strict_unconfirmed_poison`].
-    #[must_use]
-    pub const fn with_strict_unconfirmed_poison(mut self, enabled: bool) -> Self {
-        self.strict_unconfirmed_poison = enabled;
-        self
-    }
-
-    /// Returns whether raw correlation uncertainty poisons the whole session.
-    #[must_use]
-    pub const fn strict_unconfirmed_poison(&self) -> bool {
-        self.strict_unconfirmed_poison
-    }
-
-    /// Set transport configuration.
+    /// Without this call each transport uses its own defaults:
+    /// [`TransportConfig::for_tcp`], [`TransportConfig::for_udp`] or
+    /// [`TransportConfig::for_serial`]. A supplied configuration is used as
+    /// given, so start from the matching constructor to change one field.
+    /// The transport kind still owns its wire facts: TCP and UDP always use
+    /// IP addressing, and a serial transport uses only the timeouts and buffer
+    /// limits (serial addressing, no TCP socket options).
     pub fn transport_config(mut self, transport_config: TransportConfig) -> Self {
-        self.transport_config = transport_config;
+        self.transport_config = Some(transport_config);
+        self
+    }
+
+    /// Select the bus writes a serial transport performs while opening.
+    ///
+    /// The default writes nothing: opening only opens and configures the
+    /// port. See [`crate::transport::serial::Startup`] for what Address Set and
+    /// I/F Clear broadcast and when the VISCA serial guidance calls for them.
+    #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
+    pub fn serial_startup(mut self, startup: crate::transport::serial::Startup) -> Self {
+        self.serial_startup = startup;
         self
     }
 
@@ -403,48 +345,29 @@ where
         Ok(self.camera_id(CameraId::new(id)?))
     }
 
+    /// The configuration a standard network transport opens with: the
+    /// caller's configuration or `transport_default`, always with IP
+    /// addressing.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    fn defaulted_buffer_config(&self, transport_default: BufferConfig) -> BufferConfig {
-        if self.transport_config.buffer_config == BufferConfig::default() {
-            transport_default
-        } else {
-            self.transport_config.buffer_config
-        }
+    fn ip_transport_config(&self, transport_default: fn() -> TransportConfig) -> TransportConfig {
+        let mut config = self.transport_config.unwrap_or_else(transport_default);
+        config.addressing = AddressingMode::Ip;
+        config
     }
 
     #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn tcp_transport_config(&self) -> TransportConfig {
-        TransportConfig {
-            buffer_config: self.defaulted_buffer_config(BufferConfig::for_raw_ip()),
-            addressing: AddressingMode::Ip,
-            ..self.transport_config
-        }
+        self.ip_transport_config(TransportConfig::for_tcp)
     }
 
     #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn udp_transport_config(&self) -> TransportConfig {
-        TransportConfig {
-            buffer_config: self.defaulted_buffer_config(BufferConfig::for_udp()),
-            addressing: AddressingMode::Ip,
-            ..self.transport_config
-        }
+        self.ip_transport_config(TransportConfig::for_udp)
     }
 
-    #[cfg(any(
-        feature = "transport-serial-tokio",
-        all(feature = "blocking", feature = "transport-serial")
-    ))]
-    pub(crate) fn serial_transport_config(&self) -> TransportConfig {
-        TransportConfig {
-            buffer_config: self.defaulted_buffer_config(BufferConfig::for_serial()),
-            addressing: AddressingMode::Serial,
-            tcp_nodelay: None,
-            ttl: None,
-            tcp_keepalive: None,
-            ..self.transport_config
-        }
-    }
-
+    /// The serial device configuration a serial open uses: the caller's
+    /// timeouts and buffer limits (or the serial defaults) and the selected
+    /// startup writes.
     #[cfg(any(
         feature = "transport-serial-tokio",
         all(feature = "blocking", feature = "transport-serial")
@@ -454,15 +377,17 @@ where
         port: &str,
         baud_rate: u32,
     ) -> crate::Result<crate::transport::serial::Config> {
-        let transport_config = self.serial_transport_config();
-        transport_config.validate()?;
-
-        Ok(crate::transport::serial::Config::new(port.to_string())
+        let transport = self
+            .transport_config
+            .unwrap_or_else(TransportConfig::for_serial);
+        let config = crate::transport::serial::Config::new(port.to_string())
             .baud_rate(baud_rate)
-            .camera_address(self.camera_id.id())
-            .read_timeout(transport_config.read_timeout)
-            .write_timeout(transport_config.write_timeout)
-            .buffer_config(transport_config.buffer_config))
+            .startup(self.serial_startup)
+            .read_timeout(transport.read_timeout)
+            .write_timeout(transport.write_timeout)
+            .buffer_config(transport.buffer_config);
+        config.transport_config().validate()?;
+        Ok(config)
     }
 }
 
@@ -473,59 +398,45 @@ impl<P> CameraConfig<P>
 where
     P: crate::profile::CompileTimeProfile,
 {
-    /// Validate profile, tuning, and transport facts before any transport I/O.
+    /// Validate profile, session policy, and transport facts before any
+    /// transport I/O; see [`Self::session_config`].
     pub fn validate(&self) -> crate::Result<()> {
+        self.validated_session_config().map(drop)
+    }
+
+    /// The session configuration this camera opens with, its policy
+    /// validated once against `P`'s profile.
+    pub(crate) fn validated_session_config(
+        &self,
+    ) -> crate::Result<crate::session_config::ValidatedSessionConfig> {
         let profile = crate::ProfileSpec::from_compile_time::<P>()?;
-        profile.validate_tuning(self.tuning)?;
-        if self.sony_sequence_reset_on_connect
-            && profile.envelope() != crate::profile::ProfileEnvelope::SonyEncapsulated
-        {
-            return Err(Error::InvalidRequest(
-                "Sony sequence reset on connect requires a Sony encapsulated profile".into(),
-            ));
-        }
+        let config = crate::SessionConfig::for_target(self.camera_id, profile)?
+            .with_policy(self.policy)
+            .validated()?;
         if let Some(profile_id) = P::PROFILE_ID {
             self.transport.validate_for_profile(profile_id)?;
         }
-        Ok(())
-    }
-
-    pub(crate) fn owner_tuning(&self) -> OperationalTuning {
-        self.tuning
-    }
-
-    pub(crate) fn owner_profile_config(&self) -> crate::Result<crate::SessionConfig> {
-        let profile = crate::ProfileSpec::from_compile_time::<P>()?;
-        let config = crate::SessionConfig::for_target(self.camera_id, profile)?
-            .with_tuning(self.owner_tuning())?;
-        Ok(config
-            .with_admission_capacity(self.admission_capacity)
-            .with_sony_sequence_reset_on_connect(self.sony_sequence_reset_on_connect)
-            .with_strict_unconfirmed_poison(self.strict_unconfirmed_poison))
+        Ok(config)
     }
 
     pub(crate) fn owner_default_port(&self, kind: TransportKind) -> Option<u16> {
-        match self.network_default_port {
-            NetworkDefaultPort::Profile => match kind {
-                TransportKind::Tcp => P::TRANSPORTS.tcp_port(),
-                TransportKind::Udp => P::TRANSPORTS.udp_port(),
-                TransportKind::Serial | TransportKind::Custom => None,
-            },
-            NetworkDefaultPort::Explicit(port) => Some(port),
-            NetworkDefaultPort::Disabled => None,
+        match kind {
+            TransportKind::Tcp => P::TRANSPORTS.tcp_port(),
+            TransportKind::Udp => P::TRANSPORTS.udp_port(),
+            TransportKind::Serial | TransportKind::Custom => None,
         }
     }
 
     /// Returns the validated, pure [`crate::SessionConfig`] that standard
     /// construction will pass to the owner-backed session.
     ///
-    /// This performs profile and tuning validation but no endpoint parsing,
-    /// DNS lookup, device open, task spawn, or protocol I/O. It is useful when
-    /// an application needs to inspect or compose the shared session policy
-    /// before selecting an async or blocking transport.
+    /// This performs profile and session-policy validation but no endpoint
+    /// parsing, DNS lookup, device open, task spawn, or protocol I/O. It is
+    /// useful when an application needs to inspect or compose the shared
+    /// session policy before selecting an async or blocking transport.
     pub fn session_config(&self) -> crate::Result<crate::SessionConfig> {
-        self.validate()?;
-        self.owner_profile_config()
+        self.validated_session_config()
+            .map(crate::session_config::ValidatedSessionConfig::into_config)
     }
 }
 
@@ -538,7 +449,7 @@ pub(crate) struct StandardConnectionPlan {
     pub(crate) kind: TransportKind,
     pub(crate) endpoint: String,
     pub(crate) transport_config: TransportConfig,
-    pub(crate) session_config: crate::SessionConfig,
+    pub(crate) session_config: crate::session_config::ValidatedSessionConfig,
 }
 
 #[cfg(any(feature = "async", feature = "blocking"))]
@@ -549,7 +460,7 @@ where
     /// Resolves all standard profile/configuration/endpoint state before any
     /// runtime connector or blocking socket is entered.
     pub(crate) fn standard_connection_plan(&self) -> crate::Result<StandardConnectionPlan> {
-        let session_config = self.session_config()?;
+        let session_config = self.validated_session_config()?;
         let (kind, address, default_port, transport_config) = match &self.transport {
             TransportOptions::Tcp { address } => (
                 TransportKind::Tcp,
@@ -627,11 +538,17 @@ where
             _ => unreachable!("standard connection plan only contains network transports"),
         };
 
-        let session = crate::Session::open::<R, _>(transport, plan.session_config, runtime).await?;
+        let session =
+            crate::Session::open_validated::<R, _>(transport, plan.session_config, runtime).await?;
         crate::CameraSession::from_session(session, self.camera_id)
     }
 
     /// Opens the configured Tokio serial transport through the owner session.
+    ///
+    /// Opening writes to the bus only the startup selected with
+    /// [`CameraConfig::serial_startup`] (nothing by default), then the owner
+    /// session starts without any further protocol write. When Address Set
+    /// runs, the configured camera must be among the cameras it addressed.
     #[cfg(feature = "transport-serial-tokio")]
     pub async fn open_serial_async<R>(&self, runtime: R) -> crate::Result<crate::Session>
     where
@@ -640,7 +557,7 @@ where
     {
         use crate::runtime::TransportHandle;
 
-        let session_config = self.session_config()?;
+        let session_config = self.validated_session_config()?;
         session_config.validate_for_transport(Some(TransportKind::Serial))?;
 
         let (port, baud_rate) = match &self.transport {
@@ -654,7 +571,7 @@ where
         let serial = runtime
             .connect_serial(self.serial_config(port, baud_rate)?)
             .await?;
-        crate::Session::open::<R, _>(
+        crate::Session::open_validated::<R, _>(
             TransportHandle::<R>::Serial(Box::new(serial)),
             session_config,
             runtime,
@@ -685,14 +602,19 @@ where
             _ => unreachable!("standard connection plan only contains network transports"),
         };
 
-        let session = crate::blocking::Session::open(transport, plan.session_config)?;
+        let session = crate::blocking::Session::open_validated(transport, plan.session_config)?;
         crate::blocking::CameraSession::from_session(session, self.camera_id)
     }
 
     /// Opens a configured blocking serial owner session.
+    ///
+    /// Opening writes to the bus only the startup selected with
+    /// [`CameraConfig::serial_startup`] (nothing by default), then the owner
+    /// session starts without any further protocol write. When Address Set
+    /// runs, the configured camera must be among the cameras it addressed.
     #[cfg(feature = "transport-serial")]
     pub fn open_serial(&self) -> crate::Result<crate::blocking::Session> {
-        let session_config = self.session_config()?;
+        let session_config = self.validated_session_config()?;
         session_config.validate_for_transport(Some(TransportKind::Serial))?;
         let (port, baud_rate) = match &self.transport {
             TransportOptions::Serial { port, baud_rate } => (port, *baud_rate),
@@ -706,13 +628,170 @@ where
             self.serial_config(port, baud_rate)?,
         )?;
         let transport = crate::transport::BlockingTransportHandle::Serial(serial);
-        crate::blocking::Session::open(transport, session_config)
+        crate::blocking::Session::open_validated(transport, session_config)
     }
 }
 
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
+    /// #822: a downstream profile's host-only TCP/UDP address resolves to
+    /// its `CompileTimeProfile::TRANSPORTS` port, whether the configuration is
+    /// built with `CameraConfig::tcp`/`udp` or with `.transport(..)`.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[test]
+    fn standard_constructors_and_transport_options_share_the_profile_port() {
+        use std::time::Duration;
+
+        use crate::{
+            camera::{CameraConfig, TransportOptions},
+            capabilities::{
+                exposure::ShutterSpeedEntry, CapabilityDomain, CapabilityRange, Exposure, Focus,
+                ImageProcessing, MenuCapability, MotionSyncMetadata, NdFilterMetadata, PanTilt,
+                Power, Presets, ProfileMetadata, ProfileTypedSupport, SupportsTcp, SupportsUdp,
+                Tally, TypedSupportSet, VariableSpeedMetadata, WhiteBalance, Zoom,
+            },
+            profiles::GenericVisca as Base,
+            AffectedAxes, CompileTimeProfile, PositionInquirySupport, TransportCompatibility,
+            WhiteBalanceMode,
+        };
+
+        macro_rules! downstream_profile {
+            ($name:ident, $transports:expr) => {
+                #[derive(Debug, Default, Clone, Copy)]
+                struct $name;
+
+                impl ProfileMetadata for $name {
+                    const MODEL_NAME: &'static str = stringify!($name);
+                    const DEFAULT_CAMERA_ID: u8 = 1;
+                    type Envelope = crate::transport::RawVisca;
+                    const ACK_TIMEOUT: Duration = <Base as ProfileMetadata>::ACK_TIMEOUT;
+                    const COMMAND_TIMEOUTS: crate::CommandTimeouts =
+                        crate::CommandTimeouts::DEFAULT;
+                }
+                impl PanTilt for $name {
+                    const PAN_RANGE: CapabilityRange<i32> = <Base as PanTilt>::PAN_RANGE;
+                    const TILT_RANGE: CapabilityRange<i32> = <Base as PanTilt>::TILT_RANGE;
+                    const MAX_PAN_SPEED: u8 = <Base as PanTilt>::MAX_PAN_SPEED;
+                    const MAX_TILT_SPEED: u8 = <Base as PanTilt>::MAX_TILT_SPEED;
+                    const PAN_DEGREES_TO_UNITS: f32 = <Base as PanTilt>::PAN_DEGREES_TO_UNITS;
+                    const TILT_DEGREES_TO_UNITS: f32 = <Base as PanTilt>::TILT_DEGREES_TO_UNITS;
+                }
+                impl Zoom for $name {
+                    const OPTICAL_ZOOM_MAX: u16 = <Base as Zoom>::OPTICAL_ZOOM_MAX;
+                    const DIGITAL_ZOOM_MAX: Option<u16> = None;
+                    const ZOOM_SPEED_RANGE: CapabilityRange<u8> = <Base as Zoom>::ZOOM_SPEED_RANGE;
+                    const OPTICAL_ZOOM_RATIO: Option<f32> = None;
+                }
+                impl Focus for $name {
+                    const FOCUS_NEAR_LIMIT: u16 = <Base as Focus>::FOCUS_NEAR_LIMIT;
+                    const FOCUS_FAR_LIMIT: u16 = <Base as Focus>::FOCUS_FAR_LIMIT;
+                    const SUPPORTS_AUTO_FOCUS: bool = true;
+                    const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
+                }
+                impl Exposure for $name {
+                    const IRIS_RANGE: Option<CapabilityDomain<u16>> = None;
+                    const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry] =
+                        <Base as Exposure>::SHUTTER_SPEEDS;
+                    const GAIN_RANGE: CapabilityRange<u8> = <Base as Exposure>::GAIN_RANGE;
+                    const SUPPORTS_BACKLIGHT_COMP: bool = false;
+                }
+                impl WhiteBalance for $name {
+                    const WB_MODES: &'static [WhiteBalanceMode] = &[WhiteBalanceMode::Auto];
+                    const SUPPORTS_ONE_PUSH_WB: bool = false;
+                    const RG_TUNING_RANGE: Option<CapabilityRange<i8>> = None;
+                    const BG_TUNING_RANGE: Option<CapabilityRange<i8>> = None;
+                }
+                impl ImageProcessing for $name {
+                    const CONTRAST_RANGE: Option<CapabilityRange<u8>> = None;
+                    const SHARPNESS_RANGE: Option<CapabilityRange<u8>> = None;
+                    const SATURATION_RANGE: Option<CapabilityRange<u8>> = None;
+                    const SUPPORTS_FLIP: bool = false;
+                    const SUPPORTS_MIRROR: bool = false;
+                }
+                impl Presets for $name {
+                    const HIGHEST_PRESET: u8 = 6;
+                    const PRESET_SPEED_RANGE: Option<CapabilityRange<u8>> =
+                        <Base as Presets>::PRESET_SPEED_RANGE;
+                    const SUPPORTS_PRESET_TOUR: bool = false;
+                }
+                impl Power for $name {
+                    const POWER_ON_TIME: Duration = Duration::from_secs(5);
+                    const SUPPORTS_STANDBY: bool = false;
+                }
+                impl MenuCapability for $name {}
+                impl Tally for $name {}
+                impl MotionSyncMetadata for $name {}
+                impl NdFilterMetadata for $name {}
+                impl VariableSpeedMetadata for $name {}
+                impl ProfileTypedSupport for $name {
+                    const TYPED_SUPPORT: TypedSupportSet = TypedSupportSet::empty();
+                }
+                impl CompileTimeProfile for $name {
+                    const TRANSPORTS: TransportCompatibility = $transports;
+                    const INQUIRY_TIMEOUT: Duration = Duration::from_secs(1);
+                    const CANCELLATION_TIMEOUT: Duration = Duration::from_secs(1);
+                    const AMBIGUITY_TIMEOUT: Duration = Duration::from_secs(1);
+                    const MAXIMUM_COMMAND_SOCKETS: u8 = 2;
+                    const PRESET_RECALL_AXES: Option<AffectedAxes> =
+                        Some(AffectedAxes::PAN_TILT.union(AffectedAxes::ZOOM));
+                    const POSITION_INQUIRIES: PositionInquirySupport =
+                        PositionInquirySupport::new(true, true, true);
+                }
+            };
+        }
+
+        downstream_profile!(
+            Downstream,
+            TransportCompatibility::new(Some(9876), Some(9877), false)
+        );
+        downstream_profile!(
+            UdpOnly,
+            TransportCompatibility::new(None, Some(9877), false)
+        );
+        impl SupportsTcp for Downstream {}
+        impl SupportsUdp for Downstream {}
+
+        let endpoint = |config: CameraConfig<Downstream>| {
+            config
+                .standard_connection_plan()
+                .expect("downstream plan")
+                .endpoint
+        };
+        assert_eq!(
+            endpoint(CameraConfig::tcp("camera.local")),
+            "camera.local:9876"
+        );
+        assert_eq!(
+            endpoint(CameraConfig::new().transport(TransportOptions::tcp("camera.local"))),
+            "camera.local:9876"
+        );
+        assert_eq!(
+            endpoint(CameraConfig::udp("camera.local")),
+            "camera.local:9877"
+        );
+        assert_eq!(
+            endpoint(CameraConfig::new().transport(TransportOptions::udp("camera.local"))),
+            "camera.local:9877"
+        );
+
+        // A profile that declares no TCP port gets no `CameraConfig::tcp`
+        // (it fails to build for a `SupportsTcp` implementor without one), and
+        // an explicit TCP transport is refused before any I/O.
+        impl SupportsUdp for UdpOnly {}
+        assert!(CameraConfig::<UdpOnly>::new()
+            .transport(TransportOptions::tcp("camera.local"))
+            .standard_connection_plan()
+            .is_err());
+        assert_eq!(
+            CameraConfig::<UdpOnly>::udp("camera.local")
+                .standard_connection_plan()
+                .expect("UDP plan")
+                .endpoint,
+            "camera.local:9877"
+        );
+    }
+
     #[cfg(any(feature = "async", feature = "blocking"))]
     #[test]
     fn canonical_standard_plan_records_defaults_and_transport_options_without_io() {
@@ -729,8 +808,8 @@ mod tests {
             read_timeout: Duration::from_millis(19),
             write_timeout: Duration::from_millis(23),
             buffer_config: BufferConfig {
-                recv_buffer_size: 11,
-                max_buffer_size: 17,
+                recv_buffer_size: 31,
+                max_buffer_size: 37,
             },
             tcp_nodelay: Some(false),
             tcp_keepalive: Some(TcpKeepaliveConfig::new(Duration::from_secs(4))),
@@ -843,8 +922,20 @@ mod tests {
             Error,
         };
 
+        // Issue #805: the camera and session configurations reject the same
+        // policy with the one session-policy message.
         let raw = CameraConfig::<PtzOpticsG2>::new().with_sony_sequence_reset_on_connect(true);
-        assert!(matches!(raw.validate(), Err(Error::InvalidRequest(_))));
+        let session_error = crate::SessionConfig::from_compile_time::<PtzOpticsG2>()
+            .expect("G2 session config")
+            .with_sony_sequence_reset_on_connect(true)
+            .validated()
+            .expect_err("a raw profile cannot reset Sony sequences");
+        assert!(matches!(
+            (raw.validate(), session_error),
+            (Err(Error::InvalidRequest(camera)), Error::InvalidRequest(session))
+                if camera == session
+                    && camera == "Sony sequence reset on connect requires Sony encapsulated profiles"
+        ));
 
         let sony = CameraConfig::<SonyFR7>::new().with_sony_sequence_reset_on_connect(true);
         assert!(sony.sony_sequence_reset_on_connect());
@@ -883,7 +974,14 @@ mod tests {
                     recv_buffer_size: 0,
                     max_buffer_size: 64,
                 },
-                "transport receive buffer must be non-zero",
+                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
+            ),
+            (
+                BufferConfig {
+                    recv_buffer_size: BufferConfig::MIN_RECV_BUFFER_SIZE - 1,
+                    max_buffer_size: 64,
+                },
+                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
             ),
             (
                 BufferConfig {
@@ -953,10 +1051,35 @@ mod tests {
         assert_eq!(serial.read_timeout, Duration::from_millis(37));
         assert_eq!(serial.write_timeout, Duration::from_millis(41));
         assert_eq!(serial.buffer_config, transport_config.buffer_config);
-        assert_eq!(
-            config.serial_transport_config().addressing,
-            AddressingMode::Serial
-        );
+        assert_eq!(serial.transport_config().addressing, AddressingMode::Serial);
+        assert_eq!(serial.transport_config().tcp_keepalive, None);
+    }
+
+    /// #828: every `CameraConfig` serial open used to broadcast I/F Clear
+    /// with no way to disable it. A serial open now writes only the startup
+    /// the caller selects, and nothing by default.
+    #[cfg(any(
+        feature = "transport-serial-tokio",
+        all(feature = "blocking", feature = "transport-serial")
+    ))]
+    #[test]
+    fn serial_open_writes_only_the_selected_startup() {
+        use crate::{camera::CameraConfig, profiles::PtzOpticsG2, transport::serial::Startup};
+
+        let plain = CameraConfig::<PtzOpticsG2>::serial("/dev/fake-visca", 9_600)
+            .serial_config("/dev/fake-visca", 9_600)
+            .expect("valid serial config");
+        assert_eq!(plain.startup, Startup::default());
+        assert!(!plain.startup.address_set && !plain.startup.interface_clear);
+
+        let selected = Startup::default()
+            .with_address_set(true)
+            .with_interface_clear(true);
+        let configured = CameraConfig::<PtzOpticsG2>::serial("/dev/fake-visca", 9_600)
+            .serial_startup(selected)
+            .serial_config("/dev/fake-visca", 9_600)
+            .expect("valid serial config");
+        assert_eq!(configured.startup, selected);
     }
 
     #[cfg(any(
@@ -978,7 +1101,14 @@ mod tests {
                     recv_buffer_size: 0,
                     max_buffer_size: 64,
                 },
-                "transport receive buffer must be non-zero",
+                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
+            ),
+            (
+                BufferConfig {
+                    recv_buffer_size: BufferConfig::MIN_RECV_BUFFER_SIZE - 1,
+                    max_buffer_size: 64,
+                },
+                "transport receive buffer must hold the largest VISCA reply (24 bytes)",
             ),
             (
                 BufferConfig {

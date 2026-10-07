@@ -2,7 +2,7 @@
 
 use grafton_visca::{blocking::Camera, profiles::PtzOpticsG2, request::builtin::PanTiltHome};
 
-fn ignore_operation_handle(camera: &Camera<'static, PtzOpticsG2>) {
+fn ignore_operation_handle(camera: &Camera<PtzOpticsG2>) {
     camera.submit(&PanTiltHome).expect("submission");
 }
 

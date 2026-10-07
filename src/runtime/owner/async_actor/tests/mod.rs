@@ -11,26 +11,36 @@ use std::sync::{atomic::Ordering, Mutex};
 use crate::runtime::Runtime;
 use crate::{
     runtime::engine::{
-        CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, EnvelopeKind,
-        InquiryRoute, ProtocolPolicy, ReplyShape, RequestContext, RetryPolicy, RuntimeRequest,
-        TargetPolicy, TimeoutPolicy, TransportKind,
+        CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, InquiryRoute,
+        ProtocolPolicy, ReplyShape, RequestContext, RequestId, RetryPolicy, RuntimeRequest,
+        TargetPolicy, TimeoutPolicy,
     },
     CameraId, ViscaSocket,
 };
 
 #[cfg(feature = "runtime-tokio")]
-use crate::runtime::engine::{ControlClass, EnvelopeSequence, SequenceWidth};
+use crate::runtime::engine::{
+    ControlClass, EnvelopeKind, EnvelopeSequence, IgnoreReason, SequenceWidth, TransportKind,
+};
 
+use crate::runtime::engine::{DecodedFrame, SessionState};
+use crate::runtime::owner::DiagnosticEvent;
 #[cfg(feature = "runtime-tokio")]
-use crate::runtime::engine::CancellationObservation;
-#[cfg(feature = "runtime-tokio")]
-use crate::runtime::owner::{canonical_owner_trace, CANONICAL_OWNER_TRACE};
+use crate::runtime::owner::{cancellation_outcome, canonical_owner_trace, CANONICAL_OWNER_TRACE};
 #[cfg(feature = "runtime-smol")]
 use crate::runtime::SmolRuntime;
 #[cfg(feature = "runtime-tokio")]
 use crate::runtime::TokioRuntime;
+#[cfg(feature = "runtime-tokio")]
+use crate::transport::ReceiveOutcome;
 
+#[cfg(feature = "runtime-tokio")]
+use super::super::boundary::{CancellationBoundary, ControlBoundary};
+#[cfg(feature = "runtime-tokio")]
+use super::super::ReceiptCore;
+use super::super::RuntimeOutcome;
 use super::*;
+use crate::{completion, CancellationOutcome};
 
 mod fairness;
 mod faults;
@@ -39,6 +49,8 @@ mod lifecycle;
 mod receipts;
 #[cfg(feature = "runtime-tokio")]
 mod release_boundary;
+#[cfg(feature = "runtime-tokio")]
+mod retained_boundary;
 
 #[cfg(feature = "runtime-tokio")]
 #[derive(Clone)]
@@ -220,21 +232,13 @@ fn policy(capacity: usize) -> OwnerPolicy {
     OwnerPolicy::single_target(
         ProtocolPolicy {
             capacity,
-            envelope: EnvelopeKind::Raw,
-            transport: TransportKind::Datagram,
             inquiry_capacity: capacity,
-            command_spacing: Duration::ZERO,
-            inquiry_spacing: Duration::ZERO,
             inquiry_cooldown: Duration::ZERO,
             raw_inquiry_release_hold: Duration::from_secs(1),
-            raw_release_grace: Duration::from_millis(100),
-            strict_unconfirmed_poison: false,
+            ..ProtocolPolicy::test_default()
         },
         CameraId::CAMERA_1,
-        TargetPolicy {
-            command_sockets: 2,
-            cancellation: CancellationPolicy::Supported,
-        },
+        TargetPolicy::test_default(),
     )
     .unwrap()
 }
@@ -250,8 +254,8 @@ fn sony_policy(capacity: usize) -> OwnerPolicy {
     owner
 }
 
-// Used only by the runtime-tokio stream tests below; dead on the runtime-smol leg (#636).
-#[allow(dead_code)]
+// Used only by the runtime-tokio stream tests below (#636).
+#[cfg(feature = "runtime-tokio")]
 fn stream_policy(capacity: usize) -> OwnerPolicy {
     let mut owner = policy(capacity);
     owner.protocol.transport = TransportKind::Stream;
@@ -267,20 +271,13 @@ fn stream_policy(capacity: usize) -> OwnerPolicy {
 fn two_target_raw_policy(transport: TransportKind) -> OwnerPolicy {
     let protocol = ProtocolPolicy {
         capacity: 3,
-        envelope: EnvelopeKind::Raw,
         transport,
         inquiry_capacity: 1,
-        command_spacing: Duration::ZERO,
-        inquiry_spacing: Duration::ZERO,
         inquiry_cooldown: Duration::ZERO,
         raw_inquiry_release_hold: Duration::from_secs(1),
-        raw_release_grace: Duration::from_millis(100),
-        strict_unconfirmed_poison: false,
+        ..ProtocolPolicy::test_default()
     };
-    let target = TargetPolicy {
-        command_sockets: 2,
-        cancellation: CancellationPolicy::Supported,
-    };
+    let target = TargetPolicy::test_default();
     let mut targets = [None; 9];
     targets[usize::from(CameraId::CAMERA_1.id())] = Some(target);
     targets[usize::from(CameraId::CAMERA_2.id())] = Some(target);
@@ -348,6 +345,9 @@ fn command_for(target: CameraId) -> RuntimeRequest {
                 .unwrap(),
         ),
         context: RequestContext {
+            motion: None,
+            submission_order: 0,
+            dispatch_deadline: None,
             target,
             timeout: TimeoutPolicy {
                 ack: Duration::from_secs(5),
@@ -371,6 +371,9 @@ fn command_with_short_deadlines() -> RuntimeRequest {
     RuntimeRequest::Command {
         wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, 0x00, 0xff]).unwrap()),
         context: RequestContext {
+            motion: None,
+            submission_order: 0,
+            dispatch_deadline: None,
             target: CameraId::CAMERA_1,
             timeout: TimeoutPolicy {
                 ack: Duration::from_millis(100),
@@ -397,6 +400,9 @@ fn raw_command_with_completion_deadline(marker: u8, completion: Duration) -> Run
     RuntimeRequest::Command {
         wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, marker, 0xff]).unwrap()),
         context: RequestContext {
+            motion: None,
+            submission_order: 0,
+            dispatch_deadline: None,
             target: CameraId::CAMERA_1,
             timeout: TimeoutPolicy {
                 ack: Duration::from_secs(5),
@@ -419,8 +425,11 @@ fn inquiry() -> RuntimeRequest {
 }
 
 /// An inquiry whose successful write immediately reaches its response
-/// deadline. Boundary tests use this to create the genuine late-reply
-/// hold that remains after timeout (#712).
+/// deadline. On a datagram policy this leaves the releasable late-reply hold
+/// that remains after timeout (#712). On a single-flight raw *stream* policy
+/// it instead leaves an owed reply (#795) that never releases by time, so
+/// stream boundary fixtures use [`raw_inquiry_rejection`] for a releasable
+/// hold and use this only to exercise the owed-reply rules.
 #[cfg(feature = "runtime-tokio")]
 fn timed_out_inquiry() -> RuntimeRequest {
     let mut request = inquiry();
@@ -431,6 +440,57 @@ fn timed_out_inquiry() -> RuntimeRequest {
     request
 }
 
+/// A socketless camera rejection (`90 60 41 FF`) answering a raw inquiry.
+///
+/// Raw *stream* boundary fixtures use it to create their predecessor's
+/// releasable `InquiryUnkeyed` hold. Since the stream-stall fix (#795), an
+/// inquiry that times out after its bytes entered a stream owes its reply and
+/// never releases by time, so a timed-out predecessor can no longer seed a
+/// stream release. An *answered* inquiry owes nothing: `camera_error`
+/// installs exactly the hold the timeout used to (same key, owner, and
+/// `raw_inquiry_release_hold` deadline from the same instant), with the same
+/// release projection and #713 retained-prefix gate. Datagram fixtures keep
+/// the timeout, which remains the datagram contract.
+#[cfg(feature = "runtime-tokio")]
+fn raw_inquiry_rejection() -> DecodedFrame {
+    DecodedFrame {
+        target: CameraId::CAMERA_1,
+        sequence: None,
+        response: DecodedResponse::Error {
+            socket: None,
+            code: 0x41,
+        },
+    }
+}
+
+/// The production-framer bytes of [`raw_inquiry_rejection`].
+#[cfg(feature = "runtime-tokio")]
+const RAW_INQUIRY_REJECTION_BYTES: [u8; 4] = [0x90, 0x60, 0x41, 0xff];
+
+/// Answers a written raw stream predecessor inquiry with
+/// [`raw_inquiry_rejection`] through the actor's own receive turn, at the
+/// current virtual instant, for tests that drive `handle_event` directly.
+#[cfg(feature = "runtime-tokio")]
+async fn reject_raw_stream_predecessor<D: AsyncOwnerDriver>(
+    actor: &mut AsyncOwnerActor<ManualRuntime>,
+    driver: &mut D,
+    runtime: &ManualRuntime,
+) {
+    let now = Executor::now(runtime);
+    actor
+        .handle_event(
+            OwnerEvent::Receive {
+                result: batch(vec![raw_inquiry_rejection()]),
+                received_at: now,
+            },
+            driver,
+            runtime,
+            now,
+            false,
+        )
+        .await;
+}
+
 fn inquiry_for(target: CameraId) -> RuntimeRequest {
     RuntimeRequest::Inquiry {
         wire: Arc::new(
@@ -438,6 +498,9 @@ fn inquiry_for(target: CameraId) -> RuntimeRequest {
                 .unwrap(),
         ),
         context: RequestContext {
+            motion: None,
+            submission_order: 0,
+            dispatch_deadline: None,
             target,
             timeout: TimeoutPolicy {
                 ack: Duration::from_secs(5),
@@ -456,8 +519,8 @@ fn inquiry_for(target: CameraId) -> RuntimeRequest {
 }
 
 /// Wrap decoded frames as one nonzero-length read for the fake driver.
-fn batch(frames: Vec<DecodedFrame>) -> Result<AsyncReceive, Error> {
-    Ok(AsyncReceive::Frames(frames))
+fn batch(frames: Vec<DecodedFrame>) -> Result<OwnerReceive, Error> {
+    Ok(OwnerReceive::Frames(frames))
 }
 
 fn ack(socket: ViscaSocket) -> DecodedFrame {
@@ -497,7 +560,7 @@ struct FakeAsyncDriver {
     writes: RecordedWrites,
     started: flume::Sender<RequestId>,
     gates: flume::Receiver<Result<TransmissionMeta, Error>>,
-    frames: flume::Receiver<Result<AsyncReceive, Error>>,
+    frames: flume::Receiver<Result<OwnerReceive, Error>>,
 }
 
 impl AsyncOwnerDriver for FakeAsyncDriver {
@@ -525,7 +588,7 @@ impl AsyncOwnerDriver for FakeAsyncDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let frames = self.frames.clone();
         async move {
             frames
@@ -535,6 +598,8 @@ impl AsyncOwnerDriver for FakeAsyncDriver {
         }
     }
 }
+
+impl RetainedStreamInput for FakeAsyncDriver {}
 
 #[cfg(feature = "runtime-tokio")]
 #[derive(Debug)]
@@ -562,14 +627,17 @@ impl AsyncOwnerDriver for RuntimeAffinityDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let observed = self.observed.clone();
         async move {
             let _ = observed.try_send(tokio::runtime::Handle::current().id());
-            Ok(AsyncReceive::Closed)
+            Ok(OwnerReceive::Closed)
         }
     }
 }
+
+#[cfg(feature = "runtime-tokio")]
+impl RetainedStreamInput for RuntimeAffinityDriver {}
 
 #[cfg(feature = "runtime-tokio")]
 impl AsyncOwnerDriver for PanickingReceiveDriver {
@@ -586,12 +654,15 @@ impl AsyncOwnerDriver for PanickingReceiveDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         async {
             panic!("test driver panic before terminal publication");
         }
     }
 }
+
+#[cfg(feature = "runtime-tokio")]
+impl RetainedStreamInput for PanickingReceiveDriver {}
 
 #[cfg(feature = "runtime-tokio")]
 #[derive(Debug)]
@@ -614,7 +685,7 @@ impl AsyncOwnerDriver for PanickingAfterAdmissionDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let panic_signal = self.panic_signal.clone();
         async move {
             panic_signal
@@ -626,11 +697,14 @@ impl AsyncOwnerDriver for PanickingAfterAdmissionDriver {
     }
 }
 
+#[cfg(feature = "runtime-tokio")]
+impl RetainedStreamInput for PanickingAfterAdmissionDriver {}
+
 struct Harness {
     driver: FakeAsyncDriver,
     started: flume::Receiver<RequestId>,
     gates: flume::Sender<Result<TransmissionMeta, Error>>,
-    frames: flume::Sender<Result<AsyncReceive, Error>>,
+    frames: flume::Sender<Result<OwnerReceive, Error>>,
     writes: RecordedWrites,
 }
 
@@ -707,10 +781,11 @@ where
             .await
             .unwrap();
         assert_eq!(handle.snapshot().await.unwrap().active, 0);
-        success
-            .wait_with_timeout(handle.receipt_control(), Duration::ZERO)
-            .await
-            .unwrap();
+        // Cancelling a concluded request is answered without installing an
+        // intent; the receipt's terminal slot still decides (#777).
+        let cancellation = handle.cancel_test(&success.core).await.unwrap();
+        assert!(cancellation.try_recv().is_none());
+        success.wait_with_timeout(Duration::ZERO).await.unwrap();
 
         let failed = handle
             .submit_command(prepared_focus(&profile))
@@ -737,12 +812,14 @@ where
             .await
             .unwrap();
         assert_eq!(handle.snapshot().await.unwrap().active, 0);
+        // The error arrived after the ACK, so it is reported unconfirmed with
+        // the camera's exact error as its source (#795).
         assert!(matches!(
-            failed.wait(handle.receipt_control()).await,
-            Err(Error::SyntaxError)
+            failed.wait().await,
+            Err(Error::CommandFailedAfterAck { source, .. }) if matches!(*source, Error::SyntaxError)
         ));
 
-        let operation = handle
+        let mut operation = handle
             .submit_operation(prepared_zoom(&profile))
             .await
             .unwrap();
@@ -760,12 +837,8 @@ where
             .await
             .unwrap();
         assert_eq!(handle.snapshot().await.unwrap().active, 0);
-        let cancellation = operation.cancel().await.unwrap();
         assert_eq!(
-            cancellation
-                .outcome(handle.receipt_control(), Duration::ZERO)
-                .await
-                .unwrap(),
+            operation.cancel(Some(Duration::ZERO)).await.unwrap(),
             CancellationOutcome::Completed
         );
 
@@ -779,10 +852,8 @@ where
             .await
             .unwrap();
         assert!(matches!(
-            detached
-                .wait_with_timeout(handle.receipt_control(), Duration::ZERO)
-                .await,
-            Err(Error::Timeout)
+            detached.wait_with_timeout(Duration::ZERO).await,
+            Err(Error::ObservationTimeout { .. })
         ));
         assert_eq!(
             writes
@@ -804,7 +875,7 @@ where
             .unwrap();
         assert_eq!(handle.snapshot().await.unwrap().active, 0);
 
-        handle.shutdown().await.unwrap();
+        handle.shutdown().unwrap();
     };
     let ((), snapshot) = future::zip(client, actor.run(harness.driver)).await;
     assert_eq!(snapshot.active, 0);
@@ -822,7 +893,7 @@ where
     let frames = harness.frames.clone();
     let writes = Arc::clone(&harness.writes);
     let client = async {
-        let operation = handle
+        let mut operation = handle
             .submit_operation(prepared_zoom(&profile))
             .await
             .unwrap();
@@ -841,10 +912,7 @@ where
             .unwrap();
         assert_eq!(handle.snapshot().await.unwrap().active, 0);
 
-        let settlement = operation
-            .settled_with_timeout(handle.receipt_control(), Duration::from_secs(1))
-            .erase()
-            .wait();
+        let settlement = operation.settled(Some(Duration::from_secs(1)));
         let replies = async {
             for _ in 0..2 {
                 let _ = started.recv_async().await.unwrap();
@@ -873,7 +941,7 @@ where
         assert_eq!(writes[1].1, writes[2].1);
         assert_eq!(writes[1].1, vec![0x81, 0x09, 0x04, 0x47, 0xff]);
         drop(writes);
-        handle.shutdown().await.unwrap();
+        handle.shutdown().unwrap();
     };
     let ((), snapshot) = future::zip(client, actor.run(harness.driver)).await;
     assert_eq!(snapshot.active, 0);
@@ -905,15 +973,13 @@ impl crate::transport::AsyncTransport for ChunkedStreamTransport {
             .map_err(|_| Error::RuntimeShutdown)
     }
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         // An exhausted script parks instead of reporting end of stream, so
         // the test controls exactly when the transport closes.
         let Ok(chunk) = self.chunks.recv_async().await else {
             return future::pending().await;
         };
-        let len = chunk.len().min(dst.len());
-        dst[..len].copy_from_slice(&chunk[..len]);
-        Ok(len)
+        Ok(ReceiveOutcome::copy_message(&chunk, dst))
     }
 
     fn send_semantics(&self) -> crate::transport::SendSemantics {
@@ -998,7 +1064,7 @@ impl AsyncOwnerDriver for ScriptedRawDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let reads = self.reads.clone();
         let reads_observed = self.reads_observed.clone();
         let receive_polled = self.receive_polled.clone();
@@ -1009,11 +1075,11 @@ impl AsyncOwnerDriver for ScriptedRawDriver {
             let _ = receive_polled.try_send(());
             if let Some(frame) = after_no_data.lock().unwrap().take() {
                 let _ = reads_observed.try_send(());
-                return Ok(AsyncReceive::Frames(vec![frame]));
+                return Ok(OwnerReceive::Frames(vec![frame]));
             }
             if let Some(error) = repeating_fault.lock().unwrap().as_ref().cloned() {
                 let _ = reads_observed.try_send(());
-                return Ok(AsyncReceive::Fault(error));
+                return Ok(OwnerReceive::Fault(error));
             }
             let read = reads
                 .recv_async()
@@ -1023,50 +1089,54 @@ impl AsyncOwnerDriver for ScriptedRawDriver {
             Ok(match read {
                 ScriptedRawRead::Prefix => {
                     buffered.store(true, Ordering::Release);
-                    AsyncReceive::Frames(Vec::new())
+                    OwnerReceive::Frames(Vec::new())
                 }
                 ScriptedRawRead::Tail(frame) => {
                     if buffered.swap(false, Ordering::AcqRel) {
-                        AsyncReceive::Frames(vec![frame])
+                        OwnerReceive::Frames(vec![frame])
                     } else {
-                        AsyncReceive::Frames(Vec::new())
+                        OwnerReceive::Frames(Vec::new())
                     }
                 }
                 ScriptedRawRead::Complete(frame) => {
                     buffered.store(false, Ordering::Release);
-                    AsyncReceive::Frames(vec![frame])
+                    OwnerReceive::Frames(vec![frame])
                 }
-                ScriptedRawRead::NoData => AsyncReceive::NoData,
+                ScriptedRawRead::NoData => OwnerReceive::NoData,
                 ScriptedRawRead::NoDataThenComplete(frame) => {
                     *after_no_data.lock().unwrap() = Some(frame);
-                    AsyncReceive::NoData
+                    OwnerReceive::NoData
                 }
-                ScriptedRawRead::Empty => AsyncReceive::Frames(Vec::new()),
-                ScriptedRawRead::Fault(error) => AsyncReceive::Fault(error),
+                ScriptedRawRead::Empty => OwnerReceive::Frames(Vec::new()),
+                ScriptedRawRead::Fault(error) => OwnerReceive::Fault(error),
                 ScriptedRawRead::RepeatingFault(error) => {
                     *repeating_fault.lock().unwrap() = Some(error.clone());
-                    AsyncReceive::Fault(error)
+                    OwnerReceive::Fault(error)
                 }
             })
         }
     }
+}
 
+#[cfg(feature = "runtime-tokio")]
+impl RetainedStreamInput for ScriptedRawDriver {
     fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
         Ok(self.buffered.load(Ordering::Acquire))
     }
 
-    fn buffered_stream_input(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
-        Ok(self
-            .buffered
-            .load(Ordering::Acquire)
-            .then_some(RawPrefixEvidence::Incomplete {
+    fn buffered_raw_prefix_evidence(
+        &mut self,
+    ) -> Result<Option<crate::runtime::engine::RawPrefixEvidence>, Error> {
+        Ok(self.buffered.load(Ordering::Acquire).then_some(
+            crate::runtime::engine::RawPrefixEvidence::Incomplete {
                 target: CameraId::CAMERA_1,
                 // The fixture defaults to an exact named terminal, keeping
                 // its original stale-prefix tests about discard mechanics.
                 // A focused actor test may override this with ambiguous
                 // evidence to exercise the local deferral budget.
                 kind: self.prefix_kind,
-            }))
+            },
+        ))
     }
 
     fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
@@ -1177,17 +1247,58 @@ fn parked_write_raw_release_harness() -> ScriptedRawHarness {
     )
 }
 
+/// Terminalizes predecessor A so that it leaves its releasable raw inquiry
+/// hold at the current instant: a timeout on a datagram, a socketless
+/// rejection on a stream (see [`raw_inquiry_rejection`]).
+#[cfg(feature = "runtime-tokio")]
+async fn terminalize_raw_inquiry_predecessor(
+    handle: &AsyncOwnerHandle,
+    harness: &ScriptedRawHarness,
+    transport: TransportKind,
+) {
+    let stream = transport == TransportKind::Stream;
+    let request = if stream {
+        inquiry()
+    } else {
+        timed_out_inquiry()
+    };
+    let predecessor = handle.submit(request).await.unwrap();
+    assert_eq!(harness.writes.recv_async().await.unwrap(), predecessor.id);
+    if stream {
+        harness
+            .reads
+            .send_async(ScriptedRawRead::Complete(raw_inquiry_rejection()))
+            .await
+            .unwrap();
+        // Consume the rejection's read barrier so a test's own barriers see
+        // only the reads it scripts.
+        harness.reads_observed.recv_async().await.unwrap();
+    }
+    let outcome = terminal_within_test_deadline(
+        &predecessor,
+        "the predecessor terminalizes and leaves its raw inquiry hold",
+    )
+    .await;
+    if stream {
+        assert!(matches!(
+            outcome,
+            RuntimeOutcome::Failed(Error::CommandNotExecutable)
+        ));
+    } else {
+        assert!(matches!(
+            outcome,
+            RuntimeOutcome::Failed(Error::Timeout { .. })
+        ));
+    }
+}
+
 #[cfg(feature = "runtime-tokio")]
 async fn establish_raw_inquiry_tombstone_with_probe_driver(
     handle: &AsyncOwnerHandle,
     harness: &ScriptedRawHarness,
+    transport: TransportKind,
 ) -> ReceiptCore {
-    let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
-    assert_eq!(harness.writes.recv_async().await.unwrap(), predecessor.id);
-    assert!(matches!(
-        predecessor.terminal().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout)
-    ));
+    terminalize_raw_inquiry_predecessor(handle, harness, transport).await;
 
     let successor = handle.submit(inquiry()).await.unwrap();
     assert!(
@@ -1204,12 +1315,14 @@ async fn establish_raw_inquiry_tombstone_with_probe_driver(
 /// its clamp-to-H sleep, then H is advanced explicitly.
 #[cfg(feature = "runtime-tokio")]
 async fn assert_raw_release_probe_precedes_stale_frame_after_idle_sleep(policy: OwnerPolicy) {
+    let transport = policy.protocol.transport;
     let initial = Instant::now();
     let (runtime, sleeps) = ManualRuntime::with_polling_sleeps_and_sleep_barrier(initial);
     let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
     let mut harness = raw_release_probe_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness).await;
+    let successor =
+        establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness, transport).await;
 
     // The predecessor installed its one-second raw inquiry tombstone at
     // `initial`.  At H−1ms, consume an idle read; its escalating pause is
@@ -1282,7 +1395,7 @@ async fn assert_raw_release_probe_precedes_stale_frame_after_idle_sleep(policy: 
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 
@@ -1292,12 +1405,14 @@ async fn assert_raw_release_probe_precedes_stale_frame_after_idle_sleep(policy: 
 /// must cause another receive-first pass, not fence the due Wake.
 #[cfg(feature = "runtime-tokio")]
 async fn assert_pre_h_idle_read_resumed_at_h_requires_fresh_probe(policy: OwnerPolicy) {
+    let transport = policy.protocol.transport;
     let initial = Instant::now();
     let runtime = ManualRuntime::with_polling_sleeps(initial);
     let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
     let mut harness = raw_release_probe_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness).await;
+    let successor =
+        establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness, transport).await;
 
     // Put the actor in an ordinary H-δ boundary selection with a receive
     // already pending.  This avoids any scheduler sleep assumption: the
@@ -1365,7 +1480,7 @@ async fn assert_pre_h_idle_read_resumed_at_h_requires_fresh_probe(policy: OwnerP
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 
@@ -1376,12 +1491,14 @@ async fn assert_pre_h_idle_read_resumed_at_h_requires_fresh_probe(policy: OwnerP
 /// the fence a left-biased receive probe hot-loops and B never writes.
 #[cfg(feature = "runtime-tokio")]
 async fn assert_raw_release_idle_fault_fences_once(policy: OwnerPolicy) {
+    let transport = policy.protocol.transport;
     let initial = Instant::now();
     let (runtime, sleeps) = ManualRuntime::with_polling_sleeps_and_sleep_barrier(initial);
     let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
     let mut harness = raw_release_probe_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness).await;
+    let successor =
+        establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness, transport).await;
 
     runtime.advance(Duration::from_millis(999));
     harness
@@ -1401,7 +1518,7 @@ async fn assert_raw_release_idle_fault_fences_once(policy: OwnerPolicy) {
     // the exact coordinator consumes it on the first post-H probe.
     harness
         .reads
-        .try_send(ScriptedRawRead::RepeatingFault(Error::Timeout))
+        .try_send(ScriptedRawRead::RepeatingFault(Error::io_timeout()))
         .unwrap();
     runtime.advance(Duration::from_millis(1));
     harness.reads_observed.recv_async().await.unwrap();
@@ -1419,7 +1536,7 @@ async fn assert_raw_release_idle_fault_fences_once(policy: OwnerPolicy) {
     // this test's value is specifically that it would otherwise stay
     // perpetually ready if the fence were removed.
     *harness.repeating_fault.lock().unwrap() = None;
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     // The actor may have started its ordinary post-write idle pacing sleep
     // just before the fixture was cleared; wake that sleep so the queued
     // shutdown boundary is observed without depending on wall clock.
@@ -1435,18 +1552,14 @@ async fn assert_raw_release_idle_fault_fences_once(policy: OwnerPolicy) {
 /// left-biased input probe before B's due pass.
 #[cfg(feature = "runtime-tokio")]
 async fn assert_parked_cross_target_write_returns_to_raw_coordinator(policy: OwnerPolicy) {
+    let transport = policy.protocol.transport;
     let initial = Instant::now();
     let runtime = ManualRuntime::with_polling_sleeps(initial);
     let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
     let mut harness = parked_write_raw_release_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
 
-    let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
-    assert_eq!(harness.writes.recv_async().await.unwrap(), predecessor.id);
-    assert!(matches!(
-        predecessor.terminal().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout)
-    ));
+    terminalize_raw_inquiry_predecessor(&handle, &harness, transport).await;
 
     let successor = handle.submit(inquiry()).await.unwrap();
     assert!(
@@ -1514,7 +1627,7 @@ async fn assert_parked_cross_target_write_returns_to_raw_coordinator(policy: Own
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 
@@ -1525,12 +1638,14 @@ async fn assert_parked_cross_target_write_returns_to_raw_coordinator(policy: Own
 /// write.  Both read barriers must therefore beat B's write barrier.
 #[cfg(feature = "runtime-tokio")]
 async fn assert_raw_release_fault_then_stale_frame_stays_input_first(policy: OwnerPolicy) {
+    let transport = policy.protocol.transport;
     let initial = Instant::now();
     let runtime = ManualRuntime::with_polling_sleeps(initial);
     let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
     let mut harness = raw_release_probe_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness).await;
+    let successor =
+        establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness, transport).await;
 
     // The actor is normally already blocked in receive after B's admission.
     // Drain its old poll notification, then use an empty nonzero receive to
@@ -1599,7 +1714,7 @@ async fn assert_raw_release_fault_then_stale_frame_stays_input_first(policy: Own
         RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
     ));
 
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
 }
 
@@ -1614,21 +1729,13 @@ async fn terminal_within_test_deadline(
         .expect("the receipt observation channel remains live")
 }
 
+/// Stream-only twin of [`establish_raw_inquiry_tombstone_with_probe_driver`].
 #[cfg(feature = "runtime-tokio")]
 async fn establish_raw_inquiry_tombstone(
     handle: &AsyncOwnerHandle,
     harness: &ScriptedRawHarness,
 ) -> ReceiptCore {
-    let predecessor = handle.submit(timed_out_inquiry()).await.unwrap();
-    assert_eq!(harness.writes.recv_async().await.unwrap(), predecessor.id);
-    assert!(matches!(
-        terminal_within_test_deadline(
-            &predecessor,
-            "the predecessor terminalizes at its inquiry deadline",
-        )
-        .await,
-        RuntimeOutcome::Failed(Error::Timeout)
-    ));
+    terminalize_raw_inquiry_predecessor(handle, harness, TransportKind::Stream).await;
 
     let successor = handle.submit(inquiry()).await.unwrap();
     assert!(
@@ -1755,15 +1862,17 @@ impl AsyncOwnerDriver for AlwaysFailingReceive {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         self.reads.fetch_add(1, Ordering::Relaxed);
         async {
-            Ok(AsyncReceive::Fault(Error::Io(Arc::new(
+            Ok(OwnerReceive::Fault(Error::Io(Arc::new(
                 std::io::Error::other("simulated adapter unplugged"),
             ))))
         }
     }
 }
+
+impl RetainedStreamInput for AlwaysFailingReceive {}
 
 /// Alternates a transient transport fault with a clean no-data receive.
 /// A no-data read paces the actor but is not a successful read, so it must
@@ -1790,21 +1899,24 @@ impl AsyncOwnerDriver for AlternatingFaultNoData {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let reads = Arc::clone(&self.reads);
         let faults = Arc::clone(&self.faults);
         async move {
             if reads.fetch_add(1, Ordering::Relaxed).is_multiple_of(2) {
                 faults.fetch_add(1, Ordering::Relaxed);
-                Ok(AsyncReceive::Fault(Error::TransportError(
+                Ok(OwnerReceive::Fault(Error::TransportError(
                     "simulated intermittent adapter fault".into(),
                 )))
             } else {
-                Ok(AsyncReceive::NoData)
+                Ok(OwnerReceive::NoData)
             }
         }
     }
 }
+
+#[cfg(feature = "runtime-tokio")]
+impl RetainedStreamInput for AlternatingFaultNoData {}
 
 // ---------------------------------------------------------------------
 // #626: a boundary request racing teardown must never hang.
@@ -1816,7 +1928,7 @@ impl AsyncOwnerDriver for AlternatingFaultNoData {
 #[cfg(feature = "runtime-tokio")]
 #[derive(Debug)]
 struct UngatedDriver {
-    receives: flume::Receiver<Result<AsyncReceive, Error>>,
+    receives: flume::Receiver<Result<OwnerReceive, Error>>,
 }
 
 #[cfg(feature = "runtime-tokio")]
@@ -1834,7 +1946,7 @@ impl AsyncOwnerDriver for UngatedDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let receives = self.receives.clone();
         async move {
             // An exhausted script parks instead of reporting a close, so
@@ -1846,6 +1958,9 @@ impl AsyncOwnerDriver for UngatedDriver {
         }
     }
 }
+
+#[cfg(feature = "runtime-tokio")]
+impl RetainedStreamInput for UngatedDriver {}
 
 // ---------------------------------------------------------------------
 // #637: the owners agree on a malformed datagram.
@@ -1876,13 +1991,11 @@ impl crate::transport::AsyncTransport for ScriptedDatagramTransport {
             .map_err(|_| Error::RuntimeShutdown)
     }
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         let Ok(datagram) = self.datagrams.recv_async().await else {
             return future::pending().await;
         };
-        let len = datagram.len().min(dst.len());
-        dst[..len].copy_from_slice(&datagram[..len]);
-        Ok(len)
+        Ok(ReceiveOutcome::copy_message(&datagram, dst))
     }
 
     fn send_semantics(&self) -> crate::transport::SendSemantics {
@@ -1934,11 +2047,7 @@ impl crate::transport::AsyncTransport for AlternatingFaultAndTruncatedDatagrams 
         Ok(())
     }
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
-        self.next_receive(dst).map(|outcome| outcome.copied_len())
-    }
-
-    async fn recv_into_with_outcome(
+    async fn recv_into(
         &mut self,
         dst: &mut [u8],
     ) -> Result<crate::transport::ReceiveOutcome, Error> {
@@ -1972,7 +2081,7 @@ impl crate::transport::AsyncTransport for ClosedSendDatagramTransport {
         })
     }
 
-    async fn recv_into(&mut self, _dst: &mut [u8]) -> Result<usize, Error> {
+    async fn recv_into(&mut self, _dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         future::pending().await
     }
 
@@ -2008,9 +2117,9 @@ impl AsyncOwnerDriver for BabblingDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         async {
-            Ok(AsyncReceive::Frames(vec![DecodedFrame {
+            Ok(OwnerReceive::Frames(vec![DecodedFrame {
                 target: CameraId::CAMERA_1,
                 sequence: None,
                 response: DecodedResponse::Unknown,
@@ -2018,6 +2127,8 @@ impl AsyncOwnerDriver for BabblingDriver {
         }
     }
 }
+
+impl RetainedStreamInput for BabblingDriver {}
 
 /// A frame flood whose adapter reports retained stream input after every
 /// bounded batch. Production stream adapters do this whenever a read contains
@@ -2040,16 +2151,18 @@ impl AsyncOwnerDriver for BufferedBabblingDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         async {
-            Ok(AsyncReceive::Frames(vec![DecodedFrame {
+            Ok(OwnerReceive::Frames(vec![DecodedFrame {
                 target: CameraId::CAMERA_1,
                 sequence: None,
                 response: DecodedResponse::Unknown,
             }]))
         }
     }
+}
 
+impl RetainedStreamInput for BufferedBabblingDriver {
     fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
         Ok(true)
     }
@@ -2062,7 +2175,6 @@ impl AsyncOwnerDriver for BufferedBabblingDriver {
 #[derive(Debug)]
 struct CountingBabblingDriver {
     reads: Arc<std::sync::atomic::AtomicU64>,
-    stop: Arc<std::sync::atomic::AtomicBool>,
     /// `true` models the empty batch the stream adapter returns after it
     /// discards one or more delimited malformed frames.
     empty_batches: bool,
@@ -2081,24 +2193,93 @@ impl AsyncOwnerDriver for CountingBabblingDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let reads = Arc::clone(&self.reads);
-        let stop = Arc::clone(&self.stop);
         let empty_batches = self.empty_batches;
         async move {
-            reads.fetch_add(1, Ordering::Relaxed);
-            if stop.load(Ordering::Acquire) {
-                Ok(AsyncReceive::Closed)
+            let read = reads.fetch_add(1, Ordering::AcqRel) + 1;
+            if read > BABBLING_READ_BUDGET {
+                Ok(OwnerReceive::Closed)
             } else if empty_batches {
-                Ok(AsyncReceive::Frames(Vec::new()))
+                Ok(OwnerReceive::Frames(Vec::new()))
             } else {
-                Ok(AsyncReceive::Frames(vec![DecodedFrame {
+                Ok(OwnerReceive::Frames(vec![DecodedFrame {
                     target: CameraId::CAMERA_1,
                     sequence: None,
                     response: DecodedResponse::Unknown,
                 }]))
             }
         }
+    }
+}
+
+impl RetainedStreamInput for CountingBabblingDriver {}
+
+/// How many reads a [`CountingBabblingDriver`] answers before it closes.
+///
+/// The single-thread fairness scenarios measure liveness in the peer's own
+/// reads, not in wall time. A fair actor surrenders the executor every
+/// fairness ceiling of reads, so the boundary work and the 1 ms timer finish
+/// within about 11 000 reads (measured: 299, 394 and 11 328 for the three
+/// scenarios) even on an idle fast host; host load slows the
+/// reads down and so can only lower the count. Only an actor that keeps the
+/// executor to itself can read this far, after which the peer closes, so a
+/// monopolizing actor fails the scenario instead of hanging the binary.
+const BABBLING_READ_BUDGET: u64 = 1_000_000;
+
+/// Wall-clock backstop for the single-thread fairness scenarios, never their
+/// verdict: [`BABBLING_READ_BUDGET`] decides fairness. It fires only when a
+/// scenario stops making progress altogether (a deadlock in which the peer is
+/// no longer read, so the budget cannot end it), and host load cannot make a
+/// progressing scenario take this long.
+const FAIRNESS_HANG_BACKSTOP: Duration = Duration::from_secs(60);
+
+/// Runs `scenario` on its own thread and returns its outcome, panicking with
+/// a distinct "hung" message if it makes no progress within
+/// [`FAIRNESS_HANG_BACKSTOP`]. A hung worker is left detached.
+fn run_with_hang_backstop(
+    name: &str,
+    scenario: impl FnOnce() -> Result<(), String> + Send + 'static,
+) -> Result<(), String> {
+    let (finished, result) = flume::bounded(1);
+    let worker = std::thread::spawn(move || {
+        let _ = finished.send(scenario());
+    });
+    match result.recv_timeout(FAIRNESS_HANG_BACKSTOP) {
+        Ok(outcome) => {
+            worker
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+            outcome
+        }
+        Err(flume::RecvTimeoutError::Timeout) => {
+            panic!("{name} hung (no progress for {FAIRNESS_HANG_BACKSTOP:?})")
+        }
+        Err(flume::RecvTimeoutError::Disconnected) => {
+            worker
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+            Err(format!("{name} worker exited without a result"))
+        }
+    }
+}
+
+/// Fails when the peer's read budget ran out: the boundary work completed, or
+/// failed, only because the babbling peer closed, not because the actor
+/// yielded.
+fn babbling_reads_within_budget(
+    reads: &std::sync::atomic::AtomicU64,
+    scenario: &str,
+    executor: &str,
+) -> Result<(), String> {
+    let reads = reads.load(Ordering::Acquire);
+    if reads > BABBLING_READ_BUDGET {
+        Err(format!(
+            "{scenario} monopolized {executor} before caller, control, cancellation, or timer \
+             work could run ({reads} peer reads)"
+        ))
+    } else {
+        Ok(())
     }
 }
 
@@ -2122,10 +2303,12 @@ impl AsyncOwnerDriver for StallingWriteDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         async { future::pending().await }
     }
 }
+
+impl RetainedStreamInput for StallingWriteDriver {}
 
 /// A peer that reports "no data" on every poll, immediately. Without the
 /// idle-read pace this spins the actor at hundreds of thousands of reads a
@@ -2148,14 +2331,16 @@ impl AsyncOwnerDriver for NoDataDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let reads = Arc::clone(&self.reads);
         async move {
             reads.fetch_add(1, Ordering::Relaxed);
-            Ok(AsyncReceive::NoData)
+            Ok(OwnerReceive::NoData)
         }
     }
 }
+
+impl RetainedStreamInput for NoDataDriver {}
 
 // ---------------------------------------------------------------------
 // #746: raw-release selection must tolerate non-parking custom transports.
@@ -2219,30 +2404,34 @@ impl AsyncOwnerDriver for RawBufferedFloodDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let reads = Arc::clone(&self.reads);
         async move {
             reads.fetch_add(1, Ordering::Relaxed);
-            Ok(AsyncReceive::Frames(Vec::new()))
+            Ok(OwnerReceive::Frames(Vec::new()))
         }
     }
+}
 
+#[cfg(feature = "runtime-tokio")]
+impl RetainedStreamInput for RawBufferedFloodDriver {
     fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
         Ok(self.buffered.load(Ordering::Acquire))
     }
 
-    fn buffered_stream_input(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
-        Ok(self
-            .buffered
-            .load(Ordering::Acquire)
-            .then_some(RawPrefixEvidence::Incomplete {
-                target: CameraId::CAMERA_1,
-                kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
-            }))
-    }
-
     fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
         Ok(self.buffered.load(Ordering::Acquire).then_some(1))
+    }
+
+    fn buffered_raw_prefix_evidence(
+        &mut self,
+    ) -> Result<Option<crate::runtime::engine::RawPrefixEvidence>, Error> {
+        Ok(self.buffered.load(Ordering::Acquire).then_some(
+            crate::runtime::engine::RawPrefixEvidence::Incomplete {
+                target: CameraId::CAMERA_1,
+                kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
+            },
+        ))
     }
 
     fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
@@ -2274,7 +2463,7 @@ impl AsyncOwnerDriver for ImmediateRawGraceDriver {
         &mut self,
         _buffers: &mut super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> impl Future<Output = Result<AsyncReceive, Error>> + Send {
+    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let idle = self.idle;
         let reads = Arc::clone(&self.reads);
         let armed = Arc::clone(&self.armed);
@@ -2284,28 +2473,32 @@ impl AsyncOwnerDriver for ImmediateRawGraceDriver {
             }
             reads.fetch_add(1, Ordering::Relaxed);
             match idle {
-                ImmediateRawIdle::NoData => Ok(AsyncReceive::NoData),
-                ImmediateRawIdle::Timeout => Ok(AsyncReceive::Fault(Error::Timeout)),
+                ImmediateRawIdle::NoData => Ok(OwnerReceive::NoData),
+                ImmediateRawIdle::Timeout => Ok(OwnerReceive::Fault(Error::io_timeout())),
             }
         }
     }
+}
 
+#[cfg(feature = "runtime-tokio")]
+impl RetainedStreamInput for ImmediateRawGraceDriver {
     fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
         Ok(self.buffered.load(Ordering::Acquire))
     }
 
-    fn buffered_stream_input(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
-        Ok(self
-            .buffered
-            .load(Ordering::Acquire)
-            .then_some(RawPrefixEvidence::Incomplete {
-                target: CameraId::CAMERA_1,
-                kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
-            }))
-    }
-
     fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
         Ok(self.buffered.load(Ordering::Acquire).then_some(1))
+    }
+
+    fn buffered_raw_prefix_evidence(
+        &mut self,
+    ) -> Result<Option<crate::runtime::engine::RawPrefixEvidence>, Error> {
+        Ok(self.buffered.load(Ordering::Acquire).then_some(
+            crate::runtime::engine::RawPrefixEvidence::Incomplete {
+                target: CameraId::CAMERA_1,
+                kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
+            },
+        ))
     }
 
     fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
@@ -2335,7 +2528,7 @@ async fn assert_babble_never_starves_boundaries<R>(
         .expect("admission rejected");
     // Shutdown enters its one-slot lane; the actor must then terminate — the
     // `close()` liveness the P0 is about — within a bound.
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     let snapshot = Executor::timeout(&runtime, Duration::from_secs(5), terminated.recv_async())
         .await
         .expect("a babbling peer must not starve shutdown/close")
@@ -2365,7 +2558,7 @@ async fn assert_stalled_write_never_parks_close<R>(
     .expect("admission rejected");
     // The write is abandoned at its 50 ms timeout, unparking the actor, so
     // shutdown/close is serviced rather than blocked behind the stalled peer.
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     let snapshot = Executor::timeout(&runtime, Duration::from_secs(5), terminated.recv_async())
         .await
         .expect("a stalled write must not park close")
@@ -2385,7 +2578,7 @@ async fn assert_nodata_never_hot_spins<R>(
     // Let the idle transport run for a bounded wall-clock window.
     Executor::sleep(&runtime, Duration::from_millis(500)).await;
     let observed = reads.load(Ordering::Relaxed);
-    handle.shutdown().await.unwrap();
+    handle.shutdown().unwrap();
     let _ = Executor::timeout(&runtime, Duration::from_secs(5), terminated.recv_async()).await;
     // The escalating idle pause caps at 250 ms, so a correctly paced actor
     // does single digits of reads here; the unbounded spin does hundreds of
@@ -2449,29 +2642,24 @@ where
 
 /// The fairness ceiling must surrender the executor, not merely reverse
 /// polling order. This puts the actor, a caller admission, a control
-/// request, and a timer on one Tokio current-thread runtime. The outer
-/// watchdog lives on a separate OS thread so the pre-fix hot loop cannot
-/// hang the test binary; it asks the test driver to close only after the
-/// liveness deadline has already failed.
+/// request, and a timer on one Tokio current-thread runtime. Liveness is
+/// counted in the babbling peer's reads ([`BABBLING_READ_BUDGET`]), so host
+/// scheduling cannot fail it; a monopolizing actor exhausts the budget, the
+/// peer closes, and the scenario fails instead of hanging.
 #[cfg(feature = "runtime-tokio")]
 fn tokio_current_thread_ready_receive_yields_to_boundaries(
     empty_batches: bool,
     include_cancellation: bool,
     scenario: &'static str,
 ) {
-    const WATCHDOG: Duration = Duration::from_secs(2);
-
     let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let (finished, result) = flume::bounded(1);
     let worker_reads = Arc::clone(&reads);
-    let worker_stop = Arc::clone(&stop);
-    let worker = std::thread::spawn(move || {
+    let outcome = run_with_hang_backstop(scenario, move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
-        let outcome: Result<(), String> = runtime.block_on(async move {
+        runtime.block_on(async move {
             let actor_runtime = TokioRuntime::from_current().map_err(|error| error.to_string())?;
             let owner_policy = policy(1);
             let fairness_ceiling = owner_policy.limits.frames_per_receive.max(1) as u64;
@@ -2480,7 +2668,6 @@ fn tokio_current_thread_ready_receive_yields_to_boundaries(
                 .map_err(|error| error.to_string())?;
             let actor_task = tokio::spawn(actor.run(CountingBabblingDriver {
                 reads: Arc::clone(&worker_reads),
-                stop: Arc::clone(&worker_stop),
                 empty_batches,
             }));
 
@@ -2523,15 +2710,16 @@ fn tokio_current_thread_ready_receive_yields_to_boundaries(
 
             if include_cancellation {
                 let cancellation = handle
-                    .cancel_test(receipt)
+                    .cancel_test(&receipt)
                     .await
                     .map_err(|error| format!("{error:?}"))?;
                 drop(cancellation);
+                drop(receipt);
             } else {
                 drop(receipt);
             }
 
-            handle.shutdown().await.map_err(|error| error.to_string())?;
+            handle.shutdown().map_err(|error| error.to_string())?;
             let terminal = actor_task
                 .await
                 .map_err(|error| format!("actor task failed: {error}"))?;
@@ -2542,33 +2730,12 @@ fn tokio_current_thread_ready_receive_yields_to_boundaries(
                 ));
             }
             Ok(())
-        });
-        let _ = finished.send(outcome);
+        })
     });
-
-    match result.recv_timeout(WATCHDOG) {
-        Ok(Ok(())) => worker.join().unwrap(),
-        Ok(Err(error)) => {
-            worker.join().unwrap();
-            panic!("{scenario} single-thread liveness scenario failed: {error}");
-        }
-        Err(flume::RecvTimeoutError::Timeout) => {
-            // The old implementation remains inside the ready receive loop.
-            // Let this test-only driver turn that loop into a terminal read,
-            // then join if it unwinds as expected; never wait indefinitely.
-            stop.store(true, Ordering::Release);
-            if result.recv_timeout(WATCHDOG).is_ok() {
-                worker.join().unwrap();
-            } else {
-                drop(worker);
-            }
-            panic!(
-                "{scenario} monopolized Tokio's current-thread runtime before caller, control, cancellation, or timer work could run"
-            );
-        }
-        Err(flume::RecvTimeoutError::Disconnected) => {
-            worker.join().unwrap();
-            panic!("{scenario} single-thread liveness worker exited without a result");
-        }
+    if let Err(error) =
+        babbling_reads_within_budget(&reads, scenario, "Tokio's current-thread runtime")
+            .and(outcome)
+    {
+        panic!("{scenario} single-thread liveness scenario failed: {error}");
     }
 }

@@ -1,10 +1,13 @@
 use grafton_visca::{
     capabilities::{
-        HasBrightnessControl, HasColorTemperature, HasContrastControl, HasExposureMode,
-        HasFocusZone, HasFocusZoneInquiry, HasIrisControl, HasIrisControlInquiry, HasMotionSync,
-        HasNdFilter, HasNoiseReduction2D, HasNoiseReduction2DControl, HasNoiseReduction3D,
-        HasNoiseReduction3DControl, HasPictureEffect, HasSharpnessControl, HasSonyAutoSlowShutter,
-        HasSonySpotlight, HasTally, HasUsbAudio, HasVariableSpeed,
+        HasBrightnessControl, HasColorTemperature, HasColorTemperatureInquiry, HasContrastControl,
+        HasExposureCompensation, HasExposureMode, HasFocusNearLimitInquiry, HasFocusZone,
+        HasFocusZoneInquiry, HasImageFlip, HasImageMirror, HasIrisControl, HasIrisControlInquiry,
+        HasMotionSync, HasNdFilter, HasNoiseReduction2D, HasNoiseReduction2DControl,
+        HasNoiseReduction3D, HasNoiseReduction3DControl, HasPictureEffect, HasRgbGain,
+        HasRgbTuning, HasSaturationControl, HasSharpnessControl, HasSonyAutoSlowShutter,
+        HasSonySpotlight, HasTally, HasUsbAudio, HasVariableSpeed, HasVersionInquiry,
+        HasWideDynamicRange,
     },
     profiles::{
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
@@ -13,6 +16,7 @@ use grafton_visca::{
 };
 
 fn requires_color_temperature<P: HasColorTemperature>() {}
+fn requires_color_temperature_inquiry<P: HasColorTemperatureInquiry>() {}
 fn requires_nd<P: HasNdFilter>() {}
 fn requires_tally<P: HasTally>() {}
 fn requires_motion_sync<P: HasMotionSync>() {}
@@ -33,6 +37,15 @@ fn requires_picture_effect<P: HasPictureEffect>() {}
 fn requires_usb_audio<P: HasUsbAudio>() {}
 fn requires_spotlight<P: HasSonySpotlight>() {}
 fn requires_auto_slow_shutter<P: HasSonyAutoSlowShutter>() {}
+fn requires_version_inquiry<P: HasVersionInquiry>() {}
+fn requires_focus_near_limit_inquiry<P: HasFocusNearLimitInquiry>() {}
+fn requires_image_flip<P: HasImageFlip>() {}
+fn requires_saturation<P: HasSaturationControl>() {}
+fn requires_wdr<P: HasWideDynamicRange>() {}
+fn requires_mirror<P: HasImageMirror>() {}
+fn requires_rgb_tuning<P: HasRgbTuning>() {}
+fn requires_exposure_compensation<P: HasExposureCompensation>() {}
+fn requires_rgb_gain<P: HasRgbGain>() {}
 
 fn main() {
     requires_color_temperature::<SonyFR7>();
@@ -48,8 +61,6 @@ fn main() {
     requires_motion_sync::<GenericVisca>();
     requires_motion_sync::<SonyFR7>();
     requires_brightness::<GenericVisca>();
-    requires_brightness::<SonyEVIH100>();
-    requires_brightness::<SonyBRC300>();
     requires_brightness::<SonyFR7>();
     requires_brightness::<SonyBRCH900>();
     requires_exposure_mode::<SonyFR7>();
@@ -76,14 +87,35 @@ fn main() {
     requires_spotlight::<SonyEVIH100>();
     requires_spotlight::<SonyBRC300>();
     requires_spotlight::<NearusBRC300>();
-    requires_auto_slow_shutter::<NearusBRC300>();
+    // #828 grant audit: the model sources document none of these.
+    requires_color_temperature::<SonyEVIH100>();
+    requires_image_flip::<SonyEVIH100>();
+    requires_focus_near_limit_inquiry::<SonyBRC300>();
+    requires_focus_near_limit_inquiry::<GenericVisca>();
+    requires_saturation::<NearusBRC300>();
+    requires_rgb_tuning::<SonyEVIH100>();
+    // R8's Wide-D is `04 3D`, not the typed `04 25` command: metadata only.
+    requires_wdr::<SonyEVIH100>();
+    // R12/R21 document `04 66` flip but no `04 61` mirror.
+    requires_mirror::<SonyBRC300>();
+    requires_mirror::<NearusBRC300>();
+    // Generic VISCA keeps only the families all three Sony sources share.
+    requires_exposure_compensation::<GenericVisca>();
+    requires_rgb_gain::<GenericVisca>();
+    requires_image_flip::<GenericVisca>();
+    // PTZOptics replies to `09 00 02` are not the decoded Sony layout.
+    requires_version_inquiry::<PtzOpticsG2>();
+    requires_version_inquiry::<PtzOpticsG3>();
+    requires_version_inquiry::<PtzOptics30X>();
+    // Only the PTZOptics G2 reply layout is sourced (`y0 50 pq FF`).
+    requires_color_temperature_inquiry::<PtzOpticsG3>();
+    requires_color_temperature_inquiry::<SonyBRCH900>();
 }
 
 // Keep every profile named below imported. This fixture pins unsatisfied
 // capability bounds, so an unresolved profile name would test only a typo.
 
 //~ E0277
-//~ "profile `SonyEVIH100` does not declare exposure brightness support"
 //~ "profile `SonyBRC300` does not declare contrast control support"
 //~ "profile `SonyEVIH100` does not declare sharpness control support"
 //~ "profile `SonyFR7` does not declare exposure brightness support"
@@ -106,4 +138,20 @@ fn main() {
 //~ "profile `SonyEVIH100` does not declare Sony spotlight support"
 //~ "profile `SonyBRC300` does not declare Sony spotlight support"
 //~ "profile `NearusBRC300` does not declare Sony spotlight support"
-//~ "profile `NearusBRC300` does not declare Sony auto slow-shutter support"
+//~ "profile `SonyEVIH100` does not declare color-temperature support"
+//~ "profile `SonyEVIH100` does not declare image flip support"
+//~ "profile `SonyBRC300` does not declare focus near-limit inquiry support"
+//~ "GenericVisca` does not declare focus near-limit inquiry support"
+//~ "profile `NearusBRC300` does not declare saturation control support"
+//~ "profile `SonyEVIH100` does not declare RGB tuning support"
+//~ "profile `SonyEVIH100` does not declare wide dynamic range support"
+//~ "profile `SonyBRC300` does not declare image mirror support"
+//~ "profile `NearusBRC300` does not declare image mirror support"
+//~ "GenericVisca` does not declare exposure-compensation support"
+//~ "GenericVisca` does not declare RGB gain support"
+//~ "GenericVisca` does not declare image flip support"
+//~ "profile `grafton_visca::profiles::PtzOpticsG2` does not declare a Sony-format version-inquiry reply"
+//~ "profile `grafton_visca::profiles::PtzOpticsG3` does not declare a Sony-format version-inquiry reply"
+//~ "profile `grafton_visca::profiles::PtzOptics30X` does not declare a Sony-format version-inquiry reply"
+//~ "profile `grafton_visca::profiles::PtzOpticsG3` does not declare a sourced color-temperature reply"
+//~ "profile `SonyBRCH900` does not declare a sourced color-temperature reply"

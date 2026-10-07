@@ -4,8 +4,6 @@
 //! different transport types, eliminating code duplication.
 
 use std::borrow::Cow;
-#[cfg(any(feature = "blocking", test))]
-use std::net::ToSocketAddrs;
 use std::{
     net::{IpAddr, Ipv6Addr, SocketAddr},
     num::NonZeroU16,
@@ -265,192 +263,217 @@ pub fn canonicalize_endpoint(address: &str, default_port: Option<u16>) -> Result
     Ok(endpoint.format_socket_addr())
 }
 
-/// A utility for resolving network addresses.
+/// The error for an endpoint whose name resolution failed.
 ///
-/// This struct provides common address resolution logic that can be used
-/// across different transport implementations, reducing code duplication.
+/// Every facade (blocking, Tokio, smol) and both IP transports report a
+/// resolution failure through this one constructor, so an unresolvable host
+/// is the same [`Error::InvalidAddress`] with the same message everywhere.
 #[cfg(any(
     feature = "blocking",
     feature = "runtime-tokio",
-    feature = "runtime-smol",
-    test
+    feature = "runtime-smol"
 ))]
-#[derive(Debug, Clone, Copy, Default)]
-pub struct AddressResolver;
+pub(crate) fn resolution_failed(endpoint: &str, error: &std::io::Error) -> Error {
+    invalid_address(format!("Failed to resolve '{endpoint}': {error}"))
+}
 
+/// Collect a resolver's result for `endpoint`, rejecting failure and an empty
+/// answer with the shared address errors.
 #[cfg(any(
     feature = "blocking",
     feature = "runtime-tokio",
-    feature = "runtime-smol",
-    test
+    feature = "runtime-smol"
 ))]
-impl AddressResolver {
-    /// Create a new address resolver.
-    pub fn new() -> Self {
-        Self
+pub(crate) fn resolved<I>(
+    endpoint: &str,
+    lookup: std::io::Result<I>,
+) -> Result<Vec<SocketAddr>, Error>
+where
+    I: IntoIterator<Item = SocketAddr>,
+{
+    let addresses: Vec<SocketAddr> = lookup
+        .map_err(|error| resolution_failed(endpoint, &error))?
+        .into_iter()
+        .collect();
+    if addresses.is_empty() {
+        return Err(invalid_address(format!(
+            "No addresses resolved for '{endpoint}'"
+        )));
     }
+    Ok(addresses)
+}
 
-    /// Resolve an address string to a list of socket addresses.
-    ///
-    /// This method handles DNS resolution and returns all resolved addresses.
-    ///
-    /// # Arguments
-    ///
-    /// * `address` - The address to resolve (can be hostname:port or IP:port)
-    ///
-    /// # Returns
-    ///
-    /// A vector of resolved socket addresses.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The address format is invalid
-    /// - DNS resolution fails
-    /// - No addresses could be resolved
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// use grafton_visca::transport::address::AddressResolver;
-    ///
-    /// let resolver = AddressResolver::new();
-    /// let addresses = resolver.resolve("example.com:5678")?;
-    /// for addr in addresses {
-    ///     println!("Resolved: {addr}");
-    /// }
-    /// # Ok::<(), grafton_visca::Error>(())
-    /// ```
-    #[cfg(any(feature = "blocking", test))]
-    pub fn resolve(&self, address: &str) -> Result<Vec<SocketAddr>, Error> {
-        let addrs: Vec<SocketAddr> = address
-            .to_socket_addrs()
-            .map_err(|e| Error::InvalidAddress {
-                reason: format!("Failed to resolve '{address}': {e}").into(),
-            })?
-            .collect();
+/// A canonical endpoint that is already a socket address needs no resolver.
+#[cfg(any(
+    feature = "blocking",
+    feature = "runtime-tokio",
+    feature = "runtime-smol"
+))]
+pub(crate) fn literal_socket_addr(endpoint: &str) -> Option<SocketAddr> {
+    endpoint.parse().ok()
+}
 
-        if addrs.is_empty() {
-            return Err(Error::InvalidAddress {
-                reason: format!("No addresses resolved for '{address}'").into(),
-            });
-        }
+/// Resolve a canonical endpoint on a blocking caller within `deadline`, with
+/// the system resolver (see [`BlockingResolver`]).
+#[cfg(feature = "blocking")]
+pub(crate) fn resolve_blocking(
+    endpoint: &str,
+    deadline: crate::timeout::Deadline,
+) -> Result<Vec<SocketAddr>, Error> {
+    SYSTEM_RESOLVER.resolve(endpoint, deadline)
+}
 
-        Ok(addrs)
-    }
+/// Most host-name lookups the blocking facade runs at once, process-wide.
+#[cfg(feature = "blocking")]
+const MAX_IN_FLIGHT_LOOKUPS: usize = 4;
 
-    /// Resolve an address string and return the first resolved socket address.
-    ///
-    /// This is a convenience method that resolves an address and returns
-    /// the first available result, which is suitable for most use cases.
-    ///
-    /// # Arguments
-    ///
-    /// * `address` - The address to resolve (can be hostname:port or IP:port)
-    ///
-    /// # Returns
-    ///
-    /// The first resolved socket address.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if:
-    /// - The address format is invalid
-    /// - DNS resolution fails
-    /// - No addresses could be resolved
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// use grafton_visca::transport::address::AddressResolver;
-    ///
-    /// let resolver = AddressResolver::new();
-    /// let addr = resolver.resolve_first("192.168.0.100:5678")?;
-    /// println!("Using address: {addr}");
-    /// # Ok::<(), grafton_visca::Error>(())
-    /// ```
-    #[cfg(any(feature = "blocking", test))]
-    pub fn resolve_first(&self, address: &str) -> Result<SocketAddr, Error> {
-        self.resolve(address)?
-            .into_iter()
-            .next()
-            .ok_or_else(|| Error::InvalidAddress {
-                reason: format!("No addresses resolved for '{address}'").into(),
-            })
-    }
+/// Stack for one lookup thread; the platform resolver needs far less than a
+/// default thread stack.
+#[cfg(feature = "blocking")]
+const LOOKUP_STACK_SIZE: usize = 256 * 1024;
 
-    /// Determine an appropriate bind address for connecting to a target address.
-    ///
-    /// This method returns a bind address that matches the IP version of the
-    /// target address (IPv4 or IPv6).
-    ///
-    /// # Arguments
-    ///
-    /// * `target` - The target socket address to connect to
-    ///
-    /// # Returns
-    ///
-    /// An appropriate bind address for the target's IP version.
-    ///
-    /// # Examples
-    ///
-    /// ```ignore
-    /// use grafton_visca::transport::address::AddressResolver;
-    /// use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-    ///
-    /// let resolver = AddressResolver::new();
-    /// let target = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 0, 100)), 5678);
-    /// let bind_addr = resolver.bind_address_for(&target);
-    /// assert!(bind_addr.is_ipv4());
-    /// ```
-    pub fn bind_address_for(&self, target: &SocketAddr) -> SocketAddr {
-        use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+#[cfg(feature = "blocking")]
+static SYSTEM_RESOLVER: BlockingResolver =
+    BlockingResolver::new(MAX_IN_FLIGHT_LOOKUPS, system_lookup);
 
-        if target.is_ipv4() {
-            SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0)
-        } else {
-            SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0)
+#[cfg(feature = "blocking")]
+fn system_lookup(endpoint: String) -> std::io::Result<Vec<SocketAddr>> {
+    use std::net::ToSocketAddrs;
+
+    endpoint.to_socket_addrs().map(Iterator::collect)
+}
+
+/// Blocking name resolution bounded by the connect budget.
+///
+/// An IP-literal endpoint resolves without a lookup. A host name is looked up
+/// on a short-lived helper thread with a small stack, so the connect budget
+/// also bounds DNS exactly as the async facades bound it with their runtime
+/// timers. If the budget expires first the caller gets a connect timeout and
+/// the helper finishes in the background. At most `MAX_IN_FLIGHT_LOOKUPS`
+/// helpers exist at once: a connect that finds every slot taken waits for one
+/// to free within its own budget, and only a budget that expires while
+/// waiting is a connect timeout. No executor is involved.
+#[cfg(feature = "blocking")]
+#[derive(Debug)]
+pub(crate) struct BlockingResolver {
+    in_flight: std::sync::Mutex<usize>,
+    freed: std::sync::Condvar,
+    limit: usize,
+    lookup: fn(String) -> std::io::Result<Vec<SocketAddr>>,
+}
+
+#[cfg(feature = "blocking")]
+impl BlockingResolver {
+    pub(crate) const fn new(
+        limit: usize,
+        lookup: fn(String) -> std::io::Result<Vec<SocketAddr>>,
+    ) -> Self {
+        Self {
+            in_flight: std::sync::Mutex::new(0),
+            freed: std::sync::Condvar::new(),
+            limit,
+            lookup,
         }
     }
 
-    /// Resolve an address with a preference for a specific IP version.
-    ///
-    /// This method resolves an address and filters the results based on
-    /// the preferred IP version.
-    ///
-    /// # Arguments
-    ///
-    /// * `address` - The address to resolve
-    /// * `prefer_ipv4` - If true, prefer IPv4 addresses; otherwise prefer IPv6
-    ///
-    /// # Returns
-    ///
-    /// A socket address matching the preferred IP version, or the first
-    /// available address if no match is found.
+    /// Resolve `endpoint` before `deadline`.
     ///
     /// # Errors
     ///
-    /// Returns an error if no addresses could be resolved.
-    #[cfg(test)]
-    pub fn resolve_with_preference(
-        &self,
-        address: &str,
-        prefer_ipv4: bool,
-    ) -> Result<SocketAddr, Error> {
-        let addrs = self.resolve(address)?;
+    /// The connect error contract of [`crate::transport::connect`]: a spent
+    /// budget (including one spent waiting for a free lookup slot) is a
+    /// connect timeout, a failed lookup is
+    /// [`Error::InvalidAddress`], and a helper thread that cannot be started
+    /// is [`Error::ConnectionFailed`] naming the endpoint.
+    pub(crate) fn resolve(
+        &'static self,
+        endpoint: &str,
+        deadline: crate::timeout::Deadline,
+    ) -> Result<Vec<SocketAddr>, Error> {
+        use std::{sync::mpsc, time::Instant};
 
-        // Try to find an address matching the preference
-        let preferred = addrs
-            .iter()
-            .find(|addr| addr.is_ipv4() == prefer_ipv4)
-            .copied();
+        if let Some(address) = literal_socket_addr(endpoint) {
+            return Ok(vec![address]);
+        }
+        let slot = self.claim(deadline)?;
+        let remaining = deadline.remaining_or(Instant::now(), Error::connect_timeout)?;
 
-        // Fall back to the first address if no preference match
-        preferred
-            .or(addrs.into_iter().next())
-            .ok_or(Error::InvalidAddress {
-                reason: Cow::Borrowed("No addresses resolved"),
+        let (sender, receiver) = mpsc::sync_channel(1);
+        let lookup_endpoint = endpoint.to_owned();
+        let lookup = self.lookup;
+        std::thread::Builder::new()
+            .name("grafton-visca-resolve".into())
+            .stack_size(LOOKUP_STACK_SIZE)
+            .spawn(move || {
+                let _slot = slot;
+                // The connector may already have given up; nothing to report.
+                let _ = sender.send(lookup(lookup_endpoint));
             })
+            .map_err(|error| crate::transport::connect::connection_failed(endpoint, error))?;
+
+        match receiver.recv_timeout(remaining) {
+            Ok(lookup) => resolved(endpoint, lookup),
+            Err(mpsc::RecvTimeoutError::Timeout) => Err(Error::connect_timeout()),
+            Err(mpsc::RecvTimeoutError::Disconnected) => Err(resolution_failed(
+                endpoint,
+                &std::io::Error::other("resolver thread ended without an answer"),
+            )),
+        }
+    }
+
+    /// Reserve one helper slot, waiting for one to free until `deadline`.
+    fn claim(&'static self, deadline: crate::timeout::Deadline) -> Result<LookupSlot, Error> {
+        use std::time::Instant;
+
+        let mut in_flight = self.lock();
+        while *in_flight >= self.limit {
+            let remaining = deadline.remaining_or(Instant::now(), Error::connect_timeout)?;
+            in_flight = self
+                .freed
+                .wait_timeout(in_flight, remaining)
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .0;
+        }
+        *in_flight += 1;
+        Ok(LookupSlot { resolver: self })
+    }
+
+    /// The slot count; a panicking lookup thread cannot leave it unusable.
+    fn lock(&self) -> std::sync::MutexGuard<'_, usize> {
+        self.in_flight
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+/// One reserved helper slot, released when its lookup thread ends (or when
+/// the thread could not be started).
+#[cfg(feature = "blocking")]
+struct LookupSlot {
+    resolver: &'static BlockingResolver,
+}
+
+#[cfg(feature = "blocking")]
+impl Drop for LookupSlot {
+    fn drop(&mut self) {
+        *self.resolver.lock() -= 1;
+        self.resolver.freed.notify_one();
+    }
+}
+
+/// The unspecified local address of the same family as `target`, used to bind
+/// a UDP socket before connecting it.
+#[cfg(any(
+    feature = "blocking",
+    feature = "runtime-tokio",
+    feature = "runtime-smol"
+))]
+pub(crate) fn bind_address_for(target: SocketAddr) -> SocketAddr {
+    use std::net::Ipv4Addr;
+
+    match target {
+        SocketAddr::V4(_) => SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
+        SocketAddr::V6(_) => SocketAddr::new(IpAddr::V6(Ipv6Addr::UNSPECIFIED), 0),
     }
 }
 
@@ -460,58 +483,209 @@ mod tests {
 
     use super::*;
 
+    #[cfg(any(
+        feature = "blocking",
+        feature = "runtime-tokio",
+        feature = "runtime-smol"
+    ))]
     #[test]
-    #[cfg_attr(miri, ignore = "requires OS hostname resolution")]
-    fn test_resolve_localhost() {
-        let resolver = AddressResolver::new();
-        let result = resolver.resolve("localhost:5678");
-        assert!(result.is_ok());
-        let addrs = result.unwrap();
-        assert!(!addrs.is_empty());
+    fn resolution_errors_name_the_endpoint() {
+        let error = resolved::<Vec<SocketAddr>>(
+            "camera.invalid:5678",
+            Err(std::io::Error::other("lookup failed")),
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            Error::InvalidAddress { ref reason }
+                if reason == "Failed to resolve 'camera.invalid:5678': lookup failed"
+        ));
+
+        let error = resolved("camera.invalid:5678", Ok(Vec::new())).unwrap_err();
+        assert!(matches!(
+            error,
+            Error::InvalidAddress { ref reason }
+                if reason == "No addresses resolved for 'camera.invalid:5678'"
+        ));
     }
 
+    #[cfg(any(
+        feature = "blocking",
+        feature = "runtime-tokio",
+        feature = "runtime-smol"
+    ))]
     #[test]
-    fn test_resolve_first() {
-        let resolver = AddressResolver::new();
-        let result = resolver.resolve_first("127.0.0.1:5678");
-        assert!(result.is_ok());
-        let addr = result.unwrap();
-        assert_eq!(addr.port(), 5678);
-        assert!(addr.is_ipv4());
+    fn bind_address_matches_the_target_family() {
+        let v4 = bind_address_for("192.168.0.100:5678".parse().unwrap());
+        assert!(v4.is_ipv4() && v4.ip().is_unspecified() && v4.port() == 0);
+        let v6 = bind_address_for("[::1]:5678".parse().unwrap());
+        assert!(v6.is_ipv6() && v6.ip().is_unspecified() && v6.port() == 0);
     }
 
-    #[test]
-    fn test_bind_address_for_ipv4() {
-        let resolver = AddressResolver::new();
-        let target: SocketAddr = "192.168.0.100:5678".parse().unwrap();
-        let bind_addr = resolver.bind_address_for(&target);
-        assert!(bind_addr.is_ipv4());
-        assert_eq!(bind_addr.port(), 0);
-    }
+    #[cfg(feature = "blocking")]
+    mod blocking_resolver {
+        use std::{
+            sync::{Condvar, Mutex},
+            time::{Duration, Instant},
+        };
 
-    #[test]
-    fn test_bind_address_for_ipv6() {
-        let resolver = AddressResolver::new();
-        let target: SocketAddr = "[::1]:5678".parse().unwrap();
-        let bind_addr = resolver.bind_address_for(&target);
-        assert!(bind_addr.is_ipv6());
-        assert_eq!(bind_addr.port(), 0);
-    }
+        use super::*;
+        use crate::timeout::Deadline;
 
-    #[test]
-    fn test_invalid_address() {
-        let resolver = AddressResolver::new();
-        let result = resolver.resolve("not-a-valid-address");
-        assert!(result.is_err());
-    }
+        fn budget(timeout: Duration) -> Deadline {
+            Deadline::after(Instant::now(), timeout, "connect_timeout").unwrap()
+        }
 
-    #[test]
-    fn test_resolve_with_preference_ipv4() {
-        let resolver = AddressResolver::new();
-        let result = resolver.resolve_with_preference("127.0.0.1:5678", true);
-        assert!(result.is_ok());
-        let addr = result.unwrap();
-        assert!(addr.is_ipv4());
+        fn answer() -> SocketAddr {
+            "192.0.2.7:5678".parse().unwrap()
+        }
+
+        /// A lookup that waits until its test opens the gate.
+        struct Gate {
+            open: Mutex<bool>,
+            changed: Condvar,
+        }
+
+        impl Gate {
+            const fn new() -> Self {
+                Self {
+                    open: Mutex::new(false),
+                    changed: Condvar::new(),
+                }
+            }
+
+            fn wait(&self) {
+                let mut open = self.open.lock().unwrap();
+                while !*open {
+                    open = self.changed.wait(open).unwrap();
+                }
+            }
+
+            fn release(&self) {
+                *self.open.lock().unwrap() = true;
+                self.changed.notify_all();
+            }
+        }
+
+        fn wait_for_idle(resolver: &BlockingResolver) {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while *resolver.lock() != 0 {
+                assert!(Instant::now() < deadline, "lookup thread never finished");
+                std::thread::yield_now();
+            }
+        }
+
+        #[test]
+        fn ip_literals_resolve_without_a_lookup_even_with_a_spent_budget() {
+            assert_eq!(
+                resolve_blocking("[::1]:5678", budget(Duration::ZERO)).unwrap(),
+                vec!["[::1]:5678".parse::<SocketAddr>().unwrap()]
+            );
+        }
+
+        #[test]
+        fn a_host_name_resolves_on_the_helper() {
+            fn instant(_: String) -> std::io::Result<Vec<SocketAddr>> {
+                Ok(vec![answer()])
+            }
+            static RESOLVER: BlockingResolver = BlockingResolver::new(1, instant);
+
+            assert_eq!(
+                RESOLVER
+                    .resolve("camera.test:5678", budget(Duration::from_secs(5)))
+                    .unwrap(),
+                vec![answer()]
+            );
+            wait_for_idle(&RESOLVER);
+        }
+
+        #[test]
+        fn a_failed_lookup_is_an_address_error() {
+            fn failing(_: String) -> std::io::Result<Vec<SocketAddr>> {
+                Err(std::io::Error::other("no such host"))
+            }
+            static RESOLVER: BlockingResolver = BlockingResolver::new(1, failing);
+
+            assert!(matches!(
+                RESOLVER.resolve("camera.test:5678", budget(Duration::from_secs(5))),
+                Err(Error::InvalidAddress { .. })
+            ));
+        }
+
+        /// The budget bounds a stalled lookup, and the stalled helper keeps
+        /// its slot: a full pool makes the next connect wait for its own
+        /// budget (never a 0 ms failure), and a slot freed in time lets it
+        /// proceed.
+        #[test]
+        fn a_full_pool_waits_for_a_slot_within_the_budget() {
+            static GATE: Gate = Gate::new();
+            fn gated(_: String) -> std::io::Result<Vec<SocketAddr>> {
+                GATE.wait();
+                Ok(vec![answer()])
+            }
+            static RESOLVER: BlockingResolver = BlockingResolver::new(1, gated);
+
+            let started = Instant::now();
+            assert!(matches!(
+                RESOLVER.resolve("camera.test:5678", budget(Duration::from_millis(20))),
+                Err(Error::Timeout { .. })
+            ));
+            assert!(started.elapsed() >= Duration::from_millis(20));
+            assert_eq!(*RESOLVER.lock(), 1);
+
+            // Every slot stays taken: the next connect waits its whole budget.
+            let started = Instant::now();
+            assert!(matches!(
+                RESOLVER.resolve("camera.test:5678", budget(Duration::from_millis(40))),
+                Err(Error::Timeout { .. })
+            ));
+            assert!(started.elapsed() >= Duration::from_millis(40));
+
+            // The stalled lookup finishes while this connect is waiting.
+            let release = std::thread::spawn(|| {
+                std::thread::sleep(Duration::from_millis(30));
+                GATE.release();
+            });
+            assert_eq!(
+                RESOLVER
+                    .resolve("camera.test:5678", budget(Duration::from_secs(5)))
+                    .unwrap(),
+                vec![answer()]
+            );
+            release.join().unwrap();
+            wait_for_idle(&RESOLVER);
+        }
+
+        /// More parallel host-name connects than slots all succeed against a
+        /// slow but working resolver.
+        #[test]
+        fn parallel_connects_beyond_the_cap_all_resolve() {
+            fn slow(_: String) -> std::io::Result<Vec<SocketAddr>> {
+                std::thread::sleep(Duration::from_millis(30));
+                Ok(vec![answer()])
+            }
+            static RESOLVER: BlockingResolver = BlockingResolver::new(4, slow);
+
+            let connects: Vec<_> = (0..8)
+                .map(|_| {
+                    std::thread::spawn(|| {
+                        RESOLVER.resolve("camera.test:5678", budget(Duration::from_secs(5)))
+                    })
+                })
+                .collect();
+            for connect in connects {
+                assert_eq!(connect.join().unwrap().unwrap(), vec![answer()]);
+            }
+            wait_for_idle(&RESOLVER);
+        }
+
+        #[test]
+        #[cfg_attr(miri, ignore = "requires OS hostname resolution")]
+        fn localhost_resolves_through_the_system_resolver() {
+            let addresses =
+                resolve_blocking("localhost:5678", budget(Duration::from_secs(5))).unwrap();
+            assert!(addresses.iter().all(|address| address.port() == 5678));
+        }
     }
 
     fn assert_invalid(result: Result<String, Error>) {

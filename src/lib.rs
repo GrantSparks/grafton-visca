@@ -31,10 +31,8 @@
 // only things that ever call them are the blocking and async facades that the
 // leg switches off.
 //
-// This is the single crate-wide dead-code exemption in the crate. It is
-// conditional, so every configuration with a facade reports dead code
-// normally; the only narrower exemptions are the hidden completion-lowering
-// wrappers that are intentionally facade-less in this matrix.
+// This is the only dead-code exemption in the crate. It is conditional, so
+// every configuration with a facade reports dead code normally.
 #![cfg_attr(not(any(feature = "blocking", feature = "async")), allow(dead_code))]
 
 //! ## What is VISCA?
@@ -87,8 +85,8 @@
 //!
 //! - **Session** — the sole owner of one transport, its framer/envelope state,
 //!   the protocol engine, the observer registry, the target-local state caches,
-//!   and the session metrics. A blocking session is driven on the caller's
-//!   thread; an async session owns one detached actor. Every camera view is a
+//!   and the session metrics. A blocking session owns one native worker thread;
+//!   an async session owns one detached actor task. Every camera view is a
 //!   view onto this one owner, never a second connection.
 //! - **Target** — one registered camera: a [`CameraId`] plus a validated
 //!   profile. Targets are registered before the owner starts and are immutable
@@ -120,7 +118,7 @@
 //!   profile-selected protocol settlement condition: a profile-declared
 //!   completion-is-settled signal, or two affected-axis position samples within
 //!   tolerance. It is an intended indication of target rest, not a
-//!   2.0.0-rc.2 bench-verified assertion that physical motion ended; exact
+//!   2.0.0-rc.3 bench-verified assertion that physical motion ended; exact
 //!   model/firmware/transport/command evidence remains in the repository's
 //!   `docs/hardware_release_checklist.md`.
 //!   Settlement is a caller wait, not an engine phase.
@@ -137,9 +135,11 @@
 //!   their governing completion/reply/settlement deadline and total retry
 //!   budget, so a crate-authorized retry remains observable. The
 //!   `applied_with_timeout` / `settled_with_timeout` forms replace *only* this
-//!   deadline. An observer
-//!   timeout returns [`Error::Timeout`], detaches the observer, and never sends
-//!   cancellation or changes a scheduler deadline.
+//!   deadline. An observer timeout returns [`Error::ObservationTimeout`] and
+//!   ends only that wait: the request keeps running, the handle keeps
+//!   observing and can wait again, and nothing sends cancellation or changes
+//!   a scheduler deadline. Unlike a terminal [`Error::Timeout`], it is never
+//!   retryable: resubmitting would duplicate a request that is still live.
 //! - **Transport timeout** — the driver-level bound on one read or write
 //!   (`read_timeout`/`write_timeout`), independent of both of the above.
 //!
@@ -147,8 +147,9 @@
 //!
 //! - **Cancel intent** — the owner deliberately accepted a request to cancel one
 //!   exact admitted operation. It suppresses every later retry but does not by
-//!   itself prove cancellation. `cancel()` returns once intent is recorded (or
-//!   an outcome was already buffered); it does not wait for the camera.
+//!   itself prove cancellation. A handle has at most one intent: `cancel()`
+//!   records it and waits for its conclusion, and calling `cancel()` again
+//!   observes the same intent instead of sending another.
 //! - **Cancelled** — the engine proved the operation cannot later succeed: it
 //!   was removed before transmission, a conclusive rejection left no executing
 //!   attempt with retry suppressed, or the camera returned the socket-specific
@@ -166,6 +167,10 @@
 //!   ([`requires_new_session`](Error::requires_new_session) is `false`) and
 //!   quarantines the correlation until the ambiguity deadline so a late reply
 //!   cannot misbind (issue #671).
+//! - **Observation** — every operation wait (`applied`, `settled`, `cancel`)
+//!   borrows its handle, and the handle caches the authoritative results it
+//!   receives. A repeated wait answers from the cache, and a wait that times
+//!   out or is dropped releases only itself.
 //! - **Detach** — relinquish the sole observation right without changing any
 //!   protocol state. Dropping a handle is exactly detach; it never cancels or
 //!   stops hardware.
@@ -288,7 +293,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! grafton-visca = { version = "2.0.0-rc.2", features = ["serde", "schemars"] }
+//! grafton-visca = { version = "2.0.0-rc.3", features = ["serde", "schemars"] }
 //! ```
 //!
 //! With these features enabled, you can serialize/deserialize all value types directly:
@@ -329,9 +334,7 @@
 //! assert_eq!(json, "\"ptz-optics-g2\"");
 //!
 //! // Serialize transport configuration
-//! let transport = TransportOptions::Tcp {
-//!     address: "192.168.0.110:5678".to_string(),
-//! };
+//! let transport = TransportOptions::tcp("192.168.0.110:5678".to_string());
 //! let json = serde_json::to_string(&transport).unwrap();
 //! // Can be loaded from config files, environment variables, etc.
 //! # }
@@ -455,7 +458,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! grafton-visca = { version = "2.0.0-rc.2", features = ["runtime-tokio", "runtime-smol"] }
+//! grafton-visca = { version = "2.0.0-rc.3", features = ["runtime-tokio", "runtime-smol"] }
 //! ```
 //!
 //! ```rust
@@ -490,10 +493,7 @@
 //!
 //!     smol::block_on(async {
 //!         let config = CameraConfig::<PtzOpticsG2>::tcp("192.168.0.110")
-//!             .transport_config(TransportConfig {
-//!                 tcp_keepalive: Some(TcpKeepaliveConfig::new(Duration::from_secs(30))),
-//!                 ..TransportConfig::default()
-//!             });
+//!             .transport_config({ let mut config = TransportConfig::for_tcp(); config.tcp_keepalive = Some(TcpKeepaliveConfig::new(Duration::from_secs(30))); config });
 //!
 //!         let session = config.open_async(SmolRuntime::new()).await?;
 //!         let camera = session.camera();
@@ -575,9 +575,9 @@
 //!
 //! The library provides transport traits that you can implement for any
 //! communication method. The receive side reads into a caller-provided buffer
-//! and returns the byte count, so a transport never allocates per frame.
-//! `Ok(0)` means the peer
-//! closed the connection; an idle timeout is *no data*, not a fault. A
+//! and returns a [`transport::ReceiveOutcome`]: the byte count, and whether a
+//! datagram fitted. A transport never allocates per frame. Zero bytes means
+//! the peer closed the connection; an idle timeout is *no data*, not a fault. A
 //! transport also declares its stream/datagram send semantics and its
 //! [`transport::TransportConfig`], which is what
 //! [`transport::HasTransportConfig`] carries.
@@ -585,7 +585,7 @@
 //! ```rust
 //! use grafton_visca::command::CommandKind;
 //! use grafton_visca::transport::{
-//!     BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig,
+//!     BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
 //! };
 //! use grafton_visca::Error;
 //! use std::time::Duration;
@@ -612,12 +612,12 @@
 //!         &mut self,
 //!         dst: &mut [u8],
 //!         timeout: Duration,
-//!     ) -> Result<usize, Error> {
+//!     ) -> Result<ReceiveOutcome, Error> {
 //!         // Prefer an OS-level socket timeout. An expired idle timeout is
-//!         // reported as `Error::Timeout`, which the runtime reads as
+//!         // reported as `Error::io_timeout()`, which the runtime reads as
 //!         // "this read produced no frames".
 //!         let _ = (dst, timeout);
-//!         Err(Error::Timeout)
+//!         Err(Error::io_timeout())
 //!     }
 //!
 //!     fn send_semantics(&self) -> SendSemantics {
@@ -681,11 +681,11 @@
 //! ```toml
 //! [dependencies]
 //! # Single runtime:
-//! grafton-visca = { version = "2.0.0-rc.2", features = ["runtime-tokio"] }
-//! grafton-visca = { version = "2.0.0-rc.2", features = ["runtime-smol"] }
+//! grafton-visca = { version = "2.0.0-rc.3", features = ["runtime-tokio"] }
+//! grafton-visca = { version = "2.0.0-rc.3", features = ["runtime-smol"] }
 //!
 //! # Multiple runtimes (choose executor at construction time):
-//! grafton-visca = { version = "2.0.0-rc.2", features = ["runtime-tokio", "runtime-smol"] }
+//! grafton-visca = { version = "2.0.0-rc.3", features = ["runtime-tokio", "runtime-smol"] }
 //! ```
 //!
 //! Pass the runtime explicitly through `Connect` or `CameraConfig`; standard
@@ -769,7 +769,7 @@
 //! ```rust
 //! # #[cfg(feature = "blocking")]
 //! fn position_units(
-//!     camera: &grafton_visca::blocking::Camera<'_, grafton_visca::profiles::PtzOpticsG2>,
+//!     camera: &grafton_visca::blocking::Camera<grafton_visca::profiles::PtzOpticsG2>,
 //! ) -> Result<(), grafton_visca::Error> {
 //!     use grafton_visca::{units::Degrees, SpeedLevel};
 //!
@@ -783,7 +783,8 @@
 //!     camera.pan_tilt().stop()?.applied()?;
 //!
 //!     // Move to home position
-//!     camera.pan_tilt().home()?.settled()
+//!     camera.pan_tilt().home()?.settled()?;
+//!     Ok(())
 //! }
 //! ```
 //!
@@ -843,9 +844,8 @@
 //!     use std::time::Duration;
 //!
 //!     // Submit one typed operation and retain its owner-backed lifecycle handle.
-//!     let operation = camera.zoom().tele().await?;
-//!     let cancellation = operation.cancel().await?;
-//!     let outcome = cancellation.outcome(Duration::from_secs(2)).await?;
+//!     let mut operation = camera.zoom().tele().await?;
+//!     let outcome = operation.cancel_with_timeout(Duration::from_secs(2)).await?;
 //!     println!("cancellation outcome: {outcome:?}");
 //!     Ok(())
 //! }
@@ -857,33 +857,32 @@
 //! movement, send the relevant STOP command and await its application.
 //!
 //! A refused cancellation is not cancellation intent: the owner leaves the
-//! original request scheduled and able to complete, so `cancel` consumes the
-//! handle only when it succeeds. A refusal returns [`CancelRejected`], which
-//! carries the handle back — take it with `into_operation()` to keep waiting or
-//! to retry. `?` in a function returning [`Error`] still works and detaches the
-//! handle, exactly as dropping it does.
+//! original request scheduled and able to complete. Because `cancel` borrows
+//! the handle, a refusal is a plain error and the handle keeps observing the
+//! operation.
 //!
 //! ```rust
 //! # #[cfg(feature = "async")]
 //! async fn stop_a_zoom_the_profile_cannot_cancel(
 //!     camera: &grafton_visca::Camera<grafton_visca::profiles::PtzOpticsG2>,
 //! ) -> Result<(), grafton_visca::Error> {
-//!     let operation = camera.zoom().tele().await?;
-//!     let operation = match operation.cancel().await {
-//!         Ok(cancellation) => {
-//!             cancellation.detach();
-//!             return Ok(());
+//!     use grafton_visca::Error;
+//!
+//!     let mut operation = camera.zoom().tele().await?;
+//!     match operation.cancel().await {
+//!         Ok(outcome) => {
+//!             println!("cancellation outcome: {outcome:?}");
+//!             Ok(())
 //!         }
-//!         // The G2 has no socket-cancel; the handle comes back untouched.
-//!         Err(rejected) => match rejected.into_operation() {
-//!             Some(operation) => operation,
-//!             None => return Ok(()),
-//!         },
-//!     };
-//!     // The recourse that actually ends movement on such a profile.
-//!     camera.zoom().stop().await?.applied().await?;
-//!     operation.detach();
-//!     Ok(())
+//!         // The G2 has no socket-cancel. The recourse that actually ends
+//!         // movement on such a profile is an applied STOP, and the same
+//!         // handle still observes the original zoom.
+//!         Err(Error::NotSupported) => {
+//!             camera.zoom().stop().await?.applied().await?;
+//!             operation.applied().await
+//!         }
+//!         Err(error) => Err(error),
+//!     }
 //! }
 //! ```
 //!
@@ -903,9 +902,9 @@
 //!     use std::time::Duration;
 //!
 //!     let axes = AffectedAxes::PAN_TILT.union(AffectedAxes::ZOOM);
-//!     // `is_moving()` takes no argument and samples `AffectedAxes::MOVEMENT`;
-//!     // `is_moving_axes` is the axis-selecting form.
-//!     let moving = camera.motion().is_moving_axes(MotionQuery::new(axes)).await?;
+//!     // `MotionQuery::default()` samples `AffectedAxes::MOVEMENT`; this query
+//!     // selects pan/tilt and zoom only.
+//!     let moving = camera.motion().is_moving(MotionQuery::new(axes)).await?;
 //!     camera
 //!         .motion()
 //!         .wait_until_idle(IdleWait::new(axes, Duration::from_secs(30)))
@@ -926,17 +925,23 @@
 //! ) {
 //!     use grafton_visca::{units::Degrees, Error, SpeedLevel};
 //!
-//!     match camera
+//!     let applied = match camera
 //!         .pan_tilt()
 //!         .absolute(Degrees(180.0), Degrees(0.0), SpeedLevel::Medium)
 //!         .await
 //!     {
-//!         Ok(_) => println!("Position set successfully"),
+//!         Ok(mut operation) => operation.applied().await,
+//!         Err(error) => Err(error),
+//!     };
+//!     match applied {
+//!         Ok(()) => println!("Position set successfully"),
+//!         // The camera refused the command before accepting it; nothing moved.
 //!         Err(Error::SyntaxError) => println!("Position out of range"),
 //!         Err(Error::CommandNotExecutable) => println!("Camera busy or powered off"),
-//!         Err(Error::CommandBufferFull) => {
-//!             // This error is automatically retried by the runtime
-//!             println!("Camera buffer full, command will retry");
+//!         // The camera accepted the command and then failed it: it may have
+//!         // moved part of the way, so reconcile before trying again.
+//!         Err(Error::CommandFailedAfterAck { source, .. }) => {
+//!             println!("Move failed after it started ({source}); re-read the position");
 //!         }
 //!         Err(e) => println!("Other error: {e}"),
 //!     }
@@ -953,7 +958,17 @@ pub use grafton_visca_macros::{ViscaEnum, ViscaInquiry, ViscaValue};
 #[doc(hidden)]
 pub mod __macro_support {
     #[doc(hidden)]
-    pub use grafton_visca_macros::__grafton_visca_range_type_decl;
+    pub use crate::command::bytes::constants::INQUIRY;
+    #[doc(hidden)]
+    pub use crate::command::bytes::{frame_len, write_frame};
+    #[doc(hidden)]
+    pub use crate::command::encode::WireEncode;
+    #[doc(hidden)]
+    pub use crate::macros::param::{IntoParamBuf, ParamBuf};
+    #[doc(hidden)]
+    pub use crate::macros::public::RangeInner;
+    #[doc(hidden)]
+    pub use grafton_visca_macros::__grafton_visca_newtype;
     #[cfg(feature = "schemars")]
     pub use schemars;
     #[cfg(feature = "serde")]
@@ -969,11 +984,9 @@ pub use crate::{
         MotionSyncPreset, NdFilterMode, NdFilterPosition, PanTiltDirection, PanTiltLimitCorner,
         PictureEffectMode, PresetNumber, WhiteBalanceMode,
     },
-    error::{Error, ErrorKind, Result},
-    inquiry_conversions::{
-        zoom_from_normalized, PanTiltPositionDeg, PanTiltPositionRaw, ZoomDomain, ZoomPositionExt,
-    },
-    types::{Coarse, FocusSpeed, MotionSyncSpeed, SpeedLevel, ZoomSpeed},
+    error::{Certainty, Error, ErrorKind, FailureContext, FailureStage, Result},
+    inquiry_conversions::{zoom_from_normalized, PanTiltPositionDeg, ZoomDomain},
+    types::{FocusSpeed, MotionSyncSpeed, SpeedLevel, ZoomSpeed},
     units::UnitInterval,
     visca_socket::ViscaSocket,
 };
@@ -998,9 +1011,12 @@ pub(crate) mod macros;
 /// The single row table behind all three noun facades.
 pub(crate) mod noun_table;
 
-/// Cross-surface parity gate for the table-driven noun facades.
-#[cfg(test)]
-mod noun_parity;
+/// Shared expansion helpers for the noun facades.
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) mod noun_facade;
+
+#[cfg(all(test, feature = "async", feature = "blocking"))]
+mod facade_parity;
 
 #[cfg(feature = "async")]
 pub(crate) mod executor;
@@ -1012,6 +1028,8 @@ pub mod completion;
 pub mod camera;
 
 mod camera_id;
+#[cfg(any(feature = "async", feature = "blocking"))]
+mod camera_view;
 
 /// Capability traits for camera feature composition
 pub mod capabilities;
@@ -1038,7 +1056,7 @@ pub mod raw;
 
 mod requests;
 pub use requests::{
-    AffectedAxes, AffectedAxis, AffectedAxisIter, ControlClass, EncodeError, Inquiry, InquiryRoute,
+    AffectedAxes, AffectedAxis, AffectedAxisIter, ControlClass, Inquiry, InquiryRoute,
     OperationCommand, PlainCommand, Request, ResponseDecoder, RetryClass, SubmissionClass,
     TimeoutClass,
 };
@@ -1064,7 +1082,7 @@ mod session_config;
 pub use session_config::{SessionConfig, DEFAULT_ADMISSION_CAPACITY};
 
 mod outcome;
-pub use outcome::{CancelRejected, CancellationOutcome};
+pub use outcome::{CancellationOutcome, HaltOutcome, HaltReport, Settlement};
 
 mod operation_id;
 pub use operation_id::OperationId;
@@ -1072,32 +1090,30 @@ pub use operation_id::OperationId;
 #[cfg(feature = "async")]
 mod operation;
 #[cfg(feature = "async")]
-pub use operation::{Cancellation, Operation};
+pub use operation::Operation;
 
 #[cfg(feature = "async")]
 mod async_nouns;
 #[cfg(feature = "async")]
 mod async_session;
 #[cfg(feature = "async")]
-pub use async_nouns::{
-    AdvancedAccessor, ExposureAccessor, FocusAccessor, ImageAccessor, MenuAccessor, MotionAccessor,
-    MotionSyncAccessor, NdFilterAccessor, PanTiltAccessor, PowerAccessor, PresetsAccessor,
-    SystemAccessor, TallyAccessor, WhiteBalanceAccessor, ZoomAccessor,
-};
+use noun_table::reexport_nouns;
+#[cfg(feature = "async")]
+noun_table::noun_table!(reexport_nouns, [accessor], [async_nouns]);
+#[cfg(feature = "async")]
+noun_table::motion_table!(reexport_nouns, [accessor], [async_nouns]);
 #[cfg(feature = "async")]
 pub use async_session::{Camera, CameraSession, Session};
 #[cfg(feature = "async")]
 pub mod session {
     //! Profile-generic async session facade.
     pub use crate::camera::{CameraConfig, Connect};
+    use crate::noun_table::reexport_nouns;
     pub use crate::{
         async_session::Camera, async_session::CameraSession, async_session::Session, SessionConfig,
     };
-    pub use crate::{
-        AdvancedAccessor, ExposureAccessor, FocusAccessor, ImageAccessor, MenuAccessor,
-        MotionAccessor, MotionSyncAccessor, NdFilterAccessor, PanTiltAccessor, PowerAccessor,
-        PresetsAccessor, SystemAccessor, TallyAccessor, WhiteBalanceAccessor, ZoomAccessor,
-    };
+    crate::noun_table::noun_table!(reexport_nouns, [accessor], [crate]);
+    crate::noun_table::motion_table!(reexport_nouns, [accessor], [crate]);
 }
 
 // Final construction names are available at the crate root in canonical
@@ -1105,8 +1121,10 @@ pub mod session {
 #[cfg(feature = "async")]
 pub use crate::camera::{CameraConfig, Connect};
 
+// The module documents itself: an outer doc here would make rustdoc resolve
+// the module's intra-doc links at the crate root, against the async facade's
+// same-named items.
 #[cfg(feature = "blocking")]
-/// Synchronous lifecycle handles for blocking sessions.
 pub mod blocking;
 
 /// Inquiry conversion utilities for raw to user-friendly values
@@ -1157,19 +1175,29 @@ mod visca_socket;
 /// `async`, it additionally provides object-safe noun/custom-operation views
 /// and erased operation handles. Every projection retains the canonical
 /// session owner and operation lifecycle.
-#[cfg(feature = "dyn-api")]
+#[cfg(all(feature = "dyn-api", any(feature = "async", feature = "blocking")))]
 pub mod dynapi;
 
 /// Owner-backed dynamic projections and noun traits.
-#[cfg(feature = "dyn-api")]
+#[cfg(all(feature = "dyn-api", any(feature = "async", feature = "blocking")))]
 pub use dynapi::*;
+
+// `dyn-api` projects the camera views of the enabled session facades, so on
+// its own it has nothing to project. Cargo cannot express "requires `blocking`
+// or `async`", so the shape is rejected here rather than compiling to an
+// empty feature (#828).
+#[cfg(all(feature = "dyn-api", not(any(feature = "async", feature = "blocking"))))]
+compile_error!(
+    "feature `dyn-api` projects a session facade's camera views: enable it with \
+     `blocking`, `async`, `runtime-tokio` or `runtime-smol`"
+);
 
 /// Camera profiles with compositional capabilities
 pub mod profiles {
-    pub use crate::camera::profiles::{
-        GenericVisca, NearusBRC300, ProfileGroup, ProfileId, PtzOptics30X, PtzOpticsG2,
-        PtzOpticsG3, SonyBRC300, SonyBRCH900, SonyEVIH100, SonyFR7,
-    };
+    crate::camera::profiles::profile_registry::builtin_profile_registry!(
+        crate::camera::profiles::profile_registry::reexport_builtin_profiles
+    );
+    pub use crate::camera::profiles::{ProfileGroup, ProfileId};
     pub use crate::capabilities::InquirySupport;
 }
 

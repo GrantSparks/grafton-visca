@@ -1,24 +1,14 @@
-//! Source-text scanners shared by the closed-inventory integration gates.
+//! Source-text scanner for the closed-inventory integration gates.
 //!
 //! These gates read crate sources as text, which is only sound if the reading
-//! is anchored and delimiter-aware.  Two failure modes motivated this module:
+//! is delimiter-aware.  A surface file can name its own items as string
+//! literals inside its in-file tests, so `source.contains("surface_entry")`
+//! could be satisfied by test data after the item itself is gone.
+//! [`declarations`] blanks every `#[cfg(test)]` item so a positive gate reads
+//! the declaration region only.
 //!
-//! * *Self-satisfying gates.*  A surface file names its own accessors and
-//!   method spellings as string literals inside its in-file inventory tests, so
-//!   `source.contains("PowerAccessor")` can be satisfied by the test data after
-//!   the accessor itself is gone.  [`declarations`] blanks every
-//!   `#[cfg(test)]` item so a positive gate reads the declaration region only.
-//! * *Ambiguous needles.*  `src/command/semantics.rs` declares two
-//!   `pub const ALL: &[Self]` slices; picking one with `rsplit_once` silently
-//!   depends on which is written last.  [`builtin_command_rows`] anchors on the
-//!   `impl BuiltinCommand` block and reads the slice by bracket depth, so it
-//!   tolerates re-indentation and fails loudly rather than counting the wrong
-//!   list.
-//!
-//! This is the integration-test twin of the scanner in `src/noun_parity.rs`;
-//! the crate's own gate cannot be reached from an integration test binary.
-
-#![allow(dead_code)]
+//! This is the integration-test twin of the scanner in `src/facade_parity.rs`;
+//! the crate's own scanner cannot be reached from an integration test binary.
 
 /// Blanks comments and literal contents while preserving the line structure.
 ///
@@ -181,94 +171,4 @@ pub fn declarations(source: &str) -> String {
         .map(|(line, skip)| if skip { "" } else { line })
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-/// Returns the body of the single item whose trimmed header line is `header`.
-fn item_body(source: &str, header: &str) -> String {
-    let cleaned = clean(source);
-    let lines: Vec<&str> = cleaned.lines().collect();
-    let starts: Vec<usize> = lines
-        .iter()
-        .enumerate()
-        .filter(|(_, line)| line.trim() == header)
-        .map(|(index, _)| index)
-        .collect();
-    assert_eq!(
-        starts.len(),
-        1,
-        "expected exactly one {header:?} header, found {}",
-        starts.len(),
-    );
-    let start = starts[0];
-    let end = block_end(&lines, start);
-    lines[start..end].join("\n")
-}
-
-/// Returns the `[...]` body that follows `needle`, read by bracket depth.
-fn bracket_body(text: &str, needle: &str) -> String {
-    let matches = text.matches(needle).count();
-    assert_eq!(
-        matches, 1,
-        "expected exactly one {needle:?} anchor, found {matches}",
-    );
-    let start = text.find(needle).unwrap_or_else(|| unreachable!());
-    let rest = &text[start + needle.len()..];
-    let mut depth = 1_i32;
-    for (index, ch) in rest.char_indices() {
-        match ch {
-            '[' => depth += 1,
-            ']' => {
-                depth -= 1;
-                if depth == 0 {
-                    return rest[..index].to_owned();
-                }
-            }
-            _ => {}
-        }
-    }
-    panic!("unterminated slice after {needle:?}")
-}
-
-/// Rows listed in the closed `BuiltinCommand::ALL` slice.
-///
-/// Anchored on the `impl BuiltinCommand` block: `BuiltinCommandDomain` declares
-/// an `ALL` slice of its own, so an unanchored needle counts whichever list
-/// happens to be written last.
-pub fn builtin_command_rows(semantics: &str) -> usize {
-    let body = item_body(semantics, "impl BuiltinCommand {");
-    bracket_body(&body, "pub const ALL: &[Self] = &[")
-        .matches("Self::")
-        .count()
-}
-
-/// Entries in the generated camera-facing inquiry-accessor table.
-///
-/// This is the table behind `BUILTIN_INQUIRY_ACCESSORS`, and therefore an
-/// independent source for the dynamic projection's inquiry-method count.  The
-/// `accessors { .. }` group of the macro *definition* is skipped by requiring
-/// the block to be free of macro metavariables.
-pub fn inquiry_accessor_rows(inquiry_structs: &str) -> usize {
-    let cleaned = clean(inquiry_structs);
-    let lines: Vec<&str> = cleaned.lines().collect();
-    let mut bodies = Vec::new();
-    for (index, line) in lines.iter().enumerate() {
-        if line.trim() != "accessors {" {
-            continue;
-        }
-        let end = block_end(&lines, index);
-        let body = lines[index..end].join("\n");
-        if !body.contains('$') {
-            bodies.push(body);
-        }
-    }
-    assert_eq!(
-        bodies.len(),
-        1,
-        "expected exactly one generated `accessors` table, found {}",
-        bodies.len(),
-    );
-    bodies[0]
-        .lines()
-        .filter(|line| line.contains("=>") && line.trim_end().ends_with(';'))
-        .count()
 }

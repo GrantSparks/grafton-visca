@@ -65,6 +65,7 @@ pub trait ExecutorExt {
     ///
     /// This variant logs errors to stderr for debugging purposes when tasks
     /// return Result<(), E> types, making failures visible during testing.
+    /// It is the one implementation for every executor.
     fn spawn_detached_ignore_result_with_logging<F, E>(&self, fut: F)
     where
         F: Future<Output = Result<(), E>> + Send + 'static,
@@ -72,9 +73,23 @@ pub trait ExecutorExt {
     {
         ExecutorExt::spawn_detached(self, async move {
             if let Err(e) = fut.await {
-                eprintln!("[det-runtime] background task returned error: {e:?}");
+                eprintln!("[testkit] background task returned error: {e:?}");
             }
         });
+    }
+}
+
+/// Ready tasks the driver runs per epoch before it considers virtual time.
+const READY_BUDGET_PER_EPOCH: usize = 512;
+/// Busy epochs with a pending deadline tolerated before time is advanced anyway.
+const BUSY_EPOCHS_BEFORE_TIME_BUMP: usize = 4;
+/// Driver iterations without forward progress before it panics.
+const NO_PROGRESS_PANIC: usize = 50_000;
+
+/// Writes a driver trace line when `RUNTIME_TRACE=1`.
+fn trace(message: impl FnOnce() -> String) {
+    if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
+        eprintln!("[DeterministicExecutor] {}", message());
     }
 }
 
@@ -281,114 +296,31 @@ impl DeterministicExecutor {
     /// via `spawn_bg()`, making it suitable for testing scenarios where the runtime
     /// spawns background loops.
     ///
-    /// Virtual time is advanced automatically when no tasks are ready to run.
-    /// This version prevents livelock by budgeting task execution and advancing time
-    /// even when the run queue remains busy.
+    /// The future is spawned and its result awaited with the same driver as
+    /// [`Self::run_until`], so virtual time advances the same way; once it
+    /// completes, background tasks are drained with
+    /// [`Self::drain_until_quiescent`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if no forward progress is made for a large number of iterations,
+    /// or if the spawned future is dropped before it completes.
     pub fn block_on_bg<F, T>(&self, fut: F) -> T
     where
         F: Future<Output = T> + Send + 'static,
         T: Send + 'static,
     {
         let (tx, rx) = flume::bounded::<T>(1);
-
         self.executor
             .spawn(async move {
-                let out = fut.await;
-                let _ = tx.send(out);
+                let _ = tx.send(fut.await);
             })
             .detach();
 
-        // ---- Tunables (keep constants to preserve determinism) ----
-        const READY_BUDGET_PER_EPOCH: usize = 512; // how many ready tasks to run before considering time
-        const BUSY_EPOCHS_BEFORE_TIME_BUMP: usize = 4; // tolerate a few busy epochs before advancing time
-        const NO_PROGRESS_PANIC: usize = 50_000; // hard guardrail against infinite spin
-
-        // ---- State ----
-        let mut busy_epochs = 0usize;
-        let mut spins = 0usize;
-
-        loop {
-            if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                eprintln!(
-                    "[DeterministicExecutor] Loop iteration - time: {:?}, has_deadlines: {}",
-                    self.now(),
-                    self.has_pending_deadlines()
-                );
-            }
-
-            let mut ran = 0usize;
-            for _ in 0..READY_BUDGET_PER_EPOCH {
-                if self.executor.try_tick() {
-                    ran += 1;
-                } else {
-                    break;
-                }
-                if let Ok(out) = rx.try_recv() {
-                    if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                        eprintln!("[DeterministicExecutor] User future completed, draining background tasks");
-                    }
-                    self.drain_until_quiescent();
-                    return out;
-                }
-            }
-
-            if let Ok(out) = rx.try_recv() {
-                if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                    eprintln!(
-                        "[DeterministicExecutor] User future completed, draining background tasks"
-                    );
-                }
-                self.drain_until_quiescent();
-                return out;
-            }
-
-            if ran == 0 {
-                if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                    eprintln!(
-                        "[DeterministicExecutor] No ready tasks, checking for time advancement"
-                    );
-                }
-                busy_epochs = 0;
-                if self.fire_due_timers() || self.advance_to_next_deadline() {
-                    if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                        eprintln!("[DeterministicExecutor] Advanced time to {:?}", self.now());
-                    }
-                    spins = 0;
-                    continue;
-                }
-            } else if self.has_pending_deadlines() {
-                busy_epochs += 1;
-                if busy_epochs >= BUSY_EPOCHS_BEFORE_TIME_BUMP && self.advance_to_next_deadline() {
-                    busy_epochs = 0;
-                    spins = 0;
-                    continue;
-                }
-            } else {
-                busy_epochs = 0;
-            }
-
-            spins += 1;
-            if spins >= NO_PROGRESS_PANIC {
-                panic!(
-                    "DeterministicExecutor::block_on_bg: no forward progress after {NO_PROGRESS_PANIC} iterations. \
-                     Possible causes: perpetual busy loop without yields; real timers leaking into tests; \
-                     or background loop exited early."
-                );
-            }
-
-            if self.executor.try_tick() {
-                spins = 0;
-                if let Ok(out) = rx.try_recv() {
-                    if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                        eprintln!("[DeterministicExecutor] User future completed, draining background tasks");
-                    }
-                    self.drain_until_quiescent();
-                    return out;
-                }
-            }
-
-            std::thread::yield_now();
-        }
+        let out = self.drive("block_on_bg", rx.recv_async());
+        trace(|| "User future completed, draining background tasks".into());
+        self.drain_until_quiescent();
+        out.expect("DeterministicExecutor::block_on_bg: the spawned future was dropped")
     }
 
     /// Drive `fut` to completion on this executor, advancing virtual time as needed.
@@ -413,11 +345,17 @@ impl DeterministicExecutor {
     /// Panics if the future and the executor make no forward progress for a large
     /// number of iterations, which indicates a livelock or a leaked real timer.
     pub fn run_until<F: Future>(&self, fut: F) -> F::Output {
-        // ---- Tunables (keep constants to preserve determinism) ----
-        const READY_BUDGET_PER_EPOCH: usize = 512;
-        const BUSY_EPOCHS_BEFORE_TIME_BUMP: usize = 4;
-        const NO_PROGRESS_PANIC: usize = 50_000;
+        self.drive("run_until", fut)
+    }
 
+    /// The one driver loop behind [`Self::block_on_bg`] and [`Self::run_until`].
+    ///
+    /// Each epoch polls `fut` when it has been woken, then runs up to
+    /// [`READY_BUDGET_PER_EPOCH`] ready tasks. An idle epoch fires due timers
+    /// or advances virtual time to the next deadline; after
+    /// [`BUSY_EPOCHS_BEFORE_TIME_BUMP`] busy epochs with a pending deadline,
+    /// time is advanced anyway so a perpetually busy queue cannot starve timers.
+    fn drive<F: Future>(&self, driver: &str, fut: F) -> F::Output {
         let flag = Arc::new(NotifyFlag::new());
         let waker = Waker::from(Arc::clone(&flag));
         let mut cx = Context::from_waker(&waker);
@@ -427,6 +365,14 @@ impl DeterministicExecutor {
         let mut spins = 0usize;
 
         loop {
+            trace(|| {
+                format!(
+                    "{driver} iteration - time: {:?}, has_deadlines: {}",
+                    self.now(),
+                    self.has_pending_deadlines()
+                )
+            });
+
             if flag.take() {
                 if let Poll::Ready(out) = fut.as_mut().poll(&mut cx) {
                     return out;
@@ -453,6 +399,7 @@ impl DeterministicExecutor {
             if ran == 0 {
                 busy_epochs = 0;
                 if self.fire_due_timers() || self.advance_to_next_deadline() {
+                    trace(|| format!("{driver} advanced time to {:?}", self.now()));
                     spins = 0;
                     continue;
                 }
@@ -470,7 +417,7 @@ impl DeterministicExecutor {
             spins += 1;
             if spins >= NO_PROGRESS_PANIC {
                 panic!(
-                    "DeterministicExecutor::run_until: no forward progress after {NO_PROGRESS_PANIC} iterations. \
+                    "DeterministicExecutor::{driver}: no forward progress after {NO_PROGRESS_PANIC} iterations. \
                      Possible causes: perpetual busy loop without yields; real timers leaking into tests; \
                      or background loop exited early."
                 );
@@ -659,38 +606,27 @@ impl DeterministicExecutor {
         const MAX_SPINS: usize = 1024;
         let mut spins = 0;
 
-        if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-            eprintln!("[DeterministicExecutor] Starting drain_until_quiescent");
-        }
+        trace(|| "Starting drain_until_quiescent".into());
 
         loop {
             let has_tasks = self.executor.try_tick();
-
             let fired = self.fire_due_timers();
-
             let has_deadlines = self.has_pending_deadlines();
 
-            if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                eprintln!(
-                    "[DeterministicExecutor] Drain iteration: has_tasks={}, fired={}, has_deadlines={}, spins={}",
-                    has_tasks, fired, has_deadlines, spins
-                );
-            }
+            trace(|| {
+                format!(
+                    "Drain iteration: has_tasks={has_tasks}, fired={fired}, \
+                     has_deadlines={has_deadlines}, spins={spins}"
+                )
+            });
 
             if !has_tasks && !fired && !has_deadlines {
-                if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                    eprintln!("[DeterministicExecutor] Quiescent - no tasks or deadlines");
-                }
+                trace(|| "Quiescent - no tasks or deadlines".into());
                 break;
             }
 
             if has_deadlines && self.advance_to_next_deadline() {
-                if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                    eprintln!(
-                        "[DeterministicExecutor] Advanced to next deadline: {:?}",
-                        self.now()
-                    );
-                }
+                trace(|| format!("Advanced to next deadline: {:?}", self.now()));
                 spins = 0;
                 continue;
             }
@@ -702,18 +638,14 @@ impl DeterministicExecutor {
 
             spins += 1;
             if spins > MAX_SPINS {
-                if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-                    eprintln!("[DeterministicExecutor] Breaking after {} spins", MAX_SPINS);
-                }
+                trace(|| format!("Breaking after {MAX_SPINS} spins"));
                 break;
             }
 
             std::thread::yield_now();
         }
 
-        if std::env::var("RUNTIME_TRACE").as_deref() == Ok("1") {
-            eprintln!("[DeterministicExecutor] drain_until_quiescent completed");
-        }
+        trace(|| "drain_until_quiescent completed".into());
     }
 }
 
@@ -934,7 +866,7 @@ where
         }
 
         if let Poll::Ready(()) = Pin::new(&mut self.sleep).poll(cx) {
-            return Poll::Ready(Err(Error::Timeout));
+            return Poll::Ready(Err(Error::io_timeout()));
         }
 
         Poll::Pending
@@ -949,18 +881,6 @@ impl ExecutorExt for DeterministicExecutor {
     {
         self.executor.spawn(fut).detach();
     }
-
-    fn spawn_detached_ignore_result_with_logging<F, E>(&self, fut: F)
-    where
-        F: Future<Output = Result<(), E>> + Send + 'static,
-        E: std::fmt::Debug + Send + 'static,
-    {
-        ExecutorExt::spawn_detached(self, async move {
-            if let Err(e) = fut.await {
-                eprintln!("[det-runtime] background task returned error: {e:?}");
-            }
-        });
-    }
 }
 
 #[cfg(all(feature = "runtime-tokio", any(test, feature = "test-utils")))]
@@ -970,18 +890,6 @@ impl ExecutorExt for TokioExecutor {
         F: Future<Output = ()> + Send + 'static,
     {
         drop(self.spawn(fut));
-    }
-
-    fn spawn_detached_ignore_result_with_logging<F, E>(&self, fut: F)
-    where
-        F: Future<Output = Result<(), E>> + Send + 'static,
-        E: std::fmt::Debug + Send + 'static,
-    {
-        ExecutorExt::spawn_detached(self, async move {
-            if let Err(e) = fut.await {
-                eprintln!("[det-runtime] background task returned error: {e:?}");
-            }
-        });
     }
 }
 
@@ -995,14 +903,6 @@ where
         F: Future<Output = ()> + Send + 'static,
     {
         ExecutorExt::spawn_detached(self.as_ref(), fut);
-    }
-
-    fn spawn_detached_ignore_result_with_logging<F, E>(&self, fut: F)
-    where
-        F: Future<Output = Result<(), E>> + Send + 'static,
-        E: std::fmt::Debug + Send + 'static,
-    {
-        (**self).spawn_detached_ignore_result_with_logging(fut);
     }
 }
 
@@ -1351,17 +1251,5 @@ impl ExecutorExt for crate::executor::SmolExecutor {
     {
         // smol::spawn returns a Task, but dropping it makes it fire-and-forget
         drop(self.spawn(fut));
-    }
-
-    fn spawn_detached_ignore_result_with_logging<F, E>(&self, fut: F)
-    where
-        F: Future<Output = Result<(), E>> + Send + 'static,
-        E: std::fmt::Debug + Send + 'static,
-    {
-        ExecutorExt::spawn_detached(self, async move {
-            if let Err(e) = fut.await {
-                eprintln!("[smol-runtime] background task returned error: {e:?}");
-            }
-        });
     }
 }

@@ -111,6 +111,8 @@ pub enum SendSemantics {
 ))]
 pub(crate) mod address;
 #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
+pub(crate) mod async_connect;
+#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 pub(crate) mod async_io;
 #[cfg(feature = "transport-serial-tokio")]
 pub(crate) mod async_serial;
@@ -125,10 +127,16 @@ pub(crate) mod blocking;
 pub(crate) mod blocking_transport;
 pub(crate) mod buffer;
 pub(crate) mod builder;
+#[cfg(any(
+    feature = "blocking",
+    feature = "runtime-tokio",
+    feature = "runtime-smol"
+))]
+pub(crate) mod connect;
+pub(crate) mod datagram;
+#[cfg(test)]
+mod entry_point_tests;
 pub(crate) mod envelope;
-#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
-#[macro_use]
-pub(crate) mod runtime_common;
 #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
 pub mod serial;
 #[cfg(all(feature = "blocking", feature = "transport-serial"))]
@@ -148,12 +156,32 @@ pub(crate) mod socket_options;
 pub(crate) mod tokio;
 
 #[cfg(feature = "async")]
-pub use async_transport::{AsyncTransport, ReceiveOutcome};
+pub use async_transport::AsyncTransport;
 #[cfg(feature = "blocking")]
 pub use blocking_transport::BlockingTransportHandle;
-pub use blocking_transport::{BlockingTransport, HasTransportConfig};
+pub use blocking_transport::{AddressedBus, BlockingTransport, HasTransportConfig};
 pub use buffer::BufferConfig;
 pub use builder::{AddressingMode, TcpKeepaliveConfig, TransportConfig};
 #[cfg(feature = "blocking")]
-pub use builder::{NetTransportBuilder, Transport, TransportBuilderExt};
+pub use builder::{NetTransportBuilder, Transport};
+pub use datagram::ReceiveOutcome;
 pub use envelope::{Envelope, FrameMeta, FrameSequence, RawVisca, SonyEncapsulated};
+
+/// The one end-of-stream rule shared by the built-in byte-stream transports.
+///
+/// A zero-byte read from a stream means the peer closed it. Every built-in
+/// stream transport reports that as [`crate::Error::ConnectionClosed`] with
+/// its own `reason`, so the closure reason a caller sees does not depend on
+/// the transport or facade.
+#[cfg(any(
+    feature = "blocking",
+    feature = "runtime-tokio",
+    feature = "runtime-smol"
+))]
+pub(crate) fn stream_read(read: usize, closed: &'static str) -> crate::Result<usize> {
+    if read == 0 {
+        Err(crate::Error::connection_closed(Some(closed.into())))
+    } else {
+        Ok(read)
+    }
+}

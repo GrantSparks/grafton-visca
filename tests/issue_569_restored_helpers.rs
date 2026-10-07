@@ -1,221 +1,102 @@
-//! Behavioural coverage for the 1.x convenience helpers restored in #569.
+//! Behavioural coverage for the convenience helpers #569 added.
 //!
 //! Every wrapper is checked against the explicit form it delegates to, on a
-//! scripted transport, so the test proves the bytes rather than the signature.
+//! fake camera, so the test proves the bytes rather than the signature.
 
 #![cfg(feature = "blocking")]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
+#[path = "common/fake_camera.rs"]
+mod fake_camera;
 #[path = "common/profile_fixtures.rs"]
 mod profile_fixtures;
 
-use std::{
-    collections::VecDeque,
-    sync::{Arc, Mutex},
-    time::{Duration, Instant},
-};
+use std::time::{Duration, Instant};
 
 use grafton_visca::{
     blocking::{Session, SessionConfig},
-    camera::{IdleWait, MotionQuery, TransportKind},
+    camera::{IdleWait, MotionQuery},
     command::{
-        CommandKind, FlipState, FocusLock, ImageFlipMode, NdFilterMode, PanTiltDirection,
-        PanTiltLimitCorner, PresetRecallSpeed, VariableSpeedMode,
+        FlipState, FocusLock, ImageFlipMode, NdFilterMode, PanTiltDirection, PanTiltLimitCorner,
+        PresetRecallSpeed, VariableSpeedMode,
     },
     profile::ProfileSpec,
     profiles::{PtzOpticsG2, SonyEVIH100, SonyFR7},
-    transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
     types::{MotionSyncSpeed, NdiQuality, PanSpeed, TiltSpeed, ZoomPosition},
     units::{Degrees, UnitInterval},
     AffectedAxes, Error, ZoomDomain,
 };
+
+use fake_camera::{frames, FakeCamera};
 use profile_fixtures::MotionSyncTypedSupport;
 
-/// A transport that records every frame and always answers ACK + completion,
-/// answering position inquiries from a canned constant position.
-#[derive(Debug)]
-struct RecordingTransport {
-    config: TransportConfig,
-    responses: VecDeque<Vec<u8>>,
-    writes: Arc<Mutex<Vec<Vec<u8>>>>,
-}
-
-impl RecordingTransport {
-    fn new() -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
-        let writes = Arc::new(Mutex::new(Vec::new()));
-        (
-            Self {
-                config: TransportConfig::default(),
-                responses: VecDeque::new(),
-                writes: Arc::clone(&writes),
-            },
-            writes,
-        )
-    }
-
-    /// Splits a written frame into its optional Sony header and VISCA payload.
-    fn split(bytes: &[u8]) -> (Option<u32>, &[u8]) {
-        let sony = bytes.len() > 8
-            && bytes[0] == 0x01
-            && matches!(bytes[1], 0x00 | 0x10 | 0x02 | 0x20)
-            && usize::from(u16::from_be_bytes([bytes[2], bytes[3]])) == bytes.len() - 8;
-        if sony {
-            let sequence = u32::from_be_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
-            (Some(sequence), &bytes[8..])
-        } else {
-            (None, bytes)
-        }
-    }
-
-    /// Wraps a VISCA reply in the Sony reply envelope when one is in use.
-    fn envelope(sequence: Option<u32>, payload: Vec<u8>) -> Vec<u8> {
-        let Some(sequence) = sequence else {
-            return payload;
-        };
-        let mut frame = Vec::with_capacity(payload.len() + 8);
-        frame.extend_from_slice(&[0x01, 0x11]);
-        frame.extend_from_slice(&(payload.len() as u16).to_be_bytes());
-        frame.extend_from_slice(&sequence.to_be_bytes());
-        frame.extend_from_slice(&payload);
-        frame
-    }
-
-    fn response_for(sequence: Option<u32>, payload: &[u8]) -> Vec<Vec<u8>> {
-        let replies = if payload.starts_with(&[0x81, 0x09, 0x06, 0x12]) {
-            vec![vec![0x90, 0x50, 0, 0, 0, 0, 0, 0, 0, 0, 0xff]]
+/// A camera that always answers ACK + completion, answering position
+/// inquiries with a canned constant position. It records the VISCA payloads
+/// only: a Sony sequence number differs between two otherwise identical
+/// frames.
+fn recording_camera() -> FakeCamera {
+    FakeCamera::visca(|payload, answer| {
+        if payload.starts_with(&[0x81, 0x09, 0x06, 0x12]) {
+            answer.reply(frames::inquiry_reply(&[0; 8]));
         } else if payload.starts_with(&[0x81, 0x09, 0x04, 0x47])
             || payload.starts_with(&[0x81, 0x09, 0x04, 0x48])
         {
-            vec![vec![0x90, 0x50, 0, 0, 0, 0, 0xff]]
+            answer.reply(frames::inquiry_reply(&[0; 4]));
         } else {
-            vec![vec![0x90, 0x41, 0xff], vec![0x90, 0x51, 0xff]]
-        };
-        replies
-            .into_iter()
-            .map(|reply| Self::envelope(sequence, reply))
-            .collect()
-    }
+            answer.reply(frames::ack(1)).reply(frames::complete(1));
+        }
+    })
 }
 
-impl HasTransportConfig for RecordingTransport {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
-    }
-
-    fn standard_transport_kind(&self) -> Option<TransportKind> {
-        None
-    }
+fn open_session(profile: ProfileSpec) -> (Session, FakeCamera) {
+    let camera = recording_camera();
+    let session =
+        Session::open(camera.blocking_wire(), SessionConfig::new(profile)).expect("session");
+    (session, camera)
 }
 
-impl BlockingTransport for RecordingTransport {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
-        // Only the VISCA payload is recorded: a Sony sequence number differs
-        // between two otherwise identical frames.
-        let (sequence, payload) = Self::split(bytes);
-        self.writes
-            .lock()
-            .expect("writes lock")
-            .push(payload.to_vec());
-        let responses = Self::response_for(sequence, payload);
-        self.responses.extend(responses);
-        Ok(())
-    }
-
-    fn recv_into_with_timeout(
-        &mut self,
-        dst: &mut [u8],
-        _timeout: Duration,
-    ) -> Result<usize, Error> {
-        let response = self.responses.pop_front().ok_or(Error::Timeout)?;
-        dst[..response.len()].copy_from_slice(&response);
-        Ok(response.len())
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
-    }
+fn ptz_session() -> (Session, FakeCamera) {
+    open_session(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile"))
 }
 
-/// Returns every frame written since the last call and clears the log.
-fn drain(writes: &Arc<Mutex<Vec<Vec<u8>>>>) -> Vec<Vec<u8>> {
-    let mut guard = writes.lock().expect("writes lock");
-    std::mem::take(&mut *guard)
+fn fr7_session() -> (Session, FakeCamera) {
+    open_session(ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"))
 }
 
-/// Returns the single frame written since the last call.
-fn one_frame(writes: &Arc<Mutex<Vec<Vec<u8>>>>) -> Vec<u8> {
-    let mut frames = drain(writes);
-    assert_eq!(frames.len(), 1, "expected exactly one written frame");
-    frames.remove(0)
+fn evi_h100_session() -> (Session, FakeCamera) {
+    open_session(ProfileSpec::from_compile_time::<SonyEVIH100>().expect("EVI-H100 profile"))
 }
 
-fn ptz_session() -> (Session, Arc<Mutex<Vec<Vec<u8>>>>) {
-    let profile = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile");
-    let (transport, writes) = RecordingTransport::new();
-    let session = Session::open(transport, SessionConfig::new(profile)).expect("session");
-    (session, writes)
-}
-
-fn fr7_session() -> (Session, Arc<Mutex<Vec<Vec<u8>>>>) {
-    let profile = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
-    let (transport, writes) = RecordingTransport::new();
-    let session = Session::open(transport, SessionConfig::new(profile)).expect("session");
-    (session, writes)
-}
-
-fn evi_h100_session() -> (Session, Arc<Mutex<Vec<Vec<u8>>>>) {
-    let profile = ProfileSpec::from_compile_time::<SonyEVIH100>().expect("EVI-H100 profile");
-    let (transport, writes) = RecordingTransport::new();
-    let session = Session::open(transport, SessionConfig::new(profile)).expect("session");
-    (session, writes)
-}
-
-fn motion_sync_session() -> (Session, Arc<Mutex<Vec<Vec<u8>>>>) {
-    let profile =
-        ProfileSpec::from_compile_time::<MotionSyncTypedSupport>().expect("motion-sync profile");
-    let (transport, writes) = RecordingTransport::new();
-    let session = Session::open(transport, SessionConfig::new(profile)).expect("session");
-    (session, writes)
+fn motion_sync_session() -> (Session, FakeCamera) {
+    open_session(
+        ProfileSpec::from_compile_time::<MotionSyncTypedSupport>().expect("motion-sync profile"),
+    )
 }
 
 #[test]
-fn directional_pan_tilt_helpers_encode_their_explicit_drive() {
-    let (session, writes) = ptz_session();
+fn directional_pan_tilt_drive_encodes_each_direction() {
+    let (session, fake) = ptz_session();
     let camera = session.camera::<PtzOpticsG2>().expect("camera");
     let pan = PanSpeed::new(6).expect("pan speed");
     let tilt = TiltSpeed::new(5).expect("tilt speed");
 
-    for (direction, helper) in [
-        (PanTiltDirection::Up, 0_u8),
-        (PanTiltDirection::Down, 1),
-        (PanTiltDirection::Left, 2),
-        (PanTiltDirection::Right, 3),
+    // `81 01 06 01 vv ww 0p 0t FF`: pan speed, tilt speed, then the direction.
+    for (direction, pan_byte, tilt_byte) in [
+        (PanTiltDirection::Up, 0x03, 0x01),
+        (PanTiltDirection::Down, 0x03, 0x02),
+        (PanTiltDirection::Left, 0x01, 0x03),
+        (PanTiltDirection::Right, 0x02, 0x03),
     ] {
-        let accessor = camera.pan_tilt();
-        let explicit = accessor
+        let mut operation = camera
+            .pan_tilt()
             .move_direction(direction, pan, tilt)
-            .expect("explicit drive");
-        explicit.applied().expect("explicit applied");
-        let explicit_frame = one_frame(&writes);
-
-        let operation = match helper {
-            0 => accessor.up(pan, tilt),
-            1 => accessor.down(pan, tilt),
-            2 => accessor.left(pan, tilt),
-            _ => accessor.right(pan, tilt),
-        }
-        .expect("directional helper");
-        operation.applied().expect("helper applied");
-        let helper_frame = one_frame(&writes);
+            .expect("directional drive");
+        operation.applied().expect("drive applied");
 
         assert_eq!(
-            helper_frame, explicit_frame,
-            "directional helper for {direction:?} must encode its explicit drive",
+            fake.take_only_payload(),
+            vec![0x81, 0x01, 0x06, 0x01, 0x06, 0x05, pan_byte, tilt_byte, 0xff],
+            "{direction:?} must encode its drive bytes",
         );
     }
 
@@ -224,7 +105,7 @@ fn directional_pan_tilt_helpers_encode_their_explicit_drive() {
 
 #[test]
 fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
-    let (session, writes) = fr7_session();
+    let (session, fake) = fr7_session();
     let camera = session.camera::<SonyFR7>().expect("camera");
     let optical_max = *camera.capabilities().zoom_range_optical.end();
     let digital_max = *camera
@@ -235,60 +116,53 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
         .end();
     assert_ne!(optical_max, digital_max);
 
-    let explicit = camera
+    let mut explicit = camera
         .zoom()
         .set_position(ZoomPosition::new(optical_max).expect("telephoto end"))
         .expect("explicit zoom target");
     explicit.applied().expect("explicit applied");
-    let optical_frame = one_frame(&writes);
+    let optical_frame = fake.take_only_payload();
 
-    let normalized = camera
+    let mut normalized = camera
         .zoom()
-        .set_normalized(UnitInterval::ONE)
-        .expect("normalized zoom target");
-    normalized.applied().expect("normalized applied");
+        .set_normalized(UnitInterval::ONE, ZoomDomain::Optical)
+        .expect("optical-domain zoom target");
+    normalized.applied().expect("optical domain applied");
     assert_eq!(
-        one_frame(&writes),
+        fake.take_only_payload(),
         optical_frame,
-        "set_normalized always normalizes across the optical range",
+        "the optical domain normalizes across the optical range",
     );
 
-    let in_optical = camera
-        .zoom()
-        .set_normalized_in_domain(UnitInterval::ONE, ZoomDomain::Optical)
-        .expect("optical-domain zoom target");
-    in_optical.applied().expect("optical domain applied");
-    assert_eq!(one_frame(&writes), optical_frame);
-
-    let explicit_digital = camera
+    let mut explicit_digital = camera
         .zoom()
         .set_position(ZoomPosition::new(digital_max).expect("digital telephoto end"))
         .expect("explicit digital target");
     explicit_digital
         .applied()
         .expect("explicit digital applied");
-    let digital_frame = one_frame(&writes);
+    let digital_frame = fake.take_only_payload();
 
-    let in_digital = camera
+    let mut in_digital = camera
         .zoom()
-        .set_normalized_in_domain(UnitInterval::ONE, ZoomDomain::OpticalPlusDigital)
+        .set_normalized(UnitInterval::ONE, ZoomDomain::OpticalPlusDigital)
         .expect("digital-domain zoom target");
     in_digital.applied().expect("digital domain applied");
-    assert_eq!(one_frame(&writes), digital_frame);
+    assert_eq!(fake.take_only_payload(), digital_frame);
     assert_ne!(digital_frame, optical_frame);
 
-    let wide = camera
+    let mut wide = camera
         .zoom()
-        .set_normalized(UnitInterval::ZERO)
+        .set_normalized(UnitInterval::ZERO, ZoomDomain::Optical)
         .expect("wide zoom target");
     wide.applied().expect("wide applied");
-    let wide_frame = one_frame(&writes);
-    let wide_explicit = camera
+    let wide_frame = fake.take_only_payload();
+    let mut wide_explicit = camera
         .zoom()
         .set_position(ZoomPosition::new(0).expect("wide end"))
         .expect("explicit wide target");
     wide_explicit.applied().expect("explicit wide applied");
-    assert_eq!(one_frame(&writes), wide_frame);
+    assert_eq!(fake.take_only_payload(), wide_frame);
 
     // The endpoints alone cannot tell the two domains apart from a mapping that
     // merely clamps: 0.0 is raw 0 in both and 1.0 is each domain's own maximum
@@ -300,47 +174,47 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
     let half_digital = ZoomPosition::new(digital_max.div_ceil(2)).expect("half the digital range");
     assert_ne!(half_optical, half_digital);
 
-    let explicit_half_optical = camera
+    let mut explicit_half_optical = camera
         .zoom()
         .set_position(half_optical)
         .expect("explicit optical midpoint");
     explicit_half_optical
         .applied()
         .expect("explicit optical midpoint applied");
-    let half_optical_frame = one_frame(&writes);
+    let half_optical_frame = fake.take_only_payload();
 
-    let normalized_half = camera
+    let mut normalized_half = camera
         .zoom()
-        .set_normalized(midpoint)
+        .set_normalized(midpoint, ZoomDomain::Optical)
         .expect("normalized midpoint");
     normalized_half
         .applied()
         .expect("normalized midpoint applied");
     assert_eq!(
-        one_frame(&writes),
+        fake.take_only_payload(),
         half_optical_frame,
-        "the default domain's midpoint is half the optical range",
+        "the optical domain's midpoint is half the optical range",
     );
 
-    let explicit_half_digital = camera
+    let mut explicit_half_digital = camera
         .zoom()
         .set_position(half_digital)
         .expect("explicit digital midpoint");
     explicit_half_digital
         .applied()
         .expect("explicit digital midpoint applied");
-    let half_digital_frame = one_frame(&writes);
+    let half_digital_frame = fake.take_only_payload();
     assert_ne!(half_digital_frame, half_optical_frame);
 
-    let normalized_half_digital = camera
+    let mut normalized_half_digital = camera
         .zoom()
-        .set_normalized_in_domain(midpoint, ZoomDomain::OpticalPlusDigital)
+        .set_normalized(midpoint, ZoomDomain::OpticalPlusDigital)
         .expect("normalized digital midpoint");
     normalized_half_digital
         .applied()
         .expect("normalized digital midpoint applied");
     assert_eq!(
-        one_frame(&writes),
+        fake.take_only_payload(),
         half_digital_frame,
         "the combined domain's midpoint is half the digital range",
     );
@@ -350,44 +224,19 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
 
 #[test]
 fn menu_toggle_sends_the_vendor_open_close_control() {
-    let (session, writes) = fr7_session();
+    let (session, fake) = fr7_session();
     let camera = session.camera::<SonyFR7>().expect("camera");
 
     camera.menu().direct(0x00, 0x01).expect("explicit control");
-    let explicit_frame = one_frame(&writes);
+    let explicit_frame = fake.take_only_payload();
 
     camera.menu().toggle_display().expect("menu toggle");
-    let toggle_frame = one_frame(&writes);
+    let toggle_frame = fake.take_only_payload();
 
     assert_eq!(toggle_frame, explicit_frame);
     assert_eq!(
         toggle_frame,
         vec![0x81, 0x01, 0x7e, 0x04, 0x72, 0x00, 0x01, 0xff]
-    );
-
-    session.shutdown().expect("shutdown");
-}
-
-#[test]
-fn nd_filter_stops_map_onto_the_raw_direct_value() {
-    let (session, writes) = fr7_session();
-    let camera = session.camera::<SonyFR7>().expect("camera");
-
-    // 2.0 stops is the minimum density and each raw unit is a quarter stop,
-    // so 4.5 stops is raw 10.
-    let explicit = camera.nd_filter().set_value(10).expect("explicit nd value");
-    explicit.applied().expect("explicit applied");
-    let explicit_frame = one_frame(&writes);
-
-    let by_stops = camera.nd_filter().set_stops(4.5).expect("nd stops");
-    by_stops.applied().expect("stops applied");
-    assert_eq!(one_frame(&writes), explicit_frame);
-
-    assert!(camera.nd_filter().set_stops(1.5).is_err());
-    assert!(camera.nd_filter().set_stops(8.0).is_err());
-    assert!(
-        drain(&writes).is_empty(),
-        "a rejected stop count writes nothing"
     );
 
     session.shutdown().expect("shutdown");
@@ -399,24 +248,19 @@ fn nd_filter_stops_map_onto_the_raw_direct_value() {
 /// `set_speed` that ignored its argument would fail this test.
 #[test]
 fn motion_sync_speed_helper_drives_its_explicit_preset() {
-    let (session, writes) = motion_sync_session();
+    let (session, fake) = motion_sync_session();
     let camera = session
         .camera::<MotionSyncTypedSupport>()
         .expect("motion-sync camera");
 
-    // The raw-`u8` twin is the explicit form the typed helper delegates to.
-    camera
-        .motion_sync()
-        .set_preset(12)
-        .expect("explicit preset");
-    let explicit_frame = one_frame(&writes);
-
+    // `81 0A 11 14 pp FF`, pp = speed: the literal frame for speed 12.
+    let explicit_frame = vec![0x81, 0x0A, 0x11, 0x14, 0x0C, 0xFF];
     camera
         .motion_sync()
         .set_speed(MotionSyncSpeed::new(12).expect("motion sync speed"))
         .expect("typed helper");
     assert_eq!(
-        one_frame(&writes),
+        fake.take_only_payload(),
         explicit_frame,
         "set_speed must encode the speed it was given"
     );
@@ -428,33 +272,33 @@ fn motion_sync_speed_helper_drives_its_explicit_preset() {
         .motion_sync()
         .set_speed(MotionSyncSpeed::new(1).expect("motion sync speed"))
         .expect("typed helper");
-    assert_ne!(one_frame(&writes), explicit_frame);
+    assert_ne!(fake.take_only_payload(), explicit_frame);
 
     // The bound lives in the argument type, so an out-of-range speed cannot be
     // constructed and therefore cannot reach the wire.
     assert!(MotionSyncSpeed::new(0).is_err());
     assert!(MotionSyncSpeed::new(25).is_err());
-    assert!(drain(&writes).is_empty());
+    assert!(fake.take_payloads().is_empty());
 
     session.shutdown().expect("shutdown");
 }
 
 #[test]
-fn no_argument_is_moving_samples_every_mechanical_movement_axis() {
-    let (session, writes) = ptz_session();
+fn default_motion_query_samples_every_mechanical_movement_axis() {
+    let (session, fake) = ptz_session();
     let camera = session.camera::<PtzOpticsG2>().expect("camera");
 
     assert!(!camera
         .motion()
-        .is_moving()
-        .expect("no-argument motion query"));
-    let default_frames = drain(&writes);
+        .is_moving(MotionQuery::default())
+        .expect("default motion query"));
+    let default_frames = fake.take_payloads();
 
     assert!(!camera
         .motion()
-        .is_moving_axes(MotionQuery::new(AffectedAxes::MOVEMENT))
+        .is_moving(MotionQuery::new(AffectedAxes::MOVEMENT))
         .expect("explicit motion query"));
-    let explicit_frames = drain(&writes);
+    let explicit_frames = fake.take_payloads();
 
     assert_eq!(default_frames, explicit_frames);
     // Two complete snapshots over pan/tilt, zoom, and focus.
@@ -468,7 +312,7 @@ fn no_argument_is_moving_samples_every_mechanical_movement_axis() {
 /// polling above 5 Hz, and it never delays an urgent stop command.
 #[test]
 fn successful_raw_inquiries_keep_polling_fast_and_urgent_stop_immediate() {
-    let (session, writes) = ptz_session();
+    let (session, fake) = ptz_session();
     let camera = session.camera::<PtzOpticsG2>().expect("camera");
 
     let polling_started = Instant::now();
@@ -482,7 +326,7 @@ fn successful_raw_inquiries_keep_polling_fast_and_urgent_stop_immediate() {
     );
 
     let stop_started = Instant::now();
-    let stop = camera.zoom().stop().expect("urgent stop reaches the wire");
+    let mut stop = camera.zoom().stop().expect("urgent stop reaches the wire");
     let stop_latency = stop_started.elapsed();
     assert!(
         stop_latency < Duration::from_millis(50),
@@ -490,20 +334,20 @@ fn successful_raw_inquiries_keep_polling_fast_and_urgent_stop_immediate() {
     );
     stop.applied().expect("urgent stop applies");
 
-    assert_eq!(drain(&writes).len(), 7);
+    assert_eq!(fake.take_payloads().len(), 7);
     session.shutdown().expect("shutdown");
 }
 
 #[test]
 fn named_idle_wait_presets_poll_only_their_own_axis() {
-    let (session, writes) = ptz_session();
+    let (session, fake) = ptz_session();
     let camera = session.camera::<PtzOpticsG2>().expect("camera");
 
     camera
         .motion()
         .wait_until_idle(IdleWait::for_zoom().with_interval(Duration::ZERO))
         .expect("zoom idle wait");
-    let frames = drain(&writes);
+    let frames = fake.take_payloads();
     assert!(!frames.is_empty());
     assert!(
         frames
@@ -514,9 +358,9 @@ fn named_idle_wait_presets_poll_only_their_own_axis() {
 
     camera
         .motion()
-        .wait_until_idle(IdleWait::from(Duration::from_secs(1)).with_interval(Duration::ZERO))
+        .wait_until_idle(IdleWait::from(Duration::from_secs(30)).with_interval(Duration::ZERO))
         .expect("duration idle wait");
-    let frames = drain(&writes);
+    let frames = fake.take_payloads();
     assert!(frames
         .iter()
         .any(|bytes| bytes.as_slice() == [0x81, 0x09, 0x06, 0x12, 0xff]));
@@ -535,7 +379,7 @@ fn named_idle_wait_presets_poll_only_their_own_axis() {
 
 #[test]
 fn typed_cameras_expose_their_runtime_capability_inventory() {
-    let (session, _writes) = ptz_session();
+    let (session, _fake) = ptz_session();
     let camera = session.camera::<PtzOpticsG2>().expect("camera");
     let capabilities = camera.capabilities();
     assert_eq!(capabilities.model_name, "PtzOptics G2");
@@ -555,7 +399,7 @@ fn typed_cameras_expose_their_runtime_capability_inventory() {
 
 #[test]
 fn typed_cache_getters_decode_the_combined_flip_pair() {
-    let (session, _writes) = ptz_session();
+    let (session, _fake) = ptz_session();
     let camera = session.camera::<PtzOpticsG2>().expect("camera");
     let cache = camera.state_cache();
 
@@ -595,7 +439,7 @@ fn typed_cache_getters_decode_the_combined_flip_pair() {
 
 #[test]
 fn typed_cache_getters_decode_pan_tilt_limit_updates() {
-    let (session, writes) = ptz_session();
+    let (session, fake) = ptz_session();
     let camera = session.camera::<PtzOpticsG2>().expect("camera");
     let cache = camera.state_cache();
 
@@ -610,7 +454,7 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
         )
         .expect("limit set");
     assert_eq!(
-        one_frame(&writes),
+        fake.take_only_payload(),
         [
             0x81, 0x01, 0x06, 0x07, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
             0xFF,
@@ -637,7 +481,7 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
         )
         .expect("limit set");
     assert_eq!(
-        one_frame(&writes),
+        fake.take_only_payload(),
         [
             0x81, 0x01, 0x06, 0x07, 0x00, 0x01, 0x00, 0x05, 0x01, 0x00, 0x00, 0x01, 0x0B, 0x00,
             0xFF,
@@ -658,7 +502,7 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
         .limit_clear(PanTiltLimitCorner::DownLeft)
         .expect("limit clear");
     assert_eq!(
-        one_frame(&writes),
+        fake.take_only_payload(),
         [
             0x81, 0x01, 0x06, 0x07, 0x01, 0x00, 0x07, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F, 0x0F,
             0xFF,
@@ -674,7 +518,7 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
         .limit_clear(PanTiltLimitCorner::UpRight)
         .expect("limit clear");
     assert_eq!(
-        one_frame(&writes),
+        fake.take_only_payload(),
         [
             0x81, 0x01, 0x06, 0x07, 0x01, 0x01, 0x07, 0x0F, 0x0F, 0x0F, 0x07, 0x0F, 0x0F, 0x0F,
             0xFF,
@@ -694,7 +538,7 @@ fn typed_cache_getters_decode_pan_tilt_limit_updates() {
 fn ptzoptics_tally_mode_candidates_are_rejected_on_fr7() {
     use grafton_visca::command::{TallyFlash, TallyOff, TallyOn};
 
-    let (session, writes) = fr7_session();
+    let (session, fake) = fr7_session();
     let camera = session.camera::<SonyFR7>().expect("camera");
     let cache = camera.state_cache();
 
@@ -710,7 +554,7 @@ fn ptzoptics_tally_mode_candidates_are_rejected_on_fr7() {
         );
     }
     assert!(
-        drain(&writes).is_empty(),
+        fake.take_payloads().is_empty(),
         "rejected tally rows must not reach I/O"
     );
     assert_eq!(cache.tally_mode(), None);
@@ -723,7 +567,7 @@ fn ptzoptics_tally_mode_candidates_are_rejected_on_fr7() {
 fn direct_vendor_tally_mode_rejection_does_not_mutate_cache() {
     use grafton_visca::command::{TallyFlash, TallyOff, TallyOn};
 
-    let (session, writes) = fr7_session();
+    let (session, fake) = fr7_session();
     let camera = session.camera::<SonyFR7>().expect("camera");
     let cache = camera.state_cache();
 
@@ -740,7 +584,7 @@ fn direct_vendor_tally_mode_rejection_does_not_mutate_cache() {
         );
     }
     assert!(
-        drain(&writes).is_empty(),
+        fake.take_payloads().is_empty(),
         "rejected tally rows must not reach I/O"
     );
     assert_eq!(cache.tally_mode(), None);
@@ -752,7 +596,7 @@ fn direct_vendor_tally_mode_rejection_does_not_mutate_cache() {
 /// was tested, the getter that reads it back was not.
 #[test]
 fn typed_cache_getters_decode_the_focus_lock_mode() {
-    let (session, _writes) = ptz_session();
+    let (session, _fake) = ptz_session();
     let camera = session.camera::<PtzOpticsG2>().expect("camera");
     let cache = camera.state_cache();
 
@@ -777,7 +621,7 @@ fn typed_cache_getters_decode_the_focus_lock_mode() {
 /// brightness remains unknown.
 #[test]
 fn typed_cache_getters_decode_the_remaining_write_only_keys() {
-    let (session, _writes) = fr7_session();
+    let (session, _fake) = fr7_session();
     let camera = session.camera::<SonyFR7>().expect("camera");
     let cache = camera.state_cache();
 
@@ -811,7 +655,7 @@ fn typed_cache_getters_decode_the_remaining_write_only_keys() {
 
 #[test]
 fn typed_cache_getters_decode_the_sony_write_only_toggles() {
-    let (session, _writes) = fr7_session();
+    let (session, _fake) = fr7_session();
     let camera = session.camera::<SonyFR7>().expect("camera");
     let cache = camera.state_cache();
 
@@ -823,7 +667,7 @@ fn typed_cache_getters_decode_the_sony_write_only_toggles() {
 
     session.shutdown().expect("shutdown");
 
-    let (session, _writes) = evi_h100_session();
+    let (session, _fake) = evi_h100_session();
     let camera = session.camera::<SonyEVIH100>().expect("camera");
     let cache = camera.state_cache();
 
@@ -845,7 +689,7 @@ fn typed_cache_getters_decode_the_sony_write_only_toggles() {
 
 #[test]
 fn typed_cache_getters_decode_the_scalar_and_boolean_keys() {
-    let (session, writes) = ptz_session();
+    let (session, fake) = ptz_session();
     let camera = session.camera::<PtzOpticsG2>().expect("camera");
     let cache = camera.state_cache();
 
@@ -871,7 +715,7 @@ fn typed_cache_getters_decode_the_scalar_and_boolean_keys() {
         .expect("ndi quality");
     assert_eq!(cache.ndi_quality(), Some(NdiQuality::Medium));
 
-    let writes_before = writes.lock().expect("writes lock").len();
+    let writes_before = fake.write_count();
     let error = camera
         .execute(&grafton_visca::command::ImageFreeze::on())
         .expect_err("unsupported image-freeze must be rejected before I/O");
@@ -880,7 +724,7 @@ fn typed_cache_getters_decode_the_scalar_and_boolean_keys() {
         "image-freeze must be rejected by the profile gate: {error:?}"
     );
     assert_eq!(
-        writes.lock().expect("writes lock").len(),
+        fake.write_count(),
         writes_before,
         "rejected image-freeze must not reach I/O"
     );
@@ -891,7 +735,7 @@ fn typed_cache_getters_decode_the_scalar_and_boolean_keys() {
 
 #[test]
 fn typed_cache_getters_decode_the_nd_filter_keys() {
-    let (session, _writes) = fr7_session();
+    let (session, _fake) = fr7_session();
     let camera = session.camera::<SonyFR7>().expect("camera");
     let cache = camera.state_cache();
 

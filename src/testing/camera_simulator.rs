@@ -20,9 +20,10 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
+use super::frames;
 use crate::{
     command::bytes::VISCA_TERMINATOR,
-    transport::{builder::TransportConfig, AsyncTransport, HasTransportConfig},
+    transport::{builder::TransportConfig, AsyncTransport, HasTransportConfig, ReceiveOutcome},
     Error,
 };
 
@@ -178,7 +179,7 @@ impl Default for CameraState {
 
 struct SimulatorInner {
     // Socket management
-    socket_states: RwLock<[SocketState; 2]>,
+    socket_states: RwLock<Vec<SocketState>>,
 
     // Response management
     response_broadcaster: broadcast::Sender<Vec<u8>>,
@@ -256,7 +257,7 @@ impl ViscaCameraSimulator {
         let (tx, rx) = broadcast::channel(100);
 
         let inner = Arc::new(SimulatorInner {
-            socket_states: RwLock::new([SocketState::Free, SocketState::Free]),
+            socket_states: RwLock::new(vec![SocketState::Free; config.max_sockets]),
             response_broadcaster: tx,
             config,
             stats: RwLock::new(SimulatorStats::default()),
@@ -296,7 +297,7 @@ impl ViscaCameraSimulator {
                     if now >= *completion_time {
                         // Send completion response
                         let socket_num = (socket_idx + 1) as u8;
-                        let completion = make_completion_response(socket_num);
+                        let completion = frames::complete(socket_num);
 
                         // Add a small delay to ensure ACK is received first
                         sleep(Duration::from_millis(1)).await;
@@ -364,7 +365,7 @@ impl ViscaCameraSimulator {
 
         if usb_audio_inquiry {
             let status = if state.usb_audio_enabled { 0x02 } else { 0x03 };
-            return Some(vec![0x90, 0x50, status, VISCA_TERMINATOR]);
+            return Some(frames::inquiry_reply(&[status]));
         }
 
         // Parse inquiry type from command bytes.
@@ -372,16 +373,14 @@ impl ViscaCameraSimulator {
             // Power inquiry: 0x81 0x09 0x04 0x00 0xFF
             (Some(0x04), Some(0x00)) => {
                 let status = if state.power_on { 0x02 } else { 0x03 };
-                Some(vec![0x90, 0x50, status, VISCA_TERMINATOR])
+                Some(frames::inquiry_reply(&[status]))
             }
 
             // Pan/Tilt position inquiry: 0x81 0x09 0x06 0x12 0xFF
             (Some(0x06), Some(0x12)) => {
                 let pan_bytes = encode_signed_position(state.pan_position);
                 let tilt_bytes = encode_signed_position(state.tilt_position);
-                Some(vec![
-                    0x90,
-                    0x50,
+                Some(frames::inquiry_reply(&[
                     pan_bytes[0],
                     pan_bytes[1],
                     pan_bytes[2],
@@ -390,56 +389,44 @@ impl ViscaCameraSimulator {
                     tilt_bytes[1],
                     tilt_bytes[2],
                     tilt_bytes[3],
-                    VISCA_TERMINATOR,
-                ])
+                ]))
             }
 
             // Zoom position inquiry: 0x81 0x09 0x04 0x47 0xFF
             (Some(0x04), Some(0x47)) => {
                 let zoom_bytes = encode_position(state.zoom_position);
-                Some(vec![
-                    0x90,
-                    0x50,
+                Some(frames::inquiry_reply(&[
                     zoom_bytes[0],
                     zoom_bytes[1],
                     zoom_bytes[2],
                     zoom_bytes[3],
-                    VISCA_TERMINATOR,
-                ])
+                ]))
             }
 
             // Focus position inquiry: 0x81 0x09 0x04 0x48 0xFF
             (Some(0x04), Some(0x48)) => {
                 let focus_bytes = encode_position(state.focus_position);
-                Some(vec![
-                    0x90,
-                    0x50,
+                Some(frames::inquiry_reply(&[
                     focus_bytes[0],
                     focus_bytes[1],
                     focus_bytes[2],
                     focus_bytes[3],
-                    VISCA_TERMINATOR,
-                ])
+                ]))
             }
 
             // Focus near limit inquiry: 0x81 0x09 0x04 0x28 0xFF
             (Some(0x04), Some(0x28)) => {
                 let limit_bytes = encode_position(state.focus_near_limit);
-                Some(vec![
-                    0x90,
-                    0x50,
+                Some(frames::inquiry_reply(&[
                     limit_bytes[0],
                     limit_bytes[1],
                     limit_bytes[2],
                     limit_bytes[3],
-                    VISCA_TERMINATOR,
-                ])
+                ]))
             }
 
             // Exposure mode inquiry: 0x81 0x09 0x04 0x39 0xFF
-            (Some(0x04), Some(0x39)) => {
-                Some(vec![0x90, 0x50, state.exposure_mode, VISCA_TERMINATOR])
-            }
+            (Some(0x04), Some(0x39)) => Some(frames::inquiry_reply(&[state.exposure_mode])),
 
             // Exposure compensation inquiry: 0x81 0x09 0x04 0x4E 0xFF
             (Some(0x04), Some(0x4E)) => {
@@ -448,15 +435,7 @@ impl ViscaCameraSimulator {
                 let adjusted_value = (state.exposure_compensation + 7) as u8;
                 let nibble_high = (adjusted_value >> 4) & 0x0F;
                 let nibble_low = adjusted_value & 0x0F;
-                let response = vec![
-                    0x90,
-                    0x50,
-                    0x00,
-                    0x00,
-                    nibble_high,
-                    nibble_low,
-                    VISCA_TERMINATOR,
-                ];
+                let response = frames::inquiry_reply(&[0x00, 0x00, nibble_high, nibble_low]);
                 tracing::debug!("Exposure compensation inquiry response: {:02X?}", response);
                 Some(response)
             }
@@ -468,7 +447,7 @@ impl ViscaCameraSimulator {
                 } else {
                     0x03
                 };
-                Some(vec![0x90, 0x50, status, VISCA_TERMINATOR])
+                Some(frames::inquiry_reply(&[status]))
             }
 
             // Exposure compensation on/off inquiry: 0x81 0x09 0x04 0x3F 0xFF
@@ -478,144 +457,113 @@ impl ViscaCameraSimulator {
                 } else {
                     0x03
                 };
-                Some(vec![0x90, 0x50, status, VISCA_TERMINATOR])
+                Some(frames::inquiry_reply(&[status]))
             }
 
             // Iris inquiry: 0x81 0x09 0x04 0x4B 0xFF
             (Some(0x04), Some(0x4B)) => {
                 let iris_bytes = encode_position(state.iris_position);
-                Some(vec![
-                    0x90,
-                    0x50,
+                Some(frames::inquiry_reply(&[
                     iris_bytes[0],
                     iris_bytes[1],
                     iris_bytes[2],
                     iris_bytes[3],
-                    VISCA_TERMINATOR,
-                ])
+                ]))
             }
 
             // Shutter inquiry: 0x81 0x09 0x04 0x4A 0xFF
             (Some(0x04), Some(0x4A)) => {
                 // Shutter speed needs to be encoded as 4 nibbles
                 let shutter_bytes = encode_position(state.shutter_speed as u16);
-                Some(vec![
-                    0x90,
-                    0x50,
+                Some(frames::inquiry_reply(&[
                     shutter_bytes[0],
                     shutter_bytes[1],
                     shutter_bytes[2],
                     shutter_bytes[3],
-                    VISCA_TERMINATOR,
-                ])
+                ]))
             }
 
             // Brightness inquiry: 0x81 0x09 0x04 0x4D 0xFF
             (Some(0x04), Some(0x4D)) => {
                 // Brightness needs to be encoded as 4 nibbles
                 let bright_bytes = encode_position(state.brightness as u16);
-                Some(vec![
-                    0x90,
-                    0x50,
+                Some(frames::inquiry_reply(&[
                     bright_bytes[0],
                     bright_bytes[1],
                     bright_bytes[2],
                     bright_bytes[3],
-                    VISCA_TERMINATOR,
-                ])
+                ]))
             }
 
             // Gain inquiry: 0x81 0x09 0x04 0x4C 0xFF
             (Some(0x04), Some(0x4C)) => {
                 // Gain needs to be encoded as 4 nibbles
                 let gain_bytes = encode_position(state.gain_level as u16);
-                Some(vec![
-                    0x90,
-                    0x50,
+                Some(frames::inquiry_reply(&[
                     gain_bytes[0],
                     gain_bytes[1],
                     gain_bytes[2],
                     gain_bytes[3],
-                    VISCA_TERMINATOR,
-                ])
+                ]))
             }
 
             // Gain limit inquiry: 0x81 0x09 0x04 0x2C 0xFF
-            (Some(0x04), Some(0x2C)) => Some(vec![0x90, 0x50, state.gain_limit, VISCA_TERMINATOR]),
+            (Some(0x04), Some(0x2C)) => Some(frames::inquiry_reply(&[state.gain_limit])),
 
             // Backlight inquiry: 0x81 0x09 0x04 0x33 0xFF
             (Some(0x04), Some(0x33)) => {
                 let status = if state.backlight_enabled { 0x02 } else { 0x03 };
-                Some(vec![0x90, 0x50, status, VISCA_TERMINATOR])
+                Some(frames::inquiry_reply(&[status]))
             }
 
             // White balance mode inquiry: 0x81 0x09 0x04 0x35 0xFF
-            (Some(0x04), Some(0x35)) => {
-                Some(vec![0x90, 0x50, state.white_balance_mode, VISCA_TERMINATOR])
-            }
+            (Some(0x04), Some(0x35)) => Some(frames::inquiry_reply(&[state.white_balance_mode])),
 
             // Color temperature inquiry: 0x81 0x09 0x04 0x20 0xFF
             // G2 cameras return a single raw byte (not 4 nibbles)
             (Some(0x04), Some(0x20)) => {
                 let temp_value = state.color_temperature as u8;
-                Some(vec![0x90, 0x50, temp_value, VISCA_TERMINATOR])
+                Some(frames::inquiry_reply(&[temp_value]))
             }
 
             // Contrast inquiry: 0x81 0x09 0x04 0xA2 0xFF
             (Some(0x04), Some(0xA2)) => {
                 let contrast_bytes = encode_position(state.contrast as u16);
-                Some(vec![
-                    0x90,
-                    0x50,
+                Some(frames::inquiry_reply(&[
                     contrast_bytes[0],
                     contrast_bytes[1],
                     contrast_bytes[2],
                     contrast_bytes[3],
-                    VISCA_TERMINATOR,
-                ])
+                ]))
             }
 
             // Saturation inquiry: 0x81 0x09 0x04 0x49 0xFF
             (Some(0x04), Some(0x49)) => {
                 // Saturation needs to be encoded as 4 nibbles
                 let sat_bytes = encode_position(state.saturation as u16);
-                Some(vec![
-                    0x90,
-                    0x50,
+                Some(frames::inquiry_reply(&[
                     sat_bytes[0],
                     sat_bytes[1],
                     sat_bytes[2],
                     sat_bytes[3],
-                    VISCA_TERMINATOR,
-                ])
+                ]))
             }
 
             // Hue inquiry: 0x81 0x09 0x04 0x4F 0xFF
             (Some(0x04), Some(0x4F)) => {
                 // Hue needs to be encoded as 4 nibbles, with the value in the last position
-                Some(vec![
-                    0x90,
-                    0x50,
-                    0x00,
-                    0x00,
-                    0x00,
-                    state.hue,
-                    VISCA_TERMINATOR,
-                ])
+                Some(frames::inquiry_reply(&[0x00, 0x00, 0x00, state.hue]))
             }
 
             // Luminance inquiry: 0x81 0x09 0x04 0xA1 0xFF
             (Some(0x04), Some(0xA1)) => {
                 let luminance_bytes = encode_position(state.luminance as u16);
-                Some(vec![
-                    0x90,
-                    0x50,
+                Some(frames::inquiry_reply(&[
                     luminance_bytes[0],
                     luminance_bytes[1],
                     luminance_bytes[2],
                     luminance_bytes[3],
-                    VISCA_TERMINATOR,
-                ])
+                ]))
             }
 
             // Combined flip inquiry (CAM_FlipInq): 0x81 0x09 0x04 0xA4 0xFF
@@ -626,27 +574,23 @@ impl ViscaCameraSimulator {
                     (true, false) => 0x02,  // Vertical
                     (true, true) => 0x03,   // Both
                 };
-                Some(vec![0x90, 0x50, flip_mode, VISCA_TERMINATOR])
+                Some(frames::inquiry_reply(&[flip_mode]))
             }
 
             // Noise reduction 2D mode inquiry: 0x81 0x09 0x04 0x50 0xFF
-            (Some(0x04), Some(0x50)) => Some(vec![0x90, 0x50, 0x02, VISCA_TERMINATOR]),
+            (Some(0x04), Some(0x50)) => Some(frames::inquiry_reply(&[0x02])),
 
             // Noise reduction 2D inquiry: 0x81 0x09 0x04 0x53 0xFF
-            (Some(0x04), Some(0x53)) => {
-                Some(vec![0x90, 0x50, state.noise_reduction_2d, VISCA_TERMINATOR])
-            }
+            (Some(0x04), Some(0x53)) => Some(frames::inquiry_reply(&[state.noise_reduction_2d])),
 
             // Noise reduction 3D inquiry: 0x81 0x09 0x04 0x54 0xFF
-            (Some(0x04), Some(0x54)) => {
-                Some(vec![0x90, 0x50, state.noise_reduction_3d, VISCA_TERMINATOR])
-            }
+            (Some(0x04), Some(0x54)) => Some(frames::inquiry_reply(&[state.noise_reduction_3d])),
 
             // Focus mode inquiry: 0x81 0x09 0x04 0x38 0xFF
-            (Some(0x04), Some(0x38)) => Some(vec![0x90, 0x50, state.focus_mode, VISCA_TERMINATOR]),
+            (Some(0x04), Some(0x38)) => Some(frames::inquiry_reply(&[state.focus_mode])),
 
             // Focus zone inquiry: 0x81 0x09 0x04 0xAA 0xFF
-            (Some(0x04), Some(0xAA)) => Some(vec![0x90, 0x50, state.focus_zone, VISCA_TERMINATOR]),
+            (Some(0x04), Some(0xAA)) => Some(frames::inquiry_reply(&[state.focus_zone])),
 
             // NOTE: AutoFocus inquiry is not documented in VISCA specs
             // and has been disabled until proper documentation is found.
@@ -654,13 +598,11 @@ impl ViscaCameraSimulator {
             // // Auto focus inquiry: 0x81 0x09 0x04 0x18 0xFF
             // (Some(0x04), Some(0x18)) => {
             //     let status = if state.auto_focus_enabled { 0x02 } else { 0x03 };
-            //     Some(vec![0x90, 0x50, status, VISCA_TERMINATOR])
+            //     Some(frames::inquiry_reply(&[status]))
             // }
 
             // Picture effect inquiry: 0x81 0x09 0x04 0x63 0xFF
-            (Some(0x04), Some(0x63)) => {
-                Some(vec![0x90, 0x50, state.picture_effect, VISCA_TERMINATOR])
-            }
+            (Some(0x04), Some(0x63)) => Some(frames::inquiry_reply(&[state.picture_effect])),
 
             _ => {
                 tracing::warn!(
@@ -745,7 +687,7 @@ impl AsyncTransport for ViscaCameraSimulator {
         }) {
             let mut stats = inner.stats.write().await;
             stats.packets_dropped += 1;
-            return Err(Error::Timeout);
+            return Err(Error::io_timeout());
         }
 
         // Check if this is an inquiry command
@@ -805,7 +747,7 @@ impl AsyncTransport for ViscaCameraSimulator {
             }
 
             // Send ACK immediately
-            let ack = make_ack_response(socket_num);
+            let ack = frames::ack(socket_num);
             let _ = inner.response_broadcaster.send(ack);
 
             Ok(())
@@ -814,14 +756,14 @@ impl AsyncTransport for ViscaCameraSimulator {
             let mut stats = inner.stats.write().await;
             stats.busy_responses_sent += 1;
 
-            let busy = make_busy_response(1);
+            let busy = frames::buffer_full();
             let _ = inner.response_broadcaster.send(busy);
 
             Ok(())
         }
     }
 
-    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         let inner = self.inner.clone();
         let receiver = self.receiver.clone();
         let jitter = self.calculate_jitter();
@@ -839,8 +781,8 @@ impl AsyncTransport for ViscaCameraSimulator {
             // Wait for response with timeout
             match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
                 Ok(Ok(response)) => response,
-                Ok(Err(_)) => return Err(Error::Timeout),
-                Err(_) => return Err(Error::Timeout),
+                Ok(Err(_)) => return Err(Error::io_timeout()),
+                Err(_) => return Err(Error::io_timeout()),
             }
         } else {
             // Fallback: create a new subscriber
@@ -849,15 +791,12 @@ impl AsyncTransport for ViscaCameraSimulator {
             // Wait for response with timeout
             match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
                 Ok(Ok(response)) => response,
-                Ok(Err(_)) => return Err(Error::Timeout),
-                Err(_) => return Err(Error::Timeout),
+                Ok(Err(_)) => return Err(Error::io_timeout()),
+                Err(_) => return Err(Error::io_timeout()),
             }
         };
 
-        // Copy response data into the provided buffer
-        let len = response.len().min(dst.len());
-        dst[..len].copy_from_slice(&response[..len]);
-        Ok(len)
+        Ok(ReceiveOutcome::copy_message(&response, dst))
     }
 }
 
@@ -923,18 +862,6 @@ impl SimulatorBuilder {
 }
 
 // Helper functions for VISCA response generation
-fn make_ack_response(socket_num: u8) -> Vec<u8> {
-    vec![0x90, 0x40 | socket_num, VISCA_TERMINATOR]
-}
-
-fn make_completion_response(socket_num: u8) -> Vec<u8> {
-    vec![0x90, 0x50 | socket_num, VISCA_TERMINATOR]
-}
-
-fn make_busy_response(socket_num: u8) -> Vec<u8> {
-    vec![0x90, 0x60 | socket_num, 0x03, VISCA_TERMINATOR]
-}
-
 // Helper functions for encoding position values
 fn encode_position(value: u16) -> [u8; 4] {
     [
@@ -1035,6 +962,25 @@ mod tests {
         let response = rx.recv().await.expect("should receive completion");
         assert_eq!(response[0], 0x90);
         assert_eq!(response[1] & 0xF0, 0x50); // Completion response
+    }
+
+    #[tokio::test]
+    async fn busy_simulator_refuses_with_the_one_buffer_full_frame() {
+        let mut simulator = ViscaCameraSimulator::builder()
+            .with_socket_count(1)
+            .with_command_execution_time(CommandType::Zoom, Duration::from_secs(60))
+            .build();
+        let mut rx = simulator.inner.response_broadcaster.subscribe();
+        let zoom = [0x81, 0x01, 0x04, 0x07, 0x02, VISCA_TERMINATOR];
+
+        simulator.send(&zoom).await.expect("first command is sent");
+        assert_eq!(rx.recv().await.expect("ACK"), frames::ack(1));
+        simulator.send(&zoom).await.expect("second command is sent");
+        assert_eq!(
+            rx.recv().await.expect("Buffer Full"),
+            frames::buffer_full(),
+            "the simulator emits the socketless Buffer Full frame"
+        );
     }
 
     #[tokio::test]

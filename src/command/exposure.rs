@@ -6,8 +6,7 @@
 use grafton_visca_macros::ViscaEnum;
 
 use crate::{
-    command::encode::WireEncode,
-    error::Error,
+    command::bytes::{constants::exposure, step_command_encoder},
     types::{
         BrightnessLevel, DynamicRangeLevel, ExposureCompensationLevel, IrisLevel, ShutterSpeed,
     },
@@ -38,15 +37,15 @@ pub enum ExposureMode {
 }
 
 visca_command! {
-        /// Command to set the camera's exposure mode.
+    /// Command to set the camera's exposure mode.
     ///
     /// This command allows switching between different exposure modes such as
     /// auto, manual, shutter priority, iris priority, or brightness priority.
     pub struct ExposureCommand {
         mode: ExposureMode,
     };
-    prefix = [0x01, 0x04, 0x39];
-    param = *mode as u8;
+    prefix = exposure::MODE;
+    param = u8::from(*mode);
     max_param_size = 1;
 }
 
@@ -77,57 +76,18 @@ pub enum ExposureCompensation {
     SetLevel(ExposureCompensationLevel),
 }
 
-impl WireEncode for ExposureCompensation {
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        use crate::command::bytes::{constants, ConstCommandBuilder};
-
-        match self {
-            Self::On | Self::Off => {
-                let mut builder = ConstCommandBuilder::<6>::new();
-                builder.append_mut(constants::exposure::COMPENSATION_ON_OFF_PREFIX);
-                builder.push_mut(match self {
-                    Self::On => 0x02,
-                    Self::Off => 0x03,
-                    _ => unreachable!(),
-                });
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-            Self::Reset | Self::Up | Self::Down => {
-                let mut builder = ConstCommandBuilder::<6>::new();
-                builder.append_mut(constants::exposure::COMPENSATION_CONTROL_PREFIX);
-                builder.push_mut(match self {
-                    Self::Reset => 0x00,
-                    Self::Up => 0x02,
-                    Self::Down => 0x03,
-                    _ => unreachable!(),
-                });
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-            Self::SetLevel(level) => {
-                let mut builder = ConstCommandBuilder::<9>::new();
-                builder.append_mut(constants::exposure::COMPENSATION_LEVEL_PREFIX);
-                builder.push_mut(level.to_protocol_value());
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-        }
+step_command_encoder! {
+    ExposureCompensation {
+        control: exposure::COMPENSATION_STEP,
+        direct: exposure::COMPENSATION_DIRECT,
+        SetLevel(level) => nibbles::<2>(level.to_protocol_value()),
+        Self::On => |frame| frame.bytes(&exposure::COMPENSATION_SWITCH).byte(0x02),
+        Self::Off => |frame| frame.bytes(&exposure::COMPENSATION_SWITCH).byte(0x03),
     }
 }
 
 visca_command! {
-        /// Commands for controlling the camera's dynamic range.
+    /// Commands for controlling the camera's dynamic range.
     ///
     /// Dynamic range control adjusts the camera's ability to capture detail
     /// in both bright and dark areas of a scene simultaneously. Higher values
@@ -136,7 +96,7 @@ visca_command! {
     pub struct DynamicRange {
         level: DynamicRangeLevel,
     };
-    prefix = [0x01, 0x04, 0x25, 0x00, 0x00, 0x00];
+    prefix = exposure::DYNAMIC_RANGE;
     param = level.value();
     max_param_size = 1;
 }
@@ -166,39 +126,11 @@ pub enum Iris {
     SetAperture(IrisLevel),
 }
 
-impl WireEncode for Iris {
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        use crate::command::bytes::{constants, ConstCommandBuilder};
-
-        match self {
-            Self::Reset | Self::Up | Self::Down => {
-                let mut builder = ConstCommandBuilder::<6>::new();
-                builder.append_mut(constants::exposure::IRIS_CONTROL_PREFIX);
-                builder.push_mut(match self {
-                    Self::Reset => 0x00,
-                    Self::Up => 0x02,
-                    Self::Down => 0x03,
-                    _ => unreachable!(),
-                });
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-            Self::SetAperture(level) => {
-                let mut builder = ConstCommandBuilder::<9>::new();
-                builder.append_mut(constants::exposure::IRIS_DIRECT_PREFIX);
-                builder.push_nibble_pair_mut(level.value() as u16);
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-        }
+step_command_encoder! {
+    Iris {
+        control: exposure::IRIS_STEP,
+        direct: exposure::IRIS_DIRECT,
+        SetAperture(level) => nibbles::<2>(level.value()),
     }
 }
 
@@ -220,39 +152,11 @@ pub enum Shutter {
     SetSpeed(ShutterSpeed),
 }
 
-impl WireEncode for Shutter {
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        use crate::command::bytes::{constants, ConstCommandBuilder};
-
-        match self {
-            Self::Reset | Self::Up | Self::Down => {
-                let mut builder = ConstCommandBuilder::<6>::new();
-                builder.append_mut(constants::exposure::SHUTTER_CONTROL_PREFIX);
-                builder.push_mut(match self {
-                    Self::Reset => 0x00,
-                    Self::Up => 0x02,
-                    Self::Down => 0x03,
-                    _ => unreachable!(),
-                });
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-            Self::SetSpeed(speed) => {
-                let mut builder = ConstCommandBuilder::<9>::new();
-                builder.append_mut(constants::exposure::SHUTTER_DIRECT_PREFIX);
-                builder.push_nibble_pair_mut(speed.value());
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-        }
+step_command_encoder! {
+    Shutter {
+        control: exposure::SHUTTER_STEP,
+        direct: exposure::SHUTTER_DIRECT,
+        SetSpeed(speed) => nibbles::<2>(speed.value()),
     }
 }
 
@@ -269,39 +173,11 @@ pub enum Brightness {
     SetLevel(BrightnessLevel),
 }
 
-impl WireEncode for Brightness {
-    fn write_into(
-        &self,
-        camera_id: crate::camera_id::CameraId,
-        buffer: &mut [u8],
-    ) -> Result<usize, Error> {
-        use crate::command::bytes::{constants, ConstCommandBuilder};
-
-        match self {
-            Self::Reset | Self::Up | Self::Down => {
-                let mut builder = ConstCommandBuilder::<6>::new();
-                builder.append_mut(constants::exposure::BRIGHTNESS_CONTROL_PREFIX);
-                builder.push_mut(match self {
-                    Self::Reset => 0x00,
-                    Self::Up => 0x02,
-                    Self::Down => 0x03,
-                    _ => unreachable!(),
-                });
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-            Self::SetLevel(level) => {
-                let mut builder = ConstCommandBuilder::<9>::new();
-                builder.append_mut(constants::exposure::BRIGHTNESS_DIRECT_PREFIX);
-                builder.push_nibble_pair_mut(level.value());
-                builder
-                    .with_camera_id(camera_id)
-                    .terminate()
-                    .build_into(buffer)
-            }
-        }
+step_command_encoder! {
+    Brightness {
+        control: exposure::BRIGHT_STEP,
+        direct: exposure::BRIGHT_DIRECT,
+        SetLevel(level) => nibbles::<2>(level.value()),
     }
 }
 
@@ -331,8 +207,8 @@ visca_command! {
     pub struct AntiFlickerCommand {
         mode: AntiFlickerMode,
     };
-    prefix = [0x01, 0x04, 0x23];
-    param = *mode as u8;
+    prefix = exposure::ANTI_FLICKER;
+    param = u8::from(*mode);
     max_param_size = 1;
 }
 
@@ -344,91 +220,39 @@ impl AntiFlickerCommand {
 }
 
 visca_command! {
-        /// Turn spotlight on (Sony models).
+    /// Turn spotlight on (Sony models).
     ///
     /// Controls the spotlight feature which enhances exposure for specific subjects.
     pub struct SpotlightOn;
-    bytes = [0x01, 0x04, 0x3A, 0x02];
-}
-
-impl Default for SpotlightOn {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl SpotlightOn {
-    /// Create a new spotlight on command.
-    pub fn new() -> Self {
-        SpotlightOn
-    }
+    bytes = exposure::SPOTLIGHT_ON;
 }
 
 visca_command! {
-        /// Turn spotlight off (Sony models).
+    /// Turn spotlight off (Sony models).
     ///
     /// Controls the spotlight feature which enhances exposure for specific subjects.
     pub struct SpotlightOff;
-    bytes = [0x01, 0x04, 0x3A, 0x03];
-}
-
-impl Default for SpotlightOff {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl SpotlightOff {
-    /// Create a new spotlight off command.
-    pub fn new() -> Self {
-        SpotlightOff
-    }
+    bytes = exposure::SPOTLIGHT_OFF;
 }
 
 visca_command! {
-        /// Turn auto slow shutter on.
+    /// Turn auto slow shutter on.
     ///
     /// Controls the auto slow shutter feature which automatically reduces shutter speed
     /// in low light conditions to maintain proper exposure. The typed surface is
     /// restricted to source-backed `HasSonyAutoSlowShutter` profiles.
     pub struct AutoSlowShutterOn;
-    bytes = [0x01, 0x04, 0x5A, 0x02];
-}
-
-impl Default for AutoSlowShutterOn {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl AutoSlowShutterOn {
-    /// Create a new auto slow shutter on command.
-    pub fn new() -> Self {
-        AutoSlowShutterOn
-    }
+    bytes = exposure::AUTO_SLOW_SHUTTER_ON;
 }
 
 visca_command! {
-        /// Turn auto slow shutter off.
+    /// Turn auto slow shutter off.
     ///
     /// Controls the auto slow shutter feature which automatically reduces shutter speed
     /// in low light conditions to maintain proper exposure. The typed surface is
     /// restricted to source-backed `HasSonyAutoSlowShutter` profiles.
     pub struct AutoSlowShutterOff;
-    bytes = [0x01, 0x04, 0x5A, 0x03];
-}
-
-impl Default for AutoSlowShutterOff {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl AutoSlowShutterOff {
-    /// Create a new auto slow shutter off command.
-    pub fn new() -> Self {
-        AutoSlowShutterOff
-    }
+    bytes = exposure::AUTO_SLOW_SHUTTER_OFF;
 }
 
 #[cfg(test)]
@@ -436,6 +260,7 @@ impl AutoSlowShutterOff {
 mod tests {
     use super::*;
     use crate::command::bytes::VISCA_TERMINATOR;
+    use crate::command::encode::WireEncode;
     use crate::macros::test_utils::visca_test;
 
     visca_test!(
@@ -800,7 +625,7 @@ mod tests {
     visca_test!(
         Shutter,
         test_shutter_set_speed_01,
-        Shutter::SetSpeed(ShutterSpeed::new(0x01).unwrap()),
+        Shutter::SetSpeed(ShutterSpeed::new(0x01)),
         &[
             0x81,
             0x01,
@@ -817,7 +642,7 @@ mod tests {
     visca_test!(
         Shutter,
         test_shutter_set_speed_05,
-        Shutter::SetSpeed(ShutterSpeed::new(0x05).unwrap()),
+        Shutter::SetSpeed(ShutterSpeed::new(0x05)),
         &[
             0x81,
             0x01,
@@ -834,7 +659,7 @@ mod tests {
     visca_test!(
         Shutter,
         test_shutter_set_speed_10,
-        Shutter::SetSpeed(ShutterSpeed::new(0x10).unwrap()),
+        Shutter::SetSpeed(ShutterSpeed::new(0x10)),
         &[
             0x81,
             0x01,
@@ -851,7 +676,7 @@ mod tests {
     visca_test!(
         Shutter,
         test_shutter_set_speed_11,
-        Shutter::SetSpeed(ShutterSpeed::new(0x11).unwrap()),
+        Shutter::SetSpeed(ShutterSpeed::new(0x11)),
         &[
             0x81,
             0x01,
@@ -868,9 +693,7 @@ mod tests {
     #[test]
     fn test_shutter_valid_values() {
         for value in 0x01..=0x11 {
-            let speed =
-                ShutterSpeed::new(value).unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let _cmd = Shutter::SetSpeed(speed);
+            let _cmd = Shutter::SetSpeed(ShutterSpeed::new(value));
         }
     }
 
@@ -898,7 +721,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_set_level_00,
-        Brightness::SetLevel(BrightnessLevel::new(0x00).unwrap()),
+        Brightness::SetLevel(BrightnessLevel::new(0x00)),
         &[
             0x81,
             0x01,
@@ -915,7 +738,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_set_level_08,
-        Brightness::SetLevel(BrightnessLevel::new(0x08).unwrap()),
+        Brightness::SetLevel(BrightnessLevel::new(0x08)),
         &[
             0x81,
             0x01,
@@ -932,7 +755,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_set_level_10,
-        Brightness::SetLevel(BrightnessLevel::new(0x10).unwrap()),
+        Brightness::SetLevel(BrightnessLevel::new(0x10)),
         &[
             0x81,
             0x01,
@@ -949,7 +772,7 @@ mod tests {
     visca_test!(
         Bright,
         test_bright_set_level_11,
-        Brightness::SetLevel(BrightnessLevel::new(0x11).unwrap()),
+        Brightness::SetLevel(BrightnessLevel::new(0x11)),
         &[
             0x81,
             0x01,
@@ -964,12 +787,34 @@ mod tests {
     );
 
     #[test]
-    fn test_brightness_valid_values() {
-        for value in 0x00..=0x11 {
-            let level = BrightnessLevel::new(value)
+    fn every_bright_position_is_a_wire_byte() {
+        let mut buffer = [0; 16];
+        for value in u8::MIN..=u8::MAX {
+            let written = Brightness::SetLevel(BrightnessLevel::new(value))
+                .write_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)
                 .unwrap_or_else(|e| panic!("Test assertion failed: {e:?}"));
-            let _cmd = Brightness::SetLevel(level);
+            assert_eq!(
+                &buffer[..written],
+                &[
+                    0x81,
+                    0x01,
+                    0x04,
+                    0x4D,
+                    0x00,
+                    0x00,
+                    value >> 4,
+                    value & 0x0F,
+                    VISCA_TERMINATOR
+                ]
+            );
         }
+        assert!(BrightnessLevel::try_from(0x0100_u16).is_err());
+        assert_eq!(
+            BrightnessLevel::try_from(0x001F_u16)
+                .map(BrightnessLevel::value)
+                .ok(),
+            Some(0x1F)
+        );
     }
 
     visca_test!(

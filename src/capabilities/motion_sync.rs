@@ -6,9 +6,8 @@
 /// Motion Sync control API is available for a profile; use
 /// [`crate::capabilities::HasMotionSync`] for that compile-time support marker.
 pub trait MotionSyncMetadata {
-    /// Whether this camera supports motion sync.
-    const SUPPORTS_MOTION_SYNC: bool = false;
-
-    /// Maximum motion sync speed supported (1-24).
-    const MAX_MOTION_SYNC_SPEED: u8 = 24;
+    /// The motion-sync speeds this camera accepts, or `None` when it has no
+    /// motion sync. This one fact is the motion-sync discovery inventory;
+    /// both bounds lie in the [`crate::types::MotionSyncSpeed`] domain.
+    const MOTION_SYNC_SPEED_RANGE: Option<super::CapabilityRange<u8>> = None;
 }

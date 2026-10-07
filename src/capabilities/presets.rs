@@ -2,18 +2,20 @@
 
 use std::time::Duration;
 
-use crate::capabilities::{CapabilityRange, ValidationError};
+use crate::capabilities::{CapabilityRange, SupportedRange, ValidationError};
 
 /// Trait for cameras that support preset positions.
 ///
 /// This trait defines the constants and capabilities for preset management
 /// including storing, recalling, and touring preset positions.
 pub trait Presets {
-    /// Maximum number of presets supported (excluding home position).
-    const MAX_PRESETS: u8;
+    /// The highest preset memory number: the camera stores presets
+    /// `0..=HIGHEST_PRESET`.
+    const HIGHEST_PRESET: u8;
 
-    /// Valid range for preset movement speed.
-    const PRESET_SPEED_RANGE: CapabilityRange<u8>;
+    /// Preset recall speeds, or `None` when the camera documents no preset
+    /// recall speed.
+    const PRESET_SPEED_RANGE: Option<CapabilityRange<u8>>;
 
     /// Whether camera supports preset tour functionality.
     const SUPPORTS_PRESET_TOUR: bool;
@@ -37,30 +39,12 @@ pub trait PresetsExt: Presets {
     /// Validate preset number is within range.
     /// Note: Preset 0 is typically the home position.
     fn validate_preset_number(&self, preset: u8) -> Result<u8, ValidationError> {
-        if preset <= Self::MAX_PRESETS {
-            Ok(preset)
-        } else {
-            Err(ValidationError::OutOfRange {
-                parameter: "preset number",
-                value: preset as f64,
-                min: 0.0,
-                max: Self::MAX_PRESETS as f64,
-            })
-        }
+        CapabilityRange::<u8>::new(0, Self::HIGHEST_PRESET).validate("preset number", preset)
     }
 
     /// Validate preset recall speed.
     fn validate_preset_speed(&self, speed: u8) -> Result<u8, ValidationError> {
-        if Self::PRESET_SPEED_RANGE.contains(speed) {
-            Ok(speed)
-        } else {
-            Err(ValidationError::OutOfRange {
-                parameter: "preset speed",
-                value: speed as f64,
-                min: Self::PRESET_SPEED_RANGE.min() as f64,
-                max: Self::PRESET_SPEED_RANGE.max() as f64,
-            })
-        }
+        Self::PRESET_SPEED_RANGE.validate_supported("preset speed", speed)
     }
 
     /// Check if preset tour is supported.
@@ -84,6 +68,7 @@ impl<T: Presets> PresetsExt for T {}
 
 /// Preset tour configuration for cameras that support it.
 #[derive(Debug, Clone, PartialEq)]
+#[non_exhaustive]
 pub struct PresetTour {
     /// List of preset numbers to visit in order.
     pub presets: Vec<u8>,
@@ -132,8 +117,9 @@ mod tests {
     struct TestCamera;
 
     impl Presets for TestCamera {
-        const MAX_PRESETS: u8 = 89;
-        const PRESET_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(1, 24);
+        const HIGHEST_PRESET: u8 = 89;
+        const PRESET_SPEED_RANGE: Option<CapabilityRange<u8>> =
+            Some(CapabilityRange::<u8>::new(1, 24));
         const SUPPORTS_PRESET_TOUR: bool = true;
         const PRESET_RECALL_DELAY: Duration = Duration::from_millis(100);
     }

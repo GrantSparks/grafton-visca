@@ -1,0 +1,33 @@
+
+running 1 test
+test hw05_nr_level_zero_round_trip ... HW|t=0|profile.selected=G2 VISCA_PROFILE="g2"
+HW|t=0|profile.type=grafton_visca::camera::profiles::PtzOpticsG2 model_name="PtzOptics G2"
+HW|t=0|connect.tcp=cam4:5678
+HW|t=75|original.nr2d=Ok(NoiseReduction2DLevel(1))
+HW|t=237|original.nr2d_mode=Ok(Manual)
+HW|t=375|original.nr3d=Ok(NoiseReduction3DLevel(3))
+HW|t=375|check.original_nr2d_readable=true
+HW|t=375|check.original_nr2d_mode_readable=true
+HW|t=375|check.original_nr3d_readable=true
+HW|t=477|nr2d.set_level_zero=Ok(())
+HW|t=1013|nr2d.after_zero.level=Ok(NoiseReduction2DLevel(0))
+HW|t=1176|nr2d.after_zero.mode=Ok(Manual)
+HW|t=1176|observation.nr2d_readback_equals_zero=true
+HW|t=1176|observation.nr2d_mode_before=Manual after=Manual changed_by_level_set=false
+HW|t=1277|restore.nr2d.set=Ok(())
+HW|t=1836|restore.nr2d_mode.read=Ok(Manual)
+HW|t=1939|nr3d.set_level_zero=Ok(())
+HW|t=2475|nr3d.after_zero.level=Ok(NoiseReduction3DLevel(0))
+HW|t=2475|observation.nr3d_readback_equals_zero=true
+HW|t=2576|restore.nr3d.set=Ok(())
+HW|t=3437|restored.nr2d=Ok(NoiseReduction2DLevel(1))
+HW|t=3437|restored.nr2d_mode=Ok(Manual)
+HW|t=3437|restored.nr3d=Ok(NoiseReduction3DLevel(3))
+HW|t=3437|RESTORED nr2d=1 nr2d_mode=Manual nr3d=3
+HW|t=3437|check.restored_nr2d_equals_original=true
+HW|t=3437|check.restored_nr2d_mode_equals_original=true
+HW|t=3437|check.restored_nr3d_equals_original=true
+HW|t=3448|session.close=Ok(())
+ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 3.45s

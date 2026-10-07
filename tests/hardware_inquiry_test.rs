@@ -6,9 +6,8 @@
 //! variable is set (e.g., `VISCA_CAMERA_IP=192.168.0.110`).
 //!
 //! This test validates that PTZOptics G2 cameras respond to the standard VISCA inquiry
-//! command set. Five inquiries have known parser mismatches between Sony VISCA format and
-//! the PTZOptics response format — these are tracked as library parser bugs, not camera
-//! limitations.
+//! command set and that every reply decodes. The Sony-format version inquiry is not
+//! issued: the G2 profile does not implement `HasVersionInquiry`.
 //!
 //! Run with:
 //! ```sh
@@ -54,6 +53,7 @@ inquiry_test!(test_focus_position, focus, position);
 
 // === Focus inquiries ===
 inquiry_test!(test_focus_mode, focus, mode);
+inquiry_test!(test_focus_zone, focus, zone);
 
 // === Exposure inquiries ===
 inquiry_test!(test_exposure_mode, exposure, mode);
@@ -94,10 +94,8 @@ inquiry_test!(test_menu_status, menu, status);
 
 // === Comprehensive test that runs all inquiries in sequence ===
 //
-// Categorizes results into three buckets:
+// Categorizes results into two buckets:
 // - OK: command sent, response parsed successfully
-// - KNOWN_MISMATCH: command sent, camera responded, but our parser can't handle
-//   the PTZOptics-specific response format (library bug, not camera limitation)
 // - FAIL: unexpected failure
 #[test]
 #[ignore]
@@ -109,7 +107,6 @@ fn test_all_inquiries_succeed() {
     let camera = session.camera();
 
     let mut passed = 0u32;
-    let mut known_mismatches = 0u32;
     let mut unexpected_failures = 0u32;
 
     macro_rules! check {
@@ -127,24 +124,6 @@ fn test_all_inquiries_succeed() {
         };
     }
 
-    macro_rules! check_known_mismatch {
-        ($label:expr, $expr:expr, $reason:expr) => {
-            match $expr {
-                Ok(val) => {
-                    eprintln!(
-                        "  FIXED!         {:<40} = {:?}  (was: {})",
-                        $label, val, $reason
-                    );
-                    passed += 1;
-                }
-                Err(e) => {
-                    eprintln!("  KNOWN_MISMATCH {:<40} = {}  ({})", $label, e, $reason);
-                    known_mismatches += 1;
-                }
-            }
-        };
-    }
-
     eprintln!("\n=== PTZOptics G2 Full Inquiry Validation ===\n");
 
     // Position
@@ -154,6 +133,9 @@ fn test_all_inquiries_succeed() {
 
     // Focus
     check!("focus_mode", camera.focus().mode());
+    // The PTZOptics G2 bench reports `FocusZone::Zone03` (#795) as well as the
+    // documented top/center/bottom zones.
+    check!("focus_zone", camera.focus().zone());
 
     // Exposure
     check!("exposure_mode", camera.exposure().mode());
@@ -173,22 +155,14 @@ fn test_all_inquiries_succeed() {
 
     // White balance
     check!("white_balance_mode", camera.white_balance().mode());
-    // PTZOptics returns 4-nibble format for RGain/BGain but our parser expects 1-byte offset format
-    check_known_mismatch!(
-        "red_gain",
-        camera.white_balance().red_gain(),
-        "PTZOptics returns 4-nibble RGain, parser expects 1-byte offset"
-    );
-    check_known_mismatch!(
-        "blue_gain",
-        camera.white_balance().blue_gain(),
-        "PTZOptics returns 4-nibble BGain, parser expects 1-byte offset"
-    );
-    // PTZOptics returns 1-byte color temp value but our parser expects 4-nibble format
-    check_known_mismatch!(
+    // The PTZOptics G2 replies to the R/B gain inquiries with the 4-nibble
+    // `00 00 0p 0q` gain, and to the color temperature inquiry with one data
+    // byte (`90 50 pq FF`); the decoders read those layouts.
+    check!("red_gain", camera.white_balance().red_gain());
+    check!("blue_gain", camera.white_balance().blue_gain());
+    check!(
         "color_temperature",
-        camera.white_balance().color_temperature(),
-        "PTZOptics returns 1-byte color temp, parser expects 4-nibble"
+        camera.white_balance().color_temperature()
     );
 
     // Image processing
@@ -210,17 +184,13 @@ fn test_all_inquiries_succeed() {
 
     // System
     check!("power_state", camera.power().state());
-    // PTZOptics returns a shorter version response (2 bytes) than Sony format (7 bytes)
-    check_known_mismatch!(
-        "version",
-        camera.system().version(),
-        "PTZOptics returns 2-byte version, parser expects 7-byte Sony format"
-    );
+    // `system().version()` is not issued: PTZOptics G2 replies to
+    // `81 09 00 02 FF` with an unsourced 2-byte payload (`00 52`), so the
+    // profile does not implement `HasVersionInquiry` and the typed Sony-format
+    // version inquiry does not compile for it.
     check!("menu_status", camera.menu().status());
 
-    eprintln!(
-        "\n=== Results: {passed} passed, {known_mismatches} known parser mismatches, {unexpected_failures} unexpected failures ===\n"
-    );
+    eprintln!("\n=== Results: {passed} passed, {unexpected_failures} unexpected failures ===\n");
 
     assert_eq!(
         unexpected_failures, 0,

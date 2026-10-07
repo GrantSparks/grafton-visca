@@ -28,6 +28,7 @@ pub use profile_metadata::{
     SupportsUdp,
 };
 
+pub(crate) use typed_support::typed_surface;
 pub use typed_support::{ProfileTypedSupport, TypedSupportSet, TypedSupportSurface};
 
 macro_rules! export_typed_support_marker_entry {
@@ -76,7 +77,7 @@ pub use presets::Presets;
 pub use tally::Tally;
 pub use variable_speed::VariableSpeedMetadata;
 pub use white_balance::WhiteBalance;
-pub use zoom::Zoom;
+pub use zoom::{Zoom, ZoomScale};
 
 // Supporting types
 mod types;
@@ -88,7 +89,9 @@ pub use validation::ValidationError;
 
 // Structured capabilities response
 mod discovery;
-pub use discovery::{Capabilities, RuntimeShutterSpeed};
+pub use discovery::Capabilities;
+#[cfg(test)]
+pub(crate) use discovery::SurfaceMetadata;
 
 /// Super-trait that encompasses all camera capabilities.
 ///
@@ -103,7 +106,7 @@ pub use discovery::{Capabilities, RuntimeShutterSpeed};
 ///     let model = P::MODEL_NAME;
 ///     let zoom_range = P::ZOOM_SPEED_RANGE;
 ///     let inquiry = P::INQUIRY_SUPPORT;
-///     let has_motion_sync = P::SUPPORTS_MOTION_SYNC;
+///     let has_motion_sync = P::MOTION_SYNC_SPEED_RANGE.is_some();
 /// }
 /// ```
 pub trait Profile:

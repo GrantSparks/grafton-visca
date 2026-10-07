@@ -1,0 +1,6 @@
+camera: cam2
+model: PT20X-NDI G2
+source: HTTP get_device_conf; device-unique fields removed
+devtype="V60"
+versioninfo="SOC v6.3.22 - ARM 6.3.76THI"
+device_model=" F2.HI  "

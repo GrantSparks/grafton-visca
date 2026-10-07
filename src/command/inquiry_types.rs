@@ -1,21 +1,21 @@
-//! Types used in inquiry responses.
+//! Typed values returned by inquiry commands.
 
-/// Camera version information.
+/// Camera version information returned by the version inquiry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Version {
-    /// Vendor ID.
+pub struct VersionInfo {
+    /// Vendor identifier.
     pub vendor: u16,
-    /// Model ID.
+    /// Model identifier.
     pub model: u16,
-    /// ROM version.
+    /// ROM version as a packed integer.
     pub rom_version: u32,
-    /// Maximum socket number.
+    /// Maximum supported socket index.
     pub max_socket: u8,
 }
 
-/// Tally light status.
+/// Tally light state returned by the tally inquiry.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TallyStatus {
+pub struct TallyStatusState {
     /// Whether the red tally light is on.
     pub red_on: bool,
     /// Whether the green tally light is on.
@@ -29,30 +29,4 @@ pub struct FlipState {
     pub horizontal: bool,
     /// Whether vertical flip is enabled.
     pub vertical: bool,
-}
-
-/// Night/Day mode setting.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub enum NightDayMode {
-    /// Day mode.
-    Day,
-    /// Night mode.
-    Night,
-}
-
-/// Iris control mode.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub enum IrisControl {
-    /// Auto iris control.
-    Auto,
-    /// Manual iris control.
-    Manual,
 }

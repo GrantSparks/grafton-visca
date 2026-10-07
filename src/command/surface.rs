@@ -1,71 +1,154 @@
 //! Closed static camera-surface metadata for built-in requests.
 //!
-//! [`crate::command::semantics::BuiltinCommand::ALL`] is the only command-row
-//! inventory.  This module adds no second list: its exhaustive match derives
-//! noun spelling and marker facts for each existing semantic row.  Adding a
-//! new command therefore requires the source inventory, semantic
-//! classification, and this surface decision to be updated together.
+//! [`crate::command::semantics::BuiltinCommand`] is the only command-row
+//! inventory.  This module adds no second list and makes no surface decision
+//! of its own: [`StaticNoun`], the exhaustive [`surface_entry`] match and the
+//! [`BuiltinInquiryGate`] of every built-in inquiry are generated from the
+//! `@noun` headers and rows of [`crate::noun_table`], which give each command
+//! its noun, method spelling and capability gate and each inquiry its gate.  A
+//! command without a noun-table row (or protocol exception) fails to build, and
+//! so does a typed built-in inquiry without one.  Each match arm's class is a
+//! named constant checked against the ledger by `registry_class`, so a row
+//! whose kind disagrees with its command fails const evaluation under
+//! `cargo check`.
 
 use crate::{capabilities::TypedSupportSurface, noun_table::noun_table};
 
-use super::semantics::{BuiltinCommand, BuiltinRequestClass};
+use super::semantics::{BuiltinCommand, BuiltinRequestClass, BuiltinRequestKind};
 
-// MSRV note: Rust 1.88's dead-code analysis does not follow uses produced by
-// the continuation-style `noun_table!` expansion or by the const ledger below.
-// These items are intentionally retained as production metadata, so scope the
-// allowances to this ledger (and only its genuinely unused marker variants)
-// instead of disabling dead-code diagnostics for the module.
-
-/// Static noun containing one target-facing built-in request.
+/// The capability gate of one noun-table row: the row's own `where` marker,
+/// or else its noun header's base gate.
+///
+/// This is the one gate vocabulary of the noun table.  The static facades
+/// enforce it as trait bounds; the surface registry records it per command
+/// and the built-in inquiries check it at runtime.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(dead_code)]
-pub(crate) enum StaticNoun {
-    /// Power controls.
-    Power,
-    /// Zoom controls.
-    Zoom,
-    /// System controls.
-    System,
-    /// Pan/tilt controls.
-    PanTilt,
-    /// Focus controls.
-    Focus,
-    /// Exposure and iris controls.
-    Exposure,
-    /// White-balance and channel controls.
-    WhiteBalance,
-    /// Image-processing controls.
-    Image,
-    /// Preset controls.
-    Presets,
-    /// Tally controls.
-    Tally,
-    /// Neutral-density filter controls.
-    NdFilter,
-    /// Motion-sync controls.
-    MotionSync,
-    /// Menu controls.
-    Menu,
-    /// Advanced and vendor controls.
-    Advanced,
+pub(crate) enum RowGate {
+    /// No capability is required (`gate: [always]`).
+    Always,
+    /// A base-domain marker is required (`gate: [domain <Marker>]`).
+    Domain(DomainGate),
+    /// A typed-support marker is required (`gate: [typed <Marker>]`, or a
+    /// row `where <Marker>`).
+    Typed(TypedSupportSurface),
 }
 
-/// Profile or typed-capability marker required by a static surface row.
+/// The base-domain marker of a noun header's `[domain <Marker>]` gate.
+///
+/// There is one variant per domain that some noun-table row inherits.  The
+/// `Image` noun is gated on `HasImageProcessing`, but every one of its rows
+/// narrows that with its own `where` marker, so it has no variant here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) enum StaticMarkerRequirement {
-    /// The base profile/domain marker is sufficient.
-    #[allow(dead_code)]
-    None,
-    /// A compile-time profile marker trait is required.
-    #[allow(dead_code)]
-    Profile(&'static str),
-    /// A runtime/static typed capability gate is required.
-    Typed(TypedSupportSurface),
+pub(crate) enum DomainGate {
+    /// `HasPower`.
+    Power,
+    /// `HasZoom`.
+    Zoom,
+    /// `HasPanTilt`.
+    PanTilt,
+    /// `HasFocus`.
+    Focus,
+    /// `HasExposure`.
+    Exposure,
+    /// `HasWhiteBalance`.
+    WhiteBalance,
+    /// `HasPresets`.
+    Presets,
+    /// `HasMenuControl`.
+    MenuControl,
+}
+
+impl DomainGate {
+    /// Whether a runtime profile has the domain behind this marker.
+    ///
+    /// The base-domain markers are blanket-implemented from the domain data
+    /// traits (`capabilities::profile_metadata`: `impl<T: Power> HasPower`,
+    /// ...), which the `Capabilities::has_*` flags mirror at runtime.  A
+    /// pan/tilt position can only be decoded through the profile's coordinate
+    /// conversion, so the pan/tilt domain also requires one.  A runtime
+    /// `ProfileSpec` cannot express "no menu", so basic OSD menu control stays
+    /// reachable on every profile.
+    pub(crate) fn permits(self, profile: &crate::ProfileSpec) -> bool {
+        let capabilities = profile.capabilities();
+        match self {
+            Self::Power => capabilities.has_power,
+            Self::Zoom => capabilities.has_zoom,
+            Self::PanTilt => capabilities.has_pan_tilt && profile.pan_tilt_coordinates().is_some(),
+            Self::Focus => capabilities.has_focus,
+            Self::Exposure => capabilities.has_exposure,
+            Self::WhiteBalance => capabilities.has_white_balance,
+            Self::Presets => capabilities.has_presets,
+            Self::MenuControl => true,
+        }
+    }
+}
+
+/// The runtime gate of a built-in inquiry, generated from its noun-table row.
+///
+/// The surface registry implements it for the request type of every
+/// `inquiry` row, and the one untyped built-in inquiry gets
+/// [`RowGate::Always`] from the inquiry table.  A typed built-in inquiry
+/// without a noun row therefore has no implementation and fails to compile,
+/// and an inquiry reached by two rows has two and fails the same way.
+pub(crate) trait BuiltinInquiryGate {
+    /// The inquiry row's gate.
+    const GATE: RowGate;
+}
+
+/// Maps a base-domain marker to its [`DomainGate`].
+macro_rules! domain_gate {
+    (HasPower) => {
+        DomainGate::Power
+    };
+    (HasZoom) => {
+        DomainGate::Zoom
+    };
+    (HasPanTilt) => {
+        DomainGate::PanTilt
+    };
+    (HasFocus) => {
+        DomainGate::Focus
+    };
+    (HasExposure) => {
+        DomainGate::Exposure
+    };
+    (HasWhiteBalance) => {
+        DomainGate::WhiteBalance
+    };
+    (HasPresets) => {
+        DomainGate::Presets
+    };
+    (HasMenuControl) => {
+        DomainGate::MenuControl
+    };
+    ($marker:ident) => {
+        compile_error!(concat!(
+            "a noun-table row inherits `",
+            stringify!($marker),
+            "`, which has no `DomainGate`: add a variant and its runtime check in `DomainGate::permits`",
+        ))
+    };
+}
+
+/// The [`RowGate`] of one row: its bracketed `where` marker, or else its
+/// noun's base gate.
+macro_rules! row_gate {
+    ([], [always]) => {
+        RowGate::Always
+    };
+    ([], [domain $marker:ident]) => {
+        RowGate::Domain(domain_gate!($marker))
+    };
+    ([], [typed $marker:ident]) => {
+        RowGate::Typed($crate::capabilities::typed_surface!($marker))
+    };
+    ([$gate:ident], $base:tt) => {
+        RowGate::Typed($crate::capabilities::typed_surface!($gate))
+    };
 }
 
 /// What kind of public surface disposition a built-in request has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(dead_code)]
 pub(crate) enum StaticSurfaceDisposition {
     /// A normal target-facing noun method.
     Noun {
@@ -73,8 +156,8 @@ pub(crate) enum StaticSurfaceDisposition {
         noun: StaticNoun,
         /// Canonical method spelling shared by all facades.
         method: &'static str,
-        /// Compile-time/runtime support marker.
-        marker: StaticMarkerRequirement,
+        /// The row's capability gate.
+        gate: RowGate,
     },
     /// A broadcast handshake, never a target camera method.
     BroadcastHandshake {
@@ -90,7 +173,6 @@ pub(crate) enum StaticSurfaceDisposition {
 
 /// One derived row in the closed static noun ledger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(dead_code)]
 pub(crate) struct StaticSurfaceEntry {
     /// Exactly one source semantic row.
     pub(crate) command: BuiltinCommand,
@@ -109,666 +191,150 @@ impl StaticSurfaceEntry {
     }
 }
 
-macro_rules! noun_marker {
-    (Power) => {
-        StaticMarkerRequirement::Profile("HasPower")
-    };
-    (Zoom) => {
-        StaticMarkerRequirement::Profile("HasZoom")
-    };
-    (System) => {
-        StaticMarkerRequirement::None
-    };
-    (PanTilt) => {
-        StaticMarkerRequirement::Profile("HasPanTilt")
-    };
-    (Focus) => {
-        StaticMarkerRequirement::Profile("HasFocus")
-    };
-    (Exposure) => {
-        StaticMarkerRequirement::Profile("HasExposure")
-    };
-    (WhiteBalance) => {
-        StaticMarkerRequirement::Profile("HasWhiteBalance")
-    };
-    (Image) => {
-        StaticMarkerRequirement::Profile("HasImageProcessing")
-    };
-    (Presets) => {
-        StaticMarkerRequirement::Profile("HasPresets")
-    };
-    (Tally) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::Tally)
-    };
-    (NdFilter) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::NdFilter)
-    };
-    (MotionSync) => {
-        StaticMarkerRequirement::Typed(TypedSupportSurface::MotionSync)
-    };
-    (Menu) => {
-        StaticMarkerRequirement::Profile("HasMenuControl")
-    };
-    (Advanced) => {
-        StaticMarkerRequirement::None
-    };
-}
-
-macro_rules! broadcast_entry {
-    ($command:ident, $method:expr) => {
-        StaticSurfaceEntry {
-            command: BuiltinCommand::$command,
-            disposition: StaticSurfaceDisposition::BroadcastHandshake { method: $method },
-            class: registry_class(BuiltinCommand::$command, RegistryKind::Plain),
-        }
-    };
-}
-
-macro_rules! internal_entry {
-    ($command:ident, $method:expr) => {
-        StaticSurfaceEntry {
-            command: BuiltinCommand::$command,
-            disposition: StaticSurfaceDisposition::InternalCancellation { method: $method },
-            class: registry_class(BuiltinCommand::$command, RegistryKind::Plain),
-        }
-    };
-}
-
-/// The request kind recorded by one noun-table row.
-///
-/// `BuiltinRequestClass` carries more information than a facade needs (axes,
-/// state effects, and completion policy).  Keeping this small projection in
-/// the surface consumer lets the registry check that its `plain`/`applied`/
-/// `targeted` spelling agrees with the authoritative semantic ledger.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(dead_code)]
-enum RegistryKind {
-    Plain,
-    AppliedOnly,
-    Targeted,
-}
-
-/// Resolve a registry kind against the authoritative semantic classification.
+/// Resolve a noun-table row kind against the authoritative semantic
+/// classification.
 ///
 /// This is deliberately a const function with no fallback: a row whose kind
-/// does not match its command ID fails during const evaluation below, before a
-/// facade can accidentally expose the wrong operation handle.
+/// does not match its command ID fails while evaluating the arm's `CLASS`
+/// constant in [`surface_entry`], before a facade can accidentally expose the
+/// wrong operation handle.
 #[allow(clippy::panic)]
-#[allow(dead_code)]
-const fn registry_class(command: BuiltinCommand, kind: RegistryKind) -> BuiltinRequestClass {
+const fn registry_class(command: BuiltinCommand, kind: BuiltinRequestKind) -> BuiltinRequestClass {
     let class = command.classification();
-    match (kind, class) {
-        (RegistryKind::Plain, BuiltinRequestClass::Plain { .. })
-        | (RegistryKind::AppliedOnly, BuiltinRequestClass::AppliedOnly { .. })
-        | (RegistryKind::Targeted, BuiltinRequestClass::Targeted { .. }) => class,
-        _ => panic!("noun-table request kind disagrees with BuiltinCommand::classification"),
+    if class.kind() as u8 == kind as u8 {
+        class
+    } else {
+        panic!("noun-table request kind disagrees with BuiltinCommand::classification")
     }
 }
 
-/// Human-readable closed-inventory totals for the built-in surface.
-///
-/// There are 149 command IDs: 146 target-facing noun rows and three protocol
-/// exceptions (the two broadcast handshakes and internal cancellation).
-#[allow(dead_code)]
-pub(crate) const BUILTIN_COMMAND_COUNT: usize = 149;
-#[allow(dead_code)]
-pub(crate) const TARGET_FACING_COMMAND_COUNT: usize = 146;
-#[allow(dead_code)]
-pub(crate) const NON_NOUN_COMMAND_COUNT: usize = 3;
-
+/// Maps a command row's kind keyword to its [`BuiltinRequestKind`].
 macro_rules! registry_class {
     (plain) => {
-        RegistryKind::Plain
+        BuiltinRequestKind::Plain
     };
     (applied) => {
-        RegistryKind::AppliedOnly
+        BuiltinRequestKind::AppliedOnly
     };
     (targeted) => {
-        RegistryKind::Targeted
+        BuiltinRequestKind::Targeted
     };
 }
 
-/// Convert a row's static capability spelling to the surface marker
-/// requirement.  The noun table owns the spelling; this map keeps the
-/// TypedSupportSurface classification in the surface consumer only.
-macro_rules! surface_marker {
-    (HasDirectZoom) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::DirectZoom,
-        )
+/// Maps a protocol exception's keyword to its non-noun disposition.
+macro_rules! exception_disposition {
+    (broadcast, $method:expr) => {
+        StaticSurfaceDisposition::BroadcastHandshake { method: $method }
     };
-    (HasDigitalZoomToggle) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::DigitalZoomToggle,
-        )
-    };
-    (HasDigitalZoomRange) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::DigitalZoomRange,
-        )
-    };
-    (HasExposureMode) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::ExposureMode,
-        )
-    };
-    (HasIrisControl) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::IrisControl,
-        )
-    };
-    (HasIrisControlInquiry) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::IrisControlInquiry,
-        )
-    };
-    (HasOnePushFocus) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::OnePushFocus,
-        )
-    };
-    (HasPtzOpticsSnapFocus) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::PtzOpticsSnapFocus,
-        )
-    };
-    (HasPtzOpticsAntiFlicker) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::PtzOpticsAntiFlicker,
-        )
-    };
-    (HasPtzOpticsSettingsSave) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::PtzOpticsSettingsSave,
-        )
-    };
-    (HasPtzOpticsPresetRecallSpeed) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::PtzOpticsPresetRecallSpeed,
-        )
-    };
-    (HasSonySpotlight) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::SonySpotlight,
-        )
-    };
-    (HasSonyAutoSlowShutter) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::SonyAutoSlowShutter,
-        )
-    };
-    (HasPtzOpticsMulticastStreaming) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::PtzOpticsMulticastStreaming,
-        )
-    };
-    (HasPtzOpticsNdiQuality) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::PtzOpticsNdiQuality,
-        )
-    };
-    (HasFocusLock) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::FocusLock,
-        )
-    };
-    (HasPushAutoFocus) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::PushAutoFocus,
-        )
-    };
-    (HasFocusZone) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::FocusZone,
-        )
-    };
-    (HasFocusZoneInquiry) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::FocusZoneInquiry,
-        )
-    };
-    (HasAutoFocusSensitivity) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::AutoFocusSensitivity,
-        )
-    };
-    (HasFocusNearLimitInquiry) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::FocusNearLimitInquiry,
-        )
-    };
-    (HasBacklightCompensation) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::BacklightCompensation,
-        )
-    };
-    (HasWideDynamicRange) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::WideDynamicRange,
-        )
-    };
-    (HasExposureCompensation) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::ExposureCompensation,
-        )
-    };
-    (HasBrightnessControl) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::BrightnessControl,
-        )
-    };
-    (HasOnePushWhiteBalance) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::OnePushWhiteBalance,
-        )
-    };
-    (HasAutoTrackingWhiteBalance) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::AutoTrackingWhiteBalance,
-        )
-    };
-    (HasAutoWhiteBalanceSensitivity) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::AutoWhiteBalanceSensitivity,
-        )
-    };
-    (HasColorTemperature) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::ColorTemperature,
-        )
-    };
-    (HasRgbGain) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::RgbGain,
-        )
-    };
-    (HasRgbTuning) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::RgbTuning,
-        )
-    };
-    (HasImageFlip) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::ImageFlip,
-        )
-    };
-    (HasImageMirror) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::ImageMirror,
-        )
-    };
-    (HasCombinedImageFlip) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::CombinedImageFlip,
-        )
-    };
-    (HasContrastControl) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::ContrastControl,
-        )
-    };
-    (HasSharpnessControl) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::SharpnessControl,
-        )
-    };
-    (HasSaturationControl) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::SaturationControl,
-        )
-    };
-    (HasHueControl) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::HueControl,
-        )
-    };
-    (HasLuminanceControl) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::LuminanceControl,
-        )
-    };
-    (HasGammaControl) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::GammaControl,
-        )
-    };
-    (HasNoiseReduction2D) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::NoiseReduction2D,
-        )
-    };
-    (HasNoiseReduction3D) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::NoiseReduction3D,
-        )
-    };
-    (HasNoiseReduction2DControl) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::NoiseReduction2DControl,
-        )
-    };
-    (HasNoiseReduction3DControl) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::NoiseReduction3DControl,
-        )
-    };
-    (HasPictureEffect) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::PictureEffect,
-        )
-    };
-    (HasImageFreeze) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::ImageFreeze,
-        )
-    };
-    (HasDefogLevel) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::DefogLevel,
-        )
-    };
-    (HasTally) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::Tally,
-        )
-    };
-    (HasTallyBrightness) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::TallyBrightness,
-        )
-    };
-    (HasPtzOpticsTally) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::PtzOpticsTally,
-        )
-    };
-    (HasDirectMenuControl) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::DirectMenu,
-        )
-    };
-    (HasNdFilter) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::NdFilter,
-        )
-    };
-    (HasVariableSpeed) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::VariableSpeed,
-        )
-    };
-    (HasMotionSync) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::MotionSync,
-        )
-    };
-    (HasUsbAudio) => {
-        $crate::command::surface::StaticMarkerRequirement::Typed(
-            $crate::capabilities::TypedSupportSurface::UsbAudio,
-        )
+    (internal, $method:expr) => {
+        StaticSurfaceDisposition::InternalCancellation { method: $method }
     };
 }
 
-/// Resolve a profile marker name to the runtime typed-support surface that
-/// backs it.  The noun-table marker projection above remains the authority;
-/// this adapter lets generated built-in inquiries reuse the same mapping
-/// without maintaining a second per-inquiry table.
-macro_rules! typed_surface_for_marker {
-    (crate :: capabilities :: $marker:ident) => {
-        $crate::command::surface::typed_surface_for_marker!($marker)
+/// Implements [`BuiltinInquiryGate`] for the request type of an `inquiry`
+/// row; every other row kind owns no inquiry.
+macro_rules! inquiry_gate {
+    (inquiry [$($request:tt)*] $gate:tt $base:tt) => {
+        impl BuiltinInquiryGate for $($request)* {
+            const GATE: RowGate = row_gate!($gate, $base);
+        }
     };
-    ($marker:ident) => {{
-        match $crate::command::surface::surface_marker!($marker) {
-            $crate::command::surface::StaticMarkerRequirement::Typed(surface) => surface,
-            $crate::command::surface::StaticMarkerRequirement::None
-            | $crate::command::surface::StaticMarkerRequirement::Profile(_) => {
-                unreachable!("typed inquiry gate must map to a typed support surface")
+    ($kind:ident $request:tt $gate:tt $base:tt) => {};
+}
+
+/// Project the noun headers, every noun row and the protocol exceptions into
+/// [`StaticNoun`], the exhaustive [`surface_entry`] match and the inquiry
+/// gates.
+///
+/// The first arm normalizes each noun to its name, doc, base gate and rows
+/// (kind, optional command, method, bracketed row gate and bracketed request);
+/// the second emits the items.  Inquiry and convenience rows (`[]`) emit no
+/// match arm, and only inquiry rows emit a [`BuiltinInquiryGate`].  The match
+/// therefore has no wildcard and no second hand-written inventory: a missing
+/// row is a non-exhaustive match and a duplicate one an unreachable pattern.
+macro_rules! surface_registry {
+    (@items
+        $( $noun:ident $doc:literal $base:tt [
+            $( $kind:ident [$($command:ident)?] $method:ident $gate:tt $request:tt; )*
+        ] )*
+        @exceptions; $( $exkind:ident [$excommand:ident] $exmethod:ident; )*
+    ) => {
+        /// Static noun containing one target-facing built-in request.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub(crate) enum StaticNoun {
+            $( #[doc = $doc] $noun, )*
+        }
+
+        /// Derive the one surface row for a semantic command.
+        ///
+        /// This match is generated from the noun table, is exhaustive and
+        /// contains no default arm, so adding a command requires adding its
+        /// explicit owner row there.  `BuiltinCommand` remains the semantic
+        /// authority for classification.
+        #[must_use]
+        #[deny(unreachable_patterns)]
+        pub(crate) const fn surface_entry(command: BuiltinCommand) -> StaticSurfaceEntry {
+            match command {
+                $( $( $(
+                    BuiltinCommand::$command => {
+                        const CLASS: BuiltinRequestClass =
+                            registry_class(BuiltinCommand::$command, registry_class!($kind));
+                        StaticSurfaceEntry {
+                            command: BuiltinCommand::$command,
+                            disposition: StaticSurfaceDisposition::Noun {
+                                noun: StaticNoun::$noun,
+                                method: stringify!($method),
+                                gate: row_gate!($gate, $base),
+                            },
+                            class: CLASS,
+                        }
+                    }
+                )? )* )*
+                $(
+                    BuiltinCommand::$excommand => {
+                        const CLASS: BuiltinRequestClass =
+                            registry_class(BuiltinCommand::$excommand, BuiltinRequestKind::Plain);
+                        StaticSurfaceEntry {
+                            command: BuiltinCommand::$excommand,
+                            disposition: exception_disposition!($exkind, stringify!($exmethod)),
+                            class: CLASS,
+                        }
+                    }
+                )*
             }
         }
-    }};
-}
 
-pub(crate) use surface_marker;
-pub(crate) use typed_surface_for_marker;
+        const _: () = {
+            use crate::command;
 
-macro_rules! noun_entry {
-    ($kind:ident, $command:ident, $noun:ident, $method:expr) => {
-        StaticSurfaceEntry {
-            command: BuiltinCommand::$command,
-            disposition: StaticSurfaceDisposition::Noun {
-                noun: StaticNoun::$noun,
-                method: $method,
-                marker: noun_marker!($noun),
-            },
-            class: registry_class(BuiltinCommand::$command, registry_class!($kind)),
-        }
-    };
-    ($kind:ident, $command:ident, $noun:ident, $method:expr, $marker:expr) => {
-        StaticSurfaceEntry {
-            command: BuiltinCommand::$command,
-            disposition: StaticSurfaceDisposition::Noun {
-                noun: StaticNoun::$noun,
-                method: $method,
-                marker: $marker,
-            },
-            class: registry_class(BuiltinCommand::$command, registry_class!($kind)),
-        }
-    };
-}
-
-/// Consume one flat projection of every noun row.
-///
-/// Inquiry and empty-ID convenience rows are intentionally consumed without
-/// emitting a command arm.  Every canonical row emits one arm per explicitly
-/// listed BuiltinCommand variant.  The exceptions are rows in the same
-/// projection, so the resulting match is complete without a wildcard or a
-/// second hand-written inventory.
-macro_rules! surface_rows {
-    (@start $input:ident; [$($arms:tt)*]; @noun $noun:ident; $($rest:tt)*) => {
-        surface_rows!(@rows $input; $noun; [$($arms)*]; $($rest)*)
-    };
-
-    (@rows $input:ident; $noun:ident; [$($arms:tt)*]; @noun $next:ident; $($rest:tt)*) => {
-        surface_rows!(@rows $input; $next; [$($arms)*]; $($rest)*)
-    };
-
-    // Append one command row.  The gate is split into separate arms so the
-    // command-list repetition below can reuse it without a repetition-depth
-    // mismatch in macro_rules.
-    (
-        @append $input:ident;
-        $noun:ident;
-        [$($arms:tt)*];
-        $kind:ident;
-        [$($command:ident),*];
-        $method:expr;
-        ;
-        $($rest:tt)*
-    ) => {
-        surface_rows!(@rows $input; $noun; [
-            $($arms)*
-            $(
-                BuiltinCommand::$command => noun_entry!(
-                    $kind,
-                    $command,
-                    $noun,
-                    $method,
-                    noun_marker!($noun)
-                ),
-            )*
-        ]; $($rest)*)
-    };
-
-    (
-        @append $input:ident;
-        $noun:ident;
-        [$($arms:tt)*];
-        $kind:ident;
-        [$($command:ident),*];
-        $method:expr;
-        $gate:ident;
-        $($rest:tt)*
-    ) => {
-        surface_rows!(@rows $input; $noun; [
-            $($arms)*
-            $(
-                BuiltinCommand::$command => noun_entry!(
-                    $kind,
-                    $command,
-                    $noun,
-                    $method,
-                    surface_marker!($gate)
-                ),
-            )*
-        ]; $($rest)*)
-    };
-
-    (
-        @rows $input:ident;
-        $noun:ident;
-        [$($arms:tt)*];
-        @exceptions;
-        $($rest:tt)*
-    ) => {
-        surface_rows!(@exceptions $input; [$($arms)*]; $($rest)*)
-    };
-
-    // Consume one row at a time.  Keeping the row grammar non-repetitive avoids
-    // a local ambiguity between the row's documentation attributes and the
-    // trailing token stream.
-    (
-        @rows $input:ident;
-        $noun:ident;
-        [$($arms:tt)*];
-        $(#[$doc:meta])*
-        inquiry $($inquiry:ident)::+ $method:ident() -> $response:ty
-            $(where $gate:ident $(+ $extra:ident)*)? = $request:expr;
-        $($rest:tt)*
-    ) => {
-        surface_rows!(@rows $input; $noun; [$($arms)*]; $($rest)*)
-    };
-
-    (
-        @rows $input:ident;
-        $noun:ident;
-        [$($arms:tt)*];
-        $(#[$doc:meta])*
-        $kind:ident [$($command:ident),*] $method:ident(
-            $($arg:ident: $ty:ty),*
-        ) $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)?
-            = checked $request:expr;
-        $($rest:tt)*
-    ) => {
-        surface_rows!(@append $input; $noun; [$($arms)*]; $kind; [$($command),*]; stringify!($method); $($gate)?; $($rest)*)
-    };
-
-    (
-        @rows $input:ident;
-        $noun:ident;
-        [$($arms:tt)*];
-        $(#[$doc:meta])*
-        $kind:ident [$($command:ident),*] $method:ident(
-            $($arg:ident: $ty:ty),*
-        ) $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)?
-            = with_profile |$profile:ident| $request:expr;
-        $($rest:tt)*
-    ) => {
-        surface_rows!(@append $input; $noun; [$($arms)*]; $kind; [$($command),*]; stringify!($method); $($gate)?; $($rest)*)
-    };
-
-    (
-        @rows $input:ident;
-        $noun:ident;
-        [$($arms:tt)*];
-        $(#[$doc:meta])*
-        $kind:ident [$($command:ident),*] $method:ident(
-            $($arg:ident: $ty:ty),*
-        ) $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)?
-            = with_core |$core:ident| $request:expr;
-        $($rest:tt)*
-    ) => {
-        surface_rows!(@append $input; $noun; [$($arms)*]; $kind; [$($command),*]; stringify!($method); $($gate)?; $($rest)*)
-    };
-
-    (
-        @rows $input:ident;
-        $noun:ident;
-        [$($arms:tt)*];
-        $(#[$doc:meta])*
-        $kind:ident [$($command:ident),*] $method:ident(
-            $($arg:ident: $ty:ty),*
-        ) $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)?
-            = delegate $target:ident($($delegated:expr),*);
-        $($rest:tt)*
-    ) => {
-        surface_rows!(@append $input; $noun; [$($arms)*]; $kind; [$($command),*]; stringify!($method); $($gate)?; $($rest)*)
-    };
-
-    (
-        @rows $input:ident;
-        $noun:ident;
-        [$($arms:tt)*];
-        $(#[$doc:meta])*
-        $kind:ident [$($command:ident),*] $method:ident(
-            $($arg:ident: $ty:ty),*
-        ) $(-> $request_ty:ty)? $(where $gate:ident $(+ $extra:ident)*)?
-            = $request:expr;
-        $($rest:tt)*
-    ) => {
-        surface_rows!(@append $input; $noun; [$($arms)*]; $kind; [$($command),*]; stringify!($method); $($gate)?; $($rest)*)
-    };
-
-    (@exceptions $input:ident; [$($arms:tt)*]; broadcast [$($command:ident),*] $method:ident;
-        $($rest:tt)*) => {
-        surface_rows!(@exceptions $input; [
-            $($arms)*
-            $(
-                BuiltinCommand::$command => broadcast_entry!($command, stringify!($method)),
-            )*
-        ]; $($rest)*)
-    };
-
-    (@exceptions $input:ident; [$($arms:tt)*]; internal [$($command:ident),*] $method:ident;
-        $($rest:tt)*) => {
-        surface_rows!(@exceptions $input; [
-            $($arms)*
-            $(
-                BuiltinCommand::$command => internal_entry!($command, stringify!($method)),
-            )*
-        ]; $($rest)*)
-    };
-
-    (@exceptions $input:ident; [$($arms:tt)*];) => {
-        match $input {
-            $($arms)*
-        }
-    };
-
-    // The public projection always starts with a noun marker.  Restrict this
-    // entry arm to that shape so recursive dispatcher calls cannot match it.
-    ($input:ident; @noun $noun:ident; $($rest:tt)*) => {
-        surface_rows!(@start $input; []; @noun $noun; $($rest)*)
-    };
-}
-
-/// Derive the one surface row for a semantic command.
-///
-/// This match is intentionally exhaustive and contains no default arm.  The
-/// row list is supplied by noun_table!(All => surface_rows), so adding a
-/// command requires adding its explicit owner row there.  BuiltinCommand
-/// remains the semantic authority for classification.
-#[must_use]
-#[deny(unreachable_patterns)]
-#[allow(dead_code)]
-pub(crate) const fn surface_entry(command: BuiltinCommand) -> StaticSurfaceEntry {
-    macro_rules! surface_rows_for_entry {
-        ($($rows:tt)*) => {
-            surface_rows!(command; $($rows)*)
+            $( $( inquiry_gate!($kind $request $gate $base); )* )*
         };
-    }
+    };
 
-    noun_table!(All => surface_rows_for_entry)
+    (
+        $(
+            @noun $noun:ident {
+                accessor: $accessor:ident,
+                getter: $getter:ident,
+                dyn_trait: $dyn_trait:ident,
+                gate: $base:tt,
+                doc: $doc:literal $(,)?
+            };
+            $(
+                $(#[$row_doc:meta])*
+                $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
+                    $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
+            )*
+        )*
+        @exceptions; $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
+    ) => {
+        surface_registry!(@items
+            $( $noun $doc $base [ $( $kind [$($command)?] $method [$($gate)?] [$($request)*]; )* ] )*
+            @exceptions; $( $exkind [$excommand] $exmethod; )*);
+    };
 }
+
+noun_table!(surface_registry);
 
 /// Returns the runtime typed-support surface carried by one static command row.
 ///
@@ -782,7 +348,7 @@ pub(crate) const fn typed_surface_for_command(
 ) -> Option<TypedSupportSurface> {
     match surface_entry(command).disposition {
         StaticSurfaceDisposition::Noun {
-            marker: StaticMarkerRequirement::Typed(surface),
+            gate: RowGate::Typed(surface),
             ..
         } => Some(surface),
         StaticSurfaceDisposition::Noun { .. }
@@ -790,20 +356,6 @@ pub(crate) const fn typed_surface_for_command(
         | StaticSurfaceDisposition::InternalCancellation { .. } => None,
     }
 }
-
-/// Force every registry arm through const evaluation.
-///
-/// `surface_entry` is also called by runtime tests, but those calls alone
-/// would not evaluate the `registry_class` checks until the tests run.  This
-/// item makes a mismatched row kind a compile-time failure for every command
-/// ID in the closed semantic inventory.
-const _: () = {
-    let mut index = 0;
-    while index < BuiltinCommand::ALL.len() {
-        let _ = surface_entry(BuiltinCommand::ALL[index]);
-        index += 1;
-    }
-};
 
 #[cfg(test)]
 mod tests {
@@ -850,17 +402,6 @@ mod tests {
             "the semantic class distribution of the closed ledger changed",
         );
         assert_eq!(seen.len(), BuiltinCommand::ALL.len());
-        assert_eq!(BuiltinCommand::ALL.len(), BUILTIN_COMMAND_COUNT);
-        assert_eq!(
-            seen.iter()
-                .filter(|command| surface_entry(**command).is_target_facing())
-                .count(),
-            TARGET_FACING_COMMAND_COUNT,
-        );
-        assert_eq!(
-            BuiltinCommand::ALL.len() - TARGET_FACING_COMMAND_COUNT,
-            NON_NOUN_COMMAND_COUNT,
-        );
     }
 
     /// Issue #651: paired on/off rows agree on their capability gate.
@@ -876,9 +417,9 @@ mod tests {
         /// `None` marks a non-noun row, which the assertions below reject
         /// rather than skip: a pair that stopped being a noun pair would
         /// otherwise satisfy this test vacuously.
-        fn facts(command: BuiltinCommand) -> (&'static str, Option<StaticMarkerRequirement>) {
+        fn facts(command: BuiltinCommand) -> (&'static str, Option<RowGate>) {
             match surface_entry(command).disposition {
-                StaticSurfaceDisposition::Noun { method, marker, .. } => (method, Some(marker)),
+                StaticSurfaceDisposition::Noun { method, gate, .. } => (method, Some(gate)),
                 StaticSurfaceDisposition::BroadcastHandshake { method }
                 | StaticSurfaceDisposition::InternalCancellation { method } => (method, None),
             }

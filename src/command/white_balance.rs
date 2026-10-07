@@ -12,7 +12,7 @@
 
 use grafton_visca_macros::ViscaEnum;
 
-use crate::visca_command;
+use crate::{command::bytes::constants::white_balance, visca_command};
 
 /// White balance modes.
 ///
@@ -54,7 +54,7 @@ pub enum WhiteBalanceMode {
 /// - Low = 0x02
 ///
 /// Both commands and inquiry responses use the same byte values.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
@@ -68,28 +68,19 @@ pub enum AutoWhiteBalanceSensitivity {
     Low = 0x02,
 }
 
-impl AutoWhiteBalanceSensitivity {
-    /// Convert to command byte value.
-    ///
-    /// Returns the VISCA byte representation: High=0x00, Normal=0x01, Low=0x02.
-    pub fn to_command_byte(self) -> u8 {
-        self as u8
-    }
-}
-
 visca_command! {
-        /// Command to set the white balance mode.
+    /// Command to set the white balance mode.
     pub struct WhiteBalanceCommand { mode: WhiteBalanceMode };
-    prefix = [0x01, 0x04, 0x35];
-    param = *mode as u8;
+    prefix = white_balance::MODE;
+    param = u8::from(*mode);
     max_param_size = 1;
 }
 
 visca_command! {
-        /// Command to set AWB sensitivity.
+    /// Command to set AWB sensitivity.
     pub struct AWBSensitivityCommand { sensitivity: AutoWhiteBalanceSensitivity };
-    prefix = [0x01, 0x04, 0xA9];
-    param = sensitivity.to_command_byte();
+    prefix = white_balance::AWB_SENSITIVITY;
+    param = u8::from(*sensitivity);
     max_param_size = 1;
 }
 

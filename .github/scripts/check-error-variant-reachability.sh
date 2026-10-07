@@ -39,8 +39,8 @@ record_construction() {
   reachable["${variant}"]="${path}"
 }
 
-record_construction ConnectionFailed src/transport/tokio/serial.rs \
-  '.map_err(|e| Error::ConnectionFailed {'
+record_construction ConnectionFailed src/transport/connect.rs \
+  'Error::connection_failed(endpoint.to_owned(), std::sync::Arc::new(error))'
 record_construction ConnectionClosed src/runtime/owner/mod.rs \
   'ShutdownReason::TransportClosed { reason } => Error::ConnectionClosed {'
 record_construction CommandPending src/command/response/types.rs \
@@ -77,38 +77,48 @@ record_construction ParseError src/error.rs \
   'Self::ParseError(Cow::Owned(err.to_string()))'
 record_construction TransportError src/runtime/owner/mod.rs \
   'Error::TransportError(format!("datagram send failed: {error}").into())'
-record_construction InvalidParameter src/types.rs \
-  'Err(Error::InvalidParameter {'
-record_construction BufferTooSmall src/raw.rs \
-  'return Err(Error::BufferTooSmall {'
-record_construction InvalidPreset src/camera/profiles.rs \
-  'Err(Error::InvalidPreset {'
+record_construction InvalidParameter src/units.rs \
+  'return Err(Error::InvalidParameter {'
+record_construction BufferTooSmall src/command/bytes/frame.rs \
+  'Err(Error::buffer_too_small(frame.len, frame.buffer.len()))'
 record_construction ParameterOutOfRange src/units.rs \
   'return Err(Error::ParameterOutOfRange {'
 record_construction Timeout src/runtime/engine/mod.rs \
-  'RuntimeOutcome::Failed(last_error.unwrap_or(Error::Timeout))'
+  'Error::timeout(FailureStage::Terminal, certainty)'
+record_construction MotionSuperseded src/runtime/engine/mod.rs \
+  'RuntimeOutcome::Failed(Error::MotionSuperseded'
+record_construction SettlementSuperseded src/runtime/owner/motion.rs \
+  'let error = Error::SettlementSuperseded'
+record_construction SettlementObservationFailed src/runtime/owner/mod.rs \
+  'Error::SettlementObservationFailed {'
+record_construction ObservationTimeout src/runtime/owner/mod.rs \
+  'Error::ObservationTimeout {'
+record_construction ControlReserveExhausted src/runtime/owner/mod.rs \
+  'return Err(Error::ControlReserveExhausted {'
 record_construction MaxRetriesExceeded src/transport/serial/handshake.rs \
-  'Err(Error::MaxRetriesExceeded)'
+  'self.fail(Error::MaxRetriesExceeded);'
 record_construction NotSupported src/runtime/owner/adapter.rs \
   'return Err(Error::NotSupported);'
-record_construction InvalidState src/async_session.rs \
-  'Error::InvalidState("session has no registered target".into())'
-record_construction TransportBusy src/runtime/owner/blocking.rs \
-  '.map_err(|_| Error::TransportBusy)?;'
+record_construction InvalidState src/runtime/owner/blocking.rs \
+  'Err(Error::InvalidState("blocking owner worker panicked".into()))'
 record_construction RuntimeShutdown src/runtime/engine/mod.rs \
   'self.terminate_session(SessionState::Shutdown, Error::RuntimeShutdown, effects)'
 record_construction CancellationUnconfirmed src/runtime/engine/mod.rs \
   'Error::CancellationUnconfirmed'
 record_construction UnsequencedCommandUnconfirmed src/runtime/engine/mod.rs \
   'RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed)'
+record_construction InquiryCorrelationLost src/runtime/engine/mod.rs \
+  'return Some(Error::inquiry_correlation_lost(target));'
+record_construction CommandCorrelationLost src/runtime/engine/mod.rs \
+  '.then(|| Error::command_correlation_lost(target))'
+record_construction CommandFailedAfterAck src/runtime/engine/mod.rs \
+  'RuntimeOutcome::Failed(Error::command_failed_after_ack(error))'
 record_construction RuntimeIdentityExhausted src/runtime/engine/mod.rs \
   'error: Error::RuntimeIdentityExhausted,'
 record_construction RuntimeQueueFull src/runtime/engine/mod.rs \
-  'error: Error::RuntimeQueueFull {'
+  'return Err(Error::RuntimeQueueFull {'
 record_construction StreamPoisoned src/runtime/engine/mod.rs \
   'Error::StreamPoisoned {'
-record_construction DecoderNotFound src/command/inquiry_structs.rs \
-  'return Err(Error::DecoderNotFound {'
 record_construction InvalidCameraId src/camera_id.rs \
   '_ => Err(Error::InvalidCameraId { id }),'
 record_construction ResponseTooLarge src/raw.rs \

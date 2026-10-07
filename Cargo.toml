@@ -7,7 +7,7 @@ members = [
 ]
 
 [workspace.package]
-version = "2.0.0-rc.2"
+version = "2.0.0-rc.3"
 authors = ["Grant Sparks <grant@grafton.ai>"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/GrantSparks/grafton-visca"
@@ -77,7 +77,9 @@ runtime-smol = ["async", "dep:smol", "dep:async-executor", "dep:async-io"]
 
 # Transport features
 transport-serial = ["blocking", "dep:serialport"]
-transport-serial-tokio = ["dep:tokio-serial", "runtime-tokio"]
+# `serialport` is already linked through `tokio-serial`; naming it lets the
+# blocking and Tokio serial transports open ports through one shared builder.
+transport-serial-tokio = ["dep:tokio-serial", "dep:serialport", "runtime-tokio"]
 
 # Serialization features
 serde = ["dep:serde", "dep:serde_json"]
@@ -104,7 +106,7 @@ test-utils = []
 bytes = "1.11"
 flume = "0.12"
 smallvec = "1.15"
-grafton-visca-macros = { path = "grafton-visca-macros", version = "=2.0.0-rc.2" }
+grafton-visca-macros = { path = "grafton-visca-macros", version = "=2.0.0-rc.3" }
 tracing = "0.1"
 nom = "8.0.0"
 serde = { version = "1.0", features = ["derive"], optional = true }
@@ -115,7 +117,7 @@ schemars = { version = "1.2", optional = true }
 # ts-rs v12 intentionally ignores; `no-serde-warnings` suppresses unsupported-
 # attribute diagnostics without disabling `serde-compat`.
 ts-rs = { version = "12", features = ["format", "no-serde-warnings"], optional = true }
-serialport = { version = "4.9", optional = true }
+serialport = { version = "4.9", optional = true, default-features = false }
 tokio-serial = { version = "5.4", optional = true }
 thiserror = "2.0"
 tokio = { version = "1.52", features = [
@@ -145,6 +147,9 @@ futures-lite = "2.6"
 pollster = "0.4"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 proptest = "1.11.0"
+# Reads Cargo's `--message-format=json` records in the compile-contract harness
+# (`tests/common/compile_fail.rs`); already the optional `serde` feature's JSON crate.
+serde_json = "1.0"
 
 [[example]]
 name = "quickstart"
@@ -222,7 +227,7 @@ name = "validate_ae_commands"
 
 [[example]]
 name = "cancellation"
-required-features = ["runtime-tokio"]
+required-features = ["runtime-tokio", "transport-serial-tokio"]
 
 [[example]]
 name = "cancellation_blocking"

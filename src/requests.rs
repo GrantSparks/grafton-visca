@@ -53,9 +53,6 @@ impl BuiltinInquiryAuthority {
     }
 }
 
-/// Encoding error reported before a request is admitted to a camera owner.
-pub type EncodeError = Error;
-
 /// Deadline family selected by a request implementation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
@@ -133,31 +130,33 @@ pub enum ControlClass {
     /// Opportunistic background work: telemetry polling, warm-up reads, and
     /// anything that should yield the transport to everything else.
     ///
-    /// This is 1.x's `Priority::Low`.
+    /// It is the lowest class: it is scheduled only when nothing more urgent is
+    /// ready.
     Background,
     /// Ordinary camera control traffic, and the class of every built-in
     /// inquiry.
     ///
-    /// This is 1.x's `Priority::Normal`, and the class a request gets when it
-    /// says nothing else.
+    /// This is the class a request gets when it says nothing else.
     Normal,
     /// Direct user interaction: drives, absolute moves, preset recalls, and the
     /// other commands a person is waiting on.
     ///
-    /// This is 1.x's `Priority::High`.
+    /// It is scheduled ahead of [`ControlClass::Normal`] and
+    /// [`ControlClass::Background`] work, so a person's input is not queued
+    /// behind polling.
     User,
     /// Time-sensitive control work that must reach the camera ahead of queued
     /// traffic: the typed stops and socket cancellation.
     ///
-    /// This is 1.x's `Priority::Critical`. It is an immutable safety floor:
+    /// It is an immutable safety floor:
     /// caller-selected submission QoS can neither create nor demote it.
     Urgent,
 }
 
 /// Caller-selected quality-of-service class for ordinary submissions.
 ///
-/// This preserves 1.x's useful background/normal/interactive scheduling
-/// controls without exposing the owner's safety lane. When a request's
+/// This exposes background, normal and interactive scheduling to callers
+/// without exposing the owner's safety lane. When a request's
 /// intrinsic [`ControlClass`] is [`ControlClass::Urgent`], this value is
 /// ignored and the request remains urgent. For every other request it selects
 /// the ready lane used at admission.
@@ -642,6 +641,15 @@ pub trait Request: Send + Sync {
         Self::CONTROL_CLASS
     }
 
+    /// Declares axes moved by a plain custom command for owner halt fencing.
+    ///
+    /// Undeclared plain/raw commands are never suppressed by a halt. Operation
+    /// commands instead use their mandatory [`OperationCommand::affected_axes`].
+    /// This grants no reserved STOP or cancellation authority.
+    fn motion_axes(&self) -> Option<AffectedAxes> {
+        None
+    }
+
     /// Resolves the request's class for owner admission.
     ///
     /// The private authority makes this an unforgeable crate-only hook. The
@@ -706,7 +714,7 @@ pub trait Request: Send + Sync {
     /// capability or profile-range validation. Shared preparation calls
     /// [`Self::validate_for_profile`] first and encodes only after that check
     /// succeeds.
-    fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, EncodeError>;
+    fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize>;
 
     /// Validates value-specific capability and range facts before encoding.
     ///

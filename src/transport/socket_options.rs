@@ -1,53 +1,27 @@
-//! Shared socket configuration helpers for TCP and UDP transports.
+//! Socket options shared by the blocking and async IP transports.
 //!
-//! This module centralizes transport-level socket option handling so the
-//! blocking and async runtimes apply the same semantics.
-
-use std::time::Duration;
-
-#[cfg(unix)]
-use std::os::unix::io::AsFd;
-#[cfg(windows)]
-use std::os::windows::io::AsSocket;
+//! Options are applied through [`socket2::SockRef`], which every std, Tokio
+//! and smol socket converts into on Unix and Windows alike, so each option is
+//! written once.
 
 use crate::{
-    transport::builder::{TcpKeepaliveConfig, TransportConfig, DEFAULT_TCP_KEEPALIVE},
+    transport::builder::{TcpKeepaliveConfig, TransportConfig},
     Error,
 };
 
-/// Configuration for TCP connection behavior.
+/// The TCP projection of a [`TransportConfig`].
 #[derive(Debug, Clone, Copy)]
 pub struct TcpConnectionConfig {
-    /// Whether to enable TCP_NODELAY (Nagle's algorithm disable).
+    /// `TCP_NODELAY`; `None` keeps the operating-system default.
     pub nodelay: Option<bool>,
-    /// Time-to-live for packets.
+    /// IPv4 TTL; `None` keeps the operating-system default.
     pub ttl: Option<u32>,
-    /// Connection timeout duration.
-    #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
-    pub connect_timeout: Duration,
+    /// Budget for resolving and connecting.
+    pub connect_timeout: std::time::Duration,
     /// TCP keepalive policy. When set, enables OS-level probes that detect
     /// broken peers and may preserve idle network-path state. These probes are
     /// not application-level VISCA traffic.
     pub tcp_keepalive: Option<TcpKeepaliveConfig>,
-}
-
-impl TcpConnectionConfig {
-    /// Whether TCP_NODELAY should be enabled for this connection.
-    pub(crate) fn nodelay_enabled(self) -> bool {
-        self.nodelay.unwrap_or(true)
-    }
-}
-
-impl Default for TcpConnectionConfig {
-    fn default() -> Self {
-        Self {
-            nodelay: Some(true),
-            ttl: None,
-            #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
-            connect_timeout: Duration::from_secs(5),
-            tcp_keepalive: Some(DEFAULT_TCP_KEEPALIVE),
-        }
-    }
 }
 
 impl From<TransportConfig> for TcpConnectionConfig {
@@ -55,34 +29,21 @@ impl From<TransportConfig> for TcpConnectionConfig {
         Self {
             nodelay: config.tcp_nodelay,
             ttl: config.ttl,
-            #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
             connect_timeout: config.connect_timeout,
             tcp_keepalive: config.tcp_keepalive,
         }
     }
 }
 
-/// Configuration for UDP socket behavior.
-#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
+/// The UDP projection of a [`TransportConfig`].
 #[derive(Debug, Clone, Copy)]
 pub struct UdpSocketConfig {
-    /// Time-to-live for packets.
+    /// IPv4 TTL; `None` keeps the operating-system default.
     pub ttl: Option<u32>,
-    /// Connection timeout duration.
-    pub connect_timeout: Duration,
+    /// Budget for resolving and connecting.
+    pub connect_timeout: std::time::Duration,
 }
 
-#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
-impl Default for UdpSocketConfig {
-    fn default() -> Self {
-        Self {
-            ttl: None,
-            connect_timeout: Duration::from_secs(5),
-        }
-    }
-}
-
-#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
 impl From<TransportConfig> for UdpSocketConfig {
     fn from(config: TransportConfig) -> Self {
         Self {
@@ -92,125 +53,56 @@ impl From<TransportConfig> for UdpSocketConfig {
     }
 }
 
-/// Apply TCP socket options to any socket type that exposes an OS socket handle.
-#[cfg(unix)]
-pub fn apply_tcp_socket_options<S>(socket: &S, config: TcpConnectionConfig) -> Result<(), Error>
-where
-    S: AsFd,
-{
-    let socket_ref = socket2::SockRef::from(socket);
-    socket_ref.set_tcp_nodelay(config.nodelay_enabled())?;
-
+/// Apply the configured TCP options to a connected stream.
+pub(crate) fn apply_tcp_socket_options(
+    socket: socket2::SockRef<'_>,
+    config: TcpConnectionConfig,
+) -> Result<(), Error> {
+    if let Some(nodelay) = config.nodelay {
+        socket.set_tcp_nodelay(nodelay)?;
+    }
     if let Some(ttl) = config.ttl {
-        socket_ref.set_ttl_v4(ttl)?;
+        socket.set_ttl_v4(ttl)?;
     }
-
-    apply_tcp_keepalive(socket, config.tcp_keepalive)
-}
-
-/// Windows implementation of [`apply_tcp_socket_options`].
-#[cfg(windows)]
-pub fn apply_tcp_socket_options<S>(socket: &S, config: TcpConnectionConfig) -> Result<(), Error>
-where
-    S: AsSocket,
-{
-    let socket_ref = socket2::SockRef::from(socket);
-    socket_ref.set_tcp_nodelay(config.nodelay_enabled())?;
-
-    if let Some(ttl) = config.ttl {
-        socket_ref.set_ttl_v4(ttl)?;
+    if let Some(keepalive) = config.tcp_keepalive {
+        socket.set_tcp_keepalive(&tcp_keepalive(keepalive))?;
     }
-
-    apply_tcp_keepalive(socket, config.tcp_keepalive)
-}
-
-/// Apply TCP keepalive to any socket type that exposes an OS socket handle.
-///
-/// This returns an error if keepalive was requested but could not be applied.
-#[cfg(unix)]
-pub fn apply_tcp_keepalive<S>(
-    socket: &S,
-    tcp_keepalive: Option<TcpKeepaliveConfig>,
-) -> Result<(), Error>
-where
-    S: AsFd,
-{
-    if let Some(config) = tcp_keepalive {
-        let mut keepalive = socket2::TcpKeepalive::new().with_time(config.idle);
-
-        if let Some(interval) = config.interval {
-            keepalive = tcp_keepalive_with_interval(keepalive, interval);
-        }
-
-        socket2::SockRef::from(socket).set_tcp_keepalive(&keepalive)?;
-    }
-
     Ok(())
 }
 
-/// Windows implementation of [`apply_tcp_keepalive`].
-#[cfg(windows)]
-pub fn apply_tcp_keepalive<S>(
-    socket: &S,
-    tcp_keepalive: Option<TcpKeepaliveConfig>,
-) -> Result<(), Error>
-where
-    S: AsSocket,
-{
-    if let Some(config) = tcp_keepalive {
-        let mut keepalive = socket2::TcpKeepalive::new().with_time(config.idle);
-
-        if let Some(interval) = config.interval {
-            keepalive = tcp_keepalive_with_interval(keepalive, interval);
-        }
-
-        socket2::SockRef::from(socket).set_tcp_keepalive(&keepalive)?;
+/// Apply the configured UDP options to a bound socket.
+pub(crate) fn apply_udp_socket_options(
+    socket: socket2::SockRef<'_>,
+    config: UdpSocketConfig,
+) -> Result<(), Error> {
+    if let Some(ttl) = config.ttl {
+        socket.set_ttl_v4(ttl)?;
     }
-
     Ok(())
 }
 
-#[cfg(any(
-    target_os = "android",
-    target_os = "dragonfly",
-    target_os = "freebsd",
-    target_os = "fuchsia",
-    target_os = "illumos",
-    target_os = "ios",
-    target_os = "visionos",
-    target_os = "linux",
-    target_os = "macos",
-    target_os = "netbsd",
-    target_os = "tvos",
-    target_os = "watchos",
-    target_os = "windows",
-))]
-fn tcp_keepalive_with_interval(
-    keepalive: socket2::TcpKeepalive,
-    interval: Duration,
-) -> socket2::TcpKeepalive {
-    keepalive.with_interval(interval)
-}
-
-#[cfg(not(any(
-    target_os = "android",
-    target_os = "dragonfly",
-    target_os = "freebsd",
-    target_os = "fuchsia",
-    target_os = "illumos",
-    target_os = "ios",
-    target_os = "visionos",
-    target_os = "linux",
-    target_os = "macos",
-    target_os = "netbsd",
-    target_os = "tvos",
-    target_os = "watchos",
-    target_os = "windows",
-)))]
-fn tcp_keepalive_with_interval(
-    keepalive: socket2::TcpKeepalive,
-    _interval: Duration,
-) -> socket2::TcpKeepalive {
+/// Lower a keepalive policy onto `socket2`, setting the probe interval on the
+/// platforms that support configuring it and keeping the OS default elsewhere.
+fn tcp_keepalive(config: TcpKeepaliveConfig) -> socket2::TcpKeepalive {
+    let keepalive = socket2::TcpKeepalive::new().with_time(config.idle);
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "illumos",
+        target_os = "ios",
+        target_os = "visionos",
+        target_os = "linux",
+        target_os = "macos",
+        target_os = "netbsd",
+        target_os = "tvos",
+        target_os = "watchos",
+        target_os = "windows",
+    ))]
+    if let Some(interval) = config.interval {
+        return keepalive.with_interval(interval);
+    }
     keepalive
 }
 
@@ -218,26 +110,15 @@ fn tcp_keepalive_with_interval(
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::transport::builder::DEFAULT_TCP_KEEPALIVE;
     use std::{
         net::{TcpListener, TcpStream},
         thread,
     };
 
     #[test]
-    fn tcp_connection_config_defaults_match_transport_defaults() {
-        let transport = TransportConfig::default();
-        let tcp = TcpConnectionConfig::default();
-
-        assert_eq!(transport.tcp_keepalive, Some(DEFAULT_TCP_KEEPALIVE));
-        assert_eq!(tcp.tcp_keepalive, Some(DEFAULT_TCP_KEEPALIVE));
-        assert_eq!(tcp.tcp_keepalive, transport.tcp_keepalive);
-        assert!(tcp.nodelay_enabled());
-        assert_eq!(transport.tcp_nodelay, Some(true));
-    }
-
-    #[test]
     #[cfg_attr(miri, ignore = "requires real TCP sockets")]
-    fn apply_tcp_keepalive_enables_socket_keepalive() {
+    fn the_tcp_defaults_enable_nodelay_and_keepalive() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
         let addr = listener.local_addr().expect("listener local addr");
 
@@ -246,12 +127,14 @@ mod tests {
         });
 
         let stream = TcpStream::connect(addr).expect("connect stream");
-        apply_tcp_keepalive(&stream, Some(DEFAULT_TCP_KEEPALIVE)).expect("apply keepalive");
+        let config = TcpConnectionConfig::from(TransportConfig::for_tcp());
+        assert_eq!(config.tcp_keepalive, Some(DEFAULT_TCP_KEEPALIVE));
+        apply_tcp_socket_options(socket2::SockRef::from(&stream), config)
+            .expect("apply TCP options");
 
-        let keepalive_enabled = socket2::SockRef::from(&stream)
-            .keepalive()
-            .expect("read keepalive state");
-        assert!(keepalive_enabled, "TCP keepalive should be enabled");
+        let socket = socket2::SockRef::from(&stream);
+        assert!(socket.keepalive().expect("read keepalive state"));
+        assert!(socket.tcp_nodelay().expect("read nodelay state"));
 
         accept_thread.join().expect("join accept thread");
     }

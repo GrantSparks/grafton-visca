@@ -66,22 +66,23 @@ fn classify_common_errors() {
     let examples = [
         Error::CommandBufferFull,
         Error::NoSocket,
-        Error::Timeout,
+        Error::io_timeout(),
         Error::SyntaxError,
         Error::CommandNotExecutable,
-        Error::RuntimeQueueFull { capacity: 64 },
-        Error::FeatureNotSupported {
-            feature: "advanced_zoom",
-        },
+        Error::runtime_queue_full(64),
+        Error::feature_not_supported("advanced_zoom"),
         Error::UnsequencedCommandUnconfirmed,
     ];
 
     println!("\nClassification:");
     for error in examples {
+        // `is_retryable` classifies the condition; `failure_context` says
+        // whether resubmitting the same request is safe.
         println!(
-            "  {error}: retryable={}, suggested_delay={:?}",
+            "  {error}: retryable={}, suggested_delay={:?}, context={:?}",
             error.is_retryable(),
-            error.suggested_retry_delay()
+            error.suggested_retry_delay(),
+            error.failure_context()
         );
     }
 }
@@ -90,11 +91,12 @@ async fn connect_and_query(address: &str) -> Result<(), Error> {
     println!("\nConnection check:");
     println!("  Address: {address}");
 
-    let config = CameraConfig::<PtzOpticsG2>::tcp(address).transport_config(TransportConfig {
-        connect_timeout: Duration::from_secs(3),
-        read_timeout: Duration::from_secs(2),
-        write_timeout: Duration::from_secs(2),
-        ..TransportConfig::default()
+    let config = CameraConfig::<PtzOpticsG2>::tcp(address).transport_config({
+        let mut config = TransportConfig::for_tcp();
+        config.connect_timeout = Duration::from_secs(3);
+        config.read_timeout = Duration::from_secs(2);
+        config.write_timeout = Duration::from_secs(2);
+        config
     });
 
     let runtime = TokioRuntime::from_current()?;

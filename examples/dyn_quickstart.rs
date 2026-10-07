@@ -17,7 +17,7 @@ use std::{env, time::Duration};
 use grafton_visca::{
     camera::profiles::PtzOpticsG2,
     capabilities::TypedSupportSurface,
-    dynapi::{DynAppliedOperation, DynSessionCamera, DynTargetedOperation},
+    dynapi::{DynAppliedOperation, DynTargetedOperation},
     runtime::TokioRuntime,
     Connect, Error,
 };
@@ -40,7 +40,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn dynamic_control(session: &grafton_visca::Session) -> Result<(), Error> {
     // One dynamic view onto the session's sole registered target.
-    let camera = DynSessionCamera::from_session(session)?;
+    let camera = session.camera_dyn()?;
 
     // Runtime capability discovery replaces the compile-time `Has*` markers.
     println!(
@@ -49,11 +49,11 @@ async fn dynamic_control(session: &grafton_visca::Session) -> Result<(), Error> 
     );
 
     // A targeted dynamic operation exposes `settled` (profile-selected protocol settlement).
-    let home: DynTargetedOperation = camera.pan_tilt().home().await?;
+    let mut home: DynTargetedOperation = camera.pan_tilt().home().await?;
     home.settled_with_timeout(Duration::from_secs(20)).await?;
 
     // An applied-only dynamic operation has no `settled`, only `applied`.
-    let stop: DynAppliedOperation = camera.zoom().stop().await?;
+    let mut stop: DynAppliedOperation = camera.zoom().stop().await?;
     stop.applied_with_timeout(Duration::from_secs(2)).await?;
 
     Ok(())

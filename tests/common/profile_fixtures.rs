@@ -1,16 +1,24 @@
+//! Synthetic compile-time profiles and the session configurations built on
+//! them, shared by the integration suite. Include it with
+//! `#[path = "common/profile_fixtures.rs"] mod profile_fixtures;`; each test
+//! binary uses a different subset.
+
+#![allow(dead_code)]
+
 use std::time::Duration;
 
 use grafton_visca::{
     capabilities::{
-        exposure::ShutterSpeed, CapabilityRange, Exposure, Focus, HasDirectZoom, HasMotionSync,
-        ImageProcessing, InquirySupport, MenuCapability, MotionSyncMetadata, NdFilterMetadata,
-        PanTilt, Power, Presets, ProfileMetadata, ProfileTypedSupport, Tally, TypedSupportSet,
-        TypedSupportSurface, VariableSpeedMetadata, WhiteBalance, Zoom,
+        exposure::ShutterSpeedEntry, CapabilityDomain, CapabilityRange, Exposure, Focus,
+        HasDirectZoom, HasMotionSync, ImageProcessing, InquirySupport, MenuCapability,
+        MotionSyncMetadata, NdFilterMetadata, PanTilt, Power, Presets, ProfileMetadata,
+        ProfileTypedSupport, Tally, TypedSupportSet, TypedSupportSurface, VariableSpeedMetadata,
+        WhiteBalance, Zoom,
     },
-    command::ExposureMode,
+    command::{ExposureMode, FocusZone},
     transport::RawVisca,
-    AffectedAxes, CommandTimeouts, CompileTimeProfile, PositionInquirySupport,
-    TransportCompatibility, WhiteBalanceMode,
+    AffectedAxes, CameraId, CommandTimeouts, CompileTimeProfile, PositionInquirySupport,
+    ProfileSpec, SessionConfig, TransportCompatibility, WhiteBalanceMode,
 };
 
 const EXPOSURE_MODES: &[ExposureMode] = &[
@@ -20,7 +28,13 @@ const EXPOSURE_MODES: &[ExposureMode] = &[
     ExposureMode::Iris,
     ExposureMode::Bright,
 ];
-const SHUTTER_SPEEDS: &[ShutterSpeed] = &[ShutterSpeed::new("1/60", 0x01)];
+const SHUTTER_SPEEDS: &[ShutterSpeedEntry] = &[ShutterSpeedEntry::new(
+    match grafton_visca::units::Fraction::new(1, 60) {
+        Some(exposure) => exposure,
+        None => panic!("nonzero denominator"),
+    },
+    0x01,
+)];
 const WB_MODES: &[WhiteBalanceMode] = &[WhiteBalanceMode::Auto, WhiteBalanceMode::Manual];
 
 macro_rules! synthetic_profile_default {
@@ -51,7 +65,6 @@ macro_rules! synthetic_command_timeouts {
 
 macro_rules! synthetic_profile_impl {
     ($profile:ident, $model:literal, $typed_support:expr, $default:ident, $ambiguity_timeout:expr $(, $command_timeouts:expr)?) => {
-        #[allow(dead_code)]
         #[derive(Debug, Clone, Copy)]
         pub struct $profile;
 
@@ -80,7 +93,7 @@ macro_rules! synthetic_profile_impl {
             const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
             const ZOOM_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 7);
             const SUPPORTS_DIRECT_ZOOM: bool = true;
-            const ZOOM_MAGNIFICATION_TO_UNITS: f32 = 862.3;
+            const OPTICAL_ZOOM_RATIO: Option<f32> = None;
         }
 
         impl Focus for $profile {
@@ -88,14 +101,15 @@ macro_rules! synthetic_profile_impl {
             const FOCUS_FAR_LIMIT: u16 = 0xF000;
             const SUPPORTS_AUTO_FOCUS: bool = true;
             const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
-            const SUPPORTS_FOCUS_ZONE: bool = true;
+            const FOCUS_ZONES: &'static [FocusZone] =
+                &[FocusZone::Top, FocusZone::Center, FocusZone::Bottom];
             const SUPPORTS_AF_SENSITIVITY: bool = true;
         }
 
         impl Exposure for $profile {
             const EXPOSURE_MODES: &'static [ExposureMode] = EXPOSURE_MODES;
-            const IRIS_RANGE: Option<CapabilityRange<u16>> = None;
-            const SHUTTER_SPEEDS: &'static [ShutterSpeed] = SHUTTER_SPEEDS;
+            const IRIS_RANGE: Option<CapabilityDomain<u16>> = None;
+            const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry] = SHUTTER_SPEEDS;
             const GAIN_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 15);
             const SUPPORTS_BACKLIGHT_COMP: bool = false;
         }
@@ -116,8 +130,9 @@ macro_rules! synthetic_profile_impl {
         }
 
         impl Presets for $profile {
-            const MAX_PRESETS: u8 = 6;
-            const PRESET_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(1, 23);
+            const HIGHEST_PRESET: u8 = 6;
+            const PRESET_SPEED_RANGE: Option<CapabilityRange<u8>> =
+                Some(CapabilityRange::<u8>::new(1, 23));
             const SUPPORTS_PRESET_TOUR: bool = false;
         }
 
@@ -243,9 +258,41 @@ impl MotionSyncMetadata for QuarantinedSocketCompileTimeProfile {}
 /// The one fixture that documents the physical capability, so the typed
 /// `MotionSync` surface above has something real to gate.
 impl MotionSyncMetadata for MotionSyncTypedSupport {
-    const SUPPORTS_MOTION_SYNC: bool = true;
+    const MOTION_SYNC_SPEED_RANGE: Option<CapabilityRange<u8>> =
+        Some(CapabilityRange::<u8>::new(1, 24));
 }
 
 impl HasDirectZoom for DirectZoomOnlyTypedSupport {}
 
 impl HasMotionSync for MotionSyncTypedSupport {}
+
+/// A session on camera 1 with [`NonDefaultCompileTimeProfile`], the
+/// two-socket raw profile.
+pub fn session_config() -> SessionConfig {
+    SessionConfig::new(
+        ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
+            .expect("two-socket raw profile"),
+    )
+}
+
+/// [`session_config`] with camera 2 registered on the same two-socket raw
+/// profile.
+pub fn two_camera_session_config() -> SessionConfig {
+    let mut config = session_config();
+    config
+        .register_target(
+            CameraId::CAMERA_2,
+            ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
+                .expect("two-socket raw profile"),
+        )
+        .expect("second target");
+    config
+}
+
+/// A session on camera 1 with the built-in Sony FR7 profile (Sony envelope).
+pub fn sony_session_config() -> SessionConfig {
+    SessionConfig::new(
+        ProfileSpec::from_compile_time::<grafton_visca::profiles::SonyFR7>()
+            .expect("Sony FR7 profile"),
+    )
+}

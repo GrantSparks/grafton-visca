@@ -16,7 +16,9 @@ use grafton_visca::{
     command::CommandKind,
     profile::ProfileSpec,
     profiles::GenericVisca,
-    transport::{AddressingMode, BlockingTransport, HasTransportConfig, TransportConfig},
+    transport::{
+        AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, TransportConfig,
+    },
     CameraId, Error,
 };
 
@@ -32,10 +34,7 @@ struct SerialBus {
 impl SerialBus {
     fn new() -> Self {
         Self {
-            config: TransportConfig {
-                addressing: AddressingMode::Serial,
-                ..TransportConfig::default()
-            },
+            config: TransportConfig::for_serial(),
             replies: VecDeque::new(),
         }
     }
@@ -68,10 +67,9 @@ impl BlockingTransport for SerialBus {
         &mut self,
         dst: &mut [u8],
         _timeout: Duration,
-    ) -> Result<usize, Error> {
-        let reply = self.replies.pop_front().ok_or(Error::Timeout)?;
-        dst[..reply.len()].copy_from_slice(&reply);
-        Ok(reply.len())
+    ) -> Result<ReceiveOutcome, Error> {
+        let reply = self.replies.pop_front().ok_or(Error::io_timeout())?;
+        Ok(ReceiveOutcome::copy_message(&reply, dst))
     }
 
     // Required for multi-target: the topology check rejects a `None` hint.

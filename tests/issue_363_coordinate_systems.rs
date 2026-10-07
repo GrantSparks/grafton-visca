@@ -2,10 +2,12 @@
 //! nonstandard five-nibble pan field.
 
 use grafton_visca::{
-    camera::profiles::{GenericVisca, NearusBRC300, SonyBRC300},
+    camera::{
+        profiles::{GenericVisca, NearusBRC300, SonyBRC300},
+        PanTiltPosition,
+    },
     capabilities::{CoordinateSystem, PanTilt, PanTiltWireCodec},
     command::{InquiryData, InquiryKind, Response},
-    PanTiltPositionRaw,
 };
 
 fn parsed<P: grafton_visca::capabilities::Profile>(payload: &[u8]) -> Response {
@@ -65,40 +67,48 @@ fn sony_brc300_decodes_documented_signed_endpoints() {
 fn sony_brc300_inquiry_endpoints_use_library_axis_polarity() {
     // BRC-300 p. 22: positive raw endpoints are Left/Up, while negative raw
     // endpoints are Right/Down. The library exposes right as positive pan and
-    // up as negative tilt degrees.
+    // up as positive tilt degrees, so only the pan axis is reversed.
     let (pan, tilt) = pan_tilt(parsed::<SonyBRC300>(&[
         0x00, 0x08, 0x0A, 0x05, 0x08, 0x04, 0x09, 0x03, 0x0D,
     ]));
-    let left_up = PanTiltPositionRaw::new(pan, tilt).as_degrees_with_profile(&SonyBRC300);
+    let left_up = PanTiltPosition::new(pan, tilt).as_degrees_with_profile(&SonyBRC300);
     assert!(left_up.pan.0 < 0.0);
-    assert!(left_up.tilt.0 < 0.0);
+    assert!(left_up.tilt.0 > 0.0);
     assert!((left_up.pan.0 + 0x08A58 as f32 / 208.0).abs() < f32::EPSILON);
-    assert!((left_up.tilt.0 + 0x493D as f32 / 208.0).abs() < f32::EPSILON);
+    assert!((left_up.tilt.0 - 0x493D as f32 / 208.0).abs() < f32::EPSILON);
 
     let (pan, tilt) = pan_tilt(parsed::<SonyBRC300>(&[
         0x0F, 0x07, 0x05, 0x0A, 0x08, 0x0E, 0x07, 0x09, 0x06,
     ]));
-    let right_down = PanTiltPositionRaw::new(pan, tilt).as_degrees_with_profile(&SonyBRC300);
+    let right_down = PanTiltPosition::new(pan, tilt).as_degrees_with_profile(&SonyBRC300);
     assert!(right_down.pan.0 > 0.0);
-    assert!(right_down.tilt.0 > 0.0);
+    assert!(right_down.tilt.0 < 0.0);
     assert!((right_down.pan.0 - 0x08A58 as f32 / 208.0).abs() < f32::EPSILON);
-    assert!((right_down.tilt.0 - 0x186A as f32 / 208.0).abs() < f32::EPSILON);
+    assert!((right_down.tilt.0 + 0x186A as f32 / 208.0).abs() < f32::EPSILON);
 }
 
 #[test]
-fn nearus_does_not_inherit_sony_brc300_framing_without_evidence() {
-    // Nearus retains its existing unsigned-centered metadata, but uses the
-    // conservative standard 4+4 VISCA codec rather than Sony's 5+4 frame.
+fn nearus_uses_the_brc300_frame_its_command_list_documents() {
+    // R21 (the BRC-300/300P command list text) documents the same five-nibble
+    // pan field, signed endpoints and limits as the Sony BRC-300 manual.
     assert_eq!(
         pan_tilt(parsed::<NearusBRC300>(&[
-            0x08, 0x00, 0x00, 0x00, 0x08, 0x00, 0x00, 0x00,
+            0x00, 0x08, 0x0A, 0x05, 0x08, 0x04, 0x09, 0x03, 0x0D,
         ])),
-        (0, 0)
+        (0x08A58, 0x493D)
     );
     assert_eq!(
         NearusBRC300::PAN_TILT_WIRE_CODEC,
-        PanTiltWireCodec::StandardVisca
+        PanTiltWireCodec::SonyBrc300
     );
+    assert_eq!(
+        NearusBRC300::COORDINATE_SYSTEM,
+        CoordinateSystem::SignedCentered
+    );
+    assert_eq!(NearusBRC300::PAN_RANGE, SonyBRC300::PAN_RANGE);
+    assert_eq!(NearusBRC300::TILT_RANGE, SonyBRC300::TILT_RANGE);
+    assert_eq!(NearusBRC300::MAX_PAN_SPEED, 0x18);
+    assert_eq!(NearusBRC300::MAX_TILT_SPEED, 0x18);
 }
 
 #[test]

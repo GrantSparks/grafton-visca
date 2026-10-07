@@ -1,0 +1,33 @@
+
+running 1 test
+test e5_stale_stream_reply_binding ... HW|t=81|truth.white_balance_mode=Ok(Auto)
+HW|t=164|before_fault.white_balance_mode=Ok(Auto)
+HW|t=164|READY_FOR_FAULT
+HW|t=265|fault.flag_seen
+HW|t=1275|during_fault.power elapsed_ms=1010 result=Err(Timeout { context: FailureContext { stage: Terminal, certainty: FailedConclusively } })
+HW|t=1276|POWER_INQUIRY_DONE
+HW|t=8285|fault.flag_removed
+HW|t=8290|after_fault.white_balance_mode[0] elapsed_ms=5 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) matches_truth=false
+HW|t=8301|after_fault.white_balance_mode[1] elapsed_ms=10 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) matches_truth=false
+HW|t=8312|after_fault.white_balance_mode[2] elapsed_ms=10 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) matches_truth=false
+HW|t=8323|after_fault.white_balance_mode[3] elapsed_ms=10 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) matches_truth=false
+HW|t=8334|after_fault.white_balance_mode[4] elapsed_ms=10 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) matches_truth=false
+HW|t=8345|after_fault.white_balance_mode[5] elapsed_ms=10 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) matches_truth=false
+HW|t=8356|after_fault.white_balance_mode[6] elapsed_ms=10 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) matches_truth=false
+HW|t=8367|after_fault.white_balance_mode[7] elapsed_ms=10 result=Err(InquiryCorrelationLost { camera: CameraId(1) }) matches_truth=false
+HW|t=8379|session.close=Ok(())
+HW|t=8379|SUMMARY wrong_values=8
+
+thread 'e5_stale_stream_reply_binding' (3185637) panicked at tests/hardware_experiments_test.rs:155:5:
+assertion `left == right` failed: a stale reply was returned as a later inquiry's value
+  left: 8
+ right: 0
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+FAILED
+
+failures:
+
+failures:
+    e5_stale_stream_reply_binding
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 8.38s

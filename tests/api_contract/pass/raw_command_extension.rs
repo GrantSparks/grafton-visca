@@ -18,10 +18,7 @@ impl Request for CustomCommand {
 
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         if buffer.len() < Self::MAX_SIZE {
-            return Err(Error::BufferTooSmall {
-                required: Self::MAX_SIZE,
-                actual: buffer.len(),
-            });
+            return Err(Error::buffer_too_small(Self::MAX_SIZE, buffer.len()));
         }
 
         buffer[0] = camera_id.to_address_byte();
@@ -47,10 +44,7 @@ impl Request for VendorStatusInquiry {
             VISCA_TERMINATOR,
         ];
         if buffer.len() < bytes.len() {
-            return Err(Error::BufferTooSmall {
-                required: bytes.len(),
-                actual: buffer.len(),
-            });
+            return Err(Error::buffer_too_small(bytes.len(), buffer.len()));
         }
         buffer[..bytes.len()].copy_from_slice(&bytes);
         Ok(bytes.len())

@@ -13,9 +13,12 @@
 use grafton_visca_macros::ViscaEnum;
 
 use crate::{
-    command::encode::WireEncode,
+    command::{
+        bytes::{constants::focus, nibbles, FrameWriter, Step},
+        encode::WireEncode,
+    },
     error::Error,
-    types::{FocusPosition, SpeedLevel},
+    types::{FocusPosition, FocusSpeed},
     visca_command,
 };
 
@@ -51,22 +54,6 @@ pub enum FocusRange {
     Range1x = 0x04,
     /// 0.35x focus range.
     Range0_35x = 0x05,
-}
-
-crate::visca_range_type! {
-    /// Variable focus speed.
-    ///
-    /// Valid range: 0 to 7 where 0 is the slowest and 7 is the fastest.
-    FocusSpeed: u8 {
-        min: 0,
-        max: 7
-    }
-}
-
-impl From<SpeedLevel> for FocusSpeed {
-    fn from(level: SpeedLevel) -> Self {
-        Self(level.to_focus_speed())
-    }
 }
 
 /// Focus control commands.
@@ -113,109 +100,78 @@ impl WireEncode for Focus {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::bytes::{constants, ConstCommandBuilder};
-
+        let frame = FrameWriter::new(camera_id, buffer);
         match self {
-            Self::Stop | Self::Far | Self::Near => {
-                // Demonstrate type-state pattern usage for Stop command
-                if matches!(self, Self::Stop) {
-                    // Use the new type-state API
-                    let builder = ConstCommandBuilder::<6>::new()
-                        .append(constants::focus::MOVEMENT_PREFIX)
-                        .push(0x00)
-                        .with_camera_id(camera_id)
-                        .terminate();
-
-                    // Now we can access bytes only after termination
-                    builder.build_into(buffer)
-                } else {
-                    // Use legacy API for other commands
-                    let mut builder = ConstCommandBuilder::<6>::new();
-                    builder.append_mut(constants::focus::MOVEMENT_PREFIX);
-                    builder.push_mut(match self {
-                        Self::Far => 0x02,
-                        Self::Near => 0x03,
-                        _ => unreachable!(),
-                    });
-                    builder.with_camera_id_mut(camera_id);
-                    builder.terminate().build_into(buffer)
-                }
-            }
-            Self::FarWithSpeed(_) | Self::NearWithSpeed(_) => {
-                let mut builder = ConstCommandBuilder::<6>::new();
-                builder.append_mut(constants::focus::MOVEMENT_PREFIX);
-                builder.push_mut(match self {
-                    Self::FarWithSpeed(s) => 0x20 | s.value(),
-                    Self::NearWithSpeed(s) => 0x30 | s.value(),
-                    _ => unreachable!(),
-                });
-                builder.with_camera_id_mut(camera_id);
-                builder.terminate().build_into(buffer)
-            }
-            Self::Position(position) => {
-                let builder = ConstCommandBuilder::<9>::new()
-                    .append(constants::focus::POSITION_PREFIX)
-                    .push_visca_u16(position.value())
-                    .with_camera_id(camera_id)
-                    .terminate();
-                builder.build_into(buffer)
-            }
-            Self::Auto | Self::Manual | Self::Toggle | Self::Snap => {
-                let mut builder = ConstCommandBuilder::<6>::new();
-                builder.append_mut(constants::focus::MODE_PREFIX);
-                builder.push_mut(match self {
-                    Self::Auto => 0x02,
-                    Self::Manual => 0x03,
-                    Self::Snap => 0x04,
-                    Self::Toggle => 0x10,
-                    _ => unreachable!(),
-                });
-                builder.with_camera_id_mut(camera_id);
-                builder.terminate().build_into(buffer)
-            }
-            Self::OnePushTrigger | Self::Infinity => {
-                let mut builder = ConstCommandBuilder::<6>::new();
-                builder.append_mut(constants::focus::ONE_PUSH_PREFIX);
-                builder.push_mut(match self {
-                    Self::OnePushTrigger => 0x01,
-                    Self::Infinity => 0x02,
-                    _ => unreachable!(),
-                });
-                builder.with_camera_id_mut(camera_id);
-                builder.terminate().build_into(buffer)
-            }
+            Self::Stop => frame.bytes(&focus::DRIVE).byte(Step::Reset.byte()),
+            Self::Far => frame.bytes(&focus::DRIVE).byte(Step::Up.byte()),
+            Self::Near => frame.bytes(&focus::DRIVE).byte(Step::Down.byte()),
+            Self::FarWithSpeed(speed) => frame
+                .bytes(&focus::DRIVE)
+                .byte(Step::Up.at_speed(speed.value())),
+            Self::NearWithSpeed(speed) => frame
+                .bytes(&focus::DRIVE)
+                .byte(Step::Down.at_speed(speed.value())),
+            Self::Position(position) => frame.bytes(&focus::DIRECT).nibbles::<4>(position.value()),
+            Self::Auto => frame.bytes(&focus::MODE).byte(u8::from(FocusMode::Auto)),
+            Self::Manual => frame.bytes(&focus::MODE).byte(u8::from(FocusMode::Manual)),
+            Self::Snap => frame.bytes(&focus::MODE).byte(0x04),
+            Self::Toggle => frame.bytes(&focus::MODE).byte(0x10),
+            Self::OnePushTrigger => frame.bytes(&focus::ONE_PUSH).byte(0x01),
+            Self::Infinity => frame.bytes(&focus::ONE_PUSH).byte(0x02),
         }
+        .finish()
     }
 }
 
-/// Focus Zone selection (baseline VISCA).
+/// Focus Zone selection (`CAM_AFZone`, `8x 01 04 AA 0p FF`).
 ///
-/// Determines which area of the image the camera uses for auto focus.
+/// Determines which area of the image the camera weights for auto focus. The
+/// focus-zone inquiry (`8x 09 04 AA FF`) replies `y0 50 0p FF` with the same
+/// values, so every variant read back from a camera can be set again unchanged.
+///
+/// The variant set is evidence-driven rather than fixed by one specification:
+/// `Top`, `Center` and `Bottom` are the documented `AF Zone weight select`
+/// values, and [`FocusZone::Zone03`] is a value from the PTZOptics G2 bench
+/// (#795) that no vendor source names yet. The enum is `#[non_exhaustive]` so
+/// further evidenced values can be added without a breaking change; match it
+/// with a wildcard arm.
+///
+/// Decoding accepts every variant from any camera. Sending is gated per
+/// profile: the typed setter refuses a value outside
+/// [`Capabilities::focus_zones`](crate::capabilities::Capabilities::focus_zones)
+/// before any I/O.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[non_exhaustive]
 pub enum FocusZone {
-    /// Focus on the top area of the image.
+    /// Weight auto focus toward the top area of the image (`p = 0`).
     Top = 0x00,
-    /// Focus on the center area of the image (default).
+    /// Weight auto focus toward the center area of the image (`p = 1`, default).
     Center = 0x01,
-    /// Focus on the bottom area of the image.
+    /// Weight auto focus toward the bottom area of the image (`p = 2`).
     Bottom = 0x02,
+    /// Focus-zone value `p = 3`, not named by any vendor source.
+    ///
+    /// On the PTZOptics G2 bench (PT30X/PT20X/PT12X-NDI G2, firmware ARM
+    /// 6.3.51THI, 6.3.76THI and 6.4.18SHI; 2026-10-04; #795) the cameras report
+    /// it from the focus-zone inquiry, accept `8x 01 04 AA 03 FF` with ACK and
+    /// completion, and read it back afterwards. Which image area it weights is
+    /// not documented, so the library makes no claim about it beyond
+    /// preserving the value: read it, store it, and set it back. Only the
+    /// `PtzOpticsG2` and `PtzOptics30X` profiles admit it for sending.
+    Zone03 = 0x03,
 }
 
 visca_command! {
-        /// Command to set the focus zone.
+    /// Command to set the focus zone.
     pub struct FocusZoneCommand {
         zone: FocusZone,
     };
-    prefix = [0x01, 0x04, 0xAA];
-    param = match *zone {
-        FocusZone::Top => 0x00u8,
-        FocusZone::Center => 0x01u8,
-        FocusZone::Bottom => 0x02u8,
-    };
+    prefix = focus::ZONE;
+    param = u8::from(*zone);
     max_param_size = 1;
 }
 
@@ -244,16 +200,12 @@ pub enum AutoFocusSensitivity {
 }
 
 visca_command! {
-        /// Command to set auto focus sensitivity.
+    /// Command to set auto focus sensitivity.
     pub struct AutoFocusSensitivityCommand {
         sensitivity: AutoFocusSensitivity,
     };
-    prefix = [0x01, 0x04, 0x58];
-    param = match *sensitivity {
-        AutoFocusSensitivity::High => 0x01u8,
-        AutoFocusSensitivity::Normal => 0x02u8,
-        AutoFocusSensitivity::Low => 0x03u8,
-    };
+    prefix = focus::AF_SENSITIVITY;
+    param = u8::from(*sensitivity);
     max_param_size = 1;
 }
 
@@ -265,23 +217,15 @@ impl AutoFocusSensitivityCommand {
 }
 
 visca_command! {
-        /// Command to set the focus near limit.
+    /// Command to set the focus near limit.
     ///
     /// Sets the minimum focus distance to prevent the camera from
     /// focusing on objects too close to the lens.
     pub struct FocusNearLimitCommand {
         position: FocusPosition,
     };
-    prefix = [0x01, 0x04, 0x28];
-    param = {
-        let value = position.value();
-        [
-            ((value >> 12) & 0x0F) as u8,
-            ((value >> 8) & 0x0F) as u8,
-            ((value >> 4) & 0x0F) as u8,
-            (value & 0x0F) as u8,
-        ]
-    };
+    prefix = focus::NEAR_LIMIT;
+    param = nibbles::<4>(position.value().into());
     max_param_size = 4;
 }
 
@@ -315,21 +259,13 @@ impl WireEncode for FocusLock {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::bytes::ConstCommandBuilder;
-
-        let builder = match self {
-            Self::On => ConstCommandBuilder::<6>::new()
-                .append(crate::command::bytes::constants::focus::LOCK_PREFIX)
-                .push(0x02),
-            Self::Off => ConstCommandBuilder::<6>::new()
-                .append(crate::command::bytes::constants::focus::LOCK_PREFIX)
-                .push(0x03),
-        };
-
-        builder
-            .with_camera_id(camera_id)
-            .terminate()
-            .build_into(buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&focus::LOCK)
+            .byte(match self {
+                Self::On => 0x02,
+                Self::Off => 0x03,
+            })
+            .finish()
     }
 }
 
@@ -357,18 +293,13 @@ impl WireEncode for PushAF {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
-        use crate::command::bytes::{constants, ConstCommandBuilder};
-
-        let mut builder = ConstCommandBuilder::<8>::new();
-        builder.append_mut(constants::focus::PUSH_AF_PREFIX);
-        builder.push_mut(match self {
-            Self::Press => 0x01,
-            Self::Release => 0x00,
-        });
-        builder
-            .with_camera_id(camera_id)
-            .terminate()
-            .build_into(buffer)
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&focus::PUSH_AF)
+            .byte(match self {
+                Self::Press => 0x01,
+                Self::Release => 0x00,
+            })
+            .finish()
     }
 }
 
@@ -444,7 +375,12 @@ mod tests {
         // Invalid speeds
         assert!(matches!(
             FocusSpeed::new(8),
-            Err(Error::InvalidParameter { .. })
+            Err(Error::ParameterOutOfRange {
+                parameter: "FocusSpeed",
+                value: 8,
+                min: 0,
+                max: 7,
+            })
         ));
     }
 

@@ -20,15 +20,10 @@
 //! # #[cfg(feature = "runtime-tokio")]
 //! # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 //! let runtime = TokioRuntime::from_current()?;
-//! let transport = runtime
-//!     .connect_tcp(
-//!         "192.168.0.110:5678",
-//!         TransportConfig {
-//!             tcp_keepalive: Some(TcpKeepaliveConfig::default()),
-//!             ..TransportConfig::default()
-//!         },
-//!     )
-//!     .await?;
+//! // Start from the TCP defaults every TCP entry point uses, then adjust.
+//! let mut config = TransportConfig::for_tcp();
+//! config.tcp_keepalive = Some(TcpKeepaliveConfig::new(std::time::Duration::from_secs(30)));
+//! let transport = runtime.connect_tcp("192.168.0.110:5678", config).await?;
 //! let _session = Session::open(
 //!     transport,
 //!     SessionConfig::from_compile_time::<GenericVisca>()?,
@@ -65,6 +60,7 @@ pub(crate) const DEFAULT_TCP_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(
 
 /// TCP keepalive policy for long-lived VISCA TCP connections.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TcpKeepaliveConfig {
     /// Idle time before the first keepalive probe is sent.
     pub idle: Duration,
@@ -109,21 +105,48 @@ pub(crate) const DEFAULT_TCP_KEEPALIVE: TcpKeepaliveConfig = TcpKeepaliveConfig 
 };
 
 /// Common configuration options for all transport types.
-#[derive(Debug, Clone, Copy)]
+///
+/// # Per-transport defaults
+///
+/// [`TransportConfig::for_tcp`], [`TransportConfig::for_udp`] and
+/// [`TransportConfig::for_serial`] are the single source of the defaults each
+/// built-in transport uses. Every built-in entry point — [`CameraConfig`],
+/// the blocking `Transport` builders, the runtime connectors and the direct
+/// transport constructors — starts from them, so the largest reply a session
+/// accepts never depends on which entry point opened the transport.
+///
+/// | Constructor | `recv_buffer_size` | `addressing` | TCP fields |
+/// |---|---|---|---|
+/// | [`for_tcp`](Self::for_tcp) | 256 ([`BufferConfig::for_raw_ip`]) | `Ip` | nodelay on, keepalive on |
+/// | [`for_udp`](Self::for_udp) | 1024 ([`BufferConfig::for_udp`]) | `Ip` | `None` |
+/// | [`for_serial`](Self::for_serial) | 256 ([`BufferConfig::for_serial`]) | `Serial` | `None` |
+///
+/// [`TransportConfig::default`] is the transport-neutral base the three
+/// constructors refine. It is the right starting point only for a custom
+/// transport that has no built-in kind.
+///
+/// [`CameraConfig`]: crate::camera::CameraConfig
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct TransportConfig {
     /// Connection timeout duration.
+    ///
+    /// Bounds name resolution plus connection setup for the IP transports on
+    /// every facade. Serial devices have no connect phase.
     pub connect_timeout: Duration,
     /// Read timeout for receive operations.
     pub read_timeout: Duration,
     /// Write timeout for send operations.
     pub write_timeout: Duration,
-    /// Buffer configuration for managing buffers.
+    /// Frame and retention limits for received data.
     pub buffer_config: BufferConfig,
     /// Addressing mode (Serial vs IP) for VISCA frames.
     pub addressing: AddressingMode,
-    /// Whether to enable TCP nodelay (disable Nagle's algorithm).
+    /// TCP nodelay (Nagle's algorithm disabled when `Some(true)`).
+    ///
+    /// `None` leaves the operating-system default in place.
     pub tcp_nodelay: Option<bool>,
-    /// TTL (Time To Live) for packets.
+    /// IPv4 TTL (Time To Live) for packets. `None` keeps the OS default.
     pub ttl: Option<u32>,
     /// TCP keepalive policy. When set, enables OS-level probes that detect
     /// broken peers and may preserve idle network-path state. These probes do
@@ -135,9 +158,9 @@ pub struct TransportConfig {
 impl Default for TransportConfig {
     fn default() -> Self {
         Self {
-            connect_timeout: Duration::from_secs(5),
-            read_timeout: Duration::from_secs(5),
-            write_timeout: Duration::from_secs(5),
+            connect_timeout: DEFAULT_TRANSPORT_TIMEOUT,
+            read_timeout: DEFAULT_TRANSPORT_TIMEOUT,
+            write_timeout: DEFAULT_TRANSPORT_TIMEOUT,
             buffer_config: BufferConfig::default(),
             addressing: AddressingMode::default(),
             tcp_nodelay: Some(true),
@@ -147,7 +170,52 @@ impl Default for TransportConfig {
     }
 }
 
+/// The default connect, read, and write timeout of every built-in transport.
+const DEFAULT_TRANSPORT_TIMEOUT: Duration = Duration::from_secs(5);
+
 impl TransportConfig {
+    /// The configuration every built-in TCP transport starts from.
+    ///
+    /// Raw VISCA over TCP: 256-byte frame limit, IP addressing, `TCP_NODELAY`
+    /// and the long-lived keepalive policy.
+    #[must_use]
+    pub fn for_tcp() -> Self {
+        Self {
+            buffer_config: BufferConfig::for_raw_ip(),
+            ..Self::default()
+        }
+    }
+
+    /// The configuration every built-in UDP transport starts from.
+    ///
+    /// One datagram per receive with a 1024-byte limit and IP addressing; no
+    /// TCP socket options.
+    #[must_use]
+    pub fn for_udp() -> Self {
+        Self {
+            buffer_config: BufferConfig::for_udp(),
+            tcp_nodelay: None,
+            tcp_keepalive: None,
+            ..Self::default()
+        }
+    }
+
+    /// The configuration every built-in serial transport starts from.
+    ///
+    /// Serial addressing (device addresses `0x81..=0x88` are preserved on the
+    /// wire), a 256-byte frame limit, and no TCP socket options.
+    #[must_use]
+    pub fn for_serial() -> Self {
+        Self {
+            buffer_config: BufferConfig::for_serial(),
+            addressing: AddressingMode::Serial,
+            tcp_nodelay: None,
+            ttl: None,
+            tcp_keepalive: None,
+            ..Self::default()
+        }
+    }
+
     /// Validate I/O bounds that must hold before a transport is opened.
     ///
     /// The owner validates the same invariant when admitting a caller-owned
@@ -155,25 +223,25 @@ impl TransportConfig {
     /// connector or serial-device initializer can perform I/O.
     pub(crate) fn validate(&self) -> crate::Result<()> {
         let now = Instant::now();
-        for (name, timeout) in [
-            ("connect", self.connect_timeout),
-            ("read", self.read_timeout),
-            ("write", self.write_timeout),
+        for (name, parameter, timeout) in [
+            ("connect", "connect_timeout", self.connect_timeout),
+            ("read", "read_timeout", self.read_timeout),
+            ("write", "write_timeout", self.write_timeout),
         ] {
             if timeout.is_zero() {
                 return Err(Error::InvalidRequest(
                     format!("transport {name} timeout must be non-zero").into(),
                 ));
             }
-            if now.checked_add(timeout).is_none() {
-                return Err(Error::InvalidRequest(
-                    format!("transport {name} timeout exceeds the monotonic clock range").into(),
-                ));
-            }
+            crate::timeout::instant_after(now, timeout, parameter)?;
         }
-        if self.buffer_config.recv_buffer_size == 0 {
+        if self.buffer_config.recv_buffer_size < BufferConfig::MIN_RECV_BUFFER_SIZE {
             return Err(Error::InvalidRequest(
-                "transport receive buffer must be non-zero".into(),
+                format!(
+                    "transport receive buffer must hold the largest VISCA reply ({} bytes)",
+                    BufferConfig::MIN_RECV_BUFFER_SIZE
+                )
+                .into(),
             ));
         }
         if self.buffer_config.max_buffer_size == 0 {
@@ -285,22 +353,29 @@ enum Protocol {
 
 #[cfg(feature = "blocking")]
 impl NetTransportBuilder {
-    /// Create a new TCP transport builder.
+    /// Create a new TCP transport builder starting from
+    /// [`TransportConfig::for_tcp`].
     pub fn tcp() -> Self {
         Self {
             protocol: Protocol::Tcp,
             address: None,
-            config: TransportConfig::default(),
+            config: TransportConfig::for_tcp(),
         }
     }
 
-    /// Create a new UDP transport builder.
+    /// Create a new UDP transport builder starting from
+    /// [`TransportConfig::for_udp`].
     pub fn udp() -> Self {
         Self {
             protocol: Protocol::Udp,
             address: None,
-            config: TransportConfig::default(),
+            config: TransportConfig::for_udp(),
         }
+    }
+
+    /// The configuration [`Self::build_blocking`] will connect with.
+    pub fn config(&self) -> &TransportConfig {
+        &self.config
     }
 
     /// Set the address to connect to.
@@ -340,33 +415,16 @@ impl NetTransportBuilder {
         self
     }
 
-    /// Set the receive buffer size.
+    /// Set the largest accepted reply frame (see
+    /// [`BufferConfig::recv_buffer_size`]).
     pub fn recv_buffer_size(mut self, size: usize) -> Self {
         self.config.buffer_config.recv_buffer_size = size;
         self
     }
 
-    /// Set the maximum buffer size to prevent unbounded growth.
+    /// Set the stream retention bound (see [`BufferConfig::max_buffer_size`]).
     pub fn max_buffer_size(mut self, size: usize) -> Self {
         self.config.buffer_config.max_buffer_size = size;
-        self
-    }
-
-    /// Use optimized buffer configuration for UDP transports.
-    pub fn udp_buffers(mut self) -> Self {
-        self.config.buffer_config = BufferConfig::for_udp();
-        self
-    }
-
-    /// Use optimized buffer configuration for Sony IP protocol.
-    pub fn sony_ip_buffers(mut self) -> Self {
-        self.config.buffer_config = BufferConfig::for_sony_ip();
-        self
-    }
-
-    /// Use optimized buffer configuration for raw IP protocol.
-    pub fn raw_ip_buffers(mut self) -> Self {
-        self.config.buffer_config = BufferConfig::for_raw_ip();
         self
     }
 
@@ -422,11 +480,8 @@ impl NetTransportBuilder {
             reason: "No address specified for transport".into(),
         })?;
 
-        // Direct connectors repeat this check for callers that do not use the
-        // builder. Do it here as well so every builder path rejects invalid
-        // I/O bounds before handing control to a connector.
-        self.config.validate()?;
-
+        // The connector's preflight validates the configuration before any
+        // I/O, exactly once.
         match self.protocol {
             Protocol::Tcp => {
                 let transport =
@@ -439,29 +494,6 @@ impl NetTransportBuilder {
                 Ok(crate::transport::BlockingTransportHandle::Udp(transport))
             }
         }
-    }
-}
-
-/// Extension trait for creating transports with a builder pattern.
-///
-/// This trait is only available in blocking mode.
-#[cfg(feature = "blocking")]
-pub trait TransportBuilderExt: Sized {
-    /// Create a builder for this transport type.
-    fn builder() -> NetTransportBuilder;
-}
-
-#[cfg(feature = "blocking")]
-impl TransportBuilderExt for crate::transport::blocking::Tcp {
-    fn builder() -> NetTransportBuilder {
-        NetTransportBuilder::tcp()
-    }
-}
-
-#[cfg(feature = "blocking")]
-impl TransportBuilderExt for crate::transport::blocking::Udp {
-    fn builder() -> NetTransportBuilder {
-        NetTransportBuilder::udp()
     }
 }
 
@@ -536,31 +568,40 @@ mod tests {
                 },
                 "transport write timeout must be non-zero",
             ),
+        ] {
+            assert!(matches!(
+                config.validate(),
+                Err(Error::InvalidRequest(actual)) if actual.as_ref() == message
+            ));
+        }
+        // An unrepresentable timeout is the same error every runtime budget
+        // reports.
+        for (config, name) in [
             (
                 TransportConfig {
                     connect_timeout: Duration::MAX,
                     ..TransportConfig::default()
                 },
-                "transport connect timeout exceeds the monotonic clock range",
+                "connect_timeout",
             ),
             (
                 TransportConfig {
                     read_timeout: Duration::MAX,
                     ..TransportConfig::default()
                 },
-                "transport read timeout exceeds the monotonic clock range",
+                "read_timeout",
             ),
             (
                 TransportConfig {
                     write_timeout: Duration::MAX,
                     ..TransportConfig::default()
                 },
-                "transport write timeout exceeds the monotonic clock range",
+                "write_timeout",
             ),
         ] {
             assert!(matches!(
                 config.validate(),
-                Err(Error::InvalidRequest(actual)) if actual.as_ref() == message
+                Err(Error::InvalidParameter { parameter, .. }) if parameter == name
             ));
         }
     }

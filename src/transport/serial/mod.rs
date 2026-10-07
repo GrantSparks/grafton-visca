@@ -1,9 +1,66 @@
-//! Serial transport module for unified configuration and transport implementations.
+//! Serial (RS-232/RS-422) VISCA transports: configuration and the behaviour
+//! shared by the blocking and Tokio serial transports.
+//!
+//! # Opening a port
+//!
+//! Both facades open the port through one builder, so they behave the same:
+//!
+//! - **Exclusive access.** The port is opened for exclusive use (`TIOCEXCL`
+//!   plus an exclusive `flock` on Unix; Windows opens a COM port exclusively
+//!   by default). A VISCA serial bus has one owner:
+//!   a second writer would interleave bytes with this session's frames and
+//!   could reset the bus with its own broadcasts.
+//! - **Open failure** is [`Error::ConnectionFailed`] naming the port and
+//!   carrying the platform error, so its [`std::io::ErrorKind`] survives.
+//! - **Reported configuration.** The transport reports
+//!   [`Config::transport_config`]: serial addressing and no TCP socket
+//!   options.
+//! - **Writes on open.** Only those [`Config::startup`] requests; the default
+//!   writes nothing. After any startup operation the received input is
+//!   discarded, so no startup reply, echo or bus notification reaches the
+//!   session.
+//! - **Addressed cameras.** When Address Set runs, the transport reports the
+//!   camera count through `HasTransportConfig::addressed_bus`, and session
+//!   startup checks every registered camera against it before any protocol
+//!   I/O, on every entry point.
+//!
+//! # Startup protocol
+//!
+//! Address Set and I/F Clear run through one sans-I/O state machine for both
+//! facades. Address Set (when requested) runs before I/F Clear.
+//!
+//! - **Address Set** makes up to three attempts, each with one 2-second
+//!   budget covering its write and its reply. Partial or noisy input never
+//!   buys an attempt more time. A fully written attempt that gets no reply
+//!   (or whose input cannot be framed) is retried after 100 ms; after the
+//!   last attempt startup fails with [`Error::MaxRetriesExceeded`].
+//! - **A failed or timed-out write is never retried**, for either command:
+//!   how much of the broadcast reached the bus is unknowable, and resending
+//!   after a partial frame would put a malformed concatenation on the daisy
+//!   chain. Startup fails with the write's error.
+//! - **Read errors** other than an idle read (timeout, `WouldBlock`,
+//!   `Interrupted`) end startup with the read's own error, unchanged.
+//! - **I/F Clear** writes its broadcast and then waits a 100 ms settle delay,
+//!   both within one 2-second budget.
+//!
+//! Serial `flush` is never called: on POSIX it is `tcdrain`, which can block
+//! beyond every timeout. The camera's reply and the settle delay are the
+//! protocol-level confirmation that the queued bytes left.
 
 mod config;
 pub(crate) mod handshake;
 
-pub use config::Config;
+pub use config::{Config, Startup};
+
+use crate::Error;
+
+/// The end-of-stream reason every serial transport reports.
+pub(crate) const SERIAL_PORT_CLOSED: &str = "serial port closed";
+
+/// Serial ports are opened for exclusive access on every facade. Unix needs
+/// the builder flag; Windows opens a COM port exclusively by default.
+#[cfg(unix)]
+const EXCLUSIVE_ACCESS: bool = true;
 
 /// The shortest timeout that is safe to pass to a serial-device backend.
 ///
@@ -11,128 +68,39 @@ pub use config::Config;
 /// Derived owner budgets can legitimately be shorter than a millisecond, so
 /// clamp only at this device boundary; the owner still checks its precise
 /// deadline after every I/O operation.
-pub(crate) const MIN_DEVICE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1);
+#[cfg(feature = "transport-serial")]
+const MIN_DEVICE_TIMEOUT: std::time::Duration = std::time::Duration::from_millis(1);
 
 /// Round a serial-device timeout up to the backend's smallest safe value.
-pub(crate) fn device_timeout(timeout: std::time::Duration) -> std::time::Duration {
+#[cfg(feature = "transport-serial")]
+fn device_timeout(timeout: std::time::Duration) -> std::time::Duration {
     timeout.max(MIN_DEVICE_TIMEOUT)
 }
 
-/// Write a complete frame before one absolute deadline.
-///
-/// Both regular blocking commands and startup handshakes use this loop.  A
-/// partial write retains the same whole-frame deadline, transient interrupts
-/// retry, and serial poll expiry is normalized to the public timeout error.
-#[cfg(all(feature = "blocking", feature = "transport-serial"))]
-pub(crate) fn write_bounded(
-    port: &mut dyn serialport::SerialPort,
-    bytes: &[u8],
-    deadline: std::time::Instant,
-    configured_write_timeout: std::time::Duration,
-) -> crate::Result<()> {
-    use std::io::ErrorKind;
-
-    let mut written = 0;
-
-    while written < bytes.len() {
-        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-        if remaining.is_zero() {
-            return Err(crate::Error::Timeout);
-        }
-
-        port.set_timeout(device_timeout(configured_write_timeout.min(remaining)))
-            .map_err(|error| {
-                crate::Error::TransportError(
-                    format!("Failed to set serial write timeout: {error}").into(),
-                )
-            })?;
-
-        match port.write(&bytes[written..]) {
-            Ok(0) => {
-                return Err(crate::Error::TransportError(
-                    "Serial write made no progress".into(),
-                ));
-            }
-            Ok(count) if count <= bytes.len() - written => written += count,
-            Ok(count) => {
-                return Err(crate::Error::TransportError(
-                    format!(
-                        "Serial write reported {count} bytes for a {}-byte buffer",
-                        bytes.len() - written
-                    )
-                    .into(),
-                ));
-            }
-            Err(error) if matches!(error.kind(), ErrorKind::TimedOut | ErrorKind::WouldBlock) => {
-                return Err(crate::Error::Timeout);
-            }
-            Err(error) if error.kind() == ErrorKind::Interrupted => continue,
-            Err(error) => {
-                return Err(crate::Error::TransportError(
-                    format!("Serial write error: {error}").into(),
-                ));
-            }
-        }
-    }
-
-    Ok(())
+/// The one port builder both facades open with exclusive access. No timeout
+/// is configured here: every blocking read and write arms its own.
+pub(crate) fn port_builder(config: &Config) -> serialport::SerialPortBuilder {
+    let builder = serialport::new(&config.port, config.baud_rate);
+    #[cfg(unix)]
+    let builder = builder.exclusive(EXCLUSIVE_ACCESS);
+    builder
 }
 
-/// One optional operation performed while bringing up a serial VISCA bus.
-///
-/// Address assignment must precede I/F Clear when both are requested: the
-/// clear resets the command interface after the bus has been addressed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum StartupOperation {
-    AddressSet,
-    InterfaceClear,
+/// The one open-failure error both facades report.
+pub(crate) fn open_failed(config: &Config, error: serialport::Error) -> Error {
+    crate::transport::connect::connection_failed(&config.port, std::io::Error::from(error))
 }
 
-/// Return the serial startup operations in their protocol-required order.
-///
-/// Keeping this small plan shared makes blocking and Tokio connection paths
-/// execute the same sequence while preserving the single-operation cases.
-pub(crate) fn startup_plan(config: &Config) -> [Option<StartupOperation>; 2] {
-    [
-        config
-            .address_set_on_connect
-            .then_some(StartupOperation::AddressSet),
-        config
-            .if_clear_on_connect
-            .then_some(StartupOperation::InterfaceClear),
-    ]
-}
+/// A blocking serial device as the shared bounded-I/O helpers see it.
+#[cfg(feature = "transport-serial")]
+pub(crate) type DevicePort = dyn serialport::SerialPort + Send;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn startup_plan_preserves_requested_operations_in_protocol_order() {
-        let neither = Config::default()
-            .address_set_on_connect(false)
-            .if_clear_on_connect(false);
-        assert_eq!(startup_plan(&neither), [None, None]);
-
-        let address_only = neither.clone().address_set_on_connect(true);
-        assert_eq!(
-            startup_plan(&address_only),
-            [Some(StartupOperation::AddressSet), None]
-        );
-
-        let clear_only = neither.clone().if_clear_on_connect(true);
-        assert_eq!(
-            startup_plan(&clear_only),
-            [None, Some(StartupOperation::InterfaceClear)]
-        );
-
-        let both = address_only.if_clear_on_connect(true);
-        assert_eq!(
-            startup_plan(&both),
-            [
-                Some(StartupOperation::AddressSet),
-                Some(StartupOperation::InterfaceClear),
-            ]
-        );
-    }
+/// Arm a blocking serial device's single read/write timeout.
+#[cfg(feature = "transport-serial")]
+pub(crate) fn set_device_timeout(
+    port: &mut DevicePort,
+    timeout: std::time::Duration,
+) -> std::io::Result<()> {
+    port.set_timeout(device_timeout(timeout))
+        .map_err(std::io::Error::from)
 }

@@ -136,6 +136,31 @@ for identifier in required_ids:
         evidence = "No capture"
     if variant == "missing" and identifier == "HW-03":
         continue
+    if variant in ("accepted-limitation", "limitation-placeholder-firmware") and identifier in ("HW-02", "HW-03"):
+        status = "Not verified — accepted known limitation (no camera on the bench)"
+        firmware = "No hardware available"
+        evidence = "Maintainer decision 2026-08-26 (#753): accepted known limitation"
+        if variant == "limitation-placeholder-firmware":
+            firmware = "Not run"
+    if variant == "limitation-required-row" and identifier == "HW-04":
+        status = "Not verified — accepted known limitation (no camera on the bench)"
+        evidence = "Maintainer decision 2026-08-26 (#753): accepted known limitation"
+    if variant == "limitation-pending" and identifier == "HW-02":
+        status = "Pending (Not run)"
+        firmware = evidence = "Pending"
+    if variant == "limitation-no-reason" and identifier == "HW-03":
+        status = "Not verified — accepted known limitation ()"
+        evidence = "Maintainer decision 2026-08-26 (#753): accepted known limitation"
+    if variant == "limitation-no-decision" and identifier == "HW-02":
+        status = "Not verified — accepted known limitation (no adapter on the bench)"
+        evidence = "Pending"
+    if variant == "limitation-invalid-decision-date" and identifier == "HW-03":
+        status = "Not verified — accepted known limitation (no camera on the bench)"
+        evidence = "Maintainer decision 2026-13-40 (#753)"
+    if variant == "limitation-placeholder-scenario" and identifier == "HW-02":
+        status = "Not verified — accepted known limitation (no adapter on the bench)"
+        scenario = "TBD"
+        evidence = "Maintainer decision 2026-08-26 (#753)"
     lines.append(f"| {identifier} | {scenario} | {status} | {firmware} | {evidence} |")
 
 if variant == "duplicate":
@@ -242,6 +267,17 @@ rm -f "${rc_missing_checklist_root}/docs/hardware_release_checklist.md"
 commit_fixture_changes "${rc_missing_checklist_root}"
 run_validator "${rc_missing_checklist_root}" v2.0.0-rc.1
 
+# The release cut must date the tagged version's notes. Notes left under
+# Unreleased (for example after an unpublished candidate section was folded
+# back into it) do not satisfy the gate.
+undated_root="${root_temp}/undated-changelog"
+make_fixture "${undated_root}" "2.0.0-rc.3" "${pending_checklist}"
+printf '# Changelog\n\n## [Unreleased]\n\n- Net change since 2.0.0-rc.2.\n\n## [2.0.0-rc.2] - 2026-09-04\n' \
+    > "${undated_root}/CHANGELOG.md"
+commit_fixture_changes "${undated_root}"
+expect_failure "CHANGELOG.md must contain a dated '## [2.0.0-rc.3] - YYYY-MM-DD' heading" \
+    run_validator "${undated_root}" v2.0.0-rc.3
+
 # Stable 2.0+ releases require the five-row matrix and its four records.
 pending_root="${root_temp}/pending"
 make_fixture "${pending_root}" "2.0.0" "${pending_checklist}"
@@ -251,11 +287,23 @@ complete_root="${root_temp}/complete"
 make_fixture "${complete_root}" "2.0.0" "${complete_checklist}"
 run_validator "${complete_root}" v2.0.0
 
+# HW-01, HW-04 and HW-05 must pass; HW-02 and HW-03 may instead carry an
+# accepted known limitation with a dated maintainer decision (2026-10-07,
+# superseding #753's five-row rule). Their firmware cell is not a pass record.
+for variant in accepted-limitation limitation-placeholder-firmware; do
+    limitation_root="${root_temp}/${variant}"
+    make_fixture "${limitation_root}" "2.0.0" "$(make_checklist "${variant}")"
+    run_validator "${limitation_root}" v2.0.0
+done
+
 for variant in missing duplicate unexpected bad-header bad-width lowercase-status \
     placeholder-scenario placeholder-evidence unverified-firmware not-run-firmware \
     not-tested-evidence no-capture-evidence no-evidence-index missing-commit \
     short-commit uppercase-commit missing-operator placeholder-operator unknown-operator \
-    invalid-operator-date placeholder-signoff placeholder-evidence-index; do
+    invalid-operator-date placeholder-signoff placeholder-evidence-index \
+    limitation-required-row limitation-pending limitation-no-reason \
+    limitation-no-decision limitation-invalid-decision-date \
+    limitation-placeholder-scenario; do
     variant_root="${root_temp}/${variant}"
     make_fixture "${variant_root}" "2.0.0" "$(make_checklist "${variant}")"
     case "${variant}" in
@@ -309,6 +357,21 @@ for variant in missing duplicate unexpected bad-header bad-width lowercase-statu
             ;;
         placeholder-evidence-index)
             expected="'Evidence index:'"
+            ;;
+        limitation-required-row)
+            expected="status to be exactly Pass; HW-04"
+            ;;
+        limitation-pending)
+            expected="HW-02 status to be exactly Pass or 'Not verified — accepted known limitation (<reason>)'"
+            ;;
+        limitation-no-reason)
+            expected="HW-03 status to be exactly Pass or"
+            ;;
+        limitation-no-decision|limitation-invalid-decision-date)
+            expected="'Maintainer decision YYYY-MM-DD'"
+            ;;
+        limitation-placeholder-scenario)
+            expected="non-placeholder Required scenario; HW-02"
             ;;
     esac
     expect_failure "${expected}" run_validator "${variant_root}" v2.0.0
