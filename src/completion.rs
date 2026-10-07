@@ -46,10 +46,6 @@ pub trait Kind: private::Sealed + Send + Sync + 'static {
 /// state in public handles.
 #[doc(hidden)]
 #[derive(Debug)]
-#[cfg_attr(
-    not(any(feature = "async", feature = "blocking", test)),
-    allow(dead_code)
-)]
 pub struct Settlement<K>
 where
     K: Kind,
@@ -62,10 +58,6 @@ where
 // settlement plan. The owner deliberately keeps the plan inert and inline.
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
-#[cfg_attr(
-    not(any(feature = "async", feature = "blocking", test)),
-    allow(dead_code)
-)]
 enum LoweredPlan {
     Targeted(TargetedSettlementPlan),
     AppliedOnly(AppliedOnlySettlementPlan),
@@ -132,10 +124,6 @@ impl core::fmt::Debug for TargetedSettlementPlan {
     }
 }
 
-#[cfg_attr(
-    not(any(feature = "async", feature = "blocking", test)),
-    allow(dead_code)
-)]
 impl TargetedSettlementPlan {
     pub(crate) fn new(inner: crate::prepared::SettlementPlan) -> Self {
         Self { inner }

@@ -327,7 +327,10 @@ fn static_noun_and_control_inventory_is_closed() {
 
     let surface = declarations(include_str!("../src/command/surface.rs"));
     assert!(surface.contains("pub(crate) const fn surface_entry"));
-    assert!(surface.contains("BuiltinCommand::ALL"));
+    // No second command inventory: the registry is one exhaustive match over
+    // `BuiltinCommand`, and every arm's class is a const-checked ledger row.
+    assert!(surface.contains("match command {"));
+    assert!(surface.contains("registry_class(BuiltinCommand::$command, registry_class!($kind))"));
 }
 
 #[test]

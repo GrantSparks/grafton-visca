@@ -7,11 +7,10 @@
 //! 5+4 position codec.
 
 // The reply frames shared by the testkit helpers, the simulator, and (through
-// `#[path]`) the integration suite's fake camera. Each of those uses a
-// different subset — the request-framing helpers serve only the fake camera —
-// so no single crate build references every item.
+// `#[path]`) the integration suite's fake camera. Every test build that compiles
+// this module also compiles `frame_tests`, which pins each frame; the
+// request-framing helpers serve only test harnesses and are `#[cfg(test)]`.
 #[cfg(any(feature = "test-utils", all(test, feature = "runtime-tokio")))]
-#[allow(dead_code)]
 mod frames;
 #[cfg(any(feature = "test-utils", all(test, feature = "runtime-tokio")))]
 use crate::command::VISCA_TERMINATOR;
@@ -34,7 +33,7 @@ pub mod testkit;
 #[cfg(all(feature = "test-utils", feature = "blocking"))]
 pub mod fuzz;
 
-#[cfg(all(test, feature = "test-utils"))]
+#[cfg(all(test, any(feature = "test-utils", feature = "runtime-tokio")))]
 #[allow(clippy::expect_used, clippy::panic)]
 mod frame_tests {
     //! Pins the reply frames against the crate's own reply decoder, and the
@@ -78,6 +77,10 @@ mod frame_tests {
         assert!(matches!(
             decode(&frames::canceled(1)),
             Response::Error(Error::CommandCanceled)
+        ));
+        assert!(matches!(
+            decode(&frames::no_socket(1)),
+            Response::Error(Error::NoSocket)
         ));
         assert_eq!(frames::ack(9), [0x90, 0x49, 0xFF], "socket is masked");
         assert_eq!(frames::inquiry_reply(&[0x02]), [0x90, 0x50, 0x02, 0xFF]);

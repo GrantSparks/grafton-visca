@@ -2749,6 +2749,7 @@ fn boundary_error_for_input(input: &Input) -> Option<Error> {
         | Input::Frame(_)
         | Input::Cancel { .. }
         | Input::ReceiveFault { .. } => None,
+        #[cfg(test)]
         Input::Wake => None,
     }
 }

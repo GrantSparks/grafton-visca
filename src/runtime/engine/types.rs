@@ -108,9 +108,9 @@ impl RequestId {
 pub(crate) struct TransmissionId(NonZeroU64);
 
 impl TransmissionId {
-    // Read back by `runtime::engine::tests` when it pins allocator wraparound; no
-    // production caller yet (#636).
-    #[allow(dead_code)]
+    /// The raw identity, read back by `runtime::engine::tests` when it pins
+    /// allocator wraparound.
+    #[cfg(test)]
     pub(crate) const fn get(self) -> u64 {
         self.0.get()
     }
@@ -382,9 +382,8 @@ impl AppliedStateProjection {
         }
     }
 
-    // Consumed by `runtime::owner::tests`; the applied-state observer facade is
-    // its production caller (#636).
-    #[allow(dead_code)]
+    /// Whether the effect leaves the state known; read by `runtime::owner::tests`.
+    #[cfg(test)]
     pub(crate) const fn is_known(self) -> bool {
         matches!(self, Self::Set { .. } | Self::Clear { .. })
     }
@@ -638,15 +637,14 @@ impl RawCorrelationRelease {
         self.terminal_all
     }
 
-    // Queried by async/blocking retained-prefix integrations; engine-only
-    // feature combinations construct the scope but do not inspect it.
-    #[allow(dead_code)]
+    /// Test projection of the inquiry-unkeyed release.
+    #[cfg(test)]
     pub(crate) const fn inquiry_unkeyed(self) -> bool {
         self.inquiry_unkeyed
     }
 
-    // See `inquiry_unkeyed`: this remains part of the crate-private owner API.
-    #[allow(dead_code)]
+    /// Test projection of the pre-ACK-unkeyed release.
+    #[cfg(test)]
     pub(crate) const fn pre_ack_unkeyed(self) -> bool {
         self.pre_ack_unkeyed
     }
@@ -838,9 +836,9 @@ pub(crate) enum RuntimeOutcome {
     Written,
     Applied,
     Reply {
-        // Reported to the owner's inquiry decoder; the blocking-only legs never read
-        // the route back out of the outcome (#636).
-        #[allow(dead_code)]
+        /// The route the reply frame was decoded with; `None` when it was
+        /// correlated without one. Only the protocol trace tests read it.
+        #[cfg(test)]
         route: Option<InquiryRoute>,
         payload: SmallVec<[u8; INLINE_BYTES]>,
     },
@@ -905,9 +903,9 @@ pub(crate) enum Input {
         error: Error,
     },
     Shutdown(ShutdownReason),
-    // A pure "re-evaluate deadlines now" input. The owners call `advance`
-    // directly; only `runtime::engine::tests` drives it as an input (#636).
-    #[allow(dead_code)]
+    /// A pure "re-evaluate deadlines now" input. The owners call `advance`
+    /// directly; only `runtime::engine::tests` drives it as an input.
+    #[cfg(test)]
     Wake,
 }
 
