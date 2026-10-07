@@ -506,94 +506,72 @@ fn tokio_current_thread_malformed_stream_batches_yield_to_all_boundaries() {
 /// The same no-progress handoff on a single-thread, runtime-neutral
 /// executor. `AsyncOwnerActor` uses no Tokio scheduling primitive here:
 /// a discarded malformed batch must let independently spawned admission,
-/// control, timer, and shutdown work run under smol as well.
+/// control, timer, and shutdown work run under smol as well. Liveness is
+/// counted in the peer's reads (`BABBLING_READ_BUDGET`), not in wall time.
 #[cfg(feature = "runtime-smol")]
 #[test]
 fn smol_current_thread_malformed_stream_batches_yield_to_boundaries() {
-    const WATCHDOG: Duration = Duration::from_secs(2);
-
     let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let (finished, result) = flume::bounded(1);
     let worker_reads = Arc::clone(&reads);
-    let worker_stop = Arc::clone(&stop);
-    let worker = std::thread::spawn(move || {
-        let local = async_executor::LocalExecutor::new();
-        let outcome: Result<(), String> = future::block_on(local.run(async {
-            let (handle, actor) = AsyncOwnerActor::new(policy(1), SmolRuntime::new())
-                .map_err(|error| error.to_string())?;
-            let actor_task = local.spawn(actor.run(CountingBabblingDriver {
-                reads: Arc::clone(&worker_reads),
-                stop: Arc::clone(&worker_stop),
-                empty_batches: true,
-            }));
-
-            while worker_reads.load(Ordering::Acquire) == 0 {
-                future::yield_now().await;
-            }
-
-            let caller_handle = handle.clone();
-            let caller = local.spawn(async move {
-                caller_handle
-                    .submit(command())
-                    .await
-                    .map_err(|error| error.to_string())
-            });
-            let control_handle = handle.clone();
-            let control = local.spawn(async move {
-                control_handle
-                    .snapshot()
-                    .await
-                    .map_err(|error| error.to_string())
-            });
-            let timer = local.spawn(async {
-                smol::Timer::after(Duration::from_millis(1)).await;
-            });
-
-            drop(caller.await?);
-            let snapshot = control.await?;
-            timer.await;
-            if snapshot.state != SessionState::Running {
-                return Err(format!(
-                    "control observed an unexpected owner state: {:?}",
-                    snapshot.state
-                ));
-            }
-
-            handle.shutdown().map_err(|error| error.to_string())?;
-            let terminal = actor_task.await;
-            if terminal.state != SessionState::Shutdown {
-                return Err(format!(
-                    "actor ended in an unexpected state: {:?}",
-                    terminal.state
-                ));
-            }
-            Ok(())
+    let local = async_executor::LocalExecutor::new();
+    let outcome: Result<(), String> = future::block_on(local.run(async {
+        let (handle, actor) = AsyncOwnerActor::new(policy(1), SmolRuntime::new())
+            .map_err(|error| error.to_string())?;
+        let actor_task = local.spawn(actor.run(CountingBabblingDriver {
+            reads: Arc::clone(&worker_reads),
+            empty_batches: true,
         }));
-        let _ = finished.send(outcome);
-    });
 
-    match result.recv_timeout(WATCHDOG) {
-        Ok(Ok(())) => worker.join().unwrap(),
-        Ok(Err(error)) => {
-            worker.join().unwrap();
-            panic!("malformed-frame smol liveness scenario failed: {error}");
+        while worker_reads.load(Ordering::Acquire) == 0 {
+            future::yield_now().await;
         }
-        Err(flume::RecvTimeoutError::Timeout) => {
-            stop.store(true, Ordering::Release);
-            if result.recv_timeout(WATCHDOG).is_ok() {
-                worker.join().unwrap();
-            } else {
-                drop(worker);
-            }
-            panic!(
-                "discarded malformed stream frames monopolized smol's current-thread executor before boundary or timer work could run"
-            );
+
+        let caller_handle = handle.clone();
+        let caller = local.spawn(async move {
+            caller_handle
+                .submit(command())
+                .await
+                .map_err(|error| error.to_string())
+        });
+        let control_handle = handle.clone();
+        let control = local.spawn(async move {
+            control_handle
+                .snapshot()
+                .await
+                .map_err(|error| error.to_string())
+        });
+        let timer = local.spawn(async {
+            smol::Timer::after(Duration::from_millis(1)).await;
+        });
+
+        drop(caller.await?);
+        let snapshot = control.await?;
+        timer.await;
+        if snapshot.state != SessionState::Running {
+            return Err(format!(
+                "control observed an unexpected owner state: {:?}",
+                snapshot.state
+            ));
         }
-        Err(flume::RecvTimeoutError::Disconnected) => {
-            worker.join().unwrap();
-            panic!("malformed-frame smol liveness worker exited without a result");
+
+        handle.shutdown().map_err(|error| error.to_string())?;
+        let terminal = actor_task.await;
+        if terminal.state != SessionState::Shutdown {
+            return Err(format!(
+                "actor ended in an unexpected state: {:?}",
+                terminal.state
+            ));
         }
+        Ok(())
+    }));
+    if let Err(error) = babbling_reads_within_budget(
+        &reads,
+        "discarded malformed stream frames",
+        "smol's current-thread executor",
+    )
+    .and(outcome)
+    {
+        panic!("malformed-frame smol liveness scenario failed: {error}");
     }
 }
 #[cfg(feature = "runtime-tokio")]

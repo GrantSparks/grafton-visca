@@ -2175,7 +2175,6 @@ impl RetainedStreamInput for BufferedBabblingDriver {
 #[derive(Debug)]
 struct CountingBabblingDriver {
     reads: Arc<std::sync::atomic::AtomicU64>,
-    stop: Arc<std::sync::atomic::AtomicBool>,
     /// `true` models the empty batch the stream adapter returns after it
     /// discards one or more delimited malformed frames.
     empty_batches: bool,
@@ -2196,11 +2195,10 @@ impl AsyncOwnerDriver for CountingBabblingDriver {
         _frame_limit: usize,
     ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let reads = Arc::clone(&self.reads);
-        let stop = Arc::clone(&self.stop);
         let empty_batches = self.empty_batches;
         async move {
-            reads.fetch_add(1, Ordering::Relaxed);
-            if stop.load(Ordering::Acquire) {
+            let read = reads.fetch_add(1, Ordering::AcqRel) + 1;
+            if read > BABBLING_READ_BUDGET {
                 Ok(OwnerReceive::Closed)
             } else if empty_batches {
                 Ok(OwnerReceive::Frames(Vec::new()))
@@ -2216,6 +2214,37 @@ impl AsyncOwnerDriver for CountingBabblingDriver {
 }
 
 impl RetainedStreamInput for CountingBabblingDriver {}
+
+/// How many reads a [`CountingBabblingDriver`] answers before it closes.
+///
+/// The single-thread fairness scenarios measure liveness in the peer's own
+/// reads, not in wall time. A fair actor surrenders the executor every
+/// fairness ceiling of reads, so the boundary work and the 1 ms timer finish
+/// within about 11 000 reads (measured: 299, 394 and 11 328 for the three
+/// scenarios) even on an idle fast host; host load slows the
+/// reads down and so can only lower the count. Only an actor that keeps the
+/// executor to itself can read this far, after which the peer closes, so a
+/// monopolizing actor fails the scenario instead of hanging the binary.
+const BABBLING_READ_BUDGET: u64 = 1_000_000;
+
+/// Fails when the peer's read budget ran out: the boundary work completed, or
+/// failed, only because the babbling peer closed, not because the actor
+/// yielded.
+fn babbling_reads_within_budget(
+    reads: &std::sync::atomic::AtomicU64,
+    scenario: &str,
+    executor: &str,
+) -> Result<(), String> {
+    let reads = reads.load(Ordering::Acquire);
+    if reads > BABBLING_READ_BUDGET {
+        Err(format!(
+            "{scenario} monopolized {executor} before caller, control, cancellation, or timer \
+             work could run ({reads} peer reads)"
+        ))
+    } else {
+        Ok(())
+    }
+}
 
 /// A peer that accepts the write but never completes it, and never delivers a
 /// read. Without a write timeout the actor parks in the write and `close()`
@@ -2576,127 +2605,98 @@ where
 
 /// The fairness ceiling must surrender the executor, not merely reverse
 /// polling order. This puts the actor, a caller admission, a control
-/// request, and a timer on one Tokio current-thread runtime. The outer
-/// watchdog lives on a separate OS thread so the pre-fix hot loop cannot
-/// hang the test binary; it asks the test driver to close only after the
-/// liveness deadline has already failed.
+/// request, and a timer on one Tokio current-thread runtime. Liveness is
+/// counted in the babbling peer's reads ([`BABBLING_READ_BUDGET`]), so host
+/// scheduling cannot fail it; a monopolizing actor exhausts the budget, the
+/// peer closes, and the scenario fails instead of hanging.
 #[cfg(feature = "runtime-tokio")]
 fn tokio_current_thread_ready_receive_yields_to_boundaries(
     empty_batches: bool,
     include_cancellation: bool,
     scenario: &'static str,
 ) {
-    const WATCHDOG: Duration = Duration::from_secs(2);
-
     let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let (finished, result) = flume::bounded(1);
     let worker_reads = Arc::clone(&reads);
-    let worker_stop = Arc::clone(&stop);
-    let worker = std::thread::spawn(move || {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        let outcome: Result<(), String> = runtime.block_on(async move {
-            let actor_runtime = TokioRuntime::from_current().map_err(|error| error.to_string())?;
-            let owner_policy = policy(1);
-            let fairness_ceiling = owner_policy.limits.frames_per_receive.max(1) as u64;
-            let ready_reads = if empty_batches { 1 } else { fairness_ceiling };
-            let (handle, actor) = AsyncOwnerActor::new(owner_policy, actor_runtime)
-                .map_err(|error| error.to_string())?;
-            let actor_task = tokio::spawn(actor.run(CountingBabblingDriver {
-                reads: Arc::clone(&worker_reads),
-                stop: Arc::clone(&worker_stop),
-                empty_batches,
-            }));
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let outcome: Result<(), String> = runtime.block_on(async move {
+        let actor_runtime = TokioRuntime::from_current().map_err(|error| error.to_string())?;
+        let owner_policy = policy(1);
+        let fairness_ceiling = owner_policy.limits.frames_per_receive.max(1) as u64;
+        let ready_reads = if empty_batches { 1 } else { fairness_ceiling };
+        let (handle, actor) =
+            AsyncOwnerActor::new(owner_policy, actor_runtime).map_err(|error| error.to_string())?;
+        let actor_task = tokio::spawn(actor.run(CountingBabblingDriver {
+            reads: Arc::clone(&worker_reads),
+            empty_batches,
+        }));
 
-            // Do not enqueue boundary work until the actor has reached its
-            // first forced (valid batch) or boundary-first (empty batch)
-            // turn. Before the cooperative yield this loop is never polled
-            // again; after it, all work queues on the same executor.
-            while worker_reads.load(Ordering::Acquire) < ready_reads {
-                tokio::task::yield_now().await;
-            }
+        // Do not enqueue boundary work until the actor has reached its
+        // first forced (valid batch) or boundary-first (empty batch)
+        // turn. Before the cooperative yield this loop is never polled
+        // again; after it, all work queues on the same executor.
+        while worker_reads.load(Ordering::Acquire) < ready_reads {
+            tokio::task::yield_now().await;
+        }
 
-            let caller_handle = handle.clone();
-            let caller = tokio::spawn(async move {
-                caller_handle
-                    .submit(command())
-                    .await
-                    .map_err(|error| error.to_string())
-            });
-            let control_handle = handle.clone();
-            let control = tokio::spawn(async move {
-                control_handle
-                    .snapshot()
-                    .await
-                    .map_err(|error| error.to_string())
-            });
-            let timer = tokio::spawn(async {
-                tokio::time::sleep(Duration::from_millis(1)).await;
-            });
-
-            let (caller, control, timer) = tokio::join!(caller, control, timer);
-            let receipt = caller.map_err(|error| format!("caller task failed: {error}"))??;
-            let snapshot = control.map_err(|error| format!("control task failed: {error}"))??;
-            timer.map_err(|error| format!("timer task failed: {error}"))?;
-            if snapshot.state != SessionState::Running {
-                return Err(format!(
-                    "control observed an unexpected owner state: {:?}",
-                    snapshot.state
-                ));
-            }
-
-            if include_cancellation {
-                let cancellation = handle
-                    .cancel_test(&receipt)
-                    .await
-                    .map_err(|error| format!("{error:?}"))?;
-                drop(cancellation);
-                drop(receipt);
-            } else {
-                drop(receipt);
-            }
-
-            handle.shutdown().map_err(|error| error.to_string())?;
-            let terminal = actor_task
+        let caller_handle = handle.clone();
+        let caller = tokio::spawn(async move {
+            caller_handle
+                .submit(command())
                 .await
-                .map_err(|error| format!("actor task failed: {error}"))?;
-            if terminal.state != SessionState::Shutdown {
-                return Err(format!(
-                    "actor ended in an unexpected state: {:?}",
-                    terminal.state
-                ));
-            }
-            Ok(())
+                .map_err(|error| error.to_string())
         });
-        let _ = finished.send(outcome);
-    });
+        let control_handle = handle.clone();
+        let control = tokio::spawn(async move {
+            control_handle
+                .snapshot()
+                .await
+                .map_err(|error| error.to_string())
+        });
+        let timer = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_millis(1)).await;
+        });
 
-    match result.recv_timeout(WATCHDOG) {
-        Ok(Ok(())) => worker.join().unwrap(),
-        Ok(Err(error)) => {
-            worker.join().unwrap();
-            panic!("{scenario} single-thread liveness scenario failed: {error}");
+        let (caller, control, timer) = tokio::join!(caller, control, timer);
+        let receipt = caller.map_err(|error| format!("caller task failed: {error}"))??;
+        let snapshot = control.map_err(|error| format!("control task failed: {error}"))??;
+        timer.map_err(|error| format!("timer task failed: {error}"))?;
+        if snapshot.state != SessionState::Running {
+            return Err(format!(
+                "control observed an unexpected owner state: {:?}",
+                snapshot.state
+            ));
         }
-        Err(flume::RecvTimeoutError::Timeout) => {
-            // The old implementation remains inside the ready receive loop.
-            // Let this test-only driver turn that loop into a terminal read,
-            // then join if it unwinds as expected; never wait indefinitely.
-            stop.store(true, Ordering::Release);
-            if result.recv_timeout(WATCHDOG).is_ok() {
-                worker.join().unwrap();
-            } else {
-                drop(worker);
-            }
-            panic!(
-                "{scenario} monopolized Tokio's current-thread runtime before caller, control, cancellation, or timer work could run"
-            );
+
+        if include_cancellation {
+            let cancellation = handle
+                .cancel_test(&receipt)
+                .await
+                .map_err(|error| format!("{error:?}"))?;
+            drop(cancellation);
+            drop(receipt);
+        } else {
+            drop(receipt);
         }
-        Err(flume::RecvTimeoutError::Disconnected) => {
-            worker.join().unwrap();
-            panic!("{scenario} single-thread liveness worker exited without a result");
+
+        handle.shutdown().map_err(|error| error.to_string())?;
+        let terminal = actor_task
+            .await
+            .map_err(|error| format!("actor task failed: {error}"))?;
+        if terminal.state != SessionState::Shutdown {
+            return Err(format!(
+                "actor ended in an unexpected state: {:?}",
+                terminal.state
+            ));
         }
+        Ok(())
+    });
+    if let Err(error) =
+        babbling_reads_within_budget(&reads, scenario, "Tokio's current-thread runtime")
+            .and(outcome)
+    {
+        panic!("{scenario} single-thread liveness scenario failed: {error}");
     }
 }
