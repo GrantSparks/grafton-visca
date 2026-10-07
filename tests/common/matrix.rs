@@ -78,12 +78,36 @@ macro_rules! runtime_matrix {
 ///   outer runtime deadline and panics if it elapses, so a hung step fails the
 ///   case; on the blocking facade it evaluates `expr`, which the call's own
 ///   deadlines bound (an outer bound would need a second thread);
+/// * `now!()` — the instant the session's owner measures its deadlines
+///   against: `Instant::now()` on the blocking facade, `Executor::now` on the
+///   async one (virtual under `paused:`);
+/// * `after!(duration, f)` — runs the `FnOnce() + Send + 'static` `f` once
+///   `duration` has passed, on a helper thread on the blocking facade and on a
+///   detached runtime task (so on the runtime's own clock) on the async one;
+/// * `virtual_clock!()` — `true` only in a `paused:` Tokio case, where elapsed
+///   owner time is exact and may be asserted as such;
 /// * `FACADE` — `"blocking"` or `"async"`, for assertion messages.
+///
+/// Prefix the scenarios with `paused:` to run the Tokio cases under
+/// `#[tokio::test(start_paused = true)]`: the async owner reads time only
+/// through its executor, so every deadline, backoff and `pause!` is virtual
+/// and lapses as soon as the runtime is idle. Anything such a scenario waits
+/// for must then be a runtime timer or an event, never another thread's real
+/// sleep. The blocking and smol cases are unchanged.
 ///
 /// A scenario that only exists on one facade is not written here: it stays a
 /// plain test, and the file header says why.
 macro_rules! facade_matrix {
+    (paused: $($scenarios:tt)+) => {
+        facade_matrix!(@cases [tokio::test(start_paused = true)] true; $($scenarios)+);
+    };
     ($(
+        $(#[$meta:meta])*
+        fn $scenario:ident() $body:block
+    )+) => {
+        facade_matrix!(@cases [tokio::test] false; $($(#[$meta])* fn $scenario() $body)+);
+    };
+    (@cases [$tokio_test:meta] $virtual:literal; $(
         $(#[$meta:meta])*
         fn $scenario:ident() $body:block
     )+) => {
@@ -139,17 +163,40 @@ macro_rules! facade_matrix {
                             $e
                         }};
                     }
+                    #[allow(unused_macros)]
+                    macro_rules! now {
+                        () => {
+                            std::time::Instant::now()
+                        };
+                    }
+                    #[allow(unused_macros)]
+                    macro_rules! after {
+                        ($duration:expr, $f:expr) => {{
+                            let duration: std::time::Duration = $duration;
+                            let f = $f;
+                            std::thread::spawn(move || {
+                                std::thread::sleep(duration);
+                                f();
+                            });
+                        }};
+                    }
+                    #[allow(unused_macros)]
+                    macro_rules! virtual_clock {
+                        () => {
+                            false
+                        };
+                    }
                     #[allow(dead_code)]
                     const FACADE: &str = "blocking";
                     $body
                 }
 
                 #[cfg(all(feature = "async", feature = "runtime-tokio"))]
-                #[tokio::test]
+                #[$tokio_test]
                 async fn tokio() {
                     let executor =
                         grafton_visca::TokioRuntime::from_current().expect("Tokio runtime");
-                    facade_matrix!(@async executor, $body);
+                    facade_matrix!(@async executor, $virtual, $body);
                 }
 
                 #[cfg(all(feature = "async", feature = "runtime-smol"))]
@@ -157,13 +204,13 @@ macro_rules! facade_matrix {
                 fn smol() {
                     smol::block_on(async {
                         let executor = grafton_visca::SmolRuntime::new();
-                        facade_matrix!(@async executor, $body);
+                        facade_matrix!(@async executor, false, $body);
                     });
                 }
             }
         )+
     };
-    (@async $executor:ident, $body:block) => {{
+    (@async $executor:ident, $virtual:literal, $body:block) => {{
         #[allow(unused_macros)]
         macro_rules! wait {
             ($e:expr) => {
@@ -208,6 +255,30 @@ macro_rules! facade_matrix {
                 grafton_visca::Executor::timeout(&$executor, $duration, $e)
                     .await
                     .expect(concat!("step exceeded its outer deadline: ", stringify!($e)))
+            };
+        }
+        #[allow(unused_macros)]
+        macro_rules! now {
+            () => {
+                grafton_visca::Executor::now(&$executor)
+            };
+        }
+        #[allow(unused_macros)]
+        macro_rules! after {
+            ($duration:expr, $f:expr) => {{
+                let duration: std::time::Duration = $duration;
+                let f = $f;
+                let timer = $executor.clone();
+                grafton_visca::Executor::spawn_bg(&$executor, async move {
+                    grafton_visca::Executor::sleep(&timer, duration).await;
+                    f();
+                });
+            }};
+        }
+        #[allow(unused_macros)]
+        macro_rules! virtual_clock {
+            () => {
+                $virtual
             };
         }
         #[allow(dead_code)]

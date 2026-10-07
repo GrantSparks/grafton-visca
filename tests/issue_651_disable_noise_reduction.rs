@@ -51,6 +51,16 @@ fn assert_raw_writes(fake: &FakeCamera) {
     }
 }
 
+/// Every admissible 3D noise reduction level, each read back on each of these
+/// PTZOptics profiles.
+///
+/// Every readback is a raw inquiry that the owner releases only after the
+/// profile's raw-inquiry reply-skew hold. Each round trip opens its own
+/// session on its own camera, so the round trips are independent and the
+/// tests run them concurrently: in sequence they would wait that hold out 27
+/// times.
+const NR3D_LEVELS: std::ops::RangeInclusive<u8> = 0x00..=0x08;
+
 /// The one frame written since the last call, asserted raw.
 fn one_raw_frame(fake: &FakeCamera) -> Vec<u8> {
     assert_eq!(fake.write_count(), 1, "one noun call must write one frame");
@@ -71,8 +81,8 @@ mod blocking_surface {
     };
 
     use super::{
-        assert_raw_writes, noise_reduction_camera, one_raw_frame, NR_2D_LEVEL_3, NR_2D_OFF,
-        NR_3D_LEVEL_8, NR_3D_OFF, NR_MODE_MANUAL,
+        assert_raw_writes, noise_reduction_camera, one_raw_frame, NR3D_LEVELS, NR_2D_LEVEL_3,
+        NR_2D_OFF, NR_3D_LEVEL_8, NR_3D_OFF, NR_MODE_MANUAL,
     };
 
     fn round_trip_3d<P>(level: u8) -> Result<NoiseReduction3DLevel, Error>
@@ -134,18 +144,31 @@ mod blocking_surface {
 
     #[test]
     fn blocking_session_decodes_every_admissible_nr3d_readback() {
-        for level in 0x00..=0x08 {
-            for result in [
-                round_trip_3d::<PtzOpticsG2>(level),
-                round_trip_3d::<PtzOpticsG3>(level),
-                round_trip_3d::<PtzOptics30X>(level),
-            ] {
-                assert_eq!(
-                    result.expect("every admissible 3D NR setter value decodes on readback"),
-                    NoiseReduction3DLevel::new(level).expect("level is in the public domain")
-                );
+        std::thread::scope(|scope| {
+            let round_trips: Vec<_> = NR3D_LEVELS
+                .map(|level| {
+                    (
+                        level,
+                        [
+                            scope.spawn(move || round_trip_3d::<PtzOpticsG2>(level)),
+                            scope.spawn(move || round_trip_3d::<PtzOpticsG3>(level)),
+                            scope.spawn(move || round_trip_3d::<PtzOptics30X>(level)),
+                        ],
+                    )
+                })
+                .collect();
+            for (level, profiles) in round_trips {
+                for round_trip in profiles {
+                    let result = round_trip
+                        .join()
+                        .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+                    assert_eq!(
+                        result.expect("every admissible 3D NR setter value decodes on readback"),
+                        NoiseReduction3DLevel::new(level).expect("level is in the public domain")
+                    );
+                }
             }
-        }
+        });
     }
 }
 
@@ -162,8 +185,8 @@ mod async_surface {
     };
 
     use super::{
-        assert_raw_writes, noise_reduction_camera, one_raw_frame, FakeCamera, NR_2D_LEVEL_3,
-        NR_2D_OFF, NR_3D_LEVEL_8, NR_3D_OFF, NR_MODE_MANUAL,
+        assert_raw_writes, noise_reduction_camera, one_raw_frame, FakeCamera, NR3D_LEVELS,
+        NR_2D_LEVEL_3, NR_2D_OFF, NR_3D_LEVEL_8, NR_3D_OFF, NR_MODE_MANUAL,
     };
 
     pub(super) async fn open_with_profile(camera: &FakeCamera, profile: ProfileSpec) -> Session {
@@ -250,12 +273,23 @@ mod async_surface {
 
     #[tokio::test]
     async fn async_session_decodes_every_admissible_nr3d_readback() {
-        for level in 0x00..=0x08 {
-            for result in [
-                round_trip_3d::<PtzOpticsG2>(level).await,
-                round_trip_3d::<PtzOpticsG3>(level).await,
-                round_trip_3d::<PtzOptics30X>(level).await,
-            ] {
+        let round_trips: Vec<_> = NR3D_LEVELS
+            .map(|level| {
+                (
+                    level,
+                    [
+                        tokio::spawn(round_trip_3d::<PtzOpticsG2>(level)),
+                        tokio::spawn(round_trip_3d::<PtzOpticsG3>(level)),
+                        tokio::spawn(round_trip_3d::<PtzOptics30X>(level)),
+                    ],
+                )
+            })
+            .collect();
+        for (level, profiles) in round_trips {
+            for round_trip in profiles {
+                let result = round_trip
+                    .await
+                    .unwrap_or_else(|failure| std::panic::resume_unwind(failure.into_panic()));
                 assert_eq!(
                     result.expect("every admissible 3D NR setter value decodes on readback"),
                     NoiseReduction3DLevel::new(level).expect("level is in the public domain")

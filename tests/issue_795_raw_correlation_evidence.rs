@@ -20,6 +20,13 @@
 //!   never retryable.
 //! - A halt that supersedes motion before it was ever written reports
 //!   `Certainty::NotAccepted`.
+//!
+//! The Tokio cases run on paused (virtual) time, so the G2 ACK deadline, the
+//! ambiguity hold and every `pause!` lapse at once and exactly. A
+//! step that waits for a write waits for that write (`wait_for_writes!`), not
+//! for a fixed time; the remaining real-time pauses on the blocking and smol
+//! facades either outlive a production window or prove that nothing happens
+//! in one, which no event can signal.
 
 #![cfg(any(
     feature = "blocking",
@@ -38,7 +45,7 @@ mod matrix;
 
 use std::{
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use grafton_visca::{
@@ -158,6 +165,15 @@ impl Link {
     }
 }
 
+/// The G2 profile's minimum spacing between two command writes, read from the
+/// profile itself.
+fn g2_command_spacing() -> Duration {
+    ProfileSpec::from_compile_time::<PtzOpticsG2>()
+        .expect("G2")
+        .timing()
+        .minimum_command_spacing()
+}
+
 fn g2_config() -> SessionConfig {
     SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2"))
 }
@@ -236,14 +252,16 @@ fn unanswered_first_command() -> Script {
 }
 
 facade_matrix! {
+    paused:
+
     fn g2_focus_stop_rejected_on_a_free_socket_fails_conclusively_without_retry() {
         let link = Link::new(halt_transcript());
         let session = open!(link, g2_config()).expect("session");
         let camera = session.camera::<PtzOpticsG2>().expect("camera");
 
-        let started = Instant::now();
+        let started = now!();
         let report = wait!(camera.motion().stop_all_motion()).expect("halt accepted");
-        let elapsed = started.elapsed();
+        let elapsed = now!().duration_since(started);
 
         assert!(
             matches!(report.pan_tilt, HaltOutcome::Applied),
@@ -260,6 +278,13 @@ facade_matrix! {
         // The verdict comes from the camera's frame, not the 500 ms G2 ACK
         // deadline, and a not-executable STOP is never rewritten.
         assert!(elapsed < Duration::from_millis(450), "{elapsed:?}");
+        if virtual_clock!() {
+            assert_eq!(
+                elapsed,
+                2 * g2_command_spacing(),
+                "the three STOPs are only paced; no deadline is waited out"
+            );
+        }
         assert_eq!(
             link.writes(),
             [PAN_TILT_STOP, ZOOM_STOP, FOCUS_STOP].map(<[u8]>::to_vec)
@@ -357,7 +382,8 @@ facade_matrix! {
         pause!(Duration::from_millis(1_100));
 
         let mut stop = wait!(camera.focus().stop()).expect("focus stop admitted");
-        pause!(Duration::from_millis(150));
+        // The stalled tele and then the STOP.
+        wait_for_writes!(link.camera, 2);
         assert_eq!(
             link.count(FOCUS_STOP),
             1,
@@ -429,7 +455,9 @@ facade_matrix! {
         );
         // A STOP is still written.
         let _stop = wait!(camera.focus().stop()).expect("focus stop admitted");
-        pause!(Duration::from_millis(150));
+        // The stalled tele and then the STOP; the rejected wide was never
+        // written.
+        wait_for_writes!(link.camera, 2);
         assert_eq!(link.count(FOCUS_STOP), 1);
         assert_eq!(link.count(ZOOM_WIDE), 0);
 

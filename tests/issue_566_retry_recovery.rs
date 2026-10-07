@@ -16,7 +16,10 @@
 //!
 //! Every scenario runs on the blocking facade and on the async facade under
 //! each enabled runtime, because a retry policy that only holds on one owner
-//! is not a policy.
+//! is not a policy. The Tokio cases run on paused (virtual) time, so the
+//! Sony FR7 deadlines these scenarios wait out (ACK, pre-ACK ambiguity, Quick
+//! completion) lapse at once and exactly; the blocking and smol owners read
+//! the real clock and still wait them out.
 
 #![cfg(any(
     feature = "blocking",
@@ -39,8 +42,13 @@ mod retry_requests;
 use std::{collections::VecDeque, time::Duration};
 
 use grafton_visca::{
-    completion::AppliedOnly, profiles::SonyFR7, raw, request::builtin::ZoomStop,
-    types::ZoomPosition, ControlClass, Error, InquiryRoute, RetryClass, TimeoutClass,
+    completion::AppliedOnly,
+    profile::{ProfileSpec, ProfileTiming},
+    profiles::SonyFR7,
+    raw,
+    request::builtin::ZoomStop,
+    types::ZoomPosition,
+    ControlClass, Error, InquiryRoute, RetryClass, TimeoutClass,
 };
 
 use fake_camera::{frames, FakeCamera};
@@ -48,6 +56,26 @@ use profile_fixtures::{session_config, sony_session_config, NonDefaultCompileTim
 use retry_requests::{MovementCommand, StandardCommand};
 
 const ZOOM_POSITION_INQUIRY: &[u8] = &[0x81, 0x09, 0x04, 0x47, 0xff];
+
+/// The Sony FR7 profile's timing, read from the profile itself.
+fn sony_fr7_timing() -> ProfileTiming {
+    ProfileSpec::from_compile_time::<SonyFR7>()
+        .expect("Sony FR7 profile")
+        .timing()
+}
+
+/// The Sony FR7 Quick-class completion deadline, which bounds a typed STOP
+/// once its ACK has arrived.
+fn sony_fr7_quick_timeout() -> Duration {
+    sony_fr7_timing().command_timeouts().quick_timeout()
+}
+
+/// The Sony FR7 pre-ACK ambiguity timeout: how long a cancellation of a
+/// command the camera never acknowledged waits before it is reported
+/// unconfirmed.
+fn sony_fr7_ambiguity_timeout() -> Duration {
+    sony_fr7_timing().ambiguity_timeout()
+}
 
 fn decode_custom_inquiry(payload: &[u8]) -> Result<Vec<u8>, Error> {
     Ok(payload.to_vec())
@@ -98,6 +126,8 @@ fn zoom_position_reply() -> Vec<u8> {
 }
 
 facade_matrix! {
+    paused:
+
     /// Issue #566: `0x41` is retried for a movement-class request.
     fn a_refused_movement_command_is_replayed_and_then_succeeds() {
         let camera = scripted(vec![vec![not_executable()], standard_reply()], standard_reply());
@@ -264,10 +294,20 @@ facade_matrix! {
         let session = open!(camera, sony_session_config()).expect("owner session");
         let view = session.camera::<SonyFR7>().expect("camera view");
 
+        let started = now!();
         let error = wait!(wait!(view.submit::<AppliedOnly, _>(&ZoomStop))
             .expect("submission")
             .applied_with_timeout(Duration::from_secs(30)))
         .expect_err("a post-ACK completion timeout is terminal");
+        let elapsed = now!().duration_since(started);
+        if virtual_clock!() {
+            assert_eq!(
+                elapsed, sony_fr7_quick_timeout(),
+                "the profile's Quick completion deadline, not the observer budget, ends it"
+            );
+        } else {
+            assert!(elapsed >= sony_fr7_quick_timeout(), "{elapsed:?}");
+        }
         assert_eq!(
             error.failure_context(),
             Some(grafton_visca::FailureContext::new(
@@ -294,10 +334,20 @@ facade_matrix! {
         let session = open!(camera, sony_session_config()).expect("owner session");
         let view = session.camera::<SonyFR7>().expect("camera view");
 
+        let started = now!();
         let mut operation =
             wait!(view.submit::<AppliedOnly, _>(&ZoomStop)).expect("submission");
         let error = wait!(operation.cancel_with_timeout(Duration::from_secs(5)))
             .expect_err("a camera that never answers cannot confirm a cancellation");
+        let elapsed = now!().duration_since(started);
+        if virtual_clock!() {
+            assert_eq!(
+                elapsed, sony_fr7_ambiguity_timeout(),
+                "the profile's pre-ACK ambiguity timeout, not the caller's budget, ends it"
+            );
+        } else {
+            assert!(elapsed >= sony_fr7_ambiguity_timeout(), "{elapsed:?}");
+        }
         assert!(
             matches!(error, Error::CancellationUnconfirmed),
             "expected the ambiguity verdict, got {error:?}"
