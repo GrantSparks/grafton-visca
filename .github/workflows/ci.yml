@@ -157,6 +157,22 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo check --workspace --all-features --all-targets
 
+  all-features-tests:
+    # No feature-matrix leg enables every feature at once; this job runs the
+    # whole suite in that union, compile-contract fixtures included.
+    name: all-features test suite
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - name: Install serial transport dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libudev-dev
+      - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      - run: cargo test --all-features --no-fail-fast
+
   examples:
     name: examples and doctests
     runs-on: ubuntu-latest
@@ -577,6 +593,7 @@ jobs:
       - blocking-dependency-boundary
       - macro-derives
       - all-features
+      - all-features-tests
       - examples
       - lint
       - msrv
@@ -600,7 +617,7 @@ jobs:
           # all-success object into a false green aggregate.
           EXPECTED_JOB_IDS: >-
             ["format", "feature-shapes", "feature-matrix", "blocking-dependency-boundary",
-             "macro-derives", "all-features", "examples", "lint", "msrv",
+             "macro-derives", "all-features", "all-features-tests", "examples", "lint", "msrv",
              "miri", "fuzz", "release-validation", "public-api", "downstream",
              "windows", "macos", "cargo-audit", "cargo-deny"]
         run: |
