@@ -227,7 +227,7 @@ impl ZoomPosition {
 
 ## Requirements
 
-- Rust 1.88 or later
+- Rust 1.98 or later
 - The `response` attribute in `ViscaInquiry` must reference existing `InquiryKind` variants, or `Raw` for a raw custom inquiry whose `ResponseParser` is implemented manually
 - Downstream `ViscaInquiry` derives use the standard five-byte VISCA inquiry form
 - Enums using `ViscaEnum` must have explicit discriminant values

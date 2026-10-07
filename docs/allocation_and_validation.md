@@ -116,16 +116,13 @@ cargo clippy --all-targets --all-features -- -D warnings
 RUSTDOCFLAGS="-D warnings" cargo doc --no-deps --all-features
 cargo test --doc --no-default-features
 cargo test --doc --all-features
-cargo +1.88.0 check --workspace --all-targets --no-default-features
+cargo check --workspace --all-targets --no-default-features
 cargo audit
 ```
 
 Run compile-fail/API-contract tests under blocking, canonical async, dyn, and
-coexistence feature sets. Run the fuzz/property suite and the bounded named
-pure-library Miri suite with failures treated as failures, not advisory output.
-The contributor command is `bash .github/scripts/miri-tests.sh`; it runs the
-named Miri filters and feature compile checks, rather than an unbounded Miri
-library sweep. Run Synemantic's
+coexistence feature sets. Run the fuzz/property suite with failures treated as
+failures, not advisory output. Run Synemantic's
 external compatibility check once the service/project credentials are
 available. Hardware tests are separate and are tracked in
 [`hardware_release_checklist.md`](hardware_release_checklist.md). Under #753's

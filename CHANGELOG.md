@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING**: The minimum supported Rust version is now 1.98 (was 1.88 in
+  2.0.0-rc.3). The project builds and tests on one stable toolchain, 1.98.0;
+  CI no longer runs a separate MSRV job or Miri.
+
 ## [2.0.0-rc.3] - 2026-10-07
 
 Hardware status: checklist rows HW-01, HW-04 and HW-05 passed on a PTZOptics
