@@ -87,7 +87,7 @@ mod tests {
             engine::{
                 DecodedResponse, EnvelopeSequence, RawPrefixEvidence, SequenceWidth, TransportKind,
             },
-            owner::{BlockingOwnerHandle, BlockingTransportAdapter, RetainedStreamInput},
+            owner::{BlockingOwnerHandle, BlockingTransportAdapter, Clock, RetainedStreamInput},
         },
         transport::{
             builder::{AddressingMode, TransportConfig},
@@ -225,7 +225,8 @@ mod tests {
         assert_eq!(adapter.policy().protocol.transport, TransportKind::Datagram);
         assert_eq!(adapter.policy().protocol.inquiry_capacity, 1);
 
-        let owner = BlockingOwnerHandle::spawn(adapter.policy().clone(), adapter).unwrap();
+        let owner =
+            BlockingOwnerHandle::spawn(adapter.policy().clone(), adapter, Clock::System).unwrap();
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         let prepared = prepare_command(
             &crate::request::builtin::FocusModeCommand::Manual,

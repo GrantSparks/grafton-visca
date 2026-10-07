@@ -28,8 +28,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
+use grafton_visca_test_support::fake_camera;
 
 use fake_camera::{frames, ZOOM_STOP, ZOOM_TELE};
 use grafton_visca::{

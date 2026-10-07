@@ -45,12 +45,12 @@ std::thread_local! {
     static GENERATED_INQUIRY_WRITE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
 pub(crate) fn reset_generated_inquiry_write_count() {
     GENERATED_INQUIRY_WRITE_COUNT.with(|count| count.set(0));
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
 pub(crate) fn generated_inquiry_write_count() -> usize {
     GENERATED_INQUIRY_WRITE_COUNT.with(std::cell::Cell::get)
 }
@@ -494,6 +494,7 @@ macro_rules! define_builtin_inquiries {
                 }
             }
 
+            #[cfg(any(feature = "blocking", feature = "async"))]
             impl crate::prepared::BuiltinInquiryRequest for $struct {}
 
             #[cfg(test)]

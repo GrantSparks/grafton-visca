@@ -4,8 +4,14 @@
 //! transport execution, and observer delivery are implemented by the
 //! corresponding owner projection; no mode-generic scheduler or future layer
 //! is required.
+//!
+//! Both exist only to serve a facade: with neither `blocking` nor `async`
+//! selected the crate is the domain vocabulary alone and compiles no engine,
+//! owner or request preparation.
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 pub(crate) mod engine;
+#[cfg(any(feature = "blocking", feature = "async"))]
 pub(crate) mod owner;
 
 #[cfg(feature = "async")]

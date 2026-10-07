@@ -366,15 +366,12 @@ mod os_truncation {
 
     #[cfg(feature = "runtime-tokio")]
     #[tokio::test]
-    #[cfg_attr(miri, ignore = "requires loopback sockets")]
     async fn tokio_udp_socket() {
         check(|socket| tokio::net::UdpSocket::from_std(socket).expect("tokio socket")).await;
     }
 
-    // smol's timer needs `timerfd_create`, which Miri does not implement (#585).
     #[cfg(feature = "runtime-smol")]
     #[test]
-    #[cfg_attr(miri, ignore = "smol needs timerfd_create, unsupported by Miri (#585)")]
     fn smol_udp_socket() {
         smol::block_on(check(|socket| {
             smol::net::UdpSocket::try_from(socket).expect("smol socket")

@@ -446,13 +446,9 @@ impl OwnerLifecycle {
         }
     }
 
-    // The pinned nightly renamed fetch_update to try_update, which is newer
-    // than our Rust 1.88 MSRV. Keep the identical checked atomic update until
-    // that replacement is available on the minimum supported toolchain.
-    #[allow(deprecated)]
     fn allocate_order(&self) -> Result<u64, Error> {
         self.next_submission
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
+            .try_update(Ordering::Relaxed, Ordering::Relaxed, |value| {
                 value.checked_add(1)
             })
             .map_err(|_| Error::RuntimeIdentityExhausted)

@@ -13,8 +13,7 @@
 #![cfg(feature = "blocking")]
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
+use grafton_visca_test_support::fake_camera;
 
 use std::time::Duration;
 

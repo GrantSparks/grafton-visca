@@ -16,11 +16,7 @@
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
 
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
-#[macro_use]
-#[path = "common/matrix.rs"]
-mod matrix;
+use grafton_visca_test_support::{fake_camera, runtime_matrix};
 
 use std::{
     alloc::{GlobalAlloc, Layout, System},
@@ -508,5 +504,4 @@ runtime_matrix!(
 // Keep the command imported in this binary so the cache test proves the
 // canonical state effect through the same public request type used by static
 // callers, even though the dynamic noun invokes it internally.
-#[allow(dead_code)]
 fn _multicast_streaming_type_is_public(_: MulticastStreaming) {}

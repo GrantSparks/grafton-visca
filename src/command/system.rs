@@ -115,6 +115,7 @@ impl WireEncode for CommandCancelCommand {
 
 impl CommandCancelCommand {
     /// Create a new command cancel command.
+    #[cfg(any(feature = "async", feature = "blocking", test))]
     pub fn new(socket: ViscaSocket) -> Self {
         Self { socket }
     }

@@ -8,8 +8,7 @@
 
 // The reply frames shared by the testkit helpers, the simulator, and (through
 // `#[path]`) the integration suite's fake camera. Every test build that compiles
-// this module also compiles `frame_tests`, which pins each frame; the
-// request-framing helpers serve only test harnesses and are `#[cfg(test)]`.
+// this module also compiles `frame_tests`, which pins each frame.
 #[cfg(any(feature = "test-utils", all(test, feature = "runtime-tokio")))]
 mod frames;
 #[cfg(any(feature = "test-utils", all(test, feature = "runtime-tokio")))]
@@ -20,6 +19,15 @@ pub mod camera_simulator;
 
 #[cfg(all(feature = "runtime-tokio", any(test, feature = "test-utils")))]
 pub use camera_simulator::ViscaCameraSimulator;
+
+/// The virtual owner clock: test-only time for blocking owners, the testkit's
+/// async executor wrapper, and the crate's own owner tests. It drives owners,
+/// so it exists only with a facade.
+#[cfg(any(
+    all(feature = "test-utils", any(feature = "blocking", feature = "async")),
+    all(test, feature = "blocking")
+))]
+pub(crate) mod manual_clock;
 
 /// Testing toolkit for deterministic and scriptable transport testing.
 ///
@@ -95,13 +103,13 @@ mod frame_tests {
             SonyHeader::new_reply(payload.len(), 0x0102_0304).encode()
         );
         assert_eq!(frames::sony_sequence(&frame), Some(0x0102_0304));
-        assert_eq!(frames::visca_payload(&frame), payload.as_slice());
-        assert_eq!(frames::reply_like(&frame, &payload), frame);
+        assert_eq!(
+            frames::sony_split(&frame),
+            Some((0x0102_0304, payload.as_slice()))
+        );
 
         let raw = [0x81, 0x09, 0x04, 0x00, 0xFF];
         assert_eq!(frames::sony_split(&raw), None, "raw VISCA has no envelope");
-        assert_eq!(frames::visca_payload(&raw), raw);
-        assert_eq!(frames::reply_like(&raw, &payload), payload);
 
         for payload_type in frames::SONY_PAYLOAD_TYPES {
             let mut frame = frames::sony_reply(7, &payload);
@@ -145,7 +153,7 @@ mod frame_tests {
     fn sony_split_rejects_a_length_mismatch() {
         let mut frame = frames::sony_reply(1, &frames::ack(1));
         frame.push(0xFF);
-        let _ = frames::visca_payload(&frame);
+        let _ = frames::sony_split(&frame);
     }
 
     #[test]

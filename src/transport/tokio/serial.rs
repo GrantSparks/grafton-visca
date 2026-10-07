@@ -368,7 +368,6 @@ mod tests {
     /// blocking transport.
     #[cfg(unix)]
     #[tokio::test]
-    #[cfg_attr(miri, ignore = "requires a pseudo-terminal")]
     async fn a_held_port_cannot_be_opened_twice() {
         use serialport::SerialPort;
 

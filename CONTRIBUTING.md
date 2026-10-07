@@ -40,8 +40,7 @@ rustup toolchain install 1.98.0          # stable jobs and compile contracts
 # nightly jobs actually use must be named explicitly. `--component` takes one
 # comma-separated list; a space-separated second name is parsed as another
 # toolchain, not as a component.
-rustup toolchain install nightly-2026-08-26 --profile minimal --component rustfmt,miri  # fmt, Miri, fuzz, API snapshots
-rustup toolchain install 1.88.0          # MSRV job
+rustup toolchain install nightly-2026-08-26 --profile minimal --component rustfmt  # fmt, fuzz, API snapshots
 ```
 
 A newer stable can change diagnostic prose. Update a fixture's in-source
@@ -80,9 +79,6 @@ cargo test --no-default-features --features runtime-smol,dyn-api
 
 # Run clippy checks
 cargo clippy --all-targets --all-features -- -D warnings
-
-# Bounded named pure-library Miri suite plus feature compile checks
-bash .github/scripts/miri-tests.sh
 
 # Format code
 cargo fmt
@@ -318,11 +314,14 @@ real Tokio/smol executor for wall-clock timeout behavior. See
 `src/testing/testkit/README.md` and the existing operation-handle integration
 tests for maintained patterns.
 
-Integration tests that need a fake camera use `tests/common/fake_camera.rs`
-(`FakeCamera` with `blocking_wire()`/`async_wire()`, the shared reply frames
-and wait helpers); scenarios that run on several facades or runtimes use
-`facade_matrix!`/`runtime_matrix!` from `tests/common/matrix.rs`. A
-hand-written transport stays local only with a `// Local fake:` comment.
+Helpers shared by the integration tests live in the unpublished
+`grafton-visca-test-support` workspace crate (`test-support/`), a
+dev-dependency whose `blocking` and `async` features follow the facade under
+test. Tests that need a fake camera use its `fake_camera` module (`FakeCamera`
+with `blocking_wire()`/`async_wire()`, the shared reply frames and wait
+helpers); scenarios that run on several facades or runtimes use its
+`facade_matrix!`/`runtime_matrix!` macros. A hand-written transport stays
+local only with a `// Local fake:` comment.
 
 ### Running Tests
 
@@ -345,9 +344,6 @@ cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --te
 # Feature-union checks
 cargo test --no-default-features --features runtime-tokio,transport-serial
 cargo test --no-default-features --features runtime-smol,dyn-api
-
-# Bounded named pure-library Miri suite plus feature compile checks
-bash .github/scripts/miri-tests.sh
 
 # With output for debugging
 cargo test -- --nocapture

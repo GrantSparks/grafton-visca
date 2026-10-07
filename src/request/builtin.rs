@@ -10,7 +10,7 @@ use crate::{
         encode::WireEncode,
         semantics::{BuiltinCommand, BuiltinRequestContract},
         surface::typed_surface_for_command,
-        Flip, Focus, Iris, NdFilterMode, NdFilterStep, NdFilterStepCommand, NdFilterValue, PanTilt,
+        Flip, Focus, Iris, NdFilterStep, NdFilterStepCommand, NdFilterValue, PanTilt,
         PanTiltDirection, PanTiltLimitCorner, PresetAction, PresetCommand, PresetNumber, PushAF,
         Zoom,
     },
@@ -26,18 +26,20 @@ std::thread_local! {
     static REQUEST_WRITE_COUNT: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
 pub(crate) fn reset_request_write_count() {
     REQUEST_WRITE_COUNT.with(|count| count.set(0));
 }
 
-#[cfg(test)]
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
 pub(crate) fn request_write_count() -> usize {
     REQUEST_WRITE_COUNT.with(std::cell::Cell::get)
 }
-use crate::types::{
-    FocusPosition, IrisLevel, PanSpeed, SpeedLevel, TiltSpeed, ZoomPosition, ZoomSpeed,
-};
+#[cfg(any(feature = "blocking", feature = "async"))]
+use crate::command::NdFilterMode;
+#[cfg(any(feature = "blocking", feature = "async"))]
+use crate::types::SpeedLevel;
+use crate::types::{FocusPosition, IrisLevel, PanSpeed, TiltSpeed, ZoomPosition, ZoomSpeed};
 use crate::{
     capabilities::PanTiltWireCodec,
     command::pan_tilt::{PanTiltFraming, PanTiltProfiled},
@@ -198,6 +200,7 @@ macro_rules! builtin_request {
                 Ok(Self::CONTROL_CLASS)
             }
 
+            #[cfg(any(feature = "blocking", feature = "async"))]
             #[allow(private_interfaces)]
             fn applied_state_projection(
                 &self,
@@ -235,6 +238,7 @@ fn encoded_len(wire: &impl WireEncode, fallback: usize) -> usize {
 pub(crate) trait BuiltinValidation {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error>;
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         None
     }
@@ -341,6 +345,7 @@ fn validate_pan_tilt_position_speed(
 /// one `VV` byte, so both public speed wrappers deliberately receive one value
 /// from the intersection of the profile's pan and tilt ranges before the
 /// paired-speed validator runs.
+#[cfg(any(feature = "blocking", feature = "async"))]
 fn pan_tilt_position_speeds_from_level(
     speed: SpeedLevel,
     profile: &crate::ProfileSpec,
@@ -1047,6 +1052,7 @@ impl BuiltinValidation for crate::command::image::ImageFlipCombinedCommand {
         validate_flip_mode(profile, Self::LEDGER_ROW, self.mode)
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         // The combined opcode carries both axes in one parameter byte, so a
         // successful application establishes the complete pair.
@@ -1211,6 +1217,7 @@ impl BuiltinValidation for ImageFlipCommand {
         validate_separate_flip(profile, Self::LEDGER_ROW, "vertical image flip")
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         // This opcode moves only the vertical axis. The horizontal axis keeps
         // whatever value it had, which this request does not know, so the
@@ -1224,6 +1231,7 @@ impl BuiltinValidation for ImageMirrorCommand {
         validate_separate_flip(profile, Self::LEDGER_ROW, "horizontal image mirror")
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         // The mirror opcode is the horizontal twin of `ImageFlipCommand` and
         // leaves the vertical axis unknown for the same reason.
@@ -1231,6 +1239,7 @@ impl BuiltinValidation for ImageMirrorCommand {
     }
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 fn state_projection<T: BuiltinRequestContract>(
     values: &[i64],
 ) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -1249,12 +1258,14 @@ fn state_projection<T: BuiltinRequestContract>(
     }
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 fn bool_projection<T: BuiltinRequestContract>(
     enabled: bool,
 ) -> Option<crate::runtime::engine::AppliedStateProjection> {
     state_projection::<T>(&[i64::from(enabled)])
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 fn scalar_projection<T: BuiltinRequestContract>(
     value: i64,
 ) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -1455,17 +1466,18 @@ builtin_request! {
 ///
 /// Each inventory entry is an inline const that asserts, while the `#[used]`
 /// inventory is initialized, that its request type may serve its row. The
-/// test-only metadata then gives the runtime audit a readable row.
+/// test-only metadata then gives the runtime audit a readable row; that audit
+/// lives with the preparation-backed request tests.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BuiltinTypedRequestCoverage {
     /// Authoritative semantic ledger row.
-    #[cfg(test)]
+    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     pub row: BuiltinCommand,
     /// Stable source type name used by diagnostics and audits.
-    #[cfg(test)]
+    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     pub type_name: &'static str,
     /// Command branch/value family represented by the typed request.
-    #[cfg(test)]
+    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     pub branch: &'static str,
 }
 
@@ -1491,11 +1503,11 @@ macro_rules! typed_request_coverage {
         const {
             $check;
             BuiltinTypedRequestCoverage {
-                #[cfg(test)]
+                #[cfg(all(test, any(feature = "blocking", feature = "async")))]
                 row: BuiltinCommand::$row,
-                #[cfg(test)]
+                #[cfg(all(test, any(feature = "blocking", feature = "async")))]
                 type_name: stringify!($ty),
-                #[cfg(test)]
+                #[cfg(all(test, any(feature = "blocking", feature = "async")))]
                 branch: $branch,
             }
         }
@@ -1709,6 +1721,7 @@ impl PanTiltAbsolute {
 
     /// Creates an absolute target from one coarse speed through the profile's
     /// position-command grammar.
+    #[cfg(any(feature = "blocking", feature = "async"))]
     pub(crate) fn for_profile_speed_level(
         pan: Degrees<f32>,
         tilt: Degrees<f32>,
@@ -1760,6 +1773,7 @@ impl PanTiltRelative {
 
     /// Creates a relative target from one coarse speed through the profile's
     /// position-command grammar.
+    #[cfg(any(feature = "blocking", feature = "async"))]
     pub(crate) fn for_profile_speed_level(
         pan: Degrees<f32>,
         tilt: Degrees<f32>,
@@ -2384,6 +2398,7 @@ impl BuiltinValidation for PanTiltLimitSet {
         self.position.validate(profile)
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         // Keep the corner and converted position in the bounded value so a
         // later owner/cache layer can merge corner-local limit updates without
@@ -2410,6 +2425,7 @@ impl BuiltinValidation for PanTiltLimitClear {
         Ok(())
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         state_projection::<Self>(&[i64::from(self.corner.to_byte())])
     }
@@ -2647,6 +2663,7 @@ impl BuiltinValidation for crate::command::preset::PresetRecallSpeedCommand {
         require_in_range("preset recall speed", speed, range)
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         scalar_projection::<Self>(i64::from(self.speed.value()))
     }
@@ -2659,6 +2676,7 @@ impl BuiltinValidation for crate::command::focus::FocusLock {
         validate_static_typed_command(profile, Self::LEDGER_ROW, "typed focus lock")
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(matches!(self, Self::On))
     }
@@ -2669,6 +2687,7 @@ impl BuiltinValidation for crate::command::exposure::SpotlightOn {
         validate_static_typed_command(profile, Self::LEDGER_ROW, "spotlight control")
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(true)
     }
@@ -2679,6 +2698,7 @@ impl BuiltinValidation for crate::command::exposure::SpotlightOff {
         validate_static_typed_command(profile, Self::LEDGER_ROW, "spotlight control")
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(false)
     }
@@ -2689,6 +2709,7 @@ impl BuiltinValidation for crate::command::exposure::AutoSlowShutterOn {
         validate_static_typed_command(profile, Self::LEDGER_ROW, "auto slow shutter control")
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(true)
     }
@@ -2699,6 +2720,7 @@ impl BuiltinValidation for crate::command::exposure::AutoSlowShutterOff {
         validate_static_typed_command(profile, Self::LEDGER_ROW, "auto slow shutter control")
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(false)
     }
@@ -2709,6 +2731,7 @@ impl BuiltinValidation for crate::command::nd_filter::NdFilterModeCommand {
         validate_variable_nd_filter_control(profile, Self::LEDGER_ROW)
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         scalar_projection::<Self>(match self.mode() {
             NdFilterMode::Preset => 0,
@@ -2722,6 +2745,7 @@ impl BuiltinValidation for crate::command::nd_filter::AutoNdCommand {
         validate_variable_nd_filter_control(profile, Self::LEDGER_ROW)
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(self.enabled())
     }
@@ -2737,6 +2761,7 @@ impl BuiltinValidation for crate::command::flip::ImageFreeze {
         validate_static_typed_command(profile, command, "validated image-freeze command")
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(self.enabled())
     }
@@ -2750,6 +2775,7 @@ impl BuiltinValidation for crate::command::zoom::DigitalZoom {
         validate_static_typed_command(profile, Self::LEDGER_ROW, "typed digital zoom toggle")
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(self.enabled())
     }
@@ -2764,6 +2790,7 @@ impl BuiltinValidation for crate::command::streaming::MulticastStreaming {
         validate_static_typed_command(profile, command, "multicast streaming")
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(matches!(self, Self::On))
     }
@@ -2774,6 +2801,7 @@ impl BuiltinValidation for crate::command::streaming::SetNdiQuality {
         validate_static_typed_command(profile, Self::LEDGER_ROW, "NDI quality control")
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         let value = match self.quality {
             crate::types::NdiQuality::High => 1,
@@ -2794,6 +2822,7 @@ impl BuiltinValidation for crate::command::tally::TallyBrightLo {
         )
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         scalar_projection::<Self>(0)
     }
@@ -2808,6 +2837,7 @@ impl BuiltinValidation for crate::command::tally::TallyBrightHi {
         )
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         scalar_projection::<Self>(1)
     }
@@ -2821,6 +2851,7 @@ impl BuiltinValidation for crate::command::variable_speed::SetVariableSpeedMode 
         validate_static_typed_command(profile, Self::LEDGER_ROW, "typed variable speed mode")
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         let value = match self.mode {
             crate::command::VariableSpeedMode::Standard24 => 1,
@@ -2839,6 +2870,7 @@ impl BuiltinValidation for crate::command::tally::TallyOn {
         )
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(true)
     }
@@ -2853,6 +2885,7 @@ impl BuiltinValidation for crate::command::tally::TallyOff {
         )
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(false)
     }
@@ -2867,12 +2900,15 @@ impl BuiltinValidation for crate::command::tally::TallyFlash {
         )
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         state_projection::<Self>(&[])
     }
 }
 
-#[cfg(test)]
+// Built-in request behavior is exercised through shared preparation, which
+// exists only with a facade.
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
 #[allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 mod tests {
     use super::*;

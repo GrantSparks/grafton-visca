@@ -7,8 +7,7 @@
 
 #![cfg(feature = "async")]
 
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
+use grafton_visca_test_support::fake_camera;
 
 use std::{future::Future, pin::Pin, time::Duration};
 

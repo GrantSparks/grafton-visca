@@ -20,7 +20,9 @@ use crate::{
         prepare_command, prepare_inquiry, prepare_operation, prepare_position_queries,
         ClassSelection,
     },
-    runtime::owner::{BlockingOperationReceipt, BlockingOwnerHandle, BlockingTransportAdapter},
+    runtime::owner::{
+        BlockingOperationReceipt, BlockingOwnerHandle, BlockingTransportAdapter, Clock,
+    },
     CameraId, CancellationOutcome, CompileTimeProfile, DiagnosticSubscription, Error, Inquiry,
     MetricsSnapshot, OperationCommand, OperationalTuning, PlainCommand, ProfileSpec, Result,
     StateCache, SubmissionClass,
@@ -305,6 +307,18 @@ impl Session {
     where
         T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
     {
+        Self::open_on(transport, config, Clock::System)
+    }
+
+    /// [`Self::open_validated`] with the owner keeping time on `clock`.
+    pub(crate) fn open_on<T>(
+        transport: T,
+        config: crate::session_config::ValidatedSessionConfig,
+        clock: Clock,
+    ) -> Result<Self, Error>
+    where
+        T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
+    {
         config.validate_opened_transport(&transport)?;
         let profiles = config.profile_registry();
         let mut adapter = BlockingTransportAdapter::new_with_targets(
@@ -319,7 +333,7 @@ impl Session {
         }
         let policy = adapter.policy().clone();
         Ok(Self {
-            owner: BlockingOwnerHandle::spawn(policy, adapter)?,
+            owner: BlockingOwnerHandle::spawn(policy, adapter, clock)?,
             config: Arc::new(config),
         })
     }

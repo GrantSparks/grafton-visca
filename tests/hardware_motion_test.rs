@@ -46,11 +46,7 @@
 //! a firewall drop of the camera's TCP port), and later removes the file once
 //! the fault is lifted.
 
-#[macro_use]
-#[path = "common/hardware.rs"]
-mod hardware;
-#[path = "common/hardware_rest.rs"]
-mod hardware_rest;
+use grafton_visca_test_support::{hardware, hardware_rest, hw};
 
 use std::{
     cell::Cell,

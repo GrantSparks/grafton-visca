@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `test-utils` (#832): `testkit::ManualClock`, a virtual clock for owner deadline tests. A
+  blocking session opened with `ManualClock::open_blocking_session` or
+  `open_blocking_camera_session`, and an async session run on the new
+  `testkit::ManualClockExecutor`, measure every deadline on virtual time, which
+  moves on `advance` or, as Tokio's paused clock does, once every participant
+  (`ManualClock::enter`, `ManualClock::spawn`, or a task on the executor) is
+  blocked on the clock. `ClockParticipant` is the participation guard.
+
+### Changed
+
+- **BREAKING** (#829): The minimum supported Rust version is now 1.98 (was 1.88 in
+  2.0.0-rc.3). The project builds and tests on one stable toolchain, 1.98.0;
+  CI no longer runs a separate MSRV job or Miri.
+- **BREAKING** (#830): With no facade feature (`--no-default-features`, or only
+  `serde`, `schemars`, `ts-rs` or `test-utils`) the crate now compiles only the domain vocabulary:
+  the protocol engine, the owner and request preparation are no longer built.
+  `StateCache` and `DiagnosticSubscription`, which only a running session can
+  produce, are now available only with `blocking` or `async`, alongside the
+  sessions that return them. Builds with a facade are unchanged.
+
 ## [2.0.0-rc.3] - 2026-10-07
 
 Hardware status: checklist rows HW-01, HW-04 and HW-05 passed on a PTZOptics

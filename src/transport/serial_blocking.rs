@@ -616,7 +616,7 @@ mod tests {
     }
 
     #[test]
-    fn address_set_discards_an_oversized_noise_frame_before_retrying() {
+    fn address_set_discards_an_oversized_noise_frame_within_the_attempt() {
         let configured_read_timeout = Duration::from_millis(50);
         let mut oversized_noise = vec![0x55; 257];
         oversized_noise.push(VISCA_TERMINATOR);
@@ -626,16 +626,24 @@ mod tests {
             ReadStep::Bytes(vec![0x88, 0x30, 0x02, VISCA_TERMINATOR]),
         ]);
 
+        // Only the attempt deadline ends an attempt. The budget outlasts the
+        // idle pauses after each noise chunk and the idle read however far the
+        // host's sleeps overshoot, so the outcome depends on the noise
+        // handling alone.
         perform_startup(
             &mut port,
             &address_set(configured_read_timeout, Duration::from_millis(7)),
-            timing(Duration::from_millis(20)),
+            timing(Duration::from_secs(1)),
         )
-        .expect("resynchronized Address Set reaches a later attempt");
+        .expect("Address Set resynchronizes past the oversized noise frame");
         assert_eq!(
             port.write_calls.load(Ordering::SeqCst),
-            2,
-            "the oversized frame spends only one Address Set attempt"
+            1,
+            "discarding the oversized frame costs no Address Set attempt"
+        );
+        assert!(
+            port.read_steps.borrow().is_empty(),
+            "the reply after the noise and the idle read is consumed"
         );
     }
 
@@ -813,7 +821,6 @@ mod tests {
     /// fails the open, and an addressed one starts a session.
     #[cfg(unix)]
     #[test]
-    #[cfg_attr(miri, ignore = "requires a pseudo-terminal")]
     fn registered_cameras_must_have_been_addressed() {
         use std::io::{Read as _, Write as _};
 
@@ -992,7 +999,6 @@ mod tests {
     /// second opener of the same device fails as a connection failure.
     #[cfg(unix)]
     #[test]
-    #[cfg_attr(miri, ignore = "requires a pseudo-terminal")]
     fn a_held_port_cannot_be_opened_twice() {
         let (_master, slave) = serialport::TTYPort::pair().expect("pseudo-terminal pair");
         let path = slave.name().expect("pseudo-terminal path");

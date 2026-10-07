@@ -134,7 +134,7 @@ by `cfg(mode-async)` on the exported items rather than by a check.
 | `default = []`, blocking implicit | `default = ["blocking"]`, blocking explicit |
 | `mode-async` (the only mode toggle) | `async`; add `runtime-tokio` or `runtime-smol` for a built-in runtime. For dynamic async views, enable `dyn-api` **and** `async` (or a `runtime-*` feature); `dyn-api` alone is the native blocking projection when `blocking` is enabled. |
 | blocking XOR async, enforced by `cfg` | `blocking` and `async` are independent and **co-enableable** in one build |
-| `--no-default-features` ⇒ blocking crate | `--no-default-features` (no facade) ⇒ pure engine/domain layers only |
+| `--no-default-features` ⇒ blocking crate | `--no-default-features` (no facade) ⇒ the domain vocabulary only, with no runtime |
 | `transport-serial` did not select an explicit blocking feature | `transport-serial` now enables `blocking`; use `transport-serial-tokio` for async Tokio serial |
 
 So one 2.0 build can expose both `grafton_visca::Camera` (async) and

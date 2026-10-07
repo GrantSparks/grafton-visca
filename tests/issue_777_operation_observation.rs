@@ -38,13 +38,7 @@
 ))]
 #![allow(clippy::expect_used)]
 
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
-#[macro_use]
-#[path = "common/matrix.rs"]
-mod matrix;
-#[path = "common/profile_fixtures.rs"]
-mod profile_fixtures;
+use grafton_visca_test_support::{facade_matrix, fake_camera, profile_fixtures};
 
 use std::{
     sync::{Arc, Mutex},
@@ -158,6 +152,8 @@ macro_rules! running_zoom {
 }
 
 facade_matrix! {
+    paused:
+
     /// A timed-out wait releases only itself: the handle observes the later
     /// outcome and then answers repeat waits from its cache.
     fn a_timed_out_wait_keeps_the_handle_observing() {
@@ -460,6 +456,7 @@ facade_matrix! {
 mod async_facade {
     use futures_lite::future;
     use grafton_visca::{Executor, Operation, Session};
+    use grafton_visca_test_support::runtime_matrix;
 
     use super::*;
 

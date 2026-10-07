@@ -5,6 +5,11 @@
 //! slicing, pacing and lifecycle are exercised as callers see them. Turn
 //! semantics shared with the async actor are pinned by the shell core and
 //! coordinator tests; these tests pin what is specific to the worker.
+//!
+//! Tests whose assertions are about elapsed owner time run the worker on a
+//! [`ManualClock`]: the test thread enters the clock, the transport and the
+//! peer wait on it, and virtual time advances only when every participant is
+//! blocked, so those deadlines pass without a real sleep.
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -17,6 +22,7 @@ use super::super::{
     RuntimeRequest, CANONICAL_OWNER_TRACE,
 };
 use super::*;
+use crate::testing::manual_clock::ManualClock;
 use crate::{
     command::CommandKind,
     command::PanTiltLimitCorner,
@@ -55,10 +61,29 @@ enum Read {
     Callback(Box<dyn FnOnce() + Send>),
 }
 
+/// Receive from `receiver` within `timeout` on `clock`.
+fn recv_within<T>(
+    clock: &Clock,
+    receiver: &flume::Receiver<T>,
+    timeout: Duration,
+) -> Result<T, flume::RecvTimeoutError> {
+    let deadline = clock.now() + timeout;
+    match clock
+        .select()
+        .recv(receiver, |read| read)
+        .wait_until(deadline)
+    {
+        Some(Ok(value)) => Ok(value),
+        Some(Err(flume::RecvError::Disconnected)) => Err(flume::RecvTimeoutError::Disconnected),
+        None => Err(flume::RecvTimeoutError::Timeout),
+    }
+}
+
 /// A transport whose reads arrive from the test thread and whose writes are
-/// reported back to it. A read honors its timeout, as the trait requires,
-/// unless the transport is deliberately eager.
+/// reported back to it. A read honors its timeout on the owner's clock, as
+/// the trait requires, unless the transport is deliberately eager.
 struct ChannelTransport {
+    clock: Clock,
     config: TransportConfig,
     semantics: SendSemantics,
     reads: flume::Receiver<Read>,
@@ -104,7 +129,7 @@ impl BlockingTransport for ChannelTransport {
         if self.eager_idle {
             return Err(Error::io_timeout());
         }
-        match self.reads.recv_timeout(timeout) {
+        match recv_within(&self.clock, &self.reads, timeout) {
             Ok(Read::Bytes(bytes)) => Ok(ReceiveOutcome::copy_message(&bytes, dst)),
             Ok(Read::Truncated(prefix)) => {
                 let copied = prefix.len().min(dst.len());
@@ -120,7 +145,7 @@ impl BlockingTransport for ChannelTransport {
             }
             Err(flume::RecvTimeoutError::Timeout) => Err(Error::io_timeout()),
             Err(flume::RecvTimeoutError::Disconnected) => {
-                thread::sleep(timeout);
+                self.clock.sleep(timeout);
                 Err(Error::io_timeout())
             }
         }
@@ -133,6 +158,7 @@ impl BlockingTransport for ChannelTransport {
 
 /// The test's end of a [`ChannelTransport`].
 struct Peer {
+    clock: Clock,
     reads: flume::Sender<Read>,
     writes: flume::Receiver<Vec<u8>>,
     read_calls: Arc<AtomicUsize>,
@@ -141,9 +167,7 @@ struct Peer {
 
 impl Peer {
     fn next_write(&self) -> Vec<u8> {
-        self.writes
-            .recv_timeout(PROMPTLY)
-            .expect("the worker writes promptly")
+        recv_within(&self.clock, &self.writes, PROMPTLY).expect("the worker writes promptly")
     }
 
     fn send(&self, read: Read) {
@@ -169,6 +193,7 @@ impl Peer {
 }
 
 struct Setup {
+    clock: Clock,
     semantics: SendSemantics,
     fail_writes: bool,
     eager_idle: bool,
@@ -183,6 +208,7 @@ impl Setup {
 
     fn datagram_for(profile: ProfileSpec) -> Self {
         Self {
+            clock: Clock::System,
             semantics: SendSemantics::Datagram,
             fail_writes: false,
             eager_idle: false,
@@ -198,12 +224,21 @@ impl Setup {
         }
     }
 
+    /// Run the worker and the channel transport on `clock`.
+    fn on(self, clock: &ManualClock) -> Self {
+        Self {
+            clock: Clock::Manual(clock.clone()),
+            ..self
+        }
+    }
+
     fn transport(self) -> (ChannelTransport, Peer, ProfileSpec, Option<Duration>) {
         let (read_tx, reads) = flume::unbounded();
         let (writes, write_rx) = flume::unbounded();
         let read_calls = Arc::new(AtomicUsize::new(0));
         let dropped = Arc::new(AtomicBool::new(false));
         let transport = ChannelTransport {
+            clock: self.clock.clone(),
             config: TransportConfig {
                 addressing: AddressingMode::Ip,
                 read_timeout: Duration::from_millis(200),
@@ -218,6 +253,7 @@ impl Setup {
             dropped: Arc::clone(&dropped),
         };
         let peer = Peer {
+            clock: self.clock.clone(),
             reads: read_tx,
             writes: write_rx,
             read_calls,
@@ -227,6 +263,7 @@ impl Setup {
     }
 
     fn spawn(self) -> (BlockingOwnerHandle, Peer) {
+        let clock = self.clock.clone();
         let (transport, peer, profile, hold) = self.transport();
         let adapter =
             BlockingTransportAdapter::new(transport, &profile, CameraId::CAMERA_1).unwrap();
@@ -234,7 +271,10 @@ impl Setup {
         if let Some(hold) = hold {
             policy.protocol.raw_inquiry_release_hold = hold;
         }
-        (BlockingOwnerHandle::spawn(policy, adapter).unwrap(), peer)
+        (
+            BlockingOwnerHandle::spawn(policy, adapter, clock).unwrap(),
+            peer,
+        )
     }
 }
 
@@ -555,19 +595,20 @@ fn a_zero_byte_stream_read_closes_the_session() {
 /// cause rather than retrying forever.
 #[test]
 fn a_persistent_transient_fault_run_closes_the_session() {
-    let (owner, peer) = Setup::datagram().spawn();
+    let clock = ManualClock::new();
+    let _driver = clock.enter();
+    let (owner, peer) = Setup::datagram().on(&clock).spawn();
     for _ in 0..64 {
         peer.send(Read::Fail(Error::TransportError("transient".into())));
     }
-    let closed = Instant::now();
+    let closed = clock.now();
     let deadline = closed + Duration::from_secs(5);
+    // Each snapshot blocks this thread on the clock, which lets the paced
+    // worker's virtual time move on.
     let error = loop {
         match owner.metrics() {
             Err(error) => break error,
-            Ok(_) => {
-                assert!(Instant::now() < deadline, "the fault run never ended");
-                thread::sleep(Duration::from_millis(10));
-            }
+            Ok(_) => assert!(clock.now() < deadline, "the fault run never ended"),
         }
     };
     assert!(
@@ -576,7 +617,7 @@ fn a_persistent_transient_fault_run_closes_the_session() {
         "{error:?}"
     );
     assert!(
-        closed.elapsed() >= Duration::from_secs(1),
+        clock.now() - closed >= Duration::from_secs(1),
         "the run was paced out to its minimum span"
     );
 }
@@ -601,12 +642,15 @@ fn an_undecodable_datagram_is_discarded_and_the_session_continues() {
 /// is paced instead of spinning the worker.
 #[test]
 fn an_eager_idle_transport_is_paced() {
+    let clock = ManualClock::new();
+    let _driver = clock.enter();
     let (owner, peer) = Setup {
         eager_idle: true,
         ..Setup::datagram()
     }
+    .on(&clock)
     .spawn();
-    thread::sleep(Duration::from_millis(500));
+    clock.sleep(Duration::from_millis(500));
     let reads = peer.read_calls.load(Ordering::Relaxed);
     owner.close().unwrap();
     assert!(reads < 100, "eager idle reads hot-spun: {reads} in 500 ms");
@@ -618,10 +662,13 @@ fn an_eager_idle_transport_is_paced() {
 #[test]
 fn a_stale_raw_reply_is_consumed_before_the_successor_is_written() {
     const HOLD: Duration = Duration::from_millis(150);
+    let clock = ManualClock::new();
+    let _driver = clock.enter();
     let (owner, peer) = Setup {
         raw_inquiry_release_hold: Some(HOLD),
         ..Setup::datagram()
     }
+    .on(&clock)
     .spawn();
 
     let first = owner
@@ -633,7 +680,7 @@ fn a_stale_raw_reply_is_consumed_before_the_successor_is_written() {
         owner.wait_core_until(&first, deadline),
         Ok(RuntimeOutcome::Failed(Error::Timeout { .. }))
     ));
-    let timed_out = Instant::now();
+    let timed_out = clock.now();
 
     let second = owner
         .submit_with_timeout(raw_inquiry(Duration::from_secs(1)), PROMPTLY)
@@ -641,7 +688,7 @@ fn a_stale_raw_reply_is_consumed_before_the_successor_is_written() {
     peer.reply(&[0x90, 0x50, 0x01, 0xff]);
     peer.next_write();
     assert!(
-        timed_out.elapsed() >= HOLD.saturating_sub(Duration::from_millis(20)),
+        clock.now() - timed_out >= HOLD,
         "the successor was written inside the release hold"
     );
     peer.reply(&[0x90, 0x50, 0x03, 0xff]);
@@ -858,10 +905,8 @@ fn selected_empty_disconnect_preserves_missing_and_published_owner_errors() {
         Err(Error::RuntimeShutdown)
     ));
     assert!(matches!(
-        owner
-            .reply(&receiver)
-            .wait_deadline(Instant::now() + PROMPTLY),
-        Ok(Err(Error::RuntimeShutdown))
+        owner.reply(&receiver).wait_until(Instant::now() + PROMPTLY),
+        Some(Err(Error::RuntimeShutdown))
     ));
 }
 

@@ -178,6 +178,7 @@ impl BuiltinRequestClass {
 
     /// Returns the closed write-only state requirement, if any.
     #[must_use]
+    #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) const fn state_effect(self) -> Option<AppliedStateEffectRequirement> {
         match self {
             Self::Plain { state_effect } => state_effect,
@@ -281,6 +282,7 @@ pub(crate) const fn fixed_axes<T: BuiltinRequestContract>() -> AffectedAxes {
 ///
 /// Fails const evaluation when the row has no state effect.
 #[allow(clippy::panic)]
+#[cfg(any(feature = "blocking", feature = "async"))]
 pub(crate) const fn state_effect<T: BuiltinRequestContract>() -> AppliedStateEffectRequirement {
     match T::LEDGER_ROW.classification().state_effect() {
         Some(effect) => effect,

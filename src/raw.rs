@@ -1095,6 +1095,7 @@ mod tests {
         assert_eq!(applied.affected_axes(), AffectedAxes::ZOOM);
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     #[test]
     fn owner_target_is_not_inferred_or_rewritten_from_raw_bytes() {
         let command = Plain::new(

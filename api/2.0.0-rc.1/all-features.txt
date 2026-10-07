@@ -26618,6 +26618,18 @@ impl core::marker::Unpin for grafton_visca::testing::testkit::executor_selection
 impl core::marker::UnsafeUnpin for grafton_visca::testing::testkit::executor_selection::TestExecutorType
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::testing::testkit::executor_selection::TestExecutorType
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::testing::testkit::executor_selection::TestExecutorType
+pub struct grafton_visca::testing::testkit::ClockParticipant
+impl core::fmt::Debug for grafton_visca::testing::testkit::ClockParticipant
+pub fn grafton_visca::testing::testkit::ClockParticipant::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::ops::drop::Drop for grafton_visca::testing::testkit::ClockParticipant
+pub fn grafton_visca::testing::testkit::ClockParticipant::drop(&mut self)
+impl core::marker::Freeze for grafton_visca::testing::testkit::ClockParticipant
+impl core::marker::Send for grafton_visca::testing::testkit::ClockParticipant
+impl core::marker::Sync for grafton_visca::testing::testkit::ClockParticipant
+impl core::marker::Unpin for grafton_visca::testing::testkit::ClockParticipant
+impl core::marker::UnsafeUnpin for grafton_visca::testing::testkit::ClockParticipant
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::testing::testkit::ClockParticipant
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::testing::testkit::ClockParticipant
 pub struct grafton_visca::testing::testkit::DeterministicClock
 impl grafton_visca::testing::testkit::deterministic_executor::DeterministicClock
 pub fn grafton_visca::testing::testkit::deterministic_executor::DeterministicClock::advance(&self, core::time::Duration)
@@ -26672,6 +26684,57 @@ impl core::marker::Unpin for grafton_visca::testing::testkit::deterministic_exec
 impl core::marker::UnsafeUnpin for grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor
+pub struct grafton_visca::testing::testkit::ManualClock
+impl grafton_visca::testing::testkit::ManualClock
+pub fn grafton_visca::testing::testkit::ManualClock::advance(&self, core::time::Duration)
+pub fn grafton_visca::testing::testkit::ManualClock::enter(&self) -> grafton_visca::testing::testkit::ClockParticipant
+pub fn grafton_visca::testing::testkit::ManualClock::new() -> Self
+pub fn grafton_visca::testing::testkit::ManualClock::now(&self) -> std::time::Instant
+pub fn grafton_visca::testing::testkit::ManualClock::sleep(&self, core::time::Duration)
+pub fn grafton_visca::testing::testkit::ManualClock::wait_until<T>(&self, std::time::Instant, impl core::ops::function::FnMut() -> core::option::Option<T>) -> core::option::Option<T>
+impl grafton_visca::testing::testkit::ManualClock
+pub fn grafton_visca::testing::testkit::ManualClock::open_blocking_camera_session<P, T>(&self, T, &grafton_visca::CameraConfig<P>) -> grafton_visca::Result<grafton_visca::blocking::CameraSession<P>> where P: grafton_visca::profile::CompileTimeProfile, T: grafton_visca::transport::BlockingTransport + grafton_visca::transport::HasTransportConfig + 'static
+pub fn grafton_visca::testing::testkit::ManualClock::open_blocking_session<T>(&self, T, grafton_visca::SessionConfig) -> grafton_visca::Result<grafton_visca::blocking::Session> where T: grafton_visca::transport::BlockingTransport + grafton_visca::transport::HasTransportConfig + 'static
+impl grafton_visca::testing::testkit::ManualClock
+pub fn grafton_visca::testing::testkit::ManualClock::spawn<F, T>(&self, F) -> std::thread::join_handle::JoinHandle<T> where F: core::ops::function::FnOnce() -> T + core::marker::Send + 'static, T: core::marker::Send + 'static
+impl core::clone::Clone for grafton_visca::testing::testkit::ManualClock
+pub fn grafton_visca::testing::testkit::ManualClock::clone(&self) -> grafton_visca::testing::testkit::ManualClock
+impl core::default::Default for grafton_visca::testing::testkit::ManualClock
+pub fn grafton_visca::testing::testkit::ManualClock::default() -> Self
+impl core::fmt::Debug for grafton_visca::testing::testkit::ManualClock
+pub fn grafton_visca::testing::testkit::ManualClock::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::marker::Freeze for grafton_visca::testing::testkit::ManualClock
+impl core::marker::Send for grafton_visca::testing::testkit::ManualClock
+impl core::marker::Sync for grafton_visca::testing::testkit::ManualClock
+impl core::marker::Unpin for grafton_visca::testing::testkit::ManualClock
+impl core::marker::UnsafeUnpin for grafton_visca::testing::testkit::ManualClock
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::testing::testkit::ManualClock
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::testing::testkit::ManualClock
+pub struct grafton_visca::testing::testkit::ManualClockExecutor<E>
+impl<E: grafton_visca::Executor> grafton_visca::testing::testkit::ManualClockExecutor<E>
+pub fn grafton_visca::testing::testkit::ManualClockExecutor<E>::clock(&self) -> &grafton_visca::testing::testkit::ManualClock
+pub fn grafton_visca::testing::testkit::ManualClockExecutor<E>::new(E, &grafton_visca::testing::testkit::ManualClock) -> Self
+impl<E: core::clone::Clone> core::clone::Clone for grafton_visca::testing::testkit::ManualClockExecutor<E>
+pub fn grafton_visca::testing::testkit::ManualClockExecutor<E>::clone(&self) -> grafton_visca::testing::testkit::ManualClockExecutor<E>
+impl<E: core::fmt::Debug> core::fmt::Debug for grafton_visca::testing::testkit::ManualClockExecutor<E>
+pub fn grafton_visca::testing::testkit::ManualClockExecutor<E>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<E: grafton_visca::Executor> grafton_visca::Executor for grafton_visca::testing::testkit::ManualClockExecutor<E>
+pub type grafton_visca::testing::testkit::ManualClockExecutor<E>::Detach = <E as grafton_visca::Executor>::Detach
+pub type grafton_visca::testing::testkit::ManualClockExecutor<E>::Join<T> where T: core::marker::Send + 'static = <E as grafton_visca::Executor>::Join
+pub fn grafton_visca::testing::testkit::ManualClockExecutor<E>::block_on<F: core::future::future::Future>(&self, F) -> <F as core::future::future::Future>::Output
+pub fn grafton_visca::testing::testkit::ManualClockExecutor<E>::now(&self) -> std::time::Instant
+pub fn grafton_visca::testing::testkit::ManualClockExecutor<E>::sleep(&self, core::time::Duration) -> impl core::future::future::Future<Output = ()> + core::marker::Send + '_
+pub fn grafton_visca::testing::testkit::ManualClockExecutor<E>::spawn<F>(&self, F) -> Self::Join where F: core::future::future::Future + core::marker::Send + 'static, <F as core::future::future::Future>::Output: core::marker::Send + 'static
+pub fn grafton_visca::testing::testkit::ManualClockExecutor<E>::spawn_bg<F>(&self, F) where F: core::future::future::Future + core::marker::Send + 'static, <F as core::future::future::Future>::Output: core::marker::Send + 'static
+pub fn grafton_visca::testing::testkit::ManualClockExecutor<E>::spawn_with_detach<F>(&self, F) -> (Self::Join, Self::Detach) where F: core::future::future::Future + core::marker::Send + 'static, <F as core::future::future::Future>::Output: core::marker::Send + 'static
+pub fn grafton_visca::testing::testkit::ManualClockExecutor<E>::timeout<'a, F, T>(&'a self, core::time::Duration, F) -> impl core::future::future::Future<Output = core::result::Result<T, grafton_visca::Error>> + core::marker::Send + 'a where F: core::future::future::Future<Output = T> + core::marker::Send + 'a, T: core::marker::Send + 'a
+impl<E> core::marker::Freeze for grafton_visca::testing::testkit::ManualClockExecutor<E> where E: core::marker::Freeze
+impl<E> core::marker::Send for grafton_visca::testing::testkit::ManualClockExecutor<E> where E: core::marker::Send
+impl<E> core::marker::Sync for grafton_visca::testing::testkit::ManualClockExecutor<E> where E: core::marker::Sync
+impl<E> core::marker::Unpin for grafton_visca::testing::testkit::ManualClockExecutor<E> where E: core::marker::Unpin
+impl<E> core::marker::UnsafeUnpin for grafton_visca::testing::testkit::ManualClockExecutor<E> where E: core::marker::UnsafeUnpin
+impl<E> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::testing::testkit::ManualClockExecutor<E> where E: core::panic::unwind_safe::RefUnwindSafe
+impl<E> core::panic::unwind_safe::UnwindSafe for grafton_visca::testing::testkit::ManualClockExecutor<E> where E: core::panic::unwind_safe::UnwindSafe
 pub struct grafton_visca::testing::testkit::ScriptedBlockingTransport
 impl grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport
 pub fn grafton_visca::testing::testkit::scripted_transport::ScriptedBlockingTransport::add_response(&self, alloc::vec::Vec<u8>)
@@ -33777,6 +33840,16 @@ pub fn grafton_visca::testing::testkit::deterministic_executor::DeterministicExe
 pub fn grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor::spawn_bg<F>(&self, F) where F: core::future::future::Future + core::marker::Send + 'static, <F as core::future::future::Future>::Output: core::marker::Send + 'static
 pub fn grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor::spawn_with_detach<F>(&self, F) -> (Self::Join, Self::Detach) where F: core::future::future::Future + core::marker::Send + 'static, <F as core::future::future::Future>::Output: core::marker::Send + 'static
 pub fn grafton_visca::testing::testkit::deterministic_executor::DeterministicExecutor::timeout<'a, F, T>(&'a self, core::time::Duration, F) -> impl core::future::future::Future<Output = core::result::Result<T, grafton_visca::Error>> + core::marker::Send + 'a where F: core::future::future::Future<Output = T> + core::marker::Send + 'a, T: core::marker::Send + 'a
+impl<E: grafton_visca::Executor> grafton_visca::Executor for grafton_visca::testing::testkit::ManualClockExecutor<E>
+pub type grafton_visca::testing::testkit::ManualClockExecutor<E>::Detach = <E as grafton_visca::Executor>::Detach
+pub type grafton_visca::testing::testkit::ManualClockExecutor<E>::Join<T> where T: core::marker::Send + 'static = <E as grafton_visca::Executor>::Join
+pub fn grafton_visca::testing::testkit::ManualClockExecutor<E>::block_on<F: core::future::future::Future>(&self, F) -> <F as core::future::future::Future>::Output
+pub fn grafton_visca::testing::testkit::ManualClockExecutor<E>::now(&self) -> std::time::Instant
+pub fn grafton_visca::testing::testkit::ManualClockExecutor<E>::sleep(&self, core::time::Duration) -> impl core::future::future::Future<Output = ()> + core::marker::Send + '_
+pub fn grafton_visca::testing::testkit::ManualClockExecutor<E>::spawn<F>(&self, F) -> Self::Join where F: core::future::future::Future + core::marker::Send + 'static, <F as core::future::future::Future>::Output: core::marker::Send + 'static
+pub fn grafton_visca::testing::testkit::ManualClockExecutor<E>::spawn_bg<F>(&self, F) where F: core::future::future::Future + core::marker::Send + 'static, <F as core::future::future::Future>::Output: core::marker::Send + 'static
+pub fn grafton_visca::testing::testkit::ManualClockExecutor<E>::spawn_with_detach<F>(&self, F) -> (Self::Join, Self::Detach) where F: core::future::future::Future + core::marker::Send + 'static, <F as core::future::future::Future>::Output: core::marker::Send + 'static
+pub fn grafton_visca::testing::testkit::ManualClockExecutor<E>::timeout<'a, F, T>(&'a self, core::time::Duration, F) -> impl core::future::future::Future<Output = core::result::Result<T, grafton_visca::Error>> + core::marker::Send + 'a where F: core::future::future::Future<Output = T> + core::marker::Send + 'a, T: core::marker::Send + 'a
 impl<E> grafton_visca::Executor for alloc::sync::Arc<E> where E: grafton_visca::Executor
 pub type alloc::sync::Arc<E>::Detach = <E as grafton_visca::Executor>::Detach
 pub type alloc::sync::Arc<E>::Join<T> where T: core::marker::Send + 'static = <E as grafton_visca::Executor>::Join

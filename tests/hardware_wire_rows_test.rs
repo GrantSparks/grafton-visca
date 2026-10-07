@@ -83,11 +83,7 @@
 //!   -- --ignored --nocapture --test-threads=1 --exact hw05_tilt_polarity
 //! ```
 
-#[macro_use]
-#[path = "common/hardware.rs"]
-mod hardware;
-#[path = "common/hardware_rest.rs"]
-mod hardware_rest;
+use grafton_visca_test_support::{hardware, hardware_rest, hw};
 
 use std::{
     cell::Cell,

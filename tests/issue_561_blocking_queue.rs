@@ -7,17 +7,13 @@
 
 #![cfg(feature = "blocking")]
 
-#[path = "common/profile_fixtures.rs"]
-mod profile_fixtures;
+use grafton_visca_test_support::{fake_camera, profile_fixtures};
 
 use std::{
     num::NonZeroUsize,
     sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
-
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
 
 use fake_camera::{frames, Answer, FakeCamera, FOCUS_STOP, ZOOM_STOP};
 use grafton_visca::{

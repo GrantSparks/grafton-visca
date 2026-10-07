@@ -10,13 +10,7 @@
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
 
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
-#[macro_use]
-#[path = "common/matrix.rs"]
-mod matrix;
-#[path = "common/profile_fixtures.rs"]
-mod profile_fixtures;
+use grafton_visca_test_support::{fake_camera, profile_fixtures, runtime_matrix};
 
 use std::{
     future::Future,
@@ -45,7 +39,6 @@ use grafton_visca::{
 use fake_camera::{frames, AsyncWire, FakeCamera};
 use profile_fixtures::NonDefaultCompileTimeProfile;
 
-#[allow(dead_code)]
 async fn generic_operation_submission<P, K, O>(
     camera: &Camera<P>,
     operation: &O,
@@ -238,13 +231,15 @@ async fn one_owner_admits_plain_inquiry_and_typed_operations<E: Executor>(execut
         .settled()
         .await
         .expect("targeted settlement");
-    camera
-        .submit::<AppliedOnly, _>(&grafton_visca::request::builtin::ZoomStop)
-        .await
-        .expect("applied-only admission")
-        .applied()
-        .await
-        .expect("applied completion");
+    generic_operation_submission::<_, AppliedOnly, _>(
+        &camera,
+        &grafton_visca::request::builtin::ZoomStop,
+    )
+    .await
+    .expect("applied-only admission")
+    .applied()
+    .await
+    .expect("applied completion");
 
     session.shutdown().expect("shutdown");
     assert_eq!(fake.write_count(), 4);

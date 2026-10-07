@@ -10,11 +10,7 @@
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
 
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
-#[macro_use]
-#[path = "common/matrix.rs"]
-mod matrix;
+use grafton_visca_test_support::{fake_camera, runtime_matrix};
 
 use grafton_visca::{
     profiles::PtzOpticsG2,

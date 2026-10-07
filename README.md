@@ -611,9 +611,9 @@ before any socket or serial device is opened.
 
 ---
 
-## Platform and MSRV
+## Platform and toolchain
 
-- **MSRV:** Rust 1.88
+- **Rust:** 1.98 (single stable toolchain; `rust-version = "1.98"`)
 - **Platforms:** Linux, macOS, Windows
 
 ---

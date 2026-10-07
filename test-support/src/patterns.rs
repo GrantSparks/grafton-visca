@@ -11,7 +11,7 @@
 //! nibble groups of the positional frames distinct for the same reason.
 
 /// VISCA command terminator byte.
-pub const VISCA_TERMINATOR: u8 = 0xFF;
+const VISCA_TERMINATOR: u8 = 0xFF;
 
 /// Maximum pan speed accepted by the profiles used in the golden fixtures.
 pub const PAN_SPEED_MAX: u8 = 0x18;

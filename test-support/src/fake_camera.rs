@@ -1,8 +1,8 @@
 //! The integration suite's one fake camera.
 //!
-//! Include it with `#[path = "common/fake_camera.rs"] mod fake_camera;`. It
-//! must not depend on `test-utils`: most behavioural tests run in CI legs that
-//! do not enable it.
+//! Compiled under grafton-visca's `blocking` or `async` feature. It must not
+//! depend on `test-utils`: most behavioural tests run in CI legs that do not
+//! enable it.
 //!
 //! * [`frames`] — the reply frames (ACK, completion, error, inquiry data, the
 //!   Sony envelope). It is the same source file the crate's testkit uses,
@@ -28,8 +28,14 @@
 //! until a reply arrives, leaving timeouts to the owner. Every blocking fake
 //! in the suite shares this one model, so the owner's pump timing is the same
 //! in every test for the same scripted silence.
-
-#![allow(dead_code)]
+//!
+//! # Virtual time
+//!
+//! With `test-utils`, a blocking wire built with [`BlockingWire::on_clock`]
+//! waits for replies on a `ManualClock` instead, and
+//! [`FakeCamera::wait_for_writes_on`] / [`FakeCamera::wait_for_reads_on`]
+//! wait on it too, so a blocking session opened on that clock never blocks
+//! in real time.
 
 use std::{
     fmt,
@@ -40,6 +46,8 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "test-utils")]
+use grafton_visca::testing::testkit::ManualClock;
 #[cfg(feature = "async")]
 use grafton_visca::Executor;
 use grafton_visca::{
@@ -59,6 +67,7 @@ pub mod frames;
 pub const WAIT_BUDGET: Duration = Duration::from_secs(5);
 
 /// How often the async wait helpers re-check their condition.
+#[cfg(feature = "async")]
 const ASYNC_POLL: Duration = Duration::from_millis(1);
 
 /// Zoom tele (standard speed), camera address 1.
@@ -72,6 +81,31 @@ pub const FOCUS_STOP: &[u8] = &[0x81, 0x01, 0x04, 0x08, 0x00, 0xff];
 /// command at once may send them.
 pub fn ack_and_complete(socket: u8) -> Vec<u8> {
     [frames::ack(socket), frames::complete(socket)].concat()
+}
+
+/// The VISCA message inside `frame`: the payload of a Sony envelope, or the
+/// frame itself when it is raw VISCA.
+///
+/// # Panics
+///
+/// Panics on a malformed envelope, as [`frames::sony_split`] does.
+#[must_use]
+fn visca_payload(frame: &[u8]) -> &[u8] {
+    frames::sony_split(frame).map_or(frame, |(_, payload)| payload)
+}
+
+/// Wraps `reply` in the framing of `request`: the Sony envelope echoing the
+/// request's sequence number when the request was enveloped, raw otherwise.
+///
+/// # Panics
+///
+/// Panics on a malformed request envelope, as [`frames::sony_split`] does.
+#[must_use]
+fn reply_like(request: &[u8], reply: &[u8]) -> Vec<u8> {
+    match frames::sony_sequence(request) {
+        Some(sequence) => frames::sony_reply(sequence, reply),
+        None => reply.to_vec(),
+    }
 }
 
 /// One read the camera delivers: reply bytes or a receive fault.
@@ -184,11 +218,11 @@ impl FakeCamera {
     pub fn visca(mut responder: impl FnMut(&[u8], &mut Answer) + Send + 'static) -> Self {
         Self::new(move |write, answer| {
             let mut inner = Answer::default();
-            responder(frames::visca_payload(write), &mut inner);
+            responder(visca_payload(write), &mut inner);
             for read in inner.reads {
                 answer
                     .reads
-                    .push(read.map(|reply| frames::reply_like(write, &reply)));
+                    .push(read.map(|reply| reply_like(write, &reply)));
             }
             answer.send_error = inner.send_error;
         })
@@ -214,7 +248,7 @@ impl FakeCamera {
     pub fn take_payloads(&self) -> Vec<Vec<u8>> {
         std::mem::take(&mut self.state().writes)
             .iter()
-            .map(|write| frames::visca_payload(write).to_vec())
+            .map(|write| visca_payload(write).to_vec())
             .collect()
     }
 
@@ -274,6 +308,30 @@ impl FakeCamera {
     /// Panics when [`WAIT_BUDGET`] elapses first.
     pub fn wait_for_reads(&self, count: usize) {
         drop(self.wait_until(&format!("{count} reads"), |state| state.reads >= count));
+    }
+
+    /// [`Self::wait_for_writes`] on `clock`'s virtual time.
+    ///
+    /// # Panics
+    ///
+    /// Panics when [`WAIT_BUDGET`] of virtual time elapses first.
+    #[cfg(feature = "test-utils")]
+    pub fn wait_for_writes_on(&self, clock: &ManualClock, count: usize) -> Vec<Vec<u8>> {
+        self.wait_on(clock, &format!("{count} writes"), |state| {
+            (state.writes.len() >= count).then(|| state.writes.clone())
+        })
+    }
+
+    /// [`Self::wait_for_reads`] on `clock`'s virtual time.
+    ///
+    /// # Panics
+    ///
+    /// Panics when [`WAIT_BUDGET`] of virtual time elapses first.
+    #[cfg(feature = "test-utils")]
+    pub fn wait_for_reads_on(&self, clock: &ManualClock, count: usize) {
+        self.wait_on(clock, &format!("{count} reads"), |state| {
+            (state.reads >= count).then_some(())
+        });
     }
 
     /// Wait on `executor` until at least `count` writes have been made, then
@@ -369,6 +427,18 @@ impl FakeCamera {
         state
     }
 
+    #[cfg(feature = "test-utils")]
+    fn wait_on<T>(
+        &self,
+        clock: &ManualClock,
+        what: &str,
+        mut done: impl FnMut(&State) -> Option<T>,
+    ) -> T {
+        clock
+            .wait_until(clock.now() + WAIT_BUDGET, || done(&self.state()))
+            .unwrap_or_else(|| panic!("timed out after {WAIT_BUDGET:?} waiting for {what}"))
+    }
+
     #[cfg(feature = "async")]
     async fn poll_until<E: Executor>(
         &self,
@@ -392,6 +462,9 @@ impl FakeCamera {
 #[derive(Debug)]
 struct Wire {
     camera: FakeCamera,
+    /// The clock a blocking read waits on; real time without one.
+    #[cfg(feature = "test-utils")]
+    clock: Option<ManualClock>,
     config: TransportConfig,
     semantics: SendSemantics,
     addressing: Option<AddressingMode>,
@@ -403,11 +476,35 @@ impl Wire {
     fn new(camera: FakeCamera) -> Self {
         Self {
             camera,
+            #[cfg(feature = "test-utils")]
+            clock: None,
             config: TransportConfig::default(),
             semantics: SendSemantics::Datagram,
             addressing: None,
             kind: None,
             bus: None,
+        }
+    }
+}
+
+#[cfg(feature = "blocking")]
+impl Wire {
+    /// A blocking read: a poll for a zero `timeout`, otherwise a wait of up
+    /// to `timeout` on the wire's clock, or in real time without one.
+    fn read_within(&self, timeout: Duration) -> Option<Read> {
+        let reads = self.camera.begin_receive();
+        if timeout.is_zero() {
+            return reads.try_recv().ok();
+        }
+        #[cfg(feature = "test-utils")]
+        if let Some(clock) = &self.clock {
+            if let Some(deadline) = clock.now().checked_add(timeout) {
+                return clock.wait_until(deadline, || reads.try_recv().ok());
+            }
+        }
+        match std::time::Instant::now().checked_add(timeout) {
+            Some(deadline) => reads.recv_deadline(deadline).ok(),
+            None => reads.recv().ok(),
         }
     }
 }
@@ -489,6 +586,15 @@ pub struct BlockingWire(Wire);
 
 wire_builders!(BlockingWire);
 
+#[cfg(feature = "test-utils")]
+impl BlockingWire {
+    /// Wait for replies on `clock`'s virtual time.
+    pub fn on_clock(mut self, clock: &ManualClock) -> Self {
+        self.0.clock = Some(clock.clone());
+        self
+    }
+}
+
 #[cfg(feature = "blocking")]
 impl grafton_visca::transport::BlockingTransport for BlockingWire {
     fn send_with_timeout(
@@ -505,16 +611,7 @@ impl grafton_visca::transport::BlockingTransport for BlockingWire {
         dst: &mut [u8],
         timeout: Duration,
     ) -> Result<ReceiveOutcome, Error> {
-        let reads = self.0.camera.begin_receive();
-        let read = if timeout.is_zero() {
-            reads.try_recv().ok()
-        } else {
-            match std::time::Instant::now().checked_add(timeout) {
-                Some(deadline) => reads.recv_deadline(deadline).ok(),
-                None => reads.recv().ok(),
-            }
-        };
-        match read {
+        match self.0.read_within(timeout) {
             Some(read) => self.0.camera.on_read(read, dst),
             None => Err(Error::io_timeout()),
         }
@@ -561,5 +658,30 @@ impl grafton_visca::transport::AsyncTransport for AsyncWire {
 
     fn send_semantics(&self) -> SendSemantics {
         self.0.semantics
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{frames, reply_like, visca_payload};
+
+    #[test]
+    fn replies_take_the_framing_of_their_request() {
+        let payload = frames::complete(1);
+        let enveloped = frames::sony_reply(0x0102_0304, &payload);
+        assert_eq!(visca_payload(&enveloped), payload.as_slice());
+        assert_eq!(reply_like(&enveloped, &payload), enveloped);
+
+        let raw = [0x81, 0x09, 0x04, 0x00, 0xFF];
+        assert_eq!(visca_payload(&raw), raw);
+        assert_eq!(reply_like(&raw, &payload), payload);
+    }
+
+    #[test]
+    #[should_panic(expected = "Sony length field disagrees with the payload")]
+    fn a_malformed_envelope_is_never_stripped() {
+        let mut frame = frames::sony_reply(1, &frames::ack(1));
+        frame.push(0xFF);
+        let _ = visca_payload(&frame);
     }
 }

@@ -178,7 +178,6 @@ mod tests {
     /// #798 review: an unroutable first address used to consume the whole
     /// connect budget, so the reachable second address was never tried.
     #[tokio::test]
-    #[cfg_attr(miri, ignore = "requires a loopback listener")]
     async fn an_unroutable_first_address_does_not_starve_the_next() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
         REACHABLE
