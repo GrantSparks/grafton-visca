@@ -48,12 +48,33 @@ fn sony_shutter_replies_decode_to_their_source_table_codes() -> Result<(), Error
     Ok(())
 }
 
+/// EVI-H100's table (R8) assigns `00` to 1/1 s, and no other code shares
+/// that value, so a `00` shutter reply decodes through the typed inquiry to
+/// the 1/1 s code.
+#[test]
+fn evi_h100_zero_shutter_reply_decodes_to_one_second() -> Result<(), Error> {
+    let profile = ProfileSpec::from_compile_time::<SonyEVIH100>()?;
+    let decoded = ShutterInquiry
+        .decoder_for_profile(&profile)
+        .decode(&[0x00, 0x00, 0x00, 0x00])?;
+    assert_eq!(decoded.value(), 0x00);
+    assert_eq!(
+        profile
+            .capabilities()
+            .shutter_speed_for(Fraction::new(1, 1).expect("nonzero denominator"))
+            .ok(),
+        Some(decoded)
+    );
+    Ok(())
+}
+
 /// The typed shutter command can express every code a built-in profile
-/// advertises, including the generic `0x00`.
+/// advertises, including EVI-H100's `00` (1/1 s).
 #[test]
 fn every_advertised_shutter_code_is_a_typed_shutter_command() {
     for caps in [
         Capabilities::from_profile::<GenericVisca>(),
+        Capabilities::from_profile::<SonyEVIH100>(),
         Capabilities::from_profile::<PtzOpticsG2>(),
     ] {
         for entry in &caps.shutter_speeds {
