@@ -68,13 +68,15 @@ cargo_miri_nightly miri setup
 # Miri is applicable to the synchronous, I/O-free domain boundary.  A library
 # test target still compiles every unit-test module once, so keep that expensive
 # compilation to one no-default build and bound execution to pure modules.  The
-# long deterministic trace and generated property test remain covered by the
-# ordinary engine/property CI jobs, not by an unbounded Miri run.
+# long deterministic trace, the generated property test and the randomized
+# raw-stream session model remain covered by the ordinary engine/property CI
+# jobs, not by an unbounded Miri run.
 run_miri "deterministic protocol engine" \
     --no-default-features --lib 'runtime::engine::tests::' -- \
     --test-threads=1 \
     --skip arbitrary_stale_and_reordered_inputs_preserve_invariants \
-    --skip arbitrary_ordered_and_stale_inputs_preserve_invariants_property
+    --skip arbitrary_ordered_and_stale_inputs_preserve_invariants_property \
+    --skip randomized_stream_sessions_bind_every_answer_to_its_originator
 run_miri "prepared request domain" --no-default-features --lib 'prepared::tests::' -- --test-threads=1
 run_miri "raw request contracts" --no-default-features --lib 'raw::tests::' -- --test-threads=1
 run_miri "VISCA frame parsing" \
