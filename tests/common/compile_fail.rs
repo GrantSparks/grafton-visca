@@ -75,7 +75,7 @@ use std::{
     fmt::Write as _,
     fs,
     path::{Path, PathBuf},
-    process::{Command, Output, Stdio},
+    process::{Command, Stdio},
 };
 
 /// Error codes that mean "this name did not resolve".
@@ -343,25 +343,24 @@ fn assert_compile_fixture_set(
 
     prefetch_contract_dependencies(crate_root, &work_root, &nested_target_root, crate_features);
 
+    let cases = write_case_workspace(crate_root, &work_root, &fixtures, crate_features);
+    let run = compile_case_workspace(&work_root, &nested_target_root, &cases);
+
     let mut failures = Vec::new();
-    for (index, fixture) in fixtures.iter().enumerate() {
+    for (case, compilation) in cases.iter().zip(&run.compilations) {
+        let fixture_label = case
+            .fixture
+            .strip_prefix(crate_root)
+            .unwrap_or(&case.fixture)
+            .display()
+            .to_string();
         let result = match expected {
-            ExpectedOutcome::Success => check_pass_fixture(
-                crate_root,
-                &work_root,
-                &nested_target_root,
-                index,
-                fixture,
-                crate_features,
-            ),
-            ExpectedOutcome::Failure => check_fail_fixture(
-                crate_root,
-                &work_root,
-                &nested_target_root,
-                index,
-                fixture,
-                crate_features,
-            ),
+            ExpectedOutcome::Success => {
+                check_pass_fixture(&fixture_label, compilation, &run.unattributed)
+            }
+            ExpectedOutcome::Failure => {
+                check_fail_fixture(&fixture_label, &case.source, compilation, &run.unattributed)
+            }
         };
         if let Err(failure) = result {
             failures.push(failure);
@@ -429,7 +428,13 @@ fn prefetch_contract_dependencies(
     });
     fs::write(
         prefetch_dir.join("Cargo.toml"),
-        case_manifest(crate_root, 0, "prefetch-dependencies", crate_features),
+        case_manifest(
+            crate_root,
+            0,
+            "prefetch-dependencies",
+            crate_features,
+            ManifestRoot::Standalone,
+        ),
     )
     .unwrap_or_else(|error| {
         panic!(
@@ -467,28 +472,269 @@ fn prefetch_contract_dependencies(
     }
 }
 
-/// Compiles one fixture and matches the result against its declarations.
+/// One fixture's package inside the generated case workspace.
+struct CasePackage {
+    fixture: PathBuf,
+    source: String,
+    /// Directory of the member, relative to the workspace root.
+    dir_name: String,
+    /// Package name, which is also the name of its only (bin) target.
+    package_name: String,
+    /// `build` or `check`; see [`compile_command`].
+    command: &'static str,
+}
+
+/// What the nested Cargo run reported for one fixture package.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+struct FixtureCompilation {
+    /// Cargo emitted a `compiler-artifact` record for the fixture's bin
+    /// target, i.e. rustc finished the crate without an error.
+    compiled: bool,
+    /// The fixture's rustc diagnostics, rendered exactly as `cargo check`
+    /// prints them to stderr (see [`attribute_cargo_messages`]).
+    diagnostics: String,
+}
+
+struct WorkspaceRun {
+    /// One entry per [`CasePackage`], in the same order.
+    compilations: Vec<FixtureCompilation>,
+    /// Cargo's own stderr plus every diagnostic not belonging to a fixture
+    /// package (for example the library under test). Shown only for a
+    /// fixture that failed without a diagnostic of its own.
+    unattributed: String,
+}
+
+/// Writes one nested Cargo workspace whose members are the fixture packages.
 ///
-/// Returns the report for a fixture that did not meet them; harness-level
-/// problems (unreadable files, an unspawnable cargo) still panic outright.
-fn check_fail_fixture(
+/// Every member has the same dependency and feature set, so resolver-2
+/// feature unification cannot change what any single fixture sees compared
+/// with compiling it as its own workspace.
+fn write_case_workspace(
     crate_root: &Path,
     work_root: &Path,
-    nested_target_root: &Path,
-    index: usize,
-    fixture: &Path,
+    fixtures: &[PathBuf],
     crate_features: &[&str],
+) -> Vec<CasePackage> {
+    let mut cases = Vec::with_capacity(fixtures.len());
+    for (index, fixture) in fixtures.iter().enumerate() {
+        let fixture_name = fixture
+            .file_stem()
+            .and_then(|stem| stem.to_str())
+            .unwrap_or("fixture");
+        let source = fs::read_to_string(fixture).unwrap_or_else(|error| {
+            panic!("failed to read fixture {}: {error}", fixture.display())
+        });
+        let dir_name = format!("{index:02}-{}", sanitize(fixture_name));
+        let case_dir = work_root.join(&dir_name);
+        let src_dir = case_dir.join("src");
+        fs::create_dir_all(&src_dir).unwrap_or_else(|error| {
+            panic!(
+                "failed to create compile-contract case dir {}: {error}",
+                src_dir.display()
+            )
+        });
+        fs::write(src_dir.join("main.rs"), &source).unwrap_or_else(|error| {
+            panic!(
+                "failed to write compile-contract case source for {}: {error}",
+                fixture.display()
+            )
+        });
+        fs::write(
+            case_dir.join("Cargo.toml"),
+            case_manifest(
+                crate_root,
+                index,
+                fixture_name,
+                crate_features,
+                ManifestRoot::Member,
+            ),
+        )
+        .unwrap_or_else(|error| {
+            panic!(
+                "failed to write compile-contract case manifest for {}: {error}",
+                fixture.display()
+            )
+        });
+        cases.push(CasePackage {
+            fixture: fixture.clone(),
+            command: compile_command(&source),
+            package_name: case_package_name(index, fixture_name),
+            dir_name,
+            source,
+        });
+    }
+
+    let members = cases
+        .iter()
+        .map(|case| case.dir_name.as_str())
+        .collect::<Vec<_>>();
+    let manifest = format!(
+        "[workspace]\nmembers = {}\nresolver = \"2\"\n",
+        toml_array(&members)
+    );
+    fs::write(work_root.join("Cargo.toml"), manifest).unwrap_or_else(|error| {
+        panic!(
+            "failed to write compile-contract workspace manifest in {}: {error}",
+            work_root.display()
+        )
+    });
+    cases
+}
+
+/// Compiles every fixture package with one Cargo invocation per command kind
+/// (`check`, and `build` only when some fixture declares `//@ build`).
+///
+/// `--keep-going` makes Cargo compile every member even after one fails, so
+/// each fixture gets its own verdict exactly as a separate invocation would.
+fn compile_case_workspace(
+    work_root: &Path,
+    nested_target_root: &Path,
+    cases: &[CasePackage],
+) -> WorkspaceRun {
+    let mut compilations = vec![FixtureCompilation::default(); cases.len()];
+    let mut unattributed = String::new();
+
+    for command_kind in ["check", "build"] {
+        let selected = cases
+            .iter()
+            .enumerate()
+            .filter(|(_, case)| case.command == command_kind)
+            .collect::<Vec<_>>();
+        if selected.is_empty() {
+            continue;
+        }
+
+        let mut command = nested_cargo_command();
+        command
+            .arg(command_kind)
+            .arg("--keep-going")
+            .arg("--offline")
+            .arg("--quiet")
+            .arg("--message-format=json")
+            .arg("--manifest-path")
+            .arg(work_root.join("Cargo.toml"))
+            .env("CARGO_TARGET_DIR", nested_target_root);
+        for (_, case) in &selected {
+            command.arg("-p").arg(&case.package_name);
+        }
+        let output = command.output().unwrap_or_else(|error| {
+            panic!(
+                "failed to run cargo {command_kind} for compile-contract fixtures in {}: {error}",
+                work_root.display()
+            )
+        });
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let packages = selected
+            .iter()
+            .map(|(_, case)| (case.package_name.as_str(), case.dir_name.as_str()))
+            .collect::<Vec<_>>();
+        let attributed = attribute_cargo_messages(&stdout, &packages).unwrap_or_else(|problem| {
+            panic!(
+                "cargo {command_kind} produced an unreadable JSON message stream: {problem}\n\
+                 stderr:\n{}",
+                String::from_utf8_lossy(&output.stderr)
+            )
+        });
+        for ((slot, _), compilation) in selected.iter().zip(attributed.compilations) {
+            compilations[*slot] = compilation;
+        }
+        unattributed.push_str(&attributed.unattributed);
+        unattributed.push_str(&String::from_utf8_lossy(&output.stderr));
+    }
+
+    WorkspaceRun {
+        compilations,
+        unattributed,
+    }
+}
+
+/// Splits Cargo's `--message-format=json` stream into per-fixture results.
+///
+/// `packages` lists `(package name, member directory)` pairs; each fixture
+/// package has exactly one target, a bin of the same name, so a record's
+/// `target.name` identifies its fixture.
+///
+/// Equivalence with the per-fixture `cargo check --quiet` stderr this replaces:
+///
+/// * Cargo renders human diagnostics by printing rustc's JSON `rendered`
+///   field verbatim, so concatenating a fixture's `compiler-message` records
+///   in stream order reproduces its rustc output byte for byte.
+/// * The only stderr lines Cargo added itself were the summaries
+///   "error: could not compile `..`" and "warning: `..` generated N
+///   warnings". Neither contains an `error[E....]` code, and no fixture
+///   anchors a message on them, so dropping them changes no verdict.
+/// * The old per-fixture verdict was the process exit status. A crate that
+///   rustc finished produces a `compiler-artifact` record (including when it
+///   is fresh from the cache), and a crate that failed produces none, so the
+///   artifact record is the per-package equivalent of that status.
+/// * Inside a workspace rustc reports `NN-name/src/main.rs` instead of
+///   `src/main.rs`; the member prefix is removed so reports read as before.
+///   No fixture anchors a message on a path either way.
+fn attribute_cargo_messages(
+    json_stream: &str,
+    packages: &[(&str, &str)],
+) -> Result<WorkspaceRun, String> {
+    let mut compilations = vec![FixtureCompilation::default(); packages.len()];
+    let mut unattributed = String::new();
+
+    for (number, line) in json_stream.lines().enumerate() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        let record: serde_json::Value = serde_json::from_str(line)
+            .map_err(|problem| format!("line {}: {problem}", number + 1))?;
+        let reason = record.get("reason").and_then(serde_json::Value::as_str);
+        let target_name = record
+            .get("target")
+            .and_then(|target| target.get("name"))
+            .and_then(serde_json::Value::as_str);
+        let slot =
+            target_name.and_then(|name| packages.iter().position(|(package, _)| *package == name));
+
+        match reason {
+            Some("compiler-message") => {
+                let rendered = record
+                    .get("message")
+                    .and_then(|message| message.get("rendered"))
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
+                match slot {
+                    Some(slot) => {
+                        let member_source = format!("{}/src/", packages[slot].1);
+                        compilations[slot]
+                            .diagnostics
+                            .push_str(&rendered.replace(&member_source, "src/"));
+                    }
+                    None => unattributed.push_str(rendered),
+                }
+            }
+            Some("compiler-artifact") => {
+                if let Some(slot) = slot {
+                    compilations[slot].compiled = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(WorkspaceRun {
+        compilations,
+        unattributed,
+    })
+}
+
+/// Matches one compiled fail fixture against its declarations.
+///
+/// Returns the report for a fixture that did not meet them.
+fn check_fail_fixture(
+    fixture_label: &str,
+    source: &str,
+    compilation: &FixtureCompilation,
+    unattributed: &str,
 ) -> Result<(), String> {
-    let fixture_label = fixture
-        .strip_prefix(crate_root)
-        .unwrap_or(fixture)
-        .display()
-        .to_string();
-
-    let source = fs::read_to_string(fixture)
-        .unwrap_or_else(|error| panic!("failed to read fixture {}: {error}", fixture.display()));
-
-    let expectations = match parse_expectations(&source) {
+    let expectations = match parse_expectations(source) {
         Ok(expectations) => expectations,
         Err(problem) => {
             return Err(format!("{fixture_label}: {problem}"));
@@ -498,17 +744,7 @@ fn check_fail_fixture(
         return Err(format!("{fixture_label}: {problem}"));
     }
 
-    let output = compile_fixture(
-        crate_root,
-        work_root,
-        nested_target_root,
-        index,
-        fixture,
-        crate_features,
-        &source,
-    );
-
-    if output.status.success() {
+    if compilation.compiled {
         return Err(format!(
             "{fixture_label}: compiled successfully; the contract it pins is no longer enforced \
              (expected {})",
@@ -516,8 +752,8 @@ fn check_fail_fixture(
         ));
     }
 
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let problems = unmet_expectations(&expectations, &stderr);
+    let stderr = compilation.diagnostics.as_str();
+    let problems = unmet_expectations(&expectations, stderr);
     if problems.is_empty() {
         return Ok(());
     }
@@ -527,100 +763,39 @@ fn check_fail_fixture(
         let _ = write!(report, "\n  - {problem}");
     }
     let _ = write!(report, "\n  declared: {}", describe(&expectations));
-    let _ = write!(report, "\n  stderr:\n{}", indent(&stderr));
+    let _ = write!(report, "\n  stderr:\n{}", indent(stderr));
+    append_unattributed(&mut report, compilation, unattributed);
     Err(report)
 }
 
 fn check_pass_fixture(
-    crate_root: &Path,
-    work_root: &Path,
-    nested_target_root: &Path,
-    index: usize,
-    fixture: &Path,
-    crate_features: &[&str],
+    fixture_label: &str,
+    compilation: &FixtureCompilation,
+    unattributed: &str,
 ) -> Result<(), String> {
-    let fixture_label = fixture
-        .strip_prefix(crate_root)
-        .unwrap_or(fixture)
-        .display()
-        .to_string();
-    let source = fs::read_to_string(fixture)
-        .unwrap_or_else(|error| panic!("failed to read fixture {}: {error}", fixture.display()));
-    let output = compile_fixture(
-        crate_root,
-        work_root,
-        nested_target_root,
-        index,
-        fixture,
-        crate_features,
-        &source,
-    );
-
-    if output.status.success() {
+    if compilation.compiled {
         return Ok(());
     }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    Err(format!(
-        "{fixture_label}: did not compile successfully\n  stdout:\n{}\n  stderr:\n{}",
-        indent(&stdout),
-        indent(&stderr),
-    ))
+    let mut report = format!(
+        "{fixture_label}: did not compile successfully\n  stderr:\n{}",
+        indent(&compilation.diagnostics),
+    );
+    append_unattributed(&mut report, compilation, unattributed);
+    Err(report)
 }
 
-fn compile_fixture(
-    crate_root: &Path,
-    work_root: &Path,
-    nested_target_root: &Path,
-    index: usize,
-    fixture: &Path,
-    crate_features: &[&str],
-    source: &str,
-) -> Output {
-    let fixture_name = fixture
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or("fixture");
-    let case_dir = work_root.join(format!("{index:02}-{}", sanitize(fixture_name)));
-    let src_dir = case_dir.join("src");
-    fs::create_dir_all(&src_dir).unwrap_or_else(|error| {
-        panic!(
-            "failed to create compile-contract case dir {}: {error}",
-            src_dir.display()
-        )
-    });
-    fs::write(src_dir.join("main.rs"), source).unwrap_or_else(|error| {
-        panic!(
-            "failed to write compile-contract case source for {}: {error}",
-            fixture.display()
-        )
-    });
-    fs::write(
-        case_dir.join("Cargo.toml"),
-        case_manifest(crate_root, index, fixture_name, crate_features),
-    )
-    .unwrap_or_else(|error| {
-        panic!(
-            "failed to write compile-contract case manifest for {}: {error}",
-            fixture.display()
-        )
-    });
-
-    nested_cargo_command()
-        .arg(compile_command(source))
-        .arg("--offline")
-        .arg("--quiet")
-        .arg("--manifest-path")
-        .arg(case_dir.join("Cargo.toml"))
-        .env("CARGO_TARGET_DIR", nested_target_root)
-        .output()
-        .unwrap_or_else(|error| {
-            panic!(
-                "failed to run cargo check for {}: {error}",
-                fixture.display()
-            )
-        })
+/// Adds Cargo's own output to a report when the fixture failed without a
+/// diagnostic of its own (a dependency or manifest failure), so the cause
+/// is never hidden.
+fn append_unattributed(report: &mut String, compilation: &FixtureCompilation, unattributed: &str) {
+    if compilation.diagnostics.trim().is_empty() && !unattributed.trim().is_empty() {
+        let _ = write!(
+            report,
+            "\n  cargo output not attributable to a fixture:\n{}",
+            indent(unattributed)
+        );
+    }
 }
 
 /// Builds a Cargo command for the nested contract projects.
@@ -816,21 +991,39 @@ fn indent(text: &str) -> String {
         .join("\n")
 }
 
+/// Whether a generated package is its own workspace or a member of the
+/// generated case workspace.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ManifestRoot {
+    Standalone,
+    Member,
+}
+
+fn case_package_name(index: usize, fixture_name: &str) -> String {
+    format!(
+        "grafton-visca-contract-{index:02}-{}",
+        sanitize(fixture_name)
+    )
+}
+
 fn case_manifest(
     crate_root: &Path,
     index: usize,
     fixture_name: &str,
     crate_features: &[&str],
+    root: ManifestRoot,
 ) -> String {
+    let workspace_table = match root {
+        ManifestRoot::Standalone => "\n[workspace]\n",
+        ManifestRoot::Member => "",
+    };
     format!(
         r#"[package]
-name = "grafton-visca-contract-{index:02}-{fixture_name}"
+name = "{package_name}"
 version = "0.0.0"
 edition = "2021"
 publish = false
-
-[workspace]
-
+{workspace_table}
 [features]
 default = {active_features}
 blocking = []
@@ -851,7 +1044,7 @@ grafton-visca = {{ path = {}, default-features = false, features = {} }}
         toml_string(&crate_root.to_string_lossy()),
         toml_array(crate_features),
         active_features = toml_array(crate_features),
-        fixture_name = sanitize(fixture_name),
+        package_name = case_package_name(index, fixture_name),
     )
 }
 
@@ -1081,5 +1274,112 @@ mod tests {
                 "nested Cargo command must explicitly remove {variable}"
             );
         }
+    }
+
+    fn message_record(target: &str, level: &str, rendered: &str) -> String {
+        format!(
+            "{{\"reason\":\"compiler-message\",\"package_id\":\"path+file:///w/{target}#{target}@0.0.0\",\
+             \"target\":{{\"kind\":[\"bin\"],\"name\":\"{target}\",\"test\":true}},\
+             \"message\":{{\"level\":\"{level}\",\"code\":null,\"rendered\":{}}}}}",
+            serde_json::Value::from(rendered)
+        )
+    }
+
+    fn artifact_record(target: &str) -> String {
+        format!(
+            "{{\"reason\":\"compiler-artifact\",\"target\":{{\"kind\":[\"bin\"],\"name\":\"{target}\"}},\
+             \"profile\":{{\"opt_level\":\"0\",\"debuginfo\":0}},\"fresh\":true}}"
+        )
+    }
+
+    #[test]
+    fn cargo_messages_are_attributed_to_their_fixture_in_order() {
+        let stream = [
+            message_record("grafton_visca", "warning", "warning: library warning\n"),
+            message_record(
+                "pkg-a",
+                "error",
+                "error[E0603]: module `x` is private\n --> 00-a/src/main.rs:1:5\n\n",
+            ),
+            message_record(
+                "pkg-b",
+                "warning",
+                "warning: unused\n --> 01-b/src/main.rs:2:1\n\n",
+            ),
+            artifact_record("pkg-b"),
+            message_record(
+                "pkg-a",
+                "failure-note",
+                "For more information about this error, try `rustc --explain E0603`.\n",
+            ),
+            "{\"reason\":\"build-finished\",\"success\":false}".to_owned(),
+        ]
+        .join("\n");
+
+        let run = attribute_cargo_messages(&stream, &[("pkg-a", "00-a"), ("pkg-b", "01-b")])
+            .expect("stream parses");
+
+        assert_eq!(
+            run.compilations,
+            vec![
+                FixtureCompilation {
+                    compiled: false,
+                    diagnostics: "error[E0603]: module `x` is private\n --> src/main.rs:1:5\n\n\
+                                  For more information about this error, try `rustc --explain E0603`.\n"
+                        .to_owned(),
+                },
+                FixtureCompilation {
+                    compiled: true,
+                    diagnostics: "warning: unused\n --> src/main.rs:2:1\n\n".to_owned(),
+                },
+            ]
+        );
+        assert_eq!(run.unattributed, "warning: library warning\n");
+    }
+
+    #[test]
+    fn a_fixture_without_records_has_not_compiled() {
+        let run = attribute_cargo_messages("", &[("pkg-a", "00-a")]).expect("empty stream");
+        assert_eq!(run.compilations, vec![FixtureCompilation::default()]);
+        assert!(attribute_cargo_messages("not json\n", &[]).is_err());
+    }
+
+    #[test]
+    fn compiled_fail_fixture_and_failed_pass_fixture_are_reported() {
+        let source = "fn main() {}\n//~ E0603\n";
+        let compiled = FixtureCompilation {
+            compiled: true,
+            diagnostics: String::new(),
+        };
+        let failed = FixtureCompilation {
+            compiled: false,
+            diagnostics: "error[E0603]: module `x` is private\n".to_owned(),
+        };
+        let silent_failure = FixtureCompilation::default();
+
+        assert!(check_fail_fixture("f.rs", source, &compiled, "")
+            .unwrap_err()
+            .contains("compiled successfully"));
+        assert!(check_fail_fixture("f.rs", source, &failed, "").is_ok());
+        assert!(check_pass_fixture("p.rs", &compiled, "").is_ok());
+        assert!(check_pass_fixture("p.rs", &failed, "")
+            .unwrap_err()
+            .contains("error[E0603]"));
+        assert!(
+            check_pass_fixture("p.rs", &silent_failure, "error: manifest problem")
+                .unwrap_err()
+                .contains("error: manifest problem")
+        );
+    }
+
+    #[test]
+    fn member_manifests_leave_the_workspace_table_to_the_root() {
+        let crate_root = Path::new("/workspace/grafton-visca");
+        let standalone = case_manifest(crate_root, 3, "x", &["blocking"], ManifestRoot::Standalone);
+        let member = case_manifest(crate_root, 3, "x", &["blocking"], ManifestRoot::Member);
+        assert!(standalone.contains("\n[workspace]\n"));
+        assert!(!member.contains("[workspace]"));
+        assert!(member.contains("name = \"grafton-visca-contract-03-x\"\n"));
+        assert_eq!(standalone.replace("\n[workspace]\n", ""), member);
     }
 }

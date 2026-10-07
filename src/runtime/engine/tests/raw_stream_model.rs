@@ -178,10 +178,7 @@ const KINDS: [Kind; 6] = [
 #[test]
 fn randomized_stream_sessions_bind_every_answer_to_its_originator() {
     for kind in KINDS {
-        let mut totals = Coverage::default();
-        for seed in 1..=kind.seeds {
-            totals.add(&Session::run(kind, seed));
-        }
+        let totals = run_every_seed(kind);
         eprintln!(
             "{}: {} seeds x {ACTIVE_STEPS}+{DRAIN_STEPS}(+settling) steps: {}",
             kind.name,
@@ -224,6 +221,47 @@ fn randomized_stream_sessions_bind_every_answer_to_its_originator() {
             assert_eq!(totals.latched_at_end, 0, "{}", kind.name);
         }
     }
+}
+
+/// Runs seeds `1..=kind.seeds` across the available cores and folds their
+/// coverage in seed order. Each run is a pure function of `(kind, seed)` on
+/// its own engine and virtual clock, so spreading the seeds over threads
+/// changes only the wall time, never the totals the assertions read.
+fn run_every_seed(kind: Kind) -> Coverage {
+    let next_seed = std::sync::atomic::AtomicU64::new(1);
+    let workers = std::thread::available_parallelism()
+        .map_or(1, std::num::NonZeroUsize::get)
+        .min(usize::try_from(kind.seeds).unwrap_or(usize::MAX));
+    let mut runs: Vec<(u64, Coverage)> = std::thread::scope(|scope| {
+        let workers: Vec<_> = (0..workers)
+            .map(|_| {
+                scope.spawn(|| {
+                    let mut runs = Vec::new();
+                    loop {
+                        let seed = next_seed.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        if seed > kind.seeds {
+                            break runs;
+                        }
+                        runs.push((seed, Session::run(kind, seed)));
+                    }
+                })
+            })
+            .collect();
+        workers
+            .into_iter()
+            .flat_map(|worker| {
+                worker
+                    .join()
+                    .unwrap_or_else(|panic| std::panic::resume_unwind(panic))
+            })
+            .collect()
+    });
+    runs.sort_unstable_by_key(|(seed, _)| *seed);
+    let mut totals = Coverage::default();
+    for (_, run) in &runs {
+        totals.add(run);
+    }
+    totals
 }
 
 fn cause(cause: Cause) -> usize {

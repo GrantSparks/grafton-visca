@@ -14,7 +14,10 @@
 //! behaviour and raw command handling are unchanged.
 //!
 //! Every scenario runs on the blocking facade and on the async facade under
-//! each enabled runtime.
+//! each enabled runtime. The Tokio cases run on paused (virtual) time: the G2
+//! deadlines (inquiry reply, ambiguity window, the datagram retry schedule) and the bench's retransmission timer are all runtime timers
+//! there, so they lapse at once and in exactly the order real time would
+//! give them. The blocking and smol cases wait them out on the real clock.
 
 #![cfg(any(
     feature = "blocking",
@@ -34,14 +37,13 @@ mod matrix;
 use std::{
     fmt,
     sync::{Arc, Mutex},
-    thread,
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use grafton_visca::{
     camera::profiles::PtzOpticsG2,
     command::FocusMode,
-    profile::ProfileSpec,
+    profile::{ProfileSpec, ProfileTiming},
     transport::{AddressingMode, SendSemantics, TransportConfig},
     CameraId, Certainty, Error, FailureContext, FailureStage, SessionConfig,
 };
@@ -63,6 +65,13 @@ const PAN_TILT_STOP: [u8; 8] = [0x01, 0x06, 0x01, 0x0c, 0x0a, 0x03, 0x03, 0xff];
 /// new write pushes them out first. Longer than the G2 reply skew (150 ms), so
 /// stale replies arrive after the reply-skew hold has already expired.
 const RETRANSMIT_AFTER: Duration = Duration::from_millis(300);
+
+/// The G2 profile's timing, read from the profile itself.
+fn g2_timing() -> ProfileTiming {
+    ProfileSpec::from_compile_time::<PtzOpticsG2>()
+        .expect("G2")
+        .timing()
+}
 
 /// Camera truth for every address: power on (`02`), focus MANUAL (`03`). A
 /// stale power reply decoded as focus mode reads as AUTO (`02`). A camera
@@ -193,25 +202,30 @@ impl Bench {
         config
     }
 
-    /// Starts or ends the fault. When it ends, the retransmission timer is
-    /// armed: if no write has delivered the queue by then, the queued bytes
-    /// are delivered and the camera answers every copy.
-    fn set_fault(&self, on: bool) {
-        self.path.lock().unwrap().fault = on;
-        if !on {
-            let path = Arc::clone(&self.path);
-            let camera = self.camera.clone();
-            thread::spawn(move || {
-                thread::sleep(RETRANSMIT_AFTER);
-                let mut path = path.lock().unwrap();
-                if !path.fault {
-                    for request in std::mem::take(&mut path.queued) {
-                        for reply in camera_answer(&request, &path.mute_power) {
-                            camera.push(reply);
-                        }
+    /// Starts the fault.
+    fn start_fault(&self) {
+        self.path.lock().unwrap().fault = true;
+    }
+
+    /// Ends the fault and returns its retransmission: run
+    /// [`RETRANSMIT_AFTER`] later (`after!`), it delivers the queued bytes if
+    /// no write has delivered them by then, and the camera answers every
+    /// copy. The caller arms it on the facade's own clock, so a paused-time
+    /// case fires it at an exact virtual instant instead of racing a real
+    /// sleep against auto-advanced time.
+    fn lift_fault(&self) -> impl FnOnce() + Send + 'static {
+        self.path.lock().unwrap().fault = false;
+        let path = Arc::clone(&self.path);
+        let camera = self.camera.clone();
+        move || {
+            let mut path = path.lock().unwrap();
+            if !path.fault {
+                for request in std::mem::take(&mut path.queued) {
+                    for reply in camera_answer(&request, &path.mute_power) {
+                        camera.push(reply);
                     }
                 }
-            });
+            }
         }
     }
 
@@ -255,6 +269,8 @@ fn latched_inquiry_failure<T: fmt::Debug>(result: &Result<T, Error>) {
 }
 
 facade_matrix! {
+    paused:
+
     /// The #795 defect: after the stall lifts, the camera's late `90 50 02 FF`
     /// power reply must not be bound to the next same-target inquiry (focus mode,
     /// one-byte reply). The camera is in MANUAL focus; on 5a3e81d1 the session
@@ -264,10 +280,10 @@ facade_matrix! {
         let session = open!(bench, bench.config()).expect("session");
         let camera = session.camera::<PtzOpticsG2>().expect("camera");
 
-        bench.set_fault(true);
+        bench.start_fault();
         let power = wait!(camera.power().state());
         assert!(conclusive_timeout(&power), "{power:?}");
-        bench.set_fault(false);
+        after!(RETRANSMIT_AFTER, bench.lift_fault());
 
         let mode = wait!(camera.focus().mode());
         assert!(
@@ -289,10 +305,10 @@ facade_matrix! {
         let camera = session.camera::<PtzOpticsG2>().expect("camera");
         assert!(wait!(camera.power().state()).expect("pre-fault inquiry"));
 
-        bench.set_fault(true);
-        let started = Instant::now();
+        bench.start_fault();
+        let started = now!();
         let power = wait!(camera.power().state());
-        let elapsed = started.elapsed();
+        let elapsed = now!().duration_since(started);
         assert!(conclusive_timeout(&power), "{power:?}");
         assert_eq!(
             bench.count(1, &POWER_INQUIRY),
@@ -300,7 +316,15 @@ facade_matrix! {
             "pre-fault write plus one"
         );
         assert!(elapsed < Duration::from_secs(3), "{elapsed:?}");
-        bench.set_fault(false);
+        if virtual_clock!() {
+            assert_eq!(
+                elapsed,
+                g2_timing().minimum_inquiry_spacing() + g2_timing().inquiry_timeout(),
+                "paced behind the pre-fault inquiry, then one write failed at its own \
+                 reply deadline"
+            );
+        }
+        after!(RETRANSMIT_AFTER, bench.lift_fault());
         session.shutdown().expect("shutdown");
     }
 
@@ -327,17 +351,29 @@ facade_matrix! {
         let power = wait!(first.power().state());
         assert!(conclusive_timeout(&power), "{power:?}");
 
-        let started = Instant::now();
+        let started = now!();
         let queued = wait!(first.focus().mode());
-        assert!(started.elapsed() < Duration::from_secs(3));
+        let elapsed = now!().duration_since(started);
+        assert!(elapsed < Duration::from_secs(3));
+        if virtual_clock!() {
+            assert_eq!(
+                elapsed,
+                g2_timing().ambiguity_timeout(),
+                "the queued inquiry fails when the ambiguity window closes"
+            );
+        }
         latched_inquiry_failure(&queued);
 
-        let started = Instant::now();
+        let started = now!();
         let rejected = wait!(first.focus().mode());
+        let elapsed = now!().duration_since(started);
         assert!(
-            started.elapsed() < Duration::from_millis(200),
+            elapsed < Duration::from_millis(200),
             "a latched lane fails promptly"
         );
+        if virtual_clock!() {
+            assert_eq!(elapsed, Duration::ZERO, "a latched lane fails without waiting");
+        }
         latched_inquiry_failure(&rejected);
         assert_eq!(bench.count(1, &FOCUS_MODE_INQUIRY), 0);
         assert_eq!(bench.count(1, &POWER_INQUIRY), 1);
@@ -365,12 +401,16 @@ facade_matrix! {
 
         let queued = wait!(camera.focus().mode());
         latched_inquiry_failure(&queued);
-        let started = Instant::now();
+        let started = now!();
         let rejected = wait!(camera.focus().mode());
+        let elapsed = now!().duration_since(started);
         assert!(
-            started.elapsed() < Duration::from_millis(200),
+            elapsed < Duration::from_millis(200),
             "a latched lane fails promptly"
         );
+        if virtual_clock!() {
+            assert_eq!(elapsed, Duration::ZERO, "a latched lane fails without waiting");
+        }
         latched_inquiry_failure(&rejected);
         assert_eq!(bench.count(1, &FOCUS_MODE_INQUIRY), 0);
 
@@ -389,21 +429,21 @@ facade_matrix! {
         let session = open!(bench, bench.config()).expect("session");
         let camera = session.camera::<PtzOpticsG2>().expect("camera");
 
-        bench.set_fault(true);
+        bench.start_fault();
         let power = wait!(camera.power().state());
         assert!(conclusive_timeout(&power), "{power:?}");
         let during = wait!(camera.focus().mode());
         latched_inquiry_failure(&during);
 
-        bench.set_fault(false);
-        let deadline = Instant::now() + Duration::from_secs(3);
+        after!(RETRANSMIT_AFTER, bench.lift_fault());
+        let deadline = now!() + Duration::from_secs(3);
         let mode = loop {
             let mode = wait!(camera.focus().mode());
             assert!(
                 !matches!(mode, Ok(FocusMode::Auto)),
                 "a stale power reply was returned as the focus mode"
             );
-            if mode.is_ok() || Instant::now() > deadline {
+            if mode.is_ok() || now!() > deadline {
                 break mode;
             }
             pause!(Duration::from_millis(50));
@@ -420,11 +460,11 @@ facade_matrix! {
         let session = open!(bench, bench.config()).expect("session");
         let camera = session.camera::<PtzOpticsG2>().expect("camera");
 
-        bench.set_fault(true);
+        bench.start_fault();
         let power = wait!(camera.power().state());
         assert!(conclusive_timeout(&power), "{power:?}");
         assert_eq!(bench.count(1, &POWER_INQUIRY), 6);
-        bench.set_fault(false);
+        after!(RETRANSMIT_AFTER, bench.lift_fault());
         assert!(wait!(camera.power().state()).expect("datagram recovers"));
         session.shutdown().expect("shutdown");
     }
@@ -437,14 +477,14 @@ facade_matrix! {
         let session = open!(bench, bench.config()).expect("session");
         let camera = session.camera::<PtzOpticsG2>().expect("camera");
 
-        bench.set_fault(true);
+        bench.start_fault();
         let result = wait!(wait!(camera.pan_tilt().stop()).expect("admitted").applied());
         assert!(
             matches!(result, Err(Error::UnsequencedCommandUnconfirmed)),
             "{result:?}"
         );
         assert_eq!(bench.count(1, &PAN_TILT_STOP), 1);
-        bench.set_fault(false);
+        after!(RETRANSMIT_AFTER, bench.lift_fault());
         session.shutdown().expect("shutdown");
     }
 }

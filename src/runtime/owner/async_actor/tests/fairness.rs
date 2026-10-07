@@ -506,25 +506,20 @@ fn tokio_current_thread_malformed_stream_batches_yield_to_all_boundaries() {
 /// The same no-progress handoff on a single-thread, runtime-neutral
 /// executor. `AsyncOwnerActor` uses no Tokio scheduling primitive here:
 /// a discarded malformed batch must let independently spawned admission,
-/// control, timer, and shutdown work run under smol as well.
+/// control, timer, and shutdown work run under smol as well. Liveness is
+/// counted in the peer's reads (`BABBLING_READ_BUDGET`), not in wall time.
 #[cfg(feature = "runtime-smol")]
 #[test]
 fn smol_current_thread_malformed_stream_batches_yield_to_boundaries() {
-    const WATCHDOG: Duration = Duration::from_secs(2);
-
     let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let (finished, result) = flume::bounded(1);
     let worker_reads = Arc::clone(&reads);
-    let worker_stop = Arc::clone(&stop);
-    let worker = std::thread::spawn(move || {
+    let outcome = run_with_hang_backstop("discarded malformed stream frames", move || {
         let local = async_executor::LocalExecutor::new();
-        let outcome: Result<(), String> = future::block_on(local.run(async {
+        future::block_on(local.run(async {
             let (handle, actor) = AsyncOwnerActor::new(policy(1), SmolRuntime::new())
                 .map_err(|error| error.to_string())?;
             let actor_task = local.spawn(actor.run(CountingBabblingDriver {
                 reads: Arc::clone(&worker_reads),
-                stop: Arc::clone(&worker_stop),
                 empty_batches: true,
             }));
 
@@ -569,31 +564,16 @@ fn smol_current_thread_malformed_stream_batches_yield_to_boundaries() {
                 ));
             }
             Ok(())
-        }));
-        let _ = finished.send(outcome);
+        }))
     });
-
-    match result.recv_timeout(WATCHDOG) {
-        Ok(Ok(())) => worker.join().unwrap(),
-        Ok(Err(error)) => {
-            worker.join().unwrap();
-            panic!("malformed-frame smol liveness scenario failed: {error}");
-        }
-        Err(flume::RecvTimeoutError::Timeout) => {
-            stop.store(true, Ordering::Release);
-            if result.recv_timeout(WATCHDOG).is_ok() {
-                worker.join().unwrap();
-            } else {
-                drop(worker);
-            }
-            panic!(
-                "discarded malformed stream frames monopolized smol's current-thread executor before boundary or timer work could run"
-            );
-        }
-        Err(flume::RecvTimeoutError::Disconnected) => {
-            worker.join().unwrap();
-            panic!("malformed-frame smol liveness worker exited without a result");
-        }
+    if let Err(error) = babbling_reads_within_budget(
+        &reads,
+        "discarded malformed stream frames",
+        "smol's current-thread executor",
+    )
+    .and(outcome)
+    {
+        panic!("malformed-frame smol liveness scenario failed: {error}");
     }
 }
 #[cfg(feature = "runtime-tokio")]

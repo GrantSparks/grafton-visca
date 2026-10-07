@@ -2175,7 +2175,6 @@ impl RetainedStreamInput for BufferedBabblingDriver {
 #[derive(Debug)]
 struct CountingBabblingDriver {
     reads: Arc<std::sync::atomic::AtomicU64>,
-    stop: Arc<std::sync::atomic::AtomicBool>,
     /// `true` models the empty batch the stream adapter returns after it
     /// discards one or more delimited malformed frames.
     empty_batches: bool,
@@ -2196,11 +2195,10 @@ impl AsyncOwnerDriver for CountingBabblingDriver {
         _frame_limit: usize,
     ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         let reads = Arc::clone(&self.reads);
-        let stop = Arc::clone(&self.stop);
         let empty_batches = self.empty_batches;
         async move {
-            reads.fetch_add(1, Ordering::Relaxed);
-            if stop.load(Ordering::Acquire) {
+            let read = reads.fetch_add(1, Ordering::AcqRel) + 1;
+            if read > BABBLING_READ_BUDGET {
                 Ok(OwnerReceive::Closed)
             } else if empty_batches {
                 Ok(OwnerReceive::Frames(Vec::new()))
@@ -2216,6 +2214,74 @@ impl AsyncOwnerDriver for CountingBabblingDriver {
 }
 
 impl RetainedStreamInput for CountingBabblingDriver {}
+
+/// How many reads a [`CountingBabblingDriver`] answers before it closes.
+///
+/// The single-thread fairness scenarios measure liveness in the peer's own
+/// reads, not in wall time. A fair actor surrenders the executor every
+/// fairness ceiling of reads, so the boundary work and the 1 ms timer finish
+/// within about 11 000 reads (measured: 299, 394 and 11 328 for the three
+/// scenarios) even on an idle fast host; host load slows the
+/// reads down and so can only lower the count. Only an actor that keeps the
+/// executor to itself can read this far, after which the peer closes, so a
+/// monopolizing actor fails the scenario instead of hanging the binary.
+const BABBLING_READ_BUDGET: u64 = 1_000_000;
+
+/// Wall-clock backstop for the single-thread fairness scenarios, never their
+/// verdict: [`BABBLING_READ_BUDGET`] decides fairness. It fires only when a
+/// scenario stops making progress altogether (a deadlock in which the peer is
+/// no longer read, so the budget cannot end it), and host load cannot make a
+/// progressing scenario take this long.
+const FAIRNESS_HANG_BACKSTOP: Duration = Duration::from_secs(60);
+
+/// Runs `scenario` on its own thread and returns its outcome, panicking with
+/// a distinct "hung" message if it makes no progress within
+/// [`FAIRNESS_HANG_BACKSTOP`]. A hung worker is left detached.
+fn run_with_hang_backstop(
+    name: &str,
+    scenario: impl FnOnce() -> Result<(), String> + Send + 'static,
+) -> Result<(), String> {
+    let (finished, result) = flume::bounded(1);
+    let worker = std::thread::spawn(move || {
+        let _ = finished.send(scenario());
+    });
+    match result.recv_timeout(FAIRNESS_HANG_BACKSTOP) {
+        Ok(outcome) => {
+            worker
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+            outcome
+        }
+        Err(flume::RecvTimeoutError::Timeout) => {
+            panic!("{name} hung (no progress for {FAIRNESS_HANG_BACKSTOP:?})")
+        }
+        Err(flume::RecvTimeoutError::Disconnected) => {
+            worker
+                .join()
+                .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
+            Err(format!("{name} worker exited without a result"))
+        }
+    }
+}
+
+/// Fails when the peer's read budget ran out: the boundary work completed, or
+/// failed, only because the babbling peer closed, not because the actor
+/// yielded.
+fn babbling_reads_within_budget(
+    reads: &std::sync::atomic::AtomicU64,
+    scenario: &str,
+    executor: &str,
+) -> Result<(), String> {
+    let reads = reads.load(Ordering::Acquire);
+    if reads > BABBLING_READ_BUDGET {
+        Err(format!(
+            "{scenario} monopolized {executor} before caller, control, cancellation, or timer \
+             work could run ({reads} peer reads)"
+        ))
+    } else {
+        Ok(())
+    }
+}
 
 /// A peer that accepts the write but never completes it, and never delivers a
 /// read. Without a write timeout the actor parks in the write and `close()`
@@ -2576,29 +2642,24 @@ where
 
 /// The fairness ceiling must surrender the executor, not merely reverse
 /// polling order. This puts the actor, a caller admission, a control
-/// request, and a timer on one Tokio current-thread runtime. The outer
-/// watchdog lives on a separate OS thread so the pre-fix hot loop cannot
-/// hang the test binary; it asks the test driver to close only after the
-/// liveness deadline has already failed.
+/// request, and a timer on one Tokio current-thread runtime. Liveness is
+/// counted in the babbling peer's reads ([`BABBLING_READ_BUDGET`]), so host
+/// scheduling cannot fail it; a monopolizing actor exhausts the budget, the
+/// peer closes, and the scenario fails instead of hanging.
 #[cfg(feature = "runtime-tokio")]
 fn tokio_current_thread_ready_receive_yields_to_boundaries(
     empty_batches: bool,
     include_cancellation: bool,
     scenario: &'static str,
 ) {
-    const WATCHDOG: Duration = Duration::from_secs(2);
-
     let reads = Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
-    let (finished, result) = flume::bounded(1);
     let worker_reads = Arc::clone(&reads);
-    let worker_stop = Arc::clone(&stop);
-    let worker = std::thread::spawn(move || {
+    let outcome = run_with_hang_backstop(scenario, move || {
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
-        let outcome: Result<(), String> = runtime.block_on(async move {
+        runtime.block_on(async move {
             let actor_runtime = TokioRuntime::from_current().map_err(|error| error.to_string())?;
             let owner_policy = policy(1);
             let fairness_ceiling = owner_policy.limits.frames_per_receive.max(1) as u64;
@@ -2607,7 +2668,6 @@ fn tokio_current_thread_ready_receive_yields_to_boundaries(
                 .map_err(|error| error.to_string())?;
             let actor_task = tokio::spawn(actor.run(CountingBabblingDriver {
                 reads: Arc::clone(&worker_reads),
-                stop: Arc::clone(&worker_stop),
                 empty_batches,
             }));
 
@@ -2670,33 +2730,12 @@ fn tokio_current_thread_ready_receive_yields_to_boundaries(
                 ));
             }
             Ok(())
-        });
-        let _ = finished.send(outcome);
+        })
     });
-
-    match result.recv_timeout(WATCHDOG) {
-        Ok(Ok(())) => worker.join().unwrap(),
-        Ok(Err(error)) => {
-            worker.join().unwrap();
-            panic!("{scenario} single-thread liveness scenario failed: {error}");
-        }
-        Err(flume::RecvTimeoutError::Timeout) => {
-            // The old implementation remains inside the ready receive loop.
-            // Let this test-only driver turn that loop into a terminal read,
-            // then join if it unwinds as expected; never wait indefinitely.
-            stop.store(true, Ordering::Release);
-            if result.recv_timeout(WATCHDOG).is_ok() {
-                worker.join().unwrap();
-            } else {
-                drop(worker);
-            }
-            panic!(
-                "{scenario} monopolized Tokio's current-thread runtime before caller, control, cancellation, or timer work could run"
-            );
-        }
-        Err(flume::RecvTimeoutError::Disconnected) => {
-            worker.join().unwrap();
-            panic!("{scenario} single-thread liveness worker exited without a result");
-        }
+    if let Err(error) =
+        babbling_reads_within_budget(&reads, scenario, "Tokio's current-thread runtime")
+            .and(outcome)
+    {
+        panic!("{scenario} single-thread liveness scenario failed: {error}");
     }
 }

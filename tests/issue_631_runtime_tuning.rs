@@ -10,7 +10,11 @@
 //!
 //! Every scenario runs on the blocking facade and on the async facade under
 //! each enabled runtime, because a reconfiguration path that only holds on one
-//! owner is not a capability. The one scenario written for a single facade is
+//! owner is not a capability. Elapsed time is read from the clock the owner
+//! measures its deadlines against (`now!`). The Tokio cases run on paused
+//! (virtual) time, where that clock advances only to the next deadline, so
+//! each measured deadline is asserted exactly there; the blocking and smol
+//! cases wait the deadlines out on the real clock and keep the bounds. The one scenario written for a single facade is
 //! `concurrent_updates_from_two_handles_are_last_writer_wins`: it polls two
 //! `set_tuning` futures together on one task, which only the async facade has,
 //! so it runs once per runtime instead.
@@ -31,20 +35,26 @@ mod matrix;
 #[path = "common/profile_fixtures.rs"]
 mod profile_fixtures;
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use grafton_visca::{
-    camera::CameraConfig, completion::AppliedOnly, profiles::SonyFR7, request, AffectedAxes,
-    CameraId, ControlClass, Error, FailureStage, Inquiry, InquiryRoute, OperationCommand,
-    OperationalTuning, Request, ResponseDecoder, RetryClass, TimeoutClass,
+    camera::CameraConfig, completion::AppliedOnly, profile::ProfileSpec, profiles::SonyFR7,
+    request, AffectedAxes, CameraId, ControlClass, Error, FailureStage, Inquiry, InquiryRoute,
+    OperationCommand, OperationalTuning, Request, ResponseDecoder, RetryClass, TimeoutClass,
 };
 
 use fake_camera::FakeCamera;
 use profile_fixtures::sony_session_config;
 
-/// The Sony FR7 profile's acknowledgement deadline, 500 ms on every built-in
-/// profile (see issue #689).
-const PROFILE_ACK_TIMEOUT: Duration = Duration::from_millis(500);
+/// The Sony FR7 profile's acknowledgement deadline (the same on every
+/// built-in profile, see issue #689), read from the profile itself.
+fn profile_ack_timeout() -> Duration {
+    ProfileSpec::from_compile_time::<SonyFR7>()
+        .expect("Sony FR7 profile")
+        .timing()
+        .ack_timeout()
+}
+
 /// A deliberately wide acknowledgement deadline, four times the profile's.
 const WIDE_ACK_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -114,7 +124,7 @@ impl Inquiry for SilentInquiry {
 macro_rules! time_to_ack_timeout {
     ($session:expr) => {{
         let camera = $session.camera::<SonyFR7>().expect("camera view");
-        let started = Instant::now();
+        let started = now!();
         let error = wait!(wait!(camera.submit::<AppliedOnly, _>(&SilentOperation))
             .expect("submission")
             // Far past any acknowledgement deadline under test, so the
@@ -125,11 +135,28 @@ macro_rules! time_to_ack_timeout {
             matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
             "expected the owner's own deadline, got {error:?}"
         );
-        started.elapsed()
+        now!().duration_since(started)
     }};
 }
 
+/// On paused time nothing but the deadline under test advances the clock, so
+/// the measured time *is* that deadline, exactly. On a real clock the bound
+/// assertions beside each use are the contract. Usable only inside a
+/// `facade_matrix!` body.
+macro_rules! assert_exact_on_virtual_time {
+    ($elapsed:expr, $deadline:expr) => {
+        if virtual_clock!() {
+            assert_eq!(
+                $elapsed, $deadline,
+                "virtual time advances only to the deadline"
+            );
+        }
+    };
+}
+
 facade_matrix! {
+    paused:
+
     /// Widen the acknowledgement deadline on a live session and the next
     /// submission waits the new, longer time.
     fn a_widened_ack_timeout_governs_the_next_submission() {
@@ -139,9 +166,11 @@ facade_matrix! {
         let before = time_to_ack_timeout!(session);
         assert!(
             before < WIDE_ACK_TIMEOUT / 2,
-            "the profile's own {PROFILE_ACK_TIMEOUT:?} deadline should fire well \
-             inside {WIDE_ACK_TIMEOUT:?}, took {before:?}"
+            "the profile's own {:?} deadline should fire well inside \
+             {WIDE_ACK_TIMEOUT:?}, took {before:?}",
+            profile_ack_timeout()
         );
+        assert_exact_on_virtual_time!(before, profile_ack_timeout());
 
         wait!(session.set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT)))
             .expect("widening an acknowledgement deadline is accepted");
@@ -152,6 +181,7 @@ facade_matrix! {
             "the submission after the update must wait the new {WIDE_ACK_TIMEOUT:?} \
              deadline, took {after:?}"
         );
+        assert_exact_on_virtual_time!(after, WIDE_ACK_TIMEOUT);
 
         assert_eq!(
             fake.write_count(),
@@ -178,15 +208,18 @@ facade_matrix! {
             widened >= WIDE_ACK_TIMEOUT,
             "the widened deadline must govern first, took {widened:?}"
         );
+        assert_exact_on_virtual_time!(widened, WIDE_ACK_TIMEOUT);
 
         wait!(session.set_tuning(OperationalTuning::new()))
             .expect("returning to the profile defaults is accepted");
         let narrowed = time_to_ack_timeout!(session);
         assert!(
             narrowed < WIDE_ACK_TIMEOUT / 2,
-            "clearing the override must return to the profile's {PROFILE_ACK_TIMEOUT:?} \
-             deadline, took {narrowed:?}"
+            "clearing the override must return to the profile's {:?} deadline, \
+             took {narrowed:?}",
+            profile_ack_timeout()
         );
+        assert_exact_on_virtual_time!(narrowed, profile_ack_timeout());
 
         assert_eq!(
             fake.write_count(),
@@ -209,10 +242,10 @@ facade_matrix! {
         wait!(session.set_tuning(OperationalTuning::new().inquiry_timeout(Duration::from_secs(2))))
             .expect("widening an inquiry deadline is accepted");
 
-        let started = Instant::now();
+        let started = now!();
         let error = wait!(camera.inquire(&SilentInquiry))
             .expect_err("a silent camera cannot answer an inquiry");
-        let elapsed = started.elapsed();
+        let elapsed = now!().duration_since(started);
         assert!(
             matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
             "expected the owner's own deadline, got {error:?}"
@@ -222,6 +255,7 @@ facade_matrix! {
             "the pre-existing view must prepare under the new two-second deadline, \
              took {elapsed:?}"
         );
+        assert_exact_on_virtual_time!(elapsed, Duration::from_secs(2));
 
         session.shutdown().expect("owner shutdown");
     }
@@ -238,12 +272,12 @@ facade_matrix! {
         wait!(session.set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT)))
             .expect("widening an acknowledgement deadline is accepted");
 
-        let started = Instant::now();
+        let started = now!();
         let error = wait!(wait!(camera.submit::<AppliedOnly, _>(&SilentOperation))
             .expect("submission")
             .applied_with_timeout(Duration::from_secs(30)))
         .expect_err("a silent camera cannot acknowledge");
-        let elapsed = started.elapsed();
+        let elapsed = now!().duration_since(started);
         assert!(
             matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
             "got {error:?}"
@@ -252,6 +286,7 @@ facade_matrix! {
             elapsed >= WIDE_ACK_TIMEOUT,
             "the pre-existing view must pick up the new deadline, took {elapsed:?}"
         );
+        assert_exact_on_virtual_time!(elapsed, WIDE_ACK_TIMEOUT);
 
         session.shutdown().expect("owner shutdown");
     }
@@ -268,6 +303,7 @@ facade_matrix! {
         let session = open!(fake, sony_session_config()).expect("owner session");
         let camera = session.camera::<SonyFR7>().expect("camera view");
 
+        let submitted = now!();
         let mut operation =
             wait!(camera.submit::<AppliedOnly, _>(&SilentOperation)).expect("submission");
         // Submission returns at admission; the owner writes afterwards. Once
@@ -284,10 +320,10 @@ facade_matrix! {
         wait!(session.set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT)))
             .expect("an update mid-flight is accepted");
 
-        let started = Instant::now();
+        let started = now!();
         let error = wait!(operation.applied_with_timeout(Duration::from_secs(30)))
             .expect_err("a silent camera cannot acknowledge");
-        let elapsed = started.elapsed();
+        let elapsed = now!().duration_since(started);
         assert!(
             matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
             "the in-flight operation must still resolve on its own deadline, got {error:?}"
@@ -297,6 +333,9 @@ facade_matrix! {
             "an admitted request keeps the deadline it was admitted with; \
              waiting {elapsed:?} means it was re-timed"
         );
+        // Measured from submission, the operation ends on exactly the
+        // profile's deadline it was admitted under.
+        assert_exact_on_virtual_time!(now!().duration_since(submitted), profile_ack_timeout());
 
         // The update did land, though: the next submission uses it.
         assert_eq!(
@@ -308,6 +347,7 @@ facade_matrix! {
             after >= WIDE_ACK_TIMEOUT,
             "the request prepared after the update must use it, took {after:?}"
         );
+        assert_exact_on_virtual_time!(after, WIDE_ACK_TIMEOUT);
 
         session.shutdown().expect("owner shutdown");
     }
@@ -444,14 +484,14 @@ facade_matrix! {
             "the owned session reports the same live value"
         );
 
-        let started = Instant::now();
+        let started = now!();
         let error = wait!(wait!(session
             .camera()
             .submit::<AppliedOnly, _>(&SilentOperation))
         .expect("submission")
         .applied_with_timeout(Duration::from_secs(30)))
         .expect_err("a silent camera cannot acknowledge");
-        let elapsed = started.elapsed();
+        let elapsed = now!().duration_since(started);
         assert!(
             matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
             "got {error:?}"
@@ -461,6 +501,7 @@ facade_matrix! {
             "the camera session's next submission must use the new deadline, \
              took {elapsed:?}"
         );
+        assert_exact_on_virtual_time!(elapsed, WIDE_ACK_TIMEOUT);
 
         wait!(session.close()).expect("owner shutdown");
     }

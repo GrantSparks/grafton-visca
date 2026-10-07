@@ -5,7 +5,13 @@
 # `FEATURE_LEGS` below is the one list of supported feature shapes. Modes:
 #
 # - `test` (default): the full local/release run — the rejection checks, then
-#   `cargo test` on every leg, then the checks that are not a feature shape.
+#   `cargo test` on every leg (see `test-leg`), then the checks that are not a
+#   feature shape.
+# - `test-leg NAME`: `cargo test` on one leg, as CI's per-leg job runs it. The
+#   engine model tests (`engine-model-tests.sh`) cannot differ by feature
+#   configuration, so they run in `ENGINE_MODEL_TEST_LEG` only and are skipped
+#   by exact name everywhere else; the leg fails unless each ran exactly where
+#   it is designated.
 # - `clippy`: `cargo clippy ... -- -D warnings` on every leg and the
 #   all-features workspace.
 # - `doc`: `RUSTDOCFLAGS="-D warnings" cargo doc --no-deps` on every leg's
@@ -16,19 +22,50 @@
 #   (`doc` is false for a leg with no doc build); CI builds
 #   its per-leg test/clippy/doc matrix from it, so CI and local runs share the
 #   one list.
+# - `slowest [N] [cargo test arguments]`: the N (default 15) slowest tests of
+#   one run, from libtest's `--report-time` JSON. That reporter is unstable, so
+#   this mode uses the pinned nightly and reports timings only: the
+#   compile-contract fixtures pin stable 1.98 diagnostics and may fail under
+#   nightly, so pass/fail stays the stable legs' verdict.
 #
-# Usage: test-all-features.sh [test|clippy|doc|rejections|list-json]
+# `--jobs N` (before the mode; `test`, `clippy` and `doc` only) runs up to N
+# jobs at once. Each job builds in its own target directory under
+# `MATRIX_TARGET_DIR` (default `<target>/matrix`), so concurrent legs never
+# share or wait on a build lock, and writes its output to its own log under
+# `MATRIX_LOG_DIR` (default `<MATRIX_TARGET_DIR>/logs`); a summary with each
+# job's verdict and wall time ends the run, which fails if any job failed.
+# Without `--jobs` the jobs run one after another in the caller's target
+# directory, printing to the terminal.
+#
+# Usage: test-all-features.sh [--jobs N] [test|clippy|doc|rejections|list-json]
+#        test-all-features.sh test-leg NAME
+#        test-all-features.sh slowest [N] [cargo test arguments]
 
 set -euo pipefail
 
+usage() {
+    sed -n "s/^# Usage: /usage: /p; s/^#        /       /p" "${BASH_SOURCE[0]}" >&2
+    exit 2
+}
+
+JOBS=0
+if [[ "${1:-}" == --jobs ]]; then
+    [[ "${2:-}" =~ ^[1-9][0-9]*$ ]] || usage
+    JOBS="$2"
+    shift 2
+fi
+readonly JOBS
 readonly MODE="${1:-test}"
 case "$MODE" in
-test | clippy | doc | rejections | list-json) ;;
-*)
-    echo "usage: $0 [test|clippy|doc|rejections|list-json]" >&2
-    exit 2
+test | clippy | doc) ;;
+rejections | list-json | test-leg | slowest)
+    ((JOBS == 0)) || usage
     ;;
+*) usage ;;
 esac
+
+# shellcheck source=engine-model-tests.sh
+source "$(dirname "${BASH_SOURCE[0]}")/engine-model-tests.sh"
 
 # One supported feature shape per entry: `name|cargo arguments`.
 readonly FEATURE_LEGS=(
@@ -72,17 +109,30 @@ readonly FEATURE_LEGS=(
     "renamed range helper derives|-p phase4-renamed-dependency --features range-helper-derives --all-targets"
 )
 
-# Runs `cargo <subcommand>` over every feature leg.
-run_feature_legs() {
-    local subcommand="$1"
-    shift
-    local leg name args
+# The leg that runs `ENGINE_MODEL_TESTS`: the pure engine/domain leg, whose
+# library test binary is the smallest that compiles the engine's tests.
+readonly ENGINE_MODEL_TEST_LEG="no-default pure engine/domain + smoke"
+
+# Prints the cargo arguments of the leg called `$1`, or fails if none is.
+leg_args() {
+    local leg
     for leg in "${FEATURE_LEGS[@]}"; do
-        name="${leg%%|*}"
-        read -r -a args <<<"${leg#*|}"
-        run_test "$name ($subcommand)" cargo_stable "$subcommand" "${args[@]}" "$@"
+        if [[ "${leg%%|*}" == "$1" ]]; then
+            echo "${leg#*|}"
+            return 0
+        fi
     done
+    echo "unknown feature leg: $1" >&2
+    return 1
 }
+
+# A designated leg that names no leg would make every leg skip the engine
+# model tests and pass, so a renamed or misspelled leg fails every mode,
+# `list-json` included, before any leg starts.
+if ! leg_args "$ENGINE_MODEL_TEST_LEG" >/dev/null 2>&1; then
+    echo "ENGINE_MODEL_TEST_LEG names no feature leg: \"$ENGINE_MODEL_TEST_LEG\"" >&2
+    exit 1
+fi
 
 # Prints the `cargo doc` arguments of one leg's command, and fails when the
 # leg documents nothing. Rustdoc takes no target selectors, so `--all-targets`
@@ -130,10 +180,35 @@ readonly RED='\033[0;31m'
 readonly YELLOW='\033[1;33m'
 readonly NC='\033[0m'
 readonly GRAFTON_VISCA_STABLE_TOOLCHAIN='1.98.0'
+readonly GRAFTON_VISCA_NIGHTLY_TOOLCHAIN='nightly-2026-08-26'
 
 cargo_stable() {
     command cargo "+${GRAFTON_VISCA_STABLE_TOOLCHAIN}" "$@"
 }
+
+if [[ "$MODE" == slowest ]]; then
+    shift
+    top=15
+    if [[ "${1:-}" =~ ^[1-9][0-9]*$ ]]; then
+        top="$1"
+        shift
+    fi
+    report="$(mktemp "${TMPDIR:-/tmp}/grafton-report-time.XXXXXX")"
+    trap 'rm -f "$report"' EXIT
+    command cargo "+${GRAFTON_VISCA_NIGHTLY_TOOLCHAIN}" test "$@" -- \
+        -Z unstable-options --report-time --format json >"$report" || true
+    printf 'Slowest %s tests (%s, timings only):\n' "$top" "$*"
+    jq -rR 'fromjson? | select(.type == "test" and .exec_time != null)
+        | [.exec_time, .event, .name] | @tsv' "$report" |
+        sort -t $'\t' -k1,1 -gr | head -n "$top" |
+        awk -F '\t' '{ printf "%9.2fs  %-6s %s\n", $1, $2, $3 }'
+    failed="$(jq -rR 'fromjson? | select(.type == "test" and .event == "failed") | .name' "$report")"
+    if [[ -n "$failed" ]]; then
+        printf 'note: failed under %s (judge pass/fail with the stable legs):\n%s\n' \
+            "$GRAFTON_VISCA_NIGHTLY_TOOLCHAIN" "$failed"
+    fi
+    exit 0
+fi
 
 run_test() {
     local description="$1"
@@ -148,30 +223,57 @@ run_test() {
     fi
 }
 
-# A libtest name filter that matches nothing exits 0: the binary prints
-# "running 0 tests" and reports success. A renamed, moved or cfg-ed-out test
-# would silently turn a gate into a no-op instead of turning it red, so every
-# run that carries a filter asserts that it selected at least one test.
-run_filtered_test() {
-    local description="$1"
-    shift
-
-    local log
-    log="${TMPDIR:-/tmp}/grafton-filtered-${description//[^[:alnum:]]/_}.log"
-
-    printf '%bTesting: %s%b\n' "$YELLOW" "$description" "$NC"
-    if ! "$@" 2>&1 | tee "$log"; then
-        printf '%b✗ %s failed%b\n' "$RED" "$description" "$NC"
-        return 1
-    fi
-    if ! grep -Eq '^running [1-9][0-9]* tests?$' "$log"; then
-        printf '%b✗ %s matched zero tests%b\n' "$RED" "$description" "$NC"
-        printf 'The name filter selected nothing, so this check was vacuous.\n'
-        printf 'A renamed or moved test is the usual cause; update the filter.\n'
-        return 1
-    fi
-    printf '%b✓ %s passed%b\n\n' "$GREEN" "$description" "$NC"
+# Every engine model test must run, and pass, exactly once in
+# `ENGINE_MODEL_TEST_LEG` and not at all in any other leg. Skipping by exact
+# name means a renamed or moved test would otherwise run in every leg again
+# (harmless) while its designated leg quietly stopped running it; this check
+# turns that into a failure, the way a libtest filter that matches nothing
+# would otherwise pass vacuously.
+check_engine_model_tests() {
+    local leg_name="$1" log="$2" model_test runs verdict=0
+    for model_test in "${ENGINE_MODEL_TESTS[@]}"; do
+        runs="$(grep -Fc -- "test ${model_test} ... " "$log" || true)"
+        if [[ "$leg_name" == "$ENGINE_MODEL_TEST_LEG" ]]; then
+            if [[ "$runs" != 1 ]] || ! grep -Fxq -- "test ${model_test} ... ok" "$log"; then
+                printf '%b✗ engine model test %s must pass exactly once in this leg (ran %s times)%b\n' \
+                    "$RED" "$model_test" "$runs" "$NC"
+                verdict=1
+            fi
+        elif [[ "$runs" != 0 ]]; then
+            printf '%b✗ engine model test %s ran here; it belongs to "%s" only%b\n' \
+                "$RED" "$model_test" "$ENGINE_MODEL_TEST_LEG" "$NC"
+            verdict=1
+        fi
+    done
+    return "$verdict"
 }
+
+# `cargo test` on the leg called `$1`; see `test-leg` in the header.
+test_leg() {
+    local leg_name="$1" leg_command log model_test verdict=0
+    local -a args libtest_args=(--color never)
+    leg_command="$(leg_args "$leg_name")" || return 2
+    read -r -a args <<<"$leg_command"
+    if [[ "$leg_name" != "$ENGINE_MODEL_TEST_LEG" ]]; then
+        libtest_args+=(--exact)
+        for model_test in "${ENGINE_MODEL_TESTS[@]}"; do
+            libtest_args+=(--skip "$model_test")
+        done
+    fi
+    log="$(mktemp "${TMPDIR:-/tmp}/grafton-leg.XXXXXX")"
+    cargo_stable test "${args[@]}" -- "${libtest_args[@]}" 2>&1 | tee "$log" || verdict=1
+    if ((verdict == 0)); then
+        check_engine_model_tests "$leg_name" "$log" || verdict=1
+    fi
+    rm -f "$log"
+    return "$verdict"
+}
+
+if [[ "$MODE" == test-leg ]]; then
+    [[ $# -eq 2 ]] || usage
+    test_leg "$2"
+    exit 0
+fi
 
 run_reexported_range_helper_test() (
     local export_dir
@@ -180,11 +282,10 @@ run_reexported_range_helper_test() (
 
     TS_RS_EXPORT_DIR="$export_dir" cargo_stable test \
         --manifest-path tests/fixtures/range_type_reexport/Cargo.toml \
-        -p range-macro-consumer --features range-helper-derives
-
-    test -s "${export_dir}/ReexportedRange.ts"
-    grep -Fq 'export type ReexportedRange = number;' \
-        "${export_dir}/ReexportedRange.ts"
+        -p range-macro-consumer --features range-helper-derives &&
+        test -s "${export_dir}/ReexportedRange.ts" &&
+        grep -Fq 'export type ReexportedRange = number;' \
+            "${export_dir}/ReexportedRange.ts"
 )
 
 expect_unknown_feature() {
@@ -235,10 +336,10 @@ expect_facade_required() {
 # `ecosystem_feature_inventory_matches_cargo_manifest` in
 # `tests/issue_548_supported_surface_inventory.rs`.
 run_rejections() {
-    expect_unknown_feature "mode-async"
-    expect_unknown_feature "async-core"
-    expect_unknown_feature "mode-blocking"
-    expect_facade_required "dyn-api"
+    expect_unknown_feature "mode-async" &&
+        expect_unknown_feature "async-core" &&
+        expect_unknown_feature "mode-blocking" &&
+        expect_facade_required "dyn-api"
 }
 
 if [[ "$MODE" == rejections ]]; then
@@ -246,75 +347,143 @@ if [[ "$MODE" == rejections ]]; then
     exit 0
 fi
 
-# Builds every leg's rustdoc with `-D warnings`; see `doc_args`.
-run_doc_legs() {
-    local leg name doc
-    local -a args
-    for leg in "${FEATURE_LEGS[@]}"; do
-        name="${leg%%|*}"
-        doc="$(doc_args "${leg#*|}")" || continue
-        read -r -a args <<<"$doc"
-        run_test "$name (doc)" env RUSTDOCFLAGS="-D warnings" \
-            cargo "+${GRAFTON_VISCA_STABLE_TOOLCHAIN}" doc --no-deps "${args[@]}"
-    done
+# The queued jobs of this run: a description and a shell-quoted command each.
+JOB_NAMES=()
+JOB_COMMANDS=()
+
+add_job() {
+    local name="$1"
+    shift
+    JOB_NAMES+=("$name")
+    JOB_COMMANDS+=("$(printf '%q ' "$@")")
 }
 
-if [[ "$MODE" == doc ]]; then
-    run_doc_legs
-    run_test "all-features workspace (doc)" env RUSTDOCFLAGS="-D warnings" \
+# One parallel job: its own target and temporary directories, its output in
+# `<log dir>/<id>.log`, and its verdict and wall time in `<id>.status`.
+run_job() {
+    local id="$1" name="$2" command="$3" target_dir="$4" log_dir="$5"
+    local started=$SECONDS verdict=PASS
+    mkdir -p "$target_dir/tmp"
+    if ! (
+        export CARGO_TARGET_DIR="$target_dir" TMPDIR="$target_dir/tmp"
+        eval "$command"
+    ) >"$log_dir/$id.log" 2>&1; then
+        verdict=FAIL
+    fi
+    printf '%s %5ds  %s\n' "$verdict" "$((SECONDS - started))" "$name" >"$log_dir/$id.status"
+}
+
+# Runs the queued jobs: one after another in the caller's target directory,
+# or `JOBS` at a time (see `--jobs` in the header), then summarizes.
+run_jobs() {
+    local i
+    if ((JOBS == 0)); then
+        for i in "${!JOB_NAMES[@]}"; do
+            eval "run_test \"\${JOB_NAMES[i]}\" ${JOB_COMMANDS[i]}"
+        done
+        return 0
+    fi
+
+    local target_base="${MATRIX_TARGET_DIR:-${CARGO_TARGET_DIR:-$PWD/target}/matrix}"
+    local log_dir="${MATRIX_LOG_DIR:-$target_base/logs}/$MODE"
+    local id running=0 started=$SECONDS
+    mkdir -p "$log_dir"
+    rm -f "$log_dir"/*.log "$log_dir"/*.status "$log_dir/summary.txt"
+    printf 'Running %d %s jobs, %d at a time; logs in %s\n' \
+        "${#JOB_NAMES[@]}" "$MODE" "$JOBS" "$log_dir"
+    for i in "${!JOB_NAMES[@]}"; do
+        if ((running >= JOBS)); then
+            wait -n || true
+            running=$((running - 1))
+        fi
+        id="$(printf '%02d-%s' "$i" "${JOB_NAMES[i]//[^[:alnum:]]/_}")"
+        run_job "$id" "${JOB_NAMES[i]}" "${JOB_COMMANDS[i]}" \
+            "$target_base/$id" "$log_dir" &
+        running=$((running + 1))
+    done
+    wait
+
+    local failed=0 status_file
+    for i in "${!JOB_NAMES[@]}"; do
+        id="$(printf '%02d-%s' "$i" "${JOB_NAMES[i]//[^[:alnum:]]/_}")"
+        status_file="$log_dir/$id.status"
+        if [[ -s "$status_file" ]]; then
+            cat "$status_file"
+        else
+            printf 'FAIL     ?s  %s (no verdict recorded)\n' "${JOB_NAMES[i]}"
+        fi
+    done >"$log_dir/summary.txt"
+    # libtest warns about any single test still running after 60 seconds;
+    # list those so a budget regression is visible without failing a run
+    # whose wall time depends on machine load.
+    grep -H 'has been running for over 60 seconds' "$log_dir"/*.log \
+        >>"$log_dir/summary.txt" || true
+    printf 'TOTAL %5ds  %s (%d jobs, %d at a time)\n' \
+        "$((SECONDS - started))" "$MODE" "${#JOB_NAMES[@]}" "$JOBS" >>"$log_dir/summary.txt"
+    cat "$log_dir/summary.txt"
+    failed="$(grep -c '^FAIL' "$log_dir/summary.txt" || true)"
+    if ((failed > 0)); then
+        printf '%b✗ %d %s job(s) failed; see %s%b\n' "$RED" "$failed" "$MODE" "$log_dir" "$NC"
+        return 1
+    fi
+}
+
+finish() {
+    echo "=========================================="
+    printf '%b%s%b\n' "$GREEN" "$1" "$NC"
+    echo "=========================================="
+}
+
+case "$MODE" in
+doc)
+    for leg in "${FEATURE_LEGS[@]}"; do
+        doc="$(doc_args "${leg#*|}")" || continue
+        read -r -a args <<<"$doc"
+        add_job "${leg%%|*} (doc)" env RUSTDOCFLAGS="-D warnings" \
+            cargo "+${GRAFTON_VISCA_STABLE_TOOLCHAIN}" doc --no-deps "${args[@]}"
+    done
+    add_job "all-features workspace (doc)" env RUSTDOCFLAGS="-D warnings" \
         cargo "+${GRAFTON_VISCA_STABLE_TOOLCHAIN}" doc --no-deps --workspace --all-features
-    echo "=========================================="
-    printf '%bCanonical 2.0 feature-shape rustdoc passed%b\n' "$GREEN" "$NC"
-    echo "=========================================="
-    exit 0
-fi
-
-if [[ "$MODE" == clippy ]]; then
-    run_feature_legs clippy -- -D warnings
-    run_test "all-features workspace (clippy)" \
+    run_jobs
+    finish "Canonical 2.0 feature-shape rustdoc passed"
+    ;;
+clippy)
+    for leg in "${FEATURE_LEGS[@]}"; do
+        read -r -a args <<<"${leg#*|}"
+        add_job "${leg%%|*} (clippy)" cargo_stable clippy "${args[@]}" -- -D warnings
+    done
+    add_job "all-features workspace (clippy)" \
         cargo_stable clippy --workspace --all-features --all-targets -- -D warnings
+    run_jobs
+    finish "Canonical 2.0 feature-shape lint passed"
+    ;;
+test)
     echo "=========================================="
-    printf '%bCanonical 2.0 feature-shape lint passed%b\n' "$GREEN" "$NC"
+    echo "Starting canonical 2.0 feature tests"
     echo "=========================================="
-    exit 0
-fi
-
-echo "=========================================="
-echo "Starting canonical 2.0 feature tests"
-echo "=========================================="
-
-run_rejections
-run_feature_legs test
-run_test "native blocking dependency boundary" \
-    bash .github/scripts/check-blocking-dependency-boundary.sh
-run_test "re-exported range macro without helpers" \
-    cargo_stable test --manifest-path tests/fixtures/range_type_reexport/Cargo.toml \
+    add_job "removed and facade-less feature rejections" run_rejections
+    for leg in "${FEATURE_LEGS[@]}"; do
+        add_job "${leg%%|*} (test)" test_leg "${leg%%|*}"
+    done
+    add_job "native blocking dependency boundary" \
+        bash .github/scripts/check-blocking-dependency-boundary.sh
+    add_job "re-exported range macro without helpers" \
+        cargo_stable test --manifest-path tests/fixtures/range_type_reexport/Cargo.toml \
         -p range-macro-consumer
-run_test "re-exported range macro with helpers" \
-    run_reexported_range_helper_test
-
-run_test "all-features and all-targets check" \
-    cargo_stable check --workspace --all-features --all-targets
-
-run_test "blocking examples" \
-    cargo_stable check --examples --no-default-features --features blocking
-run_test "Tokio examples" \
-    cargo_stable check --examples --no-default-features --features runtime-tokio
-run_test "smol examples" \
-    cargo_stable check --examples --no-default-features --features runtime-smol
-run_test "all-feature examples" \
-    cargo_stable check --examples --all-features
-
-run_test "no-default doctests" \
-    cargo_stable test --doc --no-default-features
-run_test "async doctests" \
-    cargo_stable test --doc --no-default-features --features async
-run_test "all-feature doctests" \
-    cargo_stable test --doc --all-features
-
-run_filtered_test "generated engine invariant property" \
-    cargo_stable test --no-default-features --lib arbitrary_ordered_and_stale_inputs_preserve_invariants_property
-
-echo "=========================================="
-printf '%bCanonical 2.0 feature matrix passed%b\n' "$GREEN" "$NC"
-echo "=========================================="
+    add_job "re-exported range macro with helpers" run_reexported_range_helper_test
+    add_job "all-features and all-targets check" \
+        cargo_stable check --workspace --all-features --all-targets
+    add_job "blocking examples" \
+        cargo_stable check --examples --no-default-features --features blocking
+    add_job "Tokio examples" \
+        cargo_stable check --examples --no-default-features --features runtime-tokio
+    add_job "smol examples" \
+        cargo_stable check --examples --no-default-features --features runtime-smol
+    add_job "all-feature examples" cargo_stable check --examples --all-features
+    add_job "no-default doctests" cargo_stable test --doc --no-default-features
+    add_job "async doctests" cargo_stable test --doc --no-default-features --features async
+    add_job "all-feature doctests" cargo_stable test --doc --all-features
+    run_jobs
+    finish "Canonical 2.0 feature matrix passed"
+    ;;
+esac
