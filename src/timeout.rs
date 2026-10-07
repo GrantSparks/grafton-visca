@@ -1,8 +1,12 @@
 //! Private time/deadline helpers and the canonical command timeout values.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(any(feature = "async", feature = "blocking", test))]
+use std::time::Instant;
 
-use crate::{Error, Result, TimeoutClass};
+#[cfg(any(feature = "async", feature = "blocking", test))]
+use crate::TimeoutClass;
+use crate::{Error, Result};
 
 /// Declares [`CommandCategory`] and its [`CommandCategory::ALL`] inventory
 /// from one variant list, so a category added to the enum is always visited by
@@ -36,6 +40,7 @@ command_categories!(Quick, Movement, Preset, LongRunning, Network);
 impl CommandCategory {
     /// The command category a request's timeout class selects, or `None` for
     /// an inquiry.
+    #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) const fn of(class: TimeoutClass) -> Option<Self> {
         match class {
             TimeoutClass::Quick => Some(Self::Quick),
@@ -161,6 +166,7 @@ impl Default for CommandTimeouts {
 /// large for the monotonic clock is always the same
 /// [`Error::InvalidParameter`] naming the configured timeout (for example
 /// `"write_timeout"`), never a panic.
+#[cfg(any(feature = "async", feature = "blocking", test))]
 pub(crate) fn instant_after(
     now: Instant,
     timeout: Duration,

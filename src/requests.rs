@@ -9,6 +9,7 @@ use crate::{completion, request, CameraId, Error, Result};
 /// The containing module is private and the token is not constructible by a
 /// downstream implementation of [`Request`]. This keeps the hook available to
 /// typed built-ins while preserving the ordinary custom/raw `Request` default.
+#[cfg(any(feature = "blocking", feature = "async"))]
 #[doc(hidden)]
 pub(crate) struct AppliedStateAuthority(private::SealedToken);
 
@@ -35,18 +36,21 @@ mod private {
     pub(crate) struct SealedToken;
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 impl AppliedStateAuthority {
     pub(crate) const fn new() -> Self {
         Self(private::SealedToken)
     }
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 impl RequestContractAuthority {
     pub(crate) const fn new() -> Self {
         Self(private::SealedToken)
     }
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 impl BuiltinInquiryAuthority {
     pub(crate) const fn new() -> Self {
         Self(private::SealedToken)
@@ -739,6 +743,7 @@ pub trait Request: Send + Sync {
     /// this crate. Built-ins use it to carry their closed effect through the
     /// same generic preparation path as raw and downstream requests; those
     /// other request types retain the default `None`.
+    #[cfg(any(feature = "blocking", feature = "async"))]
     #[doc(hidden)]
     #[allow(private_interfaces)]
     fn applied_state_projection(
@@ -749,16 +754,19 @@ pub trait Request: Send + Sync {
     }
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 /// Reads a request's authorized scheduling class at the owner boundary.
 pub(crate) fn admission_control_class<R: Request + ?Sized>(request: &R) -> Result<ControlClass> {
     request.admission_control_class(RequestContractAuthority::new())
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 /// Reads a request's fixed size declaration at the owner boundary.
 pub(crate) fn declared_max_size<R: Request + ?Sized>(request: &R) -> usize {
     request.declared_max_size(RequestContractAuthority::new())
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 /// Reads the hidden request effect hook at the preparation boundary.
 pub(crate) fn applied_state_projection<R: Request + ?Sized>(
     request: &R,
@@ -806,6 +814,7 @@ pub trait Inquiry: Request<Class = request::Inquiry> {
     }
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 /// Reads the closed built-in inquiry provenance during generic preparation.
 pub(crate) fn builtin_inquiry_syntax_retry<Q>(inquiry: &Q) -> bool
 where

@@ -1404,12 +1404,14 @@ impl Error {
     }
 
     /// An admission deadline expired before the owner accepted the request.
+    #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) const fn admission_timeout() -> Self {
         Self::timeout(FailureStage::PreAdmission, Certainty::NotAccepted)
     }
 
     /// A read-only state query (an idle wait or a motion query) ran out of
     /// time. It changed nothing, so it can be repeated.
+    #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) const fn query_timeout() -> Self {
         Self::timeout(FailureStage::Observation, Certainty::NotAccepted)
     }
@@ -1417,6 +1419,7 @@ impl Error {
     /// Whether a caller's own deadline produced this error: its wait expired,
     /// or its admission deadline passed. The request's protocol lifecycle did
     /// not.
+    #[cfg(any(feature = "blocking", feature = "async"))]
     pub(crate) fn is_caller_deadline(&self) -> bool {
         self.failure_context().is_some_and(|context| {
             matches!(
@@ -1428,6 +1431,7 @@ impl Error {
 
     /// Reports a caller deadline met inside a read-only state query as the
     /// query's own repeatable timeout, whichever inquiry it interrupted.
+    #[cfg(any(feature = "blocking", feature = "async"))]
     pub(crate) fn into_query_timeout(self) -> Self {
         if self.is_caller_deadline() {
             Self::query_timeout()

@@ -224,6 +224,7 @@ impl Envelope for RawVisca {
     }
 }
 
+#[cfg(any(feature = "async", feature = "blocking", test))]
 impl RawVisca {
     pub(crate) fn frame_into_with_sequence(
         &self,
@@ -327,6 +328,7 @@ impl SonyEncapsulated {
     /// The RESET header sequence is ignored by the receiver. Resetting the
     /// local allocator here ensures the first subsequently framed VISCA
     /// request uses sequence zero as required by the control operation.
+    #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) fn frame_sequence_reset_into(&self, out: &mut bytes::BytesMut) {
         let header = SonyHeader {
             payload_type: PayloadType::ControlCommand,

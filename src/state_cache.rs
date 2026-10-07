@@ -8,8 +8,10 @@
 //! this view. A view contains only one target index and an `Arc` clone, so it
 //! adds no per-view state map or unbounded queue.
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 use std::sync::{Arc, Mutex};
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 use crate::CameraId;
 
 const MAX_VALUES: usize = 4;
@@ -114,6 +116,7 @@ impl StateValue {
         self.value_count == 0
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     pub(crate) fn from_owner(value: crate::runtime::engine::AppliedStateValue) -> Self {
         Self {
             values: value.values,
@@ -136,12 +139,14 @@ pub enum StateEntry {
 }
 
 /// A cheap, target-local, read-only view of the owner's state cache.
+#[cfg(any(feature = "blocking", feature = "async"))]
 #[derive(Debug, Clone)]
 pub struct StateCache {
     pub(crate) registry: Arc<[Mutex<crate::runtime::owner::TargetStateCache>; 9]>,
     target: CameraId,
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 impl StateCache {
     pub(crate) fn from_registry(
         registry: Arc<[Mutex<crate::runtime::owner::TargetStateCache>; 9]>,

@@ -69,7 +69,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/engine-model-tests.sh"
 
 # One supported feature shape per entry: `name|cargo arguments`.
 readonly FEATURE_LEGS=(
-    "no-default pure engine/domain + smoke|--no-default-features --lib --test no_default_smoke"
+    "no-default domain vocabulary + smoke|--no-default-features --lib --test no_default_smoke"
     "no-default all targets|--no-default-features --all-targets"
     "default blocking|--workspace --all-targets"
     "blocking-only|--no-default-features --features blocking --all-targets"
@@ -109,9 +109,10 @@ readonly FEATURE_LEGS=(
     "renamed range helper derives|-p phase4-renamed-dependency --features range-helper-derives --all-targets"
 )
 
-# The leg that runs `ENGINE_MODEL_TESTS`: the pure engine/domain leg, whose
-# library test binary is the smallest that compiles the engine's tests.
-readonly ENGINE_MODEL_TEST_LEG="no-default pure engine/domain + smoke"
+# The leg that runs `ENGINE_MODEL_TESTS`: the smallest facade leg. The engine
+# compiles only with a facade, so the no-default leg (the domain vocabulary
+# without any runtime) has no engine tests to run.
+readonly ENGINE_MODEL_TEST_LEG="blocking-only"
 
 # Prints the cargo arguments of the leg called `$1`, or fails if none is.
 leg_args() {

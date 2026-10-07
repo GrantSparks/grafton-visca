@@ -70,26 +70,30 @@ cargo_miri_nightly miri setup
 
 # Miri is applicable to the synchronous, I/O-free domain boundary.  A library
 # test target still compiles every unit-test module once, so keep that expensive
-# compilation to one no-default build and bound execution to pure modules.  The
-# engine's model tests (`engine-model-tests.sh`: the long deterministic trace,
-# the generated property test, the randomized raw-stream session model and the
-# ten-thousand-halt ledger bound) remain covered by their designated
-# feature-matrix leg, not by an unbounded Miri run.
+# compilation to one build and bound execution to pure modules.  That build is
+# the blocking facade alone: the smallest configuration that compiles the engine
+# and request preparation (a no-default build has neither), and one that adds
+# no dependency.  The engine's model tests (`engine-model-tests.sh`: the long
+# deterministic trace, the generated property test, the randomized raw-stream
+# session model and the ten-thousand-halt ledger bound) remain covered by their
+# designated feature-matrix leg, not by an unbounded Miri run.
 miri_engine_skips=()
 for model_test in "${ENGINE_MODEL_TESTS[@]}"; do
     miri_engine_skips+=(--skip "$model_test")
 done
 run_miri "deterministic protocol engine" \
-    --no-default-features --lib 'runtime::engine::tests::' -- \
+    --no-default-features --features blocking --lib 'runtime::engine::tests::' -- \
     --test-threads=1 "${miri_engine_skips[@]}"
-run_miri "prepared request domain" --no-default-features --lib 'prepared::tests::' -- --test-threads=1
-run_miri "raw request contracts" --no-default-features --lib 'raw::tests::' -- --test-threads=1
+run_miri "prepared request domain" \
+    --no-default-features --features blocking --lib 'prepared::tests::' -- --test-threads=1
+run_miri "raw request contracts" \
+    --no-default-features --features blocking --lib 'raw::tests::' -- --test-threads=1
 run_miri "VISCA frame parsing" \
-    --no-default-features --lib 'protocol::framer::tests::' -- --test-threads=1
+    --no-default-features --features blocking --lib 'protocol::framer::tests::' -- --test-threads=1
 run_miri "VISCA response decoding" \
-    --no-default-features --lib 'protocol::response::tests::' -- --test-threads=1
+    --no-default-features --features blocking --lib 'protocol::response::tests::' -- --test-threads=1
 run_miri "Sony envelope parsing" \
-    --no-default-features --lib 'protocol::sony::tests::' -- --test-threads=1
+    --no-default-features --features blocking --lib 'protocol::sony::tests::' -- --test-threads=1
 
 # Runtime adapters, transports, serialization, and test utilities are not
 # meaningful Miri executions here (they either require OS I/O or third-party

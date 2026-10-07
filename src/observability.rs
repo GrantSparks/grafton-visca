@@ -131,6 +131,7 @@ pub struct MetricsSnapshot {
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct DiagnosticId(u64);
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 impl DiagnosticId {
     pub(crate) const fn from_owner(value: u64) -> Self {
         Self(value)
@@ -420,13 +421,14 @@ pub enum DiagnosticEvent {
 /// invokes user callbacks.  A full subscriber queue causes only that
 /// subscriber's event to be dropped and increments the owner's dropped-event
 /// counter.
+#[cfg(any(feature = "blocking", feature = "async"))]
 #[derive(Debug)]
 pub struct DiagnosticSubscription {
     pub(crate) inner: crate::runtime::owner::DiagnosticSubscription,
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 impl DiagnosticSubscription {
-    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn from_owner(inner: crate::runtime::owner::DiagnosticSubscription) -> Self {
         Self { inner }
     }
@@ -462,6 +464,7 @@ impl DiagnosticSubscription {
     }
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 impl DiagnosticEvent {
     pub(crate) fn from_owner(event: crate::runtime::owner::DiagnosticEvent) -> Self {
         use crate::runtime::engine::{DeadlineKind, IgnoreReason, Lane, Phase};
@@ -648,6 +651,7 @@ impl DiagnosticEvent {
     }
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 impl SessionStatus {
     /// The public status of one engine session state.
     pub(crate) const fn from_engine(state: crate::runtime::engine::SessionState) -> Self {
@@ -662,6 +666,7 @@ impl SessionStatus {
     }
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 pub(crate) fn metrics_snapshot(
     metrics: crate::runtime::owner::OwnerMetrics,
     active: usize,

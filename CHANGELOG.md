@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- With no facade feature (`--no-default-features`, or only `serde`, `schemars`,
+  `ts-rs` or `test-utils`) the crate now compiles only the domain vocabulary:
+  the protocol engine, the owner and request preparation are no longer built.
+  `StateCache` and `DiagnosticSubscription`, which only a running session can
+  produce, are now available only with `blocking` or `async`, alongside the
+  sessions that return them. Builds with a facade are unchanged.
+
 ## [2.0.0-rc.3] - 2026-10-07
 
 Hardware status: checklist rows HW-01, HW-04 and HW-05 passed on a PTZOptics
