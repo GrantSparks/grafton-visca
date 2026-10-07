@@ -50,10 +50,11 @@ use crate::{units::Degrees, PanTiltCoordinateConversion};
 /// One entry per request type:
 ///
 /// ```text
-/// <type> => <BuiltinCommand row>: <Plain | Targeted | AppliedOnly> [(<flag>)] {
+/// <type> => <BuiltinCommand row>: <Plain | Targeted | AppliedOnly> [(profile_axes)] {
 ///     size: <MAX_SIZE>
 ///     [, policy: (<TimeoutClass>, <RetryClass>, <ControlClass>)]
 ///     [, wire: <closure from &type to its wire value>]
+///     [, rows: |<value>| match <value>[.<field>] { <pattern> => <BuiltinCommand row>, ... }]
 /// };
 /// ```
 ///
@@ -66,10 +67,16 @@ use crate::{units::Degrees, PanTiltCoordinateConversion};
 /// `(Movement, Movement, User)`; without `wire`, the type is its own wire
 /// encoder.
 ///
-/// Flags: `profile_axes` marks an operation whose axes come from the profile,
-/// so it implements `OperationCommand` itself; `gate_by_value` marks a type
-/// whose rows carry different typed capability gates, so its validator names
-/// the row for each value.
+/// `profile_axes` marks an operation whose axes come from the profile, so it
+/// implements `OperationCommand` itself.
+///
+/// `rows` is for a type whose values serve different ledger rows. It
+/// generates the inherent `const fn ledger_row(&self)`, an exhaustive match
+/// with no repeated pattern, and sets `SELECTS_ROW_BY_VALUE`; the validator
+/// gates each value on the row it selects. Every row then classifies like
+/// the entry's row, and every noun row sending the type must be a `by_value`
+/// row whose value selects that noun row's command: the typed-request
+/// inventory checks both at compile time.
 macro_rules! builtin_request {
     (@class Plain) => { request::Plain };
     (@class Targeted) => { request::Operation<completion::Targeted> };
@@ -88,23 +95,37 @@ macro_rules! builtin_request {
     (@wire $this:tt) => { *$this };
     (@wire $this:tt, $wire:expr) => { ($wire)($this) };
 
-    (@contract $type:ty, $row:ident, gate_by_value) => {
+    (@contract $type:ty, $row:ident [$(profile_axes)?] [$($by_value:ident)?]) => {
         impl BuiltinRequestContract for $type {
             const LEDGER_ROW: BuiltinCommand = BuiltinCommand::$row;
-            const GATE_BY_VALUE: bool = true;
+            $( builtin_request!(@selects_row_by_value $by_value); )?
         }
     };
-    (@contract $type:ty, $row:ident $(, profile_axes)?) => {
-        impl BuiltinRequestContract for $type {
-            const LEDGER_ROW: BuiltinCommand = BuiltinCommand::$row;
-        }
-    };
-    (@contract $type:ty, $row:ident, $flag:ident) => {
+    (@contract $type:ty, $row:ident [$flag:ident] $by_value:tt) => {
         compile_error!(concat!(
             "unknown builtin_request! flag `",
             stringify!($flag),
-            "`; expected gate_by_value or profile_axes"
+            "`; expected profile_axes"
         ));
+    };
+    (@selects_row_by_value $value:ident) => {
+        const SELECTS_ROW_BY_VALUE: bool = true;
+    };
+
+    (@rows $type:ty, |$value:ident| $($scrutinee:ident).+ {
+        $($pattern:pat => $row:ident),+
+    }) => {
+        impl $type {
+            /// The ledger row this value serves, whose typed capability gate
+            /// admits it.
+            #[deny(unreachable_patterns)]
+            pub(crate) const fn ledger_row(&self) -> BuiltinCommand {
+                let $value = self;
+                match $($scrutinee).+ {
+                    $( $pattern => BuiltinCommand::$row, )+
+                }
+            }
+        }
     };
 
     (@operation $type:ty, Plain, profile_axes) => {
@@ -114,9 +135,9 @@ macro_rules! builtin_request {
             "`; only an operation has affected axes"
         ));
     };
-    (@operation $type:ty, Plain $(, gate_by_value)?) => {};
+    (@operation $type:ty, Plain) => {};
     (@operation $type:ty, $class:ident, profile_axes) => {};
-    (@operation $type:ty, $class:ident $(, gate_by_value)?) => {
+    (@operation $type:ty, $class:ident) => {
         impl OperationCommand<completion::$class> for $type {
             fn affected_axes(&self) -> AffectedAxes {
                 const { crate::command::semantics::fixed_axes::<$type>() }
@@ -131,6 +152,9 @@ macro_rules! builtin_request {
             size: $size:expr
             $(, policy: ($timeout:ident, $retry:ident, $control:ident))?
             $(, wire: $wire:expr)?
+            $(, rows: |$value:ident| match $($scrutinee:ident).+ {
+                $($pattern:pat => $value_row:ident),+ $(,)?
+            })?
             $(,)?
         };
     )+) => {$(
@@ -181,9 +205,12 @@ macro_rules! builtin_request {
             }
         }
 
-        builtin_request!(@contract $type, $row $(, $flag)?);
+        builtin_request!(@contract $type, $row [$($flag)?] [$($value)?]);
         const _: () = crate::command::semantics::assert_request_contract::<$type>();
         builtin_request!(@operation $type, $class $(, $flag)?);
+        $( builtin_request!(@rows $type, |$value| $($scrutinee).+ {
+            $($pattern => $value_row),+
+        }); )?
     )+};
 }
 
@@ -552,34 +579,34 @@ fn validate_gain(profile: &crate::ProfileSpec, value: Option<u8>) -> Result<(), 
     Ok(())
 }
 
+/// Checks the white-balance domain and the profile's mode list, then the
+/// typed capability gate of the ledger row the mode selects, if that row has
+/// one.
 fn validate_white_balance_mode(
     profile: &crate::ProfileSpec,
-    mode: crate::command::WhiteBalanceMode,
+    command: &crate::command::WhiteBalanceCommand,
 ) -> Result<(), Error> {
+    use crate::command::WhiteBalanceMode;
+
     let capabilities = profile.capabilities();
     require(capabilities.has_white_balance, "white balance control")?;
     require(
-        capabilities.white_balance_modes.contains(&mode),
+        capabilities.white_balance_modes.contains(&command.mode),
         "selected white-balance mode",
     )?;
-    match mode {
-        crate::command::WhiteBalanceMode::OnePush => validate_static_typed_command(
-            profile,
-            BuiltinCommand::WhiteBalanceOnePush,
-            "one-push white balance",
-        ),
-        crate::command::WhiteBalanceMode::ATW => validate_static_typed_command(
-            profile,
-            BuiltinCommand::WhiteBalanceAutoTracking,
-            "auto-tracking white balance",
-        ),
-        crate::command::WhiteBalanceMode::ColorTemperature => validate_static_typed_command(
-            profile,
-            BuiltinCommand::WhiteBalanceColorTemperature,
-            "color-temperature white balance",
-        ),
-        _ => Ok(()),
-    }
+    let Some(surface) = typed_surface_for_command(command.ledger_row()) else {
+        return Ok(());
+    };
+    let feature = match command.mode {
+        WhiteBalanceMode::Auto => "automatic white balance",
+        WhiteBalanceMode::Indoor => "indoor white balance",
+        WhiteBalanceMode::Outdoor => "outdoor white balance",
+        WhiteBalanceMode::OnePush => "one-push white balance",
+        WhiteBalanceMode::ATW => "auto-tracking white balance",
+        WhiteBalanceMode::Manual => "manual white balance",
+        WhiteBalanceMode::ColorTemperature => "color-temperature white balance",
+    };
+    require(capabilities.permits_typed(surface), feature)
 }
 
 fn validate_awb_sensitivity(
@@ -1058,7 +1085,7 @@ impl BuiltinValidation for crate::command::focus::FocusNearLimitCommand {
 
 impl BuiltinValidation for crate::command::white_balance::WhiteBalanceCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_white_balance_mode(profile, self.mode)
+        validate_white_balance_mode(profile, self)
     }
 }
 
@@ -1320,8 +1347,17 @@ builtin_request! {
     crate::command::focus::FocusZoneCommand => FocusZone: Plain { size: 6 };
     crate::command::focus::AutoFocusSensitivityCommand => FocusAutoSensitivity: Plain { size: 6 };
     crate::command::focus::FocusNearLimitCommand => FocusNearLimit: Plain { size: 9 };
-    crate::command::white_balance::WhiteBalanceCommand => WhiteBalanceAuto: Plain(gate_by_value) {
+    crate::command::white_balance::WhiteBalanceCommand => WhiteBalanceAuto: Plain {
         size: 6,
+        rows: |command| match command.mode {
+            crate::command::WhiteBalanceMode::Auto => WhiteBalanceAuto,
+            crate::command::WhiteBalanceMode::Indoor => WhiteBalanceIndoor,
+            crate::command::WhiteBalanceMode::Outdoor => WhiteBalanceOutdoor,
+            crate::command::WhiteBalanceMode::OnePush => WhiteBalanceOnePush,
+            crate::command::WhiteBalanceMode::ATW => WhiteBalanceAutoTracking,
+            crate::command::WhiteBalanceMode::Manual => WhiteBalanceManual,
+            crate::command::WhiteBalanceMode::ColorTemperature => WhiteBalanceColorTemperature,
+        },
     };
     crate::command::white_balance::AWBSensitivityCommand => AutoWhiteBalanceSensitivity: Plain {
         size: 6,
@@ -1417,13 +1453,25 @@ pub(crate) struct BuiltinTypedRequestCoverage {
 
 /// The one construction site of [`BuiltinTypedRequestCoverage`].
 ///
-/// The inline const asserts at compile time that `$ty` serves `$row`: the
-/// row classifies exactly like the type's own ledger row and, unless the type
-/// gates by value, carries the same typed capability gate.
+/// The inline const asserts at compile time that `$ty` serves `$row`. A
+/// `by_value` request is a constant, so its own `ledger_row` must select
+/// `$row`; any other request form is checked on its type alone.
 macro_rules! typed_request_coverage {
-    ($row:ident, $ty:ty, $branch:expr) => {
+    ($row:ident, $ty:ty, [by_value $($value:tt)*]) => {
+        typed_request_coverage!(@entry $row, $ty, stringify!([by_value $($value)*]),
+            assert_value_selects_row::<$ty>(BuiltinCommand::$row, ($($value)*).ledger_row()))
+    };
+    ($row:ident, $ty:ty, $request:tt) => {
+        typed_request_coverage!(@entry $row, $ty, stringify! $request,
+            assert_row_served_by::<$ty>(BuiltinCommand::$row))
+    };
+    (@exception $row:ident, $ty:ty, $kind:ident) => {
+        typed_request_coverage!(@entry $row, $ty, stringify!($kind),
+            assert_row_served_by::<$ty>(BuiltinCommand::$row))
+    };
+    (@entry $row:ident, $ty:ty, $branch:expr, $check:expr) => {
         const {
-            assert_row_served_by::<$ty>(BuiltinCommand::$row);
+            $check;
             BuiltinTypedRequestCoverage {
                 #[cfg(test)]
                 row: BuiltinCommand::$row,
@@ -1436,9 +1484,10 @@ macro_rules! typed_request_coverage {
     };
 }
 
-/// Fails const evaluation unless `T` may serve `row`: the row must classify
-/// exactly like `T`'s own ledger row (class, axes and state effect) and,
-/// unless `T` gates by value, carry the same typed capability gate.
+/// Fails const evaluation unless `T` may serve `row` through a request form
+/// that is not a constant: the row must classify exactly like `T`'s own
+/// ledger row (class, axes and state effect) and carry the same typed
+/// capability gate, and `T` must not select its row by value.
 const fn assert_row_served_by<T: BuiltinRequestContract>(row: BuiltinCommand) {
     assert!(
         row.classification()
@@ -1446,12 +1495,34 @@ const fn assert_row_served_by<T: BuiltinRequestContract>(row: BuiltinCommand) {
         "a typed request serves a ledger row whose classification differs from its own row",
     );
     assert!(
-        T::GATE_BY_VALUE
-            || same_typed_gate(
-                typed_surface_for_command(row),
-                typed_surface_for_command(T::LEDGER_ROW),
-            ),
+        !T::SELECTS_ROW_BY_VALUE,
+        "a typed request that selects its ledger row by value is sent by a noun row \
+         that is not a `by_value` row",
+    );
+    assert!(
+        same_typed_gate(
+            typed_surface_for_command(row),
+            typed_surface_for_command(T::LEDGER_ROW),
+        ),
         "a typed request serves ledger rows with different typed capability gates",
+    );
+}
+
+/// Fails const evaluation unless the constant request of a `by_value` noun
+/// row selects that row: `selected` (the value's `ledger_row`) must be `row`,
+/// and `row` must classify exactly like `T`'s own ledger row.
+const fn assert_value_selects_row<T: BuiltinRequestContract>(
+    row: BuiltinCommand,
+    selected: BuiltinCommand,
+) {
+    assert!(
+        row.classification()
+            .same_contract(T::LEDGER_ROW.classification()),
+        "a typed request serves a ledger row whose classification differs from its own row",
+    );
+    assert!(
+        selected as usize == row as usize,
+        "a `by_value` noun row sends a value whose ledger row is a different row",
     );
 }
 
@@ -1487,8 +1558,8 @@ macro_rules! typed_request_inventory {
         pub(crate) static BUILTIN_TYPED_REQUEST_INVENTORY: &[BuiltinTypedRequestCoverage] = {
             use crate::{command, request::builtin};
             &[
-                $( $( typed_request_coverage!($command, $ret, stringify! $request), )? )*
-                $( typed_request_coverage!($excommand, $exty, stringify!($exkind)), )*
+                $( $( typed_request_coverage!($command, $ret, $request), )? )*
+                $( typed_request_coverage!(@exception $excommand, $exty, $exkind), )*
             ]
         };
     };
@@ -1949,12 +2020,16 @@ pub enum FocusTrigger {
 }
 
 builtin_request! {
-    FocusTrigger => FocusOnePush: AppliedOnly(gate_by_value) {
+    FocusTrigger => FocusOnePush: AppliedOnly {
         size: 6,
         policy: (Quick, Movement, User),
         wire: |value: &FocusTrigger| match value {
             FocusTrigger::OnePush => Focus::OnePushTrigger,
             FocusTrigger::Snap => Focus::Snap,
+        },
+        rows: |trigger| match trigger {
+            FocusTrigger::OnePush => FocusOnePush,
+            FocusTrigger::Snap => FocusSnap,
         },
     };
 }
@@ -2401,17 +2476,11 @@ impl BuiltinValidation for FocusTrigger {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let capabilities = profile.capabilities();
         require(capabilities.has_focus, "focus control")?;
-        // `gate_by_value`: each value is gated by its own ledger row.
-        match self {
-            Self::OnePush => validate_static_typed_command(
-                profile,
-                BuiltinCommand::FocusOnePush,
-                "one-push focus",
-            ),
-            Self::Snap => {
-                validate_static_typed_command(profile, BuiltinCommand::FocusSnap, "snap focus")
-            }
-        }
+        let feature = match self {
+            Self::OnePush => "one-push focus",
+            Self::Snap => "snap focus",
+        };
+        validate_static_typed_command(profile, self.ledger_row(), feature)
     }
 }
 
@@ -2796,6 +2865,7 @@ mod tests {
             NdFilterMode, NdFilterModeCommand, PanTiltLimitCorner, PresetRecallSpeed,
             SetNdiQuality, SettingsSaveCommand, SpotlightOff, SpotlightOn, TallyBrightHi,
             TallyBrightLo, TallyFlash, TallyOff, TallyOn, TallyRedOn, VariableSpeedMode,
+            WhiteBalanceCommand, WhiteBalanceMode,
         },
         prepared::{
             prepare_builtin_command, prepare_builtin_operation, prepare_command, ClassSelection,
@@ -3002,6 +3072,123 @@ mod tests {
             completion::AppliedOnly: TypedSupportSurface::PtzOpticsSnapFocus,
             FocusTrigger::Snap
         );
+        follows_static_surface!(
+            TypedSupportSurface::OnePushWhiteBalance,
+            WhiteBalanceCommand::new(WhiteBalanceMode::OnePush)
+        );
+        follows_static_surface!(
+            TypedSupportSurface::AutoTrackingWhiteBalance,
+            WhiteBalanceCommand::new(WhiteBalanceMode::ATW)
+        );
+        follows_static_surface!(
+            TypedSupportSurface::ColorTemperature,
+            WhiteBalanceCommand::new(WhiteBalanceMode::ColorTemperature)
+        );
+    }
+
+    /// Each white-balance mode is gated by the typed gate of the ledger row
+    /// it selects. A built-in profile's mode list already rejects every mode
+    /// whose typed gate it denies, so this runtime profile admits every mode
+    /// and withdraws one row gate at a time.
+    #[test]
+    fn white_balance_modes_follow_the_typed_gate_of_their_own_row() {
+        const MODES: [WhiteBalanceMode; 7] = [
+            WhiteBalanceMode::Auto,
+            WhiteBalanceMode::Indoor,
+            WhiteBalanceMode::Outdoor,
+            WhiteBalanceMode::OnePush,
+            WhiteBalanceMode::ATW,
+            WhiteBalanceMode::Manual,
+            WhiteBalanceMode::ColorTemperature,
+        ];
+        let gated = [
+            (
+                WhiteBalanceMode::OnePush,
+                TypedSupportSurface::OnePushWhiteBalance,
+                "one-push white balance",
+            ),
+            (
+                WhiteBalanceMode::ATW,
+                TypedSupportSurface::AutoTrackingWhiteBalance,
+                "auto-tracking white balance",
+            ),
+            (
+                WhiteBalanceMode::ColorTemperature,
+                TypedSupportSurface::ColorTemperature,
+                "color-temperature white balance",
+            ),
+        ];
+
+        let source = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
+        let coordinates = source
+            .pan_tilt_coordinates()
+            .expect("G2 pan/tilt conversion");
+        let mut capabilities = source.capabilities().clone();
+        capabilities.profile_id = None;
+        capabilities.model_name = "Every white-balance mode".into();
+        capabilities.white_balance_modes = MODES.to_vec();
+        capabilities.has_one_push_wb = true;
+        capabilities.color_temp_range = Some(2500..=8000);
+        capabilities.typed_support =
+            capabilities
+                .typed_support
+                .union(crate::capabilities::TypedSupportSet::from_surfaces(&[
+                    TypedSupportSurface::OnePushWhiteBalance,
+                    TypedSupportSurface::AutoTrackingWhiteBalance,
+                    TypedSupportSurface::ColorTemperature,
+                ]));
+        let profile = |typed_support| {
+            let mut capabilities = capabilities.clone();
+            capabilities.typed_support = typed_support;
+            ProfileSpec::builder(capabilities)
+                .pan_tilt_coordinates(
+                    coordinates.coordinate_system(),
+                    coordinates.pan_degrees_to_units(),
+                    coordinates.tilt_degrees_to_units(),
+                )
+                .pan_tilt_wire_codec(coordinates.wire_codec())
+                .transports(source.transports())
+                .envelope(source.envelope())
+                .timing(source.timing())
+                .maximum_command_sockets(source.maximum_command_sockets())
+                .supports_operation_complete(source.supports_operation_complete())
+                .supports_command_cancel(source.supports_command_cancel())
+                .preset_recall_axes(source.preset_recall_axes())
+                .position_inquiries(source.position_inquiries())
+                .build()
+                .expect("runtime profile admitting every white-balance mode")
+        };
+
+        let full = profile(capabilities.typed_support);
+        for mode in MODES {
+            assert!(
+                WhiteBalanceCommand::new(mode)
+                    .validate_for_profile(&full)
+                    .is_ok(),
+                "{mode:?} must be admitted when every row gate is permitted"
+            );
+        }
+        for (denied, surface, feature) in gated {
+            let profile = profile(capabilities.typed_support.without(surface));
+            for mode in MODES {
+                let result = WhiteBalanceCommand::new(mode).validate_for_profile(&profile);
+                if mode == denied {
+                    assert!(
+                        matches!(
+                            result,
+                            Err(Error::FeatureNotSupported { feature: reported })
+                                if reported == feature
+                        ),
+                        "{mode:?} without {surface:?} must report {feature:?}, got {result:?}"
+                    );
+                } else {
+                    assert!(
+                        result.is_ok(),
+                        "{mode:?} must not depend on {surface:?}, got {result:?}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]

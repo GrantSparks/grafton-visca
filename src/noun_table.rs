@@ -5,8 +5,9 @@
 //! gate, return class, request and rustdoc — and everything else is expanded
 //! from it:
 //!
-//! * the blocking and async accessors and methods (`crate::blocking_nouns` and
-//!   [`crate::async_nouns`], both through `crate::noun_facade`), the `Dyn*`
+//! * the blocking and async accessors and methods
+//!   ([`crate::blocking::blocking_nouns`] and [`crate::async_nouns`], both
+//!   through `crate::noun_facade`), the `Dyn*`
 //!   traits ([`crate::dynapi::nouns`]) and the re-export lists
 //!   ([`reexport_nouns!`]);
 //! * [`crate::command::surface`]: `StaticNoun`, the exhaustive
@@ -49,11 +50,17 @@
 //!   surface registry maps it to its `TypedSupportSurface` with
 //!   `typed_surface!`, which has no arm for a marker without a typed-support
 //!   registry row.  The erased facade carries no bounds; it enforces the same
-//!   gate at runtime through `validate_for_profile` (a command through its
-//!   request type's ledger row, an inquiry through its `BuiltinInquiryGate`).
-//! * `<request>` is the command or inquiry value to send.  Three forms exist,
+//!   gate at runtime through `validate_for_profile` (a command through the
+//!   ledger row its request serves, an inquiry through its
+//!   `BuiltinInquiryGate`).
+//! * `<request>` is the command or inquiry value to send.  Four forms exist,
 //!   and only `noun_request!` (in `crate::noun_facade`) parses them:
 //!   * `<expr>` — an infallible constructor.
+//!   * `by_value <const expr>` — a constant of a request type whose values
+//!     select different ledger rows (a `builtin_request!` entry with `rows`).
+//!     Every row sending such a type uses this form, and the typed-request
+//!     inventory checks at compile time that the constant selects the row's
+//!     command.
 //!   * `checked <expr>` — a fallible constructor returning `Result<_>`.
 //!   * `with_profile |<name>| <expr>` — a fallible constructor that needs the
 //!     session's profile; the binder names it.
@@ -82,11 +89,13 @@
 //! `gate` is the noun's base capability gate: `[always]` needs none,
 //! `[domain M]` names a profile domain marker and `[typed M]` a typed-support
 //! marker.  A `[typed M]` gate bounds the static accessor itself; a
-//! `[domain M]` gate bounds only its getter.  A row's own `where` clause
-//! replaces the base gate for that row, so a row's gate is its `where` marker,
-//! else its header gate; the surface registry derives it once per row
-//! (`RowGate`).  A `[domain M]` gate that some row inherits needs a
-//! `DomainGate` with its runtime check.  The surface registry, the static
+//! `[domain M]` gate bounds only its getter.  A row's runtime gate is its
+//! `where` marker, else its header gate; the surface registry derives it once
+//! per row (`RowGate`).  On the static facades a `where` clause bounds only
+//! its own method, while the accessor or getter keeps the header gate, so the
+//! static bound of a row with a `where` clause is the header gate and the
+//! `where` marker together.  A `[domain M]` gate that some row inherits needs
+//! a `DomainGate` with its runtime check.  The surface registry, the static
 //! facades and the dynamic facade all read the headers: the accessor, getter
 //! and `Dyn*` trait names and the one doc of every surface of the noun come
 //! from here.
@@ -295,7 +304,7 @@ macro_rules! noun_table {
                 = [builtin::FocusModeCommand::Manual];
             /// Triggers one-push autofocus.
             applied [FocusOnePush] one_push() -> builtin::FocusTrigger where HasOnePushFocus
-                = [builtin::FocusTrigger::OnePush];
+                = [by_value builtin::FocusTrigger::OnePush];
             /// Moves focus to infinity.
             targeted [FocusInfinity] infinity() -> builtin::FocusInfinity
                 = [builtin::FocusInfinity];
@@ -304,7 +313,7 @@ macro_rules! noun_table {
                 = [builtin::FocusModeCommand::Toggle];
             /// Triggers vendor snap focus.
             applied [FocusSnap] snap() -> builtin::FocusTrigger where HasPtzOpticsSnapFocus
-                = [builtin::FocusTrigger::Snap];
+                = [by_value builtin::FocusTrigger::Snap];
             /// Selects a focus zone.
             plain [FocusZone] set_zone(zone: command::FocusZone)
                 -> command::FocusZoneCommand where HasFocusZone
@@ -530,28 +539,42 @@ macro_rules! noun_table {
                 = [command::WhiteBalanceModeInquiry];
             /// Selects automatic white balance.
             plain [WhiteBalanceAuto] auto() -> command::WhiteBalanceCommand
-                = [command::WhiteBalanceCommand::new(command::WhiteBalanceMode::Auto)];
+                = [by_value command::WhiteBalanceCommand {
+                    mode: command::WhiteBalanceMode::Auto,
+                }];
             /// Selects the indoor white-balance preset.
             plain [WhiteBalanceIndoor] indoor() -> command::WhiteBalanceCommand
-                = [command::WhiteBalanceCommand::new(command::WhiteBalanceMode::Indoor)];
+                = [by_value command::WhiteBalanceCommand {
+                    mode: command::WhiteBalanceMode::Indoor,
+                }];
             /// Selects the outdoor white-balance preset.
             plain [WhiteBalanceOutdoor] outdoor() -> command::WhiteBalanceCommand
-                = [command::WhiteBalanceCommand::new(command::WhiteBalanceMode::Outdoor)];
+                = [by_value command::WhiteBalanceCommand {
+                    mode: command::WhiteBalanceMode::Outdoor,
+                }];
             /// Selects one-push white balance.
             plain [WhiteBalanceOnePush] one_push() -> command::WhiteBalanceCommand
                 where HasOnePushWhiteBalance
-                = [command::WhiteBalanceCommand::new(command::WhiteBalanceMode::OnePush)];
+                = [by_value command::WhiteBalanceCommand {
+                    mode: command::WhiteBalanceMode::OnePush,
+                }];
             /// Selects auto-tracking white balance.
             plain [WhiteBalanceAutoTracking] atw() -> command::WhiteBalanceCommand
                 where HasAutoTrackingWhiteBalance
-                = [command::WhiteBalanceCommand::new(command::WhiteBalanceMode::ATW)];
+                = [by_value command::WhiteBalanceCommand {
+                    mode: command::WhiteBalanceMode::ATW,
+                }];
             /// Selects manual white balance.
             plain [WhiteBalanceManual] manual() -> command::WhiteBalanceCommand
-                = [command::WhiteBalanceCommand::new(command::WhiteBalanceMode::Manual)];
+                = [by_value command::WhiteBalanceCommand {
+                    mode: command::WhiteBalanceMode::Manual,
+                }];
             /// Selects color-temperature white-balance mode.
             plain [WhiteBalanceColorTemperature] color_temperature_mode()
                 -> command::WhiteBalanceCommand where HasColorTemperature
-                = [command::WhiteBalanceCommand::new(command::WhiteBalanceMode::ColorTemperature)];
+                = [by_value command::WhiteBalanceCommand {
+                    mode: command::WhiteBalanceMode::ColorTemperature,
+                }];
             /// Sets automatic white-balance sensitivity.
             plain [AutoWhiteBalanceSensitivity] set_sensitivity(
                 sensitivity: command::AutoWhiteBalanceSensitivity

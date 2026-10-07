@@ -234,13 +234,16 @@ impl BuiltinClassMarker for crate::request::Operation<crate::completion::Applied
 /// from [`Self::LEDGER_ROW`].
 pub(crate) trait BuiltinRequestContract: crate::Request {
     /// A ledger row this type serves. Every ledger row served by the type
-    /// must classify identically and, unless [`Self::GATE_BY_VALUE`], share
-    /// its typed capability gate; the typed-request inventory checks both at
+    /// must classify identically; the typed-request inventory checks this at
     /// compile time.
     const LEDGER_ROW: BuiltinCommand;
-    /// The type's rows carry different typed capability gates, so its
-    /// validator names the row for each value.
-    const GATE_BY_VALUE: bool = false;
+    /// Each value of the type selects its own ledger row, through the
+    /// inherent `ledger_row` that `builtin_request!` generates from the
+    /// entry's `rows`. Every noun row sending such a type must be a
+    /// `by_value` row, and the inventory checks at compile time that its
+    /// value selects that row. Otherwise every row the type serves carries
+    /// the typed capability gate of [`Self::LEDGER_ROW`].
+    const SELECTS_ROW_BY_VALUE: bool = false;
 }
 
 /// The exact fixed axes of `T`'s ledger row.

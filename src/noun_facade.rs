@@ -3,12 +3,17 @@
 
 /// The one parser of a noun row's request form.
 ///
-/// A row writes its request as `[<expr>]`, `[checked <expr>]` or
-/// `[with_profile |<name>| <expr>]`; this macro evaluates any of them to
-/// `crate::Result<$ty>`. `$profile` is substituted only into the
+/// A row writes its request as `[<expr>]`, `[by_value <const expr>]`,
+/// `[checked <expr>]` or `[with_profile |<name>| <expr>]`; this macro
+/// evaluates any of them to `crate::Result<$ty>`. A `by_value` request
+/// evaluates like `<expr>`; the marker only tells the typed-request inventory
+/// to check the constant's ledger row. `$profile` is substituted only into the
 /// `with_profile` form, so a row that does not need the session profile never
 /// reads it.
 macro_rules! noun_request {
+    ($profile:expr; $ty:ty; by_value $request:expr) => {
+        $crate::noun_facade::noun_request!($profile; $ty; $request)
+    };
     ($profile:expr; $ty:ty; checked $request:expr) => {{
         let request: crate::Result<$ty> = $request;
         request
