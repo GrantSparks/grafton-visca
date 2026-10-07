@@ -1,10 +1,13 @@
 #![cfg(feature = "blocking")]
 //! Hardware tests for the high-risk corrected and profile-specific wire rows
-//! (#715), run against a real PTZOptics camera by an operator who can see it.
+//! (#715) and the PTZOptics G2 bench facts still recorded as unverified in
+//! `docs/camera_profile_support.md` (#795: the G2 shutter table and G2 tilt
+//! polarity), run against a real PTZOptics camera by an operator who can see
+//! it.
 //!
 //! **WARNING: the motion tests physically move the camera and the settings
-//! tests briefly change image/focus settings.** Every test is ignored by
-//! default.
+//! tests briefly change image, focus and exposure settings.** Every test is
+//! ignored by default.
 //!
 //! Gating, in order, for every test:
 //! 1. `#[ignore]`: the test runs only with `--ignored`.
@@ -29,16 +32,22 @@
 //! | `hw05_focus_zone_round_trip` | `81 01 04 AA 00/01/02 FF` and `81 09 04 AA FF` |
 //! | `hw05_direct_zoom_positions` | `81 01 04 47 00 08 00 00 FF` and `81 01 04 47 01 00 00 00 FF` |
 //! | `hw05_absolute_pan_tilt_small_offset` | `81 01 06 02 01 01 <pan x4> <tilt x4> FF` |
+//! | `hw05_shutter_round_trip` | `81 09 04 39 FF`, `81 01 04 39 0A FF` (only when the mode has no settable shutter) and its restore, `81 01 04 4A 00 00 0p 0q FF` for one step from the current code and the table minimum, middle and maximum, `81 09 04 4A FF` |
+//! | `hw05_tilt_polarity` | `81 01 06 01 01 01 03 01 FF` (up), `81 01 06 01 01 01 03 02 FF` (down), `81 01 06 01 <vv> <ww> 03 03 FF` (stop), `81 09 06 12 FF` |
 //!
 //! Safety rules the tests keep:
 //! - No preset set/reset, power, menu, settings save, limit set, IR/address,
 //!   USB/NDI audio, tally, multicast/NDI quality, flip/mirror, picture-effect
-//!   SET, exposure-mode change or AF-sensitivity request is ever issued. No
-//!   home, reset, relative move or continuous drive is issued either.
+//!   SET, white-balance or AF-sensitivity request is ever issued. No home,
+//!   reset or relative move is issued either. The only exposure-mode change is
+//!   `hw05_shutter_round_trip` selecting shutter priority, which its guard
+//!   reverts.
 //! - Motion tests drive only through one absolute pan/tilt target (slowest
-//!   speed the API allows) or absolute zoom targets, with a drop guard that
-//!   sends pan/tilt STOP and zoom STOP and then recalls preset 1 (best effort)
-//!   on every exit path, including a panic or an early `?`. Each motion test
+//!   speed the API allows), absolute zoom targets, or (`hw05_tilt_polarity`
+//!   only) `move_direction` up or down at pan speed 1 and tilt speed 1 with
+//!   each drive stopped within about 300 ms of wall time. A drop guard sends
+//!   pan/tilt STOP and zoom STOP and then recalls preset 1 (best effort) on
+//!   every exit path, including a panic or an early `?`. Each motion test
 //!   ends by explicitly recalling preset 1 and printing
 //!   `RESTORED pan=.. tilt=.. zoom=..`. Preset 1 must therefore be a safe,
 //!   previously stored position on the camera under test.
@@ -51,39 +60,74 @@
 //! Output: every observation is one greppable line on stderr of the form
 //! `HW|t=<elapsed ms since test start>|<observation>`.
 //!
-//! Run with:
+//! Run every row with:
 //! ```sh
-//! VISCA_CAMERA_IP=192.168.0.110 VISCA_PROFILE=g2 \
+//! VISCA_CAMERA_IP=192.0.2.10 VISCA_PROFILE=g2 \
 //!   VISCA_HW_ALLOW_SETTINGS=1 VISCA_HW_ALLOW_MOTION=1 \
 //!   cargo test --test hardware_wire_rows_test --features runtime-tokio \
 //!   -- --ignored --nocapture --test-threads=1
+//! ```
+//!
+//! The G2 shutter table round trip alone (settings, no motion):
+//! ```sh
+//! VISCA_CAMERA_IP=192.0.2.10 VISCA_PROFILE=g2 VISCA_HW_ALLOW_SETTINGS=1 \
+//!   cargo test --test hardware_wire_rows_test --features runtime-tokio \
+//!   -- --ignored --nocapture --test-threads=1 --exact hw05_shutter_round_trip
+//! ```
+//!
+//! The G2 tilt polarity row alone (motion; watch the camera and confirm the
+//! direction when the `OPERATOR` line asks):
+//! ```sh
+//! VISCA_CAMERA_IP=192.0.2.10 VISCA_PROFILE=g2 VISCA_HW_ALLOW_MOTION=1 \
+//!   cargo test --test hardware_wire_rows_test --features runtime-tokio \
+//!   -- --ignored --nocapture --test-threads=1 --exact hw05_tilt_polarity
 //! ```
 
 #[macro_use]
 #[path = "common/hardware.rs"]
 mod hardware;
+#[path = "common/hardware_rest.rs"]
+mod hardware_rest;
 
-use std::{cell::Cell, env, thread::sleep, time::Duration};
+use std::{
+    cell::Cell,
+    env,
+    thread::sleep,
+    time::{Duration, Instant},
+};
 
 use grafton_visca::{
     blocking::{Camera, CameraSession, Connect},
-    camera::profiles::{PtzOptics30X, PtzOpticsG2},
-    capabilities::{
-        Capabilities, HasDirectZoom, HasFocus, HasFocusZone, HasFocusZoneInquiry,
-        HasImageProcessing, HasNoiseReduction2D, HasNoiseReduction2DControl,
-        HasNoiseReduction2DMode, HasNoiseReduction3D, HasNoiseReduction3DControl, HasPanTilt,
-        HasPictureEffect, HasPresets, HasZoom, PanTilt, SupportsTcp,
+    camera::{
+        profiles::{PtzOptics30X, PtzOpticsG2},
+        IdleWait, PanTiltPosition,
     },
-    command::{FocusZone, NoiseReduction2DMode},
-    types::{NoiseReduction2DLevel, NoiseReduction3DLevel, SpeedLevel, ZoomPosition},
+    capabilities::{
+        Capabilities, HasDirectZoom, HasExposure, HasExposureMode, HasFocus, HasFocusZone,
+        HasFocusZoneInquiry, HasImageProcessing, HasIrisControl, HasNoiseReduction2D,
+        HasNoiseReduction2DControl, HasNoiseReduction2DMode, HasNoiseReduction3D,
+        HasNoiseReduction3DControl, HasPanTilt, HasPictureEffect, HasPresets, HasZoom, PanTilt,
+        ShutterSpeedEntry, SupportsTcp,
+    },
+    command::{
+        ExposureCommand, ExposureMode, FocusZone, NoiseReduction2DMode, PanTiltDirection, Shutter,
+        ShutterInquiry,
+    },
+    raw,
+    types::{
+        NoiseReduction2DLevel, NoiseReduction3DLevel, PanSpeed, ShutterSpeed, SpeedLevel,
+        TiltSpeed, ZoomPosition,
+    },
     units::{Degrees, UnitInterval},
-    CompileTimeProfile, Error, ZoomDomain,
+    AffectedAxes, CameraId, CompileTimeProfile, ControlClass, Error, InquiryRoute,
+    PanTiltCoordinateConversion, Request, RetryClass, TimeoutClass, ZoomDomain,
 };
 
 use hardware::{
     close_session, observe, opted_in, report_restored, restore_and_report, Checks, Hw, HwLog,
-    MotionGuard,
+    MotionGuard, HANDLE_WAIT,
 };
+use hardware_rest::{sample_rest, DRIVE, REST_INTERVAL, REST_SAMPLES};
 
 const TCP_PORT: u16 = 5678;
 /// Delay between a settings write and its readback.
@@ -94,6 +138,12 @@ const PAN_OFFSET_RAW: i32 = 20;
 const RAW_ZOOM_TARGET: u16 = 0x0800;
 /// Normalized optical zoom target used by the absolute-zoom test.
 const NORMALIZED_ZOOM_TARGET: f32 = 0.25;
+/// Pause after the `OBSERVE` line so the operator can watch the tilt drive.
+const OBSERVE_PAUSE: Duration = Duration::from_secs(2);
+/// Largest raw pan change accepted across a tilt-only drive (encoder jitter).
+const PAN_TOLERANCE_RAW: i32 = 2;
+/// Bound for the protocol idle wait after each tilt STOP.
+const IDLE_WAIT: Duration = Duration::from_secs(2);
 
 // ---------------------------------------------------------------------------
 // Gating helpers
@@ -169,6 +219,9 @@ trait WireRowProfile:
     + HasFocus
     + HasPresets
     + HasImageProcessing
+    + HasExposure
+    + HasExposureMode
+    + HasIrisControl
     + HasDirectZoom
     + HasFocusZone
     + HasFocusZoneInquiry
@@ -189,6 +242,9 @@ impl<P> WireRowProfile for P where
         + HasFocus
         + HasPresets
         + HasImageProcessing
+        + HasExposure
+        + HasExposureMode
+        + HasIrisControl
         + HasDirectZoom
         + HasFocusZone
         + HasFocusZoneInquiry
@@ -814,10 +870,9 @@ fn absolute_pan_tilt_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Res
         return Ok(checks);
     }
 
-    #[allow(clippy::cast_precision_loss)]
-    let pan_degrees = target_pan as f32 / pan_units;
-    #[allow(clippy::cast_precision_loss)]
-    let tilt_degrees = target_tilt as f32 / tilt_units;
+    let conversion = PanTiltCoordinateConversion::for_profile::<P>();
+    let pan_degrees = conversion.pan_degrees(target_pan);
+    let tilt_degrees = conversion.tilt_degrees(target_tilt);
     let pan_speed = slowest_speed(&capabilities.pan_speed, slowest.to_pan_speed());
     let tilt_speed = slowest_speed(&capabilities.tilt_speed, slowest.to_tilt_speed());
     hw!(
@@ -872,4 +927,534 @@ fn absolute_pan_tilt_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Res
 /// value clamped into the profile's range.
 fn slowest_speed(range: &std::ops::RangeInclusive<u8>, level_speed: u8) -> u8 {
     level_speed.clamp(*range.start(), *range.end())
+}
+
+// ---------------------------------------------------------------------------
+// HW-05.6: shutter table round trip (settings)
+// ---------------------------------------------------------------------------
+
+/// Encodes `request` for `target` through the request's own wire encoder.
+fn encode<R: Request>(request: &R, target: CameraId) -> Result<Vec<u8>, Error> {
+    let mut buffer = vec![0; request.encoded_size()];
+    let written = request.write_into(target, &mut buffer)?;
+    buffer.truncate(written);
+    Ok(buffer)
+}
+
+/// Space-separated upper-case hex of `bytes`.
+fn hex(bytes: &[u8]) -> String {
+    bytes
+        .iter()
+        .map(|byte| format!("{byte:02X}"))
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The shutter position carried by a `00 00 0p 0q` inquiry payload.
+fn shutter_position(payload: &[u8]) -> Option<u8> {
+    match *payload {
+        [0, 0, high @ 0..=0x0F, low @ 0..=0x0F] => Some(high << 4 | low),
+        _ => None,
+    }
+}
+
+/// Raw-inquiry decoder that keeps the reply payload bytes verbatim.
+fn payload_bytes(payload: &[u8]) -> Result<Vec<u8>, Error> {
+    Ok(payload.to_vec())
+}
+
+/// The exposure mode in which the shutter is settable: the current mode when
+/// it already is (shutter priority or manual), otherwise shutter priority, or
+/// manual when the profile lacks shutter priority. Shutter priority leaves
+/// iris and gain automatic, so it changes the least.
+fn settable_shutter_mode(
+    capabilities: &Capabilities,
+    current: ExposureMode,
+) -> Option<ExposureMode> {
+    if matches!(current, ExposureMode::Shutter | ExposureMode::Manual) {
+        return Some(current);
+    }
+    [ExposureMode::Shutter, ExposureMode::Manual]
+        .into_iter()
+        .find(|mode| capabilities.supports_exposure_mode(*mode))
+}
+
+fn shutter_text(result: &Result<ShutterSpeed, Error>) -> String {
+    result.as_ref().map_or_else(
+        |_| "ERR".to_owned(),
+        |speed| format!("0x{:02X}", speed.value()),
+    )
+}
+
+fn mode_text(result: &Result<ExposureMode, Error>) -> String {
+    result
+        .as_ref()
+        .map_or_else(|_| "ERR".to_owned(), |mode| format!("{mode:?}"))
+}
+
+/// Sets one shutter code and reads it back through the typed inquiry and the
+/// raw inquiry of the same frame.
+struct ShutterProbe<'a, P: WireRowProfile> {
+    camera: &'a Camera<P>,
+    target: CameraId,
+    hw: Hw,
+    raw_inquiry: raw::Inquiry<Vec<u8>>,
+}
+
+impl<P: WireRowProfile> ShutterProbe<'_, P> {
+    /// Sets `entry`'s code (`81 01 04 4A 00 00 0p 0q FF`), waits, inquires it
+    /// back (`81 09 04 4A FF`) and checks that both the typed `ShutterSpeed`
+    /// and the raw reply position equal the code set.
+    fn round_trip(&self, checks: &mut Checks, label: &str, entry: &ShutterSpeedEntry) {
+        let hw = &self.hw;
+        let speed = ShutterSpeed::new(entry.value);
+        let set_frame = encode(&Shutter::SetSpeed(speed), self.target)
+            .map_or_else(|_| "ERR".to_owned(), |bytes| hex(&bytes));
+        hw!(
+            hw,
+            "shutter.{label}.target fraction={} code=0x{:02X} set_frame={set_frame}",
+            entry.exposure,
+            entry.value
+        );
+        let set = self.camera.exposure().shutter_direct(speed);
+        observe(hw, &format!("shutter.{label}.set"), &set);
+        sleep(SETTLE_DELAY);
+        let typed = self.camera.exposure().shutter();
+        observe(hw, &format!("shutter.{label}.typed"), &typed);
+        let payload = self.camera.inquire(&self.raw_inquiry);
+        observe(hw, &format!("shutter.{label}.raw"), &payload);
+        let raw_position = payload
+            .as_ref()
+            .ok()
+            .and_then(|payload| shutter_position(payload));
+        hw!(
+            hw,
+            "shutter.{label}.decode fraction={} set_code=0x{:02X} inquiry_frame={} \
+             reply_payload={} typed={} raw_position={}",
+            entry.exposure,
+            entry.value,
+            hex(self.raw_inquiry.bytes()),
+            payload
+                .as_ref()
+                .map_or_else(|_| "ERR".to_owned(), |payload| hex(payload)),
+            shutter_text(&typed),
+            raw_position.map_or_else(|| "NONE".to_owned(), |code| format!("0x{code:02X}"))
+        );
+        checks.check(hw, format!("shutter_{label}_set_ok"), set.is_ok());
+        checks.check(
+            hw,
+            format!("shutter_{label}_typed_readback_equals_set"),
+            matches!(&typed, Ok(readback) if *readback == speed),
+        );
+        checks.check(
+            hw,
+            format!("shutter_{label}_raw_position_equals_set"),
+            raw_position == Some(entry.value),
+        );
+    }
+}
+
+/// Restores the original shutter position and then the original exposure
+/// mode. Each dimension is marked dirty before its first change attempt, so
+/// `Drop` restores it on every exit path, including a panic or an early `?`.
+/// Each restore is attempted at most once. The shutter goes first, while the
+/// test's shutter-settable mode is still active.
+struct ShutterGuard<'a, P: WireRowProfile> {
+    camera: &'a Camera<P>,
+    hw: Hw,
+    original_mode: ExposureMode,
+    original_shutter: ShutterSpeed,
+    mode_dirty: Cell<bool>,
+    shutter_dirty: Cell<bool>,
+}
+
+impl<P: WireRowProfile> ShutterGuard<'_, P> {
+    /// Restores the shutter (`81 01 04 4A 00 00 0p 0q FF`), then the exposure
+    /// mode (`81 01 04 39 0m FF`).
+    fn restore(&self) {
+        let hw = &self.hw;
+        if self.shutter_dirty.replace(false) {
+            let result = self.camera.exposure().shutter_direct(self.original_shutter);
+            observe(hw, "restore.shutter.set", &result);
+            sleep(SETTLE_DELAY);
+        }
+        if self.mode_dirty.replace(false) {
+            let result = self.camera.exposure().set_mode(self.original_mode);
+            observe(hw, "restore.exposure_mode.set", &result);
+            sleep(SETTLE_DELAY);
+        }
+    }
+
+    /// Reads the mode and shutter back and prints the `RESTORED` line.
+    fn report_restored(&self) -> (Result<ExposureMode, Error>, Result<ShutterSpeed, Error>) {
+        let hw = &self.hw;
+        let mode = self.camera.exposure().mode();
+        let shutter = self.camera.exposure().shutter();
+        observe(hw, "restored.exposure_mode", &mode);
+        observe(hw, "restored.shutter", &shutter);
+        hw!(
+            hw,
+            "RESTORED exposure={} shutter={}",
+            mode_text(&mode),
+            shutter_text(&shutter)
+        );
+        (mode, shutter)
+    }
+}
+
+impl<P: WireRowProfile> Drop for ShutterGuard<'_, P> {
+    fn drop(&mut self) {
+        if self.mode_dirty.get() || self.shutter_dirty.get() {
+            hw!(self.hw, "guard.begin shutter");
+            self.restore();
+            let _ = self.report_restored();
+            hw!(self.hw, "guard.end shutter");
+        }
+    }
+}
+
+/// Reads the exposure mode (`81 09 04 39 FF`), shutter (`81 09 04 4A FF`),
+/// iris and gain; selects a shutter-settable exposure mode; then sets and
+/// inquires back one step from the current shutter code and the profile
+/// table's minimum, middle and maximum codes
+/// (`81 01 04 4A 00 00 0p 0q FF`). Each readback must equal the code set,
+/// both through the typed inquiry and as the raw `00 00 0p 0q` reply payload
+/// of the same inquiry frame. Restores the shutter and then the mode, and
+/// asserts both equal the originals.
+#[test]
+#[ignore]
+fn hw05_shutter_round_trip() {
+    let hw = Hw::new();
+    let Some(ip) = settings_gate(&hw, "hw05_shutter_round_trip") else {
+        return;
+    };
+    let selected = selected_profile(&hw);
+    run_for_profile!(selected, shutter_round_trip, &hw, &ip);
+}
+
+fn shutter_round_trip<P: WireRowProfile>(hw: &Hw, ip: &str) {
+    let session = open_session::<P>(hw, ip);
+    let outcome = shutter_body(session.camera(), session.target(), hw);
+    close_session(hw, session);
+    outcome.expect("shutter round trip").assert_all();
+}
+
+fn shutter_body<P: WireRowProfile>(
+    camera: &Camera<P>,
+    target: CameraId,
+    hw: &Hw,
+) -> Result<Checks, Error> {
+    let mut checks = Checks::default();
+    let capabilities = camera.capabilities();
+    let table = &capabilities.shutter_speeds;
+    for entry in table {
+        hw!(
+            hw,
+            "profile.shutter_entry code=0x{:02X} fraction={}",
+            entry.value,
+            entry.exposure
+        );
+    }
+    checks.check(
+        hw,
+        "profile_shutter_table_has_three_entries",
+        table.len() >= 3,
+    );
+
+    let original_mode = camera.exposure().mode();
+    observe(hw, "original.exposure_mode", &original_mode);
+    let original_shutter = camera.exposure().shutter();
+    observe(hw, "original.shutter", &original_shutter);
+    observe(hw, "original.iris", &camera.exposure().iris());
+    observe(hw, "original.gain", &camera.exposure().gain());
+    checks.check(hw, "original_exposure_mode_readable", original_mode.is_ok());
+    checks.check(hw, "original_shutter_readable", original_shutter.is_ok());
+    let (Ok(original_mode), Ok(original_shutter)) = (original_mode, original_shutter) else {
+        return Ok(checks);
+    };
+    if table.len() < 3 {
+        return Ok(checks);
+    }
+    let Some(test_mode) = settable_shutter_mode(capabilities, original_mode) else {
+        hw!(
+            hw,
+            "SKIP_MODE no shutter-settable exposure mode; nothing changed"
+        );
+        checks.check(hw, "shutter_settable_mode_available", false);
+        return Ok(checks);
+    };
+
+    // The raw inquiry sends the typed inquiry's own frame and keeps the reply
+    // payload, so each readback is checked both decoded and as wire bytes.
+    let probe = ShutterProbe {
+        camera,
+        target,
+        hw: *hw,
+        raw_inquiry: raw::Inquiry::from_fn(
+            encode(&ShutterInquiry, target)?,
+            InquiryRoute::RAW,
+            payload_bytes,
+            TimeoutClass::Inquiry,
+            RetryClass::Inquiry,
+            ControlClass::Normal,
+        )?,
+    };
+
+    let guard = ShutterGuard {
+        camera,
+        hw: *hw,
+        original_mode,
+        original_shutter,
+        mode_dirty: Cell::new(false),
+        shutter_dirty: Cell::new(false),
+    };
+
+    let mut mode_ready = true;
+    if test_mode != original_mode {
+        hw!(
+            hw,
+            "exposure_mode.target={test_mode:?} frame={}",
+            hex(&encode(&ExposureCommand::new(test_mode), target)?)
+        );
+        guard.mode_dirty.set(true);
+        let set = camera.exposure().set_mode(test_mode);
+        observe(hw, "exposure_mode.set", &set);
+        sleep(SETTLE_DELAY);
+        let readback = camera.exposure().mode();
+        observe(hw, "exposure_mode.after_set", &readback);
+        mode_ready = matches!(&readback, Ok(mode) if *mode == test_mode);
+        checks.check(hw, "exposure_mode_readback_equals_target", mode_ready);
+    }
+
+    if mode_ready {
+        let last = table.len() - 1;
+        let original_index = table
+            .iter()
+            .position(|entry| entry.value == original_shutter.value());
+        hw!(hw, "shutter.original_table_index={original_index:?}");
+        // One step from the current code (up, or down from the maximum), then
+        // the table's minimum, middle and maximum. Consecutive targets always
+        // differ, so every readback proves a change.
+        let one_step = original_index.map(|index| {
+            let neighbour = if index < last { index + 1 } else { index - 1 };
+            ("one_step", neighbour)
+        });
+        let steps = one_step.into_iter().chain([
+            ("table_min", 0),
+            ("table_middle", last / 2),
+            ("table_max", last),
+        ]);
+        guard.shutter_dirty.set(true);
+        for (label, index) in steps {
+            probe.round_trip(&mut checks, label, &table[index]);
+        }
+    }
+
+    guard.restore();
+    let (mode, shutter) = guard.report_restored();
+    checks.check(
+        hw,
+        "restored_exposure_mode_equals_original",
+        matches!(&mode, Ok(mode) if *mode == original_mode),
+    );
+    let restored_shutter = matches!(&shutter, Ok(speed) if *speed == original_shutter);
+    if matches!(original_mode, ExposureMode::Shutter | ExposureMode::Manual) {
+        checks.check(hw, "restored_shutter_equals_original", restored_shutter);
+    } else {
+        // An automatic mode owns the shutter again after the mode restore, so
+        // the reading is recorded, not asserted.
+        hw!(
+            hw,
+            "observation.restored_shutter_equals_original={restored_shutter} \
+             (automatic mode {original_mode:?} owns the shutter)"
+        );
+    }
+    Ok(checks)
+}
+
+// ---------------------------------------------------------------------------
+// HW-05.7: tilt polarity (motion)
+// ---------------------------------------------------------------------------
+
+/// The position at rest after one tilt drive.
+struct TiltDrive {
+    after: PanTiltPosition,
+    rest_stable: bool,
+}
+
+/// Announces the drive, pauses for the operator, drives `direction` at pan
+/// speed 1 and tilt speed 1 for [`DRIVE`], sends STOP, waits for rest and
+/// reads the position. An error after the drive was submitted returns through
+/// `?` into the caller's [`MotionGuard`].
+fn tilt_drive<P: WireRowProfile>(
+    camera: &Camera<P>,
+    hw: &Hw,
+    label: &str,
+    direction: PanTiltDirection,
+) -> Result<TiltDrive, Error> {
+    let pan_speed = PanSpeed::new(1)?;
+    let tilt_speed = TiltSpeed::new(1)?;
+    hw!(hw, "OBSERVE: camera will tilt {label} briefly");
+    sleep(OBSERVE_PAUSE);
+
+    let drive_started = Instant::now();
+    let mut drive = camera
+        .pan_tilt()
+        .move_direction(direction, pan_speed, tilt_speed)?;
+    hw!(hw, "tilt.{label}.submitted id={:?}", drive.id());
+    sleep(DRIVE);
+    let mut stop = camera.pan_tilt().stop()?;
+    hw!(
+        hw,
+        "tilt.{label}.drive_wall_ms_before_stop_submitted={}",
+        drive_started.elapsed().as_millis()
+    );
+    let stop_result = stop.applied();
+    observe(hw, &format!("tilt.{label}.stop.applied"), &stop_result);
+    let drive_result = drive.applied_with_timeout(HANDLE_WAIT);
+    observe(hw, &format!("tilt.{label}.applied"), &drive_result);
+    stop_result?;
+
+    let idle = camera
+        .motion()
+        .wait_until_idle(IdleWait::new(AffectedAxes::PAN_TILT, IDLE_WAIT));
+    observe(hw, &format!("tilt.{label}.wait_until_idle"), &idle);
+    let rest_stable = sample_rest(
+        hw,
+        &format!("tilt.{label}"),
+        REST_SAMPLES,
+        REST_INTERVAL,
+        || camera.pan_tilt().position(),
+    );
+    let after = camera.pan_tilt().position();
+    observe(hw, &format!("tilt.{label}.after"), &after);
+    Ok(TiltDrive {
+        after: after?,
+        rest_stable,
+    })
+}
+
+/// Prints one drive's raw and degree positions and records its checks: the
+/// raw and degree tilt increase for an `up` drive and decrease otherwise, and
+/// pan is unchanged within [`PAN_TOLERANCE_RAW`].
+fn record_tilt<P: WireRowProfile>(
+    hw: &Hw,
+    checks: &mut Checks,
+    label: &str,
+    up: bool,
+    before: PanTiltPosition,
+    drive: &TiltDrive,
+) {
+    let conversion = PanTiltCoordinateConversion::for_profile::<P>();
+    let after = drive.after;
+    let tilt_delta = after.tilt - before.tilt;
+    let pan_delta = after.pan - before.pan;
+    let before_deg = conversion.to_degrees(before);
+    let after_deg = conversion.to_degrees(after);
+    let tilt_delta_deg = after_deg.tilt.0 - before_deg.tilt.0;
+    hw!(
+        hw,
+        "observation.tilt.{label} before_raw=({},{}) after_raw=({},{}) delta_raw=(pan {pan_delta}, \
+         tilt {tilt_delta}) before_deg=({:.3},{:.3}) after_deg=({:.3},{:.3}) \
+         tilt_delta_deg={tilt_delta_deg:.3}",
+        before.pan,
+        before.tilt,
+        after.pan,
+        after.tilt,
+        before_deg.pan.0,
+        before_deg.tilt.0,
+        after_deg.pan.0,
+        after_deg.tilt.0
+    );
+    checks.check(hw, format!("tilt_{label}_rest_stable"), drive.rest_stable);
+    checks.check(
+        hw,
+        format!("tilt_{label}_raw_delta_sign"),
+        if up { tilt_delta > 0 } else { tilt_delta < 0 },
+    );
+    checks.check(
+        hw,
+        format!("tilt_{label}_degree_delta_sign"),
+        if up {
+            tilt_delta_deg > 0.0
+        } else {
+            tilt_delta_deg < 0.0
+        },
+    );
+    checks.check(
+        hw,
+        format!("tilt_{label}_pan_unchanged"),
+        pan_delta.abs() <= PAN_TOLERANCE_RAW,
+    );
+}
+
+/// Drives `PanTiltDirection::Up` then `Down` for [`DRIVE`] each at pan speed 1
+/// and tilt speed 1 (`81 01 06 01 01 01 03 01/02 FF`), reading the position
+/// (`81 09 06 12 FF`) at rest before and after each. Up must increase the raw
+/// and degree tilt, down must decrease them, and pan must not change. Whether
+/// up is physically up is confirmed by the operator.
+#[test]
+#[ignore]
+fn hw05_tilt_polarity() {
+    let hw = Hw::new();
+    let Some(ip) = motion_gate(&hw, "hw05_tilt_polarity") else {
+        return;
+    };
+    let selected = selected_profile(&hw);
+    run_for_profile!(selected, tilt_polarity, &hw, &ip);
+}
+
+fn tilt_polarity<P: WireRowProfile>(hw: &Hw, ip: &str) {
+    let session = open_session::<P>(hw, ip);
+    let outcome = tilt_polarity_body(session.camera(), hw);
+    close_session(hw, session);
+    outcome.expect("tilt polarity").assert_all();
+}
+
+fn tilt_polarity_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Checks, Error> {
+    let mut checks = Checks::default();
+    let recall_attempted = Cell::new(false);
+
+    let p0 = camera.pan_tilt().position();
+    observe(hw, "pan_tilt.p0", &p0);
+    let p0 = p0?;
+
+    let capabilities = camera.capabilities();
+    hw!(
+        hw,
+        "profile.pan_tilt tilt_range={:?} tilt_degrees_to_units={} pan_tolerance_raw={PAN_TOLERANCE_RAW}",
+        capabilities.tilt_range,
+        <P as PanTilt>::TILT_DEGREES_TO_UNITS
+    );
+    // An axis at a limit cannot show a change; never move it there.
+    if p0.tilt <= *capabilities.tilt_range.start() || p0.tilt >= *capabilities.tilt_range.end() {
+        hw!(
+            hw,
+            "SKIP_RANGE tilt {} is at a limit of {:?}; no motion issued",
+            p0.tilt,
+            capabilities.tilt_range
+        );
+        report_restored(camera, hw);
+        checks.check(hw, "tilt_start_inside_range", false);
+        return Ok(checks);
+    }
+
+    let _guard = MotionGuard {
+        camera,
+        hw: *hw,
+        recall_attempted: &recall_attempted,
+    };
+
+    let up = tilt_drive(camera, hw, "UP", PanTiltDirection::Up)?;
+    record_tilt::<P>(hw, &mut checks, "UP", true, p0, &up);
+    let down = tilt_drive(camera, hw, "DOWN", PanTiltDirection::Down)?;
+    record_tilt::<P>(hw, &mut checks, "DOWN", false, up.after, &down);
+
+    restore_and_report(camera, hw, &recall_attempted);
+    hw!(
+        hw,
+        "OPERATOR: confirm the camera physically tilted up during the UP drive and down during \
+         the DOWN drive (positive tilt is up)"
+    );
+    Ok(checks)
 }

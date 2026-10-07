@@ -1,5 +1,6 @@
-//! Physical-rest sampling shared by the hardware motion tests
-//! (`hardware_motion_test` and `hardware_concurrent_test`).
+//! Continuous-drive timing and physical-rest sampling shared by the hardware
+//! tests that drive pan/tilt or zoom continuously (`hardware_motion_test`,
+//! `hardware_concurrent_test` and `hardware_wire_rows_test`).
 //!
 //! Include after `hardware.rs`:
 //! `#[path = "common/hardware_rest.rs"] mod hardware_rest;`.
@@ -9,6 +10,10 @@ use std::{fmt, thread::sleep, time::Duration};
 use grafton_visca::Error;
 
 use crate::hardware::{observe, HwLog};
+
+/// How long a continuous drive runs before its STOP is sent; with the STOP's
+/// own latency this keeps every drive within about 300 ms of wall time.
+pub const DRIVE: Duration = Duration::from_millis(250);
 
 /// Number of samples and spacing used for the physical-rest observation.
 pub const REST_SAMPLES: usize = 5;

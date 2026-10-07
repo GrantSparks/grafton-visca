@@ -157,15 +157,13 @@ use hardware::{
     close_session, observe, observe_error, opted_in, report_restored, restore_and_report, Checks,
     Hw, HwLog, MotionGuard, HANDLE_WAIT,
 };
-use hardware_rest::{sample_rest, REST_INTERVAL, REST_SAMPLES};
+use hardware_rest::{sample_rest, DRIVE, REST_INTERVAL, REST_SAMPLES};
 
 const TCP_PORT: u16 = 5678;
 const UDP_PORT: u16 = 1259;
 
 /// Inquiry-set rounds each camera runs in the inquiry scenarios.
 const ROUNDS: usize = 20;
-/// How long a drive runs before its STOP is sent.
-const DRIVE: Duration = Duration::from_millis(250);
 /// Upper bound on the wall time from a drive's submission to its STOP's.
 const STOP_BOUND: Duration = Duration::from_millis(300);
 /// Bound for the protocol idle wait after each STOP.

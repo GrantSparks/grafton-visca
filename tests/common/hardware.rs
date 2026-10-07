@@ -11,6 +11,7 @@
 //! prefixes observations (for example `cam=<ip>|`) implements [`HwLog`].
 
 use std::{
+    borrow::Cow,
     cell::Cell,
     env, fmt,
     time::{Duration, Instant},
@@ -99,10 +100,11 @@ pub fn opted_in(hw: &impl HwLog, test: &str, flag: &str) -> bool {
 /// Named boolean checks collected during a test and asserted only after the
 /// camera has been restored and the session closed.
 #[derive(Debug, Default)]
-pub struct Checks(Vec<(&'static str, bool)>);
+pub struct Checks(Vec<(Cow<'static, str>, bool)>);
 
 impl Checks {
-    pub fn check(&mut self, hw: &impl HwLog, name: &'static str, ok: bool) {
+    pub fn check(&mut self, hw: &impl HwLog, name: impl Into<Cow<'static, str>>, ok: bool) {
+        let name = name.into();
         hw!(hw, "check.{name}={ok}");
         self.0.push((name, ok));
     }
@@ -112,7 +114,7 @@ impl Checks {
             .0
             .iter()
             .filter(|(_, ok)| !ok)
-            .map(|(name, _)| *name)
+            .map(|(name, _)| name.as_ref())
             .collect();
         assert!(failed.is_empty(), "failed checks: {failed:?}");
     }

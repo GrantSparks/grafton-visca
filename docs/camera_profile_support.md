@@ -381,14 +381,16 @@ shutter position is refused for them; the raw command path remains.
   `pq = Shutter Position`, not a code-to-time table. `PtzOpticsG2`,
   `PtzOpticsG3` and `PtzOptics30X` keep the table they have always shipped
   (`01` 1/30 s through `11` 1/10000 s) pending a shutter set/inquire round trip
-  on the PTZOptics G2 bench.
+  on the PTZOptics G2 bench (`hw05_shutter_round_trip` in
+  `tests/hardware_wire_rows_test.rs`).
 - **Pan/tilt direction of PTZOptics, FR7 and BRC-H900.** Degrees are positive
   right and positive up for every profile. R8 (EVI-H100) documents increasing
   raw pan as right and increasing raw tilt as up, and R12/R21 (BRC-300, Nearus)
   document increasing raw pan as left and increasing raw tilt as up. The
   PTZOptics, FR7 and BRC-H900 sources give degree ranges but no raw direction,
   so those profiles follow the R8 convention unverified; PTZOptics G2 tilt
-  polarity is pending bench verification. `tests/pan_tilt_polarity.rs` pins
+  polarity is pending bench verification (`hw05_tilt_polarity` in
+  `tests/hardware_wire_rows_test.rs`). `tests/pan_tilt_polarity.rs` pins
   the encoded direction of +45° for every built-in profile.
 
 The shutter entries are gaps in the evidence, not statements that the cameras
