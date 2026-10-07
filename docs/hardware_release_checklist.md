@@ -91,14 +91,13 @@ drifted.
 
 ## Stable-release sign-off
 
-Before a stable hardware pass, finalize the Rust sources, Cargo manifests,
-and dependency metadata at the commit recorded above. HW-01, HW-04 and HW-05
+For a stable release, HW-01, HW-04 and HW-05
 must be `Pass`, with exact firmware and transcript or capture evidence; HW-02
 and HW-03 must be `Pass` or an accepted known limitation as described above.
-Tests, documentation, workflows, and release records may change afterward, but
-shipped Rust sources and Cargo manifests may not. Release automation compares
-those paths between `Hardware-tested commit:` and release `HEAD`; a difference
-requires another targeted pass.
+The recorded commit identifies the code the bench exercised; later changes do
+not invalidate the pass by themselves. Run another targeted pass when a change
+alters wire encoding, transport, correlation, or motion behaviour on a verified
+path.
 
 For an RC, leave the rows and provenance fields `Pending` when hardware has not
 been run. Its release notes must state that no physical hardware validation has

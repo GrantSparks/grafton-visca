@@ -67,13 +67,11 @@ exact firmware and transcript or capture link for each passed scenario, plus
 the operator and date for the pass. A neighboring model, firmware, or
 software-only test does not substitute for the representative hardware pass.
 
-Before that stable hardware pass, finalize the Rust sources, Cargo manifests,
-and dependency metadata at one commit. Record its full SHA as
-`Hardware-tested commit:` in the checklist. Tests, documentation, workflows,
-and release records may change afterward, but shipped Rust sources and Cargo
-manifests may not. The publication workflow compares those source and manifest
-paths between the recorded bench commit and the release `HEAD`; any difference
-requires another targeted hardware pass.
+Record the full SHA the bench ran as `Hardware-tested commit:` in the
+checklist. It identifies the code the pass exercised; later changes do not
+invalidate it by themselves. Run another targeted hardware pass when a change
+alters wire encoding, transport, correlation, or motion behaviour on a verified
+path.
 
 Release tags must not carry semver build metadata: `v2.0.0+meta` has exactly
 the same precedence as `v2.0.0`, so the validator refuses metadata-bearing tags
