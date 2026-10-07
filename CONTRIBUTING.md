@@ -353,6 +353,30 @@ bash .github/scripts/miri-tests.sh
 cargo test -- --nocapture
 ```
 
+### Test time budget
+
+The whole feature matrix (`test`, `clippy` and `doc` modes) should finish in
+under ten minutes of wall time on a many-core machine when run in parallel:
+
+```bash
+# N jobs at a time, each in its own target directory under target/matrix;
+# per-job logs and a summary land in target/matrix/logs/<mode>/.
+bash .github/scripts/test-all-features.sh --jobs 12 test
+
+# The 15 slowest tests of one shape (pinned nightly --report-time; timings only)
+bash .github/scripts/test-all-features.sh slowest 15 --all-features
+```
+
+- No single test should need more than a few seconds of wall time; the
+  parallel summary lists any test libtest reports as running for over 60 s.
+- Wait on deadlines in virtual time where the owner allows it: write the
+  scenario as `facade_matrix! { paused: ... }` so its Tokio case runs on paused
+  time. The blocking and smol owners read the real clock.
+- A heavy test whose behaviour cannot differ by feature configuration runs in
+  one designated leg: list it in `.github/scripts/engine-model-tests.sh` only
+  with evidence that no `cfg(feature = ...)` reaches its code path. The matrix
+  fails if a listed test runs anywhere else, or not exactly once in its leg.
+
 ### Built-in wire golden
 
 `tests/fixtures/issue_715_wire_golden.txt` pins the encoded bytes of every

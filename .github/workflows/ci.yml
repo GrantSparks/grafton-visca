@@ -98,7 +98,9 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
           shared-key: matrix-${{ matrix.name }}
-      - run: cargo test ${{ matrix.command }}
+      # The script runs the leg's `cargo test` and enforces where the
+      # feature-independent engine model tests run (`engine-model-tests.sh`).
+      - run: bash .github/scripts/test-all-features.sh test-leg "${{ matrix.name }}"
       - run: cargo clippy ${{ matrix.command }} -- -D warnings
       - if: matrix.doc
         env:
