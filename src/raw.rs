@@ -378,7 +378,7 @@ fn reject_owner_only_at_boundary(bytes: &[u8], start: usize) -> Result<()> {
     let remaining = &bytes[start..];
     if remaining.len() >= 3
         && (remaining[0] & 0xf0) == 0x80
-        && (remaining[1] & 0xf0) == 0x20
+        && (remaining[1] & 0xf0) == system::COMMAND_CANCEL
         && remaining[2] == VISCA_TERMINATOR
     {
         return Err(Error::InvalidRequest(
@@ -1282,6 +1282,32 @@ mod tests {
                 .is_ok(),
                 "legitimate custom frame {frame:x?} must stay admissible"
             );
+        }
+    }
+
+    /// #810: raw admission and the Command Cancel encoder read the one
+    /// `system::COMMAND_CANCEL` opcode, so every frame the owner's encoder
+    /// emits for any camera and socket is exactly a frame admission refuses.
+    #[test]
+    fn every_encoded_command_cancel_is_refused_by_raw_admission() {
+        use crate::{
+            command::{encode::WireEncode, system::CommandCancelCommand},
+            ViscaSocket,
+        };
+
+        for id in 1..=7 {
+            let camera = CameraId::new(id).expect("individual camera");
+            for socket in [ViscaSocket::S1, ViscaSocket::S2] {
+                let mut frame = [0_u8; 8];
+                let len =
+                    WireEncode::write_into(&CommandCancelCommand::new(socket), camera, &mut frame)
+                        .expect("cancel frame fits");
+                let frame = &frame[..len];
+                assert!(
+                    reject_owner_only_primitive(frame).is_err(),
+                    "encoded cancel {frame:x?} must be refused by raw admission"
+                );
+            }
         }
     }
 

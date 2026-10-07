@@ -54,13 +54,11 @@ impl ViscaSocket {
 
     /// Convert to VISCA cancel command byte (0x21 or 0x22).
     ///
-    /// This is used specifically for command cancellation.
+    /// This is used specifically for command cancellation: the Command Cancel
+    /// opcode nibble with this socket's protocol byte in the low nibble.
     #[must_use]
     pub fn as_cancel_byte(self) -> u8 {
-        match self {
-            ViscaSocket::S1 => 0x21,
-            ViscaSocket::S2 => 0x22,
-        }
+        crate::command::bytes::constants::system::COMMAND_CANCEL | self.as_protocol_byte()
     }
 
     /// Create from zero-based index (0 or 1).

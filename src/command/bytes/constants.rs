@@ -589,6 +589,10 @@ pub mod system {
     /// I/F Clear body; the broadcast frame is `88 01 00 01 FF`.
     pub const INTERFACE_CLEAR: [u8; 3] = [COMMAND, 0x00, 0x01];
 
+    /// Command Cancel opcode nibble: the frame is `8x 2y FF`, whose one body
+    /// byte carries the socket `y` in its low nibble.
+    pub const COMMAND_CANCEL: u8 = 0x20;
+
     /// PTZOptics settings save.
     pub const SETTINGS_SAVE: [u8; 4] = [COMMAND, 0x04, 0xA5, 0x10];
 }
