@@ -19,6 +19,8 @@ mod blocking;
 mod blocking_transport;
 #[cfg(any(feature = "async", feature = "blocking"))]
 mod boundary;
+#[cfg(feature = "blocking")]
+mod clock;
 #[cfg(any(feature = "async", feature = "blocking"))]
 mod handle;
 #[cfg(any(feature = "async", feature = "blocking"))]
@@ -33,6 +35,8 @@ pub(crate) use async_actor::*;
 #[cfg(feature = "blocking")]
 #[allow(unused_imports)]
 pub(crate) use blocking::*;
+#[cfg(feature = "blocking")]
+pub(crate) use clock::Clock;
 
 #[cfg(feature = "async")]
 pub(crate) use adapter::AsyncTransportAdapter;

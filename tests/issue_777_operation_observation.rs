@@ -158,6 +158,8 @@ macro_rules! running_zoom {
 }
 
 facade_matrix! {
+    paused:
+
     /// A timed-out wait releases only itself: the handle observes the later
     /// outcome and then answers repeat waits from its cache.
     fn a_timed_out_wait_keeps_the_handle_observing() {

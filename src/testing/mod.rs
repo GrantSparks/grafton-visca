@@ -21,6 +21,11 @@ pub mod camera_simulator;
 #[cfg(all(feature = "runtime-tokio", any(test, feature = "test-utils")))]
 pub use camera_simulator::ViscaCameraSimulator;
 
+/// The virtual owner clock: test-only time for blocking owners, the testkit's
+/// async executor wrapper, and the crate's own owner tests.
+#[cfg(any(feature = "test-utils", all(test, feature = "blocking")))]
+pub(crate) mod manual_clock;
+
 /// Testing toolkit for deterministic and scriptable transport testing.
 ///
 /// This module provides utilities for writing deterministic tests that don't rely

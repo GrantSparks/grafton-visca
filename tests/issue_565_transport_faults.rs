@@ -132,6 +132,8 @@ fn receive_fault_on_first_write() -> FakeCamera {
 }
 
 facade_matrix! {
+    paused:
+
     /// Issue #671: a raw receive fault while a successfully sent command awaits
     /// its ACK leaves that one command's acceptance uncertain, but by default it
     /// does not poison the session. The command is never replayed (a raw

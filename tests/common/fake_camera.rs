@@ -28,6 +28,14 @@
 //! until a reply arrives, leaving timeouts to the owner. Every blocking fake
 //! in the suite shares this one model, so the owner's pump timing is the same
 //! in every test for the same scripted silence.
+//!
+//! # Virtual time
+//!
+//! With `test-utils`, a blocking wire built with [`BlockingWire::on_clock`]
+//! waits for replies on a `ManualClock` instead, and
+//! [`FakeCamera::wait_for_writes_on`] / [`FakeCamera::wait_for_reads_on`]
+//! wait on it too, so a blocking session opened on that clock never blocks
+//! in real time.
 
 #![allow(dead_code)]
 
@@ -40,6 +48,8 @@ use std::{
     time::Duration,
 };
 
+#[cfg(feature = "test-utils")]
+use grafton_visca::testing::testkit::ManualClock;
 #[cfg(feature = "async")]
 use grafton_visca::Executor;
 use grafton_visca::{
@@ -276,6 +286,30 @@ impl FakeCamera {
         drop(self.wait_until(&format!("{count} reads"), |state| state.reads >= count));
     }
 
+    /// [`Self::wait_for_writes`] on `clock`'s virtual time.
+    ///
+    /// # Panics
+    ///
+    /// Panics when [`WAIT_BUDGET`] of virtual time elapses first.
+    #[cfg(feature = "test-utils")]
+    pub fn wait_for_writes_on(&self, clock: &ManualClock, count: usize) -> Vec<Vec<u8>> {
+        self.wait_on(clock, &format!("{count} writes"), |state| {
+            (state.writes.len() >= count).then(|| state.writes.clone())
+        })
+    }
+
+    /// [`Self::wait_for_reads`] on `clock`'s virtual time.
+    ///
+    /// # Panics
+    ///
+    /// Panics when [`WAIT_BUDGET`] of virtual time elapses first.
+    #[cfg(feature = "test-utils")]
+    pub fn wait_for_reads_on(&self, clock: &ManualClock, count: usize) {
+        self.wait_on(clock, &format!("{count} reads"), |state| {
+            (state.reads >= count).then_some(())
+        });
+    }
+
     /// Wait on `executor` until at least `count` writes have been made, then
     /// return them.
     ///
@@ -369,6 +403,18 @@ impl FakeCamera {
         state
     }
 
+    #[cfg(feature = "test-utils")]
+    fn wait_on<T>(
+        &self,
+        clock: &ManualClock,
+        what: &str,
+        mut done: impl FnMut(&State) -> Option<T>,
+    ) -> T {
+        clock
+            .wait_until(clock.now() + WAIT_BUDGET, || done(&self.state()))
+            .unwrap_or_else(|| panic!("timed out after {WAIT_BUDGET:?} waiting for {what}"))
+    }
+
     #[cfg(feature = "async")]
     async fn poll_until<E: Executor>(
         &self,
@@ -392,6 +438,9 @@ impl FakeCamera {
 #[derive(Debug)]
 struct Wire {
     camera: FakeCamera,
+    /// The clock a blocking read waits on; real time without one.
+    #[cfg(feature = "test-utils")]
+    clock: Option<ManualClock>,
     config: TransportConfig,
     semantics: SendSemantics,
     addressing: Option<AddressingMode>,
@@ -403,11 +452,35 @@ impl Wire {
     fn new(camera: FakeCamera) -> Self {
         Self {
             camera,
+            #[cfg(feature = "test-utils")]
+            clock: None,
             config: TransportConfig::default(),
             semantics: SendSemantics::Datagram,
             addressing: None,
             kind: None,
             bus: None,
+        }
+    }
+}
+
+#[cfg(feature = "blocking")]
+impl Wire {
+    /// A blocking read: a poll for a zero `timeout`, otherwise a wait of up
+    /// to `timeout` on the wire's clock, or in real time without one.
+    fn read_within(&self, timeout: Duration) -> Option<Read> {
+        let reads = self.camera.begin_receive();
+        if timeout.is_zero() {
+            return reads.try_recv().ok();
+        }
+        #[cfg(feature = "test-utils")]
+        if let Some(clock) = &self.clock {
+            if let Some(deadline) = clock.now().checked_add(timeout) {
+                return clock.wait_until(deadline, || reads.try_recv().ok());
+            }
+        }
+        match std::time::Instant::now().checked_add(timeout) {
+            Some(deadline) => reads.recv_deadline(deadline).ok(),
+            None => reads.recv().ok(),
         }
     }
 }
@@ -489,6 +562,15 @@ pub struct BlockingWire(Wire);
 
 wire_builders!(BlockingWire);
 
+#[cfg(feature = "test-utils")]
+impl BlockingWire {
+    /// Wait for replies on `clock`'s virtual time.
+    pub fn on_clock(mut self, clock: &ManualClock) -> Self {
+        self.0.clock = Some(clock.clone());
+        self
+    }
+}
+
 #[cfg(feature = "blocking")]
 impl grafton_visca::transport::BlockingTransport for BlockingWire {
     fn send_with_timeout(
@@ -505,16 +587,7 @@ impl grafton_visca::transport::BlockingTransport for BlockingWire {
         dst: &mut [u8],
         timeout: Duration,
     ) -> Result<ReceiveOutcome, Error> {
-        let reads = self.0.camera.begin_receive();
-        let read = if timeout.is_zero() {
-            reads.try_recv().ok()
-        } else {
-            match std::time::Instant::now().checked_add(timeout) {
-                Some(deadline) => reads.recv_deadline(deadline).ok(),
-                None => reads.recv().ok(),
-            }
-        };
-        match read {
+        match self.0.read_within(timeout) {
             Some(read) => self.0.camera.on_read(read, dst),
             None => Err(Error::io_timeout()),
         }

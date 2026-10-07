@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `test-utils`: `testkit::ManualClock`, a virtual clock for owner deadline tests. A
+  blocking session opened with `ManualClock::open_blocking_session` or
+  `open_blocking_camera_session`, and an async session run on the new
+  `testkit::ManualClockExecutor`, measure every deadline on virtual time, which
+  moves on `advance` or, as Tokio's paused clock does, once every participant
+  (`ManualClock::enter`, `ManualClock::spawn`, or a task on the executor) is
+  blocked on the clock. `ClockParticipant` is the participation guard.
+
 ## [2.0.0-rc.3] - 2026-10-07
 
 Hardware status: checklist rows HW-01, HW-04 and HW-05 passed on a PTZOptics
