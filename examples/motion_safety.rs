@@ -14,7 +14,8 @@
 //! shows that rejection but does not fail on it; in manual focus a focus STOP
 //! failure is treated as an error like the other axes. With manual focus all
 //! three axes are `Applied`.
-//! `is_moving`/`wait_until_idle` observe *only* the axes they are given; they never settle a submitted operation.
+//! `is_moving`/`wait_until_idle` observe *only* the axes they are given; they
+//! never settle a submitted operation.
 //!
 //! This example only observes and then stops motion. Set `VISCA_CAMERA_ADDR` or
 //! pass an address on the command line.

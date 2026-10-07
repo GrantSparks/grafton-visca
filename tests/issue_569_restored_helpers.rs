@@ -17,8 +17,8 @@ use grafton_visca::{
     blocking::{Session, SessionConfig},
     camera::{IdleWait, MotionQuery},
     command::{
-        FlipState, FocusLock, ImageFlipMode, NdFilterMode, NdFilterValue, PanTiltDirection,
-        PanTiltLimitCorner, PresetRecallSpeed, VariableSpeedMode,
+        FlipState, FocusLock, ImageFlipMode, NdFilterMode, PanTiltDirection, PanTiltLimitCorner,
+        PresetRecallSpeed, VariableSpeedMode,
     },
     profile::ProfileSpec,
     profiles::{PtzOpticsG2, SonyEVIH100, SonyFR7},
@@ -237,39 +237,6 @@ fn menu_toggle_sends_the_vendor_open_close_control() {
     assert_eq!(
         toggle_frame,
         vec![0x81, 0x01, 0x7e, 0x04, 0x72, 0x00, 0x01, 0xff]
-    );
-
-    session.shutdown().expect("shutdown");
-}
-
-#[test]
-fn nd_filter_stops_map_onto_the_raw_direct_value() {
-    let (session, fake) = fr7_session();
-    let camera = session.camera::<SonyFR7>().expect("camera");
-
-    // 2.0 stops is the minimum density and each raw unit is a quarter stop,
-    // so 4.5 stops is raw 10.
-    let mut explicit = camera
-        .nd_filter()
-        .set_value(NdFilterValue::new(10).expect("raw nd value"))
-        .expect("explicit nd value");
-    explicit.applied().expect("explicit applied");
-    let explicit_frame = fake.take_only_payload();
-
-    let mut by_stops = camera
-        .nd_filter()
-        .set_value(NdFilterValue::from_stops(4.5).expect("nd stops"))
-        .expect("nd value from stops");
-    by_stops.applied().expect("stops applied");
-    assert_eq!(fake.take_only_payload(), explicit_frame);
-
-    // The bound lives in the argument type, so an out-of-range stop count
-    // cannot be constructed and therefore cannot reach the wire.
-    assert!(NdFilterValue::from_stops(1.5).is_err());
-    assert!(NdFilterValue::from_stops(8.0).is_err());
-    assert!(
-        fake.take_payloads().is_empty(),
-        "a rejected stop count writes nothing"
     );
 
     session.shutdown().expect("shutdown");

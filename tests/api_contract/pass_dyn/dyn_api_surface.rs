@@ -8,8 +8,8 @@ use grafton_visca::{
     command::{
         AntiFlickerMode, AutoFocusSensitivity, AutoWhiteBalanceSensitivity, FocusLock, FocusMode,
         FocusRange, FocusZone, ImageFlipMode, MenuDirection, MotionSyncMode, MotionSyncPreset,
-        NdFilterMode, NdFilterValue, PanTiltDirection, PanTiltLimitCorner, PictureEffectMode, PresetNumber,
-        SharpnessMode, TallyStatusState, VariableSpeedMode, WhiteBalanceMode,
+        NdFilterMode, NdFilterValue, PanTiltDirection, PanTiltLimitCorner, PictureEffectMode,
+        PresetNumber, SharpnessMode, TallyStatusState, VariableSpeedMode, WhiteBalanceMode,
     },
     dynapi::{
         DynAppliedOperation, DynAppliedRequest, DynFuture, DynMotion, DynPower, DynSessionCamera,

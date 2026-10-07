@@ -106,7 +106,7 @@ impl NdFilterValue {
     /// The densest variable-ND position.
     pub(crate) const MAX_VALUE: u16 = 0x0014;
 
-    /// Create a new ND filter value command.
+    /// Create a new ND filter value.
     ///
     /// # Arguments
     /// * `value` - ND filter value (0x0000 to 0x0014)
@@ -123,6 +123,10 @@ impl NdFilterValue {
     }
 
     /// Create from a stop value (2.0 to 7.0 stops).
+    ///
+    /// Each raw unit is a quarter stop: `2.0` maps to the minimum density
+    /// (`0x0000`) and `7.0` to the maximum (`0x0014`). A fraction of a
+    /// quarter stop is truncated, so `2.3` maps to `0x0001`.
     pub fn from_stops(stops: f32) -> Result<Self, Error> {
         if !(2.0..=7.0).contains(&stops) {
             return Err(Error::ParameterOutOfRange {
