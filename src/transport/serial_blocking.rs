@@ -813,7 +813,6 @@ mod tests {
     /// fails the open, and an addressed one starts a session.
     #[cfg(unix)]
     #[test]
-    #[cfg_attr(miri, ignore = "requires a pseudo-terminal")]
     fn registered_cameras_must_have_been_addressed() {
         use std::io::{Read as _, Write as _};
 
@@ -992,7 +991,6 @@ mod tests {
     /// second opener of the same device fails as a connection failure.
     #[cfg(unix)]
     #[test]
-    #[cfg_attr(miri, ignore = "requires a pseudo-terminal")]
     fn a_held_port_cannot_be_opened_twice() {
         let (_master, slave) = serialport::TTYPort::pair().expect("pseudo-terminal pair");
         let path = slave.name().expect("pseudo-terminal path");

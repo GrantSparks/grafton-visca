@@ -105,7 +105,6 @@ mod blocking {
     };
 
     #[test]
-    #[cfg_attr(miri, ignore = "requires loopback sockets")]
     fn built_transports_report_their_defaults_and_a_matching_hint() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
         let peer = UdpSocket::bind("127.0.0.1:0").expect("bind UDP peer");
@@ -135,7 +134,6 @@ mod blocking {
     /// outcomes. Every bounded operation now rejects it the same way, naming
     /// the timeout it came from.
     #[test]
-    #[cfg_attr(miri, ignore = "requires loopback sockets")]
     fn unrepresentable_budgets_are_rejected_identically() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
         let peer = UdpSocket::bind("127.0.0.1:0").expect("bind UDP peer");
@@ -219,7 +217,6 @@ mod facades {
     };
 
     #[tokio::test]
-    #[cfg_attr(miri, ignore = "requires loopback sockets")]
     async fn async_direct_connectors_use_the_transport_defaults() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
         let peer = UdpSocket::bind("127.0.0.1:0").expect("bind UDP peer");
@@ -257,7 +254,6 @@ mod facades {
     /// facade but `Io` on Tokio and smol. It is now the same error, with the
     /// same message, on every facade and both IP transports.
     #[tokio::test]
-    #[cfg_attr(miri, ignore = "requires the host resolver")]
     async fn an_unresolvable_host_fails_identically_on_every_facade() {
         // RFC 6761 reserves `.invalid`; it never resolves.
         const HOST: &str = "grafton-visca.invalid:5678";
