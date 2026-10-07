@@ -6,7 +6,8 @@
 //! Both facades open the port through one builder, so they behave the same:
 //!
 //! - **Exclusive access.** The port is opened for exclusive use (`TIOCEXCL`
-//!   plus an exclusive `flock` on Unix). A VISCA serial bus has one owner:
+//!   plus an exclusive `flock` on Unix; Windows opens a COM port exclusively
+//!   by default). A VISCA serial bus has one owner:
 //!   a second writer would interleave bytes with this session's frames and
 //!   could reset the bus with its own broadcasts.
 //! - **Open failure** is [`Error::ConnectionFailed`] naming the port and
@@ -56,7 +57,9 @@ use crate::Error;
 /// The end-of-stream reason every serial transport reports.
 pub(crate) const SERIAL_PORT_CLOSED: &str = "serial port closed";
 
-/// Serial ports are opened for exclusive access on every facade.
+/// Serial ports are opened for exclusive access on every facade. Unix needs
+/// the builder flag; Windows opens a COM port exclusively by default.
+#[cfg(unix)]
 const EXCLUSIVE_ACCESS: bool = true;
 
 /// The shortest timeout that is safe to pass to a serial-device backend.
@@ -77,7 +80,10 @@ fn device_timeout(timeout: std::time::Duration) -> std::time::Duration {
 /// The one port builder both facades open with exclusive access. No timeout
 /// is configured here: every blocking read and write arms its own.
 pub(crate) fn port_builder(config: &Config) -> serialport::SerialPortBuilder {
-    serialport::new(&config.port, config.baud_rate).exclusive(EXCLUSIVE_ACCESS)
+    let builder = serialport::new(&config.port, config.baud_rate);
+    #[cfg(unix)]
+    let builder = builder.exclusive(EXCLUSIVE_ACCESS);
+    builder
 }
 
 /// The one open-failure error both facades report.
