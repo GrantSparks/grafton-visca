@@ -208,7 +208,8 @@ macro_rules! builtin_request {
         }
 
         builtin_request!(@contract $type, $row [$($flag)?] [$($value)?]);
-        const _: () = crate::command::semantics::assert_request_contract::<$type>();
+        // Evaluated by `cargo check`: fails when the class disagrees with the row.
+        const _: () = <$type as BuiltinRequestContract>::CLASS_MATCHES_ROW;
         builtin_request!(@operation $type, $class $(, $flag)?);
         $( builtin_request!(@rows $type, |$value| $($scrutinee).+ {
             $($pattern => $value_row),+

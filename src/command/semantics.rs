@@ -4,7 +4,7 @@
 //! source that the typed-request conversion consumes; command bytes do not
 //! carry semantic metadata.  The `builtin_command_ledger!` list below is
 //! the one place a built-in command is named: [`BuiltinCommand`], its
-//! [`BuiltinCommand::ALL`] inventory and its
+//! test-build `BuiltinCommand::ALL` inventory and its
 //! [`BuiltinCommand::classification`] are all expanded from that list, so an
 //! unreviewed variant cannot exist and no second row list can drift.
 //!
@@ -210,10 +210,6 @@ pub(crate) enum BuiltinRequestKind {
 }
 
 /// The ledger kind of a closed request class marker.
-#[allow(
-    dead_code,
-    reason = "used only by anonymous `const _` compile-time checks, which the rustc 1.88 MSRV dead-code pass does not count"
-)]
 pub(crate) trait BuiltinClassMarker {
     /// Kind a built-in request with this class must serve.
     const KIND: BuiltinRequestKind;
@@ -236,7 +232,7 @@ impl BuiltinClassMarker for crate::request::Operation<crate::completion::Applied
 /// Everything else in the type's contract (the class check, fixed operation
 /// axes, the write-only state effect and the typed capability gate) is read
 /// from [`Self::LEDGER_ROW`].
-pub(crate) trait BuiltinRequestContract: crate::Request {
+pub(crate) trait BuiltinRequestContract: crate::Request<Class: BuiltinClassMarker> {
     /// A ledger row this type serves. Every ledger row served by the type
     /// must classify identically; the typed-request inventory checks this at
     /// compile time.
@@ -248,6 +244,16 @@ pub(crate) trait BuiltinRequestContract: crate::Request {
     /// value selects that row. Otherwise every row the type serves carries
     /// the typed capability gate of [`Self::LEDGER_ROW`].
     const SELECTS_ROW_BY_VALUE: bool = false;
+    /// Proof that the declared closed `Request::Class` serves the kind of
+    /// [`Self::LEDGER_ROW`]: evaluating it fails when they disagree.
+    /// `builtin_request!` forces it for every built-in type with a
+    /// module-level `const`, so a mismatch fails `cargo check`. Implementors
+    /// never override it.
+    const CLASS_MATCHES_ROW: () = assert!(
+        Self::LEDGER_ROW.classification().kind() as u8
+            == <Self::Class as BuiltinClassMarker>::KIND as u8,
+        "request class disagrees with its ledger row",
+    );
 }
 
 /// The exact fixed axes of `T`'s ledger row.
@@ -282,23 +288,6 @@ pub(crate) const fn state_effect<T: BuiltinRequestContract>() -> AppliedStateEff
     }
 }
 
-/// Fails const evaluation when `T`'s declared request class disagrees with
-/// its ledger row.
-#[allow(
-    dead_code,
-    reason = "used only by anonymous `const _` compile-time checks, which the rustc 1.88 MSRV dead-code pass does not count"
-)]
-pub(crate) const fn assert_request_contract<T>()
-where
-    T: BuiltinRequestContract,
-    T::Class: BuiltinClassMarker,
-{
-    assert!(
-        T::LEDGER_ROW.classification().kind() as u8 == <T::Class as BuiltinClassMarker>::KIND as u8,
-        "request class disagrees with its ledger row",
-    );
-}
-
 /// The closed semantic ledger: one row per built-in command, in protocol
 /// order.
 ///
@@ -306,10 +295,10 @@ where
 /// `plain(Invalidate(<key>))`, `targeted(<axes>)`,
 /// `targeted(profile_preset_recall)` and `applied(<axes>)` are the only row
 /// forms; `<key>` names a [`StateKey`] and `<axes>` an
-/// [`AffectedAxes`] constant. [`BuiltinCommand`], [`BuiltinCommand::ALL`] and
-/// [`BuiltinCommand::classification`] are all expanded from this one list, so
-/// a row cannot be declared without a classification, listed twice, or left
-/// out of the inventory.
+/// [`AffectedAxes`] constant. [`BuiltinCommand`], the test-build
+/// `BuiltinCommand::ALL` and [`BuiltinCommand::classification`] are all
+/// expanded from this one list, so a row cannot be declared without a
+/// classification, listed twice, or left out of the inventory.
 macro_rules! builtin_command_ledger {
     ($( $(#[$meta:meta])* $command:ident => $class:ident $(($($effect:tt)*))? ),+ $(,)?) => {
         /// Every built-in command request that must be audited before typed
@@ -320,8 +309,10 @@ macro_rules! builtin_command_ledger {
         }
 
         impl BuiltinCommand {
-            /// Every ledger row, in protocol order.
-            #[allow(dead_code, reason = "used only by anonymous `const _` compile-time checks, which the rustc 1.88 MSRV dead-code pass does not count")]
+            /// Every ledger row, in protocol order. Production code reaches
+            /// rows only through exhaustive matches, so the inventory exists
+            /// for tests alone.
+            #[cfg(test)]
             pub(crate) const ALL: &'static [Self] = &[ $( Self::$command, )+ ];
 
             /// Returns the ledger's classification of this row.

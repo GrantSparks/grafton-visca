@@ -1,13 +1,16 @@
 //! Closed static camera-surface metadata for built-in requests.
 //!
-//! [`crate::command::semantics::BuiltinCommand::ALL`] is the only command-row
+//! [`crate::command::semantics::BuiltinCommand`] is the only command-row
 //! inventory.  This module adds no second list and makes no surface decision
 //! of its own: [`StaticNoun`], the exhaustive [`surface_entry`] match and the
 //! [`BuiltinInquiryGate`] of every built-in inquiry are generated from the
 //! `@noun` headers and rows of [`crate::noun_table`], which give each command
 //! its noun, method spelling and capability gate and each inquiry its gate.  A
 //! command without a noun-table row (or protocol exception) fails to build, and
-//! so does a typed built-in inquiry without one.
+//! so does a typed built-in inquiry without one.  Each match arm's class is a
+//! named constant checked against the ledger by `registry_class`, so a row
+//! whose kind disagrees with its command fails const evaluation under
+//! `cargo check`.
 
 use crate::{capabilities::TypedSupportSurface, noun_table::noun_table};
 
@@ -144,15 +147,8 @@ macro_rules! row_gate {
     };
 }
 
-// MSRV note: Rust 1.88's dead-code analysis does not follow uses produced by
-// the continuation-style `noun_table!` expansion or by the const ledger below.
-// These items are intentionally retained as production metadata, so scope the
-// allowances to this ledger instead of disabling dead-code diagnostics for the
-// module.
-
 /// What kind of public surface disposition a built-in request has.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(dead_code)]
 pub(crate) enum StaticSurfaceDisposition {
     /// A normal target-facing noun method.
     Noun {
@@ -177,7 +173,6 @@ pub(crate) enum StaticSurfaceDisposition {
 
 /// One derived row in the closed static noun ledger.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[allow(dead_code)]
 pub(crate) struct StaticSurfaceEntry {
     /// Exactly one source semantic row.
     pub(crate) command: BuiltinCommand,
@@ -200,8 +195,9 @@ impl StaticSurfaceEntry {
 /// classification.
 ///
 /// This is deliberately a const function with no fallback: a row whose kind
-/// does not match its command ID fails during const evaluation below, before a
-/// facade can accidentally expose the wrong operation handle.
+/// does not match its command ID fails while evaluating the arm's `CLASS`
+/// constant in [`surface_entry`], before a facade can accidentally expose the
+/// wrong operation handle.
 #[allow(clippy::panic)]
 const fn registry_class(command: BuiltinCommand, kind: BuiltinRequestKind) -> BuiltinRequestClass {
     let class = command.classification();
@@ -280,22 +276,30 @@ macro_rules! surface_registry {
         pub(crate) const fn surface_entry(command: BuiltinCommand) -> StaticSurfaceEntry {
             match command {
                 $( $( $(
-                    BuiltinCommand::$command => StaticSurfaceEntry {
-                        command: BuiltinCommand::$command,
-                        disposition: StaticSurfaceDisposition::Noun {
-                            noun: StaticNoun::$noun,
-                            method: stringify!($method),
-                            gate: row_gate!($gate, $base),
-                        },
-                        class: registry_class(BuiltinCommand::$command, registry_class!($kind)),
-                    },
+                    BuiltinCommand::$command => {
+                        const CLASS: BuiltinRequestClass =
+                            registry_class(BuiltinCommand::$command, registry_class!($kind));
+                        StaticSurfaceEntry {
+                            command: BuiltinCommand::$command,
+                            disposition: StaticSurfaceDisposition::Noun {
+                                noun: StaticNoun::$noun,
+                                method: stringify!($method),
+                                gate: row_gate!($gate, $base),
+                            },
+                            class: CLASS,
+                        }
+                    }
                 )? )* )*
                 $(
-                    BuiltinCommand::$excommand => StaticSurfaceEntry {
-                        command: BuiltinCommand::$excommand,
-                        disposition: exception_disposition!($exkind, stringify!($exmethod)),
-                        class: registry_class(BuiltinCommand::$excommand, BuiltinRequestKind::Plain),
-                    },
+                    BuiltinCommand::$excommand => {
+                        const CLASS: BuiltinRequestClass =
+                            registry_class(BuiltinCommand::$excommand, BuiltinRequestKind::Plain);
+                        StaticSurfaceEntry {
+                            command: BuiltinCommand::$excommand,
+                            disposition: exception_disposition!($exkind, stringify!($exmethod)),
+                            class: CLASS,
+                        }
+                    }
                 )*
             }
         }
@@ -352,20 +356,6 @@ pub(crate) const fn typed_surface_for_command(
         | StaticSurfaceDisposition::InternalCancellation { .. } => None,
     }
 }
-
-/// Force every registry arm through const evaluation.
-///
-/// `surface_entry` is also called by runtime tests, but those calls alone
-/// would not evaluate the `registry_class` checks until the tests run.  This
-/// item makes a mismatched row kind a compile-time failure for every command
-/// ID in the closed semantic inventory.
-const _: () = {
-    let mut index = 0;
-    while index < BuiltinCommand::ALL.len() {
-        let _ = surface_entry(BuiltinCommand::ALL[index]);
-        index += 1;
-    }
-};
 
 #[cfg(test)]
 mod tests {
