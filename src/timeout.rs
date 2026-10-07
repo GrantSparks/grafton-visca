@@ -4,33 +4,36 @@ use std::time::{Duration, Instant};
 
 use crate::{Error, Result, TimeoutClass};
 
-/// The five command completion categories: every [`TimeoutClass`] except
-/// [`TimeoutClass::Inquiry`], whose deadline is the profile's inquiry timing
-/// fact.
-///
-/// Every per-category table ([`CommandTimeouts`], the operational overrides,
-/// and the validation that relates them) is reached through this one
-/// vocabulary, so a new category cannot be added without supplying each of
-/// its values.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CommandCategory {
-    Quick,
-    Movement,
-    Preset,
-    LongRunning,
-    Network,
+/// Declares [`CommandCategory`] and its [`CommandCategory::ALL`] inventory
+/// from one variant list, so a category added to the enum is always visited by
+/// every walk over `ALL` (validation, override checks and table projection).
+macro_rules! command_categories {
+    ($($variant:ident),+ $(,)?) => {
+        /// The five command completion categories: every [`TimeoutClass`]
+        /// except [`TimeoutClass::Inquiry`], whose deadline is the profile's
+        /// inquiry timing fact.
+        ///
+        /// Every per-category table ([`CommandTimeouts`], the operational
+        /// overrides, and the validation that relates them) is reached through
+        /// this one vocabulary, so a new category cannot be added without
+        /// supplying each of its values.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        pub(crate) enum CommandCategory {
+            $($variant,)+
+        }
+
+        impl CommandCategory {
+            /// Every command category, in declaration order. Generated from
+            /// the same list as the enum, so it cannot omit a category.
+            pub(crate) const ALL: [Self; [$(stringify!($variant)),+].len()] =
+                [$(Self::$variant),+];
+        }
+    };
 }
 
-impl CommandCategory {
-    /// Every command category.
-    pub(crate) const ALL: [Self; 5] = [
-        Self::Quick,
-        Self::Movement,
-        Self::Preset,
-        Self::LongRunning,
-        Self::Network,
-    ];
+command_categories!(Quick, Movement, Preset, LongRunning, Network);
 
+impl CommandCategory {
     /// The command category a request's timeout class selects, or `None` for
     /// an inquiry.
     pub(crate) const fn of(class: TimeoutClass) -> Option<Self> {
