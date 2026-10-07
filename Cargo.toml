@@ -147,6 +147,9 @@ futures-lite = "2.6"
 pollster = "0.4"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 proptest = "1.11.0"
+# Reads Cargo's `--message-format=json` records in the compile-contract harness
+# (`tests/common/compile_fail.rs`); already the optional `serde` feature's JSON crate.
+serde_json = "1.0"
 
 [[example]]
 name = "quickstart"
