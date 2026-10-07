@@ -30,16 +30,18 @@ env:
 #     f8be11a05b1d4f3fcebe6410cc16743212b999b0
 #   * nightly compiler nightly-2026-08-26 -> action commit
 #     6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 (the master's 2026-08-28 code)
-#   * MSRV compiler 1.88.0 -> generated action commit
-#     2eae45db285e407f22119950686d47e1101e071b
+#
+# Stable 1.98.0 is the project's single supported toolchain and its declared
+# `rust-version`; nightly is used only for rustfmt, the fuzz harness, rustdoc
+# JSON for the public API snapshots and the timing-only test report.
 #
 # A `rust-toolchain.toml` is deliberately not used: `dtolnay/rust-toolchain`
 # selects a toolchain with `rustup default`, which a `rust-toolchain.toml`
-# directory override would silently win over, breaking the MSRV and nightly
-# jobs. The generated stable/MSRV actions embed their compiler version; the
-# nightly action commit is only the installer code and the `toolchain:` input
-# selects the exact nightly compiler. Keeping both values visible prevents
-# an action-code pin from being mistaken for a compiler-version pin.
+# directory override would silently win over, breaking the nightly jobs. The
+# generated stable action embeds its compiler version; the nightly action
+# commit is only the installer code and the `toolchain:` input selects the
+# exact nightly compiler. Keeping both values visible prevents an action-code
+# pin from being mistaken for a compiler-version pin.
 #
 # Bumping stable requires running every compile-contract feature leg and
 # reviewing any diagnostic anchors rustc changed. Bumping nightly requires
@@ -243,69 +245,6 @@ jobs:
         run: cargo doc --workspace --all-features --no-deps
       - name: Removed and facade-less feature selections are rejected
         run: bash .github/scripts/test-all-features.sh rejections
-
-  msrv:
-    name: Rust 1.88 MSRV
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    env:
-      RUSTUP_TOOLCHAIN: "1.88.0"
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Install serial transport dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes libudev-dev
-      - uses: dtolnay/rust-toolchain@2eae45db285e407f22119950686d47e1101e071b # 1.88.0
-      - name: Prove MSRV selection ignores directory overrides
-        shell: bash
-        run: |
-          set -euo pipefail
-          probe="$(mktemp -d "${RUNNER_TEMP}/msrv-toolchain-probe.XXXXXX")"
-          cleanup() {
-            find "${probe}" -depth -delete
-          }
-          trap cleanup EXIT
-          printf '[toolchain]\npath = "%s"\n' \
-            "${probe}/not-a-toolchain" >"${probe}/rust-toolchain.toml"
-          (
-            cd "${probe}"
-            test "$(rustc --version --verbose | sed -n 's/^release: //p')" = "1.88.0"
-            test "$(cargo --version | cut -d ' ' -f2)" = "1.88.0"
-          )
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      # Do not rely on the action's rustup default here: a checked-in
-      # rust-toolchain.toml takes precedence over it. Every MSRV invocation
-      # selects 1.88 explicitly so such a file cannot turn this into a
-      # newer-toolchain false green.
-      - run: cargo +1.88.0 check --workspace --all-targets
-      - run: cargo +1.88.0 check --workspace --all-targets --no-default-features
-      - run: cargo +1.88.0 check --lib --no-default-features --features async
-      - run: cargo +1.88.0 check --lib --no-default-features --features runtime-tokio,dyn-api
-      - name: Check Tokio, dynamic, and serial examples at MSRV
-        run: cargo +1.88.0 check --examples --no-default-features --features blocking,runtime-tokio,dyn-api,transport-serial-tokio
-      - name: Check re-exported range macro at MSRV with helpers off and on
-        run: |
-          set -euo pipefail
-          cargo +1.88.0 check \
-            --manifest-path tests/fixtures/range_type_reexport/Cargo.toml \
-            -p range-macro-consumer --all-targets
-          cargo +1.88.0 check \
-            --manifest-path tests/fixtures/range_type_reexport/Cargo.toml \
-            -p range-macro-consumer --features range-helper-derives --all-targets
-
-  miri:
-    name: Miri
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # action commit 6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 (master snapshot 2026-08-28; compiler set below)
-        with:
-          toolchain: nightly-2026-08-26
-          components: miri
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      - run: bash .github/scripts/miri-tests.sh
 
   fuzz:
     name: cargo-fuzz protocol harnesses
@@ -596,8 +535,6 @@ jobs:
       - all-features-tests
       - examples
       - lint
-      - msrv
-      - miri
       - fuzz
       - release-validation
       - public-api
@@ -617,8 +554,8 @@ jobs:
           # all-success object into a false green aggregate.
           EXPECTED_JOB_IDS: >-
             ["format", "feature-shapes", "feature-matrix", "blocking-dependency-boundary",
-             "macro-derives", "all-features", "all-features-tests", "examples", "lint", "msrv",
-             "miri", "fuzz", "release-validation", "public-api", "downstream",
+             "macro-derives", "all-features", "all-features-tests", "examples", "lint",
+             "fuzz", "release-validation", "public-api", "downstream",
              "windows", "macos", "cargo-audit", "cargo-deny"]
         run: |
           set -euo pipefail

@@ -136,7 +136,7 @@ release look internally consistent.
 
 Also run the supported no-default, blocking-only, async-runtime, dynamic, and
 coexistence matrices documented in the repository before tagging. Check the
-declared MSRV, inspect the generated documentation, and run the project's
+declared `rust-version`, inspect the generated documentation, and run the project's
 security/audit checks. Hardware, registry, and Synemantic validation results
 must be recorded separately; passing local builds does not imply those
 results.
