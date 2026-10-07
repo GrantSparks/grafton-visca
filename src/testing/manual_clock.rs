@@ -897,8 +897,10 @@ mod tests {
     #[test]
     fn explicit_advance_ends_exactly_the_waits_it_passes() {
         let clock = ManualClock::new();
+        // This thread participates and never blocks on the clock, so time
+        // cannot advance on its own: only `advance` moves it.
+        let _driver = clock.enter();
         let start = clock.now();
-        // Neither thread participates, so only `advance` moves time.
         let waiter = {
             let clock = clock.clone();
             thread::spawn(move || clock.wait_until(start + HOUR, || None::<()>))
