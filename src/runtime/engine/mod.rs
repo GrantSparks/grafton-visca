@@ -26,9 +26,7 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::protocol::framer::RawIncompletePrefix;
-use crate::{
-    raw::INLINE_BYTES, CameraId, Certainty, Error, FailureContext, FailureStage, ViscaSocket,
-};
+use crate::{CameraId, Certainty, Error, FailureContext, FailureStage, ViscaSocket};
 
 #[cfg(test)]
 mod tests;
@@ -221,16 +219,15 @@ pub(crate) struct Entry {
 }
 
 impl Entry {
-    // Read by `runtime::engine::tests` and by `OwnerState::request_state`, which
-    // is itself `#[cfg(test)]`; nothing in a non-test build projects a phase out
-    // of the engine yet (#636).
-    #[allow(dead_code)]
+    /// Test projection of the entry's phase, read by `runtime::engine::tests`
+    /// and `OwnerState::request_state`.
+    #[cfg(test)]
     pub(crate) const fn phase(&self) -> Phase {
         self.phase
     }
 
-    // Same test-only projection as `phase` (#636).
-    #[allow(dead_code)]
+    /// Test projection of the entry's cancellation state.
+    #[cfg(test)]
     pub(crate) const fn cancellation(&self) -> CancelState {
         self.cancellation
     }
@@ -619,6 +616,7 @@ impl ProtocolEngine {
                     effects,
                 ),
             },
+            #[cfg(test)]
             Input::Wake => {}
         }
     }
@@ -2352,11 +2350,21 @@ impl ProtocolEngine {
                     self.completion(id, socket, now, effects);
                 }
             }
-            DecodedResponse::InquiryReply { route, payload } => {
+            DecodedResponse::InquiryReply {
+                #[cfg(test)]
+                route,
+                payload,
+                ..
+            } => {
                 if correlation_kind == CorrelationKind::Cancellation {
                     effects.push(Effect::Ignored(IgnoreReason::MalformedFrame));
                 } else {
-                    self.inquiry_reply(id, route, payload, effects);
+                    let reply = RuntimeOutcome::Reply {
+                        #[cfg(test)]
+                        route,
+                        payload,
+                    };
+                    self.inquiry_reply(id, reply, effects);
                 }
             }
             DecodedResponse::Error { socket, code } => {
@@ -3765,13 +3773,7 @@ impl ProtocolEngine {
         }
     }
 
-    fn inquiry_reply(
-        &mut self,
-        id: RequestId,
-        route: Option<InquiryRoute>,
-        payload: SmallVec<[u8; INLINE_BYTES]>,
-        effects: &mut Vec<Effect>,
-    ) {
+    fn inquiry_reply(&mut self, id: RequestId, reply: RuntimeOutcome, effects: &mut Vec<Effect>) {
         let compatible = self.entries.get(&id).is_some_and(|entry| {
             entry.request.is_inquiry() && matches!(entry.phase, Phase::AwaitingReply { .. })
         });
@@ -3779,7 +3781,7 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
         }
-        self.finish(id, RuntimeOutcome::Reply { route, payload }, effects);
+        self.finish(id, reply, effects);
     }
 
     fn camera_error(

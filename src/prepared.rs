@@ -126,17 +126,6 @@ impl<R> PreparedInquiryTemplate<R> {
 }
 
 impl SettlementPlan {
-    // Convenience accessor over the target both variants already carry; the
-    // settlement poller in `crate::completion` is what will read it rather than
-    // re-matching the plan. Left in place because #630 is extending this module
-    // concurrently (#636).
-    #[allow(dead_code)]
-    pub(crate) const fn target(&self) -> Option<CameraId> {
-        match self {
-            Self::CompletionIsSettled { target, .. } | Self::Poll { target, .. } => Some(*target),
-        }
-    }
-
     pub(crate) const fn default_budget(&self) -> Option<Duration> {
         match self {
             Self::CompletionIsSettled { default_budget, .. }
@@ -1181,19 +1170,6 @@ impl<R> PreparedInquiry<R> {
             route: self.route,
             decoder: self.decoder,
         }
-    }
-
-    // Consumed by the blocking owner's inquiry submission seam
-    // (`runtime::owner::blocking`), which an async-only leg does not compile.
-    #[allow(dead_code)]
-    pub(crate) fn into_parts(self) -> (RuntimeRequest, ResponseDecoder<R>, Duration) {
-        let timeout = observation_timeout(&self.context, self.context.timeout.inquiry);
-        let request = RuntimeRequest::Inquiry {
-            wire: self.wire,
-            context: self.context,
-            route: crate::runtime::engine::InquiryRoute(self.route.identifier()),
-        };
-        (request, self.decoder, timeout)
     }
 
     pub(crate) fn admit_with<T>(
