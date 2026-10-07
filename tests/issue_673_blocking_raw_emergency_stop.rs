@@ -31,7 +31,6 @@ use std::{
 use grafton_visca::{
     blocking::{Session, SessionConfig},
     completion::{AppliedOnly, Targeted},
-    profile::ProfileSpec,
     raw::{self, RawReplyShape},
     request::builtin::{FocusStop, ZoomDrive},
     transport::{AddressingMode, TransportConfig},
@@ -39,10 +38,7 @@ use grafton_visca::{
 };
 
 use fake_camera::{frames, FakeCamera, ZOOM_STOP};
-use profile_fixtures::NonDefaultCompileTimeProfile;
-
-/// An ACK on socket one from camera two.
-const CAMERA_TWO_ACK_SOCKET_ONE: &[u8] = &[0xa0, 0x41, 0xff];
+use profile_fixtures::{session_config, two_camera_session_config, NonDefaultCompileTimeProfile};
 
 /// A raw datagram camera whose replies are scripted per write: each write
 /// queues its step's replies, which the owner worker reads as soon as they
@@ -66,25 +62,6 @@ fn assert_stable_write_count(camera: &FakeCamera, count: usize) {
         count,
         "queued work must stay unwritten"
     );
-}
-
-fn session_config() -> SessionConfig {
-    SessionConfig::new(
-        ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
-            .expect("two-socket raw runtime profile"),
-    )
-}
-
-fn two_camera_session_config(command_spacing: Duration) -> SessionConfig {
-    let mut config = session_config();
-    config
-        .register_target(
-            CameraId::CAMERA_2,
-            ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
-                .expect("two-socket raw runtime profile"),
-        )
-        .expect("second serial target");
-    config.with_tuning(OperationalTuning::new().command_spacing(command_spacing))
 }
 
 fn session_with_config(steps: Vec<Vec<Vec<u8>>>, config: SessionConfig) -> (Session, FakeCamera) {
@@ -369,12 +346,12 @@ fn pending_camera_two_cancel_does_not_hold_camera_one_work() {
     // pending exactly while camera 1 submits ordinary raw work.
     let (session, probe) = session_with_config(
         vec![
-            vec![CAMERA_TWO_ACK_SOCKET_ONE.to_vec()],
+            vec![frames::ack_from(2, 1)],
             vec![],
             vec![],
             vec![frames::ack(1), frames::complete(1)],
         ],
-        two_camera_session_config(SPACING),
+        two_camera_session_config().with_tuning(OperationalTuning::new().command_spacing(SPACING)),
     );
     let camera_one = session
         .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)

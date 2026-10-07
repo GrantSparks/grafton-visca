@@ -18,8 +18,7 @@ fn policy_for_target_validation() -> ProtocolPolicy {
 fn target_policy_for_validation() -> TargetPolicy {
     TargetPolicy {
         command_sockets: 1,
-        cancellation: CancellationPolicy::Supported,
-        control_reserve: 0,
+        ..TargetPolicy::test_default()
     }
 }
 

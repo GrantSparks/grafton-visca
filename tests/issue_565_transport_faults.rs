@@ -43,15 +43,16 @@ use std::{sync::Arc, time::Duration};
 
 use grafton_visca::{
     completion::AppliedOnly,
-    profile::ProfileSpec,
     profiles::SonyFR7,
     request::builtin::{FocusDrive, FocusStop, ZoomStop},
     transport::{AddressingMode, SendSemantics, TransportConfig},
-    CameraId, CancellationOutcome, Error, SessionConfig,
+    CameraId, CancellationOutcome, Error,
 };
 
 use fake_camera::{frames, AsyncWire, BlockingWire, FakeCamera, FOCUS_STOP, ZOOM_STOP};
-use profile_fixtures::NonDefaultCompileTimeProfile;
+use profile_fixtures::{
+    session_config, sony_session_config, two_camera_session_config, NonDefaultCompileTimeProfile,
+};
 
 /// A [`FakeCamera`] plus the transport facts its wire reports: the send
 /// semantics, and an addressing mode used as both the transport
@@ -116,29 +117,6 @@ fn connection_refused() -> Error {
 }
 
 /// The Sony sequence number of a written frame.
-fn session_config() -> SessionConfig {
-    SessionConfig::new(
-        ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
-            .expect("two-socket runtime profile"),
-    )
-}
-
-fn sony_session_config() -> SessionConfig {
-    SessionConfig::new(ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile"))
-}
-
-fn multi_target_session_config() -> SessionConfig {
-    let mut config = session_config();
-    config
-        .register_target(
-            CameraId::CAMERA_2,
-            ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
-                .expect("two-socket runtime profile"),
-        )
-        .expect("second raw target");
-    config
-}
-
 /// A camera whose first write is answered only by a receive fault; every
 /// later write gets ACK and completion on socket 1.
 fn receive_fault_on_first_write() -> FakeCamera {
@@ -335,7 +313,7 @@ facade_matrix! {
                 _ => {}
             }
         });
-        let session = open!(Rig::serial_stream(&camera), multi_target_session_config())
+        let session = open!(Rig::serial_stream(&camera), two_camera_session_config())
             .expect("owner session");
         let first_camera = session
             .camera_for::<NonDefaultCompileTimeProfile>(CameraId::CAMERA_1)

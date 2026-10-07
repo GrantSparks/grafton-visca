@@ -39,13 +39,12 @@ mod retry_requests;
 use std::{collections::VecDeque, time::Duration};
 
 use grafton_visca::{
-    completion::AppliedOnly, profile::ProfileSpec, profiles::SonyFR7, raw,
-    request::builtin::ZoomStop, types::ZoomPosition, ControlClass, Error, InquiryRoute, RetryClass,
-    SessionConfig, TimeoutClass,
+    completion::AppliedOnly, profiles::SonyFR7, raw, request::builtin::ZoomStop,
+    types::ZoomPosition, ControlClass, Error, InquiryRoute, RetryClass, TimeoutClass,
 };
 
 use fake_camera::{frames, FakeCamera};
-use profile_fixtures::NonDefaultCompileTimeProfile;
+use profile_fixtures::{session_config, sony_session_config, NonDefaultCompileTimeProfile};
 use retry_requests::{MovementCommand, StandardCommand};
 
 const ZOOM_POSITION_INQUIRY: &[u8] = &[0x81, 0x09, 0x04, 0x47, 0xff];
@@ -77,17 +76,6 @@ fn scripted(steps: Vec<Vec<Vec<u8>>>, trailing: Vec<Vec<u8>>) -> FakeCamera {
             answer.reply(reply);
         }
     })
-}
-
-fn session_config() -> SessionConfig {
-    SessionConfig::new(
-        ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
-            .expect("two-socket runtime profile"),
-    )
-}
-
-fn sony_session_config() -> SessionConfig {
-    SessionConfig::new(ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile"))
 }
 
 fn standard_reply() -> Vec<Vec<u8>> {

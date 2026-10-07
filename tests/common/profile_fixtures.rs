@@ -1,3 +1,10 @@
+//! Synthetic compile-time profiles and the session configurations built on
+//! them, shared by the integration suite. Include it with
+//! `#[path = "common/profile_fixtures.rs"] mod profile_fixtures;`; each test
+//! binary uses a different subset.
+
+#![allow(dead_code)]
+
 use std::time::Duration;
 
 use grafton_visca::{
@@ -10,8 +17,8 @@ use grafton_visca::{
     },
     command::{ExposureMode, FocusZone},
     transport::RawVisca,
-    AffectedAxes, CommandTimeouts, CompileTimeProfile, PositionInquirySupport,
-    TransportCompatibility, WhiteBalanceMode,
+    AffectedAxes, CameraId, CommandTimeouts, CompileTimeProfile, PositionInquirySupport,
+    ProfileSpec, SessionConfig, TransportCompatibility, WhiteBalanceMode,
 };
 
 const EXPOSURE_MODES: &[ExposureMode] = &[
@@ -58,7 +65,6 @@ macro_rules! synthetic_command_timeouts {
 
 macro_rules! synthetic_profile_impl {
     ($profile:ident, $model:literal, $typed_support:expr, $default:ident, $ambiguity_timeout:expr $(, $command_timeouts:expr)?) => {
-        #[allow(dead_code)]
         #[derive(Debug, Clone, Copy)]
         pub struct $profile;
 
@@ -259,3 +265,34 @@ impl MotionSyncMetadata for MotionSyncTypedSupport {
 impl HasDirectZoom for DirectZoomOnlyTypedSupport {}
 
 impl HasMotionSync for MotionSyncTypedSupport {}
+
+/// A session on camera 1 with [`NonDefaultCompileTimeProfile`], the
+/// two-socket raw profile.
+pub fn session_config() -> SessionConfig {
+    SessionConfig::new(
+        ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
+            .expect("two-socket raw profile"),
+    )
+}
+
+/// [`session_config`] with camera 2 registered on the same two-socket raw
+/// profile.
+pub fn two_camera_session_config() -> SessionConfig {
+    let mut config = session_config();
+    config
+        .register_target(
+            CameraId::CAMERA_2,
+            ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
+                .expect("two-socket raw profile"),
+        )
+        .expect("second target");
+    config
+}
+
+/// A session on camera 1 with the built-in Sony FR7 profile (Sony envelope).
+pub fn sony_session_config() -> SessionConfig {
+    SessionConfig::new(
+        ProfileSpec::from_compile_time::<grafton_visca::profiles::SonyFR7>()
+            .expect("Sony FR7 profile"),
+    )
+}

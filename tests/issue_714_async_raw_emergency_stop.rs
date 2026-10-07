@@ -24,11 +24,10 @@ use std::{
 
 use grafton_visca::{
     completion::AppliedOnly,
-    profile::ProfileSpec,
     raw::{self, RawReplyShape},
     request::builtin::{FocusStop, ZoomDrive},
     transport::AddressingMode,
-    AffectedAxes, ControlClass, Error, Executor, RetryClass, Session, SessionConfig, TimeoutClass,
+    AffectedAxes, ControlClass, Error, Executor, RetryClass, Session, TimeoutClass,
 };
 #[cfg(feature = "blocking")]
 use grafton_visca::{CameraId, OperationalTuning};
@@ -36,11 +35,9 @@ use grafton_visca::{CameraId, OperationalTuning};
 #[cfg(feature = "blocking")]
 use fake_camera::FOCUS_STOP;
 use fake_camera::{frames, FakeCamera, ZOOM_STOP};
-use profile_fixtures::NonDefaultCompileTimeProfile;
-
-/// An ACK on socket one from camera two.
+use profile_fixtures::{session_config, NonDefaultCompileTimeProfile};
 #[cfg(feature = "blocking")]
-const CAMERA_TWO_ACK_SOCKET_ONE: &[u8] = &[0xa0, 0x41, 0xff];
+use {grafton_visca::profile::ProfileSpec, profile_fixtures::two_camera_session_config};
 
 /// A raw datagram camera whose replies are scripted per write: each write
 /// queues its step's replies. Writes past the script draw no reply.
@@ -72,26 +69,6 @@ fn assert_written_within(camera: &FakeCamera, count: usize, since: Instant, boun
         camera.write_count() >= count && elapsed < bound,
         "write {count} took {elapsed:?}, over its {bound:?} bound"
     );
-}
-
-fn session_config() -> SessionConfig {
-    SessionConfig::new(
-        ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
-            .expect("two-socket raw profile"),
-    )
-}
-
-#[cfg(feature = "blocking")]
-fn two_camera_session_config(command_spacing: Duration) -> SessionConfig {
-    let mut config = session_config();
-    config
-        .register_target(
-            CameraId::CAMERA_2,
-            ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
-                .expect("two-socket raw profile"),
-        )
-        .expect("second serial target");
-    config.with_tuning(OperationalTuning::new().command_spacing(command_spacing))
 }
 
 fn ordinary_operation() -> raw::AppliedOnly {
@@ -239,7 +216,7 @@ mod parity {
     /// The blocking and async owners get the same script.
     fn pending_cancel_camera() -> FakeCamera {
         scripted_camera(vec![
-            vec![CAMERA_TWO_ACK_SOCKET_ONE.to_vec()],
+            vec![frames::ack_from(2, 1)],
             vec![],
             vec![],
             vec![],
@@ -295,7 +272,8 @@ mod parity {
                 .blocking_wire()
                 .with_config(serial_config())
                 .with_addressing(AddressingMode::Serial),
-            two_camera_session_config(SPACING),
+            two_camera_session_config()
+                .with_tuning(OperationalTuning::new().command_spacing(SPACING)),
         )
         .expect("blocking multi-camera session");
         let camera_one = session
@@ -391,7 +369,8 @@ mod parity {
                 .async_wire()
                 .with_config(serial_config())
                 .with_addressing(AddressingMode::Serial),
-            two_camera_session_config(SPACING),
+            two_camera_session_config()
+                .with_tuning(OperationalTuning::new().command_spacing(SPACING)),
             executor.clone(),
         )
         .await

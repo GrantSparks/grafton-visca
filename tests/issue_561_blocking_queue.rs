@@ -30,7 +30,7 @@ use grafton_visca::{
     Error, OperationalTuning,
 };
 
-use profile_fixtures::NonDefaultCompileTimeProfile;
+use profile_fixtures::{session_config, sony_session_config, NonDefaultCompileTimeProfile};
 
 const PAN_TILT_STOP_PREFIX: &[u8] = &[0x81, 0x01, 0x06, 0x01];
 
@@ -57,17 +57,6 @@ fn pan_tilt_stop() -> PanTiltStop {
         PanSpeed::new(1).expect("valid pan speed"),
         TiltSpeed::new(1).expect("valid tilt speed"),
     )
-}
-
-fn session_config() -> SessionConfig {
-    SessionConfig::new(
-        ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
-            .expect("two-socket runtime profile"),
-    )
-}
-
-fn sony_session_config() -> SessionConfig {
-    SessionConfig::new(ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile"))
 }
 
 const FIRST_WRITE_ERROR: &str = "distinctive first-write transport failure";

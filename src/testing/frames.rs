@@ -43,10 +43,27 @@ pub const NO_SOCKET: u8 = 0x05;
 /// Error code: the command cannot run in the camera's current state.
 pub const COMMAND_NOT_EXECUTABLE: u8 = 0x41;
 
+/// Reply address byte of individual camera `camera` (1 to 7): `z0` with
+/// `z = 8 + camera`, so camera 1 replies from `90` and camera 2 from `A0`.
+#[must_use]
+pub const fn reply_address(camera: u8) -> u8 {
+    0x80 | ((camera & 0x07) << 4)
+}
+
+/// ACK for `socket` from camera `camera`: `z0 4s FF` (see [`reply_address`]).
+#[must_use]
+pub fn ack_from(camera: u8, socket: u8) -> Vec<u8> {
+    vec![
+        reply_address(camera),
+        0x40 | (socket & 0x0F),
+        VISCA_TERMINATOR,
+    ]
+}
+
 /// ACK for `socket`: `90 4s FF`.
 #[must_use]
 pub fn ack(socket: u8) -> Vec<u8> {
-    vec![0x90, 0x40 | (socket & 0x0F), VISCA_TERMINATOR]
+    ack_from(1, socket)
 }
 
 /// Completion for `socket`: `90 5s FF`.

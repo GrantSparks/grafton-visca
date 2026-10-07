@@ -28,17 +28,19 @@ mod fake_camera;
 #[macro_use]
 #[path = "common/matrix.rs"]
 mod matrix;
+#[path = "common/profile_fixtures.rs"]
+mod profile_fixtures;
 
 use std::time::{Duration, Instant};
 
 use grafton_visca::{
-    camera::CameraConfig, completion::AppliedOnly, profile::ProfileSpec, profiles::SonyFR7,
-    request, AffectedAxes, CameraId, ControlClass, Error, FailureStage, Inquiry, InquiryRoute,
-    OperationCommand, OperationalTuning, Request, ResponseDecoder, RetryClass, SessionConfig,
-    TimeoutClass,
+    camera::CameraConfig, completion::AppliedOnly, profiles::SonyFR7, request, AffectedAxes,
+    CameraId, ControlClass, Error, FailureStage, Inquiry, InquiryRoute, OperationCommand,
+    OperationalTuning, Request, ResponseDecoder, RetryClass, TimeoutClass,
 };
 
 use fake_camera::FakeCamera;
+use profile_fixtures::sony_session_config;
 
 /// The Sony FR7 profile's acknowledgement deadline, 500 ms on every built-in
 /// profile (see issue #689).
@@ -104,10 +106,6 @@ impl Inquiry for SilentInquiry {
     }
 }
 
-fn session_config() -> SessionConfig {
-    SessionConfig::new(ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile"))
-}
-
 /// Submits one never-retried operation into silence and evaluates to how long
 /// the owner took to fail it. The camera accepts every frame and answers none
 /// of them, so nothing else can end the request: the wall-clock gap between
@@ -136,7 +134,7 @@ facade_matrix! {
     /// submission waits the new, longer time.
     fn a_widened_ack_timeout_governs_the_next_submission() {
         let fake = FakeCamera::silent();
-        let session = open!(fake, session_config()).expect("owner session");
+        let session = open!(fake, sony_session_config()).expect("owner session");
 
         let before = time_to_ack_timeout!(session);
         assert!(
@@ -171,7 +169,7 @@ facade_matrix! {
     /// widened value.
     fn a_narrowed_ack_timeout_governs_the_next_submission() {
         let fake = FakeCamera::silent();
-        let session = open!(fake, session_config()).expect("owner session");
+        let session = open!(fake, sony_session_config()).expect("owner session");
 
         wait!(session.set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT)))
             .expect("widening an acknowledgement deadline is accepted");
@@ -203,7 +201,7 @@ facade_matrix! {
     /// is used on purpose: views read the owner's live tuning instead of a
     /// copy.
     fn a_widened_inquiry_timeout_governs_a_pre_existing_view() {
-        let session = open!(FakeCamera::silent(), session_config()).expect("owner session");
+        let session = open!(FakeCamera::silent(), sony_session_config()).expect("owner session");
         let camera = session
             .camera::<SonyFR7>()
             .expect("camera view taken before the update");
@@ -232,7 +230,7 @@ facade_matrix! {
     /// under the new tuning: the view reads the owner's live value rather than
     /// a copy taken when it was created.
     fn a_view_taken_before_the_update_prepares_under_the_new_tuning() {
-        let session = open!(FakeCamera::silent(), session_config()).expect("owner session");
+        let session = open!(FakeCamera::silent(), sony_session_config()).expect("owner session");
         let camera = session
             .camera::<SonyFR7>()
             .expect("camera view taken before the update");
@@ -267,7 +265,7 @@ facade_matrix! {
     /// preparation must use the new one.
     fn an_update_while_an_operation_is_outstanding_leaves_it_alone() {
         let fake = FakeCamera::silent();
-        let session = open!(fake, session_config()).expect("owner session");
+        let session = open!(fake, sony_session_config()).expect("owner session");
         let camera = session.camera::<SonyFR7>().expect("camera view");
 
         let mut operation =
@@ -317,7 +315,7 @@ facade_matrix! {
     /// The installed value is readable back through every clone, so a caller
     /// can confirm what the session is running under without re-deriving it.
     fn the_installed_tuning_reads_back_through_the_session() {
-        let session = open!(FakeCamera::silent(), session_config()).expect("owner session");
+        let session = open!(FakeCamera::silent(), sony_session_config()).expect("owner session");
         let clone = session.clone();
 
         assert_eq!(
@@ -352,7 +350,7 @@ facade_matrix! {
     /// override. A strict session therefore exposes only its genuinely mutable
     /// tuning through `tuning()` and can replace that value normally.
     fn strict_recovery_policy_is_separate_from_runtime_tuning() {
-        let default_config = session_config();
+        let default_config = sony_session_config();
         assert!(!default_config.strict_unconfirmed_poison());
         let strict_config = default_config.with_strict_unconfirmed_poison(true);
         assert!(strict_config.strict_unconfirmed_poison());
@@ -382,7 +380,7 @@ facade_matrix! {
     /// Runtime updates are validated on exactly the grounds construction
     /// validates on, and a rejected update leaves the live tuning untouched.
     fn an_invalid_update_is_rejected_and_changes_nothing() {
-        let session = open!(FakeCamera::silent(), session_config()).expect("owner session");
+        let session = open!(FakeCamera::silent(), sony_session_config()).expect("owner session");
 
         let accepted = OperationalTuning::new()
             .ack_timeout(WIDE_ACK_TIMEOUT)
@@ -477,14 +475,14 @@ facade_matrix! {
 mod concurrent_async_updates {
     use grafton_visca::Executor;
 
-    use super::{session_config, Duration, FakeCamera, OperationalTuning};
+    use super::{sony_session_config, Duration, FakeCamera, OperationalTuning};
 
     /// The boundary serializes the two updates, so the result is one of the
     /// two whole values and never a mixture of both.
     async fn concurrent_updates_from_two_handles_are_last_writer_wins<E: Executor>(executor: E) {
         let session = grafton_visca::Session::open(
             FakeCamera::silent().async_wire(),
-            session_config(),
+            sony_session_config(),
             executor,
         )
         .await

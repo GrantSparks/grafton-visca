@@ -28,10 +28,9 @@ mod retry_requests;
 use std::time::Duration;
 
 use grafton_visca::{
-    blocking::{Session, SessionConfig},
+    blocking::Session,
     command::ZoomPositionInquiry,
     completion::AppliedOnly,
-    profile::ProfileSpec,
     request::builtin::ZoomStop,
     testing::testkit::{
         helpers::{self, errors},
@@ -41,7 +40,7 @@ use grafton_visca::{
     Error, OperationalTuning,
 };
 
-use profile_fixtures::NonDefaultCompileTimeProfile;
+use profile_fixtures::{session_config, NonDefaultCompileTimeProfile};
 use retry_requests::{MovementCommand, StandardCommand};
 
 /// The exact bytes a zoom-position inquiry puts on the wire for camera 1.
@@ -52,13 +51,6 @@ const ZOOM_POSITION_INQUIRY: [u8; 5] = [0x81, 0x09, 0x04, 0x47, 0xff];
 /// quick timeout class grants. Named once so the two halves of the budget —
 /// staying inside it and running past it — cannot drift apart.
 const TUNED_QUICK_WRITES: usize = 4;
-
-fn session_config() -> SessionConfig {
-    SessionConfig::new(
-        ProfileSpec::from_compile_time::<NonDefaultCompileTimeProfile>()
-            .expect("two-socket runtime profile"),
-    )
-}
 
 fn open(steps: Vec<Step>) -> (Session, ScriptedBlockingTransport) {
     let transport = ScriptedBlockingTransport::new(steps);
