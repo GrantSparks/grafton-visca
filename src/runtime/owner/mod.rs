@@ -241,7 +241,8 @@ pub(crate) struct OwnerPolicy {
     /// blocking worker reports no data once its sliced reads have been idle
     /// this long (#780). Lowered
     /// from the transport [`TransportConfig`](crate::transport::TransportConfig)
-    /// by the production policy builder; the test constructors default it.
+    /// by the production policy builder; [`Self::with_targets`] starts it at
+    /// the `TransportConfig` default.
     pub(crate) read_timeout: Duration,
     /// Maximum time one async transport write may take before the owner
     /// abandons it as a stalled write (#675). A byte-stream write that cannot
@@ -272,6 +273,10 @@ impl OwnerPolicy {
                 "owner target registry must contain at least one camera".into(),
             ));
         }
+        // The read and write bounds start from the one transport default
+        // (#799); the production builder lowers the caller's configured
+        // values over them (#675).
+        let transport = crate::transport::TransportConfig::default();
         Ok(Self {
             protocol,
             targets,
@@ -284,10 +289,8 @@ impl OwnerPolicy {
                     targets[index].map(|policy| policy.command_sockets)
                 }),
             },
-            // Matches `TransportConfig`'s default; the production builder
-            // lowers the caller's configured values over these (#675).
-            read_timeout: Duration::from_secs(5),
-            write_timeout: Duration::from_secs(5),
+            read_timeout: transport.read_timeout,
+            write_timeout: transport.write_timeout,
         })
     }
 
