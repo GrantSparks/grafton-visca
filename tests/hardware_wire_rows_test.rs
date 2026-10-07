@@ -59,12 +59,11 @@
 //!   -- --ignored --nocapture --test-threads=1
 //! ```
 
-use std::{
-    cell::Cell,
-    env, fmt,
-    thread::sleep,
-    time::{Duration, Instant},
-};
+#[macro_use]
+#[path = "common/hardware.rs"]
+mod hardware;
+
+use std::{cell::Cell, env, thread::sleep, time::Duration};
 
 use grafton_visca::{
     blocking::{Camera, CameraSession, Connect},
@@ -78,12 +77,15 @@ use grafton_visca::{
     command::{FocusZone, NoiseReduction2DMode},
     types::{NoiseReduction2DLevel, NoiseReduction3DLevel, SpeedLevel, ZoomPosition},
     units::{Degrees, UnitInterval},
-    Certainty, CompileTimeProfile, Error, ErrorKind, PresetNumber, ZoomDomain,
+    CompileTimeProfile, Error, ZoomDomain,
+};
+
+use hardware::{
+    close_session, observe, opted_in, report_restored, restore_and_report, Checks, Hw, HwLog,
+    MotionGuard,
 };
 
 const TCP_PORT: u16 = 5678;
-/// Bound for waiting on a guard STOP.
-const HANDLE_WAIT: Duration = Duration::from_secs(2);
 /// Delay between a settings write and its readback.
 const SETTLE_DELAY: Duration = Duration::from_millis(500);
 /// Raw pan units added to the current pan position by the absolute-move test.
@@ -94,68 +96,15 @@ const RAW_ZOOM_TARGET: u16 = 0x0800;
 const NORMALIZED_ZOOM_TARGET: f32 = 0.25;
 
 // ---------------------------------------------------------------------------
-// Output and gating helpers
+// Gating helpers
 // ---------------------------------------------------------------------------
 
-/// Test clock: every output line carries milliseconds since test start.
-#[derive(Debug, Clone, Copy)]
-struct Hw {
-    start: Instant,
-}
-
-impl Hw {
-    fn new() -> Self {
-        Self {
-            start: Instant::now(),
-        }
-    }
-
-    fn log(&self, args: fmt::Arguments<'_>) {
-        eprintln!("HW|t={}|{}", self.start.elapsed().as_millis(), args);
-    }
-}
-
-macro_rules! hw {
-    ($hw:expr, $($arg:tt)*) => {
-        $hw.log(format_args!($($arg)*))
-    };
-}
-
-/// Whether the error means the request's physical outcome is unknowable, so
-/// it must never be replayed.
 /// Magnification of a raw zoom position, when the profile fixes its lens.
 fn magnification(capabilities: &Capabilities, units: u16) -> Option<f32> {
     capabilities
         .zoom_scale()
         .ok()
         .and_then(|scale| scale.magnification(units))
-}
-
-fn is_unconfirmed(error: &Error) -> bool {
-    error.kind() == ErrorKind::Unconfirmed
-        || error
-            .failure_context()
-            .is_some_and(|context| context.certainty == Certainty::Unconfirmed)
-}
-
-/// Prints the Debug of an error plus its classification.
-fn observe_error(hw: &Hw, label: &str, error: &Error) {
-    hw!(hw, "{label}=Err({error:?})");
-    hw!(
-        hw,
-        "{label}.error kind={:?} requires_new_session={} unconfirmed={} display=\"{error}\"",
-        error.kind(),
-        error.requires_new_session(),
-        is_unconfirmed(error)
-    );
-}
-
-/// Prints the Debug of a result, with the error classification on failure.
-fn observe<T: fmt::Debug>(hw: &Hw, label: &str, result: &Result<T, Error>) {
-    match result {
-        Ok(value) => hw!(hw, "{label}=Ok({value:?})"),
-        Err(error) => observe_error(hw, label, error),
-    }
 }
 
 /// Reads `VISCA_CAMERA_IP`; prints a skip line when unset.
@@ -173,12 +122,7 @@ fn camera_ip(hw: &Hw, test: &str) -> Option<String> {
 /// Gate for tests that need the camera IP and one extra `=1` opt-in flag.
 fn flag_gate(hw: &Hw, test: &str, flag: &str) -> Option<String> {
     let ip = camera_ip(hw, test)?;
-    if env::var(flag).as_deref() != Ok("1") {
-        hw!(hw, "SKIP {test}: {flag}=1 not set");
-        eprintln!("Skipped: {flag}=1 not set");
-        return None;
-    }
-    Some(ip)
+    opted_in(hw, test, flag).then_some(ip)
 }
 
 /// Gate for tests that may move the camera.
@@ -189,28 +133,6 @@ fn motion_gate(hw: &Hw, test: &str) -> Option<String> {
 /// Gate for tests that change camera settings (and restore them).
 fn settings_gate(hw: &Hw, test: &str) -> Option<String> {
     flag_gate(hw, test, "VISCA_HW_ALLOW_SETTINGS")
-}
-
-/// Named boolean checks collected during a test and asserted only after the
-/// camera has been restored and the session closed.
-#[derive(Debug, Default)]
-struct Checks(Vec<(&'static str, bool)>);
-
-impl Checks {
-    fn check(&mut self, hw: &Hw, name: &'static str, ok: bool) {
-        hw!(hw, "check.{name}={ok}");
-        self.0.push((name, ok));
-    }
-
-    fn assert_all(&self) {
-        let failed: Vec<&str> = self
-            .0
-            .iter()
-            .filter(|(_, ok)| !ok)
-            .map(|(name, _)| *name)
-            .collect();
-        assert!(failed.is_empty(), "failed checks: {failed:?}");
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -302,81 +224,6 @@ fn open_session<P: WireRowProfile>(hw: &Hw, ip: &str) -> CameraSession<P> {
     let address = format!("{ip}:{TCP_PORT}");
     hw!(hw, "connect.tcp={address}");
     Connect::open_tcp::<P>(address).expect("open TCP session")
-}
-
-fn close_session<P: CompileTimeProfile>(hw: &Hw, session: CameraSession<P>) {
-    let result = session.close();
-    observe(hw, "session.close", &result);
-}
-
-// ---------------------------------------------------------------------------
-// Motion safety helpers (mirrors hardware_motion_test.rs)
-// ---------------------------------------------------------------------------
-
-/// Sends pan/tilt STOP and zoom STOP, waits for each to be applied, then
-/// recalls preset 1 unless the test already attempted that recall. Every step
-/// is best effort: `Drop` cannot report and may run while unwinding.
-struct MotionGuard<'a, P: CompileTimeProfile> {
-    camera: &'a Camera<P>,
-    hw: Hw,
-    recall_attempted: &'a Cell<bool>,
-}
-
-impl<P: CompileTimeProfile> Drop for MotionGuard<'_, P> {
-    fn drop(&mut self) {
-        let hw = &self.hw;
-        hw!(hw, "guard.begin");
-        // Submit both STOPs before waiting on either so a slow pan/tilt STOP
-        // cannot delay the zoom STOP.
-        let pan_tilt = self.camera.pan_tilt().stop();
-        let zoom = self.camera.zoom().stop();
-        for (label, submitted) in [("guard.pan_tilt_stop", pan_tilt), ("guard.zoom_stop", zoom)] {
-            match submitted {
-                Ok(mut operation) => {
-                    let result = operation.applied_with_timeout(HANDLE_WAIT);
-                    observe(hw, label, &result);
-                }
-                Err(error) => observe_error(hw, &format!("{label}.submit"), &error),
-            }
-        }
-        if !self.recall_attempted.replace(true) {
-            restore_preset_one(self.camera, hw, "guard.recall_preset1");
-        }
-        hw!(hw, "guard.end");
-    }
-}
-
-/// Recalls preset 1 and waits for its settlement. Never retried.
-fn restore_preset_one<P: CompileTimeProfile>(camera: &Camera<P>, hw: &Hw, label: &str) {
-    let result = PresetNumber::new(1)
-        .and_then(|preset| camera.presets().recall(preset))
-        .and_then(|mut operation| operation.settled());
-    observe(hw, &format!("{label}.settled"), &result);
-}
-
-/// Reads pan/tilt and zoom positions and prints the `RESTORED` line.
-fn report_restored<P: CompileTimeProfile>(camera: &Camera<P>, hw: &Hw) {
-    let pan_tilt = camera.pan_tilt().position();
-    let zoom = camera.zoom().position();
-    observe(hw, "restored.pan_tilt", &pan_tilt);
-    observe(hw, "restored.zoom", &zoom);
-    let (pan, tilt) = pan_tilt.map_or_else(
-        |_| ("ERR".to_owned(), "ERR".to_owned()),
-        |position| (position.pan.to_string(), position.tilt.to_string()),
-    );
-    let zoom = zoom.map_or_else(
-        |_| "ERR".to_owned(),
-        |position| position.value().to_string(),
-    );
-    hw!(hw, "RESTORED pan={pan} tilt={tilt} zoom={zoom}");
-}
-
-/// Explicit end-of-test restore: recall preset 1 (marking it attempted so the
-/// guard does not repeat it), then print the restored positions.
-fn restore_and_report<P: CompileTimeProfile>(camera: &Camera<P>, hw: &Hw, attempted: &Cell<bool>) {
-    attempted.set(true);
-    restore_preset_one(camera, hw, "restore.preset1");
-    report_restored(camera, hw);
 }
 
 // ---------------------------------------------------------------------------
