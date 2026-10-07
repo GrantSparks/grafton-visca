@@ -880,7 +880,6 @@ impl<E: Executor> Executor for ManualClockExecutor<E> {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
@@ -907,7 +906,7 @@ mod tests {
         clock.advance(HOUR - Duration::from_nanos(1));
         assert!(!waiter.is_finished(), "woken before its deadline");
         clock.advance(Duration::from_nanos(1));
-        assert_eq!(waiter.join().unwrap(), None);
+        assert!(matches!(waiter.join(), Ok(None)));
         assert_eq!(clock.now() - start, HOUR);
     }
 
@@ -923,17 +922,15 @@ mod tests {
             thread::spawn(move || {
                 let _participant = registration.enter();
                 clock.sleep(Duration::from_millis(10));
-                sent.send(clock.now()).unwrap();
+                assert!(sent.send(clock.now()).is_ok());
             })
         };
         // The sender's sleep is the earliest deadline, so this wait ends with
         // its value at exactly that instant, long before its own deadline.
-        let at = clock
-            .wait_until(start + HOUR, || received.try_recv().ok())
-            .unwrap();
-        assert_eq!(at - start, Duration::from_millis(10));
-        assert_eq!(clock.now(), at);
-        sender.join().unwrap();
+        let at = clock.wait_until(start + HOUR, || received.try_recv().ok());
+        assert_eq!(at.map(|at| at - start), Some(Duration::from_millis(10)));
+        assert_eq!(at, Some(clock.now()));
+        assert!(sender.join().is_ok());
     }
 
     #[test]
