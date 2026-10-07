@@ -1,0 +1,24 @@
+name: Install serial transport dependencies
+description: >-
+  Install libudev-dev for the serial transport. Each apt call is bounded and
+  retried, so a stalled package mirror fails over in minutes instead of
+  holding the job until its timeout.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        set -u
+        apt_get() {
+          sudo timeout 240 apt-get -o Acquire::Retries=3 \
+            -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30 "$@"
+        }
+        for attempt in 1 2 3; do
+          if apt_get update && apt_get install --yes --no-install-recommends libudev-dev; then
+            exit 0
+          fi
+          echo "::warning::apt attempt ${attempt} failed; retrying"
+          sleep 15
+        done
+        echo "::error::could not install libudev-dev after 3 attempts"
+        exit 1

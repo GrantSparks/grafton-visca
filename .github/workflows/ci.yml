@@ -91,9 +91,8 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install serial transport dependencies
         if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes libudev-dev
+        timeout-minutes: 15
+        uses: ./.github/actions/install-serial-deps
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
         with:
           components: clippy
@@ -152,9 +151,8 @@ jobs:
       - name: Check public Error variant production reachability
         run: bash .github/scripts/test-error-variant-reachability.sh
       - name: Install serial transport dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes libudev-dev
+        timeout-minutes: 15
+        uses: ./.github/actions/install-serial-deps
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo check --workspace --all-features --all-targets
@@ -168,9 +166,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install serial transport dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes libudev-dev
+        timeout-minutes: 15
+        uses: ./.github/actions/install-serial-deps
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo test --all-features --no-fail-fast
@@ -182,9 +179,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install serial transport dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes libudev-dev
+        timeout-minutes: 15
+        uses: ./.github/actions/install-serial-deps
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Build supported example surfaces
@@ -229,9 +225,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install serial transport dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes libudev-dev
+        timeout-minutes: 15
+        uses: ./.github/actions/install-serial-deps
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
         with:
           components: clippy
@@ -397,9 +392,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install serial transport dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes libudev-dev
+        timeout-minutes: 15
+        uses: ./.github/actions/install-serial-deps
       # `cargo public-api` needs a nightly rustdoc to emit rustdoc JSON. When it
       # is run from a stable toolchain it shells out to a bare `+nightly`, which
       # fails outright when no toolchain named `nightly` was ever installed.
@@ -431,9 +425,8 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Install serial transport dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes libudev-dev
+        timeout-minutes: 15
+        uses: ./.github/actions/install-serial-deps
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo test --manifest-path tests/fixtures/synemantic_2_0/Cargo.toml
