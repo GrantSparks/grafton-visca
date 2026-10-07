@@ -67,7 +67,6 @@ mod tests {
     }
 
     #[tokio::test]
-    #[cfg_attr(miri, ignore = "requires a real TCP listener")]
     async fn invalid_tcp_config_returns_before_a_listener_can_accept() {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0")
             .await

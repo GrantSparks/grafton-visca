@@ -680,7 +680,6 @@ mod tests {
         }
 
         #[test]
-        #[cfg_attr(miri, ignore = "requires OS hostname resolution")]
         fn localhost_resolves_through_the_system_resolver() {
             let addresses =
                 resolve_blocking("localhost:5678", budget(Duration::from_secs(5))).unwrap();

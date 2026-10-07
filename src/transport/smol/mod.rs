@@ -67,7 +67,6 @@ mod tests {
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "requires a real TCP listener")]
     fn invalid_tcp_config_returns_before_a_listener_can_accept() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
         listener

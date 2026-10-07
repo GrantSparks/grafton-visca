@@ -117,7 +117,6 @@ mod tests {
     };
 
     #[test]
-    #[cfg_attr(miri, ignore = "requires real TCP sockets")]
     fn the_tcp_defaults_enable_nodelay_and_keepalive() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
         let addr = listener.local_addr().expect("listener local addr");
