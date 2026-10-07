@@ -37,17 +37,20 @@
 //!   fault on one camera. No motion.
 //!
 //! What the inquiry scenarios assert, per camera: every reply decodes; every
-//! round equals that camera's own baseline, read sequentially before the
-//! concurrent phase (the baselines must distinguish the cameras, otherwise
-//! attribution is unprovable and the test fails with
-//! `ATTRIBUTION_INDISTINGUISHABLE`); the session metrics count no
-//! acknowledgement, completion or inquiry timeout; and the session is still
-//! running. Focus position identifies a camera only in manual focus, since
-//! auto focus may move it between rounds.
+//! field of every round equals that camera's own baseline, read sequentially
+//! before the concurrent phase once pan/tilt and zoom are at rest; the session
+//! metrics count no acknowledgement, completion or inquiry timeout; and the
+//! session is still running. Focus position is compared only in manual focus,
+//! since auto focus may move it between rounds. Each field is a separate
+//! inquiry, so the fields that tell each pair of cameras apart are printed per
+//! pair (`ATTRIBUTION_FIELDS`), and every pair must differ at least in pan/tilt
+//! position; otherwise attribution is unprovable and the test fails with
+//! `ATTRIBUTION_INDISTINGUISHABLE` naming the pair.
 //!
 //! `hwc05` asserts that every unfaulted session sees no error, stays attributed
-//! to its own camera, counts no timeout, and keeps every inquiry within the
-//! profile's inquiry reply deadline (p50 and max are printed). The faulted
+//! to its own camera, counts no timeout, and keeps its worst inquiry latency
+//! within `max(5 x its sequential baseline p50, 500 ms)` (p50, max and the
+//! bound are printed). The faulted
 //! session must report only the documented stalled-stream classes
 //! (`Error::Timeout`, `Error::InquiryCorrelationLost`, or an error with
 //! `requires_new_session() == true`) while the fault is active, and must answer
@@ -93,11 +96,30 @@
 //!   hwc05_one_camera_fault_does_not_stall_others
 //! ```
 //!
-//! For `hwc05`, wait for the `cam=<fault camera>|READY_FOR_FAULT` line, then
-//! inject a client-side fault on that camera's TCP port only (for example
-//! `iptables -I OUTPUT -d 192.0.2.11 -p tcp --dport 5678 -j DROP`) and create
-//! the flag file within 60 s. Hold the fault for at least 5 s, then lift it
-//! (delete the rule) and remove the flag file within 180 s of creating it.
+//! `hwc05` fault sequence, run in a second shell on the test host once the
+//! `cam=<fault camera>|READY_FOR_FAULT` line appears (steps 1-2 within 60 s;
+//! hold the fault at least 5 s; steps 3-4 within 180 s of step 2):
+//! ```sh
+//! sudo iptables -I OUTPUT -d 192.0.2.11 -p tcp --dport 5678 -j DROP  # 1. inject
+//! touch /tmp/hwc05.fault                                             # 2. signal
+//! sudo iptables -D OUTPUT -d 192.0.2.11 -p tcp --dport 5678 -j DROP  # 3. lift
+//! rm /tmp/hwc05.fault                                                # 4. signal
+//! ```
+//! If the 180 s hold expires first, the test prints `LIFT_FAULT_NOW` and
+//! fails: run step 3 immediately.
+//!
+//! Recovery after a run is killed mid-drive (a kill skips the drop guards):
+//! for each camera send pan/tilt STOP, zoom STOP and the preset-1 recall over
+//! raw VISCA TCP, for example
+//! ```sh
+//! for frame in '\x81\x01\x06\x01\x01\x01\x03\x03\xff' '\x81\x01\x04\x07\x00\xff' \
+//!     '\x81\x01\x04\x3f\x02\x01\xff'; do
+//!   printf "$frame" | nc -q 1 192.0.2.10 5678
+//! done
+//! ```
+//! (`81 01 06 01 01 01 03 03 FF`, `81 01 04 07 00 FF`, `81 01 04 3F 02 01 FF`),
+//! or rerun `hwc04_concurrent_drive_and_stop`, which ends with STOP and a
+//! preset-1 recall on every camera.
 
 #[macro_use]
 #[path = "common/hardware.rs"]
@@ -110,6 +132,7 @@ use std::{
     collections::HashSet,
     env, fmt,
     future::Future,
+    panic::{catch_unwind, resume_unwind, AssertUnwindSafe},
     path::{Path, PathBuf},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -143,6 +166,8 @@ const UDP_PORT: u16 = 1259;
 const ROUNDS: usize = 20;
 /// How long a drive runs before its STOP is sent.
 const DRIVE: Duration = Duration::from_millis(250);
+/// Upper bound on the wall time from a drive's submission to its STOP's.
+const STOP_BOUND: Duration = Duration::from_millis(300);
 /// Bound for the protocol idle wait after each STOP.
 const IDLE_WAIT: Duration = Duration::from_secs(2);
 
@@ -154,6 +179,9 @@ const RECOVERY_WINDOW: Duration = Duration::from_secs(30);
 const RECOVERY_POLL: Duration = Duration::from_secs(1);
 /// Pause between unfaulted inquiry rounds in `hwc05`.
 const UNFAULTED_ROUND_PAUSE: Duration = Duration::from_millis(100);
+/// Unfaulted latency bound: `max(LATENCY_FACTOR x baseline p50, LATENCY_FLOOR)`.
+const LATENCY_FACTOR: u32 = 5;
+const LATENCY_FLOOR: Duration = Duration::from_millis(500);
 /// Upper bound on the unfaulted loops should the faulted side never stop them.
 const UNFAULTED_LIMIT: Duration = Duration::from_secs(360);
 
@@ -256,26 +284,55 @@ struct Snapshot {
     focus_mode: FocusMode,
 }
 
-/// The fields that identify one camera at rest. Focus position counts only in
-/// manual focus, since auto focus may move it between rounds.
-type Identity = (
-    bool,
-    ZoomPosition,
-    PanTiltPosition,
-    FocusMode,
-    Option<FocusPosition>,
-);
-
 impl Snapshot {
-    fn identity(&self) -> Identity {
-        (
-            self.power_on,
-            self.zoom,
-            self.pan_tilt,
-            self.focus_mode,
-            (self.focus_mode == FocusMode::Manual).then_some(self.focus),
-        )
+    /// The fields, each answered by its own inquiry, in which two snapshots
+    /// differ. Focus position is compared only when both are in manual focus,
+    /// since auto focus may move it between rounds.
+    fn differing_fields(&self, other: &Self) -> Vec<&'static str> {
+        let manual_focus =
+            self.focus_mode == FocusMode::Manual && other.focus_mode == FocusMode::Manual;
+        [
+            ("power", self.power_on != other.power_on),
+            ("zoom", self.zoom != other.zoom),
+            ("pan_tilt", self.pan_tilt != other.pan_tilt),
+            ("focus_mode", self.focus_mode != other.focus_mode),
+            ("focus", manual_focus && self.focus != other.focus),
+        ]
+        .into_iter()
+        .filter_map(|(field, differs)| differs.then_some(field))
+        .collect()
     }
+}
+
+/// Median and maximum of a latency sample; zero when it is empty.
+fn p50_and_max(latencies: &[Duration]) -> (Duration, Duration) {
+    let mut sorted = latencies.to_vec();
+    sorted.sort_unstable();
+    let p50 = sorted.get(sorted.len() / 2).copied().unwrap_or_default();
+    let max = sorted.last().copied().unwrap_or_default();
+    (p50, max)
+}
+
+/// Rest-check attempts before a baseline is read.
+const BASELINE_REST_ATTEMPTS: usize = 3;
+
+/// Waits until pan/tilt and zoom read stable, so a camera still finishing a
+/// preset recall is not baselined mid-move. Panics, before any concurrent work,
+/// if it never settles.
+fn settle_before_baseline(
+    cam: &CamHw,
+    mut read: impl FnMut() -> Result<(PanTiltPosition, ZoomPosition), Error>,
+) {
+    for attempt in 0..BASELINE_REST_ATTEMPTS {
+        let label = format!("baseline.rest[{attempt}]");
+        if sample_rest(cam, &label, REST_SAMPLES, REST_INTERVAL, &mut read) {
+            return;
+        }
+    }
+    panic!(
+        "cam={}: pan/tilt and zoom did not come to rest before the baseline",
+        cam.ip
+    );
 }
 
 /// Runs one inquiry, records its latency and prints a failure.
@@ -345,6 +402,8 @@ struct Member {
     cam: CamHw,
     session: CameraSession<PtzOpticsG2>,
     baseline: Snapshot,
+    /// Median inquiry latency of the sequential baseline read.
+    baseline_p50: Duration,
     before: MetricsSnapshot,
 }
 
@@ -356,14 +415,21 @@ impl Member {
             .session()
             .metrics()
             .unwrap_or_else(|error| panic!("cam={ip}: metrics failed: {error}"));
-        let baseline = read_blocking(session.camera(), &cam, &mut Vec::new());
+        let camera = session.camera();
+        settle_before_baseline(&cam, || {
+            Ok((camera.pan_tilt().position()?, camera.zoom().position()?))
+        });
+        let mut latencies = Vec::new();
+        let baseline = read_blocking(camera, &cam, &mut latencies);
         observe(&cam, "baseline", &baseline);
         let baseline = baseline
             .unwrap_or_else(|error| panic!("cam={ip}: baseline inquiry set failed: {error}"));
+        let (baseline_p50, _) = p50_and_max(&latencies);
         Self {
             cam,
             session,
             baseline,
+            baseline_p50,
             before,
         }
     }
@@ -397,7 +463,21 @@ impl AsyncMember {
             .metrics()
             .await
             .unwrap_or_else(|error| panic!("cam={ip}: metrics failed: {error}"));
-        let baseline = read_async(session.camera(), &cam, &mut Vec::new()).await;
+        let camera = session.camera();
+        // The rest sampler is synchronous; run it on this worker while the
+        // runtime's other workers keep the owner progressing.
+        tokio::task::block_in_place(|| {
+            let handle = tokio::runtime::Handle::current();
+            settle_before_baseline(&cam, || {
+                handle.block_on(async {
+                    Ok((
+                        camera.pan_tilt().position().await?,
+                        camera.zoom().position().await?,
+                    ))
+                })
+            });
+        });
+        let baseline = read_async(camera, &cam, &mut Vec::new()).await;
         observe(&cam, "baseline", &baseline);
         let baseline = baseline
             .unwrap_or_else(|error| panic!("cam={ip}: baseline inquiry set failed: {error}"));
@@ -437,11 +517,12 @@ impl Tally {
         match result {
             Ok(snapshot) => {
                 self.decoded += 1;
-                if snapshot.identity() != baseline.identity() {
+                let differing = snapshot.differing_fields(baseline);
+                if !differing.is_empty() {
                     self.mismatched += 1;
                     hw!(
                         cam,
-                        "ATTRIBUTION_MISMATCH round={round} got={snapshot:?} baseline={baseline:?}"
+                        "ATTRIBUTION_MISMATCH round={round} fields={differing:?} got={snapshot:?} baseline={baseline:?}"
                     );
                 } else if verbose {
                     hw!(cam, "round[{round}]=Ok({snapshot:?})");
@@ -456,11 +537,7 @@ impl Tally {
 
     /// Median and maximum inquiry latency; zero when nothing was measured.
     fn latency(&self) -> (Duration, Duration) {
-        let mut sorted = self.latencies.clone();
-        sorted.sort_unstable();
-        let p50 = sorted.get(sorted.len() / 2).copied().unwrap_or_default();
-        let max = sorted.last().copied().unwrap_or_default();
-        (p50, max)
+        p50_and_max(&self.latencies)
     }
 }
 
@@ -516,7 +593,10 @@ fn evaluate(
     );
 }
 
-/// Attribution is provable only when no two cameras share an identity.
+/// Each field is a separate inquiry, so attribution is judged per field: the
+/// fields that tell each pair of cameras apart are printed, and every pair must
+/// differ at least in pan/tilt position, the field that identifies a camera at
+/// rest most reliably.
 fn check_baselines_distinct<'a>(
     hw: &Hw,
     baselines: impl IntoIterator<Item = (&'a CamHw, &'a Snapshot)>,
@@ -526,19 +606,26 @@ fn check_baselines_distinct<'a>(
     let mut distinct = true;
     for (index, (first, first_baseline)) in baselines.iter().enumerate() {
         for (second, second_baseline) in &baselines[index + 1..] {
-            if first_baseline.identity() == second_baseline.identity() {
+            let differing = first_baseline.differing_fields(second_baseline);
+            hw!(
+                hw,
+                "ATTRIBUTION_FIELDS cam={} cam={} differ={differing:?}",
+                first.ip,
+                second.ip
+            );
+            if !differing.contains(&"pan_tilt") {
                 distinct = false;
                 hw!(
                     hw,
-                    "ATTRIBUTION_INDISTINGUISHABLE cam={} cam={} identity={:?}",
+                    "ATTRIBUTION_INDISTINGUISHABLE cam={} cam={} pan_tilt={:?}",
                     first.ip,
                     second.ip,
-                    first_baseline.identity()
+                    first_baseline.pan_tilt
                 );
             }
         }
     }
-    checks.check(hw, "baselines_distinguish_cameras", distinct);
+    checks.check(hw, "pan_tilt_distinguishes_every_pair", distinct);
 }
 
 /// Shared body of the blocking inquiry scenarios: one session per camera on
@@ -702,13 +789,21 @@ impl Drive {
         }
     }
 
+    fn bound_check_name(self) -> &'static str {
+        match self {
+            Self::PanRight => "pan_right_stop_within_300ms",
+            Self::ZoomTele => "zoom_tele_stop_within_300ms",
+            Self::ZoomWide => "zoom_wide_stop_within_300ms",
+        }
+    }
+
     fn run(
         self,
         camera: &Camera<PtzOpticsG2>,
         cam: &CamHw,
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
-    ) -> Result<(), Error> {
+    ) -> Result<Duration, Error> {
         let label = self.label();
         match self {
             Self::PanRight => drive_then_stop(
@@ -743,9 +838,10 @@ impl Drive {
     }
 }
 
-/// Submits a drive, sends its STOP after [`DRIVE`], and returns whether the
-/// STOP was applied. The drive outcome and the protocol idle wait are printed,
-/// not asserted; physical rest is sampled separately.
+/// Submits a drive, sends its STOP after [`DRIVE`], and, once the STOP is
+/// applied, returns the wall time from the drive's submission to the STOP's.
+/// The drive outcome and the protocol idle wait are printed, not asserted;
+/// physical rest is sampled separately.
 fn drive_then_stop<D: completion::Kind, S: completion::Kind>(
     camera: &Camera<PtzOpticsG2>,
     cam: &CamHw,
@@ -753,16 +849,17 @@ fn drive_then_stop<D: completion::Kind, S: completion::Kind>(
     axes: AffectedAxes,
     drive: impl FnOnce() -> Result<Operation<D>, Error>,
     stop: impl FnOnce() -> Result<Operation<S>, Error>,
-) -> Result<(), Error> {
+) -> Result<Duration, Error> {
     let drive_started = Instant::now();
     let mut drive = drive()?;
     hw!(cam, "{label}.submitted id={:?}", drive.id());
     sleep(DRIVE);
     let mut stop = stop()?;
+    let drive_wall = drive_started.elapsed();
     hw!(
         cam,
         "{label}.drive_wall_ms_before_stop_submitted={}",
-        drive_started.elapsed().as_millis()
+        drive_wall.as_millis()
     );
     let stop_result = stop.applied();
     observe(cam, &format!("{label}.stop.applied"), &stop_result);
@@ -772,21 +869,38 @@ fn drive_then_stop<D: completion::Kind, S: completion::Kind>(
         .motion()
         .wait_until_idle(IdleWait::new(axes, IDLE_WAIT));
     observe(cam, &format!("{label}.wait_until_idle"), &idle);
-    stop_result
+    stop_result.map(|()| drive_wall)
 }
 
 /// One camera's part of `hwc04`. It waits on the barrier before every drive
 /// whatever happened earlier, so a failing camera never blocks the others.
+///
+/// A panic before the last barrier would leave the other cameras waiting on it
+/// forever, never reaching their preset-1 recall. Every step before that
+/// barrier therefore runs under `catch_unwind`: a panic counts as a failed
+/// drive (this camera's guard fires at once and it skips the remaining drives
+/// while still passing every barrier), and the first panic is re-raised after
+/// the restore so the test still fails. This keeps the plain `std` barrier;
+/// a timed barrier would need a hand-rolled primitive and a timeout tuned
+/// against drive, STOP and idle-wait durations.
 fn concurrent_motion(camera: &Camera<PtzOpticsG2>, cam: &CamHw, barrier: &Barrier) -> Checks {
     let mut checks = Checks::default();
     let recall_attempted = Cell::new(false);
+    let mut panicked = None;
 
-    let before = camera.pan_tilt().position();
-    observe(cam, "pan_tilt.before", &before);
-    let speeds = PanSpeed::new(1).and_then(|pan| TiltSpeed::new(1).map(|tilt| (pan, tilt)));
-    observe(cam, "speeds", &speeds);
-    checks.check(cam, "ready_before_motion", before.is_ok() && speeds.is_ok());
-    let mut speeds = before.and(speeds).ok();
+    let ready = catch_unwind(AssertUnwindSafe(|| {
+        let before = camera.pan_tilt().position();
+        observe(cam, "pan_tilt.before", &before);
+        let speeds = PanSpeed::new(1).and_then(|pan| TiltSpeed::new(1).map(|tilt| (pan, tilt)));
+        observe(cam, "speeds", &speeds);
+        before.and(speeds).ok()
+    }));
+    let mut speeds = ready.unwrap_or_else(|payload| {
+        hw!(cam, "ready.panicked");
+        panicked = Some(payload);
+        None
+    });
+    checks.check(cam, "ready_before_motion", speeds.is_some());
 
     let mut guard = Some(MotionGuard {
         camera,
@@ -796,24 +910,42 @@ fn concurrent_motion(camera: &Camera<PtzOpticsG2>, cam: &CamHw, barrier: &Barrie
 
     for drive in Drive::ALL {
         barrier.wait();
-        let applied = match speeds {
+        let drive_wall = match speeds {
             Some((pan_speed, tilt_speed)) => {
-                let result = drive.run(camera, cam, pan_speed, tilt_speed);
-                if let Err(error) = &result {
-                    observe_error(cam, drive.label(), error);
+                let outcome = catch_unwind(AssertUnwindSafe(|| {
+                    drive.run(camera, cam, pan_speed, tilt_speed)
+                }));
+                let drive_wall = match outcome {
+                    Ok(Ok(drive_wall)) => Some(drive_wall),
+                    Ok(Err(error)) => {
+                        observe_error(cam, drive.label(), &error);
+                        None
+                    }
+                    Err(payload) => {
+                        hw!(cam, "{}.panicked", drive.label());
+                        panicked.get_or_insert(payload);
+                        None
+                    }
+                };
+                if drive_wall.is_none() {
                     // Stop this camera and recall preset 1 now rather than
                     // after the remaining drives; it takes no further part.
                     speeds = None;
                     drop(guard.take());
                 }
-                result.is_ok()
+                drive_wall
             }
             None => {
                 hw!(cam, "{}.skipped", drive.label());
-                false
+                None
             }
         };
-        checks.check(cam, drive.check_name(), applied);
+        checks.check(cam, drive.check_name(), drive_wall.is_some());
+        checks.check(
+            cam,
+            drive.bound_check_name(),
+            drive_wall.is_some_and(|wall| wall <= STOP_BOUND),
+        );
     }
 
     let stable = sample_rest(cam, "pan_tilt+zoom", REST_SAMPLES, REST_INTERVAL, || {
@@ -827,6 +959,9 @@ fn concurrent_motion(camera: &Camera<PtzOpticsG2>, cam: &CamHw, barrier: &Barrie
         restore_and_report(camera, cam, &recall_attempted);
     }
     drop(guard);
+    if let Some(payload) = panicked {
+        resume_unwind(payload);
+    }
     checks
 }
 
@@ -975,6 +1110,12 @@ fn faulted_camera(
         report.errors
     );
     if !report.fault_lifted {
+        hw!(
+            cam,
+            "LIFT_FAULT_NOW hold limit of {} s expired with the fault flag still present; \
+             delete the injected rule for this camera now",
+            FAULT_HOLD_LIMIT.as_secs()
+        );
         close_session(&cam, session);
         return report;
     }
@@ -1108,10 +1249,25 @@ fn hwc05_one_camera_fault_does_not_stall_others() {
     for (member, tally) in unfaulted.into_iter().zip(&tallies) {
         let after = member.session.session().metrics();
         evaluate(&member.cam, tally, &member.before, &after, &mut checks);
-        let bound = member.session.camera().profile().timing().inquiry_timeout();
+        // A G2 answers an inquiry in tens of milliseconds, and load on other
+        // sessions should change this camera's round trip by no more than
+        // host scheduling and switch jitter, which five times its own
+        // sequential median absorbs. The 500 ms floor keeps a very fast
+        // baseline from failing on that jitter while staying below the
+        // raw-TCP inquiry reply deadline (printed), so a session stalled
+        // behind the faulted camera's deadline still fails.
+        let bound = (member.baseline_p50 * LATENCY_FACTOR).max(LATENCY_FLOOR);
+        let deadline = member.session.camera().profile().timing().inquiry_timeout();
         let (_, max) = tally.latency();
-        hw!(member.cam, "latency.bound_ms={}", bound.as_millis());
-        checks.check(&member.cam, "latency_within_inquiry_deadline", max <= bound);
+        hw!(
+            member.cam,
+            "latency.bound_ms={} baseline_p50_ms={:.1} factor={LATENCY_FACTOR} floor_ms={} inquiry_deadline_ms={}",
+            bound.as_millis(),
+            member.baseline_p50.as_secs_f64() * 1000.0,
+            LATENCY_FLOOR.as_millis(),
+            deadline.as_millis()
+        );
+        checks.check(&member.cam, "latency_within_baseline_bound", max <= bound);
         close_session(&member.cam, member.session);
     }
 
