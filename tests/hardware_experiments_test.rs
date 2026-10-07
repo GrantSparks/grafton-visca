@@ -8,8 +8,10 @@
 //! - `e5_stale_stream_reply_binding` (`VISCA_HW_FAULT_FLAG=<path>`): an
 //!   operator drops this host's outbound packets to the camera while one
 //!   power inquiry times out and is retried into the stalled TCP stream, then
-//!   lifts the fault. The test then reads white-balance mode repeatedly and
-//!   compares it with a fresh session's ground truth. Inquiries only.
+//!   lifts the fault. The test then reads white-balance mode until eight
+//!   answers match a fresh session's ground truth (bounded at 60 s). While the
+//!   faulted inquiry's reply is still owed, `Error::InquiryCorrelationLost` is
+//!   the expected refusal; a wrong `Ok` value fails the test. Inquiries only.
 
 use std::path::PathBuf;
 use std::thread::sleep;
@@ -17,6 +19,7 @@ use std::time::{Duration, Instant};
 
 use grafton_visca::blocking::{Camera, Connect};
 use grafton_visca::camera::profiles::PtzOpticsG2;
+use grafton_visca::Error;
 
 struct Hw(Instant);
 
@@ -136,24 +139,63 @@ fn e5_stale_stream_reply_binding() {
     }
     hw.log("fault.flag_removed");
 
-    let mut wrong = 0;
-    for index in 0..8 {
+    // The #795 contract: while the faulted inquiry's reply is still owed, an
+    // inquiry to this camera fails with `InquiryCorrelationLost` instead of
+    // binding a stale reply; once the owed reply arrives (TCP retransmits it
+    // after the fault is lifted) the same session answers correctly again.
+    // A wrong `Ok` value is the defect; a correlation refusal is not.
+    let recovery_deadline = Instant::now() + Duration::from_secs(60);
+    let mut wrong_values = 0;
+    let mut refusals = 0;
+    let mut other_errors = 0;
+    let mut correct_after_recovery = 0;
+    let mut index = 0;
+    while correct_after_recovery < 8 && Instant::now() < recovery_deadline {
         let started = Instant::now();
         let mode = camera.white_balance().mode();
-        let matches = format!("{mode:?}") == format!("{truth:?}");
-        if !matches {
-            wrong += 1;
-        }
+        let outcome = match &mode {
+            Ok(_) if format!("{mode:?}") == format!("{truth:?}") => {
+                correct_after_recovery += 1;
+                "correct"
+            }
+            Ok(_) => {
+                wrong_values += 1;
+                "WRONG_VALUE"
+            }
+            Err(Error::InquiryCorrelationLost { .. }) => {
+                refusals += 1;
+                "correlation_refused"
+            }
+            Err(_) => {
+                other_errors += 1;
+                "other_error"
+            }
+        };
         hw.log(format_args!(
-            "after_fault.white_balance_mode[{index}] elapsed_ms={} result={mode:?} matches_truth={matches}",
+            "after_fault.white_balance_mode[{index}] elapsed_ms={} result={mode:?} outcome={outcome}",
             started.elapsed().as_millis()
         ));
+        index += 1;
+        if outcome != "correct" {
+            sleep(Duration::from_millis(250));
+        }
     }
     let close = session.close();
     hw.log(format_args!("session.close={close:?}"));
-    hw.log(format_args!("SUMMARY wrong_values={wrong}"));
+    hw.log(format_args!(
+        "SUMMARY wrong_values={wrong_values} correlation_refusals={refusals} \
+         other_errors={other_errors} correct_after_recovery={correct_after_recovery}"
+    ));
     assert_eq!(
-        wrong, 0,
+        wrong_values, 0,
         "a stale reply was returned as a later inquiry's value"
+    );
+    assert_eq!(
+        other_errors, 0,
+        "only correlation refusals may precede recovery"
+    );
+    assert_eq!(
+        correct_after_recovery, 8,
+        "the session did not recover once the owed reply could arrive"
     );
 }
