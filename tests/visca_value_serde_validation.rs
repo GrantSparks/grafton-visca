@@ -32,8 +32,7 @@ mod serde_validation {
     struct SparseValue(u8);
 
     #[cfg(feature = "schemars")]
-    #[allow(dead_code)]
-    #[derive(schemars::JsonSchema)]
+    #[derive(serde::Serialize, schemars::JsonSchema)]
     struct BuiltinRangeSchemaContainer {
         preset: PresetNumber,
         recall: PresetRecallSpeed,
@@ -212,6 +211,12 @@ mod serde_validation {
 
         let schema = schemars::schema_for!(BuiltinRangeSchemaContainer);
         let json = serde_json::to_value(schema).expect("serialize range container schema");
+        let instance = serde_json::to_value(BuiltinRangeSchemaContainer {
+            preset: PresetNumber::new(1).expect("valid preset"),
+            recall: PresetRecallSpeed::new(12).expect("valid recall speed"),
+            focus: FocusSpeed::new(1).expect("valid focus speed"),
+        })
+        .expect("serialize range container");
         for (field, definition) in [
             ("preset", "PresetNumber"),
             ("recall", "PresetRecallSpeed"),
@@ -225,6 +230,10 @@ mod serde_validation {
             assert_eq!(
                 json.pointer(&format!("/$defs/{definition}/type")),
                 Some(&serde_json::json!("integer"))
+            );
+            assert!(
+                instance[field].is_u64(),
+                "{field} must serialize as the integer its schema describes: {instance}"
             );
         }
 

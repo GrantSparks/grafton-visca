@@ -28,11 +28,7 @@
 ))]
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
 
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
-#[macro_use]
-#[path = "common/matrix.rs"]
-mod matrix;
+use grafton_visca_test_support::{facade_matrix, fake_camera};
 
 use std::{
     fmt,

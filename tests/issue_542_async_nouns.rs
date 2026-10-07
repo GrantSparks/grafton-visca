@@ -18,8 +18,7 @@ use grafton_visca::{
     Camera, CompileTimeProfile, Error, Operation, Result,
 };
 
-#[path = "common/profile_fixtures.rs"]
-mod profile_fixtures;
+use grafton_visca_test_support::profile_fixtures;
 
 fn plain<F>(_: F)
 where
@@ -70,12 +69,10 @@ fn exposure_mode_surface<P: CompileTimeProfile + HasExposureMode>(camera: &Camer
 /// Keep the generic baseline useful for the metadata-only fixture, but make
 /// the base image contract explicit now that Generic VISCA intentionally has
 /// no typed image noun.
-#[allow(dead_code)]
 fn base_image_surface<P: CompileTimeProfile + HasImageProcessing>(camera: &Camera<P>) {
     let _ = camera.image();
 }
 
-#[allow(dead_code)]
 fn backlight_surface<P>(camera: &Camera<P>)
 where
     P: CompileTimeProfile + HasImageProcessing + HasBacklightCompensation,
@@ -84,7 +81,6 @@ where
     plain(camera.image().set_backlight(true));
 }
 
-#[allow(dead_code)]
 fn sony_optional_surface(camera: &Camera<SonyFR7>) {
     plain(camera.tally().red_on());
     plain(camera.nd_filter().auto_on());
@@ -96,32 +92,27 @@ fn sony_optional_surface(camera: &Camera<SonyFR7>) {
     );
 }
 
-#[allow(dead_code)]
 fn ptzoptics_optional_surface(camera: &Camera<PtzOpticsG2>) {
     inquiry(camera.white_balance().sensitivity());
     inquiry(camera.image().flip_mode());
 }
 
-#[allow(dead_code)]
 fn image_flip_surface<P: CompileTimeProfile + HasImageProcessing + HasImageFlip>(
     camera: &Camera<P>,
 ) {
     inquiry(camera.image().flip_mode());
 }
 
-#[allow(dead_code)]
 fn focus_zone_inquiry_gate<P: CompileTimeProfile + HasFocusZoneInquiry>(camera: &Camera<P>) {
     inquiry(camera.focus().zone());
 }
 
-#[allow(dead_code)]
 fn usb_audio_gate<P: CompileTimeProfile + HasUsbAudio>(camera: &Camera<P>) {
     inquiry(camera.advanced().usb_audio_enabled());
     plain(camera.advanced().usb_audio_on());
     plain(camera.advanced().usb_audio_off());
 }
 
-#[allow(dead_code)]
 fn ptzoptics_vendor_command_gates<P>(camera: &Camera<P>)
 where
     P: CompileTimeProfile
@@ -150,7 +141,6 @@ where
     );
 }
 
-#[allow(dead_code)]
 fn sony_spotlight_command_gates<P>(camera: &Camera<P>)
 where
     P: CompileTimeProfile + HasSonySpotlight,
@@ -159,7 +149,6 @@ where
     plain(camera.exposure().spotlight_off());
 }
 
-#[allow(dead_code)]
 fn sony_auto_slow_shutter_command_gates<P>(camera: &Camera<P>)
 where
     P: CompileTimeProfile + HasSonyAutoSlowShutter,
@@ -168,7 +157,6 @@ where
     plain(camera.exposure().auto_slow_shutter_off());
 }
 
-#[allow(dead_code)]
 fn non_default_profile_surface(camera: &Camera<profile_fixtures::NonDefaultCompileTimeProfile>) {
     baseline_surface(camera);
 }
@@ -182,6 +170,10 @@ fn noun_views_are_borrowed_profile_typed_handles() {
     let _: fn(&Camera<profile_fixtures::NonDefaultCompileTimeProfile>) =
         assert_camera_is_profile_typed::<profile_fixtures::NonDefaultCompileTimeProfile>;
     let _: fn(&Camera<PtzOpticsG2>) = base_image_surface::<PtzOpticsG2>;
+    let _: fn(&Camera<SonyFR7>) = sony_optional_surface;
+    let _: fn(&Camera<PtzOpticsG2>) = ptzoptics_optional_surface;
+    let _: fn(&Camera<profile_fixtures::NonDefaultCompileTimeProfile>) =
+        non_default_profile_surface;
     let _: fn(&Camera<SonyBRC300>) = backlight_surface::<SonyBRC300>;
     let _: fn(&Camera<PtzOpticsG2>) = exposure_mode_surface::<PtzOpticsG2>;
     let _: fn(&Camera<PtzOpticsG2>) = image_flip_surface::<PtzOpticsG2>;
@@ -198,5 +190,4 @@ fn noun_views_are_borrowed_profile_typed_handles() {
     let _: fn(&Camera<SonyBRC300>) = sony_auto_slow_shutter_command_gates::<SonyBRC300>;
 }
 
-#[allow(dead_code)]
 fn _error_type_is_public(_: Error) {}

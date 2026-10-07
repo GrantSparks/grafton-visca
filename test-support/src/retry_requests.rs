@@ -1,11 +1,8 @@
 //! Plain requests that differ only in their retry class, for the retry
 //! recovery tests.
 //!
-//! Include with `#[path = "common/retry_requests.rs"] mod retry_requests;`.
 //! Both write the same three-byte frame, so a test that compares them varies
 //! the retry class and nothing else.
-
-#![allow(dead_code)]
 
 use grafton_visca::{request, CameraId, ControlClass, Error, Request, RetryClass, TimeoutClass};
 

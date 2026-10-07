@@ -1,5 +1,4 @@
-#[path = "common/compile_fail.rs"]
-mod compile_fail;
+use grafton_visca_test_support::{active_grafton_visca_features, compile_fail};
 
 use grafton_visca::{
     command::{ExposureMode, InquiryData},
@@ -8,24 +7,27 @@ use grafton_visca::{
 
 // Keep generated derive code independent of names supplied by the downstream
 // crate. The canonical parser must be reached through absolute crate paths.
-#[allow(dead_code)]
+// The derives below expand in the scope of these shadows; a derive that
+// reached one would not compile. `downstream_shadows_are_in_scope` proves the
+// shadows really are what these names resolve to here.
 struct Result;
-#[allow(dead_code)]
 struct TryFrom;
-#[allow(dead_code)]
 enum Ok {}
-#[allow(dead_code)]
 enum Err {}
 
-#[allow(unused_macros)]
 macro_rules! vec {
+    (@shadow) => {
+        "downstream vec!"
+    };
     ($($tokens:tt)*) => {
         compile_error!("derive output used the downstream vec! macro")
     };
 }
 
-#[allow(unused_macros)]
 macro_rules! format {
+    (@shadow) => {
+        "downstream format!"
+    };
     ($($tokens:tt)*) => {
         compile_error!("derive output used the downstream format! macro")
     };
@@ -160,9 +162,24 @@ fn generated_nibble_templates_reject_bad_nibbles_and_trailing_bytes() {
 
 #[test]
 fn renamed_downstream_names_do_not_capture_generated_parser_code() {
-    let features = compile_fail::active_grafton_visca_features();
+    let features = active_grafton_visca_features!();
     compile_fail::assert_compile_pass_fixture_paths(
         &["tests/api_contract/pass/derive_macro_mode_hygiene.rs"],
         &features,
     );
+}
+
+/// The shadows above are what the unqualified names resolve to in the scope
+/// where the derives expand. Each line compiles only against the shadow: the
+/// prelude's `Result` is generic, its `TryFrom` is a trait, its `Ok`/`Err` are
+/// variants rather than types, and its `vec!`/`format!` have no `@shadow`
+/// form.
+#[test]
+fn downstream_shadows_are_in_scope() {
+    assert_eq!(std::mem::size_of_val(&Result), 0);
+    assert_eq!(std::mem::size_of_val(&TryFrom), 0);
+    assert_eq!(std::mem::size_of::<Option<Ok>>(), 0);
+    assert_eq!(std::mem::size_of::<Option<Err>>(), 0);
+    assert_eq!(vec!(@shadow), "downstream vec!");
+    assert_eq!(format!(@shadow), "downstream format!");
 }

@@ -28,11 +28,7 @@
     )
 ))]
 
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
-#[macro_use]
-#[path = "common/matrix.rs"]
-mod matrix;
+use grafton_visca_test_support::{facade_matrix, fake_camera};
 
 use std::{thread, time::Duration};
 
@@ -428,4 +424,4 @@ async fn dyn_projection_has_the_same_surface<E: Executor>(executor: E) {
     feature = "dyn-api",
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
-runtime_matrix!(dyn_projection_has_the_same_surface);
+grafton_visca_test_support::runtime_matrix!(dyn_projection_has_the_same_surface);

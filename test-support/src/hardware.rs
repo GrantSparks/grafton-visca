@@ -2,9 +2,8 @@
 //! operator-run hardware tests (`hardware_motion_test`,
 //! `hardware_wire_rows_test` and `hardware_concurrent_test`).
 //!
-//! Include with `#[macro_use] #[path = "common/hardware.rs"] mod hardware;`.
-//! Every item here is used by each of those binaries; a helper only some of
-//! them need belongs in its own module (see `hardware_rest.rs`).
+//! Compiled under grafton-visca's `blocking` feature; the observation macro
+//! is [`hw!`](crate::hw).
 //!
 //! Output convention: every observation is one greppable line on stderr of
 //! the form `HW|t=<elapsed ms since test start>|<observation>`. A sink that
@@ -32,6 +31,7 @@ pub trait HwLog {
 }
 
 /// Formats one observation line through an [`HwLog`] sink.
+#[macro_export]
 macro_rules! hw {
     ($hw:expr, $($arg:tt)*) => {
         $hw.log(format_args!($($arg)*))
@@ -45,10 +45,17 @@ pub struct Hw {
 }
 
 impl Hw {
+    /// Starts the test clock now.
     pub fn new() -> Self {
         Self {
             start: Instant::now(),
         }
+    }
+}
+
+impl Default for Hw {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -60,7 +67,7 @@ impl HwLog for Hw {
 
 /// Whether the error means the request's physical outcome is unknowable, so
 /// it must never be replayed.
-pub fn is_unconfirmed(error: &Error) -> bool {
+fn is_unconfirmed(error: &Error) -> bool {
     error.kind() == ErrorKind::Unconfirmed
         || error
             .failure_context()
@@ -160,7 +167,7 @@ impl<P: CompileTimeProfile, L: HwLog> Drop for MotionGuard<'_, P, L> {
 }
 
 /// Recalls preset 1 and waits for its settlement. Never retried.
-pub fn restore_preset_one<P: CompileTimeProfile>(camera: &Camera<P>, hw: &impl HwLog, label: &str) {
+fn restore_preset_one<P: CompileTimeProfile>(camera: &Camera<P>, hw: &impl HwLog, label: &str) {
     let result = PresetNumber::new(1)
         .and_then(|preset| camera.presets().recall(preset))
         .and_then(|mut operation| operation.settled());

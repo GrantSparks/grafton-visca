@@ -15,8 +15,7 @@ use grafton_visca::{
     ViscaEnum, ViscaInquiry, ViscaValue,
 };
 
-#[path = "common/source_scan.rs"]
-mod source_scan;
+use grafton_visca_test_support::source_scan;
 
 use source_scan::declarations;
 
@@ -115,7 +114,6 @@ macro_rules! static_accessor_inventory {
         const EXPECTED_ACCESSORS: &[&str] = &[$(stringify!($accessor)),*];
 
         #[cfg(feature = "async")]
-        #[allow(dead_code)]
         fn async_accessors_resolve<P>()
         where
             P: grafton_visca::CompileTimeProfile
@@ -128,7 +126,6 @@ macro_rules! static_accessor_inventory {
         }
 
         #[cfg(feature = "blocking")]
-        #[allow(dead_code)]
         fn blocking_accessors_resolve<P>()
         where
             P: grafton_visca::CompileTimeProfile
@@ -168,7 +165,6 @@ macro_rules! dyn_trait_inventory {
         const EXPECTED_DYN_TRAITS: &[&str] = &[$(stringify!($dyn_trait)),*];
 
         #[cfg(all(feature = "dyn-api", feature = "async"))]
-        #[allow(dead_code)]
         fn dyn_traits_resolve() {
             $( let _: Option<&dyn grafton_visca::dynapi::$dyn_trait> = None; )*
         }
@@ -324,6 +320,14 @@ fn static_noun_and_control_inventory_is_closed() {
     sorted.sort_unstable();
     sorted.dedup();
     assert_eq!(sorted, EXPECTED_ACCESSORS);
+    #[cfg(feature = "async")]
+    async_accessors_resolve::<
+        grafton_visca_test_support::profile_fixtures::OptionalSurfacesTypedSupport,
+    >();
+    #[cfg(feature = "blocking")]
+    blocking_accessors_resolve::<
+        grafton_visca_test_support::profile_fixtures::OptionalSurfacesTypedSupport,
+    >();
 
     let surface = declarations(include_str!("../src/command/surface.rs"));
     assert!(surface.contains("pub(crate) const fn surface_entry"));
@@ -343,6 +347,8 @@ fn dynamic_control_inventory_is_closed() {
     sorted.sort_unstable();
     sorted.dedup();
     assert_eq!(sorted, EXPECTED_DYN_TRAITS);
+    #[cfg(all(feature = "dyn-api", feature = "async"))]
+    dyn_traits_resolve();
 
     // The forbidden-token gates below are negative, so they read the whole
     // file: a legacy spelling hiding in a test module is still a legacy

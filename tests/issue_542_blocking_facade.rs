@@ -2,10 +2,7 @@
 
 #![cfg(feature = "blocking")]
 
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
-#[path = "common/profile_fixtures.rs"]
-mod profile_fixtures;
+use grafton_visca_test_support::{fake_camera, profile_fixtures};
 
 use grafton_visca::{
     blocking::{Camera, Session, SessionConfig},

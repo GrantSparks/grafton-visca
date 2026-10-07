@@ -1,9 +1,8 @@
-#[path = "common/compile_fail.rs"]
-mod compile_fail;
+use grafton_visca_test_support::{active_grafton_visca_features, compile_fail};
 
 #[test]
 fn visca_value_attributes_are_checked_downstream() {
-    let features = compile_fail::active_grafton_visca_features();
+    let features = active_grafton_visca_features!();
     compile_fail::assert_compile_pass_fixture_paths(
         &[
             "tests/api_contract/pass/visca_range_type_downstream.rs",

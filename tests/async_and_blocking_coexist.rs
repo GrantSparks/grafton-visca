@@ -14,16 +14,7 @@
     feature = "async",
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
-#[path = "common/fake_camera.rs"]
-mod fake_camera;
-#[cfg(all(
-    feature = "blocking",
-    feature = "async",
-    any(feature = "runtime-tokio", feature = "runtime-smol")
-))]
-#[macro_use]
-#[path = "common/matrix.rs"]
-mod matrix;
+use grafton_visca_test_support::fake_camera;
 
 #[cfg(all(
     feature = "blocking",
@@ -146,6 +137,7 @@ mod runtime_coexistence {
         profiles::PtzOpticsG2,
         Executor, Session as AsyncSession, SessionConfig as AsyncConfig,
     };
+    use grafton_visca_test_support::runtime_matrix;
 
     use crate::fake_camera::FakeCamera;
 

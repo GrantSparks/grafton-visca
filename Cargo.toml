@@ -2,6 +2,7 @@
 members = [
     ".",
     "grafton-visca-macros",
+    "test-support",
     "tests/fixtures/phase4_derive_shadows",
     "tests/fixtures/phase4_renamed",
 ]
@@ -60,7 +61,10 @@ readme = "README.md"
 # and the runtime adapters, so they compile with whichever facade is enabled and
 # have nothing to gate.
 default = ["blocking"]
-blocking = []
+# Each facade feature also enables the matching feature of the unpublished
+# integration-test helper crate (a dev-dependency), so the helpers a test build
+# compiles follow the facade under test.
+blocking = ["grafton-visca-test-support/blocking"]
 # Runtime-agnostic async support. Runtime features add their adapter while
 # applications may also enable the independent blocking facade.
 #
@@ -69,7 +73,12 @@ blocking = []
 # only under `async` + `test-utils`. Riding it on `async` keeps a blocking-only
 # consumer that enables `test-utils` free of any executor, which the
 # dependency-boundary gate enforces (`blocking,test-utils` must stay clean).
-async = ["dep:futures-lite", "dep:async-lock", "dep:async-executor"]
+async = [
+    "dep:futures-lite",
+    "dep:async-lock",
+    "dep:async-executor",
+    "grafton-visca-test-support/async",
+]
 
 # Runtime features imply the canonical async facade.
 runtime-tokio = ["async", "dep:tokio"]
@@ -147,9 +156,13 @@ futures-lite = "2.6"
 pollster = "0.4"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 proptest = "1.11.0"
-# Reads Cargo's `--message-format=json` records in the compile-contract harness
-# (`tests/common/compile_fail.rs`); already the optional `serde` feature's JSON crate.
+# Used directly by integration tests; already the optional `serde` feature's
+# JSON crate.
 serde_json = "1.0"
+# The integration tests' shared helpers: an unpublished workspace member,
+# stripped from the published manifest with every other path-only
+# dev-dependency.
+grafton-visca-test-support = { path = "test-support" }
 
 [[example]]
 name = "quickstart"
