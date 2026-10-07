@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.0-rc.3] - 2026-10-07
+
 Hardware status: checklist rows HW-01, HW-04 and HW-05 passed on a PTZOptics
 G2 bench (PT30X-NDI G2, PT20X-NDI G2 and PT12X-NDI G2; firmware in
 `docs/hardware_release_checklist.md`) over Raw VISCA TCP and UDP. Raw serial
