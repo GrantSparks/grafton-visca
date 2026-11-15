@@ -1,8 +1,8 @@
 //! The VISCA command byte catalogue.
 //!
-//! Every built-in command encoder reads its bytes from here, so each command
-//! byte sequence is written exactly once. Each constant is an address-free
-//! *body*: [`FrameWriter`](super::FrameWriter) supplies the camera address
+//! Every built-in command and inquiry encoder reads its fixed bytes from here,
+//! so each command or inquiry register is written exactly once. Each constant
+//! is an address-free *body*: [`FrameWriter`](super::FrameWriter) supplies the camera address
 //! byte and the terminator. A `*_STEP` prefix is followed by a
 //! [`Step`](super::Step) byte, a prefix named for a direct value by that
 //! value's encoding, and any other prefix by the parameter its encoder
@@ -13,9 +13,11 @@
 //! and the inquiry body (`09 r r`) from the same two bytes; the built-in
 //! inquiry table reads those `*_INQUIRY` bodies. Other shared bytes (two
 //! command families on one opcode, the tally and USB-audio registers) are
-//! assembled from one declaration with [`concat`]. Inquiries whose register no
-//! command uses keep their bodies in the inquiry table
-//! (`crate::command::inquiry_structs`).
+//! assembled from one declaration with [`concat`]. Extended shared registers
+//! derive inquiry prefixes from their command bytes with `inquiry_prefix`;
+//! inquiry-only bodies also live here. The inquiry table
+//! (`crate::command::inquiry_structs`) owns response semantics and references
+//! these fixed bodies without repeating their bytes.
 
 use super::concat;
 
@@ -24,6 +26,27 @@ pub const COMMAND: u8 = 0x01;
 
 /// The VISCA inquiry category byte.
 pub const INQUIRY: u8 = 0x09;
+
+/// Reuses an extended command register for its inquiry. Fixed command
+/// padding or value bytes beyond the register are excluded by `N`.
+const fn inquiry_prefix<const N: usize>(command: &[u8]) -> [u8; N] {
+    assert!(
+        N > 0 && N <= command.len(),
+        "inquiry prefix must fit its command register"
+    );
+    assert!(
+        command[0] == COMMAND,
+        "a standard inquiry requires a command-category register"
+    );
+    let mut query = [0; N];
+    let mut index = 0;
+    while index < N {
+        query[index] = command[index];
+        index += 1;
+    }
+    query[0] = INQUIRY;
+    query
+}
 
 /// Declares one register shared by a command family and its inquiry.
 ///
@@ -94,6 +117,8 @@ pub mod pan_tilt {
 
     /// Limit clear prefix, followed by the corner and the cleared position.
     pub const LIMIT_CLEAR: [u8; 4] = [COMMAND, 0x06, 0x07, 0x01];
+    /// Pan/tilt position inquiry.
+    pub const POSITION_INQUIRY: [u8; 3] = [super::INQUIRY, 0x06, 0x12];
 }
 
 /// Zoom commands.
@@ -261,6 +286,8 @@ pub mod exposure {
 
     /// Automatic slow shutter off.
     pub const AUTO_SLOW_SHUTTER_OFF: [u8; 4] = concat(&[&AUTO_SLOW_SHUTTER, &[0x03]]);
+    /// PTZOptics anti-flicker mode inquiry; distinct from the setter register.
+    pub const FLICKER_MODE_INQUIRY: [u8; 3] = [super::INQUIRY, 0x04, 0x55];
 }
 
 /// Gain commands.
@@ -459,6 +486,8 @@ pub mod flip {
 
     /// Image freeze on (`02`) / off (`03`) prefix.
     pub const FREEZE: [u8; 3] = [COMMAND, 0x04, 0x62];
+    /// Vertical picture-flip state inquiry.
+    pub const VERTICAL_INQUIRY: [u8; 3] = super::inquiry_prefix::<3>(&VERTICAL);
 }
 
 /// PTZOptics OSD menu commands.
@@ -555,6 +584,11 @@ pub mod nd_filter {
 
     /// Automatic ND on (`02`) / off (`03`) prefix.
     pub const AUTO: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x53];
+    /// Variable ND-filter position inquiry.
+    pub const POSITION_INQUIRY: [u8; 4] = super::inquiry_prefix::<4>(&DIRECT);
+
+    /// Sony FR7 ND-filter preset inquiry.
+    pub const PRESET_INQUIRY: [u8; 4] = [super::INQUIRY, 0x7E, 0x01, 0x53];
 }
 
 /// PTZOptics motion sync commands.
@@ -564,6 +598,11 @@ pub mod motion_sync {
 
     /// Motion sync speed prefix, followed by the speed byte.
     pub const SPEED: [u8; 3] = [0x0A, 0x11, 0x14];
+    /// Legacy mode inquiry body; no built-in model has a source grant.
+    pub const MODE_INQUIRY: [u8; 3] = [super::INQUIRY, 0x04, 0x56];
+
+    /// Legacy preset inquiry body; no built-in model has a source grant.
+    pub const PRESET_INQUIRY: [u8; 3] = [super::INQUIRY, 0x04, 0x57];
 }
 
 /// Sony FR7 pan/tilt speed-step range command.
@@ -594,6 +633,8 @@ pub mod system {
 
     /// PTZOptics settings save.
     pub const SETTINGS_SAVE: [u8; 4] = [COMMAND, 0x04, 0xA5, 0x10];
+    /// Sony-format camera version inquiry.
+    pub const VERSION_INQUIRY: [u8; 3] = [super::INQUIRY, 0x00, 0x02];
 }
 
 /// Sony FR7 exposure and counted iris controls (R7 v4.00, p. 14).
@@ -611,6 +652,14 @@ pub mod sony_fr7_exposure {
 
     /// Relative iris prefix, followed by the direction and two count nibbles.
     pub const IRIS_STEP: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x4B];
+    /// Sony FR7 automatic-gain state inquiry.
+    pub const AUTO_GAIN_INQUIRY: [u8; 4] = super::inquiry_prefix::<4>(&AUTO_GAIN);
+
+    /// Sony FR7 automatic-shutter state inquiry.
+    pub const AUTO_SHUTTER_INQUIRY: [u8; 3] = super::inquiry_prefix::<3>(&AUTO_SHUTTER);
+
+    /// Sony FR7 automatic-iris state inquiry.
+    pub const AUTO_IRIS_INQUIRY: [u8; 3] = super::inquiry_prefix::<3>(&AUTO_IRIS);
 }
 
 /// Sony FR7 preset-white, Memory A and ATW controls (R7 v4.00, p. 15).
@@ -716,6 +765,31 @@ pub mod sony_fr7_white_balance {
     /// ATW tint offset direct prefix; the encoder appends the validated value.
     pub const ATW_TINT_OFFSET_DIRECT: [u8; 4] =
         concat(&[&ATW_TINT_OFFSET_DIRECT_REGISTER, &[0x00]]);
+    /// Sony FR7 preset-white value inquiry.
+    pub const PRESET_WHITE_INQUIRY: [u8; 4] = super::inquiry_prefix::<4>(&PRESET_WHITE_DIRECT);
+
+    /// Sony FR7 Memory A color-temperature inquiry.
+    pub const MEMORY_COLOR_TEMPERATURE_INQUIRY: [u8; 4] =
+        super::inquiry_prefix::<4>(&MEMORY_COLOR_TEMPERATURE_DIRECT);
+
+    /// Sony FR7 Memory A red-gain inquiry.
+    pub const MEMORY_RED_GAIN_INQUIRY: [u8; 5] =
+        super::inquiry_prefix::<5>(&MEMORY_RED_GAIN_DIRECT);
+
+    /// Sony FR7 Memory A blue-gain inquiry.
+    pub const MEMORY_BLUE_GAIN_INQUIRY: [u8; 5] =
+        super::inquiry_prefix::<5>(&MEMORY_BLUE_GAIN_DIRECT);
+
+    /// Sony FR7 Memory A tint inquiry.
+    pub const MEMORY_TINT_INQUIRY: [u8; 4] = super::inquiry_prefix::<4>(&MEMORY_TINT_DIRECT);
+
+    /// Sony FR7 ATW color-temperature offset inquiry.
+    pub const ATW_COLOR_TEMPERATURE_OFFSET_INQUIRY: [u8; 4] =
+        super::inquiry_prefix::<4>(&ATW_COLOR_TEMPERATURE_OFFSET_DIRECT);
+
+    /// Sony FR7 ATW tint offset inquiry.
+    pub const ATW_TINT_OFFSET_INQUIRY: [u8; 4] =
+        super::inquiry_prefix::<4>(&ATW_TINT_OFFSET_DIRECT);
 }
 
 /// Sony FR7 black, detail and knee controls (R7 v4.00, p. 16).
@@ -754,6 +828,32 @@ pub mod sony_fr7_image {
 
     /// Knee point prefix; the encoder appends the validated value.
     pub const KNEE_POINT: [u8; 4] = [COMMAND, 0x7E, 0x01, 0x6E];
+    /// Sony FR7 master-black value inquiry.
+    pub const MASTER_BLACK_INQUIRY: [u8; 3] = super::inquiry_prefix::<3>(&MASTER_BLACK_DIRECT);
+
+    /// Sony FR7 red-black value inquiry.
+    pub const RED_BLACK_INQUIRY: [u8; 4] = super::inquiry_prefix::<4>(&RED_BLACK_DIRECT);
+
+    /// Sony FR7 blue-black value inquiry.
+    pub const BLUE_BLACK_INQUIRY: [u8; 4] = super::inquiry_prefix::<4>(&BLUE_BLACK_DIRECT);
+
+    /// Sony FR7 detail-state inquiry.
+    pub const DETAIL_INQUIRY: [u8; 4] = super::inquiry_prefix::<4>(&DETAIL_SETTING);
+
+    /// Sony FR7 knee-state inquiry.
+    pub const KNEE_INQUIRY: [u8; 4] = super::inquiry_prefix::<4>(&KNEE_SETTING);
+
+    /// Sony FR7 knee-mode inquiry.
+    pub const KNEE_MODE_INQUIRY: [u8; 4] = super::inquiry_prefix::<4>(&KNEE_MODE);
+
+    /// Sony FR7 knee-slope inquiry.
+    pub const KNEE_SLOPE_INQUIRY: [u8; 4] = super::inquiry_prefix::<4>(&KNEE_SLOPE);
+
+    /// Sony FR7 knee-point inquiry.
+    pub const KNEE_POINT_INQUIRY: [u8; 4] = super::inquiry_prefix::<4>(&KNEE_POINT);
+
+    /// Sony FR7 knee-permission inquiry; distinct from the setting register.
+    pub const KNEE_PERMISSION_INQUIRY: [u8; 4] = [super::INQUIRY, 0x7E, 0x04, 0x6D];
 }
 
 /// Sony FR7 high-resolution zoom drive and stop (R7 v4.00, p. 16).
@@ -782,4 +882,23 @@ pub mod sony_fr7_presets {
 
     /// Separate preset duration prefix; the encoder appends the validated value.
     pub const SEPARATE_PRESET_DURATION: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x67];
+    /// Sony FR7 preset-speed selection inquiry.
+    pub const PRESET_SPEED_SELECTION_INQUIRY: [u8; 4] =
+        super::inquiry_prefix::<4>(&PRESET_SPEED_SELECTION);
+
+    /// Sony FR7 common preset-speed inquiry.
+    pub const COMMON_PRESET_SPEED_INQUIRY: [u8; 4] =
+        super::inquiry_prefix::<4>(&COMMON_PRESET_SPEED);
+
+    /// Sony FR7 separate preset-mode inquiry, followed by the preset argument.
+    pub const SEPARATE_PRESET_MODE_INQUIRY: [u8; 4] =
+        super::inquiry_prefix::<4>(&SEPARATE_PRESET_MODE);
+
+    /// Sony FR7 separate preset-speed inquiry, followed by the preset argument.
+    pub const SEPARATE_PRESET_SPEED_INQUIRY: [u8; 4] =
+        super::inquiry_prefix::<4>(&SEPARATE_PRESET_SPEED);
+
+    /// Sony FR7 separate preset-duration inquiry, followed by the preset argument.
+    pub const SEPARATE_PRESET_DURATION_INQUIRY: [u8; 4] =
+        super::inquiry_prefix::<4>(&SEPARATE_PRESET_DURATION);
 }

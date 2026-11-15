@@ -4,8 +4,11 @@
 //! `ViscaInquiry` derive. The single [`define_builtin_inquiries!`] table below
 //! is the source of truth for the response discriminants, the decoded response
 //! data, the decoder dispatch, the zero-sized inquiry commands and their
-//! request bodies, the typed query conversions, and the invariant metadata.
+//! references to catalogue-owned request bodies, the typed query conversions,
+//! and the invariant metadata.
 //!
+//! Fixed request bytes live in `command::bytes::constants`, including
+//! inquiry-only registers and shared command/inquiry prefixes.
 //! Each row declares a sourced response kind, its data and decoder, and the
 //! one or more commands that query it. Unsupported packets use custom requests
 //! and custom decoders instead of compatibility-only built-in response kinds.
@@ -32,8 +35,9 @@ use super::response::{BoolConvention, Nibbles, Payload, Response};
 use super::system::{MotionSyncMode, MotionSyncPreset};
 use super::white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode};
 use crate::command::bytes::constants::{
-    color, exposure, focus, gain, image, menu, power, streaming, tally, white_balance, zoom,
-    INQUIRY,
+    color, exposure, flip, focus, gain, image, menu, motion_sync, nd_filter, pan_tilt, power,
+    sony_fr7_exposure, sony_fr7_image, sony_fr7_presets, sony_fr7_white_balance, streaming, system,
+    tally, white_balance, zoom,
 };
 use crate::command::bytes::FrameWriter;
 use crate::command::surface::{BuiltinInquiryGate, RowGate};
@@ -771,7 +775,7 @@ define_builtin_inquiries! {
         commands [
             /// Inquiry command to get the camera version information.
             VersionInquiry {
-                bytes: [INQUIRY, 0x00, 0x02],
+                bytes: system::VERSION_INQUIRY,
                 source: source!([(R7, [SonyFr7], "r7-sonyfr7-version-query"), (R11, [SonyBrcH900], "r11-sonybrch900-version-query"), (R8, [SonyEviH100], "r8-sonyevih100-version-query"), (R12, [SonyBrc300], "r12-sonybrc300-version-query"), (R21, [NearusBrc300], "r21-nearusbrc300-version-query"), (R8, [GenericVisca], "r8-genericvisca-version-query"), (R12, [GenericVisca], "r12-genericvisca-version-query"), (R21, [GenericVisca], "r21-genericvisca-version-query")]),
                 boolean: None,
                 typed: (crate::command::VersionInfo, { info } => Ok(info)),
@@ -792,7 +796,7 @@ define_builtin_inquiries! {
         commands [
             /// Inquiry command to get the current pan/tilt position.
             PanTiltPositionInquiry {
-                bytes: [INQUIRY, 0x06, 0x12],
+                bytes: pan_tilt::POSITION_INQUIRY,
                 source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-pantiltposition-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-pantiltposition-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-pantiltposition-query"), (R7, [SonyFr7], "r7-sonyfr7-pantiltposition-query"), (R11, [SonyBrcH900], "r11-sonybrch900-pantiltposition-query"), (R8, [SonyEviH100], "r8-sonyevih100-pantiltposition-query"), (R12, [SonyBrc300], "r12-sonybrc300-pantiltposition-query"), (R21, [NearusBrc300], "r21-nearusbrc300-pantiltposition-query"), (R8, [GenericVisca], "r8-genericvisca-pantiltposition-query"), (R12, [GenericVisca], "r12-genericvisca-pantiltposition-query"), (R21, [GenericVisca], "r21-genericvisca-pantiltposition-query")]),
                 boolean: None,
                 typed: (
@@ -1242,7 +1246,7 @@ define_builtin_inquiries! {
         commands [
             /// Queries the sourced vertical picture-flip register (`09 04 66`).
             ImageFlipInquiry {
-                bytes: [INQUIRY, 0x04, 0x66],
+                bytes: flip::VERTICAL_INQUIRY,
                 source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-imageflip-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-imageflip-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-imageflip-query"), (R12, [SonyBrc300], "r12-sonybrc300-imageflip-query"), (R21, [NearusBrc300], "r21-nearusbrc300-imageflip-query")]),
                 boolean: Some(BoolConvention::OnIs02),
                 typed: (FlipState, { state } => Ok(state)),
@@ -1474,7 +1478,7 @@ define_builtin_inquiries! {
         commands [
             /// Queries the sourced FR7 variable-ND density register.
             NdFilterInquiry {
-                bytes: [INQUIRY, 0x7E, 0x04, 0x42],
+                bytes: nd_filter::POSITION_INQUIRY,
                 source: source!([(R7, [SonyFr7], "r7-sonyfr7-ndfilter-query")]),
                 boolean: None,
                 typed: (NdFilterValue, { position } => Ok(position)),
@@ -1674,7 +1678,7 @@ define_builtin_inquiries! {
         commands [
             /// Inquiry command to get the motion sync mode setting.
             MotionSyncModeInquiry {
-                bytes: [INQUIRY, 0x04, 0x56],
+                bytes: motion_sync::MODE_INQUIRY,
                 source: Source::Unsourced,
                 boolean: None,
                 typed: (MotionSyncMode, { mode } => Ok(mode)),
@@ -1695,7 +1699,7 @@ define_builtin_inquiries! {
         commands [
             /// Inquiry command to get the motion sync speed setting.
             MotionSyncPresetInquiry {
-                bytes: [INQUIRY, 0x04, 0x57],
+                bytes: motion_sync::PRESET_INQUIRY,
                 source: Source::Unsourced,
                 boolean: None,
                 typed: (MotionSyncPreset, { speed } => Ok(speed)),
@@ -1739,7 +1743,7 @@ define_builtin_inquiries! {
         commands [
             /// Inquiry command to get the ND filter preset setting.
             NdFilterPresetInquiry {
-                bytes: [INQUIRY, 0x7E, 0x01, 0x53],
+                bytes: nd_filter::PRESET_INQUIRY,
                 source: source!([(R7, [SonyFr7], "r7-sonyfr7-ndfilterpreset-query")]),
                 boolean: None,
                 typed: (NdFilterPreset, { preset } => Ok(preset)),
@@ -1803,7 +1807,7 @@ define_builtin_inquiries! {
         commands [
             /// Inquiry command to get the current flicker mode setting.
             FlickerModeInquiry {
-                bytes: [INQUIRY, 0x04, 0x55],
+                bytes: exposure::FLICKER_MODE_INQUIRY,
                 source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-flickermode-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-flickermode-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-flickermode-query")]),
                 boolean: None,
                 typed: (AntiFlickerMode, { mode } => Ok(mode)),
@@ -1868,7 +1872,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 ae level (R7 p. 21).
             Fr7AeLevelInquiry {
-                bytes: [0x09, 0x04, 0x4E],
+                bytes: exposure::COMPENSATION_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7aelevelinquiry"),
                 boolean: None,
                 typed: (crate::types::AeLevel, { value } => Ok(value)),
@@ -1886,7 +1890,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 auto gain (R7 p. 21).
             Fr7AutoGainInquiry {
-                bytes: [0x09, 0x7E, 0x01, 0x75],
+                bytes: sony_fr7_exposure::AUTO_GAIN_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7autogaininquiry"),
                 boolean: Some(BoolConvention::OnIs02),
                 typed: (bool, { value } => Ok(value)),
@@ -1904,7 +1908,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 auto shutter (R7 p. 21).
             Fr7AutoShutterInquiry {
-                bytes: [0x09, 0x05, 0x35],
+                bytes: sony_fr7_exposure::AUTO_SHUTTER_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7autoshutterinquiry"),
                 boolean: Some(BoolConvention::OnIs02),
                 typed: (bool, { value } => Ok(value)),
@@ -1922,7 +1926,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 auto iris (R7 p. 21).
             Fr7AutoIrisInquiry {
-                bytes: [0x09, 0x05, 0x34],
+                bytes: sony_fr7_exposure::AUTO_IRIS_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7autoirisinquiry"),
                 boolean: Some(BoolConvention::OnIs02),
                 typed: (bool, { value } => Ok(value)),
@@ -1940,7 +1944,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 preset white (R7 p. 21).
             Fr7PresetWhiteInquiry {
-                bytes: [0x09, 0x05, 0x43, 0x01],
+                bytes: sony_fr7_white_balance::PRESET_WHITE_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7presetwhiteinquiry"),
                 boolean: None,
                 typed: (crate::types::WhiteKelvin, { value } => Ok(value)),
@@ -1958,7 +1962,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 memory temperature (R7 p. 21).
             Fr7MemoryColorTemperatureInquiry {
-                bytes: [0x09, 0x05, 0x43, 0x02],
+                bytes: sony_fr7_white_balance::MEMORY_COLOR_TEMPERATURE_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7memorycolortemperatureinquiry"),
                 boolean: None,
                 typed: (crate::types::WhiteKelvin, { value } => Ok(value)),
@@ -1976,7 +1980,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 memory red gain (R7 p. 21).
             Fr7MemoryRedGainInquiry {
-                bytes: [0x09, 0x7E, 0x04, 0x46, 0x02],
+                bytes: sony_fr7_white_balance::MEMORY_RED_GAIN_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7memoryredgaininquiry"),
                 boolean: None,
                 typed: (crate::types::WhiteBalanceGain, { value } => Ok(value)),
@@ -1994,7 +1998,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 memory blue gain (R7 p. 21).
             Fr7MemoryBlueGainInquiry {
-                bytes: [0x09, 0x7E, 0x04, 0x56, 0x02],
+                bytes: sony_fr7_white_balance::MEMORY_BLUE_GAIN_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7memorybluegaininquiry"),
                 boolean: None,
                 typed: (crate::types::WhiteBalanceGain, { value } => Ok(value)),
@@ -2012,7 +2016,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 memory tint (R7 p. 21).
             Fr7MemoryTintInquiry {
-                bytes: [0x09, 0x05, 0x44, 0x02],
+                bytes: sony_fr7_white_balance::MEMORY_TINT_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7memorytintinquiry"),
                 boolean: None,
                 typed: (crate::types::TintOffset, { value } => Ok(value)),
@@ -2030,7 +2034,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 atw temperature offset (R7 p. 21).
             Fr7AtwColorTemperatureOffsetInquiry {
-                bytes: [0x09, 0x05, 0x45, 0x00],
+                bytes: sony_fr7_white_balance::ATW_COLOR_TEMPERATURE_OFFSET_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7atwcolortemperatureoffsetinquiry"),
                 boolean: None,
                 typed: (crate::types::TintOffset, { value } => Ok(value)),
@@ -2048,7 +2052,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 atw tint offset (R7 p. 21).
             Fr7AtwTintOffsetInquiry {
-                bytes: [0x09, 0x05, 0x46, 0x00],
+                bytes: sony_fr7_white_balance::ATW_TINT_OFFSET_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7atwtintoffsetinquiry"),
                 boolean: None,
                 typed: (crate::types::TintOffset, { value } => Ok(value)),
@@ -2066,7 +2070,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 master black (R7 p. 21).
             Fr7MasterBlackInquiry {
-                bytes: [0x09, 0x05, 0x48],
+                bytes: sony_fr7_image::MASTER_BLACK_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7masterblackinquiry"),
                 boolean: None,
                 typed: (crate::types::BlackLevel, { value } => Ok(value)),
@@ -2084,7 +2088,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 red black (R7 p. 21).
             Fr7RedBlackInquiry {
-                bytes: [0x09, 0x7E, 0x04, 0x43],
+                bytes: sony_fr7_image::RED_BLACK_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7redblackinquiry"),
                 boolean: None,
                 typed: (crate::types::BlackLevel, { value } => Ok(value)),
@@ -2102,7 +2106,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 blue black (R7 p. 21).
             Fr7BlueBlackInquiry {
-                bytes: [0x09, 0x7E, 0x04, 0x44],
+                bytes: sony_fr7_image::BLUE_BLACK_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7blueblackinquiry"),
                 boolean: None,
                 typed: (crate::types::BlackLevel, { value } => Ok(value)),
@@ -2120,7 +2124,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 detail (R7 p. 21).
             Fr7DetailInquiry {
-                bytes: [0x09, 0x7E, 0x01, 0x60],
+                bytes: sony_fr7_image::DETAIL_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7detailinquiry"),
                 boolean: Some(BoolConvention::OnIs02),
                 typed: (bool, { value } => Ok(value)),
@@ -2138,7 +2142,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 knee (R7 p. 22).
             Fr7KneeInquiry {
-                bytes: [0x09, 0x7E, 0x01, 0x6D],
+                bytes: sony_fr7_image::KNEE_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7kneeinquiry"),
                 boolean: Some(BoolConvention::OnIs02),
                 typed: (bool, { value } => Ok(value)),
@@ -2156,7 +2160,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 knee mode (R7 p. 22).
             Fr7KneeModeInquiry {
-                bytes: [0x09, 0x7E, 0x01, 0x54],
+                bytes: sony_fr7_image::KNEE_MODE_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7kneemodeinquiry"),
                 boolean: None,
                 typed: (crate::command::Fr7KneeMode, { value } => Ok(value)),
@@ -2174,7 +2178,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 knee slope (R7 p. 22).
             Fr7KneeSlopeInquiry {
-                bytes: [0x09, 0x7E, 0x01, 0x6F],
+                bytes: sony_fr7_image::KNEE_SLOPE_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7kneeslopeinquiry"),
                 boolean: None,
                 typed: (crate::types::KneeSlope, { value } => Ok(value)),
@@ -2192,7 +2196,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 knee point (R7 p. 22).
             Fr7KneePointInquiry {
-                bytes: [0x09, 0x7E, 0x01, 0x6E],
+                bytes: sony_fr7_image::KNEE_POINT_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7kneepointinquiry"),
                 boolean: None,
                 typed: (crate::types::KneePoint, { value } => Ok(value)),
@@ -2210,7 +2214,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 knee permission (R7 p. 22).
             Fr7KneePermissionInquiry {
-                bytes: [0x09, 0x7E, 0x04, 0x6D],
+                bytes: sony_fr7_image::KNEE_PERMISSION_INQUIRY,
                 parameter: { parameter: crate::command::Fr7KneeParameter = crate::command::Fr7KneeParameter::Setting, byte: to_protocol_value },
                 source: source!(R7, [SonyFr7], "r7-fr7kneepermissioninquiry"),
                 boolean: None,
@@ -2229,7 +2233,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 clear image position (R7 p. 22).
             Fr7ClearImageZoomPositionInquiry {
-                bytes: [0x09, 0x04, 0x47],
+                bytes: zoom::POSITION_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7clearimagezoompositioninquiry"),
                 boolean: None,
                 typed: (crate::types::ClearImageZoomPosition, { value } => Ok(value)),
@@ -2247,7 +2251,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 speed selection (R7 p. 22).
             Fr7PresetSpeedSelectionInquiry {
-                bytes: [0x09, 0x7E, 0x04, 0x1B],
+                bytes: sony_fr7_presets::PRESET_SPEED_SELECTION_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7presetspeedselectioninquiry"),
                 boolean: None,
                 typed: (crate::command::Fr7PresetSpeedSelection, { value } => Ok(value)),
@@ -2265,7 +2269,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 common speed (R7 p. 22).
             Fr7CommonPresetSpeedInquiry {
-                bytes: [0x09, 0x7E, 0x04, 0x1C],
+                bytes: sony_fr7_presets::COMMON_PRESET_SPEED_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7commonpresetspeedinquiry"),
                 boolean: None,
                 typed: (crate::types::PresetSpeed, { value } => Ok(value)),
@@ -2283,7 +2287,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 separate mode (R7 p. 22).
             Fr7SeparatePresetModeInquiry {
-                bytes: [0x09, 0x7E, 0x04, 0x27],
+                bytes: sony_fr7_presets::SEPARATE_PRESET_MODE_INQUIRY,
                 parameter: { preset: crate::types::Fr7PresetNumber = crate::types::Fr7PresetNumber::MIN, byte: value },
                 source: source!(R7, [SonyFr7], "r7-fr7separatepresetmodeinquiry"),
                 boolean: None,
@@ -2302,7 +2306,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 separate speed (R7 p. 22).
             Fr7SeparatePresetSpeedInquiry {
-                bytes: [0x09, 0x7E, 0x01, 0x0B],
+                bytes: sony_fr7_presets::SEPARATE_PRESET_SPEED_INQUIRY,
                 parameter: { preset: crate::types::Fr7PresetNumber = crate::types::Fr7PresetNumber::MIN, byte: value },
                 source: source!(R7, [SonyFr7], "r7-fr7separatepresetspeedinquiry"),
                 boolean: None,
@@ -2321,7 +2325,7 @@ define_builtin_inquiries! {
         commands [
             /// Reads Sony FR7 separate duration (R7 p. 22).
             Fr7SeparatePresetDurationInquiry {
-                bytes: [0x09, 0x7E, 0x04, 0x67],
+                bytes: sony_fr7_presets::SEPARATE_PRESET_DURATION_INQUIRY,
                 parameter: { preset: crate::types::Fr7PresetNumber = crate::types::Fr7PresetNumber::MIN, byte: value },
                 source: source!(R7, [SonyFr7], "r7-fr7separatepresetdurationinquiry"),
                 boolean: None,
