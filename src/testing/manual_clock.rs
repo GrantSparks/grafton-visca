@@ -22,6 +22,11 @@ use crate::executor::{Executor, ResettableTimer};
 #[cfg(all(feature = "test-utils", any(feature = "async", feature = "blocking")))]
 use crate::Error;
 
+#[cfg(all(feature = "async", feature = "test-utils"))]
+mod local;
+#[cfg(all(feature = "async", feature = "test-utils"))]
+pub use local::{LocalExecutor, TaskJoin};
+
 /// Why a blocked thread was rung.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Bell {
@@ -1008,9 +1013,18 @@ impl ResettableTimer for ManualClockTimer {
 /// blocked on through this executor, not through `E` directly.
 #[cfg(all(feature = "async", feature = "test-utils"))]
 #[derive(Debug, Clone)]
-pub struct ManualClockExecutor<E> {
+pub struct ManualClockExecutor<E = LocalExecutor> {
     inner: E,
     clock: ManualClock,
+}
+
+#[cfg(all(feature = "async", feature = "test-utils"))]
+impl ManualClockExecutor<LocalExecutor> {
+    /// A self-contained executor requiring no Tokio or smol runtime.
+    #[must_use]
+    pub fn local(clock: &ManualClock) -> Self {
+        Self::new(LocalExecutor::new(clock), clock)
+    }
 }
 
 #[cfg(all(feature = "async", feature = "test-utils"))]
@@ -1023,6 +1037,14 @@ impl<E: Executor> ManualClockExecutor<E> {
         }
     }
 
+    /// Drive `future` and background tasks until `future` completes.
+    ///
+    /// Returns its value immediately, even if a background task keeps arming timers.
+    /// Runtime-backed forms follow the inner executor's `block_on` nesting rules.
+    pub fn run_until<F: Future>(&self, future: F) -> F::Output {
+        self.block_on(future)
+    }
+
     /// The clock this executor keeps time on.
     #[must_use]
     pub fn clock(&self) -> &ManualClock {
@@ -1033,23 +1055,27 @@ impl<E: Executor> ManualClockExecutor<E> {
 #[cfg(all(feature = "async", feature = "test-utils"))]
 impl<E: Executor> Executor for ManualClockExecutor<E> {
     type Join<T>
-        = E::Join<T>
+        = TaskJoin<T>
     where
         T: Send + 'static;
-
-    type Detach = E::Detach;
+    type Detach = ();
     type Timer = ManualClockTimer;
 
     fn timer(&self, deadline: Instant) -> Self::Timer {
         self.clock.timer_at(deadline)
     }
 
-    fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
+    fn spawn_with_detach<F>(&self, future: F) -> (Self::Join<F::Output>, Self::Detach)
     where
         F: Future + Send + 'static,
         F::Output: Send + 'static,
     {
-        self.inner.spawn_with_detach(self.clock.track(fut))
+        let (result, receiver) = flume::bounded(1);
+        self.inner.spawn_bg(self.clock.track(async move {
+            let outcome = local::TaskOutcome::new(future).await;
+            let _ = result.send(outcome);
+        }));
+        (TaskJoin::new(receiver), ())
     }
 
     fn block_on<F: Future>(&self, fut: F) -> F::Output {
@@ -1139,6 +1165,80 @@ mod tests {
         drop(timer);
         assert!(clock.lock().timers.is_empty());
         assert_balanced(&clock);
+    }
+
+    #[cfg(all(feature = "async", feature = "test-utils"))]
+    #[test]
+    fn local_driver_returns_with_live_periodic_work_and_accepts_borrowed_futures() {
+        use std::{cell::Cell, rc::Rc};
+        let clock = ManualClock::new();
+        let _entered = clock.enter();
+        let executor = ManualClockExecutor::local(&clock);
+        let (stop, stopped) = flume::bounded(1);
+        let (finished, done) = flume::bounded(1);
+        let ticker = executor.clone();
+        executor.spawn_bg(async move {
+            futures_lite::future::or(
+                async {
+                    loop {
+                        ticker.sleep(Duration::from_secs(1)).await;
+                    }
+                },
+                async {
+                    let _ = stopped.recv_async().await;
+                },
+            )
+            .await;
+            let _ = finished.send(());
+        });
+        let borrowed = Rc::new(Cell::new(0));
+        let start = clock.now();
+        let answer = executor.run_until(async {
+            executor.sleep(Duration::from_secs(30)).await;
+            borrowed.set(42);
+            borrowed.get()
+        });
+        assert_eq!(answer, 42);
+        assert_eq!(clock.now() - start, Duration::from_secs(30));
+        assert!(stop.send(()).is_ok());
+        assert!(executor.run_until(done.recv_async()).is_ok());
+        assert_balanced(&clock);
+    }
+
+    #[cfg(all(feature = "async", feature = "test-utils"))]
+    #[test]
+    #[allow(clippy::panic)]
+    fn local_task_panics_return_task_failed_and_leave_the_driver_live() {
+        use crate::executor::ExecError;
+        let clock = ManualClock::new();
+        let executor = ManualClockExecutor::local(&clock);
+        let join = executor.spawn(async { panic!("task body failed") });
+        assert!(
+            matches!(executor.run_until(join), Err(ExecError::TaskFailed(message)) if message == "task body failed")
+        );
+        assert_eq!(
+            executor.run_until(async {
+                executor.sleep(Duration::from_millis(1)).await;
+                7
+            }),
+            7
+        );
+        assert_balanced(&clock);
+    }
+
+    #[cfg(all(feature = "test-utils", feature = "runtime-tokio"))]
+    #[test]
+    #[allow(clippy::panic, clippy::expect_used)]
+    fn runtime_backed_task_panics_return_task_failed() {
+        use crate::executor::{ExecError, TokioExecutor};
+        let runtime = tokio::runtime::Runtime::new().expect("runtime");
+        let clock = ManualClock::new();
+        let executor =
+            ManualClockExecutor::new(TokioExecutor::from_handle(runtime.handle().clone()), &clock);
+        let join = executor.spawn(async { panic!("task body failed") });
+        assert!(
+            matches!(executor.run_until(join), Err(ExecError::TaskFailed(message)) if message == "task body failed")
+        );
     }
 
     fn assert_balanced(clock: &ManualClock) {

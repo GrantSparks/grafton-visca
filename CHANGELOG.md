@@ -20,7 +20,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   participants return a `ClockJoinHandle` whose joins also wait on virtual time.
   Wait cleanup is unwind-safe; explicit advances preserve automatic progress,
   overflowing advances end pending finite waits, and diagnostic subscription
-  timeouts use the session's clock.
+  timeouts use the session's clock. `ManualClockExecutor::local` drives async
+  tests without a runtime; `run_until` returns when its future completes without
+  draining periodic background tasks, and panicked task joins return an error.
 
 ### Changed
 
@@ -29,6 +31,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the request retry budget; `settled_with_timeout` remains an exact bound.
   Movement observations derive both snapshots budgets from their prepared
   inquiries and pacing, superseding the fixed 30-second budget shipped in #781.
+
+- Scripted async transports require only `Executor`, and their default
+  `Immediate` form is a usable transport. Dynamic response functions use `Arc`
+  so cloning preserves behavior. Blocking scripted transports can wait on a
+  `ManualClock` with `on_clock` (#885).
 
 - **BREAKING** (#866): Custom `Executor` implementations provide an associated
   resettable `Timer` and an absolute-deadline `timer` factory. Tokio and smol
@@ -195,6 +202,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   framing shares per-axis word widths, including FR7 five-nibble pan and tilt,
   and BRC-300 movement carries its single speed without discarding a second
   field (#893, #882).
+
+- Scripted auto-response helpers answer every send, and signalled shutdown
+  deterministically wins over a queued reply (#885).
+
 - Simulator inquiries reflect completed commands independently for each camera;
   cancelled commands apply nothing. Negative standard pan/tilt positions now
   encode as their signed two's-complement words (#888).
@@ -262,6 +273,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Engine invariant auditing checks terminated-session emptiness, both Sony
   sequence indexes with retained retry evidence, and inquiry/transmission/
   dispute bounds; intentionally corrupted states prove the new checks (#856).
+
+### Removed
+
+- **BREAKING** (#885): Removed `DeterministicExecutor`, `DeterministicClock`,
+  `DeterministicExecutorExt`, `ExecutorExt`, `DetJoin` and the executor-selection
+  helpers. Use `ManualClockExecutor::local` and its `run_until` driver instead.
 
 ## [2.0.0-rc.3] - 2026-10-07
 

@@ -661,13 +661,13 @@ mod tests {
     use crate::{
         capabilities::Capabilities,
         profile::{PositionInquirySupport, ProfileEnvelope, ProfileTiming, TransportCompatibility},
-        testing::testkit::{helpers, DeterministicExecutor, ScriptedTransport, Step},
+        testing::testkit::{helpers, ManualClock, ManualClockExecutor, ScriptedTransport, Step},
         transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
         CommandTimeouts,
     };
 
     struct FailFirstZoomStopSend {
-        inner: ScriptedTransport<DeterministicExecutor>,
+        inner: ScriptedTransport<Arc<ManualClockExecutor>>,
         writes: Arc<Mutex<Vec<Vec<u8>>>>,
         failed: bool,
     }
@@ -675,7 +675,7 @@ mod tests {
     impl FailFirstZoomStopSend {
         fn new(
             steps: impl Into<Vec<Step>>,
-            runtime: Arc<DeterministicExecutor>,
+            runtime: Arc<ManualClockExecutor>,
         ) -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
             let writes = Arc::new(Mutex::new(Vec::new()));
             (
@@ -770,11 +770,12 @@ mod tests {
     /// same on both facades (this facade used to print its whole receipt).
     #[test]
     fn operation_debug_shows_only_its_identity() {
-        let (runtime, _) = DeterministicExecutor::new();
+        let clock = ManualClock::new();
+        let runtime = Arc::new(ManualClockExecutor::local(&clock));
         let transport =
             ScriptedTransport::new([helpers::auto_respond_step()]).with_executor(runtime.clone());
         let session = runtime
-            .run_until(Session::open::<DeterministicExecutor, _>(
+            .run_until(Session::open::<ManualClockExecutor, _>(
                 transport,
                 SessionConfig::new(partial_motion_profile(true, false)),
                 runtime.clone(),
@@ -800,7 +801,8 @@ mod tests {
     /// any write: an open that would send the Sony RESET writes nothing.
     #[test]
     fn session_open_rejects_invalid_tuning_before_any_write() {
-        let (runtime, _) = DeterministicExecutor::new();
+        let clock = ManualClock::new();
+        let runtime = Arc::new(ManualClockExecutor::local(&clock));
         let transport = ScriptedTransport::new(Vec::<Step>::new()).with_executor(runtime.clone());
         let probe = transport.clone();
         let config = SessionConfig::from_compile_time::<crate::profiles::SonyFR7>()
@@ -808,7 +810,7 @@ mod tests {
             .with_sony_sequence_reset_on_connect(true)
             .with_tuning(OperationalTuning::new().maximum_command_sockets(u8::MAX));
         assert!(matches!(
-            runtime.run_until(Session::open::<DeterministicExecutor, _>(
+            runtime.run_until(Session::open::<ManualClockExecutor, _>(
                 transport,
                 config,
                 runtime.clone(),
@@ -820,7 +822,8 @@ mod tests {
 
     #[test]
     fn session_open_sends_opt_in_sony_sequence_reset_before_owner_work() {
-        let (runtime, _) = DeterministicExecutor::new();
+        let clock = ManualClock::new();
+        let runtime = Arc::new(ManualClockExecutor::local(&clock));
         let transport = ScriptedTransport::new(Vec::<Step>::new()).with_executor(runtime.clone());
         let probe = transport.clone();
         let config = SessionConfig::from_compile_time::<crate::profiles::SonyFR7>()
@@ -828,7 +831,7 @@ mod tests {
             .with_sony_sequence_reset_on_connect(true);
 
         let session = runtime
-            .run_until(Session::open::<DeterministicExecutor, _>(
+            .run_until(Session::open::<ManualClockExecutor, _>(
                 transport,
                 config,
                 runtime.clone(),
@@ -846,12 +849,13 @@ mod tests {
 
     #[test]
     fn stop_all_motion_on_a_zoom_only_runtime_profile_writes_only_zoom_stop() {
-        let (runtime, _) = DeterministicExecutor::new();
+        let clock = ManualClock::new();
+        let runtime = Arc::new(ManualClockExecutor::local(&clock));
         let transport =
             ScriptedTransport::new([helpers::auto_respond_step()]).with_executor(runtime.clone());
         let probe = transport.clone();
         let session = runtime
-            .run_until(Session::open::<DeterministicExecutor, _>(
+            .run_until(Session::open::<ManualClockExecutor, _>(
                 transport,
                 SessionConfig::new(partial_motion_profile(true, false)),
                 runtime.clone(),
@@ -876,11 +880,12 @@ mod tests {
 
     #[test]
     fn stop_all_motion_on_a_profile_without_motion_axes_is_a_successful_no_op() {
-        let (runtime, _) = DeterministicExecutor::new();
+        let clock = ManualClock::new();
+        let runtime = Arc::new(ManualClockExecutor::local(&clock));
         let transport = ScriptedTransport::new(Vec::<Step>::new()).with_executor(runtime.clone());
         let probe = transport.clone();
         let session = runtime
-            .run_until(Session::open::<DeterministicExecutor, _>(
+            .run_until(Session::open::<ManualClockExecutor, _>(
                 transport,
                 SessionConfig::new(partial_motion_profile(false, false)),
                 runtime.clone(),
@@ -904,11 +909,12 @@ mod tests {
 
     #[test]
     fn stop_all_motion_reports_each_supported_axis_after_a_partial_failure() {
-        let (runtime, _) = DeterministicExecutor::new();
+        let clock = ManualClock::new();
+        let runtime = Arc::new(ManualClockExecutor::local(&clock));
         let (transport, writes) =
             FailFirstZoomStopSend::new([helpers::auto_respond_step()], runtime.clone());
         let session = runtime
-            .run_until(Session::open::<DeterministicExecutor, _>(
+            .run_until(Session::open::<ManualClockExecutor, _>(
                 transport,
                 SessionConfig::new(partial_motion_profile(true, true)),
                 runtime.clone(),

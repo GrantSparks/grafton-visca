@@ -1275,6 +1275,7 @@ mod tests {
         reply(simulator).await
     }
 
+    #[allow(clippy::panic)]
     fn decoded_position(bytes: &[u8]) -> (i32, i32) {
         use crate::command::{InquiryData, InquiryKind, Response};
         let decoded = Response::parse_with_type(bytes, &InquiryKind::PanTiltPosition)
@@ -1338,7 +1339,12 @@ mod tests {
         simulator.send(&absolute).await.expect("send move");
         assert_eq!(reply(&mut simulator).await, frames::ack(1));
         assert_eq!(
-            decoded_position(&simulator.generate_inquiry_response(&inquiry).await.unwrap()),
+            decoded_position(
+                &simulator
+                    .generate_inquiry_response(&inquiry)
+                    .await
+                    .expect("position inquiry")
+            ),
             (0, 0),
             "ACK has no applied effect"
         );
@@ -1424,19 +1430,20 @@ mod tests {
         simulator
             .send(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR])
             .await
-            .unwrap();
+            .expect("command accepted");
         tokio::time::advance(Duration::from_secs(2)).await;
         ViscaCameraSimulator::process_responses(&simulator.inner).await;
         assert_eq!(
             simulator
                 .generate_inquiry_response(&[0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR])
                 .await
-                .unwrap(),
+                .expect("power inquiry"),
             [0x90, 0x50, 0x03, VISCA_TERMINATOR]
         );
     }
 
     #[tokio::test(start_paused = true)]
+    #[allow(clippy::panic)]
     async fn simultaneous_due_effects_follow_completion_order_across_sockets() {
         let mut simulator = ViscaCameraSimulator::builder()
             .with_command_execution_time(CommandType::Power, Duration::from_secs(1))
@@ -1446,7 +1453,7 @@ mod tests {
         simulator
             .send(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR])
             .await
-            .unwrap();
+            .expect("command accepted");
         let mut state = simulator.inner.state.lock().await;
         let SocketState::Executing { completion_at, .. } = state.socket_states[0][0].clone() else {
             panic!("executing")

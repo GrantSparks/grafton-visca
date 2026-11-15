@@ -69,7 +69,7 @@ blocking = ["grafton-visca-test-support/blocking"]
 # applications may also enable the independent blocking facade.
 #
 # `async-executor` is pulled here rather than by `test-utils`: the only code
-# that uses it is the async testkit's deterministic executor, which compiles
+# that uses it is the async testkit's runtime-free manual-clock scheduler, which compiles
 # only under `async` + `test-utils`. Riding it on `async` keeps a blocking-only
 # consumer that enables `test-utils` free of any executor, which the
 # dependency-boundary gate enforces (`blocking,test-utils` must stay clean).
@@ -106,7 +106,7 @@ dyn-api = []
 # by this crate and by downstream test suites. It deliberately links no async
 # runtime or executor: the blocking testkit (`ScriptedBlockingTransport`,
 # `Step`, `helpers`) is available under `blocking,test-utils` with a native
-# synchronous graph, while the async testkit (`DeterministicExecutor`, the async
+# synchronous graph, while the async testkit (`ManualClockExecutor`, the async
 # `ScriptedTransport`) and its `async-executor`/`futures-lite` dependencies are
 # compiled and pulled only when `async` is also enabled. It also enables the
 # integration-test helpers built on the testkit's virtual clock.

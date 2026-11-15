@@ -60,7 +60,7 @@ pub trait Executor: Clone + Send + Sync + 'static {
     /// Type indicating whether tasks require explicit detachment.
     ///
     /// Set to `()` if dropping the join handle detaches the task (e.g., Tokio),
-    /// or a detachment token type otherwise (e.g., DeterministicExecutor).
+    /// or a detachment token type otherwise (e.g., a scheduler with explicit task detachment).
     type Detach: Send + 'static;
 
     /// Reusable timer driven by this executor's clock.
@@ -138,8 +138,8 @@ pub trait Executor: Clone + Send + Sync + 'static {
 
     /// Get the current time according to this executor.
     ///
-    /// Default implementation returns wall-clock time. Test executors
-    /// (e.g., DeterministicExecutor) should override to return virtual time.
+    /// The default is wall-clock time. Virtual-time executors, including
+    /// `ManualClockExecutor`, override it with their clock.
     fn now(&self) -> Instant {
         Instant::now()
     }
@@ -591,7 +591,14 @@ mod smol_impl {
 #[cfg(feature = "runtime-smol")]
 pub use smol_impl::{SmolExecutor, SmolTimer};
 
-#[cfg(all(test, any(feature = "runtime-smol", feature = "runtime-tokio")))]
+#[cfg(all(
+    test,
+    any(
+        feature = "runtime-smol",
+        feature = "runtime-tokio",
+        all(feature = "async", feature = "test-utils")
+    )
+))]
 mod spawn_tests {
     #![allow(clippy::expect_used, clippy::unwrap_used)]
 
@@ -653,16 +660,69 @@ mod spawn_tests {
         assert_eq!(done_rx.recv_timeout(Duration::from_secs(2)).unwrap(), 42);
     }
 
+    #[allow(clippy::panic)]
+    fn panicked_task_returns_an_error(executor: impl Executor) {
+        let joined = executor.spawn(async { panic!("spawn contract panic") });
+        assert!(executor.block_on(joined).is_err());
+    }
+
+    #[cfg(all(feature = "async", feature = "test-utils"))]
+    #[test]
+    fn local_manual_executor_satisfies_spawn_contracts() {
+        use crate::testing::testkit::{ManualClock, ManualClockExecutor};
+        let clock = ManualClock::new();
+        let executor = ManualClockExecutor::local(&clock);
+        let (stop, stopped) = flume::bounded(1);
+        let driver = executor.clone();
+        let running = std::thread::spawn(move || {
+            driver.run_until(async { stopped.recv_async().await.expect("driver stop") })
+        });
+        completion_wakes_join(executor.clone());
+        dropping_join_detaches_task(executor.clone());
+        // Keep one driver per local scheduler while exercising its contracts.
+        stop.send(()).unwrap();
+        running.join().unwrap();
+        panicked_task_returns_an_error(executor);
+    }
+
+    #[cfg(all(feature = "test-utils", feature = "runtime-smol"))]
+    #[test]
+    fn smol_manual_executor_satisfies_spawn_contracts() {
+        use crate::testing::testkit::{ManualClock, ManualClockExecutor};
+        let clock = ManualClock::new();
+        let executor = ManualClockExecutor::new(super::SmolExecutor::new(), &clock);
+        completion_wakes_join(executor.clone());
+        dropping_join_detaches_task(executor.clone());
+        panicked_task_returns_an_error(executor);
+    }
+
+    #[cfg(all(feature = "test-utils", feature = "runtime-tokio"))]
+    #[test]
+    fn tokio_manual_executor_satisfies_spawn_contracts() {
+        use crate::testing::testkit::{ManualClock, ManualClockExecutor};
+        let runtime = tokio::runtime::Runtime::new().unwrap();
+        let clock = ManualClock::new();
+        let executor = ManualClockExecutor::new(
+            super::TokioExecutor::from_handle(runtime.handle().clone()),
+            &clock,
+        );
+        completion_wakes_join(executor.clone());
+        dropping_join_detaches_task(executor.clone());
+        panicked_task_returns_an_error(executor);
+    }
+
     #[cfg(feature = "runtime-smol")]
     #[test]
     fn smol_executor_join_wakes_on_completion() {
         completion_wakes_join(super::SmolExecutor::new());
+        panicked_task_returns_an_error(super::SmolExecutor::new());
     }
 
     #[cfg(feature = "runtime-smol")]
     #[test]
     fn smol_runtime_join_wakes_on_completion() {
         completion_wakes_join(crate::runtime::SmolRuntime::new());
+        panicked_task_returns_an_error(crate::runtime::SmolRuntime::new());
     }
 
     #[cfg(feature = "runtime-smol")]
@@ -683,7 +743,8 @@ mod spawn_tests {
         let runtime = tokio::runtime::Runtime::new().unwrap();
         let executor = super::TokioExecutor::from_handle(runtime.handle().clone());
         completion_wakes_join(executor.clone());
-        dropping_join_detaches_task(executor);
+        dropping_join_detaches_task(executor.clone());
+        panicked_task_returns_an_error(executor);
     }
 }
 

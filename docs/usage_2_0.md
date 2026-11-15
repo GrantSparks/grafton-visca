@@ -465,7 +465,8 @@ the builder's validation (#875).
 `ViscaInquiry`, `ViscaEnum`, and `ViscaValue` are the supported downstream
 derive entry points. `test-utils` alone exposes `testkit::{Step, helpers}` for
 tests. Add `blocking` for `ScriptedBlockingTransport`; add `async` for
-`ScriptedTransport`, `DeterministicClock`, and `DeterministicExecutor`; and add
+`ScriptedTransport` and `ManualClockExecutor`; either facade exposes
+`ManualClock`, `ClockParticipant`, and `ClockJoinHandle`. Add
 `runtime-tokio` for `ViscaCameraSimulator`. It is not required by production
 applications.
 

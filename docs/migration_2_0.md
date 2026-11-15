@@ -38,6 +38,15 @@ status read. Unknown reply bytes still produce a protocol error. The public
 response parser preserves `90 38 FF` as `Response::NetworkChange`, a notification
 whose `into_result()` returns `UnexpectedResponseType`.
 
+## Virtual-time test execution
+
+Replace the 1.x `DeterministicExecutor`, `DeterministicClock` and executor
+selection helpers with `testing::testkit::ManualClock` and
+`ManualClockExecutor::local(&clock)`. Drive borrowed futures with `run_until`;
+background tasks do not keep that call alive after its future completes.
+Scripted transports accept any `Executor`; use `on_clock(&clock)` for the
+blocking transport. Dynamic response closures use `Arc` instead of `Box`.
+
 ## Extensible public payloads (#788)
 
 Public configuration records and named error, diagnostic, response, transport

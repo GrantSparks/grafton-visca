@@ -24,8 +24,10 @@ fn main() {
 
     #[cfg(feature = "async")]
     {
-        let transport = ScriptedTransport::<()>::new(vec![step]);
+        let transport = ScriptedTransport::new(vec![step]);
         transport.add_response(helpers::complete(1));
         let _: Vec<Vec<u8>> = transport.sent();
+        fn accepts_transport<T: grafton_visca::transport::AsyncTransport>(_: &T) {}
+        accepts_transport(&transport);
     }
 }

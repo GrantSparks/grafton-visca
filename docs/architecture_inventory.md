@@ -122,9 +122,9 @@ implementation-only feature flags are omitted from this public inventory.
 
 The supported downstream derives are `ViscaInquiry`, `ViscaEnum`, and
 `ViscaValue`. Stable test utilities are `Step`, `helpers`,
-`ScriptedBlockingTransport`, `ScriptedTransport`, `DeterministicExecutor`,
-`DeterministicClock`, `DeterministicExecutorExt`, `TestExecutorSelector`,
-`TestExecutorType`, `TestExecutors`, and the Tokio `ViscaCameraSimulator`.
+`ScriptedBlockingTransport`, `ScriptedTransport`, `ManualClock`,
+`ClockParticipant`, `ClockJoinHandle`, `ManualClockExecutor`, `ManualClockTimer`,
+`LocalExecutor`, `TaskJoin`, and the Tokio `ViscaCameraSimulator`.
 The simulator can be constructed without a runtime; sending and receiving
 require Tokio with time enabled. Its fixed-seed timing/loss options schedule
 addressed datagram replies, with per-camera socket cancellation and no polling

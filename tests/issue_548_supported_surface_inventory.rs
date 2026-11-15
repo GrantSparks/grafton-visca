@@ -408,7 +408,7 @@ fn ecosystem_derive_test_and_extension_inventory_is_documented() {
         "ViscaValue",
         "ScriptedBlockingTransport",
         "ScriptedTransport",
-        "DeterministicExecutor",
+        "ManualClockExecutor",
         "ViscaCameraSimulator",
         "Connect",
         "CameraConfig",
@@ -525,16 +525,11 @@ fn test_utility_inventory_compiles_in_the_selected_mode() {
     #[cfg(feature = "async")]
     {
         use grafton_visca::testing::testkit::{
-            DeterministicClock, DeterministicExecutor, DeterministicExecutorExt, ScriptedTransport,
-            TestExecutorSelector, TestExecutorType, TestExecutors,
+            ManualClockExecutor, ManualClockTimer, ScriptedTransport,
         };
-        let _: PhantomData<DeterministicClock> = PhantomData;
-        let _: PhantomData<DeterministicExecutor> = PhantomData;
-        let _: PhantomData<ScriptedTransport<()>> = PhantomData;
-        let _: PhantomData<TestExecutorType> = PhantomData;
-        let _: PhantomData<TestExecutors> = PhantomData;
-        fn _requires_deterministic_ext<T: DeterministicExecutorExt>() {}
-        fn _requires_selector<T: TestExecutorSelector>() {}
+        let _: PhantomData<ManualClockExecutor> = PhantomData;
+        let _: PhantomData<ManualClockTimer> = PhantomData;
+        let _: PhantomData<ScriptedTransport> = PhantomData;
     }
 
     #[cfg(feature = "runtime-tokio")]
