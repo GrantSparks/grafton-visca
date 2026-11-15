@@ -557,6 +557,33 @@ fn warmed_manual_clock_timer_resets_do_not_allocate() {
         assert!(timer.as_mut().poll(&mut context).is_pending());
     });
     assert_eq!(allocations, 0, "rearming a completed owned timer allocated");
+    let now = clock.now();
+    let allocations = allocations_during(|| {
+        timer.as_mut().reset(now);
+        assert!(timer.as_mut().poll(&mut context).is_ready());
+        timer.as_mut().reset(now + Duration::from_secs(1));
+        assert!(timer.as_mut().poll(&mut context).is_pending());
+        timer.as_mut().reset(now + Duration::from_secs(1));
+        assert!(timer.as_mut().poll(&mut context).is_pending());
+        timer.as_mut().reset(now);
+        assert!(timer.as_mut().poll(&mut context).is_ready());
+    });
+    assert_eq!(
+        allocations, 0,
+        "owned timer reset/wake bookkeeping allocated"
+    );
+    let deadline = clock.now() + Duration::from_secs(1);
+    let mut batch: [_; 4] = std::array::from_fn(|_| Box::pin(executor.timer(deadline)));
+    for timer in &mut batch {
+        assert!(timer.as_mut().poll(&mut context).is_pending());
+    }
+    let allocations = allocations_during(|| {
+        clock.advance(Duration::from_secs(1));
+        for timer in &mut batch {
+            assert!(timer.as_mut().poll(&mut context).is_ready());
+        }
+    });
+    assert_eq!(allocations, 0, "the four-timer wake batch allocated");
 }
 
 #[cfg(all(feature = "test-utils", any(feature = "blocking", feature = "async")))]

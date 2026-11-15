@@ -18,6 +18,8 @@ use std::{
 
 #[cfg(all(feature = "async", feature = "test-utils"))]
 use crate::executor::{Executor, ResettableTimer};
+#[cfg(all(feature = "async", feature = "test-utils"))]
+use smallvec::SmallVec;
 
 #[cfg(all(feature = "test-utils", any(feature = "async", feature = "blocking")))]
 use crate::Error;
@@ -96,7 +98,9 @@ enum TaskState {
 struct Wakes {
     bells: Vec<(flume::Sender<Bell>, Bell)>,
     #[cfg(all(feature = "async", feature = "test-utils"))]
-    wakers: Vec<Waker>,
+    // One owner has four reusable timers. Larger multi-task fanouts may spill;
+    // the ordinary timer-reset/wake path needs no heap-owned wake batch.
+    wakers: SmallVec<[Waker; 4]>,
 }
 
 /// One owned timer's stable registration. Completion disarms its deadline;
@@ -1189,6 +1193,9 @@ mod tests {
         assert!(timer.as_mut().poll(&mut context).is_ready());
         timer.as_mut().reset(clock.now() + HOUR);
         assert_eq!(clock.lock().timers.len(), 1);
+        timer.as_mut().reset(clock.now() + HOUR);
+        assert_eq!(counter.0.load(Ordering::SeqCst), 3);
+        assert_eq!(clock.lock().undelivered, 0);
         drop(timer);
         assert!(clock.lock().timers.is_empty());
         assert_balanced(&clock);
@@ -1222,6 +1229,40 @@ mod tests {
         assert!(infinite.as_mut().poll(&mut context).is_ready());
         assert!(finite.as_mut().poll(&mut context).is_ready());
         drop((finite, infinite));
+        assert!(clock.lock().timers.is_empty());
+        assert_balanced(&clock);
+    }
+
+    #[cfg(all(feature = "async", feature = "test-utils"))]
+    #[test]
+    fn timer_fanout_delivers_every_wake_and_balances_pending_delivery() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct WakeCount(AtomicUsize);
+        impl Wake for WakeCount {
+            fn wake(self: Arc<Self>) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+        let clock = ManualClock::new();
+        let _participant = clock.enter();
+        let counter = Arc::new(WakeCount(AtomicUsize::new(0)));
+        let waker = Waker::from(Arc::clone(&counter));
+        let mut context = Context::from_waker(&waker);
+        let mut timers: [_; 8] = std::array::from_fn(|index| {
+            Box::pin(clock.timer_at(clock.now() + Duration::from_secs(index as u64 + 1)))
+        });
+        for timer in &mut timers {
+            assert!(timer.as_mut().poll(&mut context).is_pending());
+        }
+        clock.advance(Duration::MAX);
+        assert_eq!(counter.0.load(Ordering::SeqCst), timers.len());
+        assert_eq!(clock.lock().undelivered, 0);
+        for timer in &mut timers {
+            assert!(timer.as_mut().poll(&mut context).is_ready());
+        }
+        clock.advance(Duration::MAX);
+        assert_eq!(counter.0.load(Ordering::SeqCst), timers.len());
+        drop(timers);
         assert!(clock.lock().timers.is_empty());
         assert_balanced(&clock);
     }

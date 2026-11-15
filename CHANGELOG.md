@@ -144,9 +144,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING** (#866): Custom `Executor` implementations provide an associated
   resettable `Timer` and an absolute-deadline `timer` factory. Tokio and smol
   timers retain their allocation across resets and use the executor clock.
-  `ManualClockExecutor` uses an owned `ManualClockTimer` that replaces its
+  `ManualClockExecutor` uses an owned `ManualClockTimer` that updates its
   virtual registration in place on reset and retains its slot after completion
-  until the timer is dropped. Warmed resets allocate nothing, including on
+  until the timer is dropped. Its wake batch keeps up to four timer wakes
+  inline and spills only for larger fanout. Allocation checks cover pending
+  resets, immediate wakes and rearming completed timers on
   `ManualClockExecutor::local`; an actual local actor keeps its four factories
   across command, control and idle turns. Async
   owners retain four pinned timers for read bounds, engine/release wakes,
