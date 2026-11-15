@@ -5,9 +5,9 @@ use grafton_visca::{
     CameraId, Request, ViscaInquiry,
 };
 
-/// Mirrors the documented downstream `parser = PanTilt` use case.
+/// Mirrors canonical downstream pan/tilt inquiry decoding.
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
-#[visca(opcode = 0x12, subcode = 0x06, response = PanTiltPosition, parser = PanTilt)]
+#[visca(opcode = 0x12, subcode = 0x06, response = PanTiltPosition)]
 struct StandardPanTiltProbeInquiry;
 
 #[test]

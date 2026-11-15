@@ -262,6 +262,34 @@ pub(crate) fn dispatch_with_framing(
     }
 }
 
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+fn inquiry_test_profiles() -> Vec<crate::ProfileSpec> {
+    use crate::profiles::{
+        GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
+        SonyBRCH900, SonyEVIH100, SonyFR7,
+    };
+    let profiles = [
+        crate::ProfileSpec::from_compile_time::<GenericVisca>(),
+        crate::ProfileSpec::from_compile_time::<NearusBRC300>(),
+        crate::ProfileSpec::from_compile_time::<PtzOptics30X>(),
+        crate::ProfileSpec::from_compile_time::<PtzOpticsG2>(),
+        crate::ProfileSpec::from_compile_time::<PtzOpticsG3>(),
+        crate::ProfileSpec::from_compile_time::<SonyBRC300>(),
+        crate::ProfileSpec::from_compile_time::<SonyBRCH900>(),
+        crate::ProfileSpec::from_compile_time::<SonyEVIH100>(),
+        crate::ProfileSpec::from_compile_time::<SonyFR7>(),
+    ];
+    assert_eq!(
+        profiles.len(),
+        crate::camera::profiles::BUILTIN_PROFILE_FACTS.len()
+    );
+    profiles
+        .into_iter()
+        .map(|profile| profile.expect("built-in profile"))
+        .collect()
+}
+
 /// Generates every built-in inquiry item from the one table below.
 macro_rules! define_builtin_inquiries {
     (
@@ -325,6 +353,78 @@ macro_rules! define_builtin_inquiries {
                 $(#[$decode_meta])*
                 $decode_kind $decode_data,
             )*
+        }
+
+        /// Every derive kind is generated from this table too, so new kinds
+        /// automatically enter the comparison against canonical decoding.
+        #[cfg(test)]
+        #[test]
+        #[allow(clippy::expect_used)]
+        fn derived_inquiries_match_the_canonical_table_on_every_profile_and_corpus_seed() {
+            let profiles = inquiry_test_profiles();
+            // The nested fuzz package is absent from a published root crate.
+            // Always exercise the complete length/value matrix; augment it
+            // with every checked-in corpus seed when testing the repository.
+            let corpus = match std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/fuzz/corpus/response_parser")) {
+                Ok(entries) => entries.map(|entry| std::fs::read(entry.expect("corpus entry").path()).expect("corpus seed")).collect::<Vec<_>>(),
+                Err(error) => {
+                    assert_eq!(error.kind(), std::io::ErrorKind::NotFound, "cannot read response parser corpus: {error}");
+                    Vec::new()
+                }
+            };
+            let mut payloads = (0..=18).map(|length| vec![0; length]).collect::<Vec<_>>();
+            payloads.extend((0..=u8::MAX).map(|byte| vec![byte]));
+            payloads.extend(corpus.iter().cloned());
+            for bytes in &corpus {
+                if let Some(crate::protocol::response::BasicResponse {
+                    kind: crate::protocol::response::BasicKind::DataReply(payload), ..
+                }) = crate::protocol::response::decode_basic(bytes) {
+                    payloads.push(payload.as_slice().to_vec());
+                }
+            }
+            // Pin the cases which exposed selector/profile drift directly,
+            // even when a corpus curator changes a seed's frame wrapper.
+            payloads.extend([
+                vec![0, 0, 1, 4],
+                vec![0x0f, 7, 5, 0x0a, 8, 0x0e, 7, 9, 6],
+                vec![0; 10],
+            ]);
+            fn check<I: crate::Inquiry<Response = Response>>(
+                inquiry: I, kind: InquiryKind, profiles: &[crate::ProfileSpec], payloads: &[Vec<u8>],
+            ) {
+                let profile_free = inquiry.decoder();
+                for payload in payloads {
+                    assert_eq!(format!("{:?}", profile_free.decode(payload)),
+                        format!("{:?}", dispatch(kind, Payload::new(payload))),
+                        "profile-free derived {kind:?} disagrees on {payload:02x?}");
+                }
+                for profile in profiles {
+                    let decoder = inquiry.decoder_for_profile(profile);
+                    for payload in payloads {
+                        let framing = profile.pan_tilt_coordinates().map(PanTiltFraming::for_conversion);
+                        let canonical = match (kind, framing) {
+                            (InquiryKind::PanTiltPosition, None) => Err(Error::FeatureNotSupported {
+                                feature: "pan/tilt coordinate conversion",
+                            }),
+                            (_, framing) => dispatch_with_framing(kind, Payload::new(payload), framing.unwrap_or(PanTiltFraming::STANDARD)),
+                        };
+                        assert_eq!(format!("{:?}", decoder.decode(payload)), format!("{canonical:?}"),
+                            "derived {kind:?} on {} disagrees on {payload:02x?}", profile.name());
+                    }
+                }
+            }
+            $({
+                #[derive(crate::ViscaInquiry)]
+                #[visca(opcode = 0, response = $kind)]
+                struct Derived;
+                check(Derived, InquiryKind::$kind, &profiles, &payloads);
+            })*
+            $({
+                #[derive(crate::ViscaInquiry)]
+                #[visca(opcode = 0, response = $decode_kind)]
+                struct Derived;
+                check(Derived, InquiryKind::$decode_kind, &profiles, &payloads);
+            })*
         }
 
         /// Decode an inquiry response with the profile-independent decoder
@@ -1869,29 +1969,10 @@ mod generated_invariant_tests {
 
     #[test]
     fn every_admitted_typed_inquiry_has_source_evidence() {
-        use crate::profiles::{
-            GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
-            SonyBRCH900, SonyEVIH100, SonyFR7,
-        };
-        let profiles = [
-            crate::ProfileSpec::from_compile_time::<GenericVisca>(),
-            crate::ProfileSpec::from_compile_time::<NearusBRC300>(),
-            crate::ProfileSpec::from_compile_time::<PtzOptics30X>(),
-            crate::ProfileSpec::from_compile_time::<PtzOpticsG2>(),
-            crate::ProfileSpec::from_compile_time::<PtzOpticsG3>(),
-            crate::ProfileSpec::from_compile_time::<SonyBRC300>(),
-            crate::ProfileSpec::from_compile_time::<SonyBRCH900>(),
-            crate::ProfileSpec::from_compile_time::<SonyEVIH100>(),
-            crate::ProfileSpec::from_compile_time::<SonyFR7>(),
-        ];
-        assert_eq!(
-            profiles.len(),
-            crate::camera::profiles::BUILTIN_PROFILE_FACTS.len()
-        );
+        let profiles = inquiry_test_profiles();
         let reference = include_str!("../../docs/visca_reference.md");
         let mut missing = Vec::new();
         for profile in profiles {
-            let profile = profile.expect("built-in profile");
             for meta in BUILTIN_INQUIRIES.iter().filter(|meta| meta.typed) {
                 let validate = meta.validate.expect("typed query validator");
                 if validate(&profile).is_err() {

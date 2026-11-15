@@ -118,46 +118,24 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 /// # Ok::<(), grafton_visca::Error>(())
 /// ```
 ///
-/// # With Response Parsing
+/// # Response parsing
 ///
-/// Add a parser attribute to generate the inherent `parse_response()`
-/// convenience method. Its `response` kind selects the canonical decoder:
+/// The `response` kind selects the canonical inquiry table, including its
+/// profile-aware position framing. Every built-in kind gets an inherent
+/// `parse_response()` method and the same decoder through `Inquiry`.
 ///
 /// ```rust,ignore
 /// #[derive(ViscaInquiry, Debug, Copy, Clone)]
-/// #[visca(opcode = 0x00, response = Power, parser = Bool)]
-/// struct PowerInquiry;
-///
-/// #[derive(ViscaInquiry, Debug, Copy, Clone)]
-/// #[visca(opcode = 0x47, response = ZoomPosition, parser = Position)]
-/// struct ZoomPositionInquiry;
-///
-/// #[derive(ViscaInquiry, Debug, Copy, Clone)]
-/// #[visca(opcode = 0x12, subcode = 0x06, response = PanTiltPosition, parser = PanTilt)]
-/// struct PanTiltPositionInquiry;
-///
-/// #[derive(ViscaInquiry, Debug, Copy, Clone)]
-/// #[visca(opcode = 0x4F, response = Hue, parser = LastNibble, field = hue)]
-/// struct HueInquiry;
+/// #[visca(opcode = 0x12, subcode = 0x06, response = PanTiltPosition)]
+/// struct PositionInquiry;
 /// ```
 ///
-/// # Parser Selectors
-///
-/// `parser` is the current way to request the inherent `parse_response()`
-/// method. Two kinds of selector exist:
-///
-/// - Shape selectors (`Bool`, `DirectByte`, `Byte`, `Position`, `Flags`,
-///   `BitFlags`, `PanTilt`, `TallyStatus`, `SharpnessMode`, `Gamma`,
-///   `AutoWbSensitivity`) name the built-in table shape of `response` and
-///   decode with that table entry, including its boolean convention and
-///   accepted nibble width.
-/// - Transforming selectors carry their own decoding: `Custom` calls
-///   `parse_with`; `BoolConvention`, `Nibble`/`ExtendedNibble`, `LastNibble`,
-///   `Mode`/`ModeEnum`, `NdFilter`, `PictureEffect`, `DefogLevel` and
-///   `FocusRange` apply their transformation, with `field`, `value_type` and
-///   `data_variant` where the selector uses them.
-///
-/// Every form is evaluated by the one shared decoder.
+/// Use `parser = Custom, parse_with = path` for an explicit custom parser.
+/// `data_variant` is available only for a custom parser with `typed_response`.
+/// Typed response paths resolve exactly as written in the deriving scope.
+/// `typed_constructor = new_u8` checks narrowing and rejects overflow with
+/// `InvalidResponse`. Other parser selectors are unsupported: omit `parser`
+/// for canonical decoding, or use `Custom` and the checked payload helpers.
 ///
 /// # Requirements
 ///

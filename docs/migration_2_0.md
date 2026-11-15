@@ -962,6 +962,8 @@ constructor, bounds, accessor and error contract:
 | `ViscaInquiry` `opcode`/`subcode` accepted only decimal or `0x` literals | Any unsuffixed integer literal in `0..=254`, in any radix (`0b0100_0111`, `0o107`); `FF` is the frame terminator and is refused in opcode/subcode (#846). |
 | `ViscaEnum` discriminants accepted suffixed literals and byte literals | Discriminants are unsuffixed integer literals in `0..=255`. |
 | `#[visca_enum(exhaustive = ...)]` was parsed and ignored | Rejected as an unknown key; generated conversions always cover every variant. |
+| `ViscaInquiry` selectors such as `Nibble`, `ExtendedNibble`, `Mode` and `PanTilt` | Omit `parser` to use the canonical built-in inquiry table, including profile framing. Only `parser = Custom` with `parse_with` remains for explicit overrides (#881). |
+| `typed_constructor = new_u8` truncated wide reply fields | Values above `u8::MAX` return `InvalidResponse`; `typed_response` paths resolve exactly as written, including local types (#881). |
 
 #### Command encoding and inquiry decoding (#809–#812, #828)
 
@@ -971,12 +973,12 @@ i16_quad}` accessors, including arbitrary or overflowing indices.
 in release builds too. A zoom-position reply has exactly four nibbles;
 `Nibbles4Or8` is not a supported leniency path (#845).
 
-`ViscaInquiry` parser attributes must be consumed by their selected strategy.
-Use `field`/`convention` for an explicit boolean override, `value_type` for
-Mode/Nibble families, or `parse_with` for Custom. Mode/Nibble construct their
-named response variant directly; Custom accepts `data_variant` only with a
-typed response. Canonical selectors reject these override keys. The macro
-README gives the complete accepted-key table (#846).
+`ViscaInquiry` decodes the selected `response` through the canonical table,
+including the profile's position framing. Omit `parser` for built-in replies;
+use `parser = Custom, parse_with = path` for an explicit different layout.
+`data_variant` requires a custom parser and a typed response. Typed paths are
+resolved as written, and `new_u8` narrowing is checked. The macro README lists
+the supported keys (#881).
 
 Every built-in command and inquiry writes its frame through one frame writer,
 and every inquiry reply decodes through the generated table, so the same

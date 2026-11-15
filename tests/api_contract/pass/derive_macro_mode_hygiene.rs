@@ -25,18 +25,16 @@ macro_rules! format {
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
 #[visca(
     opcode = 0x39,
-    response = ExposureMode,
-    parser = Mode,
-    value_type = ExposureMode
+    response = ExposureMode
 )]
 struct ExposureModeProbe;
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
-#[visca(opcode = 0x47, response = ZoomPosition, parser = Position)]
+#[visca(opcode = 0x47, response = ZoomPosition)]
 struct ZoomPositionProbe;
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
-#[visca(opcode = 0x00, response = Power, parser = Bool)]
+#[visca(opcode = 0x00, response = Power)]
 struct PowerProbe;
 
 fn main() {

@@ -18,8 +18,8 @@ implementations:
 ## ViscaInquiry
 
 Generates typed `Request` and `Inquiry` implementations for inquiry commands,
-including exact-size, zero-allocation `write_into` encoding and optional inherent
-response parsing.
+including exact-size, zero-allocation `write_into` encoding and canonical
+response parsing with profile-aware position decoding.
 
 ### Basic Usage
 
@@ -27,12 +27,12 @@ response parsing.
 use grafton_visca::{CameraId, Request, ViscaInquiry};
 
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
-#[visca(opcode = 0x00, response = Power, parser = Bool)]
+#[visca(opcode = 0x00, response = Power)]
 pub struct PowerInquiry;
 
 // For commands with subcategories:
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
-#[visca(opcode = 0x12, subcode = 0x06, response = PanTiltPosition, parser = PanTilt)]
+#[visca(opcode = 0x12, subcode = 0x06, response = PanTiltPosition)]
 pub struct PanTiltPositionInquiry;
 
 let mut buffer = [0u8; <PowerInquiry as Request>::MAX_SIZE];
@@ -51,41 +51,33 @@ The macro generates:
 - `Request` and `Inquiry` trait implementations
 - exact `MAX_SIZE`
 - `write_into()` for caller-provided buffers
-- `parse_response()` method when parser is specified; it and `Inquiry::decoder()`
-  use the same generated payload decoder
+- `parse_response()` and `Inquiry::decoder()` use the canonical inquiry table
+- `Inquiry::decoder_for_profile()` uses the same table with the profile's framing
 - `ResponseParser` implementation when typed response attributes are specified
 
-### Parser Selectors
+### Decoding and typed responses
 
-`parser` is the current way to request the inherent `parse_response()`
-convenience method. It never defines a second decoder: `parse_response()` and
-`Inquiry::decoder()` share one generated payload decoder. Shape selectors
-(`Bool`, `Byte`, `Position`, `PanTilt`, `NdFilter`, and the other built-in table shapes)
-decode with the `response` table entry, including its boolean convention,
-nibble width, and value conversion. Transforming selectors carry their own
-decoding: `Custom` calls `parse_with`, and `BoolConvention`, the nibble
-selectors, `Mode`, `PictureEffect`, `DefogLevel` and `FocusRange`
-apply their transformation. Every optional key must be consumed by the
-selected parser; an ignored key is a compile error.
+Omit `parser` to decode through the built-in table named by `response`. The
+canonical decoder owns reply widths, value conventions and profile framing.
+The only supported parser selector is `parser = Custom`, which calls the
+`parse_with` path instead. A custom parser returns `Result<InquiryData, Error>`;
+use `Payload::parse_bool` or the checked `Nibbles` helpers when implementing a
+vendor-specific reply.
 
-| Selector | Accepted decoder keys |
+| Key | Meaning |
 | --- | --- |
-| Built-in table shapes | None; the canonical table owns their conventions |
-| `BoolConvention` | `field`, `convention`, optional `data_variant` |
-| `Nibble`, `ExtendedNibble` | Optional `field` |
-| `Mode`, `ModeEnum` | `value_type` |
-| `LastNibble` | `field`, optional `data_variant` |
-| `PictureEffect`, `DefogLevel`, `FocusRange` | Optional `data_variant` |
-| `Custom` | `parse_with`, optional `data_variant` with a typed response |
+| `parser = Custom`, `parse_with = path` | Explicit custom payload parser; both keys are required together. |
+| `data_variant = Variant` | The custom parser's `InquiryData` variant; requires `Custom` and `typed_response`. |
+| `typed_response = Type` | Result type, resolved exactly as written in the deriving scope, including local or qualified paths. |
+| `typed_field = field` or `(fields, ...)` | Fields projected from the decoded variant. |
+| `typed_constructor = new`, `ok_new`, `new_u8`, `ok_struct` | Optional typed construction; `new_u8` checks narrowing and returns `InvalidResponse` on overflow. |
+| `typed_is_tuple` | Destructure a tuple variant; requires `typed_response`. |
 
-`Mode` and nibble selectors always construct the named `response` variant,
-so they reject `data_variant`. Standard VISCA on/off replies use
-`BoolConvention::OnIs02`; use `OnIs03` only for a register that documents the
-opposite polarity. Neither `opcode` nor `subcode` may be `0xFF`, because that
-byte terminates a VISCA frame.
-
-Typed-only keys, including `typed_is_tuple`, require `typed_response`; a
-standalone tuple flag is rejected rather than ignored.
+Other parser selectors and their `field`, `value_type` and `convention` keys are
+removed. Delete the selector for canonical decoding, or use `Custom` when the
+wire layout actually differs. Neither `opcode` nor `subcode` may be `0xFF`,
+because it terminates a VISCA frame. All typed-only keys require
+`typed_response`.
 
 ## ViscaEnum
 

@@ -8,12 +8,12 @@ use grafton_visca::{
 };
 
 #[derive(Debug, Clone, Copy, ViscaInquiry)]
-#[visca(opcode = 0x4C, response = Gain, typed_response = types::GainLevel,
+#[visca(opcode = 0x4C, response = Gain, typed_response = GainLevel,
     typed_field = gain, typed_constructor = new)]
 struct CanonicalGain;
 
 #[derive(Debug, Clone, Copy, ViscaInquiry)]
-#[visca(opcode = 0x4C, response = Gain, typed_response = types::GainLevel,
+#[visca(opcode = 0x4C, response = Gain, typed_response = GainLevel,
     typed_field = gain, typed_constructor = new_u8)]
 struct CanonicalGainViaU8;
 

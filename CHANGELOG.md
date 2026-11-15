@@ -127,11 +127,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   operation handle on blocking, async and dynamic cameras. Navigation is now
   tracked and fenced by halt; with the on-screen menu closed it is continuous
   physical movement and needs an explicit pan/tilt STOP.
-- **BREAKING** (#846): `ViscaInquiry` rejects decoder attributes that its
-  selected parser would ignore, unsupported Mode/Nibble `data_variant`
-  overrides, and `FF` in `opcode`/`subcode`. Use the selector-specific keys
-  documented in the macro README. Standard boolean reply polarity is `02` for
-  on; the opposite convention is register-specific.
+- **BREAKING** (#881): `ViscaInquiry` uses the canonical built-in inquiry table
+  and profile framing. Omit `parser` for built-in replies; `Custom` with
+  `parse_with` is the only selector. Removed selectors and their `field`,
+  `value_type` and `convention` keys are rejected with replacement guidance.
+  `new_u8` rejects overflow rather than truncating, and `typed_response` paths
+  resolve exactly as written in the deriving scope. Duplicate attributes and
+  terminator bytes in opcode/subcode remain compile errors (#846).
 
 - **BREAKING** (#844): Typed image inquiries separate sourced vertical
   `image().flip()` (`09 04 66`, with `horizontal: false`) from combined
