@@ -298,6 +298,20 @@ macro_rules! agreement_row {
     ($kind:ident, [], $ret:ty, $request:tt, $args:tt, $profile:ident) => {};
 }
 
+macro_rules! source_agreement_row {
+    ($kind:ident, [], $ret:ty, $request:tt, $args:tt, $profile:ident) => {};
+    ($kind:ident, [$row:ident], $ret:ty, [$($request:tt)*], [$($arg:ident: $ty:ty),*], $profile:ident) => {{
+        $(let $arg = <$ty as Sample>::sample($profile);)*
+        let registration = target_for($profile);
+        if let Ok(request) = crate::noun_facade::noun_request!($profile, &registration; $ret; $($request)*) {
+            if crate::Request::validate_for_target(&request, &registration).is_ok() {
+                let prepared = prepare!($kind, &request, $profile);
+                assert!(prepared.is_ok(), "{} {:?} passed target validation but failed source-aware encoding: {prepared:?}", $profile.name(), BuiltinCommand::$row);
+            }
+        }
+    }};
+}
+
 macro_rules! gate_tests {
     ($(@noun $noun:ident { accessor: $accessor:ident, getter: $getter:ident, dyn_trait: $dyn_trait:ident, gate: $gate:tt, doc: $doc:literal $(,)? };
        $($(#[$row_doc:meta])* $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty $(where $rgate:ident $(+ $extra:ident)*)? = [$($request:tt)*];)*)*
@@ -319,6 +333,24 @@ macro_rules! gate_tests {
             ];
             for profile in &profiles {
                 $($(agreement_row!($kind, [$($command)?], $ret, [$($request)*], [$($arg: $ty),*], profile);)*)*
+            }
+        }
+
+        #[test]
+        fn every_preflight_admitted_builtin_value_agrees_with_its_encoded_source() {
+            let profiles = [
+                ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2"),
+                ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG3>().expect("G3"),
+                ProfileSpec::from_compile_time::<crate::profiles::PtzOptics30X>().expect("30X"),
+                ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("FR7"),
+                ProfileSpec::from_compile_time::<crate::profiles::SonyBRCH900>().expect("H900"),
+                ProfileSpec::from_compile_time::<crate::profiles::SonyEVIH100>().expect("EVI"),
+                ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().expect("BRC300"),
+                ProfileSpec::from_compile_time::<crate::profiles::NearusBRC300>().expect("Nearus"),
+                ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().expect("generic"),
+            ];
+            for profile in &profiles {
+                $($(source_agreement_row!($kind, [$($command)?], $ret, [$($request)*], [$($arg: $ty),*], profile);)*)*
             }
         }
 

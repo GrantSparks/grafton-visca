@@ -200,6 +200,20 @@ synthetic_profile!(
     TypedSupportSet::from_surface(TypedSupportSurface::DirectZoom)
 );
 
+// Explicit caller-owned combined zoom facts for protocol/noun tests. This is
+// a custom profile (no built-in identity), not a claim about a Sony model.
+synthetic_profile!(
+    CombinedZoomTypedSupport,
+    "Explicit Combined Zoom Fixture",
+    TypedSupportSet::from_surfaces(&[
+        TypedSupportSurface::DirectZoom,
+        TypedSupportSurface::DigitalZoomRange,
+    ])
+);
+impl MotionSyncMetadata for CombinedZoomTypedSupport {}
+impl HasDirectZoom for CombinedZoomTypedSupport {}
+impl capabilities::HasDigitalZoomRange for CombinedZoomTypedSupport {}
+
 synthetic_profile!(
     NonDefaultCompileTimeProfile,
     "Non-Default Compile-Time Profile",
