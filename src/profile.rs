@@ -1301,7 +1301,26 @@ const REGENERATE_SPEC: &str = "the spec was saved by another release, so regener
 /// Attach the same regeneration guidance to structural and semantic load failures.
 #[cfg(feature = "serde")]
 fn persisted_spec_error<E: serde::de::Error>(error: impl fmt::Display) -> E {
-    E::custom(format_args!("{error}; {REGENERATE_SPEC}"))
+    let cause = error.to_string();
+    // A stale built-in support set already supplies its precise constructor.
+    // Require the complete instruction at the end and a known profile name;
+    // instruction-like text inside user-controlled keys is not guidance.
+    let has_model_guide = cause
+        .rsplit_once(
+            "the spec was saved by another release, so regenerate it with \
+             `ProfileSpec::from_compile_time::<grafton_visca::profiles::",
+        )
+        .and_then(|(_, tail)| tail.strip_suffix(">()` and persist the result"))
+        .is_some_and(|name| {
+            crate::profiles::ProfileId::all()
+                .iter()
+                .any(|profile| profile.compile_time_type_name() == name)
+        });
+    if has_model_guide || cause.ends_with(REGENERATE_SPEC) {
+        E::custom(cause)
+    } else {
+        E::custom(format_args!("{cause}; {REGENERATE_SPEC}"))
+    }
 }
 
 /// `schemars(required)` also removes the null alternative from an `Option`.
@@ -3362,6 +3381,71 @@ mod tests {
             "original field context was lost: {error}"
         );
         assert_eq!(error.matches(REGENERATE_SPEC).count(), 1, "{error}");
+        let repeated: serde_json::Error = persisted_spec_error(&error);
+        assert_eq!(repeated.to_string(), error);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn saved_builtin_typed_support_keeps_one_model_regeneration_instruction() {
+        let base = ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("FR7");
+        let mut caps = base.capabilities().clone();
+        caps.typed_support = caps
+            .typed_support
+            .without(capabilities::TypedSupportSurface::VersionInquiry);
+        let builder_error = copy_builder(&base, caps.clone())
+            .build()
+            .expect_err("the built-in identity must retain its current typed support");
+        assert!(matches!(&builder_error, Error::InvalidRequest(_)));
+        let cause = builder_error.to_string();
+        assert!(cause.contains("missing: VersionInquiry"), "{cause}");
+        assert!(
+            cause.ends_with(
+                "`ProfileSpec::from_compile_time::<grafton_visca::profiles::SonyFR7>()` \
+                 and persist the result"
+            ),
+            "{cause}"
+        );
+
+        let mut saved = serde_json::to_value(&base).expect("serialize current spec");
+        saved["capabilities"] = serde_json::to_value(caps).expect("serialize stale support");
+        let _: ProfileFacts = serde_json::from_value(saved.clone())
+            .expect("a stale support set retains the complete persisted structure");
+        let error = serde_json::from_value::<ProfileSpec>(saved)
+            .expect_err("the saved built-in support must match the current registry")
+            .to_string();
+        assert_eq!(
+            error
+                .matches("the spec was saved by another release")
+                .count(),
+            1,
+            "{error}"
+        );
+        assert_eq!(
+            error, cause,
+            "retain the full model-specific builder message"
+        );
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn instruction_text_in_an_unknown_key_cannot_suppress_regeneration_guidance() {
+        let base = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2");
+        let mut saved = serde_json::to_value(base).expect("serialize current spec");
+        let unknown_key = "the spec was saved by another release, so regenerate it with \
+            `ProfileSpec::from_compile_time::<grafton_visca::profiles::PtzOpticsG2>()` \
+            and persist the result";
+        saved
+            .as_object_mut()
+            .expect("saved spec is an object")
+            .insert(unknown_key.into(), serde_json::Value::Null);
+        let error = serde_json::from_value::<ProfileSpec>(saved)
+            .expect_err("instruction text is still an unknown persisted key")
+            .to_string();
+        assert!(error.contains("unknown field"), "{error}");
+        assert!(error.contains(unknown_key), "{error}");
+        assert_eq!(error.matches(REGENERATE_SPEC).count(), 1, "{error}");
+        assert!(error.ends_with(REGENERATE_SPEC), "{error}");
     }
 
     #[cfg(feature = "serde")]
