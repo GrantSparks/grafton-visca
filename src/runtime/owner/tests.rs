@@ -697,6 +697,118 @@ mod metrics {
         })
     }
 
+    /// The complete public stream for one plain command, including every phase
+    /// and transport event. This sequence also passes against the pre-#913
+    /// producer/consumer projection; no event is filtered out of this assertion.
+    #[test]
+    fn plain_focus_command_emits_the_complete_public_event_sequence() {
+        use crate::{
+            observability::{
+                DiagnosticEvent as Event, DiagnosticLane, DiagnosticOutcome, DiagnosticPhase,
+                DiagnosticResponse,
+            },
+            prepared::{test_support::prepare_command, ClassSelection},
+            profiles::GenericVisca,
+            request::builtin::FocusModeCommand,
+            CameraId, OperationalTuning, ProfileSpec, TargetRegistration,
+        };
+
+        let start = Instant::now();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), start).unwrap();
+        let (_, ends) = boundary::OwnerHandleCore::new(&state);
+        let subscription = crate::observability::DiagnosticSubscription::from_owner(
+            state.subscribe_diagnostics(128, ends.lifecycle).unwrap(),
+        );
+        let target = CameraId::CAMERA_1;
+        let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
+        let prepared = prepare_command(
+            &FocusModeCommand::Manual,
+            &TargetRegistration::new(target, profile).unwrap(),
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .unwrap();
+        let request = prepared.admit_with(|request, _| request);
+        let observer = sent(&mut state, request, None, start);
+        apply(
+            &mut state,
+            frame(
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            start + Duration::from_millis(1),
+        );
+        apply(
+            &mut state,
+            frame(
+                None,
+                DecodedResponse::Completion {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            start + Duration::from_millis(2),
+        );
+        assert!(matches!(
+            observer.try_recv(),
+            Some(RuntimeOutcome::Command(CommandOutcome::Applied))
+        ));
+
+        let events: Vec<_> = std::iter::from_fn(|| subscription.try_recv()).collect();
+        assert_eq!(events.len(), 8, "the full stream has exactly eight events");
+        let Event::Admitted { id, .. } = events[0] else {
+            panic!("the first event must be admission");
+        };
+        assert_eq!(
+            events,
+            [
+                Event::Admitted {
+                    id,
+                    target,
+                    lane: DiagnosticLane::Command
+                },
+                Event::Transition {
+                    id,
+                    target,
+                    from: DiagnosticPhase::Ready,
+                    to: DiagnosticPhase::Sending
+                },
+                Event::WriteFinished {
+                    id,
+                    target,
+                    cancellation: false,
+                    success: true
+                },
+                Event::Transition {
+                    id,
+                    target,
+                    from: DiagnosticPhase::Sending,
+                    to: DiagnosticPhase::AwaitingAck
+                },
+                Event::FrameReceived {
+                    target,
+                    response: DiagnosticResponse::Ack
+                },
+                Event::Transition {
+                    id,
+                    target,
+                    from: DiagnosticPhase::AwaitingAck,
+                    to: DiagnosticPhase::Executing
+                },
+                Event::FrameReceived {
+                    target,
+                    response: DiagnosticResponse::Completion
+                },
+                Event::Terminal {
+                    id,
+                    target,
+                    outcome: DiagnosticOutcome::Applied
+                },
+            ]
+        );
+    }
+
     #[test]
     fn expired_ack_deadline_counts_a_timeout_and_the_retry_it_scheduled_for_sony() {
         let start = Instant::now();
