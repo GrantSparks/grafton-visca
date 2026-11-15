@@ -26,8 +26,8 @@
 //! | An inquiry (or user `CompletionOnly` raw command) to a camera whose earlier inquiry ended unanswered after its bytes entered the stream (that one is written once and fails at its reply deadline with the `Terminal`/`FailedConclusively` timeout above), once its owed reply has still not arrived when the profile's ambiguity window ends — a stalled connection, a camera that never answers that inquiry, or an absent address | Raw | Stream | [`Error::InquiryCorrelationLost`] (stage `Terminal`, certainty `NotAccepted`; not written, not retryable) | `false` | Inquiries to that camera cannot be correlated until the owed reply arrives or a later answer from the camera proves it never will; close and reopen the session to recover them sooner. A raw `CompletionOnly` command left unanswered holds inquiries back the same way, until its completion arrives. Other cameras and the session keep working, and commands and stops to that camera are still sent; settlement polling, `is_moving`, and `wait_until_idle` on it fail. Frames are resolved in write order (#795): the owed reply (data or a socketless rejection) settles the lane, and so does the ACK or rejection of any command written after the inquiry, since the camera answers in order — a camera that never answers that inquiry reopens its inquiries with its next command answer. |
 //! | An ordinary ACK-bearing, `CompletionOnly`, or `NoReply` command to a camera whose earlier command ended [`Error::UnsequencedCommandUnconfirmed`] before its ACK (or completion) after its bytes entered the stream, once that owed answer has still not arrived when the owing command's ambiguity window ends; or a `CompletionOnly` command to a camera that has not answered anything since a `NoReply` command whose ambiguity window has ended | Raw | Stream | [`Error::CommandCorrelationLost`] (stage `Terminal`, certainty `NotAccepted`; not written, not retryable) | `false` | Commands to that camera cannot be correlated until the owed answer arrives or a later answer from the camera proves it never will (the reply to a later inquiry, or the answer to a later STOP); close and reopen the session to recover them sooner. Within the window such commands wait; a late answer is discarded and never acknowledges or completes a later command. A `CompletionOnly` command's owed completion is settled only by itself: if it never comes — a camera that drops it, or a socketless error that it or a STOP behind it could have sent that was in fact its rejection but that the ledger could not prove so within three hand-offs — ordinary commands to that camera stay latched until the session is reopened. STOPs (including the owner halt), inquiries, other cameras, and the session keep working (#795). |
 //! | Request send fails | Any | Datagram | The transport error (a terminal-looking custom error is normalized to [`Error::TransportError`]) | `false` | Treat it as this transmission's failure; the receive side remains the authority on session death. |
-//! | A recorded cancellation's write or observation fails while its operation continues | Any | Datagram | [`Error::CancellationObservationFailed`] retaining its cause | `false` | The handle caches this intent's failure and cannot retry it. Observe the operation's outcome or stop the axis. |
-//! | A cancellation observation reaches a deadline while its operation continues | Any | Any | [`Error::Timeout`] (stage `CancellationAttempt`, certainty `StillLive`), possibly wrapped in [`Error::CancellationObservationFailed`] | `false` | Wait for the operation or stop the axis; `is_retryable()` is `false`. |
+//! | A recorded cancellation's write or observation fails while its operation continues | Any | Datagram | [`Error::CancellationObservationFailed`] for an otherwise retryable cause; already nonretryable verdicts remain exact | `false` | The handle caches this intent's failure and cannot retry it. Observe the operation's outcome or stop the axis. |
+//! | A cancellation observation reaches a deadline while its operation continues | Any | Any | [`Error::Timeout`] (stage `CancellationAttempt`, certainty `StillLive`) | `false` | Wait for the operation or stop the axis; `is_retryable()` is `false`. |
 //! | Request or cancellation send fails after unknown stream progress | Any | Stream | [`Error::StreamPoisoned`] | `true` | Replace the session; stream position may be unknowable. |
 //! | Fatal receive closure, including EOF/reset/broken pipe | Any | Datagram or stream | [`Error::ConnectionClosed`] | `true` | Replace the session and re-query state. |
 //! | Transient receive fault or an idle/no-data read | Any | Datagram or stream | No immediate public failure; request policy/deadlines continue | n/a | Keep driving the session; use a bounded application heartbeat for silent peers. |
@@ -441,7 +441,8 @@ pub enum Error {
         source: Box<Error>,
     },
 
-    /// A recorded cancellation intent failed. A repeated `cancel()` observes
+    /// A recorded cancellation intent failed with an otherwise retryable cause.
+    /// A repeated `cancel()` observes
     /// this cached answer and cannot send another cancellation for the intent.
     /// The underlying condition remains available as the error source; the
     /// operation's own outcome must still be observed separately.
@@ -939,9 +940,13 @@ impl Error {
         }
     }
 
-    /// Records a cancellation failure whose answer is cached for this intent.
+    /// Makes a cached cancellation failure nonretryable while preserving
+    /// already nonretryable canonical verdicts and their exact context.
     #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) fn cancellation_observation_failed(source: Error) -> Self {
+        if !source.is_retryable() {
+            return source;
+        }
         Self::CancellationObservationFailed {
             source: Box::new(source),
         }
@@ -1869,6 +1874,65 @@ mod tests {
         };
         assert_eq!(source.to_string(), "Transport error: cancel send failed");
         assert!(!error.with_context("cancel zoom").is_retryable());
+
+        let cause = Error::TransportError("cancel send failed".into()).with_context("cancel write");
+        assert!(cause.is_retryable());
+        let expected = format!("{cause:?}");
+        let contextual = Error::cancellation_observation_failed(cause);
+        assert!(!contextual.is_retryable());
+        assert_eq!(
+            contextual.failure_context(),
+            Some(FailureContext::new(
+                FailureStage::CancellationAttempt,
+                Certainty::StillLive
+            ))
+        );
+        assert!(matches!(
+            contextual,
+            Error::CancellationObservationFailed { source }
+                if matches!(source.as_ref(), Error::WithContext { .. })
+                    && format!("{source:?}") == expected
+        ));
+    }
+
+    #[test]
+    fn cached_cancellation_keeps_nonretryable_verdicts_exact() {
+        let mut verdicts = vec![
+            Error::CancellationUnconfirmed,
+            Error::UnsequencedCommandUnconfirmed,
+            Error::NotSupported,
+            Error::InquiryNotCancelable,
+            Error::OwnerTerminated,
+            Error::RuntimeShutdown,
+            Error::CancellationUnconfirmed.with_context("cancel zoom"),
+            Error::cancellation_observation_failed(Error::TransportError(
+                "cancel write failed".into(),
+            )),
+        ];
+        for stage in [
+            FailureStage::PreAdmission,
+            FailureStage::Session,
+            FailureStage::CancellationAttempt,
+            FailureStage::Observation,
+            FailureStage::Terminal,
+        ] {
+            let timeout = Error::timeout(stage, Certainty::StillLive);
+            verdicts.push(timeout.clone());
+            verdicts.push(timeout.with_context("cancel zoom"));
+        }
+        for verdict in verdicts {
+            assert!(!verdict.is_retryable());
+            let expected = format!("{verdict:?}");
+            let context = verdict.failure_context();
+            let kind = verdict.kind();
+            let requires_new_session = verdict.requires_new_session();
+            let observed = Error::cancellation_observation_failed(verdict);
+            assert_eq!(format!("{observed:?}"), expected);
+            assert_eq!(observed.failure_context(), context);
+            assert_eq!(observed.kind(), kind);
+            assert_eq!(observed.requires_new_session(), requires_new_session);
+            assert!(!observed.is_retryable());
+        }
     }
 
     #[test]

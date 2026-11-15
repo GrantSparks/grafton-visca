@@ -81,9 +81,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Awaiting `SmolExecutor` and `SmolRuntime` joins now retains the receive future
   and its waker across polls. Dropping a join still detaches the task (#840).
 - Every `StillLive` timeout and cached cancellation failure is nonretryable.
-  `CancellationObservationFailed` retains the original source while stopping
-  futile retry loops; retry guidance and examples distinguish waiting,
-  conclusive failure, and uncertain effects (#841).
+  `CancellationObservationFailed` retains otherwise retryable causes while
+  stopping futile retry loops. Already nonretryable verdicts keep their exact
+  variant and context. Retry guidance and examples distinguish waiting,
+  conclusive failure, and uncertain effects, refining #783 (#841).
 - Retry and observer budgets cover a full ACK-plus-completion attempt under a
   longer valid ACK override, so healthy executing commands are not ended by a
   completion-only budget calculation. Untuned built-in budgets are unchanged

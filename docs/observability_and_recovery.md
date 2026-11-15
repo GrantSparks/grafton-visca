@@ -262,9 +262,11 @@ it concerns. Read both with `Error::failure_context()`, which returns a
 `FailureContext { stage, certainty }` for every timeout and for the two
 unconfirmed outcomes (D20, #783). Every `StillLive` timeout is nonretryable,
 including a cancellation-attempt timeout: wait for the existing operation or
-stop the axis. A recorded cancellation whose write or observation fails is
-`CancellationObservationFailed { source }`; its source remains available, but
-the cached one-intent result is never retryable (#841). For other errors,
+stop the axis. An otherwise retryable cancellation write or observation
+failure becomes `CancellationObservationFailed { source }`; its exact source
+remains available. Already nonretryable verdicts, including
+`CancellationUnconfirmed` and `StillLive` timeouts, retain their original
+variant and context. The cached one-intent result is never retryable (#841). For other errors,
 `is_retryable()` classifies the condition as
 temporary; it is not a replay-safety answer. Submitting the same request again
 is safe only after `Certainty::NotAccepted` or `Certainty::FailedConclusively`:
