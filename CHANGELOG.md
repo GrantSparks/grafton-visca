@@ -83,7 +83,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cancellation-attempt failures ask callers to wait; uncertain effects require
   reconciliation. Deliberately superseded settlement observations have no new
   effect uncertainty and return `Abandon`; only actual caller deadlines become
-  query timeouts. The checked recovery tables cover every public error variant.
+  query timeouts. `InquiryFailed` preserves every failed inquiry terminal cause
+  with effect-free certainty, including arbitrary custom-transport errors. The
+  checked recovery tables cover every public error variant.
 
 - **BREAKING** (#869): `TransportError` retains its typed cause in
   `source: Arc<Error>` instead of a diagnostic string. Construct it with

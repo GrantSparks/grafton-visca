@@ -306,6 +306,10 @@ additional rows for context-dependent outcomes.
 | `TransportError / no uncertain effect` | `Transport` | — | `Resubmit after 50ms` |
 | `TransmissionNotSent / first attempt, invalid request` | `InvalidParameter` | Terminal / NotAccepted | `Abandon` |
 | `TransmissionNotSent / earlier attempt uncertain` | `InvalidParameter` | Terminal / Unconfirmed | `Reconcile` |
+| `InquiryFailed / timeout cause` | `Timeout` | Terminal / FailedConclusively | `Resubmit after 2s` |
+| `InquiryFailed / command-scoped source` | `Unconfirmed` | Terminal / FailedConclusively | `Abandon` |
+| `InquiryFailed / still-live source` | `Timeout` | Terminal / FailedConclusively | `Resubmit after 2s` |
+| `InquiryFailed / session ended` | `IoClosed` | Terminal / FailedConclusively | `ReopenSession` |
 | `InvalidParameter` | `InvalidParameter` | — | `Abandon` |
 | `BufferTooSmall` | `InvalidParameter` | — | `Abandon` |
 | `ParameterOutOfRange` | `InvalidParameter` | — | `Abandon` |

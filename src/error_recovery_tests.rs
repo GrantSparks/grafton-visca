@@ -1,7 +1,7 @@
 //! One checked recovery table covering every public error variant.
 #![allow(clippy::expect_used, clippy::panic)]
 use super::{Certainty, Error, ErrorKind, FailureContext, FailureStage, OperationId, Recovery};
-use std::{borrow::Cow, collections::BTreeSet, io, sync::Arc, time::Duration};
+use std::{borrow::Cow, collections::BTreeSet, error::Error as _, io, sync::Arc, time::Duration};
 
 struct Case {
     variant: &'static str,
@@ -205,6 +205,46 @@ fn cases() -> Vec<Case> {
             InvalidParameter,
             context(Terminal, Unconfirmed),
             Reconcile
+        ),
+        case!(
+            InquiryFailed,
+            "timeout cause",
+            Error::InquiryFailed {
+                source: Arc::new(Error::io_timeout())
+            },
+            Timeout,
+            context(Terminal, FailedConclusively),
+            timeout
+        ),
+        case!(
+            InquiryFailed,
+            "command-scoped source",
+            Error::InquiryFailed {
+                source: Arc::new(Error::command_failed_after_ack(Error::NoSocket))
+            },
+            Unconfirmed,
+            context(Terminal, FailedConclusively),
+            Abandon
+        ),
+        case!(
+            InquiryFailed,
+            "still-live source",
+            Error::InquiryFailed {
+                source: Arc::new(Error::observation_timeout(OperationId::from_raw(1)))
+            },
+            Timeout,
+            context(Terminal, FailedConclusively),
+            timeout
+        ),
+        case!(
+            InquiryFailed,
+            "session ended",
+            Error::InquiryFailed {
+                source: Arc::new(Error::OwnerTerminated)
+            },
+            IoClosed,
+            context(Terminal, FailedConclusively),
+            ReopenSession
         ),
         case!(
             InvalidParameter,
@@ -750,5 +790,82 @@ fn cached_cancellation_keeps_canonical_operation_and_session_outcomes_exact() {
         let before = format!("{source:?}");
         let result = Error::cancellation_observation_failed(source);
         assert_eq!(format!("{result:?}"), before);
+    }
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+#[test]
+fn caller_timeout_constructors_are_replay_safe_in_their_facades() {
+    for (error, stage) in [
+        (Error::admission_timeout(), FailureStage::PreAdmission),
+        (Error::query_timeout(), FailureStage::Observation),
+    ] {
+        assert_eq!(
+            error.failure_context(),
+            context(stage, Certainty::NotAccepted)
+        );
+        assert_eq!(
+            error.recovery(),
+            Recovery::Resubmit {
+                after: Duration::from_secs(2)
+            }
+        );
+    }
+}
+
+#[test]
+fn inquiry_terminal_context_overrides_arbitrary_nested_source_certainty() {
+    for (cause, expected) in [
+        (
+            Error::io_timeout(),
+            Recovery::Resubmit {
+                after: Duration::from_secs(2),
+            },
+        ),
+        (
+            Error::observation_timeout(OperationId::from_raw(1)),
+            Recovery::Resubmit {
+                after: Duration::from_secs(2),
+            },
+        ),
+        (
+            Error::CommandPending,
+            Recovery::Resubmit {
+                after: Duration::from_millis(50),
+            },
+        ),
+        (
+            Error::command_failed_after_ack(Error::NoSocket),
+            Recovery::Abandon,
+        ),
+        (Error::UnsequencedCommandUnconfirmed, Recovery::Abandon),
+        (
+            Error::transport_error(Error::io_timeout()),
+            Recovery::Resubmit {
+                after: Duration::from_millis(50),
+            },
+        ),
+        (Error::OwnerTerminated, Recovery::ReopenSession),
+    ] {
+        let kind = cause.kind();
+        let requires_new_session = cause.requires_new_session();
+        let source = Arc::new(cause.with_context("custom transport"));
+        let error = Error::InquiryFailed {
+            source: source.clone(),
+        };
+        assert_eq!(
+            error.failure_context(),
+            context(FailureStage::Terminal, Certainty::FailedConclusively)
+        );
+        assert_eq!(error.recovery(), expected);
+        assert_eq!(error.kind(), kind);
+        assert_eq!(error.requires_new_session(), requires_new_session);
+        let retained_source = error
+            .source()
+            .and_then(|source| source.downcast_ref::<Arc<Error>>())
+            .expect("inquiry wrapper exposes its original typed source");
+        assert!(Arc::ptr_eq(retained_source, &source));
+        assert_ne!(error.recovery(), Recovery::Reconcile);
+        assert_ne!(error.recovery(), Recovery::WaitAgain);
     }
 }

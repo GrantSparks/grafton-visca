@@ -35,6 +35,14 @@ the current attempt sent no bytes; its context preserves an earlier possible
 effect. A permanent first-attempt validation cause is `Abandon`, while a prior
 `Unconfirmed` attempt remains `Reconcile`.
 
+The engine wraps every failed inquiry terminal outcome once in
+`InquiryFailed { source: Arc<Error> }`. The factory is idempotent. Its context is
+fixed `Terminal` / `FailedConclusively`; kind and session validity still report
+the original cause. Even a custom transport's command-scoped or still-live
+error cannot turn a failed inquiry into `Reconcile` or `WaitAgain`. Caller
+observation timeouts, preparation refusals and standalone decoder failures stay
+outside this terminal wrapper.
+
 A failed inquiry changes no camera state. Context-carrying inquiry errors use
 `FailedConclusively`; command write timeouts retain `Unconfirmed`. Cancellation
 observation failures instead describe the still-live original operation with the

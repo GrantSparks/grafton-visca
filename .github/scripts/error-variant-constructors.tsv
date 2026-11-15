@@ -50,3 +50,4 @@ UnsupportedTransport	src/runtime/owner/adapter.rs	return Err(Error::UnsupportedT
 MissingRuntime	src/executor.rs	.map_err(|_| Error::MissingRuntime)
 WithContext	src/error.rs	Self::WithContext { context: context.into(), source: Box::new(self), }
 TransmissionNotSent	src/error.rs	Self::TransmissionNotSent { source: Arc::new(source), context: FailureContext::new(FailureStage::Terminal, certainty), }
+InquiryFailed	src/error.rs	Self::InquiryFailed { source: Arc::new(source), }

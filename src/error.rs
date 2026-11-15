@@ -34,6 +34,10 @@
 //! | `TransportError / no uncertain effect` | `Transport` | — | `Resubmit after 50ms` |
 //! | `TransmissionNotSent / first attempt, invalid request` | `InvalidParameter` | Terminal / NotAccepted | `Abandon` |
 //! | `TransmissionNotSent / earlier attempt uncertain` | `InvalidParameter` | Terminal / Unconfirmed | `Reconcile` |
+//! | `InquiryFailed / timeout cause` | `Timeout` | Terminal / FailedConclusively | `Resubmit after 2s` |
+//! | `InquiryFailed / command-scoped source` | `Unconfirmed` | Terminal / FailedConclusively | `Abandon` |
+//! | `InquiryFailed / still-live source` | `Timeout` | Terminal / FailedConclusively | `Resubmit after 2s` |
+//! | `InquiryFailed / session ended` | `IoClosed` | Terminal / FailedConclusively | `ReopenSession` |
 //! | `InvalidParameter` | `InvalidParameter` | — | `Abandon` |
 //! | `BufferTooSmall` | `InvalidParameter` | — | `Abandon` |
 //! | `ParameterOutOfRange` | `InvalidParameter` | — | `Abandon` |
@@ -372,6 +376,20 @@ pub enum Error {
         source: Arc<Error>,
         /// Certainty of the logical request, including any earlier attempt.
         context: FailureContext,
+    },
+
+    /// A failed inquiry terminal outcome, preserving its original cause.
+    ///
+    /// Inquiries change no camera state, so their terminal failure has fixed
+    /// `Terminal` / `FailedConclusively` certainty even when a custom transport
+    /// reports a command-scoped or still-live cause. Caller observation timeouts,
+    /// preparation refusals and standalone decoder errors are not wrapped.
+    #[error("Inquiry failed: {source}")]
+    #[non_exhaustive]
+    InquiryFailed {
+        /// The original terminal failure.
+        #[source]
+        source: Arc<Error>,
     },
 
     /// Invalid parameter provided to a command.
@@ -808,6 +826,30 @@ pub enum Recovery {
     Abandon,
 }
 
+/// Recovery for an effect-free terminal failure, after session validity is known.
+fn conclusive_recovery(kind: ErrorKind) -> Recovery {
+    match kind {
+        ErrorKind::Timeout => Recovery::Resubmit {
+            after: Duration::from_secs(2),
+        },
+        ErrorKind::BufferFull => Recovery::Resubmit {
+            after: Duration::from_millis(200),
+        },
+        ErrorKind::Busy | ErrorKind::Transport => Recovery::Resubmit {
+            after: Duration::from_millis(50),
+        },
+        ErrorKind::IoClosed
+        | ErrorKind::IoRefused
+        | ErrorKind::Unconfirmed
+        | ErrorKind::Cancelled
+        | ErrorKind::NotExecutable
+        | ErrorKind::Protocol
+        | ErrorKind::Unsupported
+        | ErrorKind::InvalidParameter
+        | ErrorKind::Other => Recovery::Abandon,
+    }
+}
+
 /// Where a deadline or certainty failure happened, and what is known about
 /// the affected request's effect. Read it with [`Error::failure_context`].
 ///
@@ -1133,7 +1175,9 @@ impl Error {
 
             // Transport: one failed operation on a live session.
             Self::TransportError { .. } => ErrorKind::Transport,
-            Self::TransmissionNotSent { source, .. } => source.kind(),
+            Self::TransmissionNotSent { source, .. } | Self::InquiryFailed { source, .. } => {
+                source.kind()
+            }
 
             // Unconfirmed: one transmitted operation has an unknowable result
             Self::CancellationUnconfirmed
@@ -1277,6 +1321,8 @@ impl Error {
             | Self::SettlementObservationFailed { source, .. }
             | Self::CancellationObservationFailed { source, .. } => source.requires_new_session(),
 
+            Self::InquiryFailed { source, .. } => source.requires_new_session(),
+
             // Everything else is either a per-request outcome or a condition
             // the session survives. `Io` and `TransportError` stay here on
             // purpose: a datagram request-write failure is isolated to its own
@@ -1403,25 +1449,19 @@ impl Error {
                 Certainty::Unconfirmed => Recovery::Reconcile,
                 Certainty::NotAccepted | Certainty::FailedConclusively => TIMEOUT,
             },
+            Self::InquiryFailed { source, .. } => {
+                if source.requires_new_session() {
+                    Recovery::ReopenSession
+                } else {
+                    conclusive_recovery(source.kind())
+                }
+            }
             Self::TransmissionNotSent { source, context } => match context.certainty {
                 Certainty::Unconfirmed => Recovery::Reconcile,
                 Certainty::StillLive => Recovery::WaitAgain,
-                Certainty::NotAccepted | Certainty::FailedConclusively => match source.kind() {
-                    ErrorKind::Timeout => TIMEOUT,
-                    ErrorKind::BufferFull => CAPACITY,
-                    ErrorKind::Busy | ErrorKind::Transport => Recovery::Resubmit {
-                        after: Duration::from_millis(50),
-                    },
-                    ErrorKind::IoClosed
-                    | ErrorKind::IoRefused
-                    | ErrorKind::Unconfirmed
-                    | ErrorKind::Cancelled
-                    | ErrorKind::NotExecutable
-                    | ErrorKind::Protocol
-                    | ErrorKind::Unsupported
-                    | ErrorKind::InvalidParameter
-                    | ErrorKind::Other => Recovery::Abandon,
-                },
+                Certainty::NotAccepted | Certainty::FailedConclusively => {
+                    conclusive_recovery(source.kind())
+                }
             },
             Self::TransportError { source, .. } => {
                 match source.failure_context().map(|context| context.certainty) {
@@ -1502,6 +1542,10 @@ impl Error {
     pub fn failure_context(&self) -> Option<FailureContext> {
         match self {
             Self::Timeout { context } | Self::TransmissionNotSent { context, .. } => Some(*context),
+            Self::InquiryFailed { .. } => Some(FailureContext::new(
+                FailureStage::Terminal,
+                Certainty::FailedConclusively,
+            )),
             Self::SettlementObservationFailed { .. } => Some(FailureContext::new(
                 FailureStage::Observation,
                 Certainty::Unconfirmed,
