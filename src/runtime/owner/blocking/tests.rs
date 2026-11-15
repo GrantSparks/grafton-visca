@@ -54,6 +54,8 @@ const PROMPTLY: Duration = Duration::from_secs(2);
 /// One scripted transport read.
 enum Read {
     Bytes(Vec<u8>),
+    /// Bytes become available on the transport at an exact virtual instant.
+    At(Instant, Vec<u8>),
     /// An oversized datagram: the prefix that fits is copied and the read
     /// reports the rest as lost.
     Truncated(Vec<u8>),
@@ -94,6 +96,7 @@ struct ChannelTransport {
     eager_idle: bool,
     read_calls: Arc<AtomicUsize>,
     dropped: Arc<AtomicBool>,
+    scheduled: Option<(Instant, Vec<u8>)>,
 }
 
 impl Drop for ChannelTransport {
@@ -131,8 +134,26 @@ impl BlockingTransport for ChannelTransport {
         if self.eager_idle {
             return Err(Error::io_timeout());
         }
+        if let Some((at, bytes)) = self.scheduled.take() {
+            self.clock
+                .sleep(at.saturating_duration_since(self.clock.now()).min(timeout));
+            return if self.clock.now() >= at {
+                Ok(ReceiveOutcome::copy_message(&bytes, dst))
+            } else {
+                self.scheduled = Some((at, bytes));
+                Err(Error::io_timeout())
+            };
+        }
+        let deadline = self.clock.now() + timeout;
         match recv_within(&self.clock, &self.reads, timeout) {
             Ok(Read::Bytes(bytes)) => Ok(ReceiveOutcome::copy_message(&bytes, dst)),
+            Ok(Read::At(at, bytes)) => {
+                self.scheduled = Some((at, bytes));
+                self.recv_into_with_timeout(
+                    dst,
+                    deadline.saturating_duration_since(self.clock.now()),
+                )
+            }
             Ok(Read::Truncated(prefix)) => {
                 let copied = prefix.len().min(dst.len());
                 dst[..copied].copy_from_slice(&prefix[..copied]);
@@ -253,6 +274,7 @@ impl Setup {
             eager_idle: self.eager_idle,
             read_calls: Arc::clone(&read_calls),
             dropped: Arc::clone(&dropped),
+            scheduled: None,
         };
         let peer = Peer {
             clock: self.clock.clone(),
@@ -962,7 +984,7 @@ fn selected_disconnect_preserves_late_terminal_timeout_and_borrowing_cache() {
 #[test]
 fn replies_after_a_full_idle_read_win_before_their_deadlines() {
     for semantics in [SendSemantics::Datagram, SendSemantics::Stream] {
-        for (deadline_ms, reply_ms) in [(205, 202), (400, 210)] {
+        for (deadline_ms, reply_ms) in [(205, 202), (400, 210), (205, 205)] {
             let clock = ManualClock::new();
             let _driver = clock.enter();
             let (owner, peer) = Setup {
@@ -975,8 +997,10 @@ fn replies_after_a_full_idle_read_win_before_their_deadlines() {
                 .submit_with_timeout(raw_inquiry(Duration::from_millis(deadline_ms)), PROMPTLY)
                 .unwrap();
             peer.next_write();
-            clock.sleep(Duration::from_millis(reply_ms));
-            peer.reply(&[0x90, 0x50, 0x03, 0xff]);
+            peer.send(Read::At(
+                clock.now() + Duration::from_millis(reply_ms),
+                vec![0x90, 0x50, 0x03, 0xff],
+            ));
             let deadline = owner.deadline_after(PROMPTLY).unwrap();
             assert!(
                 matches!(owner.wait_core_until(&receipt, deadline), Ok(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [3])
@@ -1044,5 +1068,47 @@ fn diagnostic_subscriber_capacity_has_its_own_nonretryable_error() {
     assert!(!error.is_retryable());
     subscriptions.pop();
     subscriptions.push(owner.subscribe_diagnostics(1).unwrap());
+    owner.close().unwrap();
+}
+
+/// #838: the final part of a long stream command remains readable after a
+/// full five-second idle read; the last millisecond is still inside its window.
+#[test]
+fn a_stream_completion_after_a_long_idle_read_wins_before_its_deadline() {
+    let clock = ManualClock::new();
+    let _driver = clock.enter();
+    let (mut transport, peer, profile, _) = Setup::stream().on(&clock).transport();
+    transport.config.read_timeout = Duration::from_secs(5);
+    let adapter = BlockingTransportAdapter::new(transport, &profile, CameraId::CAMERA_1).unwrap();
+    let owner = BlockingOwnerHandle::spawn(
+        adapter.policy().clone(),
+        adapter,
+        Clock::Manual(clock.clone()),
+    )
+    .unwrap();
+    let mut context = *raw_inquiry(Duration::from_secs(1)).context();
+    context.timeout.completion = Duration::from_secs(6);
+    let request = RuntimeRequest::Command {
+        wire: Arc::new(EncodedMessage::new(ZOOM_STOP).unwrap()),
+        context,
+        applied_state: None,
+    };
+    let receipt = owner
+        .submit_with_timeout(request, Duration::from_secs(10))
+        .unwrap();
+    peer.next_write();
+    let begun = clock.now();
+    peer.reply(ACK);
+    assert_eq!(owner.metrics().unwrap().active, 1);
+    peer.send(Read::At(
+        begun + Duration::from_millis(5_999),
+        COMPLETION.to_vec(),
+    ));
+    let deadline = owner.deadline_after(Duration::from_secs(10)).unwrap();
+    assert!(matches!(
+        owner.wait_core_until(&receipt, deadline),
+        Ok(RuntimeOutcome::Applied)
+    ));
+    assert_eq!(owner.metrics().unwrap().completion_timeouts, 0);
     owner.close().unwrap();
 }

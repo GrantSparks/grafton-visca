@@ -134,3 +134,59 @@ async fn a_paced_receive_at_its_response_deadline_wins_the_timer_race() {
     handle.shutdown().unwrap();
     assert_eq!(run.await.state, SessionState::Shutdown);
 }
+
+struct TimedIdle {
+    runtime: ManualRuntime,
+    wait: Duration,
+    fault: bool,
+}
+
+impl AsyncOwnerDriver for TimedIdle {
+    async fn write(&mut self, _write: WireWrite<'_>) -> Result<TransmissionMeta, Error> {
+        unreachable!("the idle-read fixture never writes")
+    }
+
+    async fn receive(
+        &mut self,
+        _buffers: &mut super::super::super::OwnerBuffers,
+        _frame_limit: usize,
+    ) -> Result<OwnerReceive, Error> {
+        Executor::sleep(&self.runtime, self.wait).await;
+        Ok(if self.fault {
+            OwnerReceive::Fault(Error::io_timeout())
+        } else {
+            OwnerReceive::NoData
+        })
+    }
+}
+impl RetainedStreamInput for TimedIdle {}
+
+#[tokio::test(start_paused = true)]
+async fn a_transports_own_full_timeout_is_not_eager_idle() {
+    let timeout = Duration::from_millis(200);
+    for fault in [false, true] {
+        for wait in [Duration::from_millis(50), timeout] {
+            let runtime = ManualRuntime::with_polling_sleeps(Instant::now());
+            let (_handle, mut actor) = AsyncOwnerActor::new(policy(1), runtime.clone()).unwrap();
+            let mut driver = TimedIdle {
+                runtime: runtime.clone(),
+                wait,
+                fault,
+            };
+            let mut receive = Box::pin(AsyncOwnerActor::<ManualRuntime>::receive_within(
+                &mut driver,
+                actor.core.state.buffers(),
+                1,
+                &runtime,
+                timeout,
+            ));
+            let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
+            assert!(receive.as_mut().poll(&mut cx).is_pending());
+            runtime.advance(wait);
+            let Poll::Ready(Ok(result)) = receive.as_mut().poll(&mut cx) else {
+                panic!("the timed idle driver completed")
+            };
+            assert_eq!(matches!(result, OwnerReceive::IdleTimeout), wait == timeout);
+        }
+    }
+}

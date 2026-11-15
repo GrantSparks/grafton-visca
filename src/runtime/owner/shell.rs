@@ -166,8 +166,7 @@ pub(super) struct OwnerShellCore {
     /// shutdown acceptance have one lifecycle linearization point.
     lifecycle: Arc<OwnerLifecycle>,
     faults: TransientFaultRun,
-    /// Consecutive receives that carried no data (an idle read timeout, or a
-    /// driver that reports "no data" immediately). Escalates a cooperative
+    /// Consecutive eager receives that carried no data. Escalates a cooperative
     /// pause so an immediately-returning idle read cannot hot-spin the owner,
     /// without recording a transport fault or spending any retry budget (#675).
     idle_receives: IdleReceiveRun,
@@ -672,11 +671,9 @@ impl OwnerShellCore {
         }
     }
 
-    /// A receive that carried no data made no protocol progress, so yield the
-    /// next selection to the boundary sources after pacing the idle-read rate:
-    /// a transport that returns "no data" immediately (rather than after its
-    /// read timeout) would otherwise spin the owner at hundreds of thousands
-    /// of reads a second (#675).
+    /// Eager no-data reads yield to boundaries after pacing the idle-read
+    /// rate (#675). A read that waited its full timeout already yielded while
+    /// blocked; keep receive first so its next reply can beat an equal timer.
     fn idle_receive(
         &mut self,
         driver: &mut impl RetainedStreamInput,
