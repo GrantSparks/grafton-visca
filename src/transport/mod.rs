@@ -185,3 +185,6 @@ pub(crate) fn stream_read(read: usize, closed: &'static str) -> crate::Result<us
         Ok(read)
     }
 }
+
+mod receive_errors;
+pub use receive_errors::FATAL_RECEIVE_IO_KINDS;

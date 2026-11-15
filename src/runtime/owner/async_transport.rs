@@ -4,7 +4,7 @@
 use std::future::Future;
 
 use crate::{
-    runtime::engine::TransmissionMeta,
+    runtime::engine::WriteOutcome,
     transport::{AsyncTransport, HasTransportConfig},
     Error,
 };
@@ -21,7 +21,9 @@ where
     /// Send Sony's sequence-number RESET before the owner actor starts.
     pub(crate) async fn send_sony_sequence_reset(&mut self) -> Result<(), Error> {
         let mut frame = bytes::BytesMut::new();
-        self.framing.frame_sony_sequence_reset(&mut frame)?;
+        if !self.framing.frame_sony_sequence_reset(&mut frame) {
+            return Ok(());
+        }
         let sent = self.transport.send(frame.as_ref()).await;
         sent.map_err(|error| self.framing.send_error(error))
     }
@@ -31,16 +33,17 @@ impl<T> AsyncOwnerDriver for TransportAdapter<T, AsyncIo>
 where
     T: AsyncTransport + HasTransportConfig,
 {
-    fn write(
-        &mut self,
-        mut write: WireWrite<'_>,
-    ) -> impl Future<Output = Result<TransmissionMeta, Error>> + Send {
+    fn write(&mut self, mut write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
         let framed = self.framing.frame_write(&mut write);
         async move {
-            let meta = framed?;
-            let sent = self.transport.send(write.frame_buffer.as_ref()).await;
-            sent.map_err(|error| self.framing.send_error(error))?;
-            Ok(meta)
+            let meta = match framed {
+                Ok(meta) => meta,
+                Err(error) => return WriteOutcome::NotSent(error),
+            };
+            match self.transport.send(write.frame_buffer.as_ref()).await {
+                Ok(()) => WriteOutcome::Sent(meta),
+                Err(error) => WriteOutcome::Failed(self.framing.send_error(error)),
+            }
         }
     }
 
@@ -51,10 +54,10 @@ where
         &mut self,
         buffers: &mut OwnerBuffers,
         frame_limit: usize,
-    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
+    ) -> impl Future<Output = OwnerReceive> + Send {
         async move {
-            if let Some(buffered) = self.buffered(buffers, frame_limit)? {
-                return Ok(buffered);
+            if let Some(buffered) = self.buffered(buffers, frame_limit) {
+                return buffered;
             }
             let read = self.transport.recv_into(buffers.receive_mut()).await;
             self.classify_read(buffers, frame_limit, read)
@@ -165,7 +168,7 @@ mod tests {
         );
 
         let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
-        let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
+        let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
         let OwnerReceive::Frames(frames) = received else {
             panic!("a nonzero read must not report the transport as closed");
         };
@@ -219,8 +222,7 @@ mod tests {
 
         assert!(matches!(
             received,
-            Err(Error::ResponseTooLarge { max_size })
-                if max_size == config.buffer_config.recv_buffer_size
+            OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::MalformedDatagram)
         ));
     }
 
@@ -248,15 +250,15 @@ mod tests {
         let discarded = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
         assert!(matches!(
             discarded,
-            Err(Error::ResponseTooLarge { max_size }) if max_size == capacity
+            OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::MalformedDatagram)
         ));
-        let next = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
+        let next = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
         let OwnerReceive::Frames(frames) = next else {
             panic!("the next datagram must decode, got {next:?}");
         };
         assert!(matches!(
-            frames[..],
-            [ref ack] if matches!(ack.response, crate::runtime::engine::DecodedResponse::Ack { .. })
+            frames.iter().collect::<Vec<_>>().as_slice(),
+            [ack] if matches!(ack.response, crate::runtime::engine::DecodedResponse::Ack { .. })
         ));
     }
 
@@ -304,13 +306,13 @@ mod tests {
                 .unwrap();
         let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
 
-        let first = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
+        let first = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
         let OwnerReceive::Frames(frames) = first else {
             panic!("a partial frame must not be reported as a transport close");
         };
         assert!(frames.is_empty());
 
-        let second = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
+        let second = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
         let OwnerReceive::Frames(frames) = second else {
             panic!("the completing read must decode the buffered frame");
         };
@@ -320,9 +322,14 @@ mod tests {
             crate::runtime::engine::DecodedResponse::Ack { .. }
         ));
 
-        let third = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
+        let third = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
         assert!(
-            matches!(third, OwnerReceive::Closed),
+            matches!(
+                third,
+                OwnerReceive::Fatal(crate::runtime::owner::ReceiveFatal::TransportClosed {
+                    cause: None
+                })
+            ),
             "only a zero-length read closes the transport"
         );
     }
@@ -331,7 +338,7 @@ mod tests {
     /// incomplete raw frame.  In particular, the low nibble of an ACK is not
     /// socket ownership: the engine alone decides whether a due correlation
     /// release may progress.  These literal vectors exercise the real
-    /// `ProtocolFramer` seam used by the async actor.
+    /// `RawFramer` seam used by the async actor.
     #[test]
     fn buffered_raw_prefix_evidence_is_socket_aware_without_guessing_ack_ownership() {
         let cases = [
@@ -382,11 +389,10 @@ mod tests {
             )
             .unwrap();
             let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
-            let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4))
-                .expect("a partial prefix is ordinary stream input");
+            let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
             assert!(matches!(received, OwnerReceive::Frames(ref frames) if frames.is_empty()));
             assert_eq!(
-                adapter.buffered_raw_prefix_evidence().unwrap(),
+                adapter.retained().and_then(|input| input.evidence.raw()),
                 Some(RawPrefixEvidence::Incomplete {
                     target: crate::target::TargetSlot::CAMERA_1,
                     kind: expected_kind,
@@ -413,9 +419,9 @@ mod tests {
             )
             .unwrap();
             let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
-            let _ = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
+            let _ = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
             assert_eq!(
-                adapter.buffered_raw_prefix_evidence().unwrap(),
+                adapter.retained().and_then(|input| input.evidence.raw()),
                 Some(RawPrefixEvidence::Malformed),
                 "prefix {prefix:02x?}",
             );
@@ -449,10 +455,12 @@ mod tests {
             )
             .unwrap();
             let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
-            let received =
-                futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
+            let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
             assert!(
-                matches!(received, OwnerReceive::NoData),
+                matches!(
+                    received,
+                    OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::EagerIdle)
+                ),
                 "an idle read timeout is not a receive fault: {received:?}"
             );
         }
@@ -481,9 +489,11 @@ mod tests {
             )
             .unwrap();
             let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
-            let received =
-                futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
-            assert!(matches!(received, OwnerReceive::Fault(_)));
+            let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
+            assert!(matches!(
+                received,
+                OwnerReceive::Transient(_) | OwnerReceive::Fatal(_)
+            ));
         }
     }
 

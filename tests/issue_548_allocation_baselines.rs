@@ -422,3 +422,40 @@ fn warmed_tokio_timer_resets_do_not_allocate() {
 fn warmed_smol_timer_resets_do_not_allocate() {
     assert_timer_reset_does_not_allocate(&grafton_visca::SmolExecutor::new());
 }
+
+#[cfg(all(feature = "test-utils", any(feature = "blocking", feature = "async")))]
+#[test]
+fn warmed_receive_decoding_and_batch_recycling_do_not_allocate() {
+    use grafton_visca::{
+        profiles::{GenericVisca, SonyFR7},
+        testing::receive::ReceiveProbe,
+        transport::{SendSemantics, TransportConfig},
+        ProfileSpec,
+    };
+    const RAW: &[u8] = &[0x90, 0x41, 0xff, 0x90, 0x51, 0xff];
+    const SONY: &[u8] = &[
+        0x01, 0x11, 0x00, 0x03, 0, 0, 0, 1, 0x90, 0x41, 0xff, 0x01, 0x11, 0x00, 0x03, 0, 0, 0, 2,
+        0x90, 0x51, 0xff,
+    ];
+    for (profile, chunk) in [
+        (
+            ProfileSpec::from_compile_time::<GenericVisca>().unwrap(),
+            RAW,
+        ),
+        (ProfileSpec::from_compile_time::<SonyFR7>().unwrap(), SONY),
+    ] {
+        for semantics in [SendSemantics::Stream, SendSemantics::Datagram] {
+            let mut probe =
+                ReceiveProbe::new(&profile, TransportConfig::default(), semantics).unwrap();
+            assert_eq!(probe.receive(chunk).unwrap(), 2);
+            let mut observed = 0;
+            let allocations = allocations_during(|| {
+                for _ in 0..128 {
+                    observed += probe.receive(std::hint::black_box(chunk)).unwrap();
+                }
+            });
+            assert_eq!(observed, 256);
+            assert_eq!(allocations, 0, "warmed receive allocated: {semantics:?}");
+        }
+    }
+}

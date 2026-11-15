@@ -1617,6 +1617,27 @@ impl Error {
         }
     }
 
+    /// A pre-I/O refusal carries certainty for the whole logical request,
+    /// including possibly effective earlier attempts.
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) fn transmission_not_sent(source: Error, certainty: Certainty) -> Self {
+        Self::TransmissionNotSent {
+            source: Arc::new(source),
+            context: FailureContext::new(FailureStage::Terminal, certainty),
+        }
+    }
+
+    /// Engine inquiry failures cannot leave an uncertain camera-state effect.
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) fn inquiry_failed(source: Error) -> Self {
+        match source {
+            Self::InquiryFailed { .. } => source,
+            source => Self::InquiryFailed {
+                source: Arc::new(source),
+            },
+        }
+    }
+
     /// Preserves the cause of a failed transport operation on a usable session.
     ///
     /// An existing transport-operation wrapper is returned unchanged; repeated

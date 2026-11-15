@@ -2,7 +2,9 @@
 
 #![cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 
-use grafton_visca::{testing::camera_simulator::ViscaCameraSimulator, transport::AsyncTransport};
+use grafton_visca::{
+    testing::camera_simulator::ViscaCameraSimulator, transport::AsyncTransport, PowerStatus,
+};
 
 #[tokio::test(start_paused = true)]
 async fn test_simulator_power_inquiry_direct() {
@@ -203,8 +205,8 @@ async fn session_inquiries_observe_applied_simulator_state() {
     assert!((degrees.pan.0 + 10.0).abs() < 0.1);
     assert!((degrees.tilt.0 + 5.0).abs() < 0.1);
     camera.power().off().await.unwrap();
-    assert!(!camera.power().state().await.unwrap().is_on());
+    assert_eq!(camera.power().state().await.unwrap(), PowerStatus::Standby);
     camera.power().on().await.unwrap();
-    assert!(camera.power().state().await.unwrap().is_on());
+    assert_eq!(camera.power().state().await.unwrap(), PowerStatus::On);
     session.close().await.unwrap();
 }

@@ -66,7 +66,7 @@ struct TransmissionOwner {
     generation: GenerationTicket,
     attempt: u32,
     kind: CorrelationKind,
-    requested_sequence: Option<u32>,
+    framing: RequestFraming,
 }
 
 /// One raw-VISCA correlation scope retained after its live owner can no longer
@@ -185,8 +185,10 @@ pub(crate) struct Entry {
     current_sequence: Option<u32>,
     sequence_history: SmallVec<[SequenceRecord; MAX_SEQUENCE_HISTORY]>,
     slot: AdmissionSlot,
-    /// Whether an earlier written attempt may have reached the camera without
-    /// a conclusive rejection. A request that was never written, or whose
+    /// Whether a written attempt may have reached the camera without
+    /// a conclusive rejection. Retained across retry waiting, and recorded
+    /// before a physical write result terminalizes directly from Sending.
+    /// A request that was never written, or whose
     /// every written attempt the camera rejected before ACK, has had no
     /// effect; supersession then reports `NotAccepted` rather than
     /// `Unconfirmed`.
@@ -198,6 +200,22 @@ impl Entry {
         self.lifecycle
             .reply_family()
             .unwrap_or_else(|| SendingReply::new(&self.request))
+    }
+
+    fn may_have_effect(&self, outcome: &RuntimeOutcome) -> bool {
+        self.effect_possible
+            || match self.lifecycle {
+                Lifecycle::AwaitingAck { .. } | Lifecycle::AwaitingCompletion { .. } => {
+                    !matches!(outcome, RuntimeOutcome::Failed(error) if conclusive_camera_rejection(error))
+                }
+                Lifecycle::Executing { .. } | Lifecycle::AwaitingCancellationResolution { .. } => {
+                    true
+                }
+                Lifecycle::Ready { .. }
+                | Lifecycle::Sending { .. }
+                | Lifecycle::AwaitingReply { .. }
+                | Lifecycle::Backoff { .. } => false,
+            }
     }
 
     fn retry_budget_deadline(&self) -> Option<Instant> {
@@ -695,9 +713,10 @@ impl ProtocolEngine {
                 slot,
             } => self.admit(ticket, request, slot, now, effects),
             Input::TransmissionFinished {
+                request,
                 transmission,
                 result,
-            } => self.transmission_finished(transmission, result, now, effects),
+            } => self.transmission_finished(request, transmission, result, now, effects),
             Input::Frame(frame) => self.frame(frame, now, effects),
             #[cfg(test)]
             Input::Cancel { id } => {
@@ -1263,11 +1282,17 @@ impl ProtocolEngine {
             });
         let wire = Arc::clone(entry.request.wire());
         let owes = self.ledger_owes(entry);
-        let requested_sequence = if self.policy.envelope == EnvelopeKind::Sony {
-            entry.current_sequence
-        } else {
-            None
+        let framing = match self.policy.envelope {
+            EnvelopeKind::Raw => RequestFraming::Raw,
+            EnvelopeKind::Sony => RequestFraming::Sony {
+                sequence: entry.current_sequence.map_or(
+                    SonyRequestSequence::AllocateFresh,
+                    SonyRequestSequence::Replay,
+                ),
+            },
         };
+        let requires_extended_pan_tilt_speed =
+            entry.request.context().requires_extended_pan_tilt_speed;
         let stream_order =
             owes.map(|owes| self.ledger.push(target, ticket.request, generation, owes));
         let lifecycle = Lifecycle::Sending {
@@ -1287,7 +1312,7 @@ impl ProtocolEngine {
                 generation,
                 attempt,
                 kind: CorrelationKind::Request,
-                requested_sequence,
+                framing,
             },
         );
         self.last_request_sent = Some(now);
@@ -1302,7 +1327,9 @@ impl ProtocolEngine {
             kind: Transmission::Request {
                 target,
                 wire,
-                requested_sequence,
+                framing,
+                lane,
+                requires_extended_pan_tilt_speed,
             },
         });
     }
@@ -1789,8 +1816,9 @@ impl ProtocolEngine {
 
     fn transmission_finished(
         &mut self,
+        request: RequestId,
         transmission: TransmissionId,
-        result: Result<TransmissionMeta, Error>,
+        result: WriteOutcome,
         now: Instant,
         effects: &mut Vec<Effect>,
     ) {
@@ -1798,45 +1826,92 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::StaleTransmission));
             return;
         };
-        let compatible = self.entries.get(&owner.request).is_some_and(|entry| {
+        if owner.request != request {
+            effects.push(Effect::Ignored(
+                IgnoreReason::IncompatibleTransmissionResult,
+            ));
+            return;
+        }
+        let compatible = self.entries.get(&request).is_some_and(|entry| {
             entry.generation == owner.generation
                 && entry.attempt == owner.attempt
                 && match owner.kind {
                     CorrelationKind::Request => {
-                        matches!(entry.lifecycle.phase(), Phase::Sending { transmission: active, .. } if active == transmission)
+                        matches!(entry.lifecycle, Lifecycle::Sending { transmission: active, .. } if active == transmission)
                     }
                     CorrelationKind::Cancellation => {
                         entry.lifecycle.cancellation_transmission() == Some(transmission)
                     }
                 }
         });
+        self.transmissions.remove(&transmission);
         if !compatible {
-            self.transmissions.remove(&transmission);
             effects.push(Effect::Ignored(
                 IgnoreReason::IncompatibleTransmissionResult,
             ));
             return;
         }
         match result {
-            // A stream write error is a session verdict even when the owner
-            // samples it after this request's total budget. The transport seam
-            // cannot prove that no byte reached the wire, so the authoritative
-            // failed-transmission path must poison before any per-request
-            // late-result policy can classify it.
-            Err(error) if self.policy.transport == TransportKind::Stream => {
+            WriteOutcome::NotSent(error) => self.transmission_not_sent(owner, error, now, effects),
+            // A failed stream send has an unknowable parser position even if
+            // its result outlives this request's total budget.
+            WriteOutcome::Failed(error) if self.policy.transport == TransportKind::Stream => {
+                self.record_possible_write_effect(owner);
                 self.failed_transmission(owner, error, effects);
             }
-            result => {
-                if self.write_result_after_total_budget(owner, result.is_ok(), now, effects) {
-                    return;
+            WriteOutcome::Failed(error) => {
+                self.record_possible_write_effect(owner);
+                if !self.write_result_after_total_budget(owner, false, now, effects) {
+                    self.failed_transmission(owner, error, effects);
                 }
-                self.transmissions.remove(&transmission);
-                match result {
-                    Ok(meta) => self.successful_transmission(owner, meta, now, effects),
-                    Err(error) => self.failed_transmission(owner, error, effects),
+            }
+            WriteOutcome::Sent(meta) => {
+                if !self.write_result_after_total_budget(owner, true, now, effects) {
+                    self.successful_transmission(owner, meta, now, effects);
                 }
             }
         }
+    }
+
+    /// Only a physical send can make this attempt possibly effective. A
+    /// refused preparation leaves earlier attempts' facts intact.
+    fn record_possible_write_effect(&mut self, owner: TransmissionOwner) {
+        if owner.kind == CorrelationKind::Request {
+            if let Some(entry) = self.entries.get_mut(&owner.request) {
+                entry.effect_possible |= entry.reply_family() != SendingReply::Inquiry;
+            }
+        }
+    }
+
+    fn transmission_not_sent(
+        &mut self,
+        owner: TransmissionOwner,
+        source: Error,
+        now: Instant,
+        effects: &mut Vec<Effect>,
+    ) {
+        if owner.kind == CorrelationKind::Cancellation {
+            self.failed_cancellation_transmission(owner, source, effects);
+            return;
+        }
+        let Some(entry) = self.entries.get(&owner.request) else {
+            return;
+        };
+        let possible = entry.effect_possible;
+        let error = Error::transmission_not_sent(
+            source,
+            if possible {
+                Certainty::Unconfirmed
+            } else {
+                Certainty::NotAccepted
+            },
+        );
+        // No current bytes left, but an earlier attempt's owed answers and
+        // raw ambiguity must survive this logical request's terminal.
+        if possible && self.policy.envelope == EnvelopeKind::Raw {
+            self.quarantine_unconfirmed_raw(owner.request, now);
+        }
+        self.finish(owner.request, RuntimeOutcome::Failed(error), effects);
     }
 
     /// Applies the admission-to-terminal budget before an active request write
@@ -1884,6 +1959,7 @@ impl ProtocolEngine {
             return false;
         }
         if written {
+            self.record_possible_write_effect(owner);
             self.mark_stream_answer_written(owner.request, false);
         }
 
@@ -1916,24 +1992,35 @@ impl ProtocolEngine {
         now: Instant,
         effects: &mut Vec<Effect>,
     ) {
-        let metadata_valid = match self.policy.envelope {
-            EnvelopeKind::Raw => meta.sequence.is_none(),
-            EnvelopeKind::Sony => meta.sequence.is_some(),
+        let metadata_valid = match (owner.framing, meta) {
+            (RequestFraming::Raw, TransmissionMeta::Raw) => true,
+            (
+                RequestFraming::Sony {
+                    sequence: SonyRequestSequence::AllocateFresh,
+                },
+                TransmissionMeta::Sony { .. },
+            ) => true,
+            (
+                RequestFraming::Sony {
+                    sequence: SonyRequestSequence::Replay(requested),
+                },
+                TransmissionMeta::Sony { sequence },
+            ) => requested == sequence,
+            (RequestFraming::Raw, TransmissionMeta::Sony { .. })
+            | (RequestFraming::Sony { .. }, TransmissionMeta::Raw) => false,
         };
-        let requested_sequence_valid = owner
-            .requested_sequence
-            .is_none_or(|requested| meta.sequence == Some(requested));
-        if !metadata_valid || !requested_sequence_valid {
+        if !metadata_valid {
+            self.record_possible_write_effect(owner);
             self.finish(
                 owner.request,
                 RuntimeOutcome::Failed(Error::InvalidState(
-                    "transmission metadata conflicts with session envelope".into(),
+                    "transmission metadata conflicts with requested framing".into(),
                 )),
                 effects,
             );
             return;
         }
-        if let Some(sequence) = meta.sequence {
+        if let Some(sequence) = meta.sequence() {
             self.register_sequence(owner.request, sequence, owner.kind);
         }
         self.mark_stream_answer_written(owner.request, owner.kind == CorrelationKind::Cancellation);
@@ -1944,7 +2031,7 @@ impl ProtocolEngine {
         match owner.kind {
             CorrelationKind::Request => {
                 if self.policy.envelope == EnvelopeKind::Sony {
-                    entry.current_sequence = meta.sequence;
+                    entry.current_sequence = meta.sequence();
                 }
                 let context = *entry.request.context();
                 let generation = entry.generation;
@@ -1999,6 +2086,7 @@ impl ProtocolEngine {
                         );
                     }
                     SendingReply::NoReply => {
+                        self.record_possible_write_effect(owner);
                         self.quarantine_raw_terminal(owner.request, now);
                         self.finish(owner.request, RuntimeOutcome::Written, effects);
                     }
@@ -2072,18 +2160,17 @@ impl ProtocolEngine {
     /// so a failed write cannot corrupt any other transmission.
     ///
     /// **Stream**: the session is poisoned. This is a deliberate, explicit
-    /// policy rather than an accident. The write seam is `Result<(), Error>`
-    /// for every transport implementation, public ones included, so a failed
-    /// stream write cannot prove that no byte of the frame reached the wire;
+    /// policy rather than an accident. Public transport sends return
+    /// `Result<(), Error>`, so a physical `WriteOutcome::Failed` cannot prove
+    /// that no byte of the frame reached the wire;
     /// a partially written frame desynchronizes the camera's parser for every
     /// frame that follows, which makes the byte-stream position unknowable.
     /// Fail-one-command would therefore leave the caller believing a session
     /// that is already unusable is healthy, and [`Error::StreamPoisoned`] is
     /// the one terminal error that answers
     /// [`Error::requires_new_session`](crate::Error::requires_new_session)
-    /// correctly (issue #564). Narrowing this to "poison only on a genuine
-    /// partial write" needs a write seam that reports how many bytes reached
-    /// the wire, which no transport trait in this crate offers.
+    /// correctly (issue #564). Refusal before transport I/O has its own
+    /// `WriteOutcome::NotSent` path and never enters this handler.
     ///
     /// The exact transport cause is never lost: it is carried in the poison
     /// reason. The failed command is failed individually and the stream
@@ -2121,6 +2208,9 @@ impl ProtocolEngine {
         error: Error,
         effects: &mut Vec<Effect>,
     ) {
+        // A refused cancellation wrote no bytes. Drop its staged first-answer
+        // entry while the acknowledged operation keeps its socket and deadline.
+        self.retire_stream_answers(owner.request);
         let Some(entry) = self.entries.get(&owner.request) else {
             return;
         };
@@ -4266,6 +4356,12 @@ impl ProtocolEngine {
         let generation = entry.generation;
         let attempt = entry.attempt;
         let socket = pending.socket();
+        let framing = match self.policy.envelope {
+            EnvelopeKind::Raw => RequestFraming::Raw,
+            EnvelopeKind::Sony => RequestFraming::Sony {
+                sequence: SonyRequestSequence::AllocateFresh,
+            },
+        };
         let Some(transmission) = self.allocate_transmission_id() else {
             self.finish(
                 id,
@@ -4286,10 +4382,7 @@ impl ProtocolEngine {
                 generation,
                 attempt,
                 kind: CorrelationKind::Cancellation,
-                // A cancellation is not a retry of the command.  It must get
-                // a fresh Sony identity even when the command already has a
-                // successful sequence recorded.
-                requested_sequence: None,
+                framing,
             },
         );
         if self.raw_stream() {
@@ -4302,7 +4395,7 @@ impl ProtocolEngine {
             kind: Transmission::Cancel {
                 target,
                 socket,
-                requested_sequence: None,
+                framing,
             },
         });
         self.last_request_sent = Some(now);
@@ -4514,30 +4607,10 @@ impl ProtocolEngine {
         );
     }
 
-    /// Terminates one raw command whose ACK or completion can no longer be
-    /// confirmed (issue #671).
-    ///
-    /// Strict opt-in mode poisons the whole session (the pre-fix behavior). The
-    /// default fails exactly this request with
-    /// [`Error::UnsequencedCommandUnconfirmed`] while holding whatever
-    /// correlation it still owns — its command socket, or its place as the sole
-    /// unacknowledged raw command on the target — quarantined until the
-    /// ambiguity deadline. The terminal outcome is emitted immediately; the
-    /// inert keyed hold, rather than a hidden still-live request phase, prevents
-    /// late input from binding to a successor. The session and every unrelated
-    /// request keep running.
-    fn terminate_unconfirmed_raw(
-        &mut self,
-        id: RequestId,
-        now: Instant,
-        effects: &mut Vec<Effect>,
-    ) {
-        if self.raw_unconfirmed_poison() {
-            self.poison_strict_unconfirmed(effects);
-            return;
-        }
+    /// Retains the attempt's raw response scope without choosing its terminal
+    /// error or treating a refused current write as a transport failure.
+    fn quarantine_unconfirmed_raw(&mut self, id: RequestId, now: Instant) {
         let Some(entry) = self.entries.get(&id) else {
-            effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
             return;
         };
         let target = entry.request.context().target;
@@ -4602,6 +4675,31 @@ impl ProtocolEngine {
         if let Some(scope) = scope {
             self.extend_raw_hold(target, scope, ambiguity_deadline, Some(id));
         }
+    }
+
+    /// Terminates one raw command whose ACK or completion can no longer be
+    /// confirmed (issue #671).
+    ///
+    /// Strict opt-in mode poisons the whole session (the pre-fix behavior). The
+    /// default fails exactly this request with
+    /// [`Error::UnsequencedCommandUnconfirmed`] while holding whatever
+    /// correlation it still owns — its command socket, or its place as the sole
+    /// unacknowledged raw command on the target — quarantined until the
+    /// ambiguity deadline. The terminal outcome is emitted immediately; the
+    /// inert keyed hold, rather than a hidden still-live request phase, prevents
+    /// late input from binding to a successor. The session and every unrelated
+    /// request keep running.
+    fn terminate_unconfirmed_raw(
+        &mut self,
+        id: RequestId,
+        now: Instant,
+        effects: &mut Vec<Effect>,
+    ) {
+        if self.raw_unconfirmed_poison() {
+            self.poison_strict_unconfirmed(effects);
+            return;
+        }
+        self.quarantine_unconfirmed_raw(id, now);
         self.finish(
             id,
             RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
@@ -5231,6 +5329,12 @@ impl ProtocolEngine {
         for queue in &mut self.inquiry_queues {
             queue.retain(|ticket| !(ticket.request == id && ticket.generation == entry.generation));
         }
+        let outcome = match outcome {
+            RuntimeOutcome::Failed(error) if entry.reply_family() == SendingReply::Inquiry => {
+                RuntimeOutcome::Failed(Error::inquiry_failed(error))
+            }
+            outcome => outcome,
+        };
         let target = entry.request.context().target;
         {
             for socket in 0..2 {
@@ -5249,12 +5353,19 @@ impl ProtocolEngine {
         for record in &entry.sequence_history {
             self.remove_correlation_owner(record.sequence, id, entry.generation, record.kind);
         }
-        if matches!(outcome, RuntimeOutcome::Applied) {
-            if let Some(projection) = entry.request.applied_state() {
+        if let Some(projection) = entry.request.applied_state() {
+            let projection = if matches!(outcome, RuntimeOutcome::Applied) {
+                Some(projection)
+            } else if entry.may_have_effect(&outcome) {
+                Some(AppliedStateProjection::invalidate(projection.key()))
+            } else {
+                None
+            };
+            if let Some(projection) = projection {
                 effects.push(Effect::AppliedState {
                     effect: AppliedStateEffect {
                         request: id,
-                        target: entry.request.context().target,
+                        target,
                         projection,
                     },
                 });
@@ -6233,8 +6344,9 @@ mod cancellation_regression_tests {
         let sequence = (envelope == EnvelopeKind::Sony).then_some(0x1001);
         engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission: request_transmission,
-                result: Ok(TransmissionMeta { sequence }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(sequence)),
             },
             now,
         );
@@ -6354,8 +6466,9 @@ mod cancellation_regression_tests {
         let id = admitted(&admitted_effects);
         engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission: request_transmission(&admitted_effects),
-                result: Ok(TransmissionMeta { sequence: None }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
             },
             now,
         );
@@ -6429,8 +6542,9 @@ mod cancellation_regression_tests {
         let id = admitted(&admitted_effects);
         engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission: request_transmission(&admitted_effects),
-                result: Ok(TransmissionMeta { sequence: None }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
             },
             now,
         );
@@ -6489,8 +6603,9 @@ mod cancellation_regression_tests {
         let id = admitted(&admitted_effects);
         engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission: request_transmission(&admitted_effects),
-                result: Ok(TransmissionMeta { sequence: None }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
             },
             now,
         );
@@ -6527,8 +6642,9 @@ mod cancellation_regression_tests {
         let cancel_transmission = cancel_transmission(&cancel);
         engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission: cancel_transmission,
-                result: Ok(TransmissionMeta { sequence: None }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
             },
             now,
         );

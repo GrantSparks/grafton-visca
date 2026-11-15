@@ -5,6 +5,14 @@ use std::time::Duration;
 use super::*;
 use crate::{runtime::engine::CancellationPolicy, CameraId};
 
+/// The outcome of a scripted physical send; preparation errors use NotSent.
+pub(super) fn write_outcome(result: Result<TransmissionMeta, Error>) -> WriteOutcome {
+    match result {
+        Ok(meta) => WriteOutcome::Sent(meta),
+        Err(error) => WriteOutcome::Failed(error),
+    }
+}
+
 /// Test history collected through the same bounded subscription production uses.
 pub(super) struct DiagnosticRecorder {
     subscription: DiagnosticSubscription,
@@ -435,6 +443,7 @@ fn every_state_key_has_an_inline_slot_and_a_typed_accessor() {
 /// against a retry constant, so the counts stay meaningful as retry policy
 /// changes underneath them.
 mod metrics {
+    mod fr7_speed;
     use super::DiagnosticRecorder;
     use std::{
         collections::VecDeque,
@@ -546,7 +555,13 @@ mod metrics {
     ) {
         while let Some(effect) = effects.pop_front() {
             if let AppliedEffect::Transmit(staged) = state.apply_effect(effect) {
-                let produced = state.finish_write(&staged, Ok(TransmissionMeta { sequence }), now);
+                let produced = state.finish_write(
+                    &staged,
+                    WriteOutcome::Sent(sequence.map_or(TransmissionMeta::Raw, |sequence| {
+                        TransmissionMeta::Sony { sequence }
+                    })),
+                    now,
+                );
                 prepend_effects(&mut effects, produced);
             }
         }
@@ -1220,7 +1235,10 @@ fn an_idle_read_error_reports_no_data_rather_than_a_fault() {
         Error::io_timeout().with_context("idle poll"),
     ] {
         assert!(
-            receive_reported_no_data(&idle),
+            matches!(
+                OwnerReceive::read_error(idle.clone()),
+                OwnerReceive::NoProgress(NoProgressReason::EagerIdle)
+            ),
             "an idle read must not be classified as a fault: {idle}"
         );
     }
@@ -1231,20 +1249,29 @@ fn an_idle_read_error_reports_no_data_rather_than_a_fault() {
         Error::ConnectionClosed { reason: None },
     ] {
         assert!(
-            !receive_reported_no_data(&fault),
+            !matches!(
+                OwnerReceive::read_error(fault.clone()),
+                OwnerReceive::NoProgress(_)
+            ),
             "a real read failure must stay a fault: {fault}"
         );
     }
 
     let keepalive_timeout = Error::Io(Arc::new(std::io::Error::from(ErrorKind::TimedOut)));
     assert!(
-        !receive_fault_is_transient(&keepalive_timeout),
+        matches!(
+            OwnerReceive::read_error(keepalive_timeout),
+            OwnerReceive::Fatal(_)
+        ),
         "an OS TCP timeout is terminal instead of an endless idle read"
     );
 
     let invalid_input = Error::Io(Arc::new(std::io::Error::from(ErrorKind::InvalidInput)));
     assert!(
-        !receive_fault_is_transient(&invalid_input),
+        matches!(
+            OwnerReceive::read_error(invalid_input),
+            OwnerReceive::Fatal(_)
+        ),
         "a transport contract/configuration error closes immediately"
     );
 }
@@ -1497,6 +1524,7 @@ mod lifecycle_trace {
             Error::CommandFailedAfterAck { source, .. } => {
                 format!("CommandFailedAfterAck({})", error_label(source))
             }
+            Error::InquiryFailed { source } => format!("InquiryFailed({})", error_label(source)),
             Error::MessageLengthError => "MessageLengthError".to_owned(),
             Error::CommandBufferFull => "CommandBufferFull".to_owned(),
             Error::CommandCanceled => "CommandCanceled".to_owned(),
@@ -1528,7 +1556,7 @@ mod lifecycle_trace {
 
     fn write_result(label: &str) -> Result<TransmissionMeta, Error> {
         match label {
-            "ok" => Ok(TransmissionMeta { sequence: None }),
+            "ok" => Ok(TransmissionMeta::Raw),
             "Timeout" => Err(Error::io_timeout()),
             other => Err(Error::transport_error(std::io::Error::other(
                 other.to_owned(),
@@ -2379,7 +2407,7 @@ mod lifecycle_trace {
             let now = self.now;
             let produced = self.state_mut().finish_write_turn(
                 &staged,
-                write_result(&label),
+                super::write_outcome(write_result(&label)),
                 now,
                 EngineTurn::INPUT_ONLY,
             );
@@ -2551,4 +2579,55 @@ mod lifecycle_trace {
             "an out-of-order outcome is retained until its own wait reads it"
         );
     }
+}
+
+#[test]
+fn fatal_receive_io_table_drives_raw_and_wrapped_verdicts() {
+    for &kind in crate::transport::FATAL_RECEIVE_IO_KINDS {
+        for error in [
+            Error::Io(Arc::new(std::io::Error::from(kind))),
+            Error::Io(Arc::new(std::io::Error::from(kind))).with_context("read camera"),
+            Error::transport_error(Error::Io(Arc::new(std::io::Error::from(kind)))),
+        ] {
+            let original = error.to_string();
+            let OwnerReceive::Fatal(ReceiveFatal::TransportClosed { cause: Some(cause) }) =
+                OwnerReceive::read_error(error)
+            else {
+                panic!("{kind:?} must close the read side");
+            };
+            assert_eq!(
+                cause.to_string(),
+                original,
+                "read classification retains its exact cause"
+            );
+        }
+    }
+    for error in [
+        Error::Io(Arc::new(std::io::Error::from(
+            std::io::ErrorKind::ConnectionRefused,
+        ))),
+        Error::transport_error(Error::Io(Arc::new(std::io::Error::from(
+            std::io::ErrorKind::ConnectionRefused,
+        )))),
+    ] {
+        assert!(matches!(
+            OwnerReceive::read_error(error),
+            OwnerReceive::Transient(_)
+        ));
+    }
+}
+
+#[test]
+fn consumed_input_verdict_preserves_stream_cause_and_discards_one_datagram() {
+    let error = Error::ResponseTooLarge { max_size: 24 }.with_context("consumed reply");
+    let OwnerReceive::Fatal(ReceiveFatal::FramingFailure { cause }) =
+        OwnerReceive::consumed_error(error.clone(), TransportKind::Stream)
+    else {
+        panic!("consumed stream bytes lost their framing boundary");
+    };
+    assert_eq!(cause.to_string(), error.to_string());
+    assert!(matches!(
+        OwnerReceive::consumed_error(error, TransportKind::Datagram),
+        OwnerReceive::NoProgress(NoProgressReason::MalformedDatagram)
+    ));
 }

@@ -35,6 +35,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   forwarding definition, removing redundant selection helpers. Parity checks
   compare their expanded methods, bounds and bodies, including private and
   crate-visible helpers (#865).
+- Owner receives use one closed read verdict and one generated fatal I/O-kind
+  table, including `InvalidInput`. Retained stream evidence is an infallible
+  snapshot; raw and Sony replies decode from borrowed frames into reused
+  bounded batch storage without per-receive allocation (#864, #866, #869, #891).
 
 - **BREAKING** (#867): `StateEntry::Set` carries a typed `KnownState`, replacing
   the removed scalar `StateValue` and `StateEntry::Clear`. Known limit clears
@@ -75,6 +79,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   orientation and the generic tilt-speed ceiling follow their model sources. Test inventories and downstream compile
   contracts follow the sourced surface; sharpness-position decoding remains
   covered through its canonical response kind.
+
+- **BREAKING** (#891): `FrameMeta` is `Raw` or `Sony { sequence }`, with a
+  `sequence()` projection. Sealed envelopes expose their exact `Envelope::KIND`
+  in place of a sequence-support boolean. Sony replay identity is explicit and
+  raw framing has no Sony-sequence input.
 
 - **BREAKING** (#872): Settlement tuning below every built-in targeted retry
   budget is refused. Default `settled()` waits use the larger of the override
@@ -119,7 +128,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   pan mapped to negative R7 coordinates. Typed position constructors consume
   `TargetRegistration`; request validation uses `validate_for_target`.
   FR7 speed values extend to 50; values above 24 carry an immutable owner
-  dispatch prerequisite requiring session-confirmed Extended step mode.
+  dispatch prerequisite requiring session-confirmed Extended step mode. The
+  owner rechecks the live target cache before every attempt; unknown, normal
+  or invalidated mode state refuses the write without ending STOP delivery.
 - Both facade preludes share one export list, including `CameraSession`,
   metrics, session status and motion synchronization mode (#883).
 
@@ -263,6 +274,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- A write-only cache key becomes `Unknown` before its terminal observation when
+  a written attempt may have changed the camera without confirmation. Prior
+  uncertain attempts count even when a retry is refused before I/O; unwritten
+  requests and conclusive pre-ACK rejections preserve the known value (#867).
+
+- Owner writes distinguish refusal before I/O from a failed physical send.
+  Unsent requests do not increment write counters or poison streams; their
+  terminal certainty preserves any earlier possibly effective attempt. Every
+  datagram OS send error keeps its source while reporting `Transport`, and
+  async write deadline expiry returns `Timeout { Session, Unconfirmed }`,
+  restoring the timeout distinction fixed in #469 (#869).
 - Variable-ND helper validation uses the request value's `00..14` hexadecimal
   domain; discovery, profile validation and request gates agree (#877).
 

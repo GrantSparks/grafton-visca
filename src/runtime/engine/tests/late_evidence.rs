@@ -504,13 +504,14 @@ proptest! {
             };
             let mut effects: VecDeque<_> = engine.handle(input, now).into();
             while let Some(effect) = effects.pop_front() {
-                if let Effect::Transmit { transmission, request, kind: Transmission::Request { requested_sequence, .. } } = effect {
+                if let Effect::Transmit { transmission, request, kind: Transmission::Request { framing, .. } } = effect {
                     prop_assert!(!accepted.contains(&request), "rewrote {request:?} after camera acceptance");
                     let sequence = *written.entry(request).or_insert_with(|| 0x1000 + u32::try_from(request.get()).unwrap());
-                    if let Some(requested) = requested_sequence {
+                    if let RequestFraming::Sony { sequence: SonyRequestSequence::Replay(requested) } = framing {
                         prop_assert_eq!(requested, sequence);
                     }
-                    effects.extend(engine.handle_turn(Input::TransmissionFinished { transmission, result: Ok(TransmissionMeta { sequence: Some(sequence) }) }, now, EngineTurn::INPUT_ONLY));
+                    effects.extend(engine.handle_turn(Input::TransmissionFinished {
+request, transmission, result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(sequence))) }, now, EngineTurn::INPUT_ONLY));
                 }
             }
             prop_assert!(engine.assert_invariants().is_ok());

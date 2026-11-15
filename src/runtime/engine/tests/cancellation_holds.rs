@@ -144,11 +144,12 @@ fn unconfirmed_cancel_write_failure_and_resolution_expiry_retain_future_socket_h
         let (transmission, _, _) = cancel_transmit(&cancel);
         engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission,
                 result: if success {
-                    Ok(TransmissionMeta { sequence: None })
+                    WriteOutcome::Sent(TransmissionMeta::for_sequence(None))
                 } else {
-                    Err(Error::transport_error(std::io::Error::other(
+                    WriteOutcome::Failed(Error::transport_error(std::io::Error::other(
                         "cancel write failed",
                     )))
                 },

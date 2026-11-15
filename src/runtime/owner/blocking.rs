@@ -40,7 +40,7 @@ use super::shell::{ClassifiedEvent, OwnerEvent, OwnerShellCore, TurnStep};
 use super::turn::{ReceiveArm, Selection, Source, TimerArm, TurnOutcome, TurnPlan};
 use super::{
     CancellationObserver, OwnerBuffers, OwnerInputTurn, OwnerPolicy, OwnerReceive, OwnerState,
-    RetainedStreamInput, TerminalObserver, TransmissionMeta, WireWrite,
+    RetainedStreamInput, TerminalObserver, WireWrite, WriteOutcome,
 };
 use crate::runtime::engine::Effect;
 
@@ -58,16 +58,16 @@ pub(crate) const READY_PROBE: Duration = Duration::from_millis(1);
 /// Blocking transport/framing driver owned by the worker thread.
 pub(crate) trait BlockingOwnerDriver: Send + RetainedStreamInput {
     /// Write one framed request, bounded by the transport's write timeout.
-    fn write(&mut self, write: WireWrite<'_>) -> Result<TransmissionMeta, Error>;
+    fn write(&mut self, write: WireWrite<'_>) -> WriteOutcome;
 
     /// Return complete frames the framer still holds, or read once for at
-    /// most `timeout`. A read that times out reports [`OwnerReceive::NoData`].
+    /// most `timeout`. A read that times out reports [`OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::EagerIdle)`].
     fn receive(
         &mut self,
         buffers: &mut OwnerBuffers,
         frame_limit: usize,
         timeout: Duration,
-    ) -> Result<OwnerReceive, Error>;
+    ) -> OwnerReceive;
 }
 
 /// The worker thread's state. The driver lives on the thread's stack, so the
@@ -284,7 +284,7 @@ impl BlockingOwnerWorker {
         while let Some(staged) = self.core.next_transmit(&mut effects, self.clock.now()) {
             let result = match self.core.state.prepare_write(&staged) {
                 Ok(write) => driver.write(write),
-                Err(error) => Err(error),
+                Err(error) => WriteOutcome::NotSent(error),
             };
             self.core
                 .finish_transmit(turn, &staged, result, self.clock.now(), &mut effects);
@@ -325,7 +325,10 @@ where
     // Sampled after the read returns: only this instant proves that input was
     // sampled at or after a raw hold deadline.
     let received_at = clock.now();
-    if matches!(result, Ok(OwnerReceive::NoData)) {
+    if matches!(
+        result,
+        OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::EagerIdle)
+    ) {
         let waited = received_at.saturating_duration_since(started);
         *idle = idle.saturating_add(waited);
         // A read that answered sooner than asked is an eager idle transport,
@@ -334,7 +337,7 @@ where
             return None;
         }
         if waited >= timeout {
-            result = Ok(OwnerReceive::IdleTimeout);
+            result = OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::IdleTimeout);
         }
     }
     Some(OwnerEvent::Receive {

@@ -8,7 +8,7 @@
 use std::time::Duration;
 
 use crate::{
-    runtime::engine::TransmissionMeta,
+    runtime::engine::WriteOutcome,
     transport::{BlockingTransport, HasTransportConfig},
     Error,
 };
@@ -25,7 +25,9 @@ where
     /// Send Sony's sequence-number RESET before the owner worker starts.
     pub(crate) fn send_sony_sequence_reset(&mut self) -> Result<(), Error> {
         let mut frame = bytes::BytesMut::new();
-        self.framing.frame_sony_sequence_reset(&mut frame)?;
+        if !self.framing.frame_sony_sequence_reset(&mut frame) {
+            return Ok(());
+        }
         let write_timeout = self.transport.transport_config().write_timeout;
         let sent = self.transport.send_with_timeout(
             frame.as_ref(),
@@ -40,16 +42,21 @@ impl<T> BlockingOwnerDriver for TransportAdapter<T, BlockingIo>
 where
     T: BlockingTransport + HasTransportConfig,
 {
-    fn write(&mut self, mut write: WireWrite<'_>) -> Result<TransmissionMeta, Error> {
-        let meta = self.framing.frame_write(&mut write)?;
+    fn write(&mut self, mut write: WireWrite<'_>) -> WriteOutcome {
+        let meta = match self.framing.frame_write(&mut write) {
+            Ok(meta) => meta,
+            Err(error) => return WriteOutcome::NotSent(error),
+        };
         let write_timeout = self.transport.transport_config().write_timeout;
         let sent = self.transport.send_with_timeout(
             write.frame_buffer.as_ref(),
             write.command_kind(),
             write_timeout,
         );
-        sent.map_err(|error| self.framing.send_error(error))?;
-        Ok(meta)
+        match sent {
+            Ok(()) => WriteOutcome::Sent(meta),
+            Err(error) => WriteOutcome::Failed(self.framing.send_error(error)),
+        }
     }
 
     fn receive(
@@ -57,9 +64,9 @@ where
         buffers: &mut OwnerBuffers,
         frame_limit: usize,
         timeout: Duration,
-    ) -> Result<OwnerReceive, Error> {
-        if let Some(buffered) = self.buffered(buffers, frame_limit)? {
-            return Ok(buffered);
+    ) -> OwnerReceive {
+        if let Some(buffered) = self.buffered(buffers, frame_limit) {
+            return buffered;
         }
         let read = self
             .transport
@@ -193,13 +200,13 @@ mod tests {
     fn receive(
         adapter: &mut BlockingTransportAdapter<ScriptedTransport>,
         buffers: &mut OwnerBuffers,
-    ) -> Result<OwnerReceive, Error> {
+    ) -> OwnerReceive {
         adapter.receive(buffers, 4, Duration::from_millis(1))
     }
 
-    fn frames(result: Result<OwnerReceive, Error>) -> Vec<crate::runtime::engine::DecodedFrame> {
+    fn frames(result: OwnerReceive) -> crate::runtime::owner::FrameBatch {
         match result {
-            Ok(OwnerReceive::Frames(frames)) => frames,
+            OwnerReceive::Frames(frames) => frames,
             other => panic!("expected decoded frames, got {other:?}"),
         }
     }
@@ -279,16 +286,18 @@ mod tests {
         let mut buffers = buffers(&adapter);
         assert!(matches!(
             receive(&mut adapter, &mut buffers),
-            Ok(OwnerReceive::NoData)
+            OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::EagerIdle)
         ));
         assert!(matches!(
             receive(&mut adapter, &mut buffers),
-            Ok(OwnerReceive::Fault(Error::TransportError { .. }))
+            OwnerReceive::Transient(Error::TransportError { .. })
         ));
         assert!(
             matches!(
                 receive(&mut adapter, &mut buffers),
-                Ok(OwnerReceive::Closed)
+                OwnerReceive::Fatal(crate::runtime::owner::ReceiveFatal::TransportClosed {
+                    cause: None
+                })
             ),
             "only a zero-length read reports end of stream"
         );
@@ -310,20 +319,22 @@ mod tests {
         for _ in 0..2 {
             assert!(matches!(
                 receive(&mut adapter, &mut buffers),
-                Ok(OwnerReceive::NoData)
+                OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::EagerIdle)
             ));
         }
         assert!(
             matches!(
                 receive(&mut adapter, &mut buffers),
-                Ok(OwnerReceive::Fault(Error::Io(_)))
+                OwnerReceive::Fatal(crate::runtime::owner::ReceiveFatal::TransportClosed {
+                    cause: Some(Error::Io(_))
+                })
             ),
             "an OS timeout remains a fault the owner classifies as terminal"
         );
         assert!(
             matches!(
                 receive(&mut adapter, &mut buffers),
-                Ok(OwnerReceive::Fault(Error::Io(_)))
+                OwnerReceive::Transient(Error::Io(_))
             ),
             "another real read failure still reaches the owner"
         );
@@ -343,11 +354,11 @@ mod tests {
         let mut buffers = buffers(&adapter);
         assert!(matches!(
             receive(&mut adapter, &mut buffers),
-            Err(Error::ResponseTooLarge { .. })
+            OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::MalformedDatagram)
         ));
         let frames = frames(receive(&mut adapter, &mut buffers));
         assert!(
-            matches!(frames[..], [ref ack] if matches!(ack.response, DecodedResponse::Ack { .. }))
+            matches!(frames.iter().collect::<Vec<_>>().as_slice(), [ack] if matches!(ack.response, DecodedResponse::Ack { .. }))
         );
     }
 
@@ -423,11 +434,11 @@ mod tests {
         };
         assert!(matches!(
             receive(&mut adapter, &mut buffers),
-            Err(Error::ResponseTooLarge { max_size }) if max_size == capacity
+            OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::MalformedDatagram)
         ));
         let frames = frames(receive(&mut adapter, &mut buffers));
         assert!(
-            matches!(frames[..], [ref ack] if matches!(ack.response, DecodedResponse::Ack { .. }))
+            matches!(frames.iter().collect::<Vec<_>>().as_slice(), [ack] if matches!(ack.response, DecodedResponse::Ack { .. }))
         );
     }
 
@@ -454,8 +465,8 @@ mod tests {
         let mut buffers = buffers(&adapter);
         let frames = frames(receive(&mut adapter, &mut buffers));
         assert!(matches!(
-            frames[..],
-            [ref reply] if matches!(
+            frames.iter().collect::<Vec<_>>().as_slice(),
+            [reply] if matches!(
                 reply.response,
                 DecodedResponse::InquiryReply { ref payload, .. } if payload.len() == 13
             )
@@ -486,20 +497,20 @@ mod tests {
         );
         let mut buffers = buffers(&adapter);
         let first = match adapter.receive(&mut buffers, 1, Duration::from_millis(1)) {
-            Ok(OwnerReceive::Frames(frames)) => frames,
+            OwnerReceive::Frames(frames) => frames,
             other => panic!("expected one frame, got {other:?}"),
         };
         assert!(
-            matches!(first[..], [ref ack] if matches!(ack.response, DecodedResponse::Ack { .. }))
+            matches!(first.iter().collect::<Vec<_>>().as_slice(), [ack] if matches!(ack.response, DecodedResponse::Ack { .. }))
         );
-        assert!(adapter.has_buffered_stream_input().unwrap());
+        assert!(adapter.retained().is_some());
         let second = match adapter.receive(&mut buffers, 1, Duration::from_millis(1)) {
-            Ok(OwnerReceive::Frames(frames)) => frames,
+            OwnerReceive::Frames(frames) => frames,
             other => panic!("expected the buffered frame, got {other:?}"),
         };
         assert!(matches!(
-            second[..],
-            [ref completion] if matches!(completion.response, DecodedResponse::Completion { .. })
+            second.iter().collect::<Vec<_>>().as_slice(),
+            [completion] if matches!(completion.response, DecodedResponse::Completion { .. })
         ));
     }
 
@@ -550,23 +561,23 @@ mod tests {
         let mut buffers = buffers(&adapter);
 
         assert!(frames(receive(&mut adapter, &mut buffers)).is_empty());
-        assert!(adapter.has_buffered_stream_input().unwrap());
+        assert!(adapter.retained().is_some());
         assert_eq!(
-            adapter.buffered_raw_prefix_evidence().unwrap(),
+            adapter.retained().and_then(|input| input.evidence.raw()),
             Some(RawPrefixEvidence::Incomplete {
                 target: crate::target::TargetSlot::CAMERA_1,
                 kind: RawIncompletePrefix::SocketlessCompletion,
             })
         );
 
-        adapter.discard_buffered_stream_input().unwrap();
-        assert!(!adapter.has_buffered_stream_input().unwrap());
+        adapter.discard_first().unwrap();
+        assert!(!adapter.retained().is_some());
 
         // This would have completed `[90 50 02 FF]` if the stale prefix had
         // survived. Alone it is one delimited malformed frame and is ignored.
         assert!(frames(receive(&mut adapter, &mut buffers)).is_empty());
         assert_eq!(buffers.take_discarded_malformed(), 1);
-        assert!(!adapter.has_buffered_stream_input().unwrap());
+        assert!(!adapter.retained().is_some());
 
         let frames = frames(receive(&mut adapter, &mut buffers));
         assert_eq!(frames.len(), 1, "a later complete reply remains decodable");
@@ -596,7 +607,7 @@ mod tests {
             let mut buffers = buffers(&adapter);
             assert!(frames(receive(&mut adapter, &mut buffers)).is_empty());
             assert_eq!(
-                adapter.buffered_raw_prefix_evidence().unwrap(),
+                adapter.retained().and_then(|input| input.evidence.raw()),
                 Some(RawPrefixEvidence::Malformed),
                 "prefix {prefix:02x?}",
             );
@@ -661,7 +672,7 @@ mod tests {
         let mut buffers = buffers(&adapter);
         assert!(matches!(
             receive(&mut adapter, &mut buffers),
-            Err(Error::InvalidResponse { .. })
+            OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::MalformedDatagram)
         ));
     }
 }

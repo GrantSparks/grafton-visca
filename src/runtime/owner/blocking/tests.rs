@@ -771,7 +771,7 @@ fn a_stale_raw_reply_is_consumed_before_the_successor_is_written() {
     let deadline = owner.deadline_after(PROMPTLY).unwrap();
     assert!(matches!(
         owner.wait_core_until(&first, deadline),
-        Ok(RuntimeOutcome::Failed(Error::Timeout { .. }))
+        Ok(RuntimeOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::Timeout { .. })
     ));
     let timed_out = clock.now();
 

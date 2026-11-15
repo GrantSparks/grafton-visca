@@ -111,7 +111,7 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::CommandNotExecutable)
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
 
     // Establish the due retained-prefix gate without starting the flood yet.
@@ -222,7 +222,7 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
         reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
         assert!(matches!(
             completion.recv_async().await.unwrap(),
-            RuntimeOutcome::Failed(Error::CommandNotExecutable)
+            RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
         ));
 
         runtime.advance(HOLD);
@@ -366,7 +366,7 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
     );
     assert!(matches!(
         completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout { .. })
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::Timeout { .. })
     ));
 
     for control in controls {
@@ -455,7 +455,7 @@ async fn parked_future_wake_charges_the_first_ready_control() {
     );
     assert!(matches!(
         completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout { .. })
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::Timeout { .. })
     ));
 }
 #[cfg(feature = "runtime-tokio")]
@@ -683,7 +683,7 @@ async fn raw_release_flood_resolves_without_a_prior_timer_turn() {
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::CommandNotExecutable)
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
 
     let (_urgent_completion, urgent_admitted) = handle

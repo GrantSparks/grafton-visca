@@ -1,5 +1,7 @@
 //! Runtime-neutral async owner actor and its handle over the shared boundary.
 
+#[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
+use super::TransmissionMeta;
 use std::{
     collections::VecDeque,
     future::Future,
@@ -21,7 +23,7 @@ use super::receipt::{ObservationWake, OperationReceipt};
 use super::shell::{ClassifiedEvent, OwnerEvent, OwnerShellCore, TurnStep};
 use super::{
     CancellationObserver, OwnerInputTurn, OwnerPolicy, OwnerReceive, OwnerState,
-    RetainedStreamInput, TerminalObserver, TransmissionMeta, WireWrite,
+    RetainedStreamInput, TerminalObserver, WireWrite, WriteOutcome,
 };
 
 use super::turn::{ReceiveArm, Selection, Source, TimerArm, TurnOutcome, TurnPlan};
@@ -194,16 +196,13 @@ impl std::fmt::Debug for BoundClock {
 /// Async transport/framing adapter. Both operations finish outside any mutable
 /// engine borrow. A receive may return multiple decoded frames in source order.
 pub(crate) trait AsyncOwnerDriver: Send + RetainedStreamInput {
-    fn write(
-        &mut self,
-        write: WireWrite<'_>,
-    ) -> impl Future<Output = Result<TransmissionMeta, Error>> + Send;
+    fn write(&mut self, write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send;
 
     fn receive(
         &mut self,
         buffers: &mut super::OwnerBuffers,
         frame_limit: usize,
-    ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send;
+    ) -> impl Future<Output = OwnerReceive> + Send;
 }
 
 /// An async operation receipt, as the public [`crate::Operation`] holds it.
@@ -689,31 +688,44 @@ where
         runtime: &R,
         read_timeout: Duration,
         mut idle_after_timeout: Pin<&mut R::Timer>,
-    ) -> Result<OwnerReceive, Error>
+    ) -> OwnerReceive
     where
         D: AsyncOwnerDriver,
     {
         let mut receive = pin!(driver.receive(buffers, frame_limit));
-        let deadline =
-            crate::timeout::instant_after(Executor::now(runtime), read_timeout, "read_timeout")?;
+        let deadline = match crate::timeout::instant_after(
+            Executor::now(runtime),
+            read_timeout,
+            "read_timeout",
+        ) {
+            Ok(deadline) => deadline,
+            Err(error) => {
+                return OwnerReceive::Fatal(super::ReceiveFatal::TransportClosed {
+                    cause: Some(error),
+                })
+            }
+        };
         idle_after_timeout.as_mut().reset(deadline);
         future::poll_fn(|context| match receive.as_mut().poll(context) {
             Poll::Ready(result) => {
-                let no_input = matches!(result, Ok(OwnerReceive::NoData))
-                    || matches!(&result, Ok(OwnerReceive::Fault(error)) if super::receive_reported_no_data(error));
+                let no_input = matches!(
+                    result,
+                    OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::EagerIdle)
+                );
                 // A custom transport may enforce the same timeout itself.
                 // Its left-biased idle answer then wins the race, but it has
                 // already waited the full bound and needs no extra pause.
                 if no_input && idle_after_timeout.as_mut().poll(context).is_ready() {
-                    Poll::Ready(Ok(OwnerReceive::IdleTimeout))
+                    Poll::Ready(OwnerReceive::NoProgress(
+                        crate::runtime::owner::NoProgressReason::IdleTimeout,
+                    ))
                 } else {
                     Poll::Ready(result)
                 }
             }
-            Poll::Pending => idle_after_timeout
-                .as_mut()
-                .poll(context)
-                .map(|()| Ok(OwnerReceive::IdleTimeout)),
+            Poll::Pending => idle_after_timeout.as_mut().poll(context).map(|()| {
+                OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::IdleTimeout)
+            }),
         })
         .await
     }
@@ -731,7 +743,7 @@ where
         runtime: &R,
         write_timeout: Duration,
         mut timeout: Pin<&mut R::Timer>,
-    ) -> Result<TransmissionMeta, Error>
+    ) -> WriteOutcome
     where
         D: AsyncOwnerDriver,
     {
@@ -742,14 +754,18 @@ where
         // `Send` for any lifetime (the trait's `timeout` return type binds the
         // wrapped future to the executor borrow's lifetime, which a spawn cannot
         // prove generally); both are executor-neutral and behave identically.
-        let deadline =
-            crate::timeout::instant_after(Executor::now(runtime), write_timeout, "write_timeout")?;
+        let deadline = match crate::timeout::instant_after(
+            Executor::now(runtime),
+            write_timeout,
+            "write_timeout",
+        ) {
+            Ok(deadline) => deadline,
+            Err(error) => return WriteOutcome::NotSent(error),
+        };
         timeout.as_mut().reset(deadline);
         let timed_out = async {
             timeout.as_mut().await;
-            Err(Error::transport_error(Error::io_timeout().with_context(
-                format!("transport write did not complete within {write_timeout:?}"),
-            )))
+            WriteOutcome::Failed(Error::io_timeout())
         };
         future::or(driver.write(write), timed_out).await
     }
@@ -782,7 +798,7 @@ where
                     )
                     .await
                 }
-                Err(error) => Err(error),
+                Err(error) => WriteOutcome::NotSent(error),
             };
             self.core
                 .finish_transmit(turn, &staged, result, Executor::now(runtime), &mut effects);

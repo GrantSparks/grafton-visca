@@ -20,12 +20,15 @@
 //! Nothing here touches a transport, an executor or the clock: every instant
 //! is sampled by the shell and passed in.
 
+#[cfg(test)]
+use super::TransmissionMeta;
 use std::{
     collections::VecDeque,
     sync::Arc,
     time::{Duration, Instant},
 };
 
+use super::WriteOutcome;
 use crate::Error;
 
 use super::boundary::{
@@ -35,12 +38,11 @@ use super::boundary::{
 };
 use super::turn::{Disposition, OwnerCoordinator, ReceiveClass, Selected, TurnOutcome, TurnPlan};
 use super::{
-    clamp_receive_pause, prepend_effects, transient_receive_pause, AppliedEffect, DecodedFrame,
-    IdleReceiveRun, Input, OwnerInputTurn, OwnerReceive, OwnerState, RawReleaseResolution,
-    RetainedStreamInput, SessionState, ShutdownReason, StagedWrite, TransientFaultRun,
-    TransmissionMeta,
+    clamp_receive_pause, prepend_effects, transient_receive_pause, AppliedEffect, IdleReceiveRun,
+    Input, OwnerInputTurn, OwnerReceive, OwnerState, RawReleaseResolution, RetainedStreamInput,
+    SessionState, ShutdownReason, StagedWrite, TransientFaultRun,
 };
-use crate::runtime::engine::{Effect, EngineTurn, IgnoreReason, RawPrefixEvidence, TransportKind};
+use crate::runtime::engine::{Effect, EngineTurn, IgnoreReason};
 
 /// One event an owner shell selected.
 ///
@@ -54,7 +56,7 @@ pub(super) enum OwnerEvent {
     Control(ControlBoundary),
     Shutdown,
     Receive {
-        result: Result<OwnerReceive, Error>,
+        result: OwnerReceive,
         received_at: Instant,
     },
     Wake,
@@ -115,19 +117,13 @@ enum Continuation {
     },
     /// Feed the next frame of an input turn.
     NextFrame(FrameTurn),
-    /// Discard a receive whose consumed bytes did not decode.
-    Discard {
-        error: Error,
-        received_at: Instant,
-    },
 }
 
 /// The frames of one receive, fed through a single engine input turn.
 #[derive(Debug)]
 struct FrameTurn {
     turn: OwnerInputTurn,
-    frames: std::vec::IntoIter<DecodedFrame>,
-    received_at: Instant,
+    frames: super::FrameBatch,
 }
 
 impl Resume {
@@ -237,8 +233,8 @@ impl OwnerShellCore {
             self.state.raw_correlation_releases_due(now),
             || {
                 matches!(
-                    driver.buffered_raw_prefix_evidence(),
-                    Ok(Some(RawPrefixEvidence::Complete))
+                    driver.retained().map(|input| input.evidence),
+                    Some(super::RetainedEvidence::Complete)
                 )
             },
         )
@@ -291,11 +287,10 @@ impl OwnerShellCore {
                 // `NoData`: it consumed no bytes. A genuine transient fault
                 // cannot prove there is no ready stale frame behind it.
                 class: match result {
-                    Ok(OwnerReceive::NoData | OwnerReceive::IdleTimeout) => ReceiveClass::NoInput,
-                    Ok(OwnerReceive::Fault(error)) if super::receive_reported_no_data(error) => {
-                        ReceiveClass::NoInput
-                    }
-                    Ok(OwnerReceive::Fault(_)) => ReceiveClass::TransientFault,
+                    OwnerReceive::NoProgress(
+                        super::NoProgressReason::EagerIdle | super::NoProgressReason::IdleTimeout,
+                    ) => ReceiveClass::NoInput,
+                    OwnerReceive::Transient(_) => ReceiveClass::TransientFault,
                     _ => ReceiveClass::Other,
                 },
             },
@@ -409,40 +404,24 @@ impl OwnerShellCore {
             OwnerEvent::Admission(Ok(admission)) => self.admit(admission, selected_at),
             OwnerEvent::Wake => self.wake(driver, selected_at),
             OwnerEvent::Receive {
-                result: Ok(OwnerReceive::Closed),
+                result,
                 received_at,
-            } => self.terminate(
-                ShutdownReason::TransportClosed { reason: None },
-                received_at,
-            ),
-            OwnerEvent::Receive {
-                result: Ok(OwnerReceive::NoData),
-                received_at,
-            } => {
-                // An expired idle read timeout is not a fault: nothing was
-                // consumed, nothing failed, and no request's retry budget is
-                // touched. It made no protocol progress, so let a queued
-                // boundary run before another idle read (#625). A driver that
-                // returns NoData immediately would otherwise spin the owner, so
-                // pace the idle-read rate (#675).
-                self.idle_receive(driver, received_at, true)
-            }
-            OwnerEvent::Receive {
-                result: Ok(OwnerReceive::IdleTimeout),
-                received_at,
-            } => self.idle_receive(driver, received_at, false),
-            OwnerEvent::Receive {
-                result: Ok(OwnerReceive::Frames(frames)),
-                received_at,
-            } => self.frames(frames, driver, received_at),
-            OwnerEvent::Receive {
-                result: Ok(OwnerReceive::Fault(error)),
-                received_at,
-            } => self.receive_fault(error, driver, received_at, suppress_due_for_raw_probe_fault),
-            OwnerEvent::Receive {
-                result: Err(error),
-                received_at,
-            } => self.discard_undecodable_receive(&error, received_at),
+            } => match result {
+                OwnerReceive::Fatal(fatal) => self.receive_fatal(fatal, received_at),
+                OwnerReceive::NoProgress(super::NoProgressReason::EagerIdle) => {
+                    self.idle_receive(driver, true)
+                }
+                OwnerReceive::NoProgress(super::NoProgressReason::IdleTimeout) => {
+                    self.idle_receive(driver, false)
+                }
+                OwnerReceive::NoProgress(super::NoProgressReason::MalformedDatagram) => {
+                    self.malformed_datagram()
+                }
+                OwnerReceive::Frames(frames) => self.frames(frames, driver, received_at),
+                OwnerReceive::Transient(error) => {
+                    self.receive_fault(error, driver, received_at, suppress_due_for_raw_probe_fault)
+                }
+            },
         }
     }
 
@@ -459,9 +438,6 @@ impl OwnerShellCore {
                 TurnStep::Done(TurnOutcome::Continue)
             }
             Continuation::NextFrame(frames) => self.next_frame(frames, driver),
-            Continuation::Discard { error, received_at } => {
-                self.discard_undecodable_receive(&error, received_at)
-            }
         }
     }
 
@@ -535,7 +511,6 @@ impl OwnerShellCore {
                     prepend_effects(effects, expired.into());
                     continue;
                 }
-                self.coordinator.end_receive_pause();
                 return Some(staged);
             }
         }
@@ -550,12 +525,13 @@ impl OwnerShellCore {
         &mut self,
         turn: Option<&OwnerInputTurn>,
         staged: &StagedWrite,
-        result: Result<TransmissionMeta, Error>,
+        result: WriteOutcome,
         finished_at: Instant,
         effects: &mut VecDeque<Effect>,
     ) {
-        if result.is_ok() {
+        if matches!(result, WriteOutcome::Sent(_)) {
             self.idle_receives.reset();
+            self.coordinator.end_receive_pause();
         }
         let Some(turn) = turn else {
             return self.finish_transmit_outside_turn(staged, result, finished_at, effects);
@@ -567,7 +543,7 @@ impl OwnerShellCore {
     fn finish_transmit_outside_turn(
         &mut self,
         staged: &StagedWrite,
-        result: Result<TransmissionMeta, Error>,
+        result: WriteOutcome,
         finished_at: Instant,
         effects: &mut VecDeque<Effect>,
     ) {
@@ -674,26 +650,23 @@ impl OwnerShellCore {
     /// Eager no-data reads yield to boundaries after pacing the idle-read
     /// rate (#675). A read that waited its full timeout already yielded while
     /// blocked; keep receive first so its next reply can beat an equal timer.
-    fn idle_receive(
-        &mut self,
-        driver: &mut impl RetainedStreamInput,
-        received_at: Instant,
-        eager: bool,
-    ) -> TurnStep {
-        match driver.has_buffered_stream_input() {
-            Ok(buffered) if eager => TurnStep::Pace {
+    fn idle_receive(&mut self, driver: &mut impl RetainedStreamInput, eager: bool) -> TurnStep {
+        let buffered = driver.retained().is_some();
+        if eager {
+            TurnStep::Pace {
                 pause: ReceivePause::Idle,
                 outcome: Self::receive_outcome(buffered),
-            },
-            Ok(true) => TurnStep::Done(TurnOutcome::ContinueBuffered),
-            Ok(false) => TurnStep::Done(TurnOutcome::Continue),
-            Err(error) => self.discard_undecodable_receive(&error, received_at),
+            }
+        } else if buffered {
+            TurnStep::Done(TurnOutcome::ContinueBuffered)
+        } else {
+            TurnStep::Done(TurnOutcome::Continue)
         }
     }
 
     fn frames(
         &mut self,
-        frames: Vec<DecodedFrame>,
+        frames: super::FrameBatch,
         driver: &mut impl RetainedStreamInput,
         received_at: Instant,
     ) -> TurnStep {
@@ -713,22 +686,23 @@ impl OwnerShellCore {
                 .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
         }
         if let Err(error) = self.state.validate_frame_batch(&frames) {
+            self.state.buffers().recycle_frames(frames);
             return self.discard_undecodable_receive(&error, received_at);
         }
         if frames.is_empty() {
+            self.state.buffers().recycle_frames(frames);
             // The read carried bytes that did not finish a frame, or only
             // frames that were discarded above. The framer holds any partial
             // frame; keep pumping so the rest of it can arrive in a later read.
-            return match driver.has_buffered_stream_input() {
-                Ok(true) => TurnStep::Done(TurnOutcome::ContinueBuffered),
-                Ok(false) => TurnStep::Done(TurnOutcome::YieldBoundaries),
-                Err(error) => self.discard_undecodable_receive(&error, received_at),
-            };
+            return TurnStep::Done(if driver.retained().is_some() {
+                TurnOutcome::ContinueBuffered
+            } else {
+                TurnOutcome::YieldBoundaries
+            });
         }
         let frames = FrameTurn {
             turn: self.state.begin_input_turn(received_at),
-            frames: frames.into_iter(),
-            received_at,
+            frames,
         };
         self.next_frame(frames, driver)
     }
@@ -738,24 +712,15 @@ impl OwnerShellCore {
         mut frames: FrameTurn,
         driver: &mut impl RetainedStreamInput,
     ) -> TurnStep {
-        if let Some(frame) = frames.frames.next() {
+        if let Some(frame) = frames.frames.pop_front() {
             return TurnStep::Drive {
                 effects: self.state.input_in_turn(&frames.turn, Input::Frame(frame)),
                 then: Resume(Continuation::NextFrame(frames)),
             };
         }
-        let FrameTurn {
-            turn, received_at, ..
-        } = frames;
-        let buffered = match driver.has_buffered_stream_input() {
-            Ok(buffered) => buffered,
-            Err(error) => {
-                return TurnStep::Drive {
-                    effects: self.state.finish_input_turn(turn, EngineTurn::INPUT_ONLY),
-                    then: Resume(Continuation::Discard { error, received_at }),
-                };
-            }
-        };
+        let FrameTurn { turn, frames } = frames;
+        self.state.buffers().recycle_frames(frames);
+        let buffered = driver.retained().is_some();
         // A frame-limit batch can leave a complete frame followed by an
         // incomplete stale prefix in the production framer. Do not run due
         // work until each complete retained frame has taken its ordered input
@@ -788,21 +753,6 @@ impl OwnerShellCore {
         received_at: Instant,
         suppress_due_for_raw_probe_fault: bool,
     ) -> TurnStep {
-        if super::receive_reported_no_data(&error) {
-            // A driver that reports an idle timeout as a fault still means "no
-            // bytes arrived". Normalizing here as well as at the adapter keeps
-            // every driver on one contract (#637), and paces the idle-read
-            // rate so it cannot hot-spin (#675).
-            return self.idle_receive(driver, received_at, true);
-        }
-        if !super::receive_fault_is_transient(&error) {
-            return self.terminate(
-                ShutdownReason::TransportClosed {
-                    reason: super::transport_close_reason(&error),
-                },
-                received_at,
-            );
-        }
         let (length, span) = self.faults.record(received_at);
         if TransientFaultRun::is_permanent(length, span) {
             // A read that has failed this many times in a row, over this long,
@@ -824,12 +774,7 @@ impl OwnerShellCore {
         // replayed. The pause guards against hot-looping on an immediately
         // failing transport; it grows with the run and is clamped
         // to the next scheduler deadline.
-        let buffered = match driver.has_buffered_stream_input() {
-            Ok(buffered) => buffered,
-            Err(framing_error) => {
-                return self.discard_undecodable_receive(&framing_error, received_at);
-            }
-        };
+        let buffered = driver.retained().is_some();
         let effects = if buffered || suppress_due_for_raw_probe_fault {
             let turn = self.state.begin_input_turn(received_at);
             let mut effects = self
@@ -859,34 +804,38 @@ impl OwnerShellCore {
         }
     }
 
-    /// Handle bytes that were consumed but did not decode.
-    ///
-    /// On a byte stream the position is now unknowable, so the session is
-    /// poisoned. On a datagram transport it is one bad datagram: nothing else
-    /// was consumed, the next datagram frames independently, and the session
-    /// keeps running (#637).
-    fn discard_undecodable_receive(&mut self, error: &Error, received_at: Instant) -> TurnStep {
-        if self.state.policy().protocol.transport != TransportKind::Stream {
-            // The adapter reached this path only after consuming one complete
-            // datagram (including an oversized datagram whose copied prefix was
-            // rejected). That successful read proves the transport is live even
-            // though its payload is unusable, so it clears both consecutive
-            // receive-fault accounting and the idle no-data pacing run before
-            // the discard becomes observable. A stream takes the terminal path
-            // below and deliberately retains its existing framing semantics.
-            self.faults.reset();
-            self.idle_receives.reset();
-            let _ = self
-                .state
-                .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
-            return TurnStep::Done(TurnOutcome::YieldBoundaries);
-        }
-        self.terminate(
-            ShutdownReason::FramingFailure {
-                reason: error.to_string().into_boxed_str(),
+    fn receive_fatal(&mut self, fatal: super::ReceiveFatal, received_at: Instant) -> TurnStep {
+        let reason = match fatal {
+            super::ReceiveFatal::TransportClosed { cause } => ShutdownReason::TransportClosed {
+                reason: cause.as_ref().and_then(super::transport_close_reason),
             },
-            received_at,
-        )
+            super::ReceiveFatal::FramingFailure { cause } => ShutdownReason::FramingFailure {
+                reason: cause.to_string().into_boxed_str(),
+            },
+        };
+        self.terminate(reason, received_at)
+    }
+
+    fn malformed_datagram(&mut self) -> TurnStep {
+        self.faults.reset();
+        self.idle_receives.reset();
+        let _ = self
+            .state
+            .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
+        TurnStep::Done(TurnOutcome::YieldBoundaries)
+    }
+
+    /// Invalid internal batches obey the same consumed-input verdict as the adapter.
+    fn discard_undecodable_receive(&mut self, error: &Error, received_at: Instant) -> TurnStep {
+        match self.state.policy().protocol.transport {
+            crate::runtime::engine::TransportKind::Stream => self.receive_fatal(
+                super::ReceiveFatal::FramingFailure {
+                    cause: error.clone(),
+                },
+                received_at,
+            ),
+            crate::runtime::engine::TransportKind::Datagram => self.malformed_datagram(),
+        }
     }
 
     /// Retain a boundary the coordinator classified as [`Disposition::Retain`],
@@ -1199,7 +1148,7 @@ mod tests {
             ProtocolPolicy {
                 capacity,
                 envelope: EnvelopeKind::Raw,
-                transport: TransportKind::Datagram,
+                transport: crate::runtime::engine::TransportKind::Datagram,
                 inquiry_capacity: 1,
                 command_spacing: Duration::ZERO,
                 inquiry_spacing: Duration::ZERO,
@@ -1221,7 +1170,7 @@ mod tests {
         (handle, OwnerShellCore::new(state, ends))
     }
 
-    fn receive(result: Result<OwnerReceive, Error>, received_at: Instant) -> OwnerEvent {
+    fn receive(result: OwnerReceive, received_at: Instant) -> OwnerEvent {
         OwnerEvent::Receive {
             result,
             received_at,
@@ -1340,7 +1289,7 @@ mod tests {
                 core.finish_transmit(
                     None,
                     &staged,
-                    Ok(TransmissionMeta { sequence: None }),
+                    WriteOutcome::Sent(TransmissionMeta::Raw),
                     now,
                     &mut effects,
                 );
@@ -1397,7 +1346,12 @@ mod tests {
     fn a_closed_transport_ends_the_session_with_its_cause() {
         let (handle, mut core) = owner();
         let step = core.handle(
-            receive(Ok(OwnerReceive::Closed), Instant::now()),
+            receive(
+                OwnerReceive::Fatal(crate::runtime::owner::ReceiveFatal::TransportClosed {
+                    cause: None,
+                }),
+                Instant::now(),
+            ),
             &mut Datagrams,
             Instant::now(),
             false,
@@ -1418,7 +1372,10 @@ mod tests {
         let now = Instant::now();
         for expected in [Duration::from_millis(10), Duration::from_millis(20)] {
             let step = core.handle(
-                receive(Ok(OwnerReceive::NoData), now),
+                receive(
+                    OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::EagerIdle),
+                    now,
+                ),
                 &mut Datagrams,
                 now,
                 false,
@@ -1434,7 +1391,10 @@ mod tests {
         // A byte-bearing receive, even one that completed no frame, restarts
         // the idle run.
         let step = core.handle(
-            receive(Ok(OwnerReceive::Frames(Vec::new())), now),
+            receive(
+                OwnerReceive::Frames(crate::runtime::owner::FrameBatch::new()),
+                now,
+            ),
             &mut Datagrams,
             now,
             false,
@@ -1458,7 +1418,7 @@ mod tests {
             let at = start + offset;
             let fault = Error::transport_error(std::io::Error::other("transient receive fault"));
             let step = core.handle(
-                receive(Ok(OwnerReceive::Fault(fault)), at),
+                receive(OwnerReceive::read_error(fault), at),
                 &mut Datagrams,
                 at,
                 false,
@@ -1482,7 +1442,10 @@ mod tests {
         let (_handle, mut core) = owner();
         let now = Instant::now();
         let step = core.handle(
-            receive(Ok(OwnerReceive::IdleTimeout), now),
+            receive(
+                OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::IdleTimeout),
+                now,
+            ),
             &mut Datagrams,
             now,
             false,
@@ -1513,15 +1476,16 @@ mod tests {
         };
         core.pace_receive(ReceivePause::Fault { run: 1 }, now);
         let staged = core.next_transmit(&mut effects, now).unwrap();
-        assert_eq!(core.coordinator.receive_not_before(), None);
+        assert!(core.coordinator.receive_not_before().is_some());
         core.finish_transmit(
             None,
             &staged,
-            Ok(TransmissionMeta { sequence: None }),
+            WriteOutcome::Sent(TransmissionMeta::Raw),
             now,
             &mut effects,
         );
         assert!(admission.recv().unwrap().is_ok());
+        assert_eq!(core.coordinator.receive_not_before(), None);
         assert_eq!(core.idle_receives.length(), 0);
         assert_eq!(
             core.receive_pause(ReceivePause::Idle, now),
@@ -1535,9 +1499,7 @@ mod tests {
         let now = Instant::now();
         let step = core.handle(
             receive(
-                Err(Error::transport_error(std::io::Error::other(
-                    "bad datagram",
-                ))),
+                OwnerReceive::NoProgress(super::super::NoProgressReason::MalformedDatagram),
                 now,
             ),
             &mut Datagrams,

@@ -19,6 +19,7 @@ mod lifecycle_transition_matrix;
 mod prepared_retry;
 mod raw_evidence;
 mod raw_stream_model;
+mod write_outcomes;
 
 fn camera(value: u8) -> TargetSlot {
     TargetSlot::try_from(crate::CameraId::new(value).unwrap()).unwrap()
@@ -159,16 +160,25 @@ fn admit(
     (effects, id)
 }
 
+fn write_outcome(result: Result<TransmissionMeta, Error>) -> WriteOutcome {
+    match result {
+        Ok(meta) => WriteOutcome::Sent(meta),
+        Err(error) => WriteOutcome::Failed(error),
+    }
+}
+
 fn finish_write_input_only(
     engine: &mut ProtocolEngine,
+    request: RequestId,
     transmission: TransmissionId,
     result: Result<TransmissionMeta, Error>,
     now: Instant,
 ) -> Vec<Effect> {
     engine.handle_turn(
         Input::TransmissionFinished {
+            request,
             transmission,
-            result,
+            result: write_outcome(result),
         },
         now,
         EngineTurn::INPUT_ONLY,
@@ -266,11 +276,12 @@ fn send_ok(
     sequence: Option<u32>,
     now: Instant,
 ) -> Vec<Effect> {
-    let (transmission, _, _) = request_transmit(effects);
+    let (transmission, id, _) = request_transmit(effects);
     engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission,
-            result: Ok(TransmissionMeta { sequence }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(sequence)),
         },
         now,
     )
@@ -315,10 +326,9 @@ fn inert_wire_is_inline_and_reused_across_retry_without_reallocation() {
     assert!(Arc::ptr_eq(&prepared, &first_wire));
     engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission: first_tx,
-            result: Ok(TransmissionMeta {
-                sequence: Some(0x1001),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(0x1001))),
         },
         start,
     );
@@ -417,15 +427,17 @@ fn stale_transmission_and_queue_tickets_are_inert() {
     let (tx, id, _) = request_transmit(&effects);
     engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission: tx,
-            result: Ok(TransmissionMeta { sequence: None }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
         },
         start,
     );
     let duplicate = engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission: tx,
-            result: Err(Error::io_timeout()),
+            result: WriteOutcome::Failed(Error::io_timeout()),
         },
         start,
     );
@@ -686,10 +698,9 @@ fn sony_exact_request_and_cancellation_collision_is_ignored() {
     let (request_tx, id, _) = request_transmit(&admitted_effects);
     engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission: request_tx,
-            result: Ok(TransmissionMeta {
-                sequence: Some(0x1111_beef),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(0x1111_beef))),
         },
         start,
     );
@@ -708,11 +719,12 @@ fn sony_exact_request_and_cancellation_collision_is_ignored() {
     assert_eq!(cancel_id, id);
     engine.handle(
         Input::TransmissionFinished {
+            request: cancel_id,
             transmission: cancel_tx,
-            result: Ok(TransmissionMeta {
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(
                 // Deliberately collide with the original request identity.
-                sequence: Some(0x1111_beef),
-            }),
+                Some(0x1111_beef),
+            )),
         },
         start,
     );
@@ -754,10 +766,9 @@ fn sony_lower16_request_and_cancellation_collision_is_ambiguous() {
     let (request_tx, id, _) = request_transmit(&admitted_effects);
     engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission: request_tx,
-            result: Ok(TransmissionMeta {
-                sequence: Some(0x1111_beef),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(0x1111_beef))),
         },
         start,
     );
@@ -776,12 +787,13 @@ fn sony_lower16_request_and_cancellation_collision_is_ambiguous() {
     assert_eq!(cancel_id, id);
     engine.handle(
         Input::TransmissionFinished {
+            request: cancel_id,
             transmission: cancel_tx,
-            result: Ok(TransmissionMeta {
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(
                 // Distinct full identities still collide in the lower-16
                 // fallback, so this reply must remain ambiguous.
-                sequence: Some(0x2222_beef),
-            }),
+                Some(0x2222_beef),
+            )),
         },
         start,
     );
@@ -828,7 +840,9 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
             Effect::Transition { .. },
             Effect::Transmit {
                 kind: Transmission::Request {
-                    requested_sequence: None,
+                    framing: RequestFraming::Sony {
+                        sequence: SonyRequestSequence::AllocateFresh
+                    },
                     ..
                 },
                 ..
@@ -837,10 +851,9 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
     ));
     engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission: first_tx,
-            result: Ok(TransmissionMeta {
-                sequence: Some(0x1020_3040),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(0x1020_3040))),
         },
         start,
     );
@@ -861,26 +874,28 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
     let (retry_tx, retry_id, retry_wire) = request_transmit(&retry);
     let requested = retry.iter().find_map(|effect| match effect {
         Effect::Transmit {
-            kind: Transmission::Request {
-                requested_sequence, ..
-            },
+            kind: Transmission::Request { framing, .. },
             ..
-        } => *requested_sequence,
+        } => Some(*framing),
         _ => None,
     });
     assert_eq!(retry_id, id);
     assert_ne!(retry_tx, first_tx);
     assert!(Arc::ptr_eq(&first_wire, &retry_wire));
-    assert_eq!(requested, Some(0x1020_3040));
+    assert_eq!(
+        requested,
+        Some(RequestFraming::Sony {
+            sequence: SonyRequestSequence::Replay(0x1020_3040)
+        })
+    );
 
     // The old attempt was removed when the retry became authoritative. Its
     // late result must not overwrite the request's current sequence.
     let stale = finish_write_input_only(
         &mut engine,
+        id,
         first_tx,
-        Ok(TransmissionMeta {
-            sequence: Some(0xdead_beef),
-        }),
+        Ok(TransmissionMeta::for_sequence(Some(0xdead_beef))),
         retry_ready,
     );
     assert!(stale
@@ -905,14 +920,17 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
     );
     let next_requested = next.iter().find_map(|effect| match effect {
         Effect::Transmit {
-            kind: Transmission::Request {
-                requested_sequence, ..
-            },
+            kind: Transmission::Request { framing, .. },
             ..
-        } => Some(*requested_sequence),
+        } => Some(*framing),
         _ => None,
     });
-    assert_eq!(next_requested, Some(None));
+    assert_eq!(
+        next_requested,
+        Some(RequestFraming::Sony {
+            sequence: SonyRequestSequence::AllocateFresh
+        })
+    );
     engine.assert_invariants().unwrap();
 }
 
@@ -937,10 +955,9 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
     let first_sequence = 0x1020_3040;
     engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission: first_tx,
-            result: Ok(TransmissionMeta {
-                sequence: Some(first_sequence),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(first_sequence))),
         },
         start,
     );
@@ -1101,14 +1118,17 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
     let requested_sequence = released.iter().find_map(|effect| match effect {
         Effect::Transmit {
             request,
-            kind: Transmission::Request {
-                requested_sequence, ..
-            },
+            kind: Transmission::Request { framing, .. },
             ..
-        } if *request == id => Some(*requested_sequence),
+        } if *request == id => Some(*framing),
         _ => None,
     });
-    assert_eq!(requested_sequence, Some(Some(first_sequence)));
+    assert_eq!(
+        requested_sequence,
+        Some(RequestFraming::Sony {
+            sequence: SonyRequestSequence::Replay(first_sequence)
+        })
+    );
     assert_eq!(
         released
             .iter()
@@ -1288,14 +1308,17 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
     let requested_sequence = released.iter().find_map(|effect| match effect {
         Effect::Transmit {
             request,
-            kind: Transmission::Request {
-                requested_sequence, ..
-            },
+            kind: Transmission::Request { framing, .. },
             ..
-        } if *request == id => Some(*requested_sequence),
+        } if *request == id => Some(*framing),
         _ => None,
     });
-    assert_eq!(requested_sequence, Some(Some(first_sequence)));
+    assert_eq!(
+        requested_sequence,
+        Some(RequestFraming::Sony {
+            sequence: SonyRequestSequence::Replay(first_sequence)
+        })
+    );
     assert_eq!(
         released
             .iter()
@@ -1309,10 +1332,9 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
     );
     engine.handle(
         Input::TransmissionFinished {
+            request: dispatched,
             transmission: retry_tx,
-            result: Ok(TransmissionMeta {
-                sequence: Some(first_sequence),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(first_sequence))),
         },
         retry_ready + Duration::from_millis(2),
     );
@@ -2063,10 +2085,11 @@ fn cancellation_terminal_frames_are_inclusive_at_ambiguity_and_stale_afterward()
             let cancellation_sequence = (envelope == EnvelopeKind::Sony).then_some(0x3002);
             engine.handle(
                 Input::TransmissionFinished {
+                    request: id,
                     transmission,
-                    result: Ok(TransmissionMeta {
-                        sequence: cancellation_sequence,
-                    }),
+                    result: WriteOutcome::Sent(TransmissionMeta::for_sequence(
+                        cancellation_sequence,
+                    )),
                 },
                 start,
             );
@@ -2165,8 +2188,9 @@ fn executing_response_outlives_cancellation_ambiguity_until_its_completion_deadl
     };
     engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission: cancel_transmission,
-            result: Ok(TransmissionMeta { sequence: None }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
         },
         start + Duration::from_millis(1),
     );
@@ -2280,8 +2304,9 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
     ordered_effects.extend(engine.handle_in_turn(
         &turn,
         Input::TransmissionFinished {
+            request: b_id,
             transmission: cancel_tx,
-            result: Ok(TransmissionMeta { sequence: None }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
         },
     ));
     assert!(matches!(
@@ -2518,10 +2543,9 @@ fn pre_ack_cancellation_records_intent_then_emits_one_cancel_on_ack() {
     let (request_tx, id, _) = request_transmit(&admitted_effects);
     engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission: request_tx,
-            result: Ok(TransmissionMeta {
-                sequence: Some(0x1001),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(0x1001))),
         },
         start,
     );
@@ -2568,10 +2592,9 @@ fn pre_ack_cancellation_records_intent_then_emits_one_cancel_on_ack() {
     )));
     engine.handle(
         Input::TransmissionFinished {
+            request: cancel_id,
             transmission: cancel_tx,
-            result: Ok(TransmissionMeta {
-                sequence: Some(0x2001),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(0x2001))),
         },
         start + Duration::from_millis(2),
     );
@@ -2593,9 +2616,17 @@ fn pre_ack_cancellation_records_intent_then_emits_one_cancel_on_ack() {
             outcome: RuntimeOutcome::Cancelled
         } if *seen == id
     )));
-    assert!(!cancelled
-        .iter()
-        .any(|effect| matches!(effect, Effect::AppliedState { .. })));
+    assert!(cancelled.iter().any(|effect| matches!(
+        effect,
+        Effect::AppliedState {
+            effect: AppliedStateEffect {
+                projection: AppliedStateProjection::Invalidate {
+                    key: crate::StateKey::Spotlight
+                },
+                ..
+            }
+        }
+    )));
     engine.assert_invariants().unwrap();
 }
 
@@ -3035,10 +3066,9 @@ fn late_ack_ambiguity_keeps_capacity_and_correlation_until_quarantine() {
     let (tx, id, _) = request_transmit(&first);
     engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission: tx,
-            result: Ok(TransmissionMeta {
-                sequence: Some(0x1010),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(0x1010))),
         },
         start,
     );
@@ -3104,10 +3134,9 @@ fn ambiguity_expiry_is_unconfirmed_and_releases_only_after_deadline() {
     let (tx, id, _) = request_transmit(&effects);
     engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission: tx,
-            result: Ok(TransmissionMeta {
-                sequence: Some(0xabcd),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(0xabcd))),
         },
         start,
     );
@@ -3154,8 +3183,9 @@ fn datagram_cancel_failure_resolves_token_but_original_remains_routable() {
     let (cancel_tx, _, _) = cancel_transmit(&cancellation);
     let failed = engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission: cancel_tx,
-            result: Err(Error::transport_error(std::io::Error::other(
+            result: WriteOutcome::Failed(Error::transport_error(std::io::Error::other(
                 "cancel write failed",
             ))),
         },
@@ -3231,8 +3261,9 @@ fn stream_cancel_failure_poisons_and_terminalizes_in_admission_order() {
     let (cancel_tx, _, _) = cancel_transmit(&cancellation);
     let poison = engine.handle(
         Input::TransmissionFinished {
+            request: first_id,
             transmission: cancel_tx,
-            result: Err(Error::io_timeout()),
+            result: WriteOutcome::Failed(Error::io_timeout()),
         },
         start,
     );
@@ -3287,8 +3318,9 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
     let (first_tx, _, _) = request_transmit(&first);
     let isolated = datagram_engine.handle(
         Input::TransmissionFinished {
+            request: first_id,
             transmission: first_tx,
-            result: Err(Error::transport_error(std::io::Error::other(
+            result: WriteOutcome::Failed(Error::transport_error(std::io::Error::other(
                 "datagram write",
             ))),
         },
@@ -3307,8 +3339,8 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
         effect,
         Effect::Terminal {
             id,
-            outcome: RuntimeOutcome::Failed(Error::ConnectionClosed { .. })
-        } if *id == second_id
+            outcome: RuntimeOutcome::Failed(Error::InquiryFailed { source })
+        } if *id == second_id && matches!(source.as_ref(), Error::ConnectionClosed { .. })
     )));
 
     let mut fresh = engine(EnvelopeKind::Raw, TransportKind::Datagram);
@@ -3328,8 +3360,8 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
         effect,
         Effect::Terminal {
             id,
-            outcome: RuntimeOutcome::Failed(Error::RuntimeShutdown)
-        } if *id == pending_id
+            outcome: RuntimeOutcome::Failed(Error::InquiryFailed { source })
+        } if *id == pending_id && matches!(source.as_ref(), Error::RuntimeShutdown)
     )));
     fresh.assert_invariants().unwrap();
 }
@@ -3403,7 +3435,7 @@ fn applied_state_projection_is_target_qualified_and_emitted_only_on_applied() {
 }
 
 #[test]
-fn applied_state_actions_are_closed_and_failure_does_not_emit_one() {
+fn applied_state_actions_are_closed_and_uncertain_failure_invalidates() {
     use crate::StateKey;
 
     let start = Instant::now();
@@ -3488,8 +3520,9 @@ fn applied_state_actions_are_closed_and_failure_does_not_emit_one() {
     let (transmission, id, _) = request_transmit(&failed);
     let failed = engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission,
-            result: Err(Error::transport_error(std::io::Error::other(
+            result: WriteOutcome::Failed(Error::transport_error(std::io::Error::other(
                 "request write",
             ))),
         },
@@ -3502,9 +3535,17 @@ fn applied_state_actions_are_closed_and_failure_does_not_emit_one() {
             outcome: RuntimeOutcome::Failed(_),
         } if *terminal == id
     )));
-    assert!(!failed
-        .iter()
-        .any(|effect| matches!(effect, Effect::AppliedState { .. })));
+    assert!(failed.iter().any(|effect| matches!(
+        effect,
+        Effect::AppliedState {
+            effect: AppliedStateEffect {
+                projection: AppliedStateProjection::Invalidate {
+                    key: StateKey::Spotlight
+                },
+                ..
+            }
+        }
+    )));
     engine.assert_invariants().unwrap();
 }
 
@@ -3962,8 +4003,9 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
     assert!(Arc::ptr_eq(&first_wire, &retried_wire));
     engine.handle(
         Input::TransmissionFinished {
+            request: retried_id,
             transmission: retry_tx,
-            result: Ok(TransmissionMeta { sequence: None }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
         },
         start + Duration::from_millis(50),
     );
@@ -4000,13 +4042,12 @@ fn replaying_identical_ordered_trace_produces_identical_effects() {
             start,
         );
         output.extend(admitted_effects.iter().map(|effect| format!("{effect:?}")));
-        let tx = request_transmit(&admitted_effects).0;
+        let (tx, id, _) = request_transmit(&admitted_effects);
         let sent = engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission: tx,
-                result: Ok(TransmissionMeta {
-                    sequence: Some(0x1234),
-                }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(0x1234))),
             },
             start,
         );
@@ -4131,8 +4172,9 @@ fn phase_one_protocol_fixture_replays_through_production_engine() {
                 let sequence = fields.get("sequence").map(|value| fixture_u32(value));
                 let result_effects = engine.handle(
                     Input::TransmissionFinished {
+                        request: id,
                         transmission,
-                        result: Ok(TransmissionMeta { sequence }),
+                        result: WriteOutcome::Sent(TransmissionMeta::for_sequence(sequence)),
                     },
                     now,
                 );
@@ -4227,6 +4269,7 @@ fn fixture_socket(fields: &BTreeMap<String, String>) -> ViscaSocket {
 /// fixture's expectation column rejects it.
 fn fixture_error_code(error: &Error) -> String {
     let code = match error {
+        Error::InquiryFailed { source } => return fixture_error_code(source),
         Error::MessageLengthError => 0x01,
         Error::SyntaxError => 0x02,
         Error::CommandBufferFull => 0x03,
@@ -4543,14 +4586,13 @@ fn fuzz_step(
             let result = if fails {
                 Err(Error::io_timeout())
             } else {
-                Ok(TransmissionMeta {
-                    sequence: write_sequence,
-                })
+                Ok(TransmissionMeta::for_sequence(write_sequence))
             };
             engine.handle(
                 Input::TransmissionFinished {
+                    request: engine.transmissions[&transmission].request,
                     transmission,
-                    result,
+                    result: write_outcome(result),
                 },
                 *now,
             )
@@ -4586,10 +4628,9 @@ fn fuzz_step(
             );
             engine.handle(
                 Input::TransmissionFinished {
+                    request: RequestId::from_nonzero(NonZeroU64::new(action | 1).unwrap()),
                     transmission: stale,
-                    result: Ok(TransmissionMeta {
-                        sequence: write_sequence,
-                    }),
+                    result: WriteOutcome::Sent(TransmissionMeta::for_sequence(write_sequence)),
                 },
                 *now,
             )
@@ -4629,11 +4670,24 @@ fn fuzz_step(
     let mut pending: VecDeque<_> = effects.into();
     let mut recorded = Vec::new();
     while let Some(effect) = pending.pop_front() {
-        if let Effect::Transmit { transmission, .. } = &effect {
+        if let Effect::Transmit {
+            transmission,
+            request,
+            ..
+        } = &effect
+        {
             let sequence = engine
                 .transmissions
                 .get(transmission)
-                .and_then(|owner| owner.requested_sequence)
+                .and_then(|owner| match owner.framing {
+                    RequestFraming::Sony {
+                        sequence: SonyRequestSequence::Replay(sequence),
+                    } => Some(sequence),
+                    RequestFraming::Raw
+                    | RequestFraming::Sony {
+                        sequence: SonyRequestSequence::AllocateFresh,
+                    } => None,
+                })
                 .or(write_sequence);
             let fails = match transport {
                 TransportKind::Datagram => action & 0x2_0000 == 0,
@@ -4642,12 +4696,13 @@ fn fuzz_step(
             let result = if fails {
                 Err(Error::io_timeout())
             } else {
-                Ok(TransmissionMeta { sequence })
+                Ok(TransmissionMeta::for_sequence(sequence))
             };
             let finished = engine.handle_turn(
                 Input::TransmissionFinished {
+                    request: *request,
                     transmission: *transmission,
-                    result,
+                    result: write_outcome(result),
                 },
                 *now,
                 EngineTurn::INPUT_ONLY,
@@ -4805,10 +4860,9 @@ fn seed_fuzz_coverage(
     let (transmission, id, _) = request_transmit(&admitted_effects);
     let sent = engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission,
-            result: Ok(TransmissionMeta {
-                sequence: write_sequence(0x5101),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(write_sequence(0x5101))),
         },
         *now,
     );
@@ -4855,10 +4909,9 @@ fn seed_fuzz_coverage(
     let (transmission, id, _) = request_transmit(&admitted_effects);
     let sent = engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission,
-            result: Ok(TransmissionMeta {
-                sequence: write_sequence(0x5102),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(write_sequence(0x5102))),
         },
         *now + Duration::from_micros(1),
     );
@@ -4895,10 +4948,9 @@ fn seed_fuzz_coverage(
     let (transmission, retry_id, _) = request_transmit(&admitted_effects);
     let sent = engine.handle(
         Input::TransmissionFinished {
+            request: retry_id,
             transmission,
-            result: Ok(TransmissionMeta {
-                sequence: write_sequence(0x5103),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(write_sequence(0x5103))),
         },
         *now,
     );
@@ -4932,10 +4984,9 @@ fn seed_fuzz_coverage(
     assert_eq!(retried, retry_id);
     let sent = engine.handle(
         Input::TransmissionFinished {
+            request: retried,
             transmission: retry_transmission,
-            result: Ok(TransmissionMeta {
-                sequence: write_sequence(0x5103),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(write_sequence(0x5103))),
         },
         retry_ready,
     );
@@ -4976,10 +5027,9 @@ fn seed_fuzz_coverage(
     let (transmission, cancel_id, _) = request_transmit(&admitted_effects);
     let sent = engine.handle(
         Input::TransmissionFinished {
+            request: cancel_id,
             transmission,
-            result: Ok(TransmissionMeta {
-                sequence: write_sequence(0x5104),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(write_sequence(0x5104))),
         },
         *now,
     );
@@ -5003,10 +5053,9 @@ fn seed_fuzz_coverage(
     let (cancel_transmission, _, _) = cancel_transmit(&cancellation);
     let sent = engine.handle(
         Input::TransmissionFinished {
+            request: cancel_id,
             transmission: cancel_transmission,
-            result: Ok(TransmissionMeta {
-                sequence: write_sequence(0x5105),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(write_sequence(0x5105))),
         },
         *now + Duration::from_micros(2),
     );
@@ -5059,10 +5108,9 @@ fn seed_fuzz_coverage(
     let (transmission, completion_only_id, _) = request_transmit(&completion_only);
     let sent = engine.handle(
         Input::TransmissionFinished {
+            request: completion_only_id,
             transmission,
-            result: Ok(TransmissionMeta {
-                sequence: write_sequence(0x5106),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(write_sequence(0x5106))),
         },
         *now + Duration::from_micros(1),
     );
@@ -5095,10 +5143,9 @@ fn seed_fuzz_coverage(
     let (transmission, no_reply_id, _) = request_transmit(&no_reply);
     let written = engine.handle(
         Input::TransmissionFinished {
+            request: no_reply_id,
             transmission,
-            result: Ok(TransmissionMeta {
-                sequence: write_sequence(0x5107),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(write_sequence(0x5107))),
         },
         *now + Duration::from_micros(1),
     );
@@ -5127,8 +5174,9 @@ fn seed_fuzz_coverage(
         let (first_transmission, first_id, _) = request_transmit(&first);
         let first_sent = engine.handle(
             Input::TransmissionFinished {
+                request: first_id,
                 transmission: first_transmission,
-                result: Ok(TransmissionMeta { sequence: None }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
             },
             *now,
         );
@@ -5146,7 +5194,7 @@ fn seed_fuzz_coverage(
         let timed_out = engine.advance(*now + Duration::from_millis(30));
         coverage.record(engine, &timed_out);
         assert!(matches!(
-            terminal_failure(&timed_out, first_id),
+            terminal_cause(&timed_out, first_id),
             Some(Error::Timeout { .. })
         ));
         let mut release_at = *now + Duration::from_millis(80);
@@ -5180,8 +5228,9 @@ fn seed_fuzz_coverage(
         assert_eq!(transmitted_id, second_id);
         let second_sent = engine.handle(
             Input::TransmissionFinished {
+                request: transmitted_id,
                 transmission: second_transmission,
-                result: Ok(TransmissionMeta { sequence: None }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
             },
             release_at,
         );
@@ -5223,8 +5272,9 @@ fn seed_fuzz_coverage(
         let (transmission, id, _) = request_transmit(&command);
         let sent = engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission,
-                result: Ok(TransmissionMeta { sequence: None }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
             },
             *now,
         );
@@ -5521,8 +5571,9 @@ fn cancellation_response_timeout_resolves_observer_but_retains_quarantine() {
     let (cancel_tx, _, _) = cancel_transmit(&cancellation);
     engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission: cancel_tx,
-            result: Ok(TransmissionMeta { sequence: None }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
         },
         start + Duration::from_millis(2),
     );
@@ -5586,8 +5637,9 @@ fn datagram_cancel_failure_keeps_ownership_until_ambiguity_deadline() {
     let (cancel_tx, _, _) = cancel_transmit(&cancellation);
     engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission: cancel_tx,
-            result: Err(Error::transport_error(std::io::Error::other(
+            result: WriteOutcome::Failed(Error::transport_error(std::io::Error::other(
                 "cancel write",
             ))),
         },
@@ -5636,8 +5688,9 @@ fn failed_cancel_write_does_not_shorten_an_executing_commands_completion_window(
     let (cancel_tx, _, _) = cancel_transmit(&cancellation);
     let failed = engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission: cancel_tx,
-            result: Err(Error::transport_error(std::io::Error::other(
+            result: WriteOutcome::Failed(Error::transport_error(std::io::Error::other(
                 "cancel write",
             ))),
         },
@@ -5756,8 +5809,8 @@ fn inquiry_syntax_retry_requires_explicit_builtin_policy() {
         effect,
         Effect::Terminal {
             id,
-            outcome: RuntimeOutcome::Failed(Error::SyntaxError),
-        } if *id == custom_id
+            outcome: RuntimeOutcome::Failed(Error::InquiryFailed { source }),
+        } if *id == custom_id && matches!(source.as_ref(), Error::SyntaxError)
     )));
     assert!(!custom_error
         .iter()
@@ -6114,8 +6167,11 @@ fn stream_write_failure_poisons_with_the_transport_cause_in_the_reason() {
 
     let failure = engine.handle(
         Input::TransmissionFinished {
+            request: second_id,
             transmission: second_tx,
-            result: Err(Error::transport_error(std::io::Error::other("short write"))),
+            result: WriteOutcome::Failed(Error::transport_error(std::io::Error::other(
+                "short write",
+            ))),
         },
         start,
     );
@@ -6171,8 +6227,9 @@ fn datagram_write_failure_fails_exactly_one_request() {
     let (second_tx, _, _) = request_transmit(&second);
     let failure = engine.handle(
         Input::TransmissionFinished {
+            request: second_id,
             transmission: second_tx,
-            result: Err(Error::transport_error(std::io::Error::other(
+            result: WriteOutcome::Failed(Error::transport_error(std::io::Error::other(
                 "datagram refused",
             ))),
         },
@@ -7173,6 +7230,14 @@ fn terminal_failure(effects: &[Effect], id: RequestId) -> Option<Error> {
     }
 }
 
+/// The original protocol/transport cause, independent of inquiry terminal facts.
+fn terminal_cause(effects: &[Effect], id: RequestId) -> Option<Error> {
+    terminal_failure(effects, id).map(|error| match error {
+        Error::InquiryFailed { source } => source.as_ref().clone(),
+        error => error,
+    })
+}
+
 /// Admits one command, confirms its write, and lets its ACK deadline lapse,
 /// returning the retry that was scheduled.
 fn ack_timeout_retry(
@@ -7263,8 +7328,9 @@ fn retry_backoff_follows_the_pinned_jitter_sequence() {
         assert_eq!(sent, id);
         engine.handle(
             Input::TransmissionFinished {
+                request: sent,
                 transmission,
-                result: Ok(TransmissionMeta { sequence: None }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
             },
             ready_at,
         );
@@ -7356,10 +7422,9 @@ fn the_ack_backoff_exponent_is_capped_and_other_triggers_are_not() {
         let (transmission, _, _) = request_transmit(&promoted);
         engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission,
-                result: Ok(TransmissionMeta {
-                    sequence: Some(sequence),
-                }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(sequence))),
             },
             ready_at,
         );
@@ -7440,10 +7505,9 @@ fn the_ack_backoff_exponent_is_capped_and_other_triggers_are_not() {
         let (transmission, _, _) = request_transmit(&promoted);
         uncapped_engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission,
-                result: Ok(TransmissionMeta {
-                    sequence: Some(uncapped_sequence),
-                }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(uncapped_sequence))),
             },
             ready_at,
         );
@@ -7508,10 +7572,9 @@ fn a_command_that_never_acks_exhausts_its_attempt_budget() {
         let (transmission, _, _) = request_transmit(&promoted);
         engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission,
-                result: Ok(TransmissionMeta {
-                    sequence: Some(sequence),
-                }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(sequence))),
             },
             ready_at,
         );
@@ -7628,7 +7691,7 @@ fn assert_initial_attempt_budget_expiry(
     assert_eq!(engine.next_wake(), Some(budget_deadline));
     let expired = engine.advance(budget_deadline);
     assert!(matches!(
-        terminal_failure(&expired, id),
+        terminal_cause(&expired, id),
         Some(Error::Timeout { .. })
     ));
     assert!(
@@ -7818,8 +7881,9 @@ fn raw_no_reply_write_result_respects_total_budget_boundary() {
             raw_sending_with_reply_shape(ReplyShape::NoReply, retry, start);
         let equal = engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission,
-                result: Ok(TransmissionMeta { sequence: None }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
             },
             budget_deadline,
         );
@@ -7849,8 +7913,9 @@ fn raw_no_reply_write_result_respects_total_budget_boundary() {
         let late_at = budget_deadline + Duration::from_nanos(1);
         let late = engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission,
-                result: Ok(TransmissionMeta { sequence: None }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
             },
             late_at,
         );
@@ -7890,8 +7955,9 @@ fn raw_no_reply_write_result_respects_total_budget_boundary() {
         let late_at = budget_deadline + Duration::from_nanos(1);
         let late = engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission,
-                result: Err(Error::transport_error(std::io::Error::other(
+                result: WriteOutcome::Failed(Error::transport_error(std::io::Error::other(
                     "late raw write result",
                 ))),
             },
@@ -7942,8 +8008,9 @@ fn raw_no_reply_write_result_respects_total_budget_boundary() {
         let (transmission, id, _) = request_transmit(&admission);
         let late = engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission,
-                result: Ok(TransmissionMeta { sequence: None }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
             },
             budget_deadline + Duration::from_nanos(1),
         );
@@ -7987,10 +8054,9 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
         let equal = engine.handle_in_turn(
             &turn,
             Input::TransmissionFinished {
+                request: id,
                 transmission,
-                result: Ok(TransmissionMeta {
-                    sequence: Some(sequence),
-                }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(sequence))),
             },
         );
         assert!(terminal_outcome(&equal, id).is_none());
@@ -8030,10 +8096,9 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
         let (transmission, id, _) = request_transmit(&admission);
         let late = finish_write_input_only(
             &mut engine,
+            id,
             transmission,
-            Ok(TransmissionMeta {
-                sequence: Some(0xdead_beef),
-            }),
+            Ok(TransmissionMeta::for_sequence(Some(0xdead_beef))),
             budget_deadline + Duration::from_nanos(1),
         );
         assert!(matches!(
@@ -8096,6 +8161,7 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
 
         let late = finish_write_input_only(
             &mut engine,
+            id,
             transmission,
             Err(Error::transport_error(std::io::Error::other(
                 "late Sony write result",
@@ -8166,12 +8232,13 @@ fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
         let (transmission, failed_id, _) = request_transmit(&failed);
         let result = Err(Error::transport_error(std::io::Error::other(cause)));
         let poisoned = if use_no_due_ingress {
-            finish_write_input_only(&mut engine, transmission, result, late_at)
+            finish_write_input_only(&mut engine, failed_id, transmission, result, late_at)
         } else {
             engine.handle(
                 Input::TransmissionFinished {
+                    request: failed_id,
                     transmission,
-                    result,
+                    result: write_outcome(result),
                 },
                 late_at,
             )
@@ -8303,7 +8370,7 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
         );
         assert_eq!(ignored_reasons(&late), vec![IgnoreReason::UnmatchedFrame]);
         assert!(matches!(
-            terminal_failure(&late, late_id),
+            terminal_cause(&late, late_id),
             Some(Error::Timeout { .. })
         ));
         let ignored = position_of(&late, |effect| {
@@ -8344,7 +8411,7 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
         ));
         let expired = engine.advance(deadline);
         assert!(matches!(
-            terminal_failure(&expired, id),
+            terminal_cause(&expired, id),
             Some(Error::Timeout { .. })
         ));
         assert!(
@@ -8634,7 +8701,7 @@ fn retry_budget_expires_while_awaiting_inquiry_reply() {
     assert_eq!(engine.next_wake(), Some(budget_deadline));
     let expired = engine.advance(budget_deadline);
     assert!(matches!(
-        terminal_failure(&expired, id),
+        terminal_cause(&expired, id),
         Some(Error::CommandBufferFull)
     ));
     assert_eq!(engine.state(), SessionState::Running);
@@ -10095,7 +10162,7 @@ fn raw_inquiry_hold_preserves_live_preack_ack_and_sole_socketless_completion() {
     let timeout_at = start + Duration::from_millis(30);
     let inquiry_timeout = engine.advance(timeout_at);
     assert!(matches!(
-        terminal_failure(&inquiry_timeout, inquiry_id),
+        terminal_cause(&inquiry_timeout, inquiry_id),
         Some(Error::Timeout { .. })
     ));
 
@@ -10214,7 +10281,7 @@ fn raw_inquiry_hold_preserves_live_named_socket_terminals() {
         let timeout_at = start + Duration::from_millis(30);
         let timed_out = engine.advance(timeout_at);
         assert!(matches!(
-            terminal_failure(&timed_out, inquiry_id),
+            terminal_cause(&timed_out, inquiry_id),
             Some(Error::Timeout { .. })
         ));
         let (command_send, command_id) = admit(
@@ -10796,7 +10863,7 @@ fn raw_inquiry_timeout_hold_blocks_only_inquiries_and_never_urgent_commands() {
     send_ok(&mut engine, &first, None, start);
     let timed_out = engine.advance(timeout_at);
     assert!(matches!(
-        terminal_failure(&timed_out, first_id),
+        terminal_cause(&timed_out, first_id),
         Some(Error::Timeout { .. })
     ));
 
@@ -10951,7 +11018,7 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
         let at = start + Duration::from_millis(10) + offset;
         let finished = send_ok(&mut engine, &first, None, at);
         assert!(matches!(
-            terminal_failure(&finished, first_id),
+            terminal_cause(&finished, first_id),
             Some(Error::Timeout { .. })
         ));
         let entered_reply = finished.iter().any(|effect| {
@@ -11113,7 +11180,7 @@ fn no_reply_terminal_quarantine_holds_same_target_inquiry_until_expiry() {
     );
     assert!(
         matches!(
-            terminal_failure(&legitimate, inquiry_id),
+            terminal_cause(&legitimate, inquiry_id),
             Some(Error::MessageLengthError)
         ),
         "after expiry, an inquiry's own raw error remains attributable"
@@ -12424,14 +12491,14 @@ fn unsettled_owed_reply_latches_only_that_targets_inquiries_until_it_arrives() {
     assert_eq!(owed_state(&engine, 1), Some(LaneState::Latched));
     let failure = terminal_failure(&latched, queued).expect("queued inquiry fails at the latch");
     assert!(matches!(
-        failure,
-        Error::InquiryCorrelationLost { camera: lost } if lost == camera(1).camera()
+        &failure,
+        Error::InquiryFailed { source } if matches!(source.as_ref(), Error::InquiryCorrelationLost { camera: lost } if *lost == camera(1).camera())
     ));
     assert_eq!(
         failure.failure_context(),
         Some(FailureContext::new(
             FailureStage::Terminal,
-            Certainty::NotAccepted
+            Certainty::FailedConclusively
         ))
     );
     assert!(!failure.requires_new_session());
@@ -12521,12 +12588,13 @@ fn stream_inquiry_write_succeeding_after_its_budget_owes_its_reply() {
     let late = start + Duration::from_millis(21);
     let finished = finish_write_input_only(
         &mut engine,
+        id,
         transmission,
-        Ok(TransmissionMeta { sequence: None }),
+        Ok(TransmissionMeta::for_sequence(None)),
         late,
     );
     assert!(matches!(
-        terminal_failure(&finished, id),
+        terminal_cause(&finished, id),
         Some(Error::Timeout { .. })
     ));
     assert_eq!(

@@ -3,7 +3,7 @@
 #![allow(clippy::expect_used)]
 use grafton_visca::{
     profiles::PtzOpticsG2, testing::testkit::ManualClock, transport::SendSemantics, Error,
-    ProfileSpec, Recovery, SessionConfig,
+    PowerStatus, ProfileSpec, Recovery, SessionConfig,
 };
 use grafton_visca_test_support::fake_camera::{frames, FakeCamera};
 
@@ -41,11 +41,11 @@ fn heartbeat_policy_counts_every_nonfatal_failure_and_recognizes_new_activity() 
             unanswered += 1;
         }
         if attempt == 0 {
-            assert!(
-                matches!(failure, Error::InquiryFailed { source, .. } if matches!(&*source, Error::Timeout { .. }))
-            );
+            assert!(matches!(failure, Error::InquiryFailed { source, .. }
+                if matches!(source.as_ref(), Error::Timeout { .. })));
         } else {
-            assert!(matches!(failure, Error::InquiryCorrelationLost { .. }));
+            assert!(matches!(failure, Error::InquiryFailed { source, .. }
+                if matches!(source.as_ref(), Error::InquiryCorrelationLost { .. })));
         }
     }
     assert_eq!(unanswered, 2);
@@ -63,7 +63,10 @@ fn heartbeat_policy_counts_every_nonfatal_failure_and_recognizes_new_activity() 
         .applied()
         .expect("STOP applied");
     let before = session.metrics().expect("metrics").received_frames;
-    assert!(camera.power().state().expect("new power reply").is_on());
+    assert_eq!(
+        camera.power().state().expect("new power reply"),
+        PowerStatus::On
+    );
     assert!(session.metrics().expect("metrics").received_frames > before);
     assert_eq!(fake.write_count(), 3);
     session.close().expect("close");

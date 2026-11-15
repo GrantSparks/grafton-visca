@@ -756,7 +756,16 @@ terminator preserves the next frame boundary. Cumulative input beyond the hard
 retention bound `max_buffer_size + recv_buffer_size`, or a Sony header declaring
 a payload the framer cannot retain, is a genuine framing failure that still
 poisons a stream (#848). For the serial preset the bound is 8192 + 256 = 8448
-bytes, and overflow reports that configured bound. By the same decoupling, a
+bytes, and overflow reports that configured bound. Raw and Sony framers are
+separate types with one strict, nonmutating overflow policy. The adapter pairs
+each framer with its matching envelope and visits frame bytes by reference;
+it does not copy them into a second framing scratch buffer. Receive batches
+reuse the owner's bounded storage after the shell consumes them. The read
+boundary produces one closed verdict (frames, no progress, transient failure,
+or fatal failure), retaining original fatal causes. The shell executes that
+verdict without classifying OS errors again. Retained stream inspection is an
+infallible nonzero length and its evidence, including explicit non-raw input;
+only discarding can fail. By the same decoupling, a
 single stream read that decodes more than `frames_per_receive` frames stops at the limit and
 leaves the remaining complete frames buffered for the next receive (the framer
 retains bytes across reads, bounded by `max_buffer_size + recv_buffer_size`), rather than failing
@@ -931,7 +940,10 @@ return path (#836, #856, #860).
 | Successful command send (`CompletionOnly`, issue #700) | Transition straight to `AwaitingCompletion` (no ACK phase, no socket). |
 | Successful command send (`NoReply`, plain raw only) | Finish the plain `execute()` after the local write succeeds; this is not protocol application and cannot create an operation handle. Retain the bounded broad `AllResponses` hold before same-target raw response-bearing command or inquiry work may start; a STOP is never held by it (#795). Another `NoReply` may write and extend that key. |
 | Successful inquiry send | Record any Sony sequence, transition to `AwaitingReply`, and take a per-target FIFO position for a raw inquiry. Production Raw policy has one live inquiry per target, the precondition for its unkeyed-reply hold; a socket-owned command may coexist. |
-| Failed command send, datagram transport | Terminally fail that one request with the exact transport error; every other entry keeps running. |
+| Write refused before I/O (`NotSent`) | Fail only this logical request with its preparation cause in `TransmissionNotSent`. Certainty is `NotAccepted` unless an earlier attempt may have taken effect, when it remains `Unconfirmed`; retain that attempt's owed answers and holds. No write-failure counter increments and the stream remains usable. |
+| Failed command send, datagram transport | Terminally fail that one request. OS send failures retain their typed cause under `TransportError`; an explicit write timeout keeps its timeout context. Every other entry keeps running (#869). |
+| Cancellation write refused before I/O | Drop its unwritten ledger entry and fail the cancellation observation. Keep the acknowledged operation, socket and original deadline live; a later completion still applies it (#869). |
+| Failed inquiry terminal | Wrap the exact source in `InquiryFailed` with `Terminal` / `FailedConclusively`; the source still determines whether the session must be reopened. This covers arbitrary custom transport verdicts without reporting an uncertain inquiry effect (#868). |
 | Failed command send, stream transport | Poison the session (`Error::StreamPoisoned`) and resolve every active entry. |
 | Compatible failed stream write sampled after the request's total budget | Poison before applying per-request late-result policy: the stream seam cannot prove that no partial frame reached the wire (#724). |
 | Request write result sampled strictly after its total retry budget | Retire the expired request before the result can register correlation, report `Written`, or replace a retained retry cause. A successful raw-stream write retains its unanswered first answer as a ledger debt. Results at equality remain input-first; cancellation writes use their separate ambiguity lifecycle (#837, #860). |

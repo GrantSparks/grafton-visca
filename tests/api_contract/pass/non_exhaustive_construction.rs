@@ -11,7 +11,7 @@ fn main() {
     config.buffer_config = BufferConfig::for_raw_ip();
     let mut tolerance = MovementTolerance::default();
     tolerance.zoom = 1;
-    let _ = (config, tolerance, FrameMeta::new(Some(FrameSequence::Full32(1))));
+    let _ = (config, tolerance, FrameMeta::Sony { sequence: FrameSequence::Full32(1) });
     let error = Error::invalid_parameter("zoom", "invalid", "outside range");
     match error {
         Error::InvalidParameter { parameter, value, reason, .. } => {

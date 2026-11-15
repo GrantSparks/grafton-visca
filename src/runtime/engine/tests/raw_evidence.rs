@@ -731,10 +731,9 @@ fn halt_after_a_possibly_applied_attempt_reports_unconfirmed() {
     assert_eq!(resent_id, id);
     engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission,
-            result: Ok(TransmissionMeta {
-                sequence: Some(sony_sequence(id)),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(sony_sequence(id)))),
         },
         retry_at,
     );
@@ -1022,8 +1021,9 @@ fn executing_with_cancel(
     assert_eq!(cancelled, socket);
     engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission,
-            result: Ok(TransmissionMeta { sequence: None }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
         },
         now,
     );
@@ -1276,8 +1276,9 @@ fn only_a_write_that_left_owes_its_answer() {
     let (transmission, _, _) = request_transmit(&staged);
     let late = engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission,
-            result: Ok(TransmissionMeta { sequence: None }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
         },
         now + Duration::from_millis(11),
     );
@@ -1372,8 +1373,9 @@ fn a_disputed_stop_is_settled_by_its_own_ack() {
     if request_transmit_optional(&proven).is_some() {
         finish_write_input_only(
             &mut engine,
+            request_transmit(&proven).1,
             request_transmit(&proven).0,
-            Ok(TransmissionMeta { sequence: None }),
+            Ok(TransmissionMeta::for_sequence(None)),
             now,
         );
     }
@@ -1383,8 +1385,9 @@ fn a_disputed_stop_is_settled_by_its_own_ack() {
         if request_transmit_optional(&next).is_some() {
             finish_write_input_only(
                 &mut engine,
+                request_transmit(&next).1,
                 request_transmit(&next).0,
-                Ok(TransmissionMeta { sequence: None }),
+                Ok(TransmissionMeta::for_sequence(None)),
                 now,
             );
         }
@@ -1503,10 +1506,9 @@ fn a_cancellation_rejected_after_ack_is_unconfirmed_on_both_envelopes() {
     let cancel_sequence = sequence + 0x100;
     engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission,
-            result: Ok(TransmissionMeta {
-                sequence: Some(cancel_sequence),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(cancel_sequence))),
         },
         now,
     );
@@ -2269,7 +2271,7 @@ fn an_unanswered_tracked_dispute_falls_to_the_latch() {
         outcomes.values().any(|(ended, outcome)| *ended == step
             && matches!(
                 outcome,
-                RuntimeOutcome::Failed(Error::InquiryCorrelationLost { .. })
+                RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::InquiryCorrelationLost { .. })
             )),
         "{outcomes:?}"
     );
@@ -2637,8 +2639,9 @@ fn late_first_answers_are_order_independent() {
                 let (transmission, _, _) = cancel_transmit(&cancel);
                 engine.handle(
                     Input::TransmissionFinished {
+                        request: id,
                         transmission,
-                        result: Ok(TransmissionMeta { sequence: None }),
+                        result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
                     },
                     start,
                 );
@@ -2688,7 +2691,10 @@ fn late_first_answers_are_order_independent() {
             "class {class}: terminal outcomes/counts"
         );
         let expected_error = if class == 2 {
-            Error::timeout(FailureStage::Terminal, Certainty::FailedConclusively)
+            Error::inquiry_failed(Error::timeout(
+                FailureStage::Terminal,
+                Certainty::FailedConclusively,
+            ))
         } else {
             Error::UnsequencedCommandUnconfirmed
         };

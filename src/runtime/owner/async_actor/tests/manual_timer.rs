@@ -94,7 +94,12 @@ async fn owner_turns_reuse_the_same_four_manual_timers() {
     // A read deadline and a pending paced receive both keep control live
     // while reusing the timers the actor constructed at startup.
     runtime.advance(Duration::from_secs(1));
-    frames.send_async(Ok(OwnerReceive::NoData)).await.unwrap();
+    frames
+        .send_async(OwnerReceive::NoProgress(
+            crate::runtime::owner::NoProgressReason::EagerIdle,
+        ))
+        .await
+        .unwrap();
     handle.metrics().await.unwrap();
     runtime.advance(Duration::from_millis(250));
     handle.metrics().await.unwrap();

@@ -24,7 +24,7 @@ use crate::{
         system::{AddressSetCommand, InterfaceClearCommand},
     },
     error::{Error, Result},
-    protocol::framer::{FramingError, FramingMode, ProtocolFramer},
+    protocol::framer::{Framer, FramingError, RawFramer},
     timeout::Deadline,
     transport::serial::Config,
 };
@@ -173,7 +173,7 @@ pub(crate) struct SerialStartup {
     read_capacity: usize,
     performed_io: bool,
     addressed_cameras: Option<u8>,
-    framer: ProtocolFramer,
+    framer: RawFramer,
     address_set: Frame,
     if_clear: Frame,
     state: State,
@@ -202,10 +202,7 @@ impl SerialStartup {
             addressed_cameras: None,
             // Serial VISCA has no Sony envelope; raw framing stays
             // authoritative even when noise begins with Sony type bytes.
-            framer: ProtocolFramer::new_with_config_and_mode(
-                config.buffer_config,
-                FramingMode::RawVisca,
-            ),
+            framer: RawFramer::new(config.buffer_config),
             address_set: Frame::encode(&AddressSetCommand::new(), "Address Set")?,
             if_clear: Frame::encode(&InterfaceClearCommand::new(), "IF Clear")?,
             state: State::Next,
@@ -417,19 +414,17 @@ impl SerialStartup {
     /// Feed one chunk through the bounded raw framer.
     fn process_chunk(&mut self, chunk: &[u8]) -> Result<Option<u8>> {
         self.framer.push_slice(chunk)?;
-        for frame in self.framer.drain_frames() {
+        while let Some(frame) = self.framer.visit_next_frame(address_set_reply) {
             match frame {
-                Ok(frame) => {
-                    if let Some(camera_count) = address_set_reply(&frame) {
-                        if usize::from(camera_count) > crate::session_config::MAX_REGISTERED_TARGETS
-                        {
-                            return Err(Error::InvalidRequest(
+                Ok(Some(camera_count)) => {
+                    if usize::from(camera_count) > crate::session_config::MAX_REGISTERED_TARGETS {
+                        return Err(Error::InvalidRequest(
                                 format!("serial chain reports {camera_count} devices; VISCA addresses at most 7").into(),
                             ));
-                        }
-                        return Ok(Some(camera_count));
                     }
+                    return Ok(Some(camera_count));
                 }
+                Ok(None) => {}
                 // Raw framing has already discarded through the terminator;
                 // treat the oversized frame as bus noise.
                 Err(FramingError::OversizedRawFrame { max_size }) => {

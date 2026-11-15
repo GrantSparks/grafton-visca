@@ -907,8 +907,9 @@ impl Session {
                         self.unread.push_back((target, job));
                         next.extend(self.engine.handle_turn(
                             Input::TransmissionFinished {
+                                request,
                                 transmission,
-                                result: Ok(TransmissionMeta { sequence: None }),
+                                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
                             },
                             self.now,
                             EngineTurn::INPUT_ONLY,

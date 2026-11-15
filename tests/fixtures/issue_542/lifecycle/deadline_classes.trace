@@ -26,8 +26,8 @@
 21 driver-input transmission-finished tx=2 result=ok
 21 effect state id=2 from=sending to=awaiting-reply
 30 input wake
-30 effect terminal id=2 outcome=Error::Timeout source=scheduler state=removed permit=released
-30 outcome operation id=2 Error::Timeout source=scheduler
+30 effect terminal id=2 outcome=Error::InquiryFailed(Timeout) source=scheduler state=removed permit=released
+30 outcome operation id=2 Error::InquiryFailed(Timeout) source=scheduler
 40 input admit transport-deadline target=3 wire=8101040700ff observer=async
 40 effect admitted ticket=transport-deadline id=3 target=3 permit=acquired state=ready observer=async
 40 outcome admission ticket=transport-deadline id=3
@@ -38,5 +38,5 @@
 41 effect terminal id=3 outcome=Error::Timeout source=transport state=removed permit=released
 41 outcome operation id=3 Error::Timeout source=transport
 100 input wake
-100 effect terminal id=1 outcome=Error::Timeout source=scheduler state=removed permit=released
+100 effect terminal id=1 outcome=Error::InquiryFailed(Timeout) source=scheduler state=removed permit=released
 100 effect delivery-discarded id=1 observer=detached

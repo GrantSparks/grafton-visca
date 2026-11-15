@@ -76,7 +76,7 @@ their existing constructors.
 Custom parsers use `Response::cmd_ack`, `completion` or `unknown`; custom transports
 report every receive as a `ReceiveOutcome` (`complete`, `truncated`,
 `possibly_truncated`, or `copy_message` for a source that yields whole messages)
-and use `FrameMeta::new`. Capability validators use `ValidationError::out_of_range` or
+and use `FrameMeta::Raw` or `FrameMeta::Sony { sequence }`. Capability validators use `ValidationError::out_of_range` or
 `invalid_value`; test scripts use `Step::on_send` or `after`. Error constructors
 use snake_case names such as `Error::feature_not_supported`, `invalid_parameter`,
 `runtime_queue_full` and `stream_poisoned`; `Error::timeout(stage, certainty)`
@@ -1376,3 +1376,8 @@ families are refused. Combined tally, defog, iris auto/manual status and orphan
 response kinds have no built-in replacements; use a custom request and decoder
 when model documentation establishes their packets. The orphan `DefogLevel`,
 `BroadcastDomain` and `FocusRange` values are removed with their only consumers.
+Envelope implementations now select the exact `ProfileEnvelope` through
+`Envelope::KIND`. Match `FrameMeta::Raw` or `FrameMeta::Sony { sequence }` when
+protocol identity matters, or call `meta.sequence()` for an optional Sony
+identity. The former `FrameMeta::new` constructor and public sequence field
+are removed.

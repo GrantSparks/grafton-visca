@@ -13,6 +13,8 @@ The following boundaries are release gates:
   path.
 * Standard payloads remain in inline storage; a command does not allocate once
   merely because it is prepared for a target.
+* Raw and Sony receive decoding borrows each frame and recycles bounded batch
+  storage without allocating after warm-up, for both stream and datagram reads.
 * Raw and Sony framing reuse their warmed buffers. Where policy has proof that
   replay is safe (same-sequence Sony recovery or a conclusive camera
   rejection), a retry reuses the already encoded command rather than rebuilding
@@ -51,6 +53,7 @@ The stable test boundaries are:
 | Representative built-in and typed request encoding | `tests/issue_548_allocation_baselines.rs`, zero-allocation tests near the end of the file |
 | Pure built-in command and inquiry preparation | `tests/issue_548_allocation_baselines.rs::built_in_command_and_inquiry_preparation_stay_inline`, through `testing::preparation` with `test-utils` |
 | Profile-aware position preparation and decoder cloning | `tests/issue_548_allocation_baselines.rs::profiled_position_inquiry_preparation_and_decoder_clones_stay_inline`, for G2, BRC-300 and FR7 |
+| Warmed receive lowering, decoding and batch recycling | `tests/issue_548_allocation_baselines.rs::warmed_receive_decoding_and_batch_recycling_do_not_allocate`, through `testing::receive::ReceiveProbe` for raw/Sony streams and datagrams |
 | Warmed raw/Sony framing reuse | `tests/issue_548_allocation_baselines.rs`, framing test near the end of the file |
 | Safe retry encoded-command reuse | `runtime::engine` unit test `inert_wire_is_inline_and_reused_across_retry_without_reallocation`, plus `runtime::owner` unit test `warmed_raw_and_sony_retries_reuse_owner_buffers`; raw coverage must be limited to conclusive rejection, never ambiguity or active-budget expiry |
 | Warmed owner-thread executor timer reset | `tests/issue_548_allocation_baselines.rs::{warmed_tokio_timer_resets_do_not_allocate,warmed_smol_timer_resets_do_not_allocate}`; owner test `owner_turns_reuse_the_same_four_manual_timers` pins four factories across forty applied commands and idle turns |

@@ -34,11 +34,16 @@ async fn async_diagnostic_subscriptions_keep_peer_close_and_poison_causes() {
         let (frames, receives) = flume::bounded(1);
         frames
             .send(if poison {
-                Err(Error::transport_error(std::io::Error::other(
-                    "consumed undecodable stream input",
-                )))
+                OwnerReceive::consumed_error(
+                    Error::transport_error(std::io::Error::other(
+                        "consumed undecodable stream input",
+                    )),
+                    crate::runtime::engine::TransportKind::Stream,
+                )
             } else {
-                Ok(OwnerReceive::Closed)
+                OwnerReceive::Fatal(crate::runtime::owner::ReceiveFatal::TransportClosed {
+                    cause: None,
+                })
             })
             .unwrap();
         let _ = actor.run(UngatedDriver { receives }).await;

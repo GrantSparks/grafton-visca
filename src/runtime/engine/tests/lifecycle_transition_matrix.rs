@@ -280,8 +280,9 @@ impl Fixture {
                 checked_input(
                     &mut engine,
                     Input::TransmissionFinished {
+                        request: id,
                         transmission,
-                        result: Ok(TransmissionMeta { sequence: None }),
+                        result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
                     },
                     now,
                 );
@@ -320,8 +321,9 @@ impl Fixture {
             checked_input(
                 &mut engine,
                 Input::TransmissionFinished {
+                    request: id,
                     transmission,
-                    result: Ok(TransmissionMeta { sequence: None }),
+                    result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
                 },
                 now,
             );
@@ -339,12 +341,14 @@ impl Fixture {
         let input = match action {
             Action::Dispatch => return self.engine.advance(self.now),
             Action::WriteOk => Input::TransmissionFinished {
+                request: self.id,
                 transmission: self.transmission,
-                result: Ok(TransmissionMeta { sequence: None }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
             },
             Action::WriteFailed => Input::TransmissionFinished {
+                request: self.id,
                 transmission: self.transmission,
-                result: Err(Error::transport_error(std::io::Error::other(
+                result: WriteOutcome::Failed(Error::transport_error(std::io::Error::other(
                     "matrix write failed",
                 ))),
             },
@@ -405,22 +409,34 @@ fn assert_expected(fixture: &Fixture, effects: &[Effect], expected: Expected) {
     }
     assert!(fixture.engine.entry(fixture.id).is_none());
     let outcome = terminal_outcome(effects, fixture.id).expect("one terminal outcome");
-    let correct = match expected {
-        Applied => matches!(&outcome, RuntimeOutcome::Applied),
-        Cancelled => matches!(&outcome, RuntimeOutcome::Cancelled),
-        WriteFailure => {
-            matches!(&outcome, RuntimeOutcome::Failed(Error::TransportError { source: message, .. }) if message.to_string().ends_with("matrix write failed"))
+    let protocol_outcome = match &outcome {
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) => {
+            RuntimeOutcome::Failed(source.as_ref().clone())
         }
-        SyntaxFailure => matches!(&outcome, RuntimeOutcome::Failed(Error::SyntaxError)),
+        outcome => outcome.clone(),
+    };
+    let correct = match expected {
+        Applied => matches!(&protocol_outcome, RuntimeOutcome::Applied),
+        Cancelled => matches!(&protocol_outcome, RuntimeOutcome::Cancelled),
+        WriteFailure => {
+            matches!(&protocol_outcome, RuntimeOutcome::Failed(Error::TransportError { source: message, .. }) if message.to_string().ends_with("matrix write failed"))
+        }
+        SyntaxFailure => matches!(
+            &protocol_outcome,
+            RuntimeOutcome::Failed(Error::SyntaxError)
+        ),
         AfterAckFailure => {
-            matches!(&outcome, RuntimeOutcome::Failed(Error::CommandFailedAfterAck { source, .. }) if matches!(source.as_ref(), Error::SyntaxError))
+            matches!(&protocol_outcome, RuntimeOutcome::Failed(Error::CommandFailedAfterAck { source, .. }) if matches!(source.as_ref(), Error::SyntaxError))
         }
         Unconfirmed => matches!(
-            outcome,
+            protocol_outcome,
             RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed)
         ),
         UnwrittenBudgetTimeout | InquiryTimeout => {
-            matches!(&outcome, RuntimeOutcome::Failed(Error::Timeout { .. }))
+            matches!(
+                &protocol_outcome,
+                RuntimeOutcome::Failed(Error::Timeout { .. })
+            )
         }
         Live(_) => unreachable!("live outcome was checked above"),
     };

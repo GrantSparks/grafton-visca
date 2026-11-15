@@ -8,7 +8,7 @@ use bytes::{Bytes, BytesMut};
 use crate::{
     command::{parse_inquiry_payload, CommandKind, Response},
     protocol::{
-        framer::{FramingMode, ProtocolFramer},
+        framer::{Framer, RawFramer, SonyFramer},
         sony::{PayloadType, SonyHeader},
     },
     raw::Plain,
@@ -35,11 +35,15 @@ pub fn response_parser(bytes: &[u8]) {
 
 /// Exercise raw and Sony framing in whole-buffer and split-read forms.
 pub fn protocol_framer(bytes: &[u8]) {
-    for mode in [FramingMode::RawVisca, FramingMode::SonyEncapsulated] {
-        drive_framer(mode, &[bytes]);
-        let split = bytes.len() / 2;
-        drive_framer(mode, &[&bytes[..split], &bytes[split..]]);
-    }
+    let config = BufferConfig {
+        recv_buffer_size: 1_024,
+        max_buffer_size: 8_192,
+    };
+    let split = bytes.len() / 2;
+    drive_framer(RawFramer::new(config), &[bytes]);
+    drive_framer(SonyFramer::new(config), &[bytes]);
+    drive_framer(RawFramer::new(config), &[&bytes[..split], &bytes[split..]]);
+    drive_framer(SonyFramer::new(config), &[&bytes[..split], &bytes[split..]]);
 
     // Always drive a structurally valid Sony boundary whose payload is still
     // controlled by the fuzzer, so short runs get past the eight-byte header.
@@ -51,22 +55,16 @@ pub fn protocol_framer(bytes: &[u8]) {
     };
     let mut framed = header.encode().to_vec();
     framed.extend_from_slice(&bytes[..payload_len]);
-    drive_framer(FramingMode::SonyEncapsulated, &[&framed]);
+    drive_framer(SonyFramer::new(config), &[&framed]);
 }
 
-fn drive_framer(mode: FramingMode, chunks: &[&[u8]]) {
-    let config = BufferConfig {
-        recv_buffer_size: 1_024,
-        max_buffer_size: 8_192,
-    };
-    let mut framer = ProtocolFramer::new_with_config_and_mode(config, mode);
+fn drive_framer(mut framer: impl Framer, chunks: &[&[u8]]) {
     for chunk in chunks {
         if framer.push_slice(chunk).is_err() {
             return;
         }
-        for frame in framer.drain_frames() {
-            let _ = frame;
-        }
+        while framer.visit_next_frame(|_| ()).is_some() {}
+        assert!(framer.buffered_len() <= framer.max_buffer_size());
     }
 }
 
@@ -75,7 +73,7 @@ pub fn sony_envelope(bytes: &[u8]) {
     let envelope = SonyEncapsulated::new(AddressingMode::Ip);
     let _ = envelope.extract_response(bytes);
     let _ = envelope.extract_with_meta(Bytes::copy_from_slice(bytes));
-    let _ = envelope.extract_owner_response(Bytes::copy_from_slice(bytes));
+    let _ = envelope.extract_owner_response(bytes);
 
     let mut out = BytesMut::new();
     let _ = envelope.frame_into(bytes, CommandKind::Command, &mut out);
@@ -87,7 +85,7 @@ pub fn sony_envelope(bytes: &[u8]) {
     visca.extend_from_slice(&bytes[..middle_len]);
     visca.push(0xFF);
     let framed = sony_frame(PayloadType::ViscaReply, sequence_from(bytes), &visca);
-    let _ = envelope.extract_owner_response(Bytes::from(framed));
+    let _ = envelope.extract_owner_response(&framed);
 
     let control = match bytes {
         [first, second, ..] => vec![*first, *second],
@@ -95,7 +93,7 @@ pub fn sony_envelope(bytes: &[u8]) {
         [] => vec![0x01],
     };
     let framed = sony_frame(PayloadType::ControlReply, sequence_from(bytes), &control);
-    let _ = envelope.extract_owner_response(Bytes::from(framed));
+    let _ = envelope.extract_owner_response(&framed);
 
     envelope.frame_sequence_reset_into(&mut out);
 }

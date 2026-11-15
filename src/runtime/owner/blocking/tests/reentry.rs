@@ -78,17 +78,15 @@ fn refuses_reentry(during_write: bool) {
     if during_write {
         *peer.write_callback.lock().unwrap() = Some(callback);
         drop(owner.submit_command(focus_manual_for(&profile)).unwrap());
-        // The test's real-time watchdog intentionally keeps its clock
-        // participant runnable. Advance the profile's pacing floor so the
-        // second write can run while that watchdog observes the callback.
-        clock.advance(profile.timing().minimum_command_spacing());
     } else {
         peer.send(Read::Callback(callback));
     }
-    for (call, result) in answers
-        .recv_timeout(PROMPTLY)
-        .expect("every worker re-entry returns without waiting")
-    {
+    // Waiting on the same clock keeps selection pacing and the next write
+    // live. A real-time channel wait would leave this participant runnable,
+    // preventing the owner from reaching its next virtual receive deadline.
+    let answers = recv_within(&Clock::Manual(clock.clone()), &answers, PROMPTLY)
+        .expect("every worker re-entry returns without waiting");
+    for (call, result) in answers {
         assert!(
             matches!(result, Err(Error::InvalidState(_))),
             "{call}: {result:?}"

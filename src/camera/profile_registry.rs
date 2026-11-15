@@ -719,7 +719,7 @@ macro_rules! __define_builtin_profiles {
             pub const fn uses_sony_encapsulation(&self) -> bool {
                 match self {
                     $(ProfileId::$id => {
-                        <$envelope as $crate::transport::Envelope>::SUPPORTS_SEQUENCE_CORRELATION
+                        matches!(<$envelope as $crate::transport::Envelope>::KIND, $crate::ProfileEnvelope::SonyEncapsulated)
                     })*
                 }
             }
@@ -944,11 +944,7 @@ macro_rules! __define_builtin_profiles {
                 assert_eq!(spec.preset_recall_axes(), P::PRESET_RECALL_AXES);
                 assert_eq!(
                     spec.envelope(),
-                    if <P::Envelope as $crate::transport::Envelope>::SUPPORTS_SEQUENCE_CORRELATION {
-                        $crate::ProfileEnvelope::SonyEncapsulated
-                    } else {
-                        $crate::ProfileEnvelope::RawVisca
-                    }
+                    <P::Envelope as $crate::transport::Envelope>::KIND
                 );
 
                 assert_eq!(facts.id, id);

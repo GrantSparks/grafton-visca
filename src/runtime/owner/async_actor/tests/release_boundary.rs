@@ -12,10 +12,7 @@ async fn async_receive_batch_precedes_a_completion_deadline_at_equality() {
 
     let first = handle.submit(command()).await.unwrap();
     assert_eq!(started.recv_async().await.unwrap(), first.id);
-    gates
-        .send_async(Ok(TransmissionMeta { sequence: None }))
-        .await
-        .unwrap();
+    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
     frames
         .send_async(batch(vec![ack(ViscaSocket::S1)]))
         .await
@@ -27,10 +24,7 @@ async fn async_receive_batch_precedes_a_completion_deadline_at_equality() {
 
     let second = handle.submit(command()).await.unwrap();
     assert_eq!(started.recv_async().await.unwrap(), second.id);
-    gates
-        .send_async(Ok(TransmissionMeta { sequence: None }))
-        .await
-        .unwrap();
+    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
     assert_eq!(handle.snapshot().await.unwrap().active, 2);
 
     // Deliver ACK S2 and completion S1 at S1's exact completion deadline.
@@ -76,10 +70,7 @@ async fn async_receive_batch_rejects_an_overdue_completion() {
 
     let receipt = handle.submit(command()).await.unwrap();
     assert_eq!(started.recv_async().await.unwrap(), receipt.id);
-    gates
-        .send_async(Ok(TransmissionMeta { sequence: None }))
-        .await
-        .unwrap();
+    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
     frames
         .send_async(batch(vec![ack(ViscaSocket::S1)]))
         .await
@@ -210,7 +201,7 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::CommandNotExecutable)
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
     let actor_task = tokio::spawn(actor.run(driver));
 
@@ -475,7 +466,7 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         a_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::CommandNotExecutable)
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
 
     let (_c_completion, c_admitted) = handle
@@ -560,7 +551,9 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
         actor
             .handle_event(
                 OwnerEvent::Receive {
-                    result: Ok(OwnerReceive::NoData),
+                    result: OwnerReceive::NoProgress(
+                        crate::runtime::owner::NoProgressReason::EagerIdle
+                    ),
                     received_at: now,
                 },
                 &mut driver,
@@ -850,7 +843,7 @@ async fn raw_stream_nonclearing_decoder_poisons_at_release() {
 
     assert!(matches!(
         successor.terminal().await.unwrap(),
-        RuntimeOutcome::Failed(Error::StreamPoisoned { .. })
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::StreamPoisoned { .. })
     ));
     assert_eq!(
         harness.discards.load(Ordering::Relaxed),
@@ -947,7 +940,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         a_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::CommandNotExecutable)
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
 
     let (b_completion, b_admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
@@ -1008,7 +1001,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         b_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::CommandNotExecutable)
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
 
     let (_c_completion, c_admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
@@ -1102,7 +1095,7 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
             "the production split-tail predecessor terminalizes",
         )
         .await,
-        RuntimeOutcome::Failed(Error::CommandNotExecutable)
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
 
     let successor = handle.submit(inquiry()).await.unwrap();
@@ -1176,7 +1169,7 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
                 "the ambiguous-prefix predecessor terminalizes",
             )
             .await,
-            RuntimeOutcome::Failed(Error::CommandNotExecutable)
+            RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
         ));
         let successor = handle.submit(inquiry()).await.unwrap();
         assert!(sent_rx.try_recv().is_err());
@@ -1277,7 +1270,7 @@ async fn production_raw_s1_split_tail_precedes_same_target_s2_release() {
 /// An already-buffered named S1 prefix is exact evidence for live X, not
 /// stale evidence for Y/S2. The due pass may release Y while preserving
 /// `[90 51]`; its trailing terminator still completes X through the real
-/// `ProtocolFramer` after Z has been dispatched.
+/// `RawFramer` after Z has been dispatched.
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn production_raw_live_s1_prefix_survives_same_target_s2_release() {
@@ -1481,7 +1474,7 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
 /// work, then keep the ambiguous socketless A prefix input-first until its
 /// tail is delimited for A's already-sent, target-local successor. This covers
 /// hidden suffix ordering, the fail-closed socketless rule, and raw serial
-/// framing through the production adapter and `ProtocolFramer`.
+/// framing through the production adapter and `RawFramer`.
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix() {
@@ -1632,7 +1625,7 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
     assert!(matches!(
         terminal_within_test_deadline(&predecessor, "the invalid-prefix predecessor terminalizes",)
             .await,
-        RuntimeOutcome::Failed(Error::CommandNotExecutable)
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
     let successor = handle.submit(inquiry()).await.unwrap();
     assert!(sent_rx.try_recv().is_err());
@@ -1823,7 +1816,7 @@ async fn owed_stream_inquiry_fixture() -> (
     );
     assert!(matches!(
         terminal_within_test_deadline(&predecessor, "A times out at its reply deadline").await,
-        RuntimeOutcome::Failed(Error::Timeout { .. })
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::Timeout { .. })
     ));
     let successor = within(handle.submit(inquiry()), "B is admitted")
         .await
@@ -1920,8 +1913,8 @@ async fn raw_stream_owed_prefix_at_window_end_latches_instead_of_releasing() {
     runtime.advance(Duration::from_secs(1));
     assert!(matches!(
         terminal_within_test_deadline(&successor, "B fails at the latch").await,
-        RuntimeOutcome::Failed(Error::InquiryCorrelationLost { camera })
-            if camera == TargetSlot::CAMERA_1.camera()
+        RuntimeOutcome::Failed(Error::InquiryFailed { source })
+            if matches!(source.as_ref(), Error::InquiryCorrelationLost { camera } if *camera == TargetSlot::CAMERA_1.camera())
     ));
     runtime.advance(Duration::from_secs(5));
     let snapshot = within(handle.snapshot(), "the actor answers a snapshot")
@@ -2001,7 +1994,7 @@ async fn raw_stream_latched_target_still_writes_stop_and_ack_bearing_commands() 
     runtime.advance(Duration::from_secs(1));
     assert!(matches!(
         terminal_within_test_deadline(&successor, "B fails at the latch").await,
-        RuntimeOutcome::Failed(Error::InquiryCorrelationLost { .. })
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::InquiryCorrelationLost { .. })
     ));
 
     for request in [urgent_command(), command()] {
@@ -2087,7 +2080,7 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
         .unwrap();
     assert!(matches!(
         terminal_within_test_deadline(&predecessor, "A times out at its reply deadline").await,
-        RuntimeOutcome::Failed(Error::Timeout { .. })
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::Timeout { .. })
     ));
     let successor = within(handle.submit(inquiry()), "B is admitted")
         .await
@@ -2101,7 +2094,7 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
     runtime.advance(Duration::from_secs(1));
     assert!(matches!(
         terminal_within_test_deadline(&successor, "B fails at the latch").await,
-        RuntimeOutcome::Failed(Error::InquiryCorrelationLost { .. })
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::InquiryCorrelationLost { .. })
     ));
     runtime.advance(Duration::from_millis(500));
     let snapshot = within(handle.snapshot(), "the actor answers a snapshot")

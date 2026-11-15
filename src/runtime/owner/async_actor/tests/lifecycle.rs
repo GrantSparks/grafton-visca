@@ -9,7 +9,12 @@ async fn ready_transport_close_precedes_shutdown_and_queued_admission() {
     let frames = harness.frames.clone();
     let admission = handle.try_submit(command()).unwrap();
     handle.shutdown().unwrap();
-    frames.send_async(Ok(OwnerReceive::Closed)).await.unwrap();
+    frames
+        .send_async(OwnerReceive::Fatal(
+            crate::runtime::owner::ReceiveFatal::TransportClosed { cause: None },
+        ))
+        .await
+        .unwrap();
     let snapshot = actor.run(harness.driver).await;
     assert_eq!(snapshot.state, SessionState::Closed);
     assert!(matches!(
@@ -38,7 +43,9 @@ async fn terminal_stop_is_published_before_shutdown_can_enter_the_live_lane() {
     let outcome = actor
         .handle_event(
             OwnerEvent::Receive {
-                result: Ok(OwnerReceive::Closed),
+                result: OwnerReceive::Fatal(crate::runtime::owner::ReceiveFatal::TransportClosed {
+                    cause: None,
+                }),
                 received_at: Executor::now(&runtime),
             },
             &mut driver,
@@ -120,10 +127,7 @@ async fn queued_cancel_at_shutdown_concludes_on_the_buffered_terminal_slot() {
         .await
         .unwrap();
     handle.shutdown().unwrap();
-    gates
-        .send_async(Ok(TransmissionMeta { sequence: None }))
-        .await
-        .unwrap();
+    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
 
     // The queued cancellation is drained at shutdown with the session's
     // terminal error; the operation's buffered terminal outcome still decides
@@ -369,7 +373,12 @@ async fn a_boundary_request_racing_teardown_never_hangs() {
         // boundary work is actually moving. The exact interleaving is left
         // to the scheduler; over this many iterations both orders occur.
         tokio::task::yield_now().await;
-        frames.send_async(Ok(OwnerReceive::Closed)).await.unwrap();
+        frames
+            .send_async(OwnerReceive::Fatal(
+                crate::runtime::owner::ReceiveFatal::TransportClosed { cause: None },
+            ))
+            .await
+            .unwrap();
 
         // The bug this guards is an unbounded park, so the bound only has
         // to be longer than a healthy teardown ever takes. It is generous
@@ -402,7 +411,12 @@ async fn teardown_answers_queued_work_before_the_liveness_lane_fires() {
     while handle.core.control.is_empty() {
         tokio::task::yield_now().await;
     }
-    frames.send_async(Ok(OwnerReceive::Closed)).await.unwrap();
+    frames
+        .send_async(OwnerReceive::Fatal(
+            crate::runtime::owner::ReceiveFatal::TransportClosed { cause: None },
+        ))
+        .await
+        .unwrap();
     let snapshot = actor.run(harness.driver).await;
     assert_eq!(snapshot.state, SessionState::Closed);
     assert!(matches!(

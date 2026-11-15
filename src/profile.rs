@@ -1246,12 +1246,7 @@ impl ProfileFacts {
         Self {
             capabilities: capabilities::Capabilities::from_profile::<P>(),
             transports: P::TRANSPORTS,
-            envelope: if <P::Envelope as crate::transport::Envelope>::SUPPORTS_SEQUENCE_CORRELATION
-            {
-                ProfileEnvelope::SonyEncapsulated
-            } else {
-                ProfileEnvelope::RawVisca
-            },
+            envelope: <P::Envelope as crate::transport::Envelope>::KIND,
             timing: ProfileTiming {
                 ack_timeout: P::ACK_TIMEOUT,
                 command_timeouts: P::COMMAND_TIMEOUTS,

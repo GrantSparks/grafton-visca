@@ -47,8 +47,10 @@ async fn async_prepared_retry_budget_covers_a_late_ack_and_completion() {
         harness.started.recv_async().await.unwrap();
         harness
             .gates
-            .send_async(Ok(TransmissionMeta {
-                sequence: sony.then_some(1),
+            .send_async(Ok(if sony {
+                TransmissionMeta::Sony { sequence: 1 }
+            } else {
+                TransmissionMeta::Raw
             }))
             .await
             .unwrap();

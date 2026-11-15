@@ -707,8 +707,44 @@ pub(crate) struct DecodedFrame {
 
 /// Metadata returned by a successful exact transport write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TransmissionMeta {
-    pub(crate) sequence: Option<u32>,
+pub(crate) enum TransmissionMeta {
+    Raw,
+    Sony { sequence: u32 },
+}
+
+impl TransmissionMeta {
+    pub(crate) const fn sequence(self) -> Option<u32> {
+        match self {
+            Self::Raw => None,
+            Self::Sony { sequence } => Some(sequence),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn for_sequence(sequence: Option<u32>) -> Self {
+        match sequence {
+            None => Self::Raw,
+            Some(sequence) => Self::Sony { sequence },
+        }
+    }
+}
+
+pub(crate) use crate::transport::envelope::SonyRequestSequence;
+
+/// Framing facts for exactly one write. Raw VISCA has no Sony sequence axis.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RequestFraming {
+    Raw,
+    Sony { sequence: SonyRequestSequence },
+}
+
+/// The transport boundary classifies refusal before I/O separately from a
+/// send whose bytes may have reached the camera.
+#[derive(Debug)]
+pub(crate) enum WriteOutcome {
+    NotSent(Error),
+    Sent(TransmissionMeta),
+    Failed(Error),
 }
 
 /// One exact write requested by the engine.
@@ -717,18 +753,14 @@ pub(crate) enum Transmission {
     Request {
         target: TargetSlot,
         wire: Arc<EncodedMessage>,
-        /// `None` asks the envelope to allocate a sequence for the first
-        /// logical transmission (or for a request whose first write never
-        /// succeeded).  A retry carries the request's last successful Sony
-        /// sequence so the exact logical message is replayed byte-for-byte.
-        requested_sequence: Option<u32>,
+        framing: RequestFraming,
+        lane: Lane,
+        requires_extended_pan_tilt_speed: bool,
     },
     Cancel {
         target: TargetSlot,
         socket: ViscaSocket,
-        /// Cancellation is a separate logical message and therefore always
-        /// asks Sony framing for a fresh sequence.
-        requested_sequence: Option<u32>,
+        framing: RequestFraming,
     },
 }
 
@@ -820,8 +852,9 @@ pub(crate) enum Input {
         slot: AdmissionSlot,
     },
     TransmissionFinished {
+        request: RequestId,
         transmission: TransmissionId,
-        result: Result<TransmissionMeta, Error>,
+        result: WriteOutcome,
     },
     Frame(DecodedFrame),
     #[cfg(test)]

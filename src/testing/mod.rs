@@ -40,6 +40,10 @@ pub mod testkit;
 #[cfg(all(feature = "test-utils", any(feature = "blocking", feature = "async")))]
 pub mod preparation;
 
+/// Production receive and batch-recycling probes.
+#[cfg(all(feature = "test-utils", any(feature = "blocking", feature = "async")))]
+pub mod receive;
+
 /// Internal protocol fuzz entry points.
 #[doc(hidden)]
 #[cfg(all(feature = "test-utils", feature = "blocking"))]

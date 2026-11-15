@@ -382,11 +382,10 @@ A stream `ConnectionReset` still proves closure (#843). A raw command has no
 sequence to replay; its complete transient-fault
 decision is the architecture guide's
 [raw recovery rule](architecture_2_0.md#raw-unconfirmed-outcomes-and-strict-recovery).
-A read that proves the connection is
-gone (`ConnectionClosed`, or an `Io` failure whose kind is `TimedOut`,
-`ConnectionReset`, `ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`, or
-`NotConnected`), or an `Io(InvalidInput)` reports a live transport contract
-failure, the session ends. A raw OS `TimedOut` is included because a
+A read that proves the connection is gone ends the session. This includes
+`ConnectionClosed`, runtime shutdown, and the raw I/O kinds in the
+[shared fatal receive table](../src/transport/receive_errors.rs), generated
+alongside `transport::FATAL_RECEIVE_IO_KINDS` for both transport traits. A raw OS `TimedOut` is included because a
 connected TCP socket commonly reports it when keepalive has exhausted; it is
 not the spelling for an application-owned idle timer. The owner normalizes
 that fatal receive closure to
