@@ -59,6 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Owners sanitize diagnostics where events are produced. Subscriber queues
+  carry the public event type directly, request summaries retain only target
+  and lane, and the complete per-command event order/count is preserved (#913).
+
 - Engine terminal results and owner observer slots are typed by command or
   inquiry lane. Operation application and cancellation share one verdict,
   ordinary receipt wakes cannot carry cancellation failures, and terminal

@@ -18,8 +18,8 @@ use std::ops::ControlFlow;
 
 use super::super::receipt::OperationWait;
 use super::super::{
-    canonical_owner_trace, BlockingTransportAdapter, DeadlineKind, DiagnosticEvent,
-    OperationObservation, RuntimeOutcome, RuntimeRequest, CANONICAL_OWNER_TRACE,
+    canonical_owner_trace, BlockingTransportAdapter, DiagnosticEvent, OperationObservation,
+    RuntimeOutcome, RuntimeRequest, CANONICAL_OWNER_TRACE,
 };
 use super::super::{CommandOutcome, InquiryOutcome};
 use super::*;
