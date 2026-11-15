@@ -438,6 +438,9 @@ macro_rules! define_builtin_inquiries {
                 vec![0, 0, 1, 4],
                 vec![0x0f, 7, 5, 0x0a, 8, 0x0e, 7, 9, 6],
                 vec![0; 10],
+                vec![0, 7, 0x0d, 0], // R7 Kelvin minimum.
+                vec![0, 1], // R7 common preset speed minimum.
+                vec![0, 0, 0x0a], // R7 duration minimum.
             ]);
             fn check<I: crate::Inquiry<Response = Response>>(
                 inquiry: I, kind: InquiryKind, profiles: &[crate::ProfileSpec], payloads: &[Vec<u8>],
@@ -1834,6 +1837,478 @@ define_builtin_inquiries! {
                 rationale: None,
             }
         ]
+        /// Sony FR7 ae level (R7 p. 21).
+        Fr7AeLevel { /// Source-backed typed readback.
+            value: crate::types::AeLevel,
+        } => |payload| Ok(InquiryData::Fr7AeLevel { value: crate::command::sony_fr7_exposure::decode_ae_level(payload)? });
+        shape: crate::PayloadShape::Nibbles(4);
+        commands [
+            /// Reads Sony FR7 ae level (R7 p. 21).
+            Fr7AeLevelInquiry {
+                bytes: [0x09, 0x04, 0x4E],
+                source: source!(R7, [SonyFr7], "r7-fr7aelevelinquiry", "09 04 4E"),
+                boolean: None,
+                typed: (crate::types::AeLevel, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::AlternateTypedInterpretation { canonical: <ExposureCompensationInquiry as BuiltinInquiryCommandMarker>::METADATA },
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 auto gain (R7 p. 21).
+        Fr7AutoGain { /// Source-backed typed readback.
+            value: bool,
+        } => |payload| Ok(InquiryData::Fr7AutoGain { value: decode_builtin_bool::<Fr7AutoGainInquiry>(&payload, "Fr7AutoGain")? });
+        shape: crate::PayloadShape::Bytes(1);
+        commands [
+            /// Reads Sony FR7 auto gain (R7 p. 21).
+            Fr7AutoGainInquiry {
+                bytes: [0x09, 0x7E, 0x01, 0x75],
+                source: source!(R7, [SonyFr7], "r7-fr7autogaininquiry", "09 7E 01 75"),
+                boolean: Some(BoolConvention::OnIs02),
+                typed: (bool, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 auto shutter (R7 p. 21).
+        Fr7AutoShutter { /// Source-backed typed readback.
+            value: bool,
+        } => |payload| Ok(InquiryData::Fr7AutoShutter { value: decode_builtin_bool::<Fr7AutoShutterInquiry>(&payload, "Fr7AutoShutter")? });
+        shape: crate::PayloadShape::Bytes(1);
+        commands [
+            /// Reads Sony FR7 auto shutter (R7 p. 21).
+            Fr7AutoShutterInquiry {
+                bytes: [0x09, 0x05, 0x35],
+                source: source!(R7, [SonyFr7], "r7-fr7autoshutterinquiry", "09 05 35"),
+                boolean: Some(BoolConvention::OnIs02),
+                typed: (bool, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 auto iris (R7 p. 21).
+        Fr7AutoIris { /// Source-backed typed readback.
+            value: bool,
+        } => |payload| Ok(InquiryData::Fr7AutoIris { value: decode_builtin_bool::<Fr7AutoIrisInquiry>(&payload, "Fr7AutoIris")? });
+        shape: crate::PayloadShape::Bytes(1);
+        commands [
+            /// Reads Sony FR7 auto iris (R7 p. 21).
+            Fr7AutoIrisInquiry {
+                bytes: [0x09, 0x05, 0x34],
+                source: source!(R7, [SonyFr7], "r7-fr7autoirisinquiry", "09 05 34"),
+                boolean: Some(BoolConvention::OnIs02),
+                typed: (bool, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 preset white (R7 p. 21).
+        Fr7PresetWhite { /// Source-backed typed readback.
+            value: crate::types::WhiteKelvin,
+        } => |payload| Ok(InquiryData::Fr7PresetWhite { value: crate::command::sony_fr7_white_balance::decode_white_kelvin(payload)? });
+        shape: crate::PayloadShape::Nibbles(4);
+        commands [
+            /// Reads Sony FR7 preset white (R7 p. 21).
+            Fr7PresetWhiteInquiry {
+                bytes: [0x09, 0x05, 0x43, 0x01],
+                source: source!(R7, [SonyFr7], "r7-fr7presetwhiteinquiry", "09 05 43 01"),
+                boolean: None,
+                typed: (crate::types::WhiteKelvin, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 memory temperature (R7 p. 21).
+        Fr7MemoryColorTemperature { /// Source-backed typed readback.
+            value: crate::types::WhiteKelvin,
+        } => |payload| Ok(InquiryData::Fr7MemoryColorTemperature { value: crate::command::sony_fr7_white_balance::decode_white_kelvin(payload)? });
+        shape: crate::PayloadShape::Nibbles(4);
+        commands [
+            /// Reads Sony FR7 memory temperature (R7 p. 21).
+            Fr7MemoryColorTemperatureInquiry {
+                bytes: [0x09, 0x05, 0x43, 0x02],
+                source: source!(R7, [SonyFr7], "r7-fr7memorycolortemperatureinquiry", "09 05 43 02"),
+                boolean: None,
+                typed: (crate::types::WhiteKelvin, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 memory red gain (R7 p. 21).
+        Fr7MemoryRedGain { /// Source-backed typed readback.
+            value: crate::types::WhiteBalanceGain,
+        } => |payload| Ok(InquiryData::Fr7MemoryRedGain { value: crate::command::sony_fr7_white_balance::decode_white_balance_gain(payload)? });
+        shape: crate::PayloadShape::Nibbles(4);
+        commands [
+            /// Reads Sony FR7 memory red gain (R7 p. 21).
+            Fr7MemoryRedGainInquiry {
+                bytes: [0x09, 0x7E, 0x04, 0x46, 0x02],
+                source: source!(R7, [SonyFr7], "r7-fr7memoryredgaininquiry", "09 7E 04 46 02"),
+                boolean: None,
+                typed: (crate::types::WhiteBalanceGain, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 memory blue gain (R7 p. 21).
+        Fr7MemoryBlueGain { /// Source-backed typed readback.
+            value: crate::types::WhiteBalanceGain,
+        } => |payload| Ok(InquiryData::Fr7MemoryBlueGain { value: crate::command::sony_fr7_white_balance::decode_white_balance_gain(payload)? });
+        shape: crate::PayloadShape::Nibbles(4);
+        commands [
+            /// Reads Sony FR7 memory blue gain (R7 p. 21).
+            Fr7MemoryBlueGainInquiry {
+                bytes: [0x09, 0x7E, 0x04, 0x56, 0x02],
+                source: source!(R7, [SonyFr7], "r7-fr7memorybluegaininquiry", "09 7E 04 56 02"),
+                boolean: None,
+                typed: (crate::types::WhiteBalanceGain, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 memory tint (R7 p. 21).
+        Fr7MemoryTint { /// Source-backed typed readback.
+            value: crate::types::TintOffset,
+        } => |payload| Ok(InquiryData::Fr7MemoryTint { value: crate::command::sony_fr7_white_balance::decode_tint_offset(payload)? });
+        shape: crate::PayloadShape::Nibbles(4);
+        commands [
+            /// Reads Sony FR7 memory tint (R7 p. 21).
+            Fr7MemoryTintInquiry {
+                bytes: [0x09, 0x05, 0x44, 0x02],
+                source: source!(R7, [SonyFr7], "r7-fr7memorytintinquiry", "09 05 44 02"),
+                boolean: None,
+                typed: (crate::types::TintOffset, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 atw temperature offset (R7 p. 21).
+        Fr7AtwColorTemperatureOffset { /// Source-backed typed readback.
+            value: crate::types::TintOffset,
+        } => |payload| Ok(InquiryData::Fr7AtwColorTemperatureOffset { value: crate::command::sony_fr7_white_balance::decode_tint_offset(payload)? });
+        shape: crate::PayloadShape::Nibbles(4);
+        commands [
+            /// Reads Sony FR7 atw temperature offset (R7 p. 21).
+            Fr7AtwColorTemperatureOffsetInquiry {
+                bytes: [0x09, 0x05, 0x45, 0x00],
+                source: source!(R7, [SonyFr7], "r7-fr7atwcolortemperatureoffsetinquiry", "09 05 45 00"),
+                boolean: None,
+                typed: (crate::types::TintOffset, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 atw tint offset (R7 p. 21).
+        Fr7AtwTintOffset { /// Source-backed typed readback.
+            value: crate::types::TintOffset,
+        } => |payload| Ok(InquiryData::Fr7AtwTintOffset { value: crate::command::sony_fr7_white_balance::decode_tint_offset(payload)? });
+        shape: crate::PayloadShape::Nibbles(4);
+        commands [
+            /// Reads Sony FR7 atw tint offset (R7 p. 21).
+            Fr7AtwTintOffsetInquiry {
+                bytes: [0x09, 0x05, 0x46, 0x00],
+                source: source!(R7, [SonyFr7], "r7-fr7atwtintoffsetinquiry", "09 05 46 00"),
+                boolean: None,
+                typed: (crate::types::TintOffset, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 master black (R7 p. 21).
+        Fr7MasterBlack { /// Source-backed typed readback.
+            value: crate::types::BlackLevel,
+        } => |payload| Ok(InquiryData::Fr7MasterBlack { value: crate::command::sony_fr7_image::decode_black_level(payload)? });
+        shape: crate::PayloadShape::Nibbles(4);
+        commands [
+            /// Reads Sony FR7 master black (R7 p. 21).
+            Fr7MasterBlackInquiry {
+                bytes: [0x09, 0x05, 0x48],
+                source: source!(R7, [SonyFr7], "r7-fr7masterblackinquiry", "09 05 48"),
+                boolean: None,
+                typed: (crate::types::BlackLevel, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 red black (R7 p. 21).
+        Fr7RedBlack { /// Source-backed typed readback.
+            value: crate::types::BlackLevel,
+        } => |payload| Ok(InquiryData::Fr7RedBlack { value: crate::command::sony_fr7_image::decode_black_level(payload)? });
+        shape: crate::PayloadShape::Nibbles(4);
+        commands [
+            /// Reads Sony FR7 red black (R7 p. 21).
+            Fr7RedBlackInquiry {
+                bytes: [0x09, 0x7E, 0x04, 0x43],
+                source: source!(R7, [SonyFr7], "r7-fr7redblackinquiry", "09 7E 04 43"),
+                boolean: None,
+                typed: (crate::types::BlackLevel, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 blue black (R7 p. 21).
+        Fr7BlueBlack { /// Source-backed typed readback.
+            value: crate::types::BlackLevel,
+        } => |payload| Ok(InquiryData::Fr7BlueBlack { value: crate::command::sony_fr7_image::decode_black_level(payload)? });
+        shape: crate::PayloadShape::Nibbles(4);
+        commands [
+            /// Reads Sony FR7 blue black (R7 p. 21).
+            Fr7BlueBlackInquiry {
+                bytes: [0x09, 0x7E, 0x04, 0x44],
+                source: source!(R7, [SonyFr7], "r7-fr7blueblackinquiry", "09 7E 04 44"),
+                boolean: None,
+                typed: (crate::types::BlackLevel, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 detail (R7 p. 21).
+        Fr7Detail { /// Source-backed typed readback.
+            value: bool,
+        } => |payload| Ok(InquiryData::Fr7Detail { value: decode_builtin_bool::<Fr7DetailInquiry>(&payload, "Fr7Detail")? });
+        shape: crate::PayloadShape::Bytes(1);
+        commands [
+            /// Reads Sony FR7 detail (R7 p. 21).
+            Fr7DetailInquiry {
+                bytes: [0x09, 0x7E, 0x01, 0x60],
+                source: source!(R7, [SonyFr7], "r7-fr7detailinquiry", "09 7E 01 60"),
+                boolean: Some(BoolConvention::OnIs02),
+                typed: (bool, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 knee (R7 p. 22).
+        Fr7Knee { /// Source-backed typed readback.
+            value: bool,
+        } => |payload| Ok(InquiryData::Fr7Knee { value: decode_builtin_bool::<Fr7KneeInquiry>(&payload, "Fr7Knee")? });
+        shape: crate::PayloadShape::Bytes(1);
+        commands [
+            /// Reads Sony FR7 knee (R7 p. 22).
+            Fr7KneeInquiry {
+                bytes: [0x09, 0x7E, 0x01, 0x6D],
+                source: source!(R7, [SonyFr7], "r7-fr7kneeinquiry", "09 7E 01 6D"),
+                boolean: Some(BoolConvention::OnIs02),
+                typed: (bool, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 knee mode (R7 p. 22).
+        Fr7KneeMode { /// Source-backed typed readback.
+            value: crate::command::Fr7KneeMode,
+        } => |payload| Ok(InquiryData::Fr7KneeMode { value: crate::command::sony_fr7_image::decode_fr7_knee_mode(payload)? });
+        shape: crate::PayloadShape::Bytes(1);
+        commands [
+            /// Reads Sony FR7 knee mode (R7 p. 22).
+            Fr7KneeModeInquiry {
+                bytes: [0x09, 0x7E, 0x01, 0x54],
+                source: source!(R7, [SonyFr7], "r7-fr7kneemodeinquiry", "09 7E 01 54"),
+                boolean: None,
+                typed: (crate::command::Fr7KneeMode, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 knee slope (R7 p. 22).
+        Fr7KneeSlope { /// Source-backed typed readback.
+            value: crate::types::KneeSlope,
+        } => |payload| Ok(InquiryData::Fr7KneeSlope { value: crate::command::sony_fr7_image::decode_knee_slope(payload)? });
+        shape: crate::PayloadShape::Nibbles(4);
+        commands [
+            /// Reads Sony FR7 knee slope (R7 p. 22).
+            Fr7KneeSlopeInquiry {
+                bytes: [0x09, 0x7E, 0x01, 0x6F],
+                source: source!(R7, [SonyFr7], "r7-fr7kneeslopeinquiry", "09 7E 01 6F"),
+                boolean: None,
+                typed: (crate::types::KneeSlope, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 knee point (R7 p. 22).
+        Fr7KneePoint { /// Source-backed typed readback.
+            value: crate::types::KneePoint,
+        } => |payload| Ok(InquiryData::Fr7KneePoint { value: crate::command::sony_fr7_image::decode_knee_point(payload)? });
+        shape: crate::PayloadShape::Nibbles(4);
+        commands [
+            /// Reads Sony FR7 knee point (R7 p. 22).
+            Fr7KneePointInquiry {
+                bytes: [0x09, 0x7E, 0x01, 0x6E],
+                source: source!(R7, [SonyFr7], "r7-fr7kneepointinquiry", "09 7E 01 6E"),
+                boolean: None,
+                typed: (crate::types::KneePoint, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 knee permission (R7 p. 22).
+        Fr7KneePermission { /// Source-backed typed readback.
+            value: crate::command::Fr7KneePermission,
+        } => |payload| Ok(InquiryData::Fr7KneePermission { value: crate::command::sony_fr7_image::decode_fr7_knee_permission(payload)? });
+        shape: crate::PayloadShape::Bytes(1);
+        commands [
+            /// Reads Sony FR7 knee permission (R7 p. 22).
+            Fr7KneePermissionInquiry {
+                bytes: [0x09, 0x7E, 0x04, 0x6D],
+                parameter: { parameter: crate::command::Fr7KneeParameter = crate::command::Fr7KneeParameter::Setting, byte: to_protocol_value },
+                source: source!(R7, [SonyFr7], "r7-fr7kneepermissioninquiry", "09 7E 04 6D"),
+                boolean: None,
+                typed: (crate::command::Fr7KneePermission, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 clear image position (R7 p. 22).
+        Fr7ClearImageZoomPosition { /// Source-backed typed readback.
+            value: crate::types::ClearImageZoomPosition,
+        } => |payload| Ok(InquiryData::Fr7ClearImageZoomPosition { value: crate::command::sony_fr7_zoom::decode_clear_image_zoom_position(payload)? });
+        shape: crate::PayloadShape::Nibbles(4);
+        commands [
+            /// Reads Sony FR7 clear image position (R7 p. 22).
+            Fr7ClearImageZoomPositionInquiry {
+                bytes: [0x09, 0x04, 0x47],
+                source: source!(R7, [SonyFr7], "r7-fr7clearimagezoompositioninquiry", "09 04 47"),
+                boolean: None,
+                typed: (crate::types::ClearImageZoomPosition, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::AlternateTypedInterpretation { canonical: <ZoomPositionInquiry as BuiltinInquiryCommandMarker>::METADATA },
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 speed selection (R7 p. 22).
+        Fr7PresetSpeedSelection { /// Source-backed typed readback.
+            value: crate::command::Fr7PresetSpeedSelection,
+        } => |payload| Ok(InquiryData::Fr7PresetSpeedSelection { value: crate::command::sony_fr7_presets::decode_preset_speed_selection(payload)? });
+        shape: crate::PayloadShape::Bytes(1);
+        commands [
+            /// Reads Sony FR7 speed selection (R7 p. 22).
+            Fr7PresetSpeedSelectionInquiry {
+                bytes: [0x09, 0x7E, 0x04, 0x1B],
+                source: source!(R7, [SonyFr7], "r7-fr7presetspeedselectioninquiry", "09 7E 04 1B"),
+                boolean: None,
+                typed: (crate::command::Fr7PresetSpeedSelection, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 common speed (R7 p. 22).
+        Fr7CommonPresetSpeed { /// Source-backed typed readback.
+            value: crate::types::PresetSpeed,
+        } => |payload| Ok(InquiryData::Fr7CommonPresetSpeed { value: crate::command::sony_fr7_presets::decode_common_preset_speed(payload)? });
+        shape: crate::PayloadShape::Nibbles(2);
+        commands [
+            /// Reads Sony FR7 common speed (R7 p. 22).
+            Fr7CommonPresetSpeedInquiry {
+                bytes: [0x09, 0x7E, 0x04, 0x1C],
+                source: source!(R7, [SonyFr7], "r7-fr7commonpresetspeedinquiry", "09 7E 04 1C"),
+                boolean: None,
+                typed: (crate::types::PresetSpeed, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 separate mode (R7 p. 22).
+        Fr7SeparatePresetMode { /// Source-backed typed readback.
+            value: crate::command::Fr7PresetSeparateMode,
+        } => |payload| Ok(InquiryData::Fr7SeparatePresetMode { value: crate::command::sony_fr7_presets::decode_separate_preset_mode(payload)? });
+        shape: crate::PayloadShape::Bytes(1);
+        commands [
+            /// Reads Sony FR7 separate mode (R7 p. 22).
+            Fr7SeparatePresetModeInquiry {
+                bytes: [0x09, 0x7E, 0x04, 0x27],
+                parameter: { preset: crate::types::Fr7PresetNumber = crate::types::Fr7PresetNumber::MIN, byte: value },
+                source: source!(R7, [SonyFr7], "r7-fr7separatepresetmodeinquiry", "09 7E 04 27"),
+                boolean: None,
+                typed: (crate::command::Fr7PresetSeparateMode, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 separate speed (R7 p. 22).
+        Fr7SeparatePresetSpeed { /// Source-backed typed readback.
+            value: crate::types::PresetSpeed,
+        } => |payload| Ok(InquiryData::Fr7SeparatePresetSpeed { value: crate::command::sony_fr7_presets::decode_separate_preset_speed(payload)? });
+        shape: crate::PayloadShape::Bytes(1);
+        commands [
+            /// Reads Sony FR7 separate speed (R7 p. 22).
+            Fr7SeparatePresetSpeedInquiry {
+                bytes: [0x09, 0x7E, 0x01, 0x0B],
+                parameter: { preset: crate::types::Fr7PresetNumber = crate::types::Fr7PresetNumber::MIN, byte: value },
+                source: source!(R7, [SonyFr7], "r7-fr7separatepresetspeedinquiry", "09 7E 01 0B"),
+                boolean: None,
+                typed: (crate::types::PresetSpeed, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
+        /// Sony FR7 separate duration (R7 p. 22).
+        Fr7SeparatePresetDuration { /// Source-backed typed readback.
+            value: crate::types::PresetDuration,
+        } => |payload| Ok(InquiryData::Fr7SeparatePresetDuration { value: crate::command::sony_fr7_presets::decode_separate_preset_duration(payload)? });
+        shape: crate::PayloadShape::Nibbles(3);
+        commands [
+            /// Reads Sony FR7 separate duration (R7 p. 22).
+            Fr7SeparatePresetDurationInquiry {
+                bytes: [0x09, 0x7E, 0x04, 0x67],
+                parameter: { preset: crate::types::Fr7PresetNumber = crate::types::Fr7PresetNumber::MIN, byte: value },
+                source: source!(R7, [SonyFr7], "r7-fr7separatepresetdurationinquiry", "09 7E 04 67"),
+                boolean: None,
+                typed: (crate::types::PresetDuration, { value } => Ok(value)),
+                query: BuiltinInquiryQuery::Queryable,
+                vendor_specific: true,
+                rationale: Some("R7 v4 source-backed FR7 value domain and payload grammar."),
+            }
+        ]
+
     }
 }
 
@@ -2128,7 +2603,7 @@ mod generated_invariant_tests {
         for camera_num in 1..=8 {
             let camera_id = CameraId::new(camera_num).expect("valid camera id");
             let frames = encode_each_generated_inquiry(camera_id);
-            assert_eq!(frames.len(), 48);
+            assert_eq!(frames.len(), 74);
             for (name, body, frame) in frames {
                 let frame = frame.unwrap_or_else(|error| panic!("{name} must encode: {error:?}"));
                 let mut expected = vec![camera_id.to_address_byte()];
@@ -2150,8 +2625,8 @@ mod generated_invariant_tests {
             .map(core::mem::discriminant)
             .collect::<std::collections::HashSet<_>>();
         assert_eq!(distinct.len(), FUZZ_INQUIRY_KINDS.len());
-        assert_eq!(FUZZ_INQUIRY_KINDS.len(), 48);
-        assert_eq!(BUILTIN_INQUIRIES.len(), 48);
+        assert_eq!(FUZZ_INQUIRY_KINDS.len(), 74);
+        assert_eq!(BUILTIN_INQUIRIES.len(), 74);
         for meta in BUILTIN_INQUIRIES {
             assert!(
                 FUZZ_INQUIRY_KINDS.contains(&meta.kind),

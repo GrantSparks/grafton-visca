@@ -365,7 +365,7 @@ mod tests {
         // and serde's derive-generated spelling.  It pins each public wire tag
         // to its exact semantic surface, so a swapped decoder, a spurious
         // accepted tag, or a surface added only to `ALL` cannot pass.
-        const WIRE_SURFACES: [(&str, TypedSupportSurface); 56] = [
+        const WIRE_SURFACES: [(&str, TypedSupportSurface); 74] = [
             ("direct-zoom", TypedSupportSurface::DirectZoom),
             (
                 "digital-zoom-toggle",
@@ -482,9 +482,60 @@ mod tests {
                 "noise-reduction2-d-mode",
                 TypedSupportSurface::NoiseReduction2DMode,
             ),
+            ("sony-fr7-ae-level", TypedSupportSurface::SonyFr7AeLevel),
+            ("sony-fr7-auto-gain", TypedSupportSurface::SonyFr7AutoGain),
+            (
+                "sony-fr7-auto-shutter",
+                TypedSupportSurface::SonyFr7AutoShutter,
+            ),
+            ("sony-fr7-iris", TypedSupportSurface::SonyFr7Iris),
+            (
+                "sony-fr7-white-balance",
+                TypedSupportSurface::SonyFr7WhiteBalance,
+            ),
+            (
+                "sony-fr7-preset-white",
+                TypedSupportSurface::SonyFr7PresetWhite,
+            ),
+            (
+                "sony-fr7-memory-color-temperature",
+                TypedSupportSurface::SonyFr7MemoryColorTemperature,
+            ),
+            (
+                "sony-fr7-memory-gain",
+                TypedSupportSurface::SonyFr7MemoryGain,
+            ),
+            (
+                "sony-fr7-memory-tint",
+                TypedSupportSurface::SonyFr7MemoryTint,
+            ),
+            (
+                "sony-fr7-atw-offsets",
+                TypedSupportSurface::SonyFr7AtwOffsets,
+            ),
+            ("sony-fr7-black", TypedSupportSurface::SonyFr7Black),
+            ("sony-fr7-detail", TypedSupportSurface::SonyFr7Detail),
+            ("sony-fr7-knee", TypedSupportSurface::SonyFr7Knee),
+            (
+                "sony-fr7-high-resolution-zoom",
+                TypedSupportSurface::SonyFr7HighResolutionZoom,
+            ),
+            (
+                "sony-fr7-clear-image-zoom",
+                TypedSupportSurface::SonyFr7ClearImageZoom,
+            ),
+            (
+                "sony-fr7-preset-speed",
+                TypedSupportSurface::SonyFr7PresetSpeed,
+            ),
+            (
+                "sony-fr7-preset-duration",
+                TypedSupportSurface::SonyFr7PresetDuration,
+            ),
+            ("sharpness-mode", TypedSupportSurface::SharpnessMode),
         ];
 
-        assert_eq!(TypedSupportSurface::ALL.len(), 56);
+        assert_eq!(TypedSupportSurface::ALL.len(), 74);
         assert_eq!(WIRE_SURFACES.len(), TypedSupportSurface::ALL.len());
         for (wire_name, surface) in WIRE_SURFACES {
             assert_eq!(surface.wire_name(), wire_name);

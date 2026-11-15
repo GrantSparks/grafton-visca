@@ -1561,7 +1561,8 @@ impl ProfileSpec {
                 || caps
                     .exposure
                     .as_ref()
-                    .is_some_and(|domain| domain.iris_range.is_some()))
+                    .is_some_and(|domain| domain.iris_range.is_some())
+                || caps.supports_typed(capabilities::TypedSupportSurface::SonyFr7Iris))
             && (!axes.contains(AffectedAxes::ND_FILTER) || caps.has_nd_filter())
     }
 

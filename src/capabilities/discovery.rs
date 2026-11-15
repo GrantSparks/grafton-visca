@@ -534,6 +534,7 @@ impl Capabilities {
             S::ImageMirror => Dedicated(self.supports_mirror()),
             S::CombinedImageFlip => ParentDomain(self.supports_flip() && self.supports_mirror()),
             S::ContrastControl => Dedicated(image.is_some_and(|d| d.contrast_range.is_some())),
+            S::SharpnessMode => ParentDomain(image.is_some()),
             S::SharpnessControl => Dedicated(image.is_some_and(|d| d.sharpness_range.is_some())),
             S::SaturationControl => Dedicated(image.is_some_and(|d| d.saturation_range.is_some())),
             S::HueControl => Dedicated(image.is_some_and(|d| d.hue_range.is_some())),
@@ -571,6 +572,22 @@ impl Capabilities {
             S::NoiseReduction2DMode => ParentDomain(image.is_some() && self.has_2d_nr()),
             S::ColorTemperatureInquiry => {
                 ParentDomain(self.surface_metadata(S::ColorTemperature).permits())
+            }
+            S::SonyFr7AeLevel | S::SonyFr7AutoGain | S::SonyFr7AutoShutter | S::SonyFr7Iris => {
+                ParentDomain(exposure.is_some())
+            }
+            S::SonyFr7WhiteBalance
+            | S::SonyFr7PresetWhite
+            | S::SonyFr7MemoryColorTemperature
+            | S::SonyFr7MemoryGain
+            | S::SonyFr7MemoryTint
+            | S::SonyFr7AtwOffsets => ParentDomain(white_balance.is_some()),
+            S::SonyFr7Black | S::SonyFr7Detail | S::SonyFr7Knee => ParentDomain(image.is_some()),
+            S::SonyFr7HighResolutionZoom | S::SonyFr7ClearImageZoom => {
+                ParentDomain(self.zoom.is_some())
+            }
+            S::SonyFr7PresetSpeed | S::SonyFr7PresetDuration => {
+                ParentDomain(self.presets.is_some())
             }
             S::PtzOpticsSettingsSave
             | S::PtzOpticsMulticastStreaming

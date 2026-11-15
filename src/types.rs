@@ -1,5 +1,11 @@
 //! Type-safe wrappers for VISCA protocol values.
 
+pub use crate::command::{
+    AeLevel, BlackLevel, BlackStep, ClearImageZoomPosition, Fr7PresetNumber,
+    HighResolutionZoomSpeed, IrisStep, KneePoint, KneeSlope, MemoryColorTemperatureStep,
+    PresetDuration, PresetSpeed, TintOffset, WhiteBalanceGain, WhiteBalanceStep, WhiteKelvin,
+};
+
 use std::fmt;
 
 use crate::{error::Error, units::Percentage};

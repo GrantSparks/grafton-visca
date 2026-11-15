@@ -922,6 +922,332 @@ pub(crate) fn rows() -> Vec<String> {
         "VariableSpeed[Fine50]",
         SetVariableSpeedMode::new(VariableSpeedMode::Fine50)
     );
+    // Sony FR7 R7 v4 controls and boundary values.
+    cover!(
+        covered,
+        Fr7AeLevelUp,
+        Fr7AeLevelDown,
+        Fr7AutoGain,
+        Fr7AutoShutter,
+        Fr7AutoIris,
+        Fr7IrisUp,
+        Fr7IrisDown,
+        Fr7WhiteBalanceSet,
+        Fr7PresetWhiteUp,
+        Fr7PresetWhiteDown,
+        Fr7PresetWhiteDirect,
+        Fr7MemoryColorTemperatureUp,
+        Fr7MemoryColorTemperatureDown,
+        Fr7MemoryColorTemperatureDirect,
+        Fr7MemoryRedGainUp,
+        Fr7MemoryRedGainDown,
+        Fr7MemoryRedGainDirect,
+        Fr7MemoryBlueGainUp,
+        Fr7MemoryBlueGainDown,
+        Fr7MemoryBlueGainDirect,
+        Fr7MemoryTintUp,
+        Fr7MemoryTintDown,
+        Fr7MemoryTintDirect,
+        Fr7AtwColorTemperatureOffsetUp,
+        Fr7AtwColorTemperatureOffsetDown,
+        Fr7AtwColorTemperatureOffsetDirect,
+        Fr7AtwTintOffsetUp,
+        Fr7AtwTintOffsetDown,
+        Fr7AtwTintOffsetDirect,
+        Fr7MasterBlackUp,
+        Fr7MasterBlackDown,
+        Fr7MasterBlackDirect,
+        Fr7RedBlackUp,
+        Fr7RedBlackDown,
+        Fr7RedBlackDirect,
+        Fr7BlueBlackUp,
+        Fr7BlueBlackDown,
+        Fr7BlueBlackDirect,
+        Fr7DetailSetting,
+        Fr7KneeSetting,
+        Fr7SetKneeMode,
+        Fr7SetKneeSlope,
+        Fr7SetKneePoint,
+        Fr7ZoomHighResolutionTele,
+        Fr7ZoomHighResolutionWide,
+        Fr7ZoomHighResolutionStop,
+        Fr7SetPresetSpeedSelection,
+        Fr7SetCommonPresetSpeed,
+        Fr7SetSeparatePresetMode,
+        Fr7SetSeparatePresetSpeed,
+        Fr7SetSeparatePresetDuration,
+        WhiteBalancePreset
+    );
+    row!(o, "Fr7AeLevelUp[R7]", Fr7AeLevel::Up);
+    row!(o, "Fr7AeLevelDown[R7]", Fr7AeLevel::Down);
+    row!(o, "Fr7AutoGain[R7]", Fr7AutoGain::new(true));
+    row!(o, "Fr7AutoShutter[R7]", Fr7AutoShutter::new(true));
+    row!(o, "Fr7AutoIris[R7]", Fr7AutoIris::new(true));
+    row!(o, "Fr7IrisUp[R7]", Fr7IrisUp::new(IrisStep::MAX));
+    row!(o, "Fr7IrisDown[R7]", Fr7IrisDown::new(IrisStep::MAX));
+    row!(o, "Fr7WhiteBalanceSet[R7]", Fr7WhiteBalanceSet);
+    row!(
+        o,
+        "Fr7PresetWhiteUp[R7]",
+        Fr7PresetWhite::Up(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7PresetWhiteDown[R7]",
+        Fr7PresetWhite::Down(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7PresetWhiteDirect[R7]",
+        Fr7PresetWhite::Direct(WhiteKelvin::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryColorTemperatureUp[R7]",
+        Fr7MemoryColorTemperature::Up(MemoryColorTemperatureStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryColorTemperatureDown[R7]",
+        Fr7MemoryColorTemperature::Down(MemoryColorTemperatureStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryColorTemperatureDirect[R7]",
+        Fr7MemoryColorTemperature::Direct(WhiteKelvin::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryRedGainUp[R7]",
+        Fr7MemoryRedGain::Up(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryRedGainDown[R7]",
+        Fr7MemoryRedGain::Down(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryRedGainDirect[R7]",
+        Fr7MemoryRedGain::Direct(WhiteBalanceGain::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryBlueGainUp[R7]",
+        Fr7MemoryBlueGain::Up(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryBlueGainDown[R7]",
+        Fr7MemoryBlueGain::Down(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryBlueGainDirect[R7]",
+        Fr7MemoryBlueGain::Direct(WhiteBalanceGain::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryTintUp[R7]",
+        Fr7MemoryTint::Up(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryTintDown[R7]",
+        Fr7MemoryTint::Down(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryTintDirect[R7]",
+        Fr7MemoryTint::Direct(TintOffset::MAX)
+    );
+    row!(
+        o,
+        "Fr7AtwColorTemperatureOffsetUp[R7]",
+        Fr7AtwColorTemperatureOffset::Up(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7AtwColorTemperatureOffsetDown[R7]",
+        Fr7AtwColorTemperatureOffset::Down(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7AtwColorTemperatureOffsetDirect[R7]",
+        Fr7AtwColorTemperatureOffset::Direct(TintOffset::MAX)
+    );
+    row!(
+        o,
+        "Fr7AtwTintOffsetUp[R7]",
+        Fr7AtwTintOffset::Up(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7AtwTintOffsetDown[R7]",
+        Fr7AtwTintOffset::Down(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7AtwTintOffsetDirect[R7]",
+        Fr7AtwTintOffset::Direct(TintOffset::MAX)
+    );
+    row!(
+        o,
+        "Fr7MasterBlackUp[R7]",
+        Fr7MasterBlack::Up(BlackStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MasterBlackDown[R7]",
+        Fr7MasterBlack::Down(BlackStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MasterBlackDirect[R7]",
+        Fr7MasterBlack::Direct(BlackLevel::MAX)
+    );
+    row!(o, "Fr7RedBlackUp[R7]", Fr7RedBlack::Up(BlackStep::MAX));
+    row!(o, "Fr7RedBlackDown[R7]", Fr7RedBlack::Down(BlackStep::MAX));
+    row!(
+        o,
+        "Fr7RedBlackDirect[R7]",
+        Fr7RedBlack::Direct(BlackLevel::MAX)
+    );
+    row!(o, "Fr7BlueBlackUp[R7]", Fr7BlueBlack::Up(BlackStep::MAX));
+    row!(
+        o,
+        "Fr7BlueBlackDown[R7]",
+        Fr7BlueBlack::Down(BlackStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7BlueBlackDirect[R7]",
+        Fr7BlueBlack::Direct(BlackLevel::MAX)
+    );
+    row!(o, "Fr7DetailSetting[R7]", Fr7DetailSetting::new(true));
+    row!(o, "Fr7KneeSetting[R7]", Fr7KneeSetting::new(true));
+    row!(
+        o,
+        "Fr7SetKneeMode[R7]",
+        Fr7SetKneeMode::new(Fr7KneeMode::Manual)
+    );
+    row!(
+        o,
+        "Fr7SetKneeSlope[R7]",
+        Fr7SetKneeSlope::new(KneeSlope::MAX)
+    );
+    row!(
+        o,
+        "Fr7SetKneePoint[R7]",
+        Fr7SetKneePoint::new(KneePoint::MAX)
+    );
+    row!(
+        o,
+        "Fr7ZoomHighResolutionTele[R7]",
+        Fr7ZoomHighResolution::Tele(HighResolutionZoomSpeed::MAX)
+    );
+    row!(
+        o,
+        "Fr7ZoomHighResolutionWide[R7]",
+        Fr7ZoomHighResolution::Wide(HighResolutionZoomSpeed::MAX)
+    );
+    row!(
+        o,
+        "Fr7ZoomHighResolutionStop[R7]",
+        Fr7ZoomHighResolutionStop
+    );
+    row!(
+        o,
+        "Fr7SetPresetSpeedSelection[R7]",
+        Fr7SetPresetSpeedSelection::new(Fr7PresetSpeedSelection::Common)
+    );
+    row!(
+        o,
+        "Fr7SetCommonPresetSpeed[R7]",
+        Fr7SetCommonPresetSpeed::new(PresetSpeed::MAX)
+    );
+    row!(
+        o,
+        "Fr7SetSeparatePresetMode[R7]",
+        Fr7SetSeparatePresetMode::new(Fr7PresetNumber::MAX, Fr7PresetSeparateMode::Duration)
+    );
+    row!(
+        o,
+        "Fr7SetSeparatePresetSpeed[R7]",
+        Fr7SetSeparatePresetSpeed::new(Fr7PresetNumber::MAX, PresetSpeed::MAX)
+    );
+    row!(
+        o,
+        "Fr7SetSeparatePresetDuration[R7]",
+        Fr7SetSeparatePresetDuration::new(Fr7PresetNumber::MAX, PresetDuration::MAX)
+    );
+    row!(
+        o,
+        "WhiteBalancePreset[R7]",
+        WhiteBalanceCommand::new(WhiteBalanceMode::Preset)
+    );
+    row!(o, "Fr7AeLevelInquiry", Fr7AeLevelInquiry);
+    row!(o, "Fr7AutoGainInquiry", Fr7AutoGainInquiry);
+    row!(o, "Fr7AutoShutterInquiry", Fr7AutoShutterInquiry);
+    row!(o, "Fr7AutoIrisInquiry", Fr7AutoIrisInquiry);
+    row!(o, "Fr7PresetWhiteInquiry", Fr7PresetWhiteInquiry);
+    row!(
+        o,
+        "Fr7MemoryColorTemperatureInquiry",
+        Fr7MemoryColorTemperatureInquiry
+    );
+    row!(o, "Fr7MemoryRedGainInquiry", Fr7MemoryRedGainInquiry);
+    row!(o, "Fr7MemoryBlueGainInquiry", Fr7MemoryBlueGainInquiry);
+    row!(o, "Fr7MemoryTintInquiry", Fr7MemoryTintInquiry);
+    row!(
+        o,
+        "Fr7AtwColorTemperatureOffsetInquiry",
+        Fr7AtwColorTemperatureOffsetInquiry
+    );
+    row!(o, "Fr7AtwTintOffsetInquiry", Fr7AtwTintOffsetInquiry);
+    row!(o, "Fr7MasterBlackInquiry", Fr7MasterBlackInquiry);
+    row!(o, "Fr7RedBlackInquiry", Fr7RedBlackInquiry);
+    row!(o, "Fr7BlueBlackInquiry", Fr7BlueBlackInquiry);
+    row!(o, "Fr7DetailInquiry", Fr7DetailInquiry);
+    row!(o, "Fr7KneeInquiry", Fr7KneeInquiry);
+    row!(o, "Fr7KneeModeInquiry", Fr7KneeModeInquiry);
+    row!(o, "Fr7KneeSlopeInquiry", Fr7KneeSlopeInquiry);
+    row!(o, "Fr7KneePointInquiry", Fr7KneePointInquiry);
+    row!(
+        o,
+        "Fr7KneePermissionInquiry",
+        Fr7KneePermissionInquiry::new(Fr7KneeParameter::Setting)
+    );
+    row!(
+        o,
+        "Fr7ClearImageZoomPositionInquiry",
+        Fr7ClearImageZoomPositionInquiry
+    );
+    row!(
+        o,
+        "Fr7PresetSpeedSelectionInquiry",
+        Fr7PresetSpeedSelectionInquiry
+    );
+    row!(
+        o,
+        "Fr7CommonPresetSpeedInquiry",
+        Fr7CommonPresetSpeedInquiry
+    );
+    row!(
+        o,
+        "Fr7SeparatePresetModeInquiry",
+        Fr7SeparatePresetModeInquiry::new(Fr7PresetNumber::MIN)
+    );
+    row!(
+        o,
+        "Fr7SeparatePresetSpeedInquiry",
+        Fr7SeparatePresetSpeedInquiry::new(Fr7PresetNumber::MIN)
+    );
+    row!(
+        o,
+        "Fr7SeparatePresetDurationInquiry",
+        Fr7SeparatePresetDurationInquiry::new(Fr7PresetNumber::MIN)
+    );
     // inquiries (common set)
     macro_rules! inq { ($($t:ident),* $(,)?) => { $( row!(o, stringify!($t), $t); )* } }
     inq!(

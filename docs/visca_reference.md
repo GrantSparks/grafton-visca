@@ -2392,4 +2392,117 @@ vendor-verified claim from this built-in catalog.
 | r10-settingssave-command | R10 | PtzOpticsG3 | command.SettingsSave | 01 04 A5 10 | - | Move 4K G3 command list |
 | r7-variablespeedmode-command | R7 | SonyFr7 | command.VariableSpeedMode | 01 06 45 | - | FR7 v4 command list pp.14–20 |
 
+| r7-command-fr7aelevelup | R7 | SonyFr7 | command.Fr7AeLevelUp | 01 04 0E 02 | - | FR7 v4 p. 14 |
+| r7-command-fr7aeleveldown | R7 | SonyFr7 | command.Fr7AeLevelDown | 01 04 0E 03 | - | FR7 v4 p. 14 |
+| r7-command-fr7autogain | R7 | SonyFr7 | command.Fr7AutoGain | 01 7E 01 75 | - | FR7 v4 p. 14 |
+| r7-command-fr7autoshutter | R7 | SonyFr7 | command.Fr7AutoShutter | 01 05 35 | - | FR7 v4 p. 14 |
+| r7-command-fr7autoiris | R7 | SonyFr7 | command.Fr7AutoIris | 01 05 34 | - | FR7 v4 p. 14 |
+| r7-command-fr7irisup | R7 | SonyFr7 | command.Fr7IrisUp | 01 7E 04 4B 02 | - | FR7 v4 p. 14 |
+| r7-command-fr7irisdown | R7 | SonyFr7 | command.Fr7IrisDown | 01 7E 04 4B 03 | - | FR7 v4 p. 14 |
+| r7-command-fr7whitebalanceset | R7 | SonyFr7 | command.Fr7WhiteBalanceSet | 01 04 10 05 | - | FR7 v4 p. 15 |
+| r7-command-fr7presetwhiteup | R7 | SonyFr7 | command.Fr7PresetWhiteUp | 01 05 03 02 01 | - | FR7 v4 p. 15 |
+| r7-command-fr7presetwhitedown | R7 | SonyFr7 | command.Fr7PresetWhiteDown | 01 05 03 03 01 | - | FR7 v4 p. 15 |
+| r7-command-fr7presetwhitedirect | R7 | SonyFr7 | command.Fr7PresetWhiteDirect | 01 05 43 01 | - | FR7 v4 p. 15 |
+| r7-command-fr7memorycolortemperatureup | R7 | SonyFr7 | command.Fr7MemoryColorTemperatureUp | 01 05 03 02 02 | - | FR7 v4 p. 15 |
+| r7-command-fr7memorycolortemperaturedown | R7 | SonyFr7 | command.Fr7MemoryColorTemperatureDown | 01 05 03 03 02 | - | FR7 v4 p. 15 |
+| r7-command-fr7memorycolortemperaturedirect | R7 | SonyFr7 | command.Fr7MemoryColorTemperatureDirect | 01 05 43 02 | - | FR7 v4 p. 15 |
+| r7-command-fr7memoryredgainup | R7 | SonyFr7 | command.Fr7MemoryRedGainUp | 01 7E 01 63 02 02 | - | FR7 v4 p. 15 |
+| r7-command-fr7memoryredgaindown | R7 | SonyFr7 | command.Fr7MemoryRedGainDown | 01 7E 01 63 03 02 | - | FR7 v4 p. 15 |
+| r7-command-fr7memoryredgaindirect | R7 | SonyFr7 | command.Fr7MemoryRedGainDirect | 01 7E 04 46 02 | - | FR7 v4 p. 15 |
+| r7-command-fr7memorybluegainup | R7 | SonyFr7 | command.Fr7MemoryBlueGainUp | 01 7E 01 64 02 02 | - | FR7 v4 p. 15 |
+| r7-command-fr7memorybluegaindown | R7 | SonyFr7 | command.Fr7MemoryBlueGainDown | 01 7E 01 64 03 02 | - | FR7 v4 p. 15 |
+| r7-command-fr7memorybluegaindirect | R7 | SonyFr7 | command.Fr7MemoryBlueGainDirect | 01 7E 04 56 02 | - | FR7 v4 p. 15 |
+| r7-command-fr7memorytintup | R7 | SonyFr7 | command.Fr7MemoryTintUp | 01 05 04 02 02 | - | FR7 v4 p. 15 |
+| r7-command-fr7memorytintdown | R7 | SonyFr7 | command.Fr7MemoryTintDown | 01 05 04 03 02 | - | FR7 v4 p. 15 |
+| r7-command-fr7memorytintdirect | R7 | SonyFr7 | command.Fr7MemoryTintDirect | 01 05 44 02 | - | FR7 v4 p. 15 |
+| r7-command-fr7atwcolortemperatureoffsetup | R7 | SonyFr7 | command.Fr7AtwColorTemperatureOffsetUp | 01 05 05 02 00 | - | FR7 v4 p. 15 |
+| r7-command-fr7atwcolortemperatureoffsetdown | R7 | SonyFr7 | command.Fr7AtwColorTemperatureOffsetDown | 01 05 05 03 00 | - | FR7 v4 p. 15 |
+| r7-command-fr7atwcolortemperatureoffsetdirect | R7 | SonyFr7 | command.Fr7AtwColorTemperatureOffsetDirect | 01 05 45 00 | - | FR7 v4 p. 15 |
+| r7-command-fr7atwtintoffsetup | R7 | SonyFr7 | command.Fr7AtwTintOffsetUp | 01 05 06 02 00 | - | FR7 v4 p. 15 |
+| r7-command-fr7atwtintoffsetdown | R7 | SonyFr7 | command.Fr7AtwTintOffsetDown | 01 05 06 03 00 | - | FR7 v4 p. 15 |
+| r7-command-fr7atwtintoffsetdirect | R7 | SonyFr7 | command.Fr7AtwTintOffsetDirect | 01 05 46 00 | - | FR7 v4 p. 15 |
+| r7-command-fr7masterblackup | R7 | SonyFr7 | command.Fr7MasterBlackUp | 01 05 18 02 | - | FR7 v4 p. 16 |
+| r7-command-fr7masterblackdown | R7 | SonyFr7 | command.Fr7MasterBlackDown | 01 05 18 03 | - | FR7 v4 p. 16 |
+| r7-command-fr7masterblackdirect | R7 | SonyFr7 | command.Fr7MasterBlackDirect | 01 05 48 | - | FR7 v4 p. 16 |
+| r7-command-fr7redblackup | R7 | SonyFr7 | command.Fr7RedBlackUp | 01 7E 01 65 02 | - | FR7 v4 p. 16 |
+| r7-command-fr7redblackdown | R7 | SonyFr7 | command.Fr7RedBlackDown | 01 7E 01 65 03 | - | FR7 v4 p. 16 |
+| r7-command-fr7redblackdirect | R7 | SonyFr7 | command.Fr7RedBlackDirect | 01 7E 04 43 | - | FR7 v4 p. 16 |
+| r7-command-fr7blueblackup | R7 | SonyFr7 | command.Fr7BlueBlackUp | 01 7E 01 66 02 | - | FR7 v4 p. 16 |
+| r7-command-fr7blueblackdown | R7 | SonyFr7 | command.Fr7BlueBlackDown | 01 7E 01 66 03 | - | FR7 v4 p. 16 |
+| r7-command-fr7blueblackdirect | R7 | SonyFr7 | command.Fr7BlueBlackDirect | 01 7E 04 44 | - | FR7 v4 p. 16 |
+| r7-command-fr7detailsetting | R7 | SonyFr7 | command.Fr7DetailSetting | 01 7E 01 60 | - | FR7 v4 p. 16 |
+| r7-command-fr7kneesetting | R7 | SonyFr7 | command.Fr7KneeSetting | 01 7E 01 6D | - | FR7 v4 p. 16 |
+| r7-command-fr7setkneemode | R7 | SonyFr7 | command.Fr7SetKneeMode | 01 7E 01 54 | - | FR7 v4 p. 16 |
+| r7-command-fr7setkneeslope | R7 | SonyFr7 | command.Fr7SetKneeSlope | 01 7E 01 6F | - | FR7 v4 p. 16 |
+| r7-command-fr7setkneepoint | R7 | SonyFr7 | command.Fr7SetKneePoint | 01 7E 01 6E | - | FR7 v4 p. 16 |
+| r7-command-fr7zoomhighresolutiontele | R7 | SonyFr7 | command.Fr7ZoomHighResolutionTele | 01 7E 04 17 02 | - | FR7 v4 p. 16 |
+| r7-command-fr7zoomhighresolutionwide | R7 | SonyFr7 | command.Fr7ZoomHighResolutionWide | 01 7E 04 17 03 | - | FR7 v4 p. 16 |
+| r7-command-fr7zoomhighresolutionstop | R7 | SonyFr7 | command.Fr7ZoomHighResolutionStop | 01 7E 04 17 00 | - | FR7 v4 p. 16 |
+| r7-command-fr7setpresetspeedselection | R7 | SonyFr7 | command.Fr7SetPresetSpeedSelection | 01 7E 04 1B | - | FR7 v4 p. 19 |
+| r7-command-fr7setcommonpresetspeed | R7 | SonyFr7 | command.Fr7SetCommonPresetSpeed | 01 7E 04 1C | - | FR7 v4 p. 19 |
+| r7-command-fr7setseparatepresetmode | R7 | SonyFr7 | command.Fr7SetSeparatePresetMode | 01 7E 04 27 | - | FR7 v4 p. 19 |
+| r7-command-fr7setseparatepresetspeed | R7 | SonyFr7 | command.Fr7SetSeparatePresetSpeed | 01 7E 01 0B | - | FR7 v4 p. 19 |
+| r7-command-fr7setseparatepresetduration | R7 | SonyFr7 | command.Fr7SetSeparatePresetDuration | 01 7E 04 67 | - | FR7 v4 p. 19 |
+| r7-command-whitebalancepreset | R7 | SonyFr7 | command.WhiteBalancePreset | 01 04 35 0A | - | FR7 v4 p. 15 |
+| r7-command-whitebalancemanual | R7 | SonyFr7 | command.WhiteBalanceManual | 01 04 35 05 | - | FR7 v4 p. 15 |
+| r7-fr7aelevelinquiry | R7 | SonyFr7 | Fr7AeLevelInquiry | 09 04 4E | - | FR7 v4 p. 21 |
+| r7-fr7autogaininquiry | R7 | SonyFr7 | Fr7AutoGainInquiry | 09 7E 01 75 | 02=on;03=off | FR7 v4 p. 21 |
+| r7-fr7autoshutterinquiry | R7 | SonyFr7 | Fr7AutoShutterInquiry | 09 05 35 | 02=on;03=off | FR7 v4 p. 21 |
+| r7-fr7autoirisinquiry | R7 | SonyFr7 | Fr7AutoIrisInquiry | 09 05 34 | 02=on;03=off | FR7 v4 p. 21 |
+| r7-fr7presetwhiteinquiry | R7 | SonyFr7 | Fr7PresetWhiteInquiry | 09 05 43 01 | - | FR7 v4 p. 21 |
+| r7-fr7memorycolortemperatureinquiry | R7 | SonyFr7 | Fr7MemoryColorTemperatureInquiry | 09 05 43 02 | - | FR7 v4 p. 21 |
+| r7-fr7memoryredgaininquiry | R7 | SonyFr7 | Fr7MemoryRedGainInquiry | 09 7E 04 46 02 | - | FR7 v4 p. 21 |
+| r7-fr7memorybluegaininquiry | R7 | SonyFr7 | Fr7MemoryBlueGainInquiry | 09 7E 04 56 02 | - | FR7 v4 p. 21 |
+| r7-fr7memorytintinquiry | R7 | SonyFr7 | Fr7MemoryTintInquiry | 09 05 44 02 | - | FR7 v4 p. 21 |
+| r7-fr7atwcolortemperatureoffsetinquiry | R7 | SonyFr7 | Fr7AtwColorTemperatureOffsetInquiry | 09 05 45 00 | - | FR7 v4 p. 21 |
+| r7-fr7atwtintoffsetinquiry | R7 | SonyFr7 | Fr7AtwTintOffsetInquiry | 09 05 46 00 | - | FR7 v4 p. 21 |
+| r7-fr7masterblackinquiry | R7 | SonyFr7 | Fr7MasterBlackInquiry | 09 05 48 | - | FR7 v4 p. 21 |
+| r7-fr7redblackinquiry | R7 | SonyFr7 | Fr7RedBlackInquiry | 09 7E 04 43 | - | FR7 v4 p. 21 |
+| r7-fr7blueblackinquiry | R7 | SonyFr7 | Fr7BlueBlackInquiry | 09 7E 04 44 | - | FR7 v4 p. 21 |
+| r7-fr7detailinquiry | R7 | SonyFr7 | Fr7DetailInquiry | 09 7E 01 60 | 02=on;03=off | FR7 v4 p. 21 |
+| r7-fr7kneeinquiry | R7 | SonyFr7 | Fr7KneeInquiry | 09 7E 01 6D | 02=on;03=off | FR7 v4 p. 22 |
+| r7-fr7kneemodeinquiry | R7 | SonyFr7 | Fr7KneeModeInquiry | 09 7E 01 54 | - | FR7 v4 p. 22 |
+| r7-fr7kneeslopeinquiry | R7 | SonyFr7 | Fr7KneeSlopeInquiry | 09 7E 01 6F | - | FR7 v4 p. 22 |
+| r7-fr7kneepointinquiry | R7 | SonyFr7 | Fr7KneePointInquiry | 09 7E 01 6E | - | FR7 v4 p. 22 |
+| r7-fr7kneepermissioninquiry | R7 | SonyFr7 | Fr7KneePermissionInquiry | 09 7E 04 6D | - | FR7 v4 p. 22 |
+| r7-fr7clearimagezoompositioninquiry | R7 | SonyFr7 | Fr7ClearImageZoomPositionInquiry | 09 04 47 | - | FR7 v4 p. 22 |
+| r7-fr7presetspeedselectioninquiry | R7 | SonyFr7 | Fr7PresetSpeedSelectionInquiry | 09 7E 04 1B | - | FR7 v4 p. 22 |
+| r7-fr7commonpresetspeedinquiry | R7 | SonyFr7 | Fr7CommonPresetSpeedInquiry | 09 7E 04 1C | - | FR7 v4 p. 22 |
+| r7-fr7separatepresetmodeinquiry | R7 | SonyFr7 | Fr7SeparatePresetModeInquiry | 09 7E 04 27 | - | FR7 v4 p. 22 |
+| r7-fr7separatepresetspeedinquiry | R7 | SonyFr7 | Fr7SeparatePresetSpeedInquiry | 09 7E 01 0B | - | FR7 v4 p. 22 |
+| r7-fr7separatepresetdurationinquiry | R7 | SonyFr7 | Fr7SeparatePresetDurationInquiry | 09 7E 04 67 | - | FR7 v4 p. 22 |
+| r7-grant-sonyfr7aelevel | R7 | SonyFr7 | grant.SonyFr7AeLevel | 01 04 0E 02;01 04 0E 03;09 04 4E | - | FR7 v4 p. 14–22 |
+| r7-grant-sonyfr7autogain | R7 | SonyFr7 | grant.SonyFr7AutoGain | 01 7E 01 75;09 7E 01 75 | - | FR7 v4 p. 14–22 |
+| r7-grant-sonyfr7autoshutter | R7 | SonyFr7 | grant.SonyFr7AutoShutter | 01 05 35;09 05 35 | - | FR7 v4 p. 14–22 |
+| r7-grant-sonyfr7iris | R7 | SonyFr7 | grant.SonyFr7Iris | 01 05 34;01 7E 04 4B 02;01 7E 04 4B 03;09 05 34 | - | FR7 v4 p. 14–22 |
+| r7-grant-sonyfr7whitebalance | R7 | SonyFr7 | grant.SonyFr7WhiteBalance | 01 04 35 04;01 04 35 05;01 04 35 0A;01 04 10 05;09 04 35 | - | FR7 v4 p. 14–22 |
+| r7-grant-sonyfr7presetwhite | R7 | SonyFr7 | grant.SonyFr7PresetWhite | 01 05 03 02 01;01 05 03 03 01;01 05 43 01;09 05 43 01 | - | FR7 v4 p. 14–22 |
+| r7-grant-sonyfr7memorycolortemperature | R7 | SonyFr7 | grant.SonyFr7MemoryColorTemperature | 01 05 03 02 02;01 05 03 03 02;01 05 43 02;09 05 43 02 | - | FR7 v4 p. 14–22 |
+| r7-grant-sonyfr7memorygain | R7 | SonyFr7 | grant.SonyFr7MemoryGain | 01 7E 01 63 02 02;01 7E 01 63 03 02;01 7E 04 46 02;01 7E 01 64 02 02;01 7E 01 64 03 02;01 7E 04 56 02;09 7E 04 46 02;09 7E 04 56 02 | - | FR7 v4 p. 14–22 |
+| r7-grant-sonyfr7memorytint | R7 | SonyFr7 | grant.SonyFr7MemoryTint | 01 05 04 02 02;01 05 04 03 02;01 05 44 02;09 05 44 02 | - | FR7 v4 p. 14–22 |
+| r7-grant-sonyfr7atwoffsets | R7 | SonyFr7 | grant.SonyFr7AtwOffsets | 01 05 05 02 00;01 05 05 03 00;01 05 45 00;01 05 06 02 00;01 05 06 03 00;01 05 46 00;09 05 45 00;09 05 46 00 | - | FR7 v4 p. 14–22 |
+| r7-grant-sonyfr7black | R7 | SonyFr7 | grant.SonyFr7Black | 01 05 18 02;01 05 18 03;01 05 48;01 7E 01 65 02;01 7E 01 65 03;01 7E 04 43;01 7E 01 66 02;01 7E 01 66 03;01 7E 04 44;09 05 48;09 7E 04 43;09 7E 04 44 | - | FR7 v4 p. 14–22 |
+| r7-grant-sonyfr7detail | R7 | SonyFr7 | grant.SonyFr7Detail | 01 7E 01 60;09 7E 01 60 | - | FR7 v4 p. 14–22 |
+| r7-grant-sonyfr7knee | R7 | SonyFr7 | grant.SonyFr7Knee | 01 7E 01 6D;01 7E 01 54;01 7E 01 6F;01 7E 01 6E;09 7E 01 6D;09 7E 01 54;09 7E 01 6F;09 7E 01 6E;09 7E 04 6D | - | FR7 v4 p. 14–22 |
+| r7-grant-sonyfr7highresolutionzoom | R7 | SonyFr7 | grant.SonyFr7HighResolutionZoom | 01 7E 04 17 02;01 7E 04 17 03;01 7E 04 17 00 | - | FR7 v4 p. 14–22 |
+| r7-grant-sonyfr7clearimagezoom | R7 | SonyFr7 | grant.SonyFr7ClearImageZoom | 09 04 47 | - | FR7 v4 p. 14–22 |
+| r7-grant-sonyfr7presetspeed | R7 | SonyFr7 | grant.SonyFr7PresetSpeed | 01 7E 04 1B;01 7E 04 1C;01 7E 04 27;01 7E 01 0B;09 7E 04 1B;09 7E 04 1C;09 7E 04 27;09 7E 01 0B | - | FR7 v4 p. 14–22 |
+| r7-grant-sonyfr7presetduration | R7 | SonyFr7 | grant.SonyFr7PresetDuration | 01 7E 04 67;09 7E 04 67 | - | FR7 v4 p. 14–22 |
+
+| r1-ptzopticsg2-sharpnessmode-grant | R1 | PtzOpticsG2 | grant.SharpnessMode | 01 04 05;09 04 05 | - | §7 command/inquiry tables |
+| r14-ptzopticsg3-sharpnessmode-grant | R14 | PtzOpticsG3 | grant.SharpnessMode | 01 04 05;09 04 05 | - | Current Developer Portal command and query pages |
+| r1-ptzoptics30x-sharpnessmode-grant | R1 | PtzOptics30X | grant.SharpnessMode | 01 04 05;09 04 05 | - | §7 command/inquiry tables |
 <!-- END CHECKED SOURCE EVIDENCE -->
+
+### FR7 cinema domains (R7 v4, pp. 14–22)
+
+FR7-specific exposure, Kelvin/gain/tint, black/detail/knee and preset methods
+use the model's own packets and checked values. Iris steps are applied-only
+operations on Iris; high-resolution zoom drive/stop are applied-only on Zoom.
+There is no iris position inquiry and no fabricated settlement target.
+Clear Image Zoom readback spans `0000..6000` (`5556` is 1.5× at 4K). R7
+explicitly disables direct zoom while the camera menu enables Clear Image Zoom;
+the API exposes that domain for readback and does not invent a direct setter.
+Recording, audio controls, assignable controls, dials/selectors, colour bars,
+lens initialization, shooting mode, PTZ trace and auto framing remain explicit
+raw/custom extensions; autonomous PTZ needs its own motion-safety design.

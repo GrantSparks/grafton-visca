@@ -1197,7 +1197,7 @@ builtin_request! {
             crate::command::color::BlueGain::SetValue(_) => BlueGainDirect,
         },
     };
-    crate::command::image::Sharpness => SharpnessMode: Plain {
+    crate::command::image::Sharpness => SharpnessReset: Plain {
         size: 9,
         rows: |command| match (command) {
             crate::command::image::Sharpness::Mode(_) => SharpnessMode,
@@ -1240,6 +1240,7 @@ builtin_request! {
             crate::command::WhiteBalanceMode::OnePush => WhiteBalanceOnePush,
             crate::command::WhiteBalanceMode::ATW => WhiteBalanceAutoTracking,
             crate::command::WhiteBalanceMode::Manual => WhiteBalanceManual,
+            crate::command::WhiteBalanceMode::Preset => WhiteBalancePreset,
             crate::command::WhiteBalanceMode::ColorTemperature => WhiteBalanceColorTemperature,
         },
     };
@@ -4790,5 +4791,183 @@ mod tests {
         assert!(!admits!(&h900, crate::command::TallyGreenOn::new()));
         assert!(!admits!(&h900, crate::command::TallyGreenOff::new()));
         assert!(!admits!(&ptz, TallyBrightHi::new()));
+    }
+}
+
+// Source-backed Sony FR7 request contracts (R7 v4).
+builtin_request! {
+    crate::command::Fr7AeLevel => Fr7AeLevelUp: Plain { size: 6,
+        rows: |value| match (value) {
+            crate::command::Fr7AeLevel::Up => Fr7AeLevelUp,
+            crate::command::Fr7AeLevel::Down => Fr7AeLevelDown,
+        },
+    };
+    crate::command::Fr7AutoGain => Fr7AutoGain: Plain { size: 7,
+    };
+    crate::command::Fr7AutoShutter => Fr7AutoShutter: Plain { size: 6,
+    };
+    crate::command::Fr7AutoIris => Fr7AutoIris: Plain { size: 6,
+    };
+    crate::command::Fr7IrisUp => Fr7IrisUp: AppliedOnly { size: 9,
+    };
+    crate::command::Fr7IrisDown => Fr7IrisDown: AppliedOnly { size: 9,
+    };
+    crate::command::Fr7WhiteBalanceSet => Fr7WhiteBalanceSet: Plain { size: 6,
+    };
+    crate::command::Fr7PresetWhite => Fr7PresetWhiteUp: Plain { size: 10,
+        rows: |value| match (value) {
+            crate::command::Fr7PresetWhite::Up(_) => Fr7PresetWhiteUp,
+            crate::command::Fr7PresetWhite::Down(_) => Fr7PresetWhiteDown,
+            crate::command::Fr7PresetWhite::Direct(_) => Fr7PresetWhiteDirect,
+        },
+    };
+    crate::command::Fr7MemoryColorTemperature => Fr7MemoryColorTemperatureUp: Plain { size: 10,
+        rows: |value| match (value) {
+            crate::command::Fr7MemoryColorTemperature::Up(_) => Fr7MemoryColorTemperatureUp,
+            crate::command::Fr7MemoryColorTemperature::Down(_) => Fr7MemoryColorTemperatureDown,
+            crate::command::Fr7MemoryColorTemperature::Direct(_) => Fr7MemoryColorTemperatureDirect,
+        },
+    };
+    crate::command::Fr7MemoryRedGain => Fr7MemoryRedGainUp: Plain { size: 11,
+        rows: |value| match (value) {
+            crate::command::Fr7MemoryRedGain::Up(_) => Fr7MemoryRedGainUp,
+            crate::command::Fr7MemoryRedGain::Down(_) => Fr7MemoryRedGainDown,
+            crate::command::Fr7MemoryRedGain::Direct(_) => Fr7MemoryRedGainDirect,
+        },
+    };
+    crate::command::Fr7MemoryBlueGain => Fr7MemoryBlueGainUp: Plain { size: 11,
+        rows: |value| match (value) {
+            crate::command::Fr7MemoryBlueGain::Up(_) => Fr7MemoryBlueGainUp,
+            crate::command::Fr7MemoryBlueGain::Down(_) => Fr7MemoryBlueGainDown,
+            crate::command::Fr7MemoryBlueGain::Direct(_) => Fr7MemoryBlueGainDirect,
+        },
+    };
+    crate::command::Fr7MemoryTint => Fr7MemoryTintUp: Plain { size: 10,
+        rows: |value| match (value) {
+            crate::command::Fr7MemoryTint::Up(_) => Fr7MemoryTintUp,
+            crate::command::Fr7MemoryTint::Down(_) => Fr7MemoryTintDown,
+            crate::command::Fr7MemoryTint::Direct(_) => Fr7MemoryTintDirect,
+        },
+    };
+    crate::command::Fr7AtwColorTemperatureOffset => Fr7AtwColorTemperatureOffsetUp: Plain { size: 10,
+        rows: |value| match (value) {
+            crate::command::Fr7AtwColorTemperatureOffset::Up(_) => Fr7AtwColorTemperatureOffsetUp,
+            crate::command::Fr7AtwColorTemperatureOffset::Down(_) => Fr7AtwColorTemperatureOffsetDown,
+            crate::command::Fr7AtwColorTemperatureOffset::Direct(_) => Fr7AtwColorTemperatureOffsetDirect,
+        },
+    };
+    crate::command::Fr7AtwTintOffset => Fr7AtwTintOffsetUp: Plain { size: 10,
+        rows: |value| match (value) {
+            crate::command::Fr7AtwTintOffset::Up(_) => Fr7AtwTintOffsetUp,
+            crate::command::Fr7AtwTintOffset::Down(_) => Fr7AtwTintOffsetDown,
+            crate::command::Fr7AtwTintOffset::Direct(_) => Fr7AtwTintOffsetDirect,
+        },
+    };
+    crate::command::Fr7MasterBlack => Fr7MasterBlackUp: Plain { size: 9,
+        rows: |value| match (value) {
+            crate::command::Fr7MasterBlack::Up(_) => Fr7MasterBlackUp,
+            crate::command::Fr7MasterBlack::Down(_) => Fr7MasterBlackDown,
+            crate::command::Fr7MasterBlack::Direct(_) => Fr7MasterBlackDirect,
+        },
+    };
+    crate::command::Fr7RedBlack => Fr7RedBlackUp: Plain { size: 10,
+        rows: |value| match (value) {
+            crate::command::Fr7RedBlack::Up(_) => Fr7RedBlackUp,
+            crate::command::Fr7RedBlack::Down(_) => Fr7RedBlackDown,
+            crate::command::Fr7RedBlack::Direct(_) => Fr7RedBlackDirect,
+        },
+    };
+    crate::command::Fr7BlueBlack => Fr7BlueBlackUp: Plain { size: 10,
+        rows: |value| match (value) {
+            crate::command::Fr7BlueBlack::Up(_) => Fr7BlueBlackUp,
+            crate::command::Fr7BlueBlack::Down(_) => Fr7BlueBlackDown,
+            crate::command::Fr7BlueBlack::Direct(_) => Fr7BlueBlackDirect,
+        },
+    };
+    crate::command::Fr7DetailSetting => Fr7DetailSetting: Plain { size: 7,
+    };
+    crate::command::Fr7KneeSetting => Fr7KneeSetting: Plain { size: 7,
+    };
+    crate::command::Fr7SetKneeMode => Fr7SetKneeMode: Plain { size: 7,
+    };
+    crate::command::Fr7SetKneeSlope => Fr7SetKneeSlope: Plain { size: 8,
+    };
+    crate::command::Fr7SetKneePoint => Fr7SetKneePoint: Plain { size: 8,
+    };
+    crate::command::Fr7ZoomHighResolution => Fr7ZoomHighResolutionTele: AppliedOnly { size: 11,
+        rows: |value| match (value) {
+            crate::command::Fr7ZoomHighResolution::Tele(_) => Fr7ZoomHighResolutionTele,
+            crate::command::Fr7ZoomHighResolution::Wide(_) => Fr7ZoomHighResolutionWide,
+        },
+    };
+    crate::command::Fr7ZoomHighResolutionStop => Fr7ZoomHighResolutionStop: AppliedOnly { size: 11,
+        policy: (Quick, Movement, Urgent),
+    };
+    crate::command::Fr7SetPresetSpeedSelection => Fr7SetPresetSpeedSelection: Plain { size: 7,
+    };
+    crate::command::Fr7SetCommonPresetSpeed => Fr7SetCommonPresetSpeed: Plain { size: 8,
+    };
+    crate::command::Fr7SetSeparatePresetMode => Fr7SetSeparatePresetMode: Plain { size: 8,
+    };
+    crate::command::Fr7SetSeparatePresetSpeed => Fr7SetSeparatePresetSpeed: Plain { size: 8,
+    };
+    crate::command::Fr7SetSeparatePresetDuration => Fr7SetSeparatePresetDuration: Plain { size: 10,
+    };
+}
+
+impl BuiltinValidation for crate::command::Fr7AeLevel {}
+impl BuiltinValidation for crate::command::Fr7AutoGain {}
+impl BuiltinValidation for crate::command::Fr7AutoShutter {}
+impl BuiltinValidation for crate::command::Fr7AutoIris {}
+impl BuiltinValidation for crate::command::Fr7IrisUp {}
+impl BuiltinValidation for crate::command::Fr7IrisDown {}
+impl BuiltinValidation for crate::command::Fr7WhiteBalanceSet {}
+impl BuiltinValidation for crate::command::Fr7PresetWhite {}
+impl BuiltinValidation for crate::command::Fr7MemoryColorTemperature {}
+impl BuiltinValidation for crate::command::Fr7MemoryRedGain {}
+impl BuiltinValidation for crate::command::Fr7MemoryBlueGain {}
+impl BuiltinValidation for crate::command::Fr7MemoryTint {}
+impl BuiltinValidation for crate::command::Fr7AtwColorTemperatureOffset {}
+impl BuiltinValidation for crate::command::Fr7AtwTintOffset {}
+impl BuiltinValidation for crate::command::Fr7MasterBlack {}
+impl BuiltinValidation for crate::command::Fr7RedBlack {}
+impl BuiltinValidation for crate::command::Fr7BlueBlack {}
+impl BuiltinValidation for crate::command::Fr7DetailSetting {}
+impl BuiltinValidation for crate::command::Fr7KneeSetting {}
+impl BuiltinValidation for crate::command::Fr7SetKneeMode {}
+impl BuiltinValidation for crate::command::Fr7SetKneeSlope {}
+impl BuiltinValidation for crate::command::Fr7SetKneePoint {}
+impl BuiltinValidation for crate::command::Fr7ZoomHighResolution {}
+impl BuiltinValidation for crate::command::Fr7ZoomHighResolutionStop {}
+impl BuiltinValidation for crate::command::Fr7SetPresetSpeedSelection {}
+impl BuiltinValidation for crate::command::Fr7SetCommonPresetSpeed {}
+impl BuiltinValidation for crate::command::Fr7SetSeparatePresetMode {
+    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
+        let facts = presets_facts(profile)?;
+        require_in_range(
+            "preset number",
+            self.preset().value(),
+            &crate::capabilities::CapabilityRange::<u8>::new(0, facts.highest),
+        )
+    }
+}
+impl BuiltinValidation for crate::command::Fr7SetSeparatePresetSpeed {
+    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
+        let facts = presets_facts(profile)?;
+        require_in_range(
+            "preset number",
+            self.preset().value(),
+            &crate::capabilities::CapabilityRange::<u8>::new(0, facts.highest),
+        )
+    }
+}
+impl BuiltinValidation for crate::command::Fr7SetSeparatePresetDuration {
+    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
+        let facts = presets_facts(profile)?;
+        require_in_range(
+            "preset number",
+            self.preset().value(),
+            &crate::capabilities::CapabilityRange::<u8>::new(0, facts.highest),
+        )
     }
 }

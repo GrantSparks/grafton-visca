@@ -282,6 +282,7 @@ synthetic_profile!(
         TypedSupportSurface::RgbTuning,
         TypedSupportSurface::SaturationControl,
         TypedSupportSurface::SharpnessControl,
+        TypedSupportSurface::SharpnessMode,
         TypedSupportSurface::Tally,
         TypedSupportSurface::WideDynamicRange,
     ])
@@ -333,6 +334,7 @@ impl capabilities::HasRgbGain for OptionalSurfacesTypedSupport {}
 impl capabilities::HasRgbTuning for OptionalSurfacesTypedSupport {}
 impl capabilities::HasSaturationControl for OptionalSurfacesTypedSupport {}
 impl capabilities::HasSharpnessControl for OptionalSurfacesTypedSupport {}
+impl capabilities::HasSharpnessMode for OptionalSurfacesTypedSupport {}
 impl capabilities::HasTally for OptionalSurfacesTypedSupport {}
 impl capabilities::HasWideDynamicRange for OptionalSurfacesTypedSupport {}
 impl capabilities::HasImageProcessing for OptionalSurfacesTypedSupport {}

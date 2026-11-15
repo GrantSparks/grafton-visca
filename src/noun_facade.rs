@@ -126,10 +126,10 @@ macro_rules! static_noun_facade {
         }
     };
 
-    (@method [$($async:tt)?] [$($await:tt)*] $base:tt [$(#[$doc:meta])*] inquiry $method:ident() -> $ret:ty;
+    (@method [$($async:tt)?] [$($await:tt)*] $base:tt [$(#[$doc:meta])*] inquiry $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty;
         [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
-        pub $($async)? fn $method(&self) -> $crate::Result<$ret>
+        pub $($async)? fn $method(&self $(, $arg: $ty)*) -> $crate::Result<$ret>
         $(where P: $crate::capabilities::$gate $(+ $crate::capabilities::$extra)*)?
         {
             $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);

@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- All 17 sourced Sony FR7 control families are available through static and
+  dynamic nouns and canonical typed inquiries. Separate preset speeds retain
+  their raw-byte grammar, common speeds use two nibbles, and durations use
+  three nibbles in tenths of a second. FR7 iris steps return applied-only
+  operations, and high-resolution zoom participates in motion halt fences (#894).
+
 - Sony FR7 AE-level, automatic gain/shutter/iris, relative iris-step and
   high-resolution zoom controls use their sourced R7 packets and checked
   domains. Clear Image Zoom has a bounded position readback; it adds no
@@ -21,8 +27,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inquiries can declare their decoder's shape with `with_payload_shape` (#892).
   Built-in and canonical derived inquiries get this fact from the decoder table;
   pan/tilt position shapes use the same per-profile axis words as decoding.
-- Serial startup has a bounded fuzz target for arbitrary bus input, I/O results
-  and timing ticks, with reply/noise/echo seeds also exercised on stable (#887).
 - (#894) Sony FR7 white-balance controls use the R7 Kelvin, Memory A gain,
   tint and ATW-offset packets and checked value domains. Memory A Kelvin
   steps retain their narrower 1–30 range; other white-balance step counts
@@ -48,6 +52,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   draining periodic background tasks, and panicked task joins return an error.
 
 ### Changed
+
+- Sharpness auto/manual mode has its own source-backed permission and marker;
+  level and step control no longer implies the separate mode register. FR7
+  retains level/step control and refuses undocumented mode operations (#878).
 
 - Canonical inquiry generation supports a checked one-byte argument with a
   constructor, accessor and valid test sample. Unit queries retain their

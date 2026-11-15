@@ -309,6 +309,11 @@ macro_rules! exception_disposition {
 /// Implements [`BuiltinInquiryGate`] for the request type of an `inquiry`
 /// row; every other row kind owns no inquiry.
 macro_rules! inquiry_gate {
+    (inquiry [$module:ident :: $request:ident :: new($($argument:expr),*)] $gate:tt $base:tt) => {
+        impl BuiltinInquiryGate for $module::$request {
+            const GATE: RowGate = row_gate!($gate, $base);
+        }
+    };
     (inquiry [$($request:tt)*] $gate:tt $base:tt) => {
         impl BuiltinInquiryGate for $($request)* {
             const GATE: RowGate = row_gate!($gate, $base);

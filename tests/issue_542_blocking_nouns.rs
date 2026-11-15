@@ -16,8 +16,8 @@ use grafton_visca::{
         HasPictureEffect, HasPower, HasPresets, HasPtzOpticsAntiFlicker,
         HasPtzOpticsMulticastStreaming, HasPtzOpticsNdiQuality, HasPtzOpticsPresetRecallSpeed,
         HasPtzOpticsSettingsSave, HasRgbGain, HasRgbTuning, HasSaturationControl,
-        HasSharpnessControl, HasSonyAutoSlowShutter, HasSonySpotlight, HasTally, HasUsbAudio,
-        HasVersionInquiry, HasWhiteBalance, HasWideDynamicRange, HasZoom,
+        HasSharpnessControl, HasSharpnessMode, HasSonyAutoSlowShutter, HasSonySpotlight, HasTally,
+        HasUsbAudio, HasVersionInquiry, HasWhiteBalance, HasWideDynamicRange, HasZoom,
     },
     command::{MotionSyncMode, NdFilterValue},
     completion::{AppliedOnly, Targeted},
@@ -137,6 +137,7 @@ where
         + HasRgbTuning
         + HasSaturationControl
         + HasSharpnessControl
+        + HasSharpnessMode
         + HasTally
         + HasWideDynamicRange,
 {

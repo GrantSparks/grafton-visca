@@ -38,9 +38,9 @@ use super::{DynAppliedOperation, DynFuture, DynSessionCamera, DynTargetedOperati
 /// [`crate::prepared::prepare_command`] — so the row `where` clauses and the
 /// header gates are ignored here.
 macro_rules! dyn_noun_facade {
-    (@declare [$(#[$doc:meta])*] inquiry $method:ident() -> $ret:ty) => {
+    (@declare [$(#[$doc:meta])*] inquiry $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty) => {
         $(#[$doc])*
-        fn $method(&self) -> DynFuture<'_, Result<$ret, Error>>;
+        fn $method(&self $(, $arg: $ty)*) -> DynFuture<'_, Result<$ret, Error>>;
     };
     (@declare [$(#[$doc:meta])*] plain $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty) => {
         $(#[$doc])*
@@ -55,8 +55,8 @@ macro_rules! dyn_noun_facade {
         fn $method(&self, $($arg: $ty),*) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
     };
 
-    (@implement inquiry $method:ident() -> $ret:ty; [$($request:tt)*]) => {
-        fn $method(&self) -> DynFuture<'_, Result<$ret, Error>> {
+    (@implement inquiry $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty; [$($request:tt)*]) => {
+        fn $method(&self $(, $arg: $ty)*) -> DynFuture<'_, Result<$ret, Error>> {
             Box::pin(async move { self.inquire(&$($request)*).await })
         }
     };

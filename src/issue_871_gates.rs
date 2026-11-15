@@ -80,6 +80,24 @@ samples! {
     command::MenuButton => command::MenuButton::Release;
     types::NdiQuality => types::NdiQuality::High;
     command::VariableSpeedMode => command::VariableSpeedMode::Standard24;
+    types::IrisStep => types::IrisStep::MIN;
+    types::WhiteKelvin => types::WhiteKelvin::MIN;
+    types::WhiteBalanceStep => types::WhiteBalanceStep::MIN;
+    types::MemoryColorTemperatureStep => types::MemoryColorTemperatureStep::MIN;
+    types::WhiteBalanceGain => types::WhiteBalanceGain::MIN;
+    types::TintOffset => types::TintOffset::MIN;
+    types::BlackStep => types::BlackStep::MIN;
+    types::BlackLevel => types::BlackLevel::MIN;
+    types::KneeSlope => types::KneeSlope::MIN;
+    types::KneePoint => types::KneePoint::MIN;
+    types::HighResolutionZoomSpeed => types::HighResolutionZoomSpeed::MIN;
+    types::Fr7PresetNumber => types::Fr7PresetNumber::MIN;
+    types::PresetSpeed => types::PresetSpeed::MIN;
+    types::PresetDuration => types::PresetDuration::MIN;
+    command::Fr7KneeMode => command::Fr7KneeMode::Auto;
+    command::Fr7KneeParameter => command::Fr7KneeParameter::Setting;
+    command::Fr7PresetSpeedSelection => command::Fr7PresetSpeedSelection::Separate;
+    command::Fr7PresetSeparateMode => command::Fr7PresetSeparateMode::Speed;
 }
 impl Sample for types::FocusPosition {
     fn sample(profile: &ProfileSpec) -> Self {
@@ -161,6 +179,11 @@ fn profiles() -> (ProfileSpec, ProfileSpec, ProfileSpec) {
         .expect("white balance")
         .modes
         .push(command::WhiteBalanceMode::ATW);
+    caps.white_balance
+        .as_mut()
+        .expect("white balance")
+        .modes
+        .push(command::WhiteBalanceMode::Preset);
     let full = build(caps, &source, true);
     let none = build(
         Capabilities::runtime_baseline("No control domains", 1).expect("baseline"),
@@ -229,9 +252,17 @@ macro_rules! exercise_row {
         }
     }};
 }
+macro_rules! inquiry_gate_of {
+    ([$module:ident :: $request:ident :: new($($argument:expr),*)]) => {
+        <$module::$request as crate::command::surface::BuiltinInquiryGate>::GATE
+    };
+    ([$request:ty]) => {
+        <$request as crate::command::surface::BuiltinInquiryGate>::GATE
+    };
+}
 macro_rules! collect_surfaces {
     (inquiry, [], [$($request:tt)*], $seen:ident) => {
-        if let RowGate::Typed(surfaces) = <$($request)* as crate::command::surface::BuiltinInquiryGate>::GATE {
+        if let RowGate::Typed(surfaces) = inquiry_gate_of!([$($request)*]) {
             $seen.extend(surfaces.iter());
         }
     };
@@ -244,8 +275,9 @@ macro_rules! collect_surfaces {
 }
 
 macro_rules! agreement_row {
-    (inquiry, [], $ret:ty, [$($request:tt)*], $args:tt, $profile:ident) => {{
-        let gate = <$($request)* as crate::command::surface::BuiltinInquiryGate>::GATE;
+    (inquiry, [], $ret:ty, [$($request:tt)*], [$($arg:ident: $ty:ty),*], $profile:ident) => {{
+        $(let $arg = <$ty as Sample>::sample($profile);)*
+        let gate = inquiry_gate_of!([$($request)*]);
         if let RowGate::Typed(surfaces) = gate {
             let expected = surfaces.iter().all(|surface| $profile.capabilities().supports_typed(surface));
             let registration = target_for($profile);
