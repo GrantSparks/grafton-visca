@@ -118,7 +118,18 @@ pub(crate) const MAX_DEBTS_PER_TARGET: usize = 32;
 /// split one more run. The bound is independent of how many STOPs are
 /// written; the engine checks it as an invariant.
 pub(crate) const fn max_entries_per_target(admissible: usize) -> usize {
-    MAX_DEBTS_PER_TARGET + 5 * admissible + 2 + 2 * (MAX_DISPUTE_HANDOFFS + 2)
+    match super::checked_stream_ledger_bound(admissible) {
+        Some(bound) => bound,
+        None => usize::MAX,
+    }
+}
+
+/// Checked form used by session preflight before allocating or opening I/O.
+pub(super) const fn checked_max_entries_per_target(admissible: usize) -> Option<usize> {
+    let Some(live) = admissible.checked_mul(5) else {
+        return None;
+    };
+    live.checked_add(MAX_DEBTS_PER_TARGET + 2 + 2 * (MAX_DISPUTE_HANDOFFS + 2))
 }
 
 /// The first answer a written request is owed.

@@ -1040,3 +1040,8 @@ pub(crate) struct AppliedStateEffect {
     pub(crate) target: CameraId,
     pub(crate) projection: AppliedStateProjection,
 }
+
+/// Returns the stream ledger's fixed memory bound, or refuses arithmetic overflow.
+pub(crate) const fn checked_stream_ledger_bound(admissible: usize) -> Option<usize> {
+    super::stream_ledger::checked_max_entries_per_target(admissible)
+}
