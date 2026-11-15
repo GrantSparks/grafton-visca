@@ -9,7 +9,7 @@ use crate::{
         surface::{row_gate, DomainGate, RowGate},
     },
     noun_table::noun_table,
-    prepared::{prepare_builtin_command, prepare_builtin_operation},
+    prepared::test_support::{prepare_builtin_command, prepare_builtin_operation},
     request::builtin,
     types,
     units::Degrees,

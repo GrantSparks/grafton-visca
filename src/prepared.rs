@@ -2193,7 +2193,6 @@ mod tests {
         PositionQuery::new(PreparedInquiryTemplate {
             wire: template.wire,
             context: template.context,
-            route: template.route,
             decoder: ResponseDecoder::from_fn(|_| Err(Error::InvalidResponseFormat)),
         })
     }

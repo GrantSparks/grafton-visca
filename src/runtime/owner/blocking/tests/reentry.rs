@@ -29,19 +29,21 @@ fn refuses_reentry(during_write: bool) {
     let (answered, answers) = flume::bounded(1);
     let callback: TransportCallback = Box::new(move || {
         let deadline = callback_owner.now() + PROMPTLY;
+        let tuning = crate::session_config::ValidatedTuning::validate(
+            OperationalTuning::new(),
+            [&callback_profile],
+        )
+        .unwrap();
         let halt = crate::prepared::prepare_halt(
             &crate::TargetRegistration::from_profile(
                 crate::target::TargetSlot::CAMERA_1,
                 callback_profile.clone(),
             ),
-            OperationalTuning::new(),
+            tuning,
         );
         let results = [
             ("metrics", callback_owner.metrics().map(|_| ())),
-            (
-                "set_tuning",
-                callback_owner.reconfigure(Ok(OperationalTuning::new())),
-            ),
+            ("set_tuning", callback_owner.reconfigure(Ok(tuning))),
             (
                 "subscribe_diagnostics",
                 callback_owner.subscribe_diagnostics(1).map(|_| ()),

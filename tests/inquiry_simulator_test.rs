@@ -203,8 +203,8 @@ async fn session_inquiries_observe_applied_simulator_state() {
     assert!((degrees.pan.0 + 10.0).abs() < 0.1);
     assert!((degrees.tilt.0 + 5.0).abs() < 0.1);
     camera.power().off().await.unwrap();
-    assert!(!camera.power().state().await.unwrap());
+    assert!(!camera.power().state().await.unwrap().is_on());
     camera.power().on().await.unwrap();
-    assert!(camera.power().state().await.unwrap());
+    assert!(camera.power().state().await.unwrap().is_on());
     session.close().await.unwrap();
 }

@@ -594,8 +594,9 @@ mod tests {
     fn partial_motion_profile(has_zoom: bool, has_focus: bool) -> ProfileSpec {
         let mut capabilities =
             Capabilities::runtime_baseline("Partial motion test camera", 1).expect("baseline");
-        capabilities.has_zoom = has_zoom;
-        capabilities.has_focus = has_focus;
+        let domains = Capabilities::from_profile::<crate::profiles::GenericVisca>();
+        capabilities.zoom = has_zoom.then(|| domains.zoom.expect("generic zoom domain"));
+        capabilities.focus = has_focus.then(|| domains.focus.expect("generic focus domain"));
 
         ProfileSpec::builder(capabilities)
             .transports(TransportCompatibility::new(Some(5678), None, false))
@@ -617,7 +618,6 @@ mod tests {
             .maximum_command_sockets(1)
             .supports_operation_complete(true)
             .supports_command_cancel(false)
-            .preset_recall_axes(None)
             .position_inquiries(PositionInquirySupport::new(false, false, false))
             .build()
             .expect("valid partial motion profile")

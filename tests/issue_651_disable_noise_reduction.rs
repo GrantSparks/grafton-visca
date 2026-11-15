@@ -452,7 +452,7 @@ mod dyn_surface {
             .noise_reduction_3d()
             .await
             .expect("runtime profiles decode the full public 3D NR domain");
-        assert_eq!(level, NoiseReduction3DLevel::MAX);
+        assert_eq!(level, NoiseReduction3D::Level(NoiseReduction3DLevel::MAX));
         assert_raw_writes(&fake);
 
         session.shutdown().expect("shutdown");
