@@ -691,11 +691,9 @@ impl BuiltinValidation for crate::command::gain::Gain {
     }
 }
 
-impl BuiltinValidation for crate::command::gain::GainLimitCommand {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_gain(profile, Some(self.limit.value()))
-    }
-}
+// Every sourced model gives this register the full nibble enforced by
+// `GainLimit`. Its domain is independent of the separate gain-level register.
+impl BuiltinValidation for crate::command::gain::GainLimitCommand {}
 
 impl BuiltinValidation for crate::command::color::OnePushTriggerCommand {}
 
@@ -4930,6 +4928,93 @@ mod tests {
             0,
             "unsupported gain requests never encode"
         );
+    }
+
+    #[test]
+    fn gain_limit_prepares_every_sourced_nibble_independently_of_gain_levels() {
+        use crate::{command::gain::GainLimitCommand, Inquiry};
+
+        let decoded = crate::command::GainLimitInquiry
+            .decoder()
+            .decode(&[0x0F])
+            .expect("gain-limit reply 90 50 0F FF");
+        assert_eq!(decoded.value(), 0x0F);
+
+        for profile in [
+            ProfileSpec::from_compile_time::<PtzOpticsG2>(),
+            ProfileSpec::from_compile_time::<PtzOpticsG3>(),
+            ProfileSpec::from_compile_time::<PtzOptics30X>(),
+        ] {
+            let profile = profile.expect("sourced PTZOptics profile");
+            let target = crate::TargetRegistration::new(CameraId::CAMERA_1, profile.clone())
+                .expect("target");
+            for value in 0x00..=0x0F {
+                let limit = crate::types::GainLimit::new(value).expect("full nibble");
+                let frame = prepare_builtin_command(
+                    &GainLimitCommand::new(limit),
+                    &target,
+                    OperationalTuning::new(),
+                )
+                .expect("every sourced gain-limit value prepares")
+                .admit_with(|request, _| request.wire().as_bytes().to_vec());
+                assert_eq!(frame, [0x81, 1, 4, 0x2C, value, 0xFF]);
+            }
+            prepare_builtin_command(
+                &GainLimitCommand::new(decoded),
+                &target,
+                OperationalTuning::new(),
+            )
+            .expect("a decoded limit can be written back");
+
+            let mut capabilities = profile.capabilities().clone();
+            capabilities.profile_id = None;
+            capabilities.exposure.as_mut().expect("exposure").gain_range = None;
+            let without_gain_levels = ProfileSpec::builder(capabilities)
+                .transports(profile.transports())
+                .envelope(profile.envelope())
+                .timing(profile.timing())
+                .maximum_command_sockets(profile.maximum_command_sockets())
+                .supports_operation_complete(profile.supports_operation_complete())
+                .supports_command_cancel(profile.supports_command_cancel())
+                .position_inquiries(profile.position_inquiries())
+                .build()
+                .expect("gain-limit support needs no gain-level range");
+            let target = crate::TargetRegistration::new(CameraId::CAMERA_1, without_gain_levels)
+                .expect("target without gain levels");
+            prepare_builtin_command(
+                &GainLimitCommand::new(decoded),
+                &target,
+                OperationalTuning::new(),
+            )
+            .expect("gain-limit admission does not read gain_range");
+        }
+    }
+
+    #[test]
+    fn unsourced_gain_limits_are_refused_before_encoding() {
+        let command = crate::command::gain::GainLimitCommand::new(
+            crate::types::GainLimit::new(0x0F).expect("full nibble"),
+        );
+        for profile in [
+            ProfileSpec::from_compile_time::<SonyFR7>(),
+            ProfileSpec::from_compile_time::<SonyBRCH900>(),
+            ProfileSpec::from_compile_time::<SonyEVIH100>(),
+            ProfileSpec::from_compile_time::<SonyBRC300>(),
+            ProfileSpec::from_compile_time::<NearusBRC300>(),
+            ProfileSpec::from_compile_time::<GenericVisca>(),
+        ] {
+            let target = crate::TargetRegistration::new(
+                CameraId::CAMERA_1,
+                profile.expect("unsourced built-in profile"),
+            )
+            .expect("target");
+            reset_request_write_count();
+            assert!(matches!(
+                prepare_builtin_command(&command, &target, OperationalTuning::new()),
+                Err(Error::FeatureNotSupported { .. })
+            ));
+            assert_eq!(request_write_count(), 0, "source denial precedes encoding");
+        }
     }
 
     #[test]
