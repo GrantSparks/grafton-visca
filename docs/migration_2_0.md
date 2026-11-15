@@ -61,10 +61,17 @@ let mut config = TransportConfig::for_tcp();
 config.buffer_config.max_buffer_size = 16_384;
 let error = Error::connection_closed(None);
 match error {
-    Error::ConnectionClosed { reason, .. } => assert!(reason.is_none()),
+    Error::ConnectionClosed { source, .. } => assert!(source.is_none()),
     _ => {},
 }
 ```
+
+Terminal session failures retain typed causes: `ConnectionClosed` carries
+`Option<Arc<Error>>`, and `StreamPoisoned` carries `Arc<Error>`. Use
+`std::error::Error::source()` to inspect the transport or protocol cause.
+Construct them with `Error::connection_closed(cause)` and
+`Error::stream_poisoned(cause)`; repeated normalization preserves context
+without adding another session-death wrapper.
 
 Named patterns need `..` even when the parent enum was already non-exhaustive.
 Matches over `InquiryKind`, `InquiryData`, `FrameSequence`, `ReceiveOutcome`,
@@ -1059,7 +1066,7 @@ budget, so an unroutable first address no longer starves the others.
 **Serial ports.** Both serial transports open the device for exclusive
 access; on Tokio a second process opening the same port now fails with
 `ConnectionFailed` where it previously shared the port. A zero-byte serial
-read is `ConnectionClosed { reason: "serial port closed" }` on both facades.
+read is `ConnectionClosed` with an `Io(UnexpectedEof)` source on both facades.
 
 **Serial startup writes nothing by default.** `transport::serial::Config` and
 `CameraConfig` serial opens no longer broadcast I/F Clear. Select startup

@@ -59,6 +59,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING** (#900): `ConnectionClosed` retains `source: Option<Arc<Error>>`
+  and `StreamPoisoned` retains `source: Arc<Error>` instead of reason text.
+  Their constructors preserve typed causes and normalize existing terminal
+  verdicts through context wrappers without nesting. Session recovery and
+  certainty classifications are unchanged; termination fan-out shares causes.
+
 - Engine boundaries take the owner-sampled instant explicitly, including halt,
   terminal cleanup and wake planning; no ambient turn timestamp remains (#905).
 
