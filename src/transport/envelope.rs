@@ -292,7 +292,9 @@ impl Envelope for SonyEncapsulated {
 impl SonyEncapsulated {
     fn next_sequence(&self, request: SonyRequestSequence) -> u32 {
         match request {
-            SonyRequestSequence::AllocateFresh => self.sequence_counter.fetch_add(1, Ordering::Relaxed),
+            SonyRequestSequence::AllocateFresh => {
+                self.sequence_counter.fetch_add(1, Ordering::Relaxed)
+            }
             SonyRequestSequence::Replay(sequence) => sequence,
         }
     }

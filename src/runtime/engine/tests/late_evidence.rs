@@ -115,7 +115,7 @@ fn sony_late_completion_applies_each_unacknowledged_retry_path() {
             if cause == 2 {
                 engine.handle(
                     Input::ReceiveFault {
-                        error: Error::TransportError("transient receive".into()),
+                        error: Error::transport_error(std::io::Error::other("transient receive")),
                     },
                     at,
                 );
@@ -491,7 +491,7 @@ proptest! {
                     ticket += 1;
                     Input::Admit { ticket: AdmissionTicket(ticket), request: command(1, CancellationPolicy::Supported), slot: AdmissionSlot::Ordinary }
                 }
-                1 => Input::ReceiveFault { error: Error::TransportError("model receive fault".into()) },
+                1 => Input::ReceiveFault { error: Error::transport_error(std::io::Error::other("model receive fault")) },
                 2 | 3 if !written.is_empty() => {
                     let index = usize::from(advance) % written.len();
                     let (id, sequence) = written.iter().nth(index).unwrap();

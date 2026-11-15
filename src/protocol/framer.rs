@@ -750,7 +750,7 @@ mod tests {
             .encode(),
         );
         bytes.extend_from_slice(&[0x90, 0x41, 0xff]);
-        framer.push_slice(&bytes).expect("bounded input");
+        assert!(framer.push_slice(&bytes).is_ok(), "bounded input");
         let verdicts: Vec<_> = framer.drain_frames().collect();
         assert_eq!(
             verdicts,

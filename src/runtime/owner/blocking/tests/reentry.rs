@@ -11,8 +11,8 @@ fn refuses_reentry(during_write: bool) {
         .submit_operation(
             prepare_operation::<AppliedOnly, _>(
                 &ZoomStop,
-                crate::target::TargetSlot::CAMERA_1,
-                &profile,
+                &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -28,8 +28,8 @@ fn refuses_reentry(during_write: bool) {
     let callback: TransportCallback = Box::new(move || {
         let deadline = callback_owner.now() + PROMPTLY;
         let halt = crate::prepared::prepare_halt(
-            crate::target::TargetSlot::CAMERA_1,
-            &callback_profile,
+            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, callback_profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         );
         let results = [

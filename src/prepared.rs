@@ -1789,8 +1789,8 @@ mod tests {
         };
         let error = prepare_command(
             &request,
-            TargetSlot::CAMERA_1,
-            &sony,
+            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, sony.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1809,8 +1809,8 @@ mod tests {
         );
         prepare_command(
             &request,
-            TargetSlot::CAMERA_1,
-            &raw,
+            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, raw.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1834,8 +1834,8 @@ mod tests {
             .expect("FR7-format runtime profile");
         prepare_command(
             &request,
-            TargetSlot::CAMERA_1,
-            &fr7,
+            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, fr7.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1847,8 +1847,8 @@ mod tests {
         assert!(matches!(
             prepare_command(
                 &oversize,
-                TargetSlot::CAMERA_1,
-                &fr7,
+                &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, fr7.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request
             ),
@@ -2380,8 +2380,8 @@ mod tests {
         ] {
             let prepared = prepare_inquiry(
                 &ZoomPositionInquiry,
-                TargetSlot::CAMERA_1,
-                &profile,
+                &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
+                    .expect("valid target registration"),
                 tuning,
                 ClassSelection::Request,
             )
@@ -2393,7 +2393,6 @@ mod tests {
                 PreparedInquiryTemplate {
                     wire: Arc::new(EncodedMessage::new(&[0x81, 0x09, 0xff]).expect("inert wire")),
                     context,
-                    route: InquiryRoute::RAW,
                     decoder: ResponseDecoder::from_fn(|_| Err(Error::InvalidResponseFormat)),
                 }
             }
@@ -2440,8 +2439,8 @@ mod tests {
         ) {
             let prepared = prepare_operation::<completion::Targeted, _>(
                 operation,
-                TargetSlot::CAMERA_1,
-                profile,
+                &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new().settlement_timeout(Duration::from_secs(seconds)),
                 ClassSelection::Request,
             )
