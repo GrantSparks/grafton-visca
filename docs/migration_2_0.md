@@ -497,6 +497,18 @@ The built-in command classification remains one closed semantic ledger. A
 custom request must declare its class explicitly; wire opcode or response shape
 does not infer lifecycle semantics.
 
+When porting raw frames, use `raw::CommandPolicy` with `raw::Plain`,
+`raw::OperationPolicy` with `raw::Targeted` or `raw::AppliedOnly`, and
+`raw::InquiryPolicy` with `raw::Inquiry<R>`. Command and operation policies
+take `CommandCategory` (`Quick`, `Movement`, `Preset`, `LongRunning`, or
+`Network`), which cannot select the inquiry timeout. Inquiry policy stores
+neither a timeout category nor a command reply shape. Plain commands select
+`raw::RawReplyShape`; operations select `raw::OperationReplyShape`, whose
+`AckThenCompletion` and `CompletionOnly` variants require camera evidence and
+exclude `NoReply`. All three policies take `SubmissionClass`, which cannot
+express `Urgent`. Policy constructors are infallible; raw request constructors
+remain fallible for wire validation.
+
 ### Type-erasing operation handles
 
 1.x `InFlight` was borrow-oriented, so downstream crates could put it behind an
@@ -605,9 +617,9 @@ Three behavioural differences are worth reading before porting:
   `with_submission_class(SubmissionClass::Background)`, still submits `PanTiltStop`, `ZoomStop`,
   `FocusStop`, and owner-issued protocol cancellation as `ControlClass::Urgent`.
   Nor can ordinary work manufacture the urgent lane: `SubmissionClass` has no
-  `Urgent` variant, and the raw escape hatch's `raw::Policy` rejects
-  `ControlClass::Urgent` at construction (a raw caller who needs preemption
-  issues the typed stop instead). The urgent lane is reachable only by the
+  `Urgent` variant, and `raw::CommandPolicy`, `raw::OperationPolicy`, and
+  `raw::InquiryPolicy` all take that ordinary-work type. A raw caller who needs
+  preemption issues the typed stop. The urgent lane is reachable only by the
   crate's own stops and owner-issued cancellation.
 - **Inquiries are covered.** 1.x kept inquiries at a fixed polling priority; in
   2.0 they share the same four lanes, so a handle demoted to `Background` moves
@@ -897,7 +909,7 @@ camera operation. They have no name-preserving alias in 2.0:
 | Items formerly obtained incidentally from the broad `prelude` contents | The async and blocking preludes now contain their documented facade-specific quick-start sets. Import extension contracts such as `Request`, `Inquiry`, `OperationCommand`, `Envelope`, profile builders, and transport traits explicitly from their owning root/module paths. |
 | `ClosedSession` and the open/closed session typestate markers | `Session::close(self)` consumes the session and returns `Result<()>`; success is the closed-state proof. Do not retain or pass a closed token. |
 | `ResponseFuture` | Keep the returned `Operation<K>` and call its terminal method, or await the typed `inquire`/`execute` call directly. The owner retains response routing; there is no public boxed response-future alias. |
-| `RawSender` | Construct `raw::Plain`, `raw::Inquiry<R>`, `raw::Targeted`, or `raw::AppliedOnly` and pass it to the matching camera `execute`, `inquire`, or `submit` method. Raw values still carry explicit timeout, retry, control, and reply-shape policy. |
+| `RawSender` | Construct `raw::Plain`, `raw::Inquiry<R>`, `raw::Targeted`, or `raw::AppliedOnly` and pass it to the matching camera `execute`, `inquire`, or `submit` method. Use `raw::CommandPolicy` for plain commands, `raw::OperationPolicy` for operations, or `raw::InquiryPolicy` for inquiries; their types constrain timeout, submission class, and reply shape to the request kind. |
 | `submit_continuous` | Express the lifecycle in the request type: implement `OperationCommand<completion::AppliedOnly>` for a custom typed request, or construct `raw::AppliedOnly`, then call `submit::<completion::AppliedOnly, _>`. |
 | `CommandBehavior` and `InquiryResponseSpec` | Implement the public `Request` class plus `Inquiry`/`OperationCommand<K>` contract. Custom inquiry decoding belongs in the response type/decoder; action-versus-inquiry routing is no longer supplied as mutable runtime metadata. |
 | `CachedFlipState` | `StateCache::flip_state()` returns the public `command::FlipState` value. |
