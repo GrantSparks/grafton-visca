@@ -53,6 +53,8 @@ mod receipts;
 mod release_boundary;
 #[cfg(feature = "runtime-tokio")]
 mod retained_boundary;
+#[cfg(feature = "runtime-tokio")]
+mod retry_budget;
 
 #[cfg(feature = "runtime-tokio")]
 #[derive(Clone)]

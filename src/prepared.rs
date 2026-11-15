@@ -977,6 +977,12 @@ where
             .command_spacing_override()
             .unwrap_or(timing.minimum_command_spacing())
     };
+    let reply_shape = lower_reply_shape(request.reply_shape());
+    let governing_deadline = if inquiry {
+        timeout.inquiry
+    } else {
+        command_attempt_timeout(&timeout, reply_shape)
+    };
     Ok(RequestContext {
         motion: None,
         submission_order: 0,
@@ -993,6 +999,7 @@ where
             } else {
                 timeout.completion
             },
+            governing_deadline,
             builtin_inquiry_syntax,
         ),
         control: ControlPolicy {
@@ -1009,7 +1016,7 @@ where
         // preparation has already rejected every non-default shape, so an
         // inquiry's value is the protocol it actually awaits rather than an
         // override the engine silently ignores.
-        reply_shape: lower_reply_shape(request.reply_shape()),
+        reply_shape,
     })
 }
 
@@ -1063,21 +1070,21 @@ const fn retry_budget(base: u32, class: TimeoutClass) -> u32 {
 
 /// Lowers one request's retry policy.
 ///
-/// `deadline` is the request's own governing deadline — its completion
-/// deadline for a command, its reply deadline for an inquiry — and is what
-/// the total budget is sized against. A flat budget cannot work here: a
-/// request must be allowed to finish one governing attempt and still have
-/// room for a retry. The profile busy timeout is included for camera-side
-/// recovery windows.
+/// `deadline` is the response window; `attempt` also includes the ACK window
+/// for an ACK-bearing command. Preserve the established response-based retry
+/// floor while ensuring a complete attempt fits within the budget. The
+/// profile busy timeout covers camera-side recovery windows.
 fn retry_policy(
     retry_class: RetryClass,
     timeout_class: TimeoutClass,
     tuning: OperationalTuning,
     busy_timeout: Duration,
     deadline: Duration,
+    attempt: Duration,
     builtin_inquiry_syntax: bool,
 ) -> RetryPolicy {
-    let bounds = tuning.lengthen_retry_bounds(RetryBounds::for_request(busy_timeout, deadline));
+    let bounds =
+        tuning.lengthen_retry_bounds(RetryBounds::for_request(busy_timeout, deadline, attempt));
     let base = tuning.reduce_retry_base(DEFAULT_RETRY_BASE);
     let max_retries = if matches!(retry_class, RetryClass::Never) {
         0
@@ -1126,7 +1133,10 @@ const fn lower_reply_shape(shape: crate::raw::RawReplyShape) -> ReplyShape {
 
 impl PreparedCommand {
     pub(crate) fn admit_with<T>(self, admit: impl FnOnce(RuntimeRequest, Duration) -> T) -> T {
-        let timeout = observation_timeout(&self.context, self.context.timeout.completion);
+        let timeout = observation_timeout(
+            &self.context,
+            command_attempt_timeout(&self.context.timeout, self.context.reply_shape),
+        );
         let request = RuntimeRequest::Command {
             wire: self.wire,
             context: self.context,
@@ -1153,6 +1163,13 @@ pub(crate) struct OperationTimeouts {
 /// can never outlive the default observer. A zero total budget remains the
 /// engine's explicit no-total-budget mode and therefore leaves the governing
 /// deadline unchanged.
+fn command_attempt_timeout(timeout: &TimeoutPolicy, shape: ReplyShape) -> Duration {
+    match shape {
+        ReplyShape::AckThenCompletion => timeout.ack.saturating_add(timeout.completion),
+        ReplyShape::CompletionOnly | ReplyShape::NoReply => timeout.completion,
+    }
+}
+
 fn observation_timeout(context: &RequestContext, governing_deadline: Duration) -> Duration {
     let timeout = governing_deadline.max(context.retry.total_budget);
     debug_assert!(
@@ -1199,7 +1216,10 @@ where
             OperationTimeouts,
         ) -> T,
     ) -> T {
-        let applied = observation_timeout(&self.context, self.context.timeout.completion);
+        let applied = observation_timeout(
+            &self.context,
+            command_attempt_timeout(&self.context.timeout, self.context.reply_shape),
+        );
         // Once cancellation is requested, the engine concludes the operation
         // within its cancellation ambiguity window plus the cancellation
         // observation window, and never before the original completion
@@ -2930,6 +2950,7 @@ mod tests {
             tuning,
             Duration::ZERO,
             Duration::from_secs(5),
+            Duration::ZERO,
             false,
         );
         let standard = retry_policy(
@@ -2938,6 +2959,7 @@ mod tests {
             tuning,
             Duration::ZERO,
             Duration::from_secs(5),
+            Duration::ZERO,
             false,
         );
 
@@ -2958,6 +2980,7 @@ mod tests {
                 tuning,
                 Duration::ZERO,
                 Duration::from_secs(5),
+                Duration::ZERO,
                 false,
             )
             .max_retries
@@ -2970,6 +2993,103 @@ mod tests {
         assert_eq!(budget(TimeoutClass::Preset), 3);
         assert_eq!(budget(TimeoutClass::Network), 2);
         assert_eq!(budget(TimeoutClass::LongRunning), 1);
+    }
+
+    // #842: exercise actual preparation, including every profile, category,
+    // supported command reply shape and an ACK override grid.
+    #[test]
+    fn retry_budget_covers_full_ack_attempt_without_changing_default_budgets() {
+        fn check<P: crate::CompileTimeProfile>() {
+            let profile = ProfileSpec::from_compile_time::<P>().expect("built-in profile");
+            for class in [
+                TimeoutClass::Quick,
+                TimeoutClass::Movement,
+                TimeoutClass::Preset,
+                TimeoutClass::LongRunning,
+                TimeoutClass::Network,
+            ] {
+                for shape in [
+                    crate::raw::RawReplyShape::AckThenCompletion,
+                    crate::raw::RawReplyShape::CompletionOnly,
+                    crate::raw::RawReplyShape::NoReply,
+                ] {
+                    let command = crate::raw::Plain::with_policy(
+                        [0x81, 0x01, 0x04, 0x00, 0x02, 0xff],
+                        crate::raw::Policy::new(class, RetryClass::Standard, ControlClass::Normal)
+                            .expect("policy")
+                            .with_reply_shape(shape),
+                    )
+                    .expect("raw command");
+                    for ack in [
+                        profile.timing().ack_timeout(),
+                        Duration::from_secs(8),
+                        Duration::from_secs(10),
+                        Duration::from_secs(60),
+                        Duration::from_secs(3600),
+                    ] {
+                        let tuning = OperationalTuning::new().ack_timeout(ack);
+                        let prepared = prepare_command(
+                            &command,
+                            CameraId::CAMERA_1,
+                            &profile,
+                            tuning,
+                            ClassSelection::Request,
+                        )
+                        .expect("valid preparation");
+                        let completion = prepared.context.timeout.completion;
+                        let attempt = if shape == crate::raw::RawReplyShape::AckThenCompletion {
+                            ack + completion
+                        } else {
+                            completion
+                        };
+                        let budget = prepared.context.retry.total_budget;
+                        let legacy = MINIMUM_RETRY_BUDGET
+                            .max(completion * 2)
+                            .max(profile.timing().busy_timeout());
+                        assert_eq!(budget, legacy.max(attempt), "{class:?} {shape:?} {ack:?}");
+                        prepared.admit_with(|_, observer| assert!(observer >= budget));
+                        if ack == profile.timing().ack_timeout() {
+                            assert_eq!(
+                                budget,
+                                legacy,
+                                "untuned budget changed for {} {class:?}",
+                                profile.capabilities().model_name
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        check::<crate::profiles::PtzOpticsG2>();
+        check::<crate::profiles::PtzOpticsG3>();
+        check::<crate::profiles::PtzOptics30X>();
+        check::<crate::profiles::SonyFR7>();
+        check::<crate::profiles::SonyBRCH900>();
+        check::<crate::profiles::SonyEVIH100>();
+        check::<crate::profiles::SonyBRC300>();
+        check::<crate::profiles::NearusBRC300>();
+        check::<crate::profiles::GenericVisca>();
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn retry_budget_and_observer_cover_arbitrary_valid_ack_overrides(
+            ack_ms in 500_u64..=3_600_000,
+            quick_ms in 8_000_u64..=3_600_000,
+        ) {
+            let profile = ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>()
+                .expect("built-in profile");
+            let tuning = OperationalTuning::new().ack_timeout(Duration::from_millis(ack_ms))
+                .quick_timeout(Duration::from_millis(quick_ms));
+            let command = crate::raw::Plain::new([0x81, 0x01, 0x04, 0x00, 0x02, 0xff],
+                TimeoutClass::Quick, RetryClass::Standard, ControlClass::Normal).expect("command");
+            let prepared = prepare_command(&command, CameraId::CAMERA_1, &profile,
+                tuning, ClassSelection::Request).expect("valid tuning");
+            let attempt = prepared.context.timeout.ack + prepared.context.timeout.completion;
+            let budget = prepared.context.retry.total_budget;
+            proptest::prop_assert!(budget >= attempt);
+            prepared.admit_with(|_, observer| assert!(observer >= budget));
+        }
     }
 
     #[test]
@@ -2989,6 +3109,7 @@ mod tests {
                 OperationalTuning::new(),
                 Duration::ZERO,
                 deadline,
+                Duration::ZERO,
                 false,
             );
             assert_eq!(policy.initial_backoff, Duration::from_millis(50));
@@ -3012,6 +3133,7 @@ mod tests {
             ),
             Duration::ZERO,
             Duration::from_secs(1),
+            Duration::ZERO,
             false,
         );
         assert_eq!(tuned.initial_backoff, Duration::from_millis(100));
@@ -3037,6 +3159,7 @@ mod tests {
             shortened,
             Duration::ZERO,
             Duration::from_secs(1),
+            Duration::ZERO,
             false,
         );
         assert_eq!(quick.initial_backoff, Duration::from_millis(50));
@@ -3054,6 +3177,7 @@ mod tests {
             raised_budget,
             Duration::ZERO,
             Duration::from_secs(300),
+            Duration::ZERO,
             false,
         );
         assert_eq!(long.total_budget, Duration::from_secs(600));
@@ -3063,6 +3187,7 @@ mod tests {
             raised_budget,
             Duration::ZERO,
             Duration::from_secs(1),
+            Duration::ZERO,
             false,
         );
         assert_eq!(short.total_budget, Duration::from_secs(20));
@@ -3078,6 +3203,7 @@ mod tests {
                 OperationalTuning::new().retry_limit(base),
                 Duration::ZERO,
                 Duration::from_secs(5),
+                Duration::ZERO,
                 false,
             );
             assert_eq!(policy.max_retries, 1, "base {base}");
@@ -3102,6 +3228,7 @@ mod tests {
                 tuning,
                 Duration::ZERO,
                 Duration::from_secs(5),
+                Duration::ZERO,
                 false,
             );
             assert!(policy.ack_timeout, "{class:?} must retry a lost ACK");
@@ -3119,6 +3246,7 @@ mod tests {
             tuning,
             Duration::ZERO,
             Duration::from_secs(5),
+            Duration::ZERO,
             false,
         );
         assert!(!never.ack_timeout);
@@ -3141,6 +3269,7 @@ mod tests {
                 tuning,
                 Duration::ZERO,
                 Duration::from_secs(5),
+                Duration::ZERO,
                 false,
             )
             .movement_not_executable
@@ -3221,6 +3350,7 @@ mod tests {
             OperationalTuning::new(),
             Duration::ZERO,
             quick_deadline,
+            Duration::ZERO,
             false,
         );
         assert_eq!(
@@ -3235,6 +3365,7 @@ mod tests {
             OperationalTuning::new(),
             busy_timeout,
             long_deadline,
+            Duration::ZERO,
             false,
         );
         assert_eq!(
