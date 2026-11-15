@@ -1214,14 +1214,14 @@ builtin_request! {
     crate::command::image::NoiseReduction2DModeCommand => NoiseReduction2dMode: Plain { size: 6 };
     crate::command::image::NoiseReduction2D => NoiseReduction2d: Plain {
         size: 6,
-        rows: |command| match command {
+        rows: |command| match (command) {
             crate::command::NoiseReduction2D::Off => NoiseReduction2dOff,
             crate::command::NoiseReduction2D::Level(_) => NoiseReduction2d,
         },
     };
     crate::command::image::NoiseReduction3D => NoiseReduction3d: Plain {
         size: 6,
-        rows: |command| match command {
+        rows: |command| match (command) {
             crate::command::NoiseReduction3D::Off => NoiseReduction3dOff,
             crate::command::NoiseReduction3D::Level(_) => NoiseReduction3d,
         },

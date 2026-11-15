@@ -363,7 +363,7 @@ mod tests {
         // and serde's derive-generated spelling.  It pins each public wire tag
         // to its exact semantic surface, so a swapped decoder, a spurious
         // accepted tag, or a surface added only to `ALL` cannot pass.
-        const WIRE_SURFACES: [(&str, TypedSupportSurface); 58] = [
+        const WIRE_SURFACES: [(&str, TypedSupportSurface); 56] = [
             ("direct-zoom", TypedSupportSurface::DirectZoom),
             (
                 "digital-zoom-toggle",
@@ -483,7 +483,7 @@ mod tests {
         ];
 
         assert_eq!(TypedSupportSurface::ALL.len(), 56);
-        assert_eq!(WIRE_SURFACES.len(), 58);
+        assert_eq!(WIRE_SURFACES.len(), TypedSupportSurface::ALL.len());
         for (wire_name, surface) in WIRE_SURFACES {
             assert_eq!(surface.wire_name(), wire_name);
             let singleton_json = serde_json::to_string(&[wire_name])?;

@@ -552,9 +552,9 @@ impl Capabilities {
                     .is_some_and(|d| d.motion_sync_speed_range.is_some()),
             ),
             S::UsbAudio => Dedicated(self.usb_audio),
-            S::PtzOpticsAntiFlicker
-            | S::SonySpotlight
-            | S::SonyAutoSlowShutter => ParentDomain(exposure.is_some()),
+            S::PtzOpticsAntiFlicker | S::SonySpotlight | S::SonyAutoSlowShutter => {
+                ParentDomain(exposure.is_some())
+            }
             S::PtzOpticsSnapFocus | S::FocusLock | S::PushAutoFocus => {
                 ParentDomain(focus.is_some())
             }
