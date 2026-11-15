@@ -18,6 +18,9 @@
 //!   because zero bytes is reserved for stream end-of-file ([`deliverable`]).
 //! - The owner discards a datagram whose outcome is not complete as one
 //!   malformed input, never as a dead session, on both facades.
+//! - Winsock's UDP `WSAECONNRESET` reports an earlier ICMP port-unreachable,
+//!   not a closed connection. Normalize it to `ConnectionRefused`, so the
+//!   owner applies the same transient receive-fault policy on every platform.
 
 #[cfg(any(
     feature = "blocking",
@@ -198,6 +201,17 @@ where
 ))]
 const WSAEMSGSIZE: i32 = 10_040;
 
+/// An earlier UDP send received an ICMP port-unreachable response.
+#[cfg(all(
+    windows,
+    any(
+        feature = "blocking",
+        feature = "runtime-tokio",
+        feature = "runtime-smol"
+    )
+))]
+const WSAECONNRESET: i32 = 10_054;
+
 /// Windows counterpart of the Unix [`recv_datagram`].
 #[cfg(all(
     windows,
@@ -220,6 +234,14 @@ where
         Err(error) if error.raw_os_error() == Some(WSAEMSGSIZE) => {
             Ok(ReceiveOutcome::Truncated { copied: dst.len() })
         }
+        Err(error) if error.raw_os_error() == Some(WSAECONNRESET) => {
+            // Only the UDP seam has this mapping: a TCP connection reset
+            // remains fatal. Retain Winsock's original error as the source.
+            Err(std::io::Error::new(
+                std::io::ErrorKind::ConnectionRefused,
+                error,
+            ))
+        }
         Err(error) => Err(error),
     }
 }
@@ -234,6 +256,28 @@ where
 ))]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn windows_udp_port_unreachable_is_connection_refused() {
+        let closed = std::net::UdpSocket::bind("127.0.0.1:0").expect("reserve port");
+        let target = closed.local_addr().expect("reserved endpoint");
+        drop(closed);
+        let socket = std::net::UdpSocket::bind("127.0.0.1:0").expect("client");
+        socket.connect(target).expect("connect UDP");
+        socket
+            .set_read_timeout(Some(std::time::Duration::from_secs(2)))
+            .expect("bounded read");
+        socket.send(&[0x81, 0x09, 0x04, 0x00, 0xff]).expect("send");
+        let error = recv_datagram(&socket, &mut [0; 32]).expect_err("ICMP port-unreachable");
+        assert_eq!(error.kind(), std::io::ErrorKind::ConnectionRefused);
+        let source = error
+            .get_ref()
+            .and_then(|source| source.downcast_ref::<std::io::Error>())
+            .expect("retain Winsock source");
+        assert_eq!(source.raw_os_error(), Some(WSAECONNRESET));
+    }
 
     #[test]
     fn a_copied_message_is_complete_only_when_it_fits() {
