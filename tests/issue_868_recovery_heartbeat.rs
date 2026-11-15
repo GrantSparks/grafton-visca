@@ -10,7 +10,7 @@ use grafton_visca_test_support::fake_camera::{frames, FakeCamera};
 #[test]
 fn heartbeat_policy_counts_every_nonfatal_failure_and_recognizes_new_activity() {
     let clock = ManualClock::new();
-    let _participant = clock.enter();
+    let participant = clock.enter();
     let mut answers = false;
     let fake = FakeCamera::new(move |bytes, reply| {
         if bytes == [0x81, 0x09, 0x04, 0x00, 0xff] {
@@ -24,6 +24,7 @@ fn heartbeat_policy_counts_every_nonfatal_failure_and_recognizes_new_activity() 
     });
     let session = clock
         .open_blocking_session(
+            &participant,
             fake.blocking_wire()
                 .with_semantics(SendSemantics::Stream)
                 .on_clock(&clock),
@@ -40,7 +41,7 @@ fn heartbeat_policy_counts_every_nonfatal_failure_and_recognizes_new_activity() 
             unanswered += 1;
         }
         if attempt == 0 {
-            assert!(matches!(failure, Error::Timeout { .. }));
+            assert!(matches!(failure, Error::InquiryFailed { source, .. } if matches!(&*source, Error::Timeout { .. })));
         } else {
             assert!(matches!(failure, Error::InquiryCorrelationLost { .. }));
         }
@@ -60,7 +61,7 @@ fn heartbeat_policy_counts_every_nonfatal_failure_and_recognizes_new_activity() 
         .applied()
         .expect("STOP applied");
     let before = session.metrics().expect("metrics").received_frames;
-    assert!(camera.power().state().expect("new power reply"));
+    assert!(camera.power().state().expect("new power reply").is_on());
     assert!(session.metrics().expect("metrics").received_frames > before);
     assert_eq!(fake.write_count(), 3);
     session.close().expect("close");
