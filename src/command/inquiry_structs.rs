@@ -105,31 +105,20 @@ pub(crate) struct BuiltinInquiryMetadata {
     pub(crate) name: &'static str,
     pub(crate) source: Source,
     pub(crate) boolean: Option<BoolConvention>,
-    /// Generated command struct name, if this response is queryable.
-    pub(crate) command: Option<BuiltinInquiryCommand>,
+    /// Generated command identity.
+    pub(crate) command: BuiltinInquiryCommand,
     /// Response discriminator used by routing and parsing.
     pub(crate) kind: InquiryKind,
     /// Address-free request body, without the terminator.
-    pub(crate) bytes: Option<&'static [u8]>,
+    pub(crate) bytes: &'static [u8],
     /// Command-generation classification.
     pub(crate) query: BuiltinInquiryQuery,
-    /// Whether the query has a typed response conversion.
-    ///
-    /// Every exposed built-in query has a typed response conversion.
-    pub(crate) typed: bool,
     /// Whether this inquiry is vendor-specific rather than baseline VISCA.
     pub(crate) vendor_specific: bool,
     /// Rationale for aliases, alternate interpretations, and intentional gaps.
     pub(crate) rationale: Option<&'static str>,
-    /// The actual request validator, absent for decode-only responses.
-    pub(crate) validate: Option<fn(&crate::ProfileSpec) -> crate::Result<()>>,
-}
-
-#[cfg(test)]
-macro_rules! builtin_inquiry_is_typed {
-    (($($typed:tt)*)) => {
-        true
-    };
+    /// The actual request validator.
+    pub(crate) validate: fn(&crate::ProfileSpec) -> crate::Result<()>,
 }
 
 /// The typed response of a generated inquiry.
@@ -543,14 +532,13 @@ macro_rules! define_builtin_inquiries {
                     name: stringify!($struct),
                     source: <$struct as GeneratedInquiry>::SOURCE,
                     boolean: <$struct as GeneratedInquiry>::BOOLEAN,
-                    command: Some(<$struct as BuiltinInquiryCommandMarker>::METADATA),
+                    command: <$struct as BuiltinInquiryCommandMarker>::METADATA,
                     kind: InquiryKind::$kind,
-                    bytes: Some(<$struct as GeneratedInquiry>::BODY),
+                    bytes: <$struct as GeneratedInquiry>::BODY,
                     query: $query,
-                    typed: builtin_inquiry_is_typed!($typed),
                     vendor_specific: $vendor_specific,
                     rationale: $rationale,
-                    validate: Some(|profile| <$struct as crate::Request>::validate_for_target(&$struct, &crate::TargetRegistration::from_profile(crate::target::TargetSlot::CAMERA_1, profile.clone()))),
+                    validate: |profile| <$struct as crate::Request>::validate_for_target(&$struct, &crate::TargetRegistration::from_profile(crate::target::TargetSlot::CAMERA_1, profile.clone())),
                 },
             )+)*
         ];
@@ -642,7 +630,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current zoom position.
             ZoomPositionInquiry {
                 bytes: zoom::POSITION_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-zoomposition-query", "09 04 47"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-zoomposition-query", "09 04 47"), (R1, [PtzOptics30X], "r1-ptzoptics30x-zoomposition-query", "09 04 47"), (R7, [SonyFr7], "r7-sonyfr7-zoomposition-query", "09 04 47"), (R8, [SonyEviH100], "r8-sonyevih100-zoomposition-query", "09 04 47"), (R12, [SonyBrc300], "r12-sonybrc300-zoomposition-query", "09 04 47"), (R21, [NearusBrc300], "r21-nearusbrc300-zoomposition-query", "09 04 47"), (R8, [GenericVisca], "r8-genericvisca-zoomposition-query", "09 04 47"), (R12, [GenericVisca], "r12-genericvisca-zoomposition-query", "09 04 47"), (R21, [GenericVisca], "r21-genericvisca-zoomposition-query", "09 04 47")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-zoomposition-query", "09 04 47"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-zoomposition-query", "09 04 47"), (R1, [PtzOptics30X], "r1-ptzoptics30x-zoomposition-query", "09 04 47"), (R7, [SonyFr7], "r7-sonyfr7-zoomposition-query", "09 04 47"), (R8, [SonyEviH100], "r8-sonyevih100-zoomposition-query", "09 04 47"), (R12, [SonyBrc300], "r12-sonybrc300-zoomposition-query", "09 04 47"), (R21, [NearusBrc300], "r21-nearusbrc300-zoomposition-query", "09 04 47"), (R8, [GenericVisca], "r8-genericvisca-zoomposition-query", "09 04 47"), (R12, [GenericVisca], "r12-genericvisca-zoomposition-query", "09 04 47"), (R21, [GenericVisca], "r21-genericvisca-zoomposition-query", "09 04 47"), (R11, [SonyBrcH900], "r11-sonybrch900-zoomposition-query", "09 04 47")]),
                 boolean: None,
                 typed: (
                     crate::types::ZoomPosition,
@@ -665,7 +653,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current focus position.
             FocusPositionInquiry {
                 bytes: focus::POSITION_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-focusposition-query", "09 04 48"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-focusposition-query", "09 04 48"), (R1, [PtzOptics30X], "r1-ptzoptics30x-focusposition-query", "09 04 48"), (R7, [SonyFr7], "r7-sonyfr7-focusposition-query", "09 04 48"), (R8, [SonyEviH100], "r8-sonyevih100-focusposition-query", "09 04 48"), (R12, [SonyBrc300], "r12-sonybrc300-focusposition-query", "09 04 48"), (R21, [NearusBrc300], "r21-nearusbrc300-focusposition-query", "09 04 48"), (R8, [GenericVisca], "r8-genericvisca-focusposition-query", "09 04 48"), (R12, [GenericVisca], "r12-genericvisca-focusposition-query", "09 04 48"), (R21, [GenericVisca], "r21-genericvisca-focusposition-query", "09 04 48")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-focusposition-query", "09 04 48"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-focusposition-query", "09 04 48"), (R1, [PtzOptics30X], "r1-ptzoptics30x-focusposition-query", "09 04 48"), (R7, [SonyFr7], "r7-sonyfr7-focusposition-query", "09 04 48"), (R8, [SonyEviH100], "r8-sonyevih100-focusposition-query", "09 04 48"), (R12, [SonyBrc300], "r12-sonybrc300-focusposition-query", "09 04 48"), (R21, [NearusBrc300], "r21-nearusbrc300-focusposition-query", "09 04 48"), (R8, [GenericVisca], "r8-genericvisca-focusposition-query", "09 04 48"), (R12, [GenericVisca], "r12-genericvisca-focusposition-query", "09 04 48"), (R21, [GenericVisca], "r21-genericvisca-focusposition-query", "09 04 48"), (R11, [SonyBrcH900], "r11-sonybrch900-focusposition-query", "09 04 48")]),
                 boolean: None,
                 typed: (
                     crate::types::FocusPosition,
@@ -1248,7 +1236,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the menu open/close status.
             MenuOpenCloseInquiry {
                 bytes: menu::MENU_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-menuopenclose-query", "09 06 06"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-menuopenclose-query", "09 06 06"), (R1, [PtzOptics30X], "r1-ptzoptics30x-menuopenclose-query", "09 06 06"), (R7, [SonyFr7], "r7-sonyfr7-menuopenclose-query", "09 06 06")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-menuopenclose-query", "09 06 06"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-menuopenclose-query", "09 06 06"), (R1, [PtzOptics30X], "r1-ptzoptics30x-menuopenclose-query", "09 06 06"), (R7, [SonyFr7], "r7-sonyfr7-menuopenclose-query", "09 06 06"), (R11, [SonyBrcH900], "r11-sonybrch900-menuopenclose-query", "09 06 06")]),
                 boolean: Some(BoolConvention::OnIs02),
                 typed: (bool, { is_open } => Ok(is_open)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1744,15 +1732,14 @@ mod generated_invariant_tests {
                 profile.capabilities().profile_id.expect("builtin identity")
             );
             for meta in BUILTIN_INQUIRIES {
-                if meta.validate.expect("typed query validator")(&profile).is_err() {
+                if (meta.validate)(&profile).is_err() {
                     continue;
                 }
-                let packet =
-                    body_for_profile(meta.kind, meta.bytes.expect("query bytes"), &profile)
-                        .iter()
-                        .map(|byte| format!("{byte:02X}"))
-                        .collect::<Vec<_>>()
-                        .join(" ");
+                let packet = body_for_profile(meta.kind, meta.bytes, &profile)
+                    .iter()
+                    .map(|byte| format!("{byte:02X}"))
+                    .collect::<Vec<_>>()
+                    .join(" ");
                 let polarity = meta.boolean.map(|convention| match convention {
                     BoolConvention::OnIs02 => "02=on;03=off",
                     BoolConvention::OnIs03 => "03=on;02=off",
@@ -1930,13 +1917,9 @@ mod generated_invariant_tests {
     #[test]
     fn duplicate_request_bytes_are_explicit() {
         for (i, left) in BUILTIN_INQUIRIES.iter().enumerate() {
-            let Some(left_bytes) = left.bytes else {
-                continue;
-            };
+            let left_bytes = left.bytes;
             for right in BUILTIN_INQUIRIES.iter().skip(i + 1) {
-                let Some(right_bytes) = right.bytes else {
-                    continue;
-                };
+                let right_bytes = right.bytes;
                 if left_bytes == right_bytes {
                     let explicit = |query| {
                         matches!(
@@ -1969,7 +1952,7 @@ mod generated_invariant_tests {
                     assert!(meta.rationale.is_some(), "{} needs a rationale", meta.name);
                     assert_eq!(
                         meta.bytes,
-                        Some(canonical.bytes()),
+                        canonical.bytes(),
                         "{} must share request bytes with canonical {}",
                         meta.name,
                         canonical.name(),
@@ -1987,7 +1970,8 @@ mod generated_invariant_tests {
         for meta in BUILTIN_INQUIRIES {
             assert!(!meta.name.is_empty(), "metadata entry must have a name");
 
-            if let Some(command) = meta.command {
+            {
+                let command = meta.command;
                 assert_eq!(
                     meta.name,
                     command.name(),
@@ -1996,7 +1980,7 @@ mod generated_invariant_tests {
                 );
                 assert_eq!(
                     meta.bytes,
-                    Some(command.bytes()),
+                    command.bytes(),
                     "{} command discriminator must expose its request body",
                     meta.name,
                 );

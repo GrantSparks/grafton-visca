@@ -73,7 +73,10 @@ impl Source {
         }
     }
 
-    fn covers_model(self, model: Option<crate::camera::profiles::ProfileId>) -> bool {
+    pub(crate) const fn covers_model(
+        self,
+        model: Option<crate::camera::profiles::ProfileId>,
+    ) -> bool {
         // A custom profile is an explicit caller-owned protocol authority.
         // It does not acquire a vendor provenance claim from this catalog.
         let Some(model) = model else { return true };
@@ -83,17 +86,29 @@ impl Source {
         let Self::References(references) = self else {
             return false;
         };
-        let covers = |id| {
-            references
-                .iter()
-                .any(|reference| reference.id == id && reference.models.contains(&model))
-        };
-        if model == crate::camera::profiles::ProfileId::GenericVisca {
-            covers(SourceId::R8) && covers(SourceId::R12) && covers(SourceId::R21)
+        let mut any = false;
+        let mut evi = false;
+        let mut brc = false;
+        let mut nearus = false;
+        let mut index = 0;
+        while index < references.len() {
+            let reference = references[index];
+            let mut declared = 0;
+            while declared < reference.models.len() {
+                if reference.models[declared] as usize == model as usize {
+                    any = true;
+                    evi |= reference.id as usize == SourceId::R8 as usize;
+                    brc |= reference.id as usize == SourceId::R12 as usize;
+                    nearus |= reference.id as usize == SourceId::R21 as usize;
+                }
+                declared += 1;
+            }
+            index += 1;
+        }
+        if model as usize == crate::camera::profiles::ProfileId::GenericVisca as usize {
+            evi && brc && nearus
         } else {
-            references
-                .iter()
-                .any(|reference| reference.models.contains(&model))
+            any
         }
     }
 }
