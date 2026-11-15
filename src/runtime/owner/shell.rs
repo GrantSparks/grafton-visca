@@ -1147,7 +1147,10 @@ mod tests {
         let policy = OwnerPolicy::single_target(
             ProtocolPolicy {
                 capacity,
-                envelope: EnvelopeKind::Raw,
+                wire: crate::runtime::engine::WireProtocol::new(
+                    EnvelopeKind::Raw,
+                    crate::transport::AddressingMode::Ip,
+                ),
                 transport: crate::runtime::engine::TransportKind::Datagram,
                 inquiry_capacity: 1,
                 command_spacing: Duration::ZERO,

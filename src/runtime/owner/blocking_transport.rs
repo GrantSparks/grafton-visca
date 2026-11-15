@@ -43,7 +43,7 @@ where
     T: BlockingTransport + HasTransportConfig,
 {
     fn write(&mut self, mut write: WireWrite<'_>) -> WriteOutcome {
-        let meta = match self.framing.frame_write(&mut write) {
+        let meta = match write.frame() {
             Ok(meta) => meta,
             Err(error) => return WriteOutcome::NotSent(error),
         };
@@ -228,7 +228,7 @@ mod tests {
         let write_timeouts = Arc::clone(&transport.write_timeouts);
         let adapter = adapter(transport);
         assert_eq!(
-            adapter.policy().protocol.envelope,
+            adapter.policy().protocol.wire.kind(),
             crate::runtime::engine::EnvelopeKind::Raw
         );
         assert_eq!(adapter.policy().protocol.transport, TransportKind::Datagram);

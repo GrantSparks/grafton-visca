@@ -31,6 +31,9 @@ use crate::protocol::framer::RawIncompletePrefix;
 use crate::target::{PerTarget, TargetSlot};
 use crate::{Certainty, Error, FailureContext, FailureStage, ViscaSocket};
 
+mod framing;
+pub(crate) use framing::{ProtocolEncoder, WireProtocol, WriteFraming};
+
 #[cfg(test)]
 mod tests;
 
@@ -1282,14 +1285,12 @@ impl ProtocolEngine {
             });
         let wire = Arc::clone(entry.request.wire());
         let owes = self.ledger_owes(entry);
-        let framing = match self.policy.envelope {
-            EnvelopeKind::Raw => RequestFraming::Raw,
-            EnvelopeKind::Sony => RequestFraming::Sony {
-                sequence: entry.current_sequence.map_or(
-                    SonyRequestSequence::AllocateFresh,
-                    SonyRequestSequence::Replay,
-                ),
-            },
+        let framing = match self.policy.wire.encoder() {
+            ProtocolEncoder::Raw(encoder) => encoder.plan(),
+            ProtocolEncoder::Sony(encoder) => encoder.plan(entry.current_sequence.map_or(
+                SonyRequestSequence::AllocateFresh,
+                SonyRequestSequence::Replay,
+            )),
         };
         let requires_extended_pan_tilt_speed =
             entry.request.context().requires_extended_pan_tilt_speed;
@@ -1312,7 +1313,7 @@ impl ProtocolEngine {
                 generation,
                 attempt,
                 kind: CorrelationKind::Request,
-                framing,
+                framing: framing.expectation(),
             },
         );
         self.last_request_sent = Some(now);
@@ -1418,7 +1419,7 @@ impl ProtocolEngine {
             .values()
             .filter(|entry| {
                 entry.reply_family() == SendingReply::Inquiry
-                    && (self.policy.envelope != EnvelopeKind::Raw
+                    && (self.policy.wire.kind() != EnvelopeKind::Raw
                         || entry.request.context().target == target)
                     && matches!(
                         entry.lifecycle.phase(),
@@ -1561,7 +1562,7 @@ impl ProtocolEngine {
     }
 
     fn raw_hold_dispatch_deadline_for(&self, entry: &Entry, target: TargetSlot) -> Option<Instant> {
-        if self.policy.envelope != EnvelopeKind::Raw {
+        if self.policy.wire.kind() != EnvelopeKind::Raw {
             return None;
         }
         let response_bearing = entry.reply_family() != SendingReply::NoReply;
@@ -1650,7 +1651,7 @@ impl ProtocolEngine {
     /// command would otherwise be indistinguishable from this new command's
     /// terminal frame.
     fn raw_target_hold_active(&self, target: TargetSlot) -> bool {
-        if self.policy.envelope != EnvelopeKind::Raw {
+        if self.policy.wire.kind() != EnvelopeKind::Raw {
             return false;
         }
         self.raw_hold(target, RawHoldScope::AllResponses).is_some()
@@ -1669,7 +1670,7 @@ impl ProtocolEngine {
     /// dispatched to the target, which is what keeps its completion (and any
     /// socketless error) attributable to it alone.
     fn raw_command_unacknowledged(&self, target: TargetSlot) -> bool {
-        self.policy.envelope == EnvelopeKind::Raw
+        self.policy.wire.kind() == EnvelopeKind::Raw
             && self.entries.values().any(|entry| {
                 entry.request.context().target == target
                     && raw_unacknowledged_command_candidate(entry)
@@ -1677,7 +1678,7 @@ impl ProtocolEngine {
     }
 
     fn raw_unacknowledged_command_count(&self, target: TargetSlot) -> usize {
-        if self.policy.envelope != EnvelopeKind::Raw {
+        if self.policy.wire.kind() != EnvelopeKind::Raw {
             return 0;
         }
         self.entries
@@ -1696,7 +1697,7 @@ impl ProtocolEngine {
     /// see multiple candidates and bind to neither; no temporal guess is made.
     /// A third candidate is never admitted through this exception.
     fn raw_urgent_gate_bypass_available(&self, entry: &Entry, target: TargetSlot) -> bool {
-        self.policy.envelope == EnvelopeKind::Raw
+        self.policy.wire.kind() == EnvelopeKind::Raw
             && entry.reply_family() != SendingReply::Inquiry
             && entry.request.context().control.class == ControlClass::Urgent
             && self.raw_unacknowledged_command_count(target) == 1
@@ -1746,7 +1747,7 @@ impl ProtocolEngine {
     /// starting: a socketless error received during either phase otherwise has
     /// two possible owners.
     fn raw_uncorrelated_command_inflight(&self, target: TargetSlot) -> bool {
-        self.policy.envelope == EnvelopeKind::Raw
+        self.policy.wire.kind() == EnvelopeKind::Raw
             && self.entries.values().any(|entry| {
                 entry.reply_family() != SendingReply::Inquiry
                     && entry.request.context().target == target
@@ -1782,7 +1783,7 @@ impl ProtocolEngine {
     /// longer delays work.) The rule is raw-only: Sony correlates by
     /// sequence, so these shapes need no exclusivity there.
     fn uncorrelated_raw_shape_blocked(&self, entry: &Entry, target: TargetSlot) -> bool {
-        if self.policy.envelope != EnvelopeKind::Raw {
+        if self.policy.wire.kind() != EnvelopeKind::Raw {
             return false;
         }
         if entry.reply_family() == SendingReply::Inquiry {
@@ -1908,7 +1909,7 @@ impl ProtocolEngine {
         );
         // No current bytes left, but an earlier attempt's owed answers and
         // raw ambiguity must survive this logical request's terminal.
-        if possible && self.policy.envelope == EnvelopeKind::Raw {
+        if possible && self.policy.wire.kind() == EnvelopeKind::Raw {
             self.quarantine_unconfirmed_raw(owner.request, now);
         }
         self.finish(owner.request, RuntimeOutcome::Failed(error), effects);
@@ -1942,7 +1943,7 @@ impl ProtocolEngine {
                 entry.retry_budget_deadline().map(|deadline| {
                     (
                         deadline,
-                        self.policy.envelope == EnvelopeKind::Raw
+                        self.policy.wire.kind() == EnvelopeKind::Raw
                             && entry.reply_family() != SendingReply::Inquiry
                             && matches!(entry.lifecycle.phase(), Phase::Sending { .. }),
                         entry
@@ -2030,7 +2031,7 @@ impl ProtocolEngine {
         let lifecycle = entry.lifecycle;
         match owner.kind {
             CorrelationKind::Request => {
-                if self.policy.envelope == EnvelopeKind::Sony {
+                if self.policy.wire.kind() == EnvelopeKind::Sony {
                     entry.current_sequence = meta.sequence();
                 }
                 let context = *entry.request.context();
@@ -2052,7 +2053,7 @@ impl ProtocolEngine {
                             },
                             effects,
                         );
-                        if self.policy.envelope == EnvelopeKind::Raw {
+                        if self.policy.wire.kind() == EnvelopeKind::Raw {
                             self.targets[context.target].raw_inquiries.push_back(
                                 CorrelationOwner {
                                     request: owner.request,
@@ -2327,7 +2328,7 @@ impl ProtocolEngine {
             self.poison_strict_unconfirmed(effects);
             return;
         }
-        if self.policy.envelope == EnvelopeKind::Raw {
+        if self.policy.wire.kind() == EnvelopeKind::Raw {
             // Default: leave any unacknowledged raw command to its own ACK
             // deadline; never replay an unconfirmed raw command.
             return;
@@ -2497,7 +2498,7 @@ impl ProtocolEngine {
         // ordinary raw resolver, which could otherwise advance a successor
         // awaiting its ACK, finish a successor inquiry with stale payload, or fail/retry
         // either on a socketless error.
-        if self.policy.envelope == EnvelopeKind::Raw
+        if self.policy.wire.kind() == EnvelopeKind::Raw
             && frame.sequence.is_none()
             && !self.raw_stream()
             && self.raw_held_response(&frame)
@@ -2516,7 +2517,7 @@ impl ProtocolEngine {
                     return;
                 }
             }
-        } else if self.policy.envelope == EnvelopeKind::Sony {
+        } else if self.policy.wire.kind() == EnvelopeKind::Sony {
             effects.push(Effect::Ignored(IgnoreReason::MalformedFrame));
             return;
         } else if self.raw_stream() {
@@ -2574,7 +2575,8 @@ impl ProtocolEngine {
     /// order (TCP or serial), which makes an unanswered request's answer owed
     /// rather than possibly lost.
     fn raw_stream(&self) -> bool {
-        self.policy.envelope == EnvelopeKind::Raw && self.policy.transport == TransportKind::Stream
+        self.policy.wire.kind() == EnvelopeKind::Raw
+            && self.policy.transport == TransportKind::Stream
     }
 
     /// Whether an unsequenced raw response must be ignored because a released
@@ -2817,7 +2819,7 @@ impl ProtocolEngine {
     fn unique_raw_command_candidate(&self, target: TargetSlot) -> Option<RequestId> {
         let mut sole = None;
         for (id, entry) in &self.entries {
-            if self.policy.envelope != EnvelopeKind::Raw
+            if self.policy.wire.kind() != EnvelopeKind::Raw
                 || entry.request.context().target != target
                 || !matches!(entry.lifecycle, Lifecycle::AwaitingAck { .. })
             {
@@ -2842,7 +2844,7 @@ impl ProtocolEngine {
     fn completion_only_candidate(&self, target: TargetSlot) -> Option<RequestId> {
         let mut sole = None;
         for (id, entry) in &self.entries {
-            if self.policy.envelope != EnvelopeKind::Raw
+            if self.policy.wire.kind() != EnvelopeKind::Raw
                 || entry.request.context().target != target
                 || !matches!(entry.lifecycle, Lifecycle::AwaitingCompletion { .. })
             {
@@ -2870,7 +2872,7 @@ impl ProtocolEngine {
     fn unique_raw_error_candidate(&self, target: TargetSlot) -> Option<RequestId> {
         let mut sole = None;
         for (id, entry) in &self.entries {
-            if self.policy.envelope != EnvelopeKind::Raw
+            if self.policy.wire.kind() != EnvelopeKind::Raw
                 || entry.reply_family() == SendingReply::Inquiry
                 || entry.request.context().target != target
             {
@@ -2945,7 +2947,7 @@ impl ProtocolEngine {
             if self.socket_available(target, socket, id) {
                 return Some(socket);
             }
-            if self.policy.envelope == EnvelopeKind::Raw {
+            if self.policy.wire.kind() == EnvelopeKind::Raw {
                 return None;
             }
             let other = other_socket(socket);
@@ -2977,7 +2979,7 @@ impl ProtocolEngine {
         now: Instant,
         effects: &mut Vec<Effect>,
     ) -> Option<ViscaSocket> {
-        if self.policy.envelope == EnvelopeKind::Raw {
+        if self.policy.wire.kind() == EnvelopeKind::Raw {
             if let Some(socket) = requested {
                 if let Some(stale) = self
                     .socket_owner(target, socket)
@@ -3023,7 +3025,7 @@ impl ProtocolEngine {
         effects: &mut Vec<Effect>,
     ) {
         let Some((target, ambiguity)) = self.entries.get(&stale).map(|entry| {
-            debug_assert_eq!(self.policy.envelope, EnvelopeKind::Raw);
+            debug_assert_eq!(self.policy.wire.kind(), EnvelopeKind::Raw);
             (
                 entry.request.context().target,
                 entry.request.context().timeout.ambiguity,
@@ -3068,7 +3070,7 @@ impl ProtocolEngine {
             | Lifecycle::Backoff {
                 previous_attempt: attempt,
                 ..
-            } if self.policy.envelope == EnvelopeKind::Sony
+            } if self.policy.wire.kind() == EnvelopeKind::Sony
                 && entry.reply_family() == SendingReply::AckThenCompletion
                 && entry.current_sequence.is_some() =>
             {
@@ -3097,7 +3099,7 @@ impl ProtocolEngine {
         };
         let Some(socket) = self.assign_ack_socket(target, socket, id, now, effects) else {
             effects.push(Effect::Ignored(IgnoreReason::SocketConflict));
-            if self.policy.envelope == EnvelopeKind::Sony {
+            if self.policy.wire.kind() == EnvelopeKind::Sony {
                 // The exact sequence still proves acceptance. A conflicting
                 // local socket index cannot make that command safe to replay.
                 self.finish_after_ack(
@@ -3149,13 +3151,13 @@ impl ProtocolEngine {
             | Lifecycle::AwaitingCancellationResolution { socket: owned, .. } => {
                 socket.is_none_or(|socket| socket == owned)
             }
-            Lifecycle::AwaitingAck { .. } => self.policy.envelope == EnvelopeKind::Sony,
+            Lifecycle::AwaitingAck { .. } => self.policy.wire.kind() == EnvelopeKind::Sony,
             Lifecycle::Ready {
                 previous_attempt: Some(_),
                 ..
             }
             | Lifecycle::Backoff { .. }
-                if self.policy.envelope == EnvelopeKind::Sony
+                if self.policy.wire.kind() == EnvelopeKind::Sony
                     && entry.reply_family() != SendingReply::Inquiry
                     && entry.current_sequence.is_some() =>
             {
@@ -3193,7 +3195,7 @@ impl ProtocolEngine {
                 SendingReply::CompletionOnly => !self.raw_stream(),
                 SendingReply::Inquiry | SendingReply::AckThenCompletion => false,
             };
-            (self.policy.envelope == EnvelopeKind::Raw && uncorrelatable_command).then_some((
+            (self.policy.wire.kind() == EnvelopeKind::Raw && uncorrelatable_command).then_some((
                 entry.request.context().target,
                 entry.request.context().timeout.ambiguity,
             ))
@@ -3218,7 +3220,7 @@ impl ProtocolEngine {
     /// this engine through the adapter with `inquiry_capacity == 1`.
     fn quarantine_raw_inquiry_correlation(&mut self, id: RequestId, now: Instant) {
         let Some(target) = self.entries.get(&id).and_then(|entry| {
-            (self.policy.envelope == EnvelopeKind::Raw
+            (self.policy.wire.kind() == EnvelopeKind::Raw
                 && self.policy.inquiry_capacity == 1
                 && entry.reply_family() == SendingReply::Inquiry
                 && matches!(
@@ -3334,7 +3336,7 @@ impl ProtocolEngine {
     /// naming the socket — all of which precede any rejection of a new
     /// command the camera allocates that socket (#795).
     fn hold_socket_of_unanswered_cancel(&mut self, id: RequestId) {
-        if self.policy.envelope != EnvelopeKind::Raw {
+        if self.policy.wire.kind() != EnvelopeKind::Raw {
             return;
         }
         let Some(entry) = self.entries.get(&id) else {
@@ -4200,7 +4202,7 @@ impl ProtocolEngine {
             Phase::Executing { .. } | Phase::AwaitingCancellationResolution { .. }
         );
         if acknowledged {
-            let cancellation_answered = self.policy.envelope == EnvelopeKind::Raw
+            let cancellation_answered = self.policy.wire.kind() == EnvelopeKind::Raw
                 && code == 0x05
                 && raw_cancellation_no_socket_response(entry);
             self.finish_after_ack(id, Error::from_code(code), cancellation_answered, effects);
@@ -4356,11 +4358,9 @@ impl ProtocolEngine {
         let generation = entry.generation;
         let attempt = entry.attempt;
         let socket = pending.socket();
-        let framing = match self.policy.envelope {
-            EnvelopeKind::Raw => RequestFraming::Raw,
-            EnvelopeKind::Sony => RequestFraming::Sony {
-                sequence: SonyRequestSequence::AllocateFresh,
-            },
+        let framing = match self.policy.wire.encoder() {
+            ProtocolEncoder::Raw(encoder) => encoder.plan(),
+            ProtocolEncoder::Sony(encoder) => encoder.plan(SonyRequestSequence::AllocateFresh),
         };
         let Some(transmission) = self.allocate_transmission_id() else {
             self.finish(
@@ -4382,7 +4382,7 @@ impl ProtocolEngine {
                 generation,
                 attempt,
                 kind: CorrelationKind::Cancellation,
-                framing,
+                framing: framing.expectation(),
             },
         );
         if self.raw_stream() {
@@ -4580,8 +4580,9 @@ impl ProtocolEngine {
     /// True only in the strict opt-in mode on the raw envelope (issue #671).
     /// Sony correlation never needs the quarantine, so the flag is inert there
     /// even if a caller set it.
-    const fn raw_unconfirmed_poison(&self) -> bool {
-        matches!(self.policy.envelope, EnvelopeKind::Raw) && self.policy.strict_unconfirmed_poison
+    fn raw_unconfirmed_poison(&self) -> bool {
+        matches!(self.policy.wire.kind(), EnvelopeKind::Raw)
+            && self.policy.strict_unconfirmed_poison
     }
 
     /// Poisons the whole session for the strict opt-in mode (issue #671).
@@ -4719,11 +4720,11 @@ impl ProtocolEngine {
         if due.kind == DueKind::CancellationAmbiguity && ambiguity_due {
             // Unconfirmed cancellation has the same late-response debt as an
             // uncancelled command. Its terminal must retain the phase's scope.
-            if self.policy.envelope == EnvelopeKind::Raw {
+            if self.policy.wire.kind() == EnvelopeKind::Raw {
                 self.terminate_unconfirmed_raw(due.request, now, effects);
                 return;
             }
-            let error = if self.policy.envelope == EnvelopeKind::Raw {
+            let error = if self.policy.wire.kind() == EnvelopeKind::Raw {
                 Error::UnsequencedCommandUnconfirmed
             } else {
                 Error::CancellationUnconfirmed
@@ -4764,7 +4765,7 @@ impl ProtocolEngine {
                 .last_error
                 .clone()
                 .unwrap_or_else(|| terminal_timeout(entry));
-            let raw_active_command = self.policy.envelope == EnvelopeKind::Raw
+            let raw_active_command = self.policy.wire.kind() == EnvelopeKind::Raw
                 && entry.reply_family() != SendingReply::Inquiry
                 && matches!(
                     phase,
@@ -4836,7 +4837,7 @@ impl ProtocolEngine {
                         },
                         effects,
                     );
-                } else if self.policy.envelope == EnvelopeKind::Raw {
+                } else if self.policy.wire.kind() == EnvelopeKind::Raw {
                     // Default: fail the sole unacknowledged raw command now and
                     // leave its positional slot as an inert keyed hold through
                     // the ambiguity interval; strict: poison. Issues #671/#723.
@@ -4865,7 +4866,7 @@ impl ProtocolEngine {
             }
             Phase::AwaitingCompletion { deadline, .. } if deadline <= now => {
                 let mark = effects.len();
-                if self.policy.envelope == EnvelopeKind::Raw {
+                if self.policy.wire.kind() == EnvelopeKind::Raw {
                     // Issue #700: the completion never arrived. This shape has no
                     // ACK-timeout path; the completion deadline governs. Fail
                     // this request now and leave the sole-command slot as an
@@ -4934,18 +4935,18 @@ impl ProtocolEngine {
                             effects,
                         );
                     } else {
-                        let error = if self.policy.envelope == EnvelopeKind::Raw {
+                        let error = if self.policy.wire.kind() == EnvelopeKind::Raw {
                             Error::UnsequencedCommandUnconfirmed
                         } else {
                             Error::CancellationUnconfirmed
                         };
-                        if self.policy.envelope == EnvelopeKind::Raw {
+                        if self.policy.wire.kind() == EnvelopeKind::Raw {
                             self.terminate_unconfirmed_raw(due.request, now, effects);
                         } else {
                             self.finish(due.request, RuntimeOutcome::Failed(error), effects);
                         }
                     }
-                } else if self.policy.envelope == EnvelopeKind::Raw {
+                } else if self.policy.wire.kind() == EnvelopeKind::Raw {
                     // Default: correlation is exact (this request owns the
                     // socket); hold the socket quarantined and fail this one
                     // request UnsequencedCommandUnconfirmed at the ambiguity
@@ -4969,12 +4970,12 @@ impl ProtocolEngine {
                 record_deadline_expiry(due.request, DeadlineKind::Completion, mark, effects);
             }
             Phase::AwaitingCancellationResolution { deadline, .. } if deadline <= now => {
-                let error = if self.policy.envelope == EnvelopeKind::Raw {
+                let error = if self.policy.wire.kind() == EnvelopeKind::Raw {
                     Error::UnsequencedCommandUnconfirmed
                 } else {
                     Error::CancellationUnconfirmed
                 };
-                if self.policy.envelope == EnvelopeKind::Raw {
+                if self.policy.wire.kind() == EnvelopeKind::Raw {
                     self.terminate_unconfirmed_raw(due.request, now, effects);
                 } else {
                     self.finish(due.request, RuntimeOutcome::Failed(error), effects);
@@ -5051,7 +5052,7 @@ impl ProtocolEngine {
     /// for the owner-side retained-prefix decision.
     pub(crate) fn raw_correlation_releases_due(&self, now: Instant) -> RawCorrelationReleaseSet {
         let mut releases = RawCorrelationReleaseSet::default();
-        if self.policy.envelope != EnvelopeKind::Raw {
+        if self.policy.wire.kind() != EnvelopeKind::Raw {
             return releases;
         }
         for (key, hold) in &self.holds {
@@ -5257,7 +5258,7 @@ impl ProtocolEngine {
 
     /// Earliest expiry across the keyed raw quarantine table.
     fn raw_hold_wake(&self) -> Option<Instant> {
-        if self.policy.envelope != EnvelopeKind::Raw {
+        if self.policy.wire.kind() != EnvelopeKind::Raw {
             return None;
         }
         // A hold released by evidence has no deadline of its own: an owed
@@ -5288,7 +5289,7 @@ impl ProtocolEngine {
     /// This runs before ordinary dispatch, so a queued successor can make
     /// progress in the same wake that restores the target lane.
     fn expire_raw_holds(&mut self, now: Instant) {
-        if self.policy.envelope != EnvelopeKind::Raw {
+        if self.policy.wire.kind() != EnvelopeKind::Raw {
             return;
         }
         // An owed raw stream inquiry reply is never released by time (its
@@ -5616,7 +5617,7 @@ impl ProtocolEngine {
         }
         // Raw holds are meaningless for a sequenced envelope, and every key
         // must name a valid registered target.
-        if self.policy.envelope != EnvelopeKind::Raw && !self.holds.is_empty() {
+        if self.policy.wire.kind() != EnvelopeKind::Raw && !self.holds.is_empty() {
             return Err("raw correlation hold on a sequenced session".into());
         }
         self.ledger.check_disputes()?;
@@ -5740,7 +5741,7 @@ impl ProtocolEngine {
                     return Err("socket-owning entry is absent from socket index".into());
                 }
             }
-            if self.policy.envelope == EnvelopeKind::Raw
+            if self.policy.wire.kind() == EnvelopeKind::Raw
                 && matches!(entry.lifecycle.phase(), Phase::AwaitingReply { .. })
             {
                 let target = entry.request.context().target;
@@ -5790,7 +5791,7 @@ impl ProtocolEngine {
         // “Decisions from this review”, item 7, and architecture_2_0.md,
         // “Correlation before ACK is envelope-specific” and “Operational
         // invariants”.
-        if self.policy.envelope == EnvelopeKind::Raw {
+        if self.policy.wire.kind() == EnvelopeKind::Raw {
             let mut unacknowledged = PerTarget::<u8>::default();
             let mut urgent = PerTarget::<u8>::default();
             let mut uncorrelatable = PerTarget::<u8>::default();
@@ -6213,7 +6214,7 @@ mod cancellation_regression_tests {
 
     fn policy(envelope: EnvelopeKind, command_spacing: Duration) -> ProtocolPolicy {
         ProtocolPolicy {
-            envelope,
+            wire: WireProtocol::new(envelope, crate::transport::AddressingMode::Ip),
             command_spacing,
             inquiry_cooldown: Duration::ZERO,
             ..ProtocolPolicy::test_default()

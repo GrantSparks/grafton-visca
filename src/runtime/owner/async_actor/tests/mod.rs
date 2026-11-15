@@ -274,7 +274,10 @@ fn policy(capacity: usize) -> OwnerPolicy {
 #[cfg(feature = "runtime-tokio")]
 fn sony_policy(capacity: usize) -> OwnerPolicy {
     let mut owner = policy(capacity);
-    owner.protocol.envelope = EnvelopeKind::Sony;
+    owner.protocol.wire = crate::runtime::engine::WireProtocol::new(
+        EnvelopeKind::Sony,
+        crate::transport::AddressingMode::Ip,
+    );
     owner
 }
 

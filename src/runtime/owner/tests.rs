@@ -483,7 +483,10 @@ mod metrics {
     fn owner_policy(envelope: EnvelopeKind) -> OwnerPolicy {
         let protocol = ProtocolPolicy {
             capacity: 4,
-            envelope,
+            wire: crate::runtime::engine::WireProtocol::new(
+                envelope,
+                crate::transport::AddressingMode::Ip,
+            ),
             inquiry_capacity: 2,
             inquiry_cooldown: Duration::ZERO,
             raw_inquiry_release_hold: Duration::from_millis(10),

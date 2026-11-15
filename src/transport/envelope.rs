@@ -184,6 +184,13 @@ pub(crate) enum SonyResponse<'a> {
     Control { code: u16 },
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl RawVisca {
+    pub(crate) const fn addressing(&self) -> AddressingMode {
+        self.addressing
+    }
+}
+
 impl Envelope for RawVisca {
     const KIND: ProfileEnvelope = ProfileEnvelope::RawVisca;
 
@@ -270,6 +277,11 @@ impl Envelope for SonyEncapsulated {
 }
 
 impl SonyEncapsulated {
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) const fn addressing(&self) -> AddressingMode {
+        self.addressing
+    }
+
     fn next_sequence(&self, request: SonyRequestSequence) -> u32 {
         match request {
             SonyRequestSequence::AllocateFresh => {

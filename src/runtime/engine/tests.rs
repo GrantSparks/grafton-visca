@@ -27,7 +27,7 @@ fn camera(value: u8) -> TargetSlot {
 
 fn policy(envelope: EnvelopeKind, transport: TransportKind) -> ProtocolPolicy {
     ProtocolPolicy {
-        envelope,
+        wire: WireProtocol::new(envelope, crate::transport::AddressingMode::Ip),
         transport,
         ..ProtocolPolicy::test_default()
     }
@@ -840,14 +840,12 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
             Effect::Transition { .. },
             Effect::Transmit {
                 kind: Transmission::Request {
-                    framing: RequestFraming::Sony {
-                        sequence: SonyRequestSequence::AllocateFresh
-                    },
+                    framing,
                     ..
                 },
                 ..
             }
-        ]
+        ] if matches!(framing.expectation(), RequestFraming::Sony { sequence: SonyRequestSequence::AllocateFresh })
     ));
     engine.handle(
         Input::TransmissionFinished {
@@ -876,7 +874,7 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
         Effect::Transmit {
             kind: Transmission::Request { framing, .. },
             ..
-        } => Some(*framing),
+        } => Some(framing.expectation()),
         _ => None,
     });
     assert_eq!(retry_id, id);
@@ -922,7 +920,7 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
         Effect::Transmit {
             kind: Transmission::Request { framing, .. },
             ..
-        } => Some(*framing),
+        } => Some(framing.expectation()),
         _ => None,
     });
     assert_eq!(
@@ -1120,7 +1118,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
             request,
             kind: Transmission::Request { framing, .. },
             ..
-        } if *request == id => Some(*framing),
+        } if *request == id => Some(framing.expectation()),
         _ => None,
     });
     assert_eq!(
@@ -1310,7 +1308,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
             request,
             kind: Transmission::Request { framing, .. },
             ..
-        } if *request == id => Some(*framing),
+        } if *request == id => Some(framing.expectation()),
         _ => None,
     });
     assert_eq!(
@@ -4457,7 +4455,7 @@ fn fuzz_directed_frame(engine: &ProtocolEngine, action: u64) -> Option<Input> {
         .take(engine.entries.len())
         .find(|entry| {
             !matches!(entry.phase(), Phase::Ready { .. } | Phase::Backoff { .. })
-                && (engine.policy.envelope == EnvelopeKind::Raw
+                && (engine.policy.wire.kind() == EnvelopeKind::Raw
                     || !entry.sequence_history.is_empty())
         })?;
     let other = if action & 0x8000 == 0 {
@@ -11948,7 +11946,7 @@ fn admit_into(
         now,
     );
     if let Some((_, id, _)) = request_transmit_optional(&effects) {
-        let sequence = (engine.policy.envelope == EnvelopeKind::Sony).then(|| sony_sequence(id));
+        let sequence = (engine.policy.wire.kind() == EnvelopeKind::Sony).then(|| sony_sequence(id));
         send_ok(engine, &effects, sequence, now);
     }
     effects

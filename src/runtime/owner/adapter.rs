@@ -37,9 +37,7 @@ use crate::{
 
 use super::{FrameBatch, OwnerBuffers, OwnerPolicy};
 #[cfg(any(feature = "async", feature = "blocking"))]
-use super::{
-    OwnerReceive, ReceiveFatal, RetainedEvidence, RetainedInput, RetainedStreamInput, WireWrite,
-};
+use super::{OwnerReceive, ReceiveFatal, RetainedEvidence, RetainedInput, RetainedStreamInput};
 #[cfg(feature = "async")]
 use crate::transport::AsyncTransport;
 #[cfg(feature = "blocking")]
@@ -47,7 +45,6 @@ use crate::transport::BlockingTransport;
 #[cfg(any(feature = "async", feature = "blocking"))]
 use crate::{
     protocol::framer::RawBufferedInput,
-    runtime::engine::TransmissionMeta,
     transport::{HasTransportConfig, ReceiveOutcome},
 };
 
@@ -308,10 +305,11 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     } else {
         1
     };
+    let wire = crate::runtime::engine::WireProtocol::new(envelope, config.addressing);
     let mut policy = OwnerPolicy::with_targets(
         ProtocolPolicy {
             capacity: admission_capacity.get(),
-            envelope,
+            wire,
             transport,
             inquiry_capacity,
             command_spacing,
@@ -621,13 +619,13 @@ impl AdapterFraming {
         )?;
         let targets: Vec<_> = profiles.iter().map(|(target, _)| *target).collect();
         let registry = TargetRegistry::from_targets(&targets)?;
-        let framing = match profiles[0].1.envelope() {
-            ProfileEnvelope::RawVisca => EnvelopeFraming::Raw {
-                envelope: RawVisca::new(config.addressing),
+        let framing = match policy.protocol.wire.encoder() {
+            crate::runtime::engine::ProtocolEncoder::Raw(encoder) => EnvelopeFraming::Raw {
+                envelope: encoder.envelope(),
                 framer: RawFramer::new(config.buffer_config),
             },
-            ProfileEnvelope::SonyEncapsulated => EnvelopeFraming::Sony {
-                envelope: SonyEncapsulated::new(config.addressing),
+            crate::runtime::engine::ProtocolEncoder::Sony(encoder) => EnvelopeFraming::Sony {
+                envelope: encoder.envelope(),
                 framer: SonyFramer::new(config.buffer_config),
             },
         };
@@ -651,32 +649,6 @@ impl AdapterFraming {
                 envelope.frame_sequence_reset_into(out);
                 true
             }
-        }
-    }
-
-    /// Frame one owner write into its session-owned frame buffer, returning
-    /// the metadata the engine records once it is sent.
-    pub(crate) fn frame_write(&self, write: &mut WireWrite<'_>) -> Result<TransmissionMeta, Error> {
-        use crate::runtime::engine::RequestFraming;
-        match (&self.framing, write.framing) {
-            (EnvelopeFraming::Raw { envelope, .. }, RequestFraming::Raw) => {
-                envelope.frame_into(write.bytes, write.command_kind(), write.frame_buffer)?;
-                Ok(TransmissionMeta::Raw)
-            }
-            (EnvelopeFraming::Sony { envelope, .. }, RequestFraming::Sony { sequence }) => {
-                let sequence = envelope.frame_into_with_sequence(
-                    write.bytes,
-                    write.command_kind(),
-                    sequence,
-                    write.frame_buffer,
-                )?;
-                Ok(TransmissionMeta::Sony { sequence })
-            }
-            // A rejected write proves no bytes were sent. The native driver
-            // preserves that proof as WriteOutcome::NotSent.
-            _ => Err(Error::InvalidState(
-                "owner write framing does not match its target envelope".into(),
-            )),
         }
     }
 
@@ -1691,7 +1663,7 @@ mod tests {
             false,
         )
         .unwrap();
-        assert_eq!(raw_policy.protocol.envelope, EnvelopeKind::Raw);
+        assert_eq!(raw_policy.protocol.wire.kind(), EnvelopeKind::Raw);
         assert_eq!(raw_policy.protocol.inquiry_capacity, 1);
         assert_eq!(
             raw_policy.protocol.raw_inquiry_release_hold,
@@ -1708,7 +1680,7 @@ mod tests {
             false,
         )
         .unwrap();
-        assert_eq!(sony_policy.protocol.envelope, EnvelopeKind::Sony);
+        assert_eq!(sony_policy.protocol.wire.kind(), EnvelopeKind::Sony);
         assert_eq!(sony_policy.protocol.inquiry_capacity, capacity.get());
     }
 

@@ -88,7 +88,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING** (#891): `FrameMeta` is `Raw` or `Sony { sequence }`, with a
   `sequence()` projection. Sealed envelopes expose their exact `Envelope::KIND`
   in place of a sequence-support boolean. Sony replay identity is explicit and
-  raw framing has no Sony-sequence input.
+  raw framing has no Sony-sequence input. One shared session authority binds
+  concrete encoder plans and constructs the matching receive framer; the adapter
+  no longer stores an independent write mode or checks impossible cross-pairs.
 
 - **BREAKING** (#872): Settlement tuning below every built-in targeted retry
   budget is refused. Default `settled()` waits use the larger of the override

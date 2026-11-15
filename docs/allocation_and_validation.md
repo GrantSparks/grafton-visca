@@ -15,6 +15,10 @@ The following boundaries are release gates:
   merely because it is prepared for a target.
 * Raw and Sony receive decoding borrows each frame and recycles bounded batch
   storage without allocating after warm-up, for both stream and datagram reads.
+* One immutable wire authority adds one shared allocation at session construction.
+  Raw write plans
+  copy their encoder; Sony plans clone the existing allocator handle. Neither
+  minting nor executing a write plan allocates per-write storage.
 * Raw and Sony framing reuse their warmed buffers. Where policy has proof that
   replay is safe (same-sequence Sony recovery or a conclusive camera
   rejection), a retry reuses the already encoded command rather than rebuilding

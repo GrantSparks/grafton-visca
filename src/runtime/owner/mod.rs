@@ -83,13 +83,13 @@ use super::engine::{
     AdmissionSlot, AdmissionTicket, AppliedStateProjection, CancellationObservation,
     CancellationPolicy, ControlClass, DeadlineKind, DecodedFrame, DecodedResponse, Effect,
     EngineTurn, EnvelopeKind, EnvelopeSequence, IgnoreReason, Input, InputTurn, Lane, Lifecycle,
-    ProtocolEngine, ProtocolPolicy, RequestContext, RequestFraming, RequestId, RetryPolicy,
-    RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy,
-    Transmission, TransmissionId, TransportKind, WriteOutcome,
+    ProtocolEngine, ProtocolPolicy, RequestContext, RequestId, RetryPolicy, RuntimeOutcome,
+    RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy, Transmission,
+    TransmissionId, TransmissionMeta, TransportKind, WriteFraming, WriteOutcome,
 };
 
 #[cfg(test)]
-use super::engine::{CancelState, Phase, TransmissionMeta};
+use super::engine::{CancelState, Phase};
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 use super::engine::{RawCorrelationReleaseSet, RawPrefixEvidence, RawReleaseGateAction};
@@ -272,18 +272,19 @@ impl OwnerPolicy {
         // (#799); the production builder lowers the caller's configured
         // values over them (#675).
         let transport = crate::transport::TransportConfig::default();
+        let baseline = TuningBaseline {
+            command_spacing: protocol.command_spacing,
+            inquiry_spacing: protocol.inquiry_spacing,
+            command_sockets: PerTarget::from_fn(|target| {
+                targets[target].map(|policy| policy.command_sockets)
+            }),
+        };
         Ok(Self {
             protocol,
             targets,
             limits: OwnerLimits::default(),
             tuning,
-            baseline: TuningBaseline {
-                command_spacing: protocol.command_spacing,
-                inquiry_spacing: protocol.inquiry_spacing,
-                command_sockets: PerTarget::from_fn(|target| {
-                    targets[target].map(|policy| policy.command_sockets)
-                }),
-            },
+            baseline,
             read_timeout: transport.read_timeout,
             write_timeout: transport.write_timeout,
         })
@@ -1391,8 +1392,8 @@ pub(crate) struct WireWrite<'a> {
     ))]
     pub(crate) request: RequestId,
     pub(crate) bytes: &'a [u8],
-    /// The exact envelope and sequence action selected by the engine.
-    pub(crate) framing: RequestFraming,
+    /// The concrete encoder plan bound by the session wire authority.
+    pub(crate) framing: &'a WriteFraming,
     /// Reusable framing destination owned by the session. Envelope adapters
     /// must frame into this buffer instead of allocating per transmission.
     pub(crate) frame_buffer: &'a mut BytesMut,
@@ -1408,6 +1409,12 @@ pub(crate) struct WireWrite<'a> {
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 impl WireWrite<'_> {
+    /// Executes the encoder plan already bound by the session authority.
+    pub(crate) fn frame(&mut self) -> Result<TransmissionMeta, Error> {
+        self.framing
+            .frame_into(self.bytes, self.command_kind(), self.frame_buffer)
+    }
+
     /// The command kind this write is framed and sent as.
     pub(crate) const fn command_kind(&self) -> crate::command::CommandKind {
         if self.inquiry {
@@ -1433,8 +1440,8 @@ pub(crate) struct StagedWrite {
 pub(crate) struct OwnerInputTurn(InputTurn, Instant);
 
 impl StagedWrite {
-    fn framing(&self) -> RequestFraming {
-        match self.kind {
+    fn framing(&self) -> &WriteFraming {
+        match &self.kind {
             Transmission::Request { framing, .. } | Transmission::Cancel { framing, .. } => framing,
         }
     }
@@ -1568,7 +1575,7 @@ impl OwnerState {
                 "owner collection bounds must be non-zero".into(),
             ));
         }
-        let mut engine = ProtocolEngine::new(policy.protocol)?;
+        let mut engine = ProtocolEngine::new(policy.protocol.clone())?;
         for (target, target_policy) in policy.targets.iter() {
             if let Some(target_policy) = target_policy {
                 engine.register_target(target, *target_policy)?;
@@ -1977,7 +1984,7 @@ impl OwnerState {
             transmission: staged.transmission,
             target: staged.target(),
             cancellation: matches!(staged.kind, Transmission::Cancel { .. }),
-            envelope: self.policy.protocol.envelope,
+            envelope: self.policy.protocol.wire.kind(),
             sequence,
             success,
         });
@@ -2163,7 +2170,7 @@ impl OwnerState {
 
     pub(crate) fn prepare_write<'a>(
         &'a mut self,
-        staged: &StagedWrite,
+        staged: &'a StagedWrite,
     ) -> Result<WireWrite<'a>, Error> {
         #[cfg(all(
             test,

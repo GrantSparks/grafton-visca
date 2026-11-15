@@ -768,8 +768,20 @@ poisons a stream (#848). For the serial preset the bound is 8192 + 256 = 8448
 bytes, and overflow reports that configured bound. Raw and Sony framers are
 separate types with one strict, nonmutating overflow policy. The adapter pairs
 each framer with its matching envelope and visits frame bytes by reference;
-it does not copy them into a second framing scratch buffer. Receive batches
-reuse the owner's bounded storage after the shell consumes them. The read
+it does not copy them into a second framing scratch buffer.
+
+One immutable `WireProtocol` authority is created for the session and shared
+with the deterministic engine. Engine mode predicates derive from that authority;
+the policy stores no second envelope discriminator. Its typed raw/Sony encoder
+projections mint opaque write plans: raw takes no sequence argument, while Sony
+binds an explicit fresh-allocation or replay action to the same allocator used by
+sequence reset. The owner executes the bound plan into its reusable frame buffer;
+it never compares a write mode with a separately selected adapter mode. Minting a
+plan does not allocate a Sony sequence. Execution validates the payload before
+allocating a fresh sequence, and replay leaves the allocator unchanged. The
+adapter's receive framer is constructed from that same authority, once.
+
+Receive batches reuse the owner's bounded storage after the shell consumes them. The read
 boundary produces one closed verdict (frames, no progress, transient failure,
 or fatal failure), retaining original fatal causes. The shell executes that
 verdict without classifying OS errors again. Retained stream inspection is an

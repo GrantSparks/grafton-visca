@@ -460,10 +460,10 @@ pub(crate) enum AdmissionSlot {
 }
 
 /// Session-wide scheduling policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProtocolPolicy {
     pub(crate) capacity: usize,
-    pub(crate) envelope: EnvelopeKind,
+    pub(crate) wire: super::WireProtocol,
     pub(crate) transport: TransportKind,
     pub(crate) inquiry_capacity: usize,
     pub(crate) command_spacing: Duration,
@@ -497,10 +497,10 @@ impl ProtocolPolicy {
     /// capacity 8, no command or inquiry spacing, a 25 ms inquiry cooldown and
     /// non-strict recovery. Tests override fields
     /// with `..ProtocolPolicy::test_default()`.
-    pub(crate) const fn test_default() -> Self {
+    pub(crate) fn test_default() -> Self {
         Self {
             capacity: 16,
-            envelope: EnvelopeKind::Raw,
+            wire: super::WireProtocol::new(EnvelopeKind::Raw, crate::transport::AddressingMode::Ip),
             transport: TransportKind::Datagram,
             inquiry_capacity: 8,
             command_spacing: Duration::ZERO,
@@ -731,7 +731,8 @@ impl TransmissionMeta {
 
 pub(crate) use crate::transport::envelope::SonyRequestSequence;
 
-/// Framing facts for exactly one write. Raw VISCA has no Sony sequence axis.
+/// Correlation expectation derived from one bound write plan.
+/// Raw VISCA has no Sony sequence axis; Sony preserves its exact retry intent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RequestFraming {
     Raw,
@@ -753,14 +754,14 @@ pub(crate) enum Transmission {
     Request {
         target: TargetSlot,
         wire: Arc<EncodedMessage>,
-        framing: RequestFraming,
+        framing: super::WriteFraming,
         lane: Lane,
         requires_extended_pan_tilt_speed: bool,
     },
     Cancel {
         target: TargetSlot,
         socket: ViscaSocket,
-        framing: RequestFraming,
+        framing: super::WriteFraming,
     },
 }
 

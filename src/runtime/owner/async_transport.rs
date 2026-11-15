@@ -34,7 +34,7 @@ where
     T: AsyncTransport + HasTransportConfig,
 {
     fn write(&mut self, mut write: WireWrite<'_>) -> impl Future<Output = WriteOutcome> + Send {
-        let framed = self.framing.frame_write(&mut write);
+        let framed = write.frame();
         async move {
             let meta = match framed {
                 Ok(meta) => meta,
