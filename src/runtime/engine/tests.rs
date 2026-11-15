@@ -24,6 +24,7 @@ mod lifecycle_transition_matrix;
 mod prepared_retry;
 mod raw_evidence;
 mod raw_stream_model;
+mod retry_history;
 mod write_outcomes;
 
 fn camera(value: u8) -> TargetSlot {
@@ -871,7 +872,7 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
         start,
     );
     assert_eq!(
-        engine.entry(id).and_then(|entry| entry.current_sequence),
+        engine.entry(id).and_then(|entry| entry.current_sequence()),
         Some(0x1020_3040)
     );
 
@@ -915,7 +916,7 @@ fn sony_retry_reuses_first_successful_sequence_and_ignores_stale_result() {
         .iter()
         .any(|effect| matches!(effect, Effect::Ignored(IgnoreReason::StaleTransmission))));
     assert_eq!(
-        engine.entry(id).and_then(|entry| entry.current_sequence),
+        engine.entry(id).and_then(|entry| entry.current_sequence()),
         Some(0x1020_3040)
     );
 
@@ -995,7 +996,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
         engine.entry(id).map(Entry::phase),
         Some(Phase::Backoff { ready_at, .. }) if ready_at == retry_ready
     ));
-    assert_eq!(engine.entry(id).unwrap().attempt, 1);
+    assert_eq!(engine.entry(id).unwrap().retry_count(), 1);
     assert_eq!(engine.next_wake(start), Some(retry_ready));
 
     // The old attempt's duplicate is still routable by sequence, but must be
@@ -1020,7 +1021,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
     assert!(!stale_backoff
         .iter()
         .any(|effect| matches!(effect, Effect::Terminal { .. })));
-    assert_eq!(engine.entry(id).unwrap().attempt, 1);
+    assert_eq!(engine.entry(id).unwrap().retry_count(), 1);
     assert_eq!(engine.next_wake(start), Some(retry_ready));
 
     // Hold the sole command socket with another request so the retry reaches
@@ -1075,7 +1076,10 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
     // A duplicate retryable error and a stale permanent error are both inert
     // while the retry is queued. In particular, neither changes its attempt
     // budget nor terminalizes the request.
-    let ready_before = (engine.entry(id).unwrap().attempt, engine.next_wake(start));
+    let ready_before = (
+        engine.entry(id).unwrap().retry_count(),
+        engine.next_wake(start),
+    );
     let stale_ready = engine.handle(
         frame(
             1,
@@ -1110,7 +1114,10 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
             .any(|effect| matches!(effect, Effect::Terminal { .. })));
     }
     assert_eq!(
-        (engine.entry(id).unwrap().attempt, engine.next_wake(start)),
+        (
+            engine.entry(id).unwrap().retry_count(),
+            engine.next_wake(start)
+        ),
         ready_before
     );
 
@@ -1159,7 +1166,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
         Some(first_sequence),
         retry_ready + Duration::from_millis(2),
     );
-    assert_eq!(engine.entry(id).unwrap().attempt, 1);
+    assert_eq!(engine.entry(id).unwrap().retry_count(), 1);
     assert!(matches!(
         engine.entry(id).map(Entry::phase),
         Some(Phase::AwaitingAck { .. })
@@ -1254,7 +1261,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
     assert!(!stale_backoff
         .iter()
         .any(|effect| matches!(effect, Effect::RetryScheduled { .. })));
-    assert_eq!(engine.entry(id).unwrap().attempt, 1);
+    assert_eq!(engine.entry(id).unwrap().retry_count(), 1);
 
     // The queued inquiry wins dispatch when the retry becomes ready, leaving
     // the old inquiry in Ready and preserving the original retry deadline.
@@ -1267,7 +1274,10 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
         Some(Phase::Ready)
     ));
 
-    let ready_before = (engine.entry(id).unwrap().attempt, engine.next_wake(start));
+    let ready_before = (
+        engine.entry(id).unwrap().retry_count(),
+        engine.next_wake(start),
+    );
     let stale_ready = engine.handle(
         frame(
             1,
@@ -1302,7 +1312,10 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
             .any(|effect| matches!(effect, Effect::Terminal { .. })));
     }
     assert_eq!(
-        (engine.entry(id).unwrap().attempt, engine.next_wake(start)),
+        (
+            engine.entry(id).unwrap().retry_count(),
+            engine.next_wake(start)
+        ),
         ready_before
     );
 
@@ -1351,7 +1364,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
         },
         retry_ready + Duration::from_millis(2),
     );
-    assert_eq!(engine.entry(id).unwrap().attempt, 1);
+    assert_eq!(engine.entry(id).unwrap().retry_count(), 1);
     assert!(matches!(
         engine.entry(id).map(Entry::phase),
         Some(Phase::AwaitingReply { .. })
@@ -7793,7 +7806,7 @@ fn assert_initial_attempt_budget_expiry(
     id: RequestId,
     budget_deadline: Instant,
 ) {
-    assert_eq!(engine.entry(id).map(|entry| entry.attempt), Some(0));
+    assert_eq!(engine.entry(id).map(|entry| entry.retry_count()), Some(0));
     assert_eq!(
         engine.next_wake(engine.entry(id).unwrap().submitted_at),
         Some(budget_deadline)
@@ -8171,7 +8184,7 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
             Some(Phase::AwaitingAck { .. })
         ));
         assert_eq!(
-            engine.entry(id).and_then(|entry| entry.current_sequence),
+            engine.entry(id).and_then(|entry| entry.current_sequence()),
             Some(sequence)
         );
         assert!(!engine.entries.exact_owners(sequence).is_empty());
@@ -8258,7 +8271,9 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
         let (transmission, retried_id, _) = request_transmit(&retried);
         assert_eq!(retried_id, id);
         assert!(matches!(
-            engine.entry(id).and_then(|entry| entry.last_error.clone()),
+            engine
+                .entry(id)
+                .and_then(|entry| entry.retry_cause().cloned()),
             Some(Error::CommandBufferFull)
         ));
         assert!(matches!(phase_of(&engine, id), Some(Phase::Sending { .. })));

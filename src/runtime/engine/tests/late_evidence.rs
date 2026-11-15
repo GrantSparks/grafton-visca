@@ -179,7 +179,7 @@ fn sony_late_camera_error_does_not_spend_another_retry() {
     let start = Instant::now();
     let (mut engine, id) = sony_waiting(start);
     engine.advance(start + Duration::from_millis(20));
-    let attempt = engine.entry(id).unwrap().attempt;
+    let attempt = engine.entry(id).unwrap().retry_count();
     let ignored = engine.handle(
         answer(
             EnvelopeKind::Sony,
@@ -190,7 +190,7 @@ fn sony_late_camera_error_does_not_spend_another_retry() {
         ),
         start + Duration::from_millis(21),
     );
-    assert_eq!(engine.entry(id).unwrap().attempt, attempt);
+    assert_eq!(engine.entry(id).unwrap().retry_count(), attempt);
     assert!(!ignored
         .iter()
         .any(|effect| matches!(effect, Effect::RetryScheduled { .. })));

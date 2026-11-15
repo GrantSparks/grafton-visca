@@ -22,7 +22,7 @@ pub(crate) use types::*;
 use std::{
     cmp::Ordering,
     collections::BTreeMap,
-    num::NonZeroU64,
+    num::{NonZeroU32, NonZeroU64},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -169,6 +169,33 @@ struct PendingSocketlessCompletions {
     count: u8,
 }
 
+/// Whole-request history retained after a written attempt enters retry waiting.
+/// Its nonzero count and cause exist together; only `EntryChange::Retry` writes it.
+#[derive(Debug)]
+struct PriorAttempts {
+    count: NonZeroU32,
+    cause: Error,
+    possibly_applied: bool,
+}
+
+/// Evidence supplied by the boundary ending the current attempt. Physical
+/// writes and pre-write refusals do not mutate whole-request retry history.
+#[derive(Debug, Clone, Copy)]
+enum AttemptEvidence {
+    Lifecycle,
+    Unwritten,
+    Written,
+    Rejected,
+}
+
+/// Only the actual camera-error ingress can classify an attempt as rejected.
+/// A transport error with the same public `Error` variant proves no rejection.
+#[derive(Debug)]
+enum RetryCause {
+    CameraRejection(Error),
+    Unconfirmed(Error),
+}
+
 /// The one authoritative lifecycle record for an admitted request.
 #[derive(Debug)]
 pub(crate) struct Entry {
@@ -176,23 +203,10 @@ pub(crate) struct Entry {
     lifecycle: EntryPlacement,
     admission_order: u64,
     submitted_at: Instant,
-    attempt: u32,
-    last_error: Option<Error>,
+    prior: Option<PriorAttempts>,
     generation: GenerationTicket,
-    /// The most recently successful Sony sequence for this logical request.
-    /// Retries reuse it; cancellation has its own sequence and never changes
-    /// this value.
-    current_sequence: Option<u32>,
     sequence_history: SmallVec<[SequenceRecord; MAX_SEQUENCE_HISTORY]>,
     slot: AdmissionSlot,
-    /// Whether a written attempt may have reached the camera without
-    /// a conclusive rejection. Retained across retry waiting, and recorded
-    /// before a physical write result terminalizes directly from Sending.
-    /// A request that was never written, or whose
-    /// every written attempt the camera rejected before ACK, has had no
-    /// effect; supersession then reports `NotAccepted` rather than
-    /// `Unconfirmed`.
-    effect_possible: bool,
 }
 
 impl Entry {
@@ -206,20 +220,68 @@ impl Entry {
             .unwrap_or_else(|| SendingReply::new(&self.request))
     }
 
-    fn may_have_effect(&self, outcome: &RuntimeOutcome) -> bool {
-        self.effect_possible
-            || match self.lifecycle() {
-                Lifecycle::AwaitingAck { .. } | Lifecycle::AwaitingCompletion { .. } => {
-                    !matches!(outcome, RuntimeOutcome::Failed(error) if conclusive_camera_rejection(error))
-                }
-                Lifecycle::Executing { .. } | Lifecycle::AwaitingCancellationResolution { .. } => {
-                    true
-                }
-                Lifecycle::Ready { .. }
-                | Lifecycle::Sending { .. }
-                | Lifecycle::AwaitingReply { .. }
-                | Lifecycle::Backoff { .. } => false,
-            }
+    fn retry_count(&self) -> u32 {
+        self.prior.as_ref().map_or(0, |prior| prior.count.get())
+    }
+
+    fn retry_cause(&self) -> Option<&Error> {
+        self.prior.as_ref().map(|prior| &prior.cause)
+    }
+
+    /// The request's successful Sony sequence is already authoritative in
+    /// the bounded correlation history. Every retry replays that sequence,
+    /// and cancellation has at most one separate record, so it cannot evict
+    /// the request record or change the sequence used by a retry.
+    fn current_sequence(&self) -> Option<u32> {
+        self.sequence_history
+            .iter()
+            .find_map(|record| (record.kind == CorrelationKind::Request).then_some(record.sequence))
+    }
+
+    /// An exact Sony sequence proves a previous written attempt while the
+    /// request waits off the wire. ACKs require the ACK-bearing reply family;
+    /// completions additionally accept `CompletionOnly` (which has no ACK).
+    fn previous_written_attempt(&self) -> Option<AttemptFacts> {
+        self.prior.as_ref()?;
+        self.current_sequence()?;
+        self.lifecycle().previous_attempt()
+    }
+
+    /// The one derivation of a request's terminal certainty (D20/D21/D28).
+    ///
+    /// Inquiries have no physical effect and fail conclusively. A command may
+    /// have applied if a prior attempt remains unconfirmed, if this boundary
+    /// reports a physical write, or if its current lifecycle is on the wire.
+    /// A pre-write refusal or an unwritten halt STOP cannot contribute a new
+    /// effect; neither can a conclusive pre-ACK camera rejection. A confirmed
+    /// ACK has already proved possible effect, even when a later error ends it.
+    /// Queued and backed-off requests therefore use only their prior history.
+    fn certainty(&self, evidence: AttemptEvidence) -> Certainty {
+        if self.reply_family() == SendingReply::Inquiry {
+            return Certainty::FailedConclusively;
+        }
+        let current_possible = match evidence {
+            AttemptEvidence::Unwritten | AttemptEvidence::Rejected => matches!(
+                self.lifecycle(),
+                Lifecycle::Executing { .. } | Lifecycle::AwaitingCancellationResolution { .. }
+            ),
+            AttemptEvidence::Written => true,
+            AttemptEvidence::Lifecycle => self.lifecycle().attempt().is_some(),
+        };
+        if current_possible
+            || self
+                .prior
+                .as_ref()
+                .is_some_and(|prior| prior.possibly_applied)
+        {
+            Certainty::Unconfirmed
+        } else {
+            Certainty::NotAccepted
+        }
+    }
+
+    fn may_have_effect(&self, evidence: AttemptEvidence) -> bool {
+        self.certainty(evidence) != Certainty::NotAccepted
     }
 
     fn retry_budget_deadline(&self) -> Option<Instant> {
@@ -248,10 +310,10 @@ impl Entry {
     }
 
     fn due(&self, id: RequestId) -> Option<DueWork> {
-        let (at, action) = self
-            .lifecycle
-            .active()?
-            .due_action(self.retry_budget_deadline(), terminal_certainty(self))?;
+        let (at, action) = self.lifecycle.active()?.due_action(
+            self.retry_budget_deadline(),
+            self.certainty(AttemptEvidence::Lifecycle),
+        )?;
         Some(DueWork {
             at,
             admission_order: self.admission_order,
@@ -809,11 +871,11 @@ impl ProtocolEngine {
                     entry.lifecycle().phase(),
                     Phase::Ready | Phase::Backoff { .. }
                 ) && self.motion_superseded(entry.request.context()).is_some())
-                .then_some((*id, entry.effect_possible))
+                .then_some((*id, entry.certainty(AttemptEvidence::Unwritten)))
             })
             .collect();
         let mut effects = Decision::new();
-        for (id, effect_possible) in ids {
+        for (id, certainty) in ids {
             // A queued or backed-off request is not on the wire. It can have
             // affected the camera only through an earlier attempt that the
             // camera did not conclusively reject.
@@ -821,7 +883,7 @@ impl ProtocolEngine {
                 id,
                 RuntimeOutcome::Failed(Error::MotionSuperseded {
                     axes,
-                    context: superseded_context(effect_possible),
+                    context: superseded_context(certainty),
                 }),
                 now,
                 &mut effects,
@@ -868,15 +930,12 @@ impl ProtocolEngine {
         }
         // The staged write never left; only an earlier attempt that the camera
         // did not conclusively reject can have had an effect.
-        let certainty = if entry.effect_possible {
-            Certainty::Unconfirmed
-        } else {
-            Certainty::NotAccepted
-        };
+        let certainty = entry.certainty(AttemptEvidence::Unwritten);
         let mut effects = Decision::new();
-        self.finish(
+        self.finish_observed(
             owner.request,
             RuntimeOutcome::Failed(Error::timeout(FailureStage::Terminal, certainty)),
+            AttemptEvidence::Unwritten,
             now,
             &mut effects,
         );
@@ -1103,7 +1162,7 @@ impl ProtocolEngine {
         let owes = self.ledger_owes(entry);
         let framing = match self.policy.wire.encoder() {
             ProtocolEncoder::Raw(encoder) => encoder.plan(),
-            ProtocolEncoder::Sony(encoder) => encoder.plan(entry.current_sequence.map_or(
+            ProtocolEncoder::Sony(encoder) => encoder.plan(entry.current_sequence().map_or(
                 SonyRequestSequence::AllocateFresh,
                 SonyRequestSequence::Replay,
             )),
@@ -1753,11 +1812,9 @@ impl ProtocolEngine {
             // A failed stream send has an unknowable parser position even if
             // its result outlives this request's total budget.
             WriteOutcome::Failed(error) if self.policy.transport == TransportKind::Stream => {
-                self.record_possible_write_effect(owner);
                 self.failed_transmission(owner, error, now, effects);
             }
             WriteOutcome::Failed(error) => {
-                self.record_possible_write_effect(owner);
                 if !self.write_result_after_total_budget(owner, false, now, effects) {
                     self.failed_transmission(owner, error, now, effects);
                 }
@@ -1767,16 +1824,6 @@ impl ProtocolEngine {
                     self.successful_transmission(owner, meta, now, effects);
                 }
             }
-        }
-    }
-
-    /// Only a physical send can make this attempt possibly effective. A
-    /// refused preparation leaves earlier attempts' facts intact.
-    fn record_possible_write_effect(&mut self, owner: TransmissionOwner) {
-        if owner.kind == CorrelationKind::Request {
-            let _ = self
-                .entries
-                .transition(owner.request, EntryChange::PossibleEffect);
         }
     }
 
@@ -1794,21 +1841,21 @@ impl ProtocolEngine {
         let Some(entry) = self.entries.get(&owner.request) else {
             return;
         };
-        let possible = entry.effect_possible;
-        let error = Error::transmission_not_sent(
-            source,
-            if possible {
-                Certainty::Unconfirmed
-            } else {
-                Certainty::NotAccepted
-            },
-        );
+        let certainty = entry.certainty(AttemptEvidence::Unwritten);
+        let possible = certainty == Certainty::Unconfirmed;
+        let error = Error::transmission_not_sent(source, certainty);
         // No current bytes left, but an earlier attempt's owed answers and
         // raw ambiguity must survive this logical request's terminal.
         if possible && self.policy.wire.kind() == EnvelopeKind::Raw {
             self.quarantine_unconfirmed_raw(owner.request, now);
         }
-        self.finish(owner.request, RuntimeOutcome::Failed(error), now, effects);
+        self.finish_observed(
+            owner.request,
+            RuntimeOutcome::Failed(error),
+            AttemptEvidence::Unwritten,
+            now,
+            effects,
+        );
     }
 
     /// Applies the admission-to-terminal budget before an active request write
@@ -1843,8 +1890,8 @@ impl ProtocolEngine {
                             && entry.reply_family() != SendingReply::Inquiry
                             && matches!(entry.lifecycle().phase(), Phase::Sending { .. }),
                         entry
-                            .last_error
-                            .clone()
+                            .retry_cause()
+                            .cloned()
                             .unwrap_or_else(|| terminal_timeout(entry)),
                     )
                 })
@@ -1856,7 +1903,6 @@ impl ProtocolEngine {
             return false;
         }
         if written {
-            self.record_possible_write_effect(owner);
             self.mark_stream_answer_written(owner.request, false);
         }
 
@@ -1877,7 +1923,13 @@ impl ProtocolEngine {
             // A late Sony result — including a late transport error — cannot
             // extend the budget or mutate correlation. Preserve the prior
             // retry cause when there is one, matching ordinary budget expiry.
-            self.finish(owner.request, RuntimeOutcome::Failed(error), now, effects);
+            self.finish_observed(
+                owner.request,
+                RuntimeOutcome::Failed(error),
+                AttemptEvidence::Written,
+                now,
+                effects,
+            );
         }
         true
     }
@@ -1907,12 +1959,12 @@ impl ProtocolEngine {
             | (RequestFraming::Sony { .. }, TransmissionMeta::Raw) => false,
         };
         if !metadata_valid {
-            self.record_possible_write_effect(owner);
-            self.finish(
+            self.finish_observed(
                 owner.request,
                 RuntimeOutcome::Failed(Error::InvalidState(
                     "transmission metadata conflicts with requested framing".into(),
                 )),
+                AttemptEvidence::Written,
                 now,
                 effects,
             );
@@ -1978,9 +2030,14 @@ impl ProtocolEngine {
                         );
                     }
                     SendingReply::NoReply => {
-                        self.record_possible_write_effect(owner);
                         self.quarantine_raw_terminal(owner.request, now);
-                        self.finish(owner.request, RuntimeOutcome::Written, now, effects);
+                        self.finish_observed(
+                            owner.request,
+                            RuntimeOutcome::Written,
+                            AttemptEvidence::Written,
+                            now,
+                            effects,
+                        );
                     }
                 }
             }
@@ -2087,7 +2144,13 @@ impl ProtocolEngine {
         }
         match owner.kind {
             CorrelationKind::Request => {
-                self.finish(owner.request, RuntimeOutcome::Failed(error), now, effects);
+                self.finish_observed(
+                    owner.request,
+                    RuntimeOutcome::Failed(error),
+                    AttemptEvidence::Written,
+                    now,
+                    effects,
+                );
             }
             CorrelationKind::Cancellation => {
                 self.failed_cancellation_transmission(owner, error, now, effects);
@@ -2227,7 +2290,14 @@ impl ProtocolEngine {
             return;
         }
         for (_, id, retry) in affected {
-            self.schedule_retry(id, retry, now, error.clone(), Backoff::Uncapped, effects);
+            self.schedule_retry(
+                id,
+                retry,
+                now,
+                RetryCause::Unconfirmed(error.clone()),
+                Backoff::Uncapped,
+                effects,
+            );
         }
     }
 
@@ -2898,32 +2968,22 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
             return;
         };
-        let (attempt, cancellation) = match entry.lifecycle() {
-            Lifecycle::AwaitingAck {
-                attempt,
-                cancellation,
-                ..
-            } => (attempt, cancellation),
-            Lifecycle::Ready {
-                previous_attempt: Some(attempt),
-                ..
-            }
-            | Lifecycle::Backoff {
-                previous_attempt: attempt,
-                ..
-            } if self.policy.wire.kind() == EnvelopeKind::Sony
-                && entry.reply_family() == SendingReply::AckThenCompletion
-                && entry.current_sequence.is_some() =>
+        let (attempt, cancellation) = match (entry.lifecycle(), entry.previous_written_attempt()) {
+            (
+                Lifecycle::AwaitingAck {
+                    attempt,
+                    cancellation,
+                    ..
+                },
+                _,
+            ) => (attempt, cancellation),
+            (Lifecycle::Ready { .. } | Lifecycle::Backoff { .. }, Some(attempt))
+                if self.policy.wire.kind() == EnvelopeKind::Sony
+                    && entry.reply_family() == SendingReply::AckThenCompletion =>
             {
                 (attempt, None)
             }
-            Lifecycle::Sending { .. }
-            | Lifecycle::Ready { .. }
-            | Lifecycle::Backoff { .. }
-            | Lifecycle::AwaitingCompletion { .. }
-            | Lifecycle::Executing { .. }
-            | Lifecycle::AwaitingReply { .. }
-            | Lifecycle::AwaitingCancellationResolution { .. } => {
+            _ => {
                 effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
                 return;
             }
@@ -2978,14 +3038,10 @@ impl ProtocolEngine {
                 socket.is_none_or(|socket| socket == owned)
             }
             Lifecycle::AwaitingAck { .. } => self.policy.wire.kind() == EnvelopeKind::Sony,
-            Lifecycle::Ready {
-                previous_attempt: Some(_),
-                ..
-            }
-            | Lifecycle::Backoff { .. }
+            Lifecycle::Ready { .. } | Lifecycle::Backoff { .. }
                 if self.policy.wire.kind() == EnvelopeKind::Sony
                     && entry.reply_family() != SendingReply::Inquiry
-                    && entry.current_sequence.is_some() =>
+                    && entry.previous_written_attempt().is_some() =>
             {
                 true
             }
@@ -4058,18 +4114,36 @@ impl ProtocolEngine {
         .then(|| entry.lifecycle().retry_eligibility(true))
         .flatten();
         let error = Error::from_code(code);
+        let evidence = if is_rejection(code) || code == 0x05 {
+            AttemptEvidence::Rejected
+        } else {
+            AttemptEvidence::Lifecycle
+        };
         // A raw inquiry error can race a late data reply. Retain the bounded
         // inquiry-only skew before a retry or terminal failure exposes another
         // inquiry to that stale frame class (#712).
         self.quarantine_raw_inquiry_correlation(id, now);
         if let Some(retry) = retry {
             if cancellation_active {
-                self.finish(id, RuntimeOutcome::Cancelled, now, effects);
+                self.finish_observed(
+                    id,
+                    RuntimeOutcome::Cancelled,
+                    AttemptEvidence::Rejected,
+                    now,
+                    effects,
+                );
             } else {
-                self.schedule_retry(id, retry, now, error, Backoff::Uncapped, effects);
+                self.schedule_retry(
+                    id,
+                    retry,
+                    now,
+                    RetryCause::CameraRejection(error),
+                    Backoff::Uncapped,
+                    effects,
+                );
             }
         } else {
-            self.finish(id, RuntimeOutcome::Failed(error), now, effects);
+            self.finish_observed(id, RuntimeOutcome::Failed(error), evidence, now, effects);
         }
     }
 
@@ -4246,47 +4320,49 @@ impl ProtocolEngine {
         id: RequestId,
         retry: RetryEligibility,
         now: Instant,
-        error: Error,
+        cause: RetryCause,
         backoff: Backoff,
         effects: &mut Decision,
     ) {
-        // The attempt that just ended was written. Only the camera's own
-        // pre-ACK rejection proves that it had no effect; a lost ACK,
-        // completion, or receive fault leaves it possibly applied.
-        let effect_possible = self
-            .entries
-            .get(&id)
-            .is_some_and(|entry| entry.effect_possible || !conclusive_camera_rejection(&error));
+        let (error, evidence) = match cause {
+            RetryCause::CameraRejection(error) => (error, AttemptEvidence::Rejected),
+            RetryCause::Unconfirmed(error) => (error, AttemptEvidence::Written),
+        };
+        let Some(entry) = self.entries.get(&id) else {
+            return;
+        };
+        let certainty = entry.certainty(evidence);
         if let Some(axes) = self
             .entries
             .get(&id)
             .and_then(|entry| self.motion_superseded(entry.request.context()))
         {
-            self.finish(
+            self.finish_observed(
                 id,
                 RuntimeOutcome::Failed(Error::MotionSuperseded {
                     axes,
-                    context: superseded_context(effect_possible),
+                    context: superseded_context(certainty),
                 }),
+                evidence,
                 now,
                 effects,
             );
             return;
         }
-        let Some((cancellation, policy, submitted_at, attempt)) =
+        let Some((cancellation, policy, submitted_at, retry_count)) =
             self.entries.get(&id).map(|entry| {
                 (
                     entry.lifecycle().cancellation_ambiguity().is_some(),
                     entry.request.context().retry,
                     entry.submitted_at,
-                    entry.attempt,
+                    entry.retry_count(),
                 )
             })
         else {
             return;
         };
         if cancellation {
-            self.finish(id, RuntimeOutcome::Failed(error), now, effects);
+            self.finish_observed(id, RuntimeOutcome::Failed(error), evidence, now, effects);
             return;
         }
         // Releasing a raw inquiry for a retry could let a delayed attempt-N
@@ -4296,27 +4372,27 @@ impl ProtocolEngine {
         // A stream never reaches this path on a reply timeout: its reply is
         // owed instead (`retire_stream_answers`).
         self.quarantine_raw_inquiry_correlation(id, now);
-        let next_attempt = attempt.saturating_add(1);
+        let next_retry_count = retry_count.saturating_add(1);
         let elapsed = now.saturating_duration_since(submitted_at);
         let within_duration = policy
             .total_budget
             .is_none_or(|budget| elapsed < budget.get());
-        if next_attempt > policy.max_retries || !within_duration {
-            self.finish(id, RuntimeOutcome::Failed(error), now, effects);
+        if next_retry_count > policy.max_retries || !within_duration {
+            self.finish_observed(id, RuntimeOutcome::Failed(error), evidence, now, effects);
             return;
         }
         let delay = retry_delay(
             policy,
-            next_attempt,
+            next_retry_count,
             backoff,
-            self.jitter.fraction(id, next_attempt),
+            self.jitter.fraction(id, next_retry_count),
         );
         let ready_at = add_duration(now, delay);
         if policy
             .total_budget
             .is_some_and(|budget| ready_at >= add_duration(submitted_at, budget.get()))
         {
-            self.finish(id, RuntimeOutcome::Failed(error), now, effects);
+            self.finish_observed(id, RuntimeOutcome::Failed(error), evidence, now, effects);
             return;
         }
         self.retire_stream_answers(id, now, effects);
@@ -4329,9 +4405,11 @@ impl ProtocolEngine {
             id,
             EntryChange::Retry {
                 to,
-                attempt: next_attempt,
-                error,
-                effect_possible,
+                prior: PriorAttempts {
+                    count: NonZeroU32::MIN.saturating_add(retry_count),
+                    cause: error,
+                    possibly_applied: certainty == Certainty::Unconfirmed,
+                },
             },
         ) {
             effects.push(Effect::Transition {
@@ -4342,12 +4420,12 @@ impl ProtocolEngine {
         }
         effects.push(Effect::RetryScheduled {
             id,
-            attempt: next_attempt,
+            attempt: next_retry_count,
             ready_at,
         });
         if self.entries.get(&id).is_some_and(|entry| {
             entry.reply_family() == SendingReply::Inquiry
-                && matches!(entry.last_error, Some(Error::SyntaxError))
+                && matches!(entry.retry_cause(), Some(Error::SyntaxError))
         }) {
             let cooldown = add_duration(now, self.policy.inquiry_cooldown.max(delay));
             self.inquiry_cooldown_until = Some(
@@ -4568,6 +4646,7 @@ impl ProtocolEngine {
             return;
         };
         let context = *entry.request.context();
+        let current_certainty = entry.certainty(AttemptEvidence::Lifecycle);
         match due.action {
             DueAction::CancellationAmbiguity => {
                 self.finish_cancellation_unconfirmed(id, now, effects)
@@ -4591,8 +4670,8 @@ impl ProtocolEngine {
                 certainty,
             } => {
                 let error = entry
-                    .last_error
-                    .clone()
+                    .retry_cause()
+                    .cloned()
                     .unwrap_or_else(|| Error::timeout(FailureStage::Terminal, certainty));
                 match retirement {
                     BudgetRetirement::Command if self.policy.wire.kind() == EnvelopeKind::Raw => {
@@ -4662,7 +4741,10 @@ impl ProtocolEngine {
                         id,
                         retry,
                         now,
-                        Error::timeout(FailureStage::Terminal, Certainty::Unconfirmed),
+                        RetryCause::Unconfirmed(Error::timeout(
+                            FailureStage::Terminal,
+                            current_certainty,
+                        )),
                         Backoff::AckCapped,
                         effects,
                     );
@@ -4671,7 +4753,7 @@ impl ProtocolEngine {
                         id,
                         RuntimeOutcome::Failed(Error::timeout(
                             FailureStage::Terminal,
-                            Certainty::Unconfirmed,
+                            current_certainty,
                         )),
                         now,
                         effects,
@@ -4690,7 +4772,10 @@ impl ProtocolEngine {
                                 id,
                                 retry,
                                 now,
-                                Error::timeout(FailureStage::Terminal, Certainty::Unconfirmed),
+                                RetryCause::Unconfirmed(Error::timeout(
+                                    FailureStage::Terminal,
+                                    current_certainty,
+                                )),
                                 Backoff::Uncapped,
                                 effects,
                             );
@@ -4699,7 +4784,7 @@ impl ProtocolEngine {
                                 id,
                                 RuntimeOutcome::Failed(Error::timeout(
                                     FailureStage::Terminal,
-                                    Certainty::Unconfirmed,
+                                    current_certainty,
                                 )),
                                 now,
                                 effects,
@@ -4716,7 +4801,7 @@ impl ProtocolEngine {
                                 id,
                                 RuntimeOutcome::Failed(Error::timeout(
                                     FailureStage::Terminal,
-                                    Certainty::Unconfirmed,
+                                    current_certainty,
                                 )),
                                 now,
                                 effects,
@@ -4752,10 +4837,17 @@ impl ProtocolEngine {
                 let mark = effects.len();
                 let retry_timeout =
                     context.retry.inquiry_timeout && !self.raw_stream_inquiry(entry);
-                let error = Error::timeout(FailureStage::Terminal, Certainty::FailedConclusively);
+                let error = Error::timeout(FailureStage::Terminal, current_certainty);
                 self.retain_unanswered_inquiry(id, now);
                 if retry_timeout {
-                    self.schedule_retry(id, retry, now, error, Backoff::Uncapped, effects);
+                    self.schedule_retry(
+                        id,
+                        retry,
+                        now,
+                        RetryCause::Unconfirmed(error),
+                        Backoff::Uncapped,
+                        effects,
+                    );
                 } else {
                     self.finish(id, RuntimeOutcome::Failed(error), now, effects);
                 }
@@ -4768,8 +4860,8 @@ impl ProtocolEngine {
             } => {
                 if budget_at.is_some_and(|at| at <= now) {
                     let error = entry
-                        .last_error
-                        .clone()
+                        .retry_cause()
+                        .cloned()
                         .unwrap_or_else(|| Error::timeout(FailureStage::Terminal, certainty));
                     self.finish(id, RuntimeOutcome::Failed(error), now, effects);
                 } else {
@@ -5081,6 +5173,36 @@ impl ProtocolEngine {
         now: Instant,
         effects: &mut Decision,
     ) {
+        self.finish_with_evidence(
+            id,
+            outcome,
+            keep_cancel_hold,
+            AttemptEvidence::Lifecycle,
+            now,
+            effects,
+        );
+    }
+
+    fn finish_observed(
+        &mut self,
+        id: RequestId,
+        outcome: RuntimeOutcome,
+        evidence: AttemptEvidence,
+        now: Instant,
+        effects: &mut Decision,
+    ) {
+        self.finish_with_evidence(id, outcome, true, evidence, now, effects);
+    }
+
+    fn finish_with_evidence(
+        &mut self,
+        id: RequestId,
+        outcome: RuntimeOutcome,
+        keep_cancel_hold: bool,
+        evidence: AttemptEvidence,
+        now: Instant,
+        effects: &mut Decision,
+    ) {
         self.retire_stream_answers(id, now, effects);
         if keep_cancel_hold {
             self.hold_socket_of_unanswered_cancel(id);
@@ -5099,7 +5221,7 @@ impl ProtocolEngine {
         if let Some(projection) = entry.request.applied_state() {
             let projection = if matches!(outcome, RuntimeOutcome::Applied) {
                 Some(projection)
-            } else if entry.may_have_effect(&outcome) {
+            } else if entry.may_have_effect(evidence) {
                 Some(AppliedStateProjection::invalidate(projection.key()))
             } else {
                 None
@@ -5245,6 +5367,15 @@ impl ProtocolEngine {
                 && entry.request.context().control.class != ControlClass::Urgent
         }) {
             return Err("a non-urgent entry holds a control-reserve slot".into());
+        }
+        for entry in self.entries.values() {
+            if matches!(
+                entry.lifecycle(),
+                Lifecycle::Ready { .. } | Lifecycle::Backoff { .. }
+            ) && entry.lifecycle().previous_attempt().is_some() != entry.prior.is_some()
+            {
+                return Err("queued previous attempt disagrees with retry history".into());
+            }
         }
         // Raw holds are meaningless for a sequenced envelope, and every key
         // must name a valid registered target.
@@ -5424,29 +5555,11 @@ fn raw_unacknowledged_command_candidate(entry: &Entry) -> bool {
     )
 }
 
-/// The error for a request whose protocol lifecycle reached a terminal
-/// deadline without correlation ambiguity (D20, #783).
-///
-/// An inquiry has no effect, so its failure is conclusive. That holds even for
-/// a raw stream inquiry whose bytes may still reach the camera: its owed reply
-/// can never complete this or any other request (the owed-reply hold absorbs
-/// it, and latches the target's inquiry lane until it does), so resubmitting
-/// the inquiry is safe. A command that is
-/// on the wire, or was, may have reached the camera, so its outcome is
-/// unconfirmed. A command still waiting for its first write was never
-/// accepted.
-fn terminal_certainty(entry: &Entry) -> Certainty {
-    if entry.reply_family() == SendingReply::Inquiry {
-        Certainty::FailedConclusively
-    } else if matches!(entry.lifecycle(), Lifecycle::Ready { .. }) && entry.last_error.is_none() {
-        Certainty::NotAccepted
-    } else {
-        Certainty::Unconfirmed
-    }
-}
-
 fn terminal_timeout(entry: &Entry) -> Error {
-    Error::timeout(FailureStage::Terminal, terminal_certainty(entry))
+    Error::timeout(
+        FailureStage::Terminal,
+        entry.certainty(AttemptEvidence::Lifecycle),
+    )
 }
 
 /// Whether a VISCA error code answers a socket cancellation packet (`0x04`
@@ -5466,32 +5579,8 @@ const fn is_rejection(code: u8) -> bool {
 /// Supersession happens only while the request is off the wire (queued, in
 /// backoff, or between a failed attempt and its retry), so the request has
 /// affected the camera only if an earlier written attempt may have.
-const fn superseded_context(effect_possible: bool) -> FailureContext {
-    FailureContext::new(
-        FailureStage::Terminal,
-        if effect_possible {
-            Certainty::Unconfirmed
-        } else {
-            Certainty::NotAccepted
-        },
-    )
-}
-
-/// Whether a retry cause is the camera's own conclusive pre-ACK rejection.
-///
-/// These are exactly the [`Error::from_code`] values of the retryable camera
-/// codes (`0x02`, `0x03`, `0x05`, `0x41`); `camera_error` schedules a retry
-/// for them only before an ACK, so the rejected attempt did not start. Every
-/// other retry cause — a lost ACK or completion, or a receive fault — leaves
-/// the written attempt possibly applied.
-const fn conclusive_camera_rejection(error: &Error) -> bool {
-    matches!(
-        error,
-        Error::SyntaxError
-            | Error::CommandBufferFull
-            | Error::NoSocket
-            | Error::CommandNotExecutable
-    )
+const fn superseded_context(certainty: Certainty) -> FailureContext {
+    FailureContext::new(FailureStage::Terminal, certainty)
 }
 
 /// Whether `entry` is an urgent ACK-bearing command (a STOP), which no hold
@@ -5666,9 +5755,7 @@ fn correlation_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
         // queued/backoff owner therefore needs evidence of an earlier attempt;
         // the ordinary response phases must also agree with the reply shape.
         CorrelationKind::Request => match entry.lifecycle().phase() {
-            Phase::Ready | Phase::Backoff { .. } => {
-                entry.attempt > 0 && entry.current_sequence.is_some()
-            }
+            Phase::Ready | Phase::Backoff { .. } => entry.previous_written_attempt().is_some(),
             Phase::Sending { .. }
             | Phase::AwaitingReply { .. }
             | Phase::AwaitingAck { .. }
