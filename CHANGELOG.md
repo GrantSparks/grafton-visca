@@ -59,6 +59,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Engine retry count, cause and possible effect form one optional history.
+  Terminal certainty and state-cache invalidation share one evidence-aware
+  rule: transport errors cannot impersonate camera rejection, and earlier
+  possible effects survive later rejections (#906).
+
 - Built-in write-only state projections derive their keys and verbs from the
   semantic ledger. Stateful requests require typed value providers, and
   no-effect rows cannot override the generated projection (#911).
