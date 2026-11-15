@@ -724,6 +724,21 @@ fn table() -> String {
     output.push_str("<!-- END GENERATED RECOVERY VERDICTS -->");
     output
 }
+
+fn documented_recovery_rows(document: &str) -> Vec<&str> {
+    let start = document
+        .find("<!-- BEGIN GENERATED RECOVERY VERDICTS -->")
+        .expect("recovery table begin marker");
+    let tail = &document[start..];
+    let end = tail
+        .find("<!-- END GENERATED RECOVERY VERDICTS -->")
+        .expect("recovery table end marker")
+        + "<!-- END GENERATED RECOVERY VERDICTS -->".len();
+    // Git checkouts may use CRLF. Preserve every row's contents while
+    // comparing logical lines rather than platform-specific line endings.
+    tail[..end].lines().collect()
+}
+
 #[test]
 fn recovery_documentation_matches_the_exhaustive_table() {
     let expected = table();
@@ -735,19 +750,30 @@ fn recovery_documentation_matches_the_exhaustive_table() {
             .collect::<Vec<_>>()
             .join("\n"),
     ] {
-        let start = document
-            .find("<!-- BEGIN GENERATED RECOVERY VERDICTS -->")
-            .expect("recovery table begin marker");
-        let tail = &document[start..];
-        let end = tail
-            .find("<!-- END GENERATED RECOVERY VERDICTS -->")
-            .expect("recovery table end marker")
-            + "<!-- END GENERATED RECOVERY VERDICTS -->".len();
-        assert!(
-            tail[..end] == expected,
+        assert_eq!(
+            documented_recovery_rows(&document),
+            expected.lines().collect::<Vec<_>>(),
             "expected generated section:\n{expected}"
         );
     }
+}
+
+#[test]
+fn recovery_documentation_accepts_crlf_and_still_detects_changed_rows() {
+    let expected = table();
+    let crlf_document = format!(
+        "Introduction\r\n{}\r\nAfterward",
+        expected.replace('\n', "\r\n")
+    );
+    let expected_rows = expected.lines().collect::<Vec<_>>();
+    assert_eq!(documented_recovery_rows(&crlf_document), expected_rows);
+    assert_eq!(documented_recovery_rows(&expected), expected_rows);
+
+    let changed_row = crlf_document.replacen("| `ConnectionClosed` |", "| `WrongCondition` |", 1);
+    assert_ne!(documented_recovery_rows(&changed_row), expected_rows);
+    let changed_spacing =
+        crlf_document.replacen("| Error / condition |", "| Error / condition  |", 1);
+    assert_ne!(documented_recovery_rows(&changed_spacing), expected_rows);
 }
 
 #[test]
