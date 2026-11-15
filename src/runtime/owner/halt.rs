@@ -80,7 +80,6 @@ impl OwnerState {
                             error,
                         );
                     })?;
-                let target = request.context().target;
                 let (completion, observer) = TerminalObserver::pair();
                 let (reply, admitted) = flume::bounded(1);
                 let input = self.stage_admission_with(request, permit, observer, reply);
@@ -94,9 +93,7 @@ impl OwnerState {
                 let admitted = admitted.try_recv().map_err(|_| {
                     Error::InvalidState("halt admission omitted its outcome".into())
                 })??;
-                Ok(ReceiptCore::admitted(
-                    admitted, target, completion, remaining,
-                ))
+                Ok(ReceiptCore::admitted(admitted, completion, remaining))
             })
         });
         // Input-only finalization preserves all protocol pacing; the shell

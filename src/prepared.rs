@@ -89,15 +89,10 @@ impl ClassSelection {
 #[derive(Debug, Clone)]
 pub(crate) enum SettlementPlan {
     /// The profile declares the applied protocol completion as settlement evidence.
-    CompletionIsSettled {
-        target: CameraId,
-        default_budget: Duration,
-    },
+    CompletionIsSettled { default_budget: Duration },
     /// Settlement must poll the exact affected axes.
     Poll {
-        target: CameraId,
         queries: PositionQueryPlan,
-        axes: AffectedAxes,
         tolerance: MovementTolerance,
         interval: Duration,
         default_budget: Duration,
@@ -127,10 +122,10 @@ impl<R> PreparedInquiryTemplate<R> {
 }
 
 impl SettlementPlan {
-    pub(crate) const fn default_budget(&self) -> Option<Duration> {
+    pub(crate) const fn default_budget(&self) -> Duration {
         match self {
             Self::CompletionIsSettled { default_budget, .. }
-            | Self::Poll { default_budget, .. } => Some(*default_budget),
+            | Self::Poll { default_budget, .. } => *default_budget,
         }
     }
 }
@@ -568,10 +563,7 @@ pub(crate) fn lower_targeted_settlement(
         });
     }
     if profile.supports_operation_complete() {
-        return Ok(SettlementPlan::CompletionIsSettled {
-            target,
-            default_budget,
-        });
+        return Ok(SettlementPlan::CompletionIsSettled { default_budget });
     }
     if !profile.position_inquiries().supports(axes) {
         return Err(Error::FeatureNotSupported {
@@ -579,9 +571,7 @@ pub(crate) fn lower_targeted_settlement(
         });
     }
     Ok(SettlementPlan::Poll {
-        target,
         queries: prepare_position_queries(target, profile, tuning, axes)?,
-        axes,
         tolerance: MovementTolerance::default(),
         interval: tuning
             .inquiry_spacing_override()
@@ -1941,22 +1931,16 @@ mod tests {
 
         assert_eq!(prepared.context.timeout.completion, Duration::from_secs(31));
         let SettlementPlan::Poll {
-            target,
             queries,
-            axes,
             tolerance,
             interval,
             default_budget,
-        } = prepared
-            .settlement
-            .plan()
-            .expect("targeted settlement plan")
-            .clone()
+        } = prepared.settlement.plan().clone()
         else {
             panic!("profile without completion must choose polling");
         };
-        assert_eq!(target, CameraId::CAMERA_2);
-        assert_eq!(axes, AffectedAxes::ZOOM);
+        assert_eq!(prepared.context.target.camera(), CameraId::CAMERA_2);
+        assert_eq!(prepared.affected_axes, AffectedAxes::ZOOM);
         assert_eq!(tolerance, MovementTolerance::default());
         assert_eq!(interval, Duration::from_millis(40));
         assert_eq!(
@@ -2342,15 +2326,10 @@ mod tests {
             OperationalTuning::new(),
         )
         .expect("FR7 ND operation");
-        let SettlementPlan::Poll { queries, axes, .. } = nd
-            .settlement
-            .plan()
-            .expect("targeted ND settlement")
-            .clone()
-        else {
+        let SettlementPlan::Poll { queries, .. } = nd.settlement.plan().clone() else {
             panic!("FR7 must poll ND position without operation-complete support");
         };
-        assert_eq!(axes, AffectedAxes::ND_FILTER);
+        assert_eq!(nd.affected_axes, AffectedAxes::ND_FILTER);
         assert!(queries.pan_tilt.is_none());
         assert!(queries.zoom.is_none());
         assert!(queries.focus.is_none());
@@ -2367,7 +2346,7 @@ mod tests {
         )
         .expect("PTZ iris operation");
         assert!(matches!(
-            completed.settlement.plan().expect("PTZ settlement").clone(),
+            completed.settlement.plan().clone(),
             SettlementPlan::CompletionIsSettled { .. }
         ));
     }
@@ -2386,21 +2365,13 @@ mod tests {
         .expect("BRC-H900 high iris operation");
 
         let SettlementPlan::Poll {
-            target,
-            queries,
-            axes,
-            tolerance,
-            ..
-        } = prepared
-            .settlement
-            .plan()
-            .expect("BRC-H900 iris settlement")
-            .clone()
+            queries, tolerance, ..
+        } = prepared.settlement.plan().clone()
         else {
             panic!("BRC-H900 must poll iris because it has no operation-complete reply");
         };
-        assert_eq!(target, CameraId::CAMERA_2);
-        assert_eq!(axes, AffectedAxes::IRIS);
+        assert_eq!(prepared.context.target.camera(), CameraId::CAMERA_2);
+        assert_eq!(prepared.affected_axes, AffectedAxes::IRIS);
         assert!(queries.pan_tilt.is_none());
         assert!(queries.zoom.is_none());
         assert!(queries.focus.is_none());
@@ -2432,7 +2403,8 @@ mod tests {
             ..PositionSnapshot::default()
         };
         let mut detector =
-            MotionDetector::from_baseline(axes, tolerance, snapshot).expect("iris baseline");
+            MotionDetector::from_baseline(prepared.affected_axes, tolerance, snapshot)
+                .expect("iris baseline");
         assert!(!detector.moved(snapshot).expect("stable iris readback"));
     }
 
@@ -2783,11 +2755,7 @@ mod tests {
         .expect("targeted operation preparation");
         let operation_budget = operation.context.retry.total_budget;
         assert!(
-            operation
-                .settlement
-                .default_budget()
-                .expect("targeted operation carries a settlement observer")
-                >= operation_budget,
+            operation.settlement.default_budget() >= operation_budget,
             "targeted settlement observer must cover retry budget"
         );
         let request_timeouts = operation.context.timeout;

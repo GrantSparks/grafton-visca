@@ -73,7 +73,7 @@ use crate::{
     target::{PerTarget, TargetSlot},
     StateKey,
 };
-use crate::{raw::MAX_BYTES, CameraId, CancellationOutcome, Error, ErrorKind, ViscaSocket};
+use crate::{raw::MAX_BYTES, CancellationOutcome, Error, ErrorKind, ViscaSocket};
 
 use super::engine::{
     AdmissionSlot, AdmissionTicket, AppliedStateEffect, AppliedStateProjection, CancelState,
@@ -966,33 +966,21 @@ pub(crate) struct CancellationRequest {
 pub(crate) struct ReceiptCore {
     motion: Option<MotionStamp>,
     pub(crate) id: RequestId,
-    pub(crate) target: TargetSlot,
     pub(crate) completion: TerminalObserver,
     pub(crate) configured_timeout: Duration,
 }
 
 impl ReceiptCore {
-    fn admitted(
-        admitted: Admitted,
-        target: TargetSlot,
-        completion: TerminalObserver,
-        timeout: Duration,
-    ) -> Self {
-        let mut core = Self::new(admitted.id, target, completion, timeout);
+    fn admitted(admitted: Admitted, completion: TerminalObserver, timeout: Duration) -> Self {
+        let mut core = Self::new(admitted.id, completion, timeout);
         core.motion = admitted.motion;
         core
     }
 
-    fn new(
-        id: RequestId,
-        target: TargetSlot,
-        completion: TerminalObserver,
-        configured_timeout: Duration,
-    ) -> Self {
+    fn new(id: RequestId, completion: TerminalObserver, configured_timeout: Duration) -> Self {
         Self {
             motion: None,
             id,
-            target,
             completion,
             configured_timeout,
         }
@@ -1000,10 +988,6 @@ impl ReceiptCore {
 
     const fn id(&self) -> RequestId {
         self.id
-    }
-
-    const fn target(&self) -> CameraId {
-        self.target.camera()
     }
 
     const fn configured_timeout(&self) -> Duration {
@@ -1158,10 +1142,6 @@ impl OperationObservation {
 
     pub(crate) const fn id(&self) -> RequestId {
         self.core.id()
-    }
-
-    pub(crate) const fn target(&self) -> CameraId {
-        self.core.target()
     }
 
     /// The configured observer deadline for application.

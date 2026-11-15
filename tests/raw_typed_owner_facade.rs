@@ -83,7 +83,6 @@ fn raw_values() -> (
         [0x81, 0x09, 0x01, 0xff],
         InquiryRoute::RAW,
         ResponseDecoder::from_fn(decode_first),
-        TimeoutClass::Inquiry,
         RetryClass::Inquiry,
         ControlClass::Normal,
     )

@@ -152,7 +152,6 @@ pub(super) struct AdmissionExpiry {
 /// receipts the same way and differ only in how they wait for the reply.
 #[derive(Debug)]
 pub(super) struct PendingAdmission {
-    target: TargetSlot,
     completion: TerminalObserver,
     reply: AdmissionReply,
     expiry: Option<AdmissionExpiry>,
@@ -183,7 +182,6 @@ impl PendingAdmission {
     ) -> Result<super::ReceiptCore, Error> {
         Ok(super::ReceiptCore::admitted(
             reply??,
-            self.target,
             self.completion,
             configured_timeout,
         ))
@@ -792,10 +790,8 @@ impl OwnerHandleCore {
     /// [`enqueue_admission`](Self::enqueue_admission) as a
     /// [`PendingAdmission`].
     pub(super) fn admit(&self, request: RuntimeRequest) -> Result<PendingAdmission, Error> {
-        let target = request.context().target;
         let (completion, reply) = self.enqueue_admission(request, None)?;
         Ok(PendingAdmission {
-            target,
             completion,
             reply,
             expiry: None,
@@ -821,7 +817,6 @@ impl OwnerHandleCore {
         let validity = AdmissionValidity::until(deadline);
         let (completion, reply) = self.enqueue_admission(request, Some(validity.clone()))?;
         Ok(PendingAdmission {
-            target,
             completion,
             reply,
             expiry: Some(AdmissionExpiry {

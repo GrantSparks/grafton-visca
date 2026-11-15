@@ -587,14 +587,13 @@ macro_rules! owner_handle_methods {
                 if let Some(cached) = self.observation.settled() {
                     return cached;
                 }
-                let budget = super::receipt::settlement_budget(&self.settlement, timeout)?;
+                let budget = super::receipt::settlement_budget(&self.settlement, timeout);
                 let deadline = self.owner.deadline_after(budget)?;
                 self.applied_until(deadline) $($await)* ?;
                 match super::receipt::position_poll(
                     &self.settlement,
-                    &self.observation,
                     self.affected_axes,
-                )? {
+                ) {
                     Some(poll) => {
                         self.observation.check_settlement()?;
                         let result = self

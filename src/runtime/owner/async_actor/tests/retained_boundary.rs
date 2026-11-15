@@ -91,7 +91,7 @@ impl RetainedRelease {
         let a = a_admitted.recv_async().await.unwrap().unwrap();
         assert_eq!(harness.writes.recv_async().await.unwrap(), a.id);
         reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
-        let predecessor = ReceiptCore::admitted(a, CameraId::CAMERA_1, a_completion, a_timeout);
+        let predecessor = ReceiptCore::admitted(a, a_completion, a_timeout);
 
         if let Some(second_hold) = second_hold {
             let (_completion, admitted) = handle
@@ -128,12 +128,7 @@ impl RetainedRelease {
                 )
                 .await;
             let id = admitted.recv_async().await.unwrap().unwrap();
-            live_receipts.push(ReceiptCore::admitted(
-                id,
-                CameraId::CAMERA_1,
-                completion,
-                timeout,
-            ));
+            live_receipts.push(ReceiptCore::admitted(id, completion, timeout));
         }
 
         // Only the first command can be on the wire before its ACK; any

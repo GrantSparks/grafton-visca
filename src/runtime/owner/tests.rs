@@ -695,12 +695,7 @@ mod metrics {
             let _ = state.apply_effect(effect);
         }
         let _ = state.finish_input_turn(turn, EngineTurn::INPUT_ONLY);
-        let core = ReceiptCore::admitted(
-            admitted.recv().unwrap().unwrap(),
-            TargetSlot::CAMERA_1,
-            observer,
-            ACK,
-        );
+        let core = ReceiptCore::admitted(admitted.recv().unwrap().unwrap(), observer, ACK);
         (OperationObservation::new(core, ACK), cell)
     }
 
@@ -751,12 +746,7 @@ mod metrics {
         }
         let _ = state.finish_input_turn(admission_turn, EngineTurn::INPUT_ONLY);
         let later = OperationObservation::new(
-            ReceiptCore::admitted(
-                reply.recv().unwrap().unwrap(),
-                TargetSlot::CAMERA_1,
-                completion,
-                ACK,
-            ),
+            ReceiptCore::admitted(reply.recv().unwrap().unwrap(), completion, ACK),
             ACK,
         );
         let turn = state.begin_input_turn(now);

@@ -1253,7 +1253,7 @@ mod tests {
                 }),
                 submission_order: 0,
                 dispatch_deadline: None,
-                target: crate::target::TargetSlot::CAMERA_1,
+                target: TargetSlot::CAMERA_1,
                 timeout: TimeoutPolicy {
                     ack: Duration::from_secs(1),
                     completion: Duration::from_secs(1),
@@ -1338,7 +1338,7 @@ mod tests {
             .cancellations
             .send(CancellationBoundary::Halt(HaltBoundary {
                 prepared: crate::prepared::PreparedHalt {
-                    target: crate::target::TargetSlot::CAMERA_1,
+                    target: TargetSlot::CAMERA_1,
                     axes: Some(crate::AffectedAxes::ZOOM),
                     requests: [None, Some(Ok(declared_request(true))), None],
                     budget: Duration::from_secs(1),

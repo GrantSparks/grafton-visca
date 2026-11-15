@@ -30,7 +30,6 @@ fn main() {
         [0x81, 0x09, 0x04, 0xff],
         grafton_visca::InquiryRoute::try_custom(9).expect("route"),
         ResponseDecoder::from_fn(decode),
-        grafton_visca::TimeoutClass::Inquiry,
         grafton_visca::RetryClass::Inquiry,
         grafton_visca::ControlClass::Normal,
     )
