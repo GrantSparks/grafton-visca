@@ -582,6 +582,7 @@ impl OwnerShellCore {
             self.answer_retained_boundary(retained, boundary_error.clone());
         }
         self.drain_boundaries(boundary_error);
+        self.publish_metrics();
         self.snapshot()
     }
 
@@ -1068,7 +1069,12 @@ impl OwnerShellCore {
                         let _ = reply.try_send(self.snapshot());
                     }
                     ControlBoundary::Metrics(reply) => {
-                        let _ = reply.try_send(Err(error.clone()));
+                        // Releasing the reply wakes its handle, which waits
+                        // on liveness and reads the completed lifecycle
+                        // snapshot. Retaining no replies keeps this drain
+                        // bounded even under concurrent control traffic.
+                        drop(reply);
+                        continue;
                     }
                     ControlBoundary::SubscribeDiagnostics { reply, .. } => {
                         let _ = reply.try_send(Err(error.clone()));
@@ -1085,6 +1091,15 @@ impl OwnerShellCore {
             }
         }
         self.state.fail_unstaged_boundary(dropped);
+    }
+
+    /// Publish only after counting every drained boundary and diagnostic.
+    /// Queued metrics wait at the teardown barrier and never count as dropped
+    /// work; no per-observation state survives the drain.
+    fn publish_metrics(&self) {
+        let _ = self
+            .lifecycle
+            .publish_metrics(self.state.metrics_snapshot(0));
     }
 
     #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
@@ -1121,6 +1136,7 @@ impl Drop for OwnerShellCore {
             self.answer_retained_boundary(retained, error.clone());
         }
         self.drain_boundaries(error);
+        self.publish_metrics();
     }
 }
 
@@ -1226,6 +1242,120 @@ mod tests {
             },
             applied_state: None,
         }
+    }
+
+    #[test]
+    fn concluded_metrics_include_drained_work_and_answer_queued_observations() {
+        let (handle, mut core) = owner();
+        let (_observer, admission) = handle
+            .enqueue_admission(declared_request(false), None)
+            .unwrap();
+        let (reply, metrics) = flume::bounded(1);
+        handle
+            .control
+            .send(ControlBoundary::Metrics(reply))
+            .unwrap();
+        handle.shutdown().unwrap();
+        let step = core.handle(OwnerEvent::Shutdown, &mut Datagrams, Instant::now(), false);
+        run_turn(&mut core, step);
+        assert!(
+            handle.terminal_metrics().is_none(),
+            "the normal drain is not finished yet"
+        );
+        core.conclude();
+        assert!(
+            metrics.recv().is_err(),
+            "the handle resumes at the teardown barrier"
+        );
+        let snapshot = handle.terminal_metrics().unwrap().unwrap();
+        assert_eq!(snapshot.session, crate::SessionStatus::Shutdown);
+        assert_eq!(snapshot.active, 0);
+        assert_eq!(snapshot.pending, 0);
+        assert_eq!(
+            snapshot.dropped_boundary_work, 1,
+            "only the admission is dropped"
+        );
+        assert!(matches!(
+            admission.recv().unwrap(),
+            Err(Error::RuntimeShutdown)
+        ));
+        assert_eq!(handle.terminal_metrics().unwrap().unwrap(), snapshot);
+        drop(core);
+        for _ in 0..8 {
+            assert_eq!(handle.terminal_metrics().unwrap().unwrap(), snapshot);
+        }
+    }
+
+    #[test]
+    fn repeated_terminal_control_drains_retain_no_metrics_replies() {
+        let (handle, mut core) = owner();
+        let step = core.handle(OwnerEvent::Shutdown, &mut Datagrams, Instant::now(), false);
+        run_turn(&mut core, step);
+        let capacity = handle.control.capacity().unwrap();
+        let mut acting = 0;
+        for _ in 0..64 {
+            let mut metrics = Vec::new();
+            let mut subscriptions = Vec::new();
+            for index in 0..capacity {
+                if index % 2 == 0 {
+                    let (reply, receiver) = flume::bounded(1);
+                    handle
+                        .control
+                        .send(ControlBoundary::Metrics(reply))
+                        .unwrap();
+                    metrics.push(receiver);
+                } else {
+                    let (reply, receiver) = flume::bounded(1);
+                    handle
+                        .control
+                        .send(ControlBoundary::SubscribeDiagnostics { capacity: 1, reply })
+                        .unwrap();
+                    subscriptions.push(receiver);
+                    acting += 1;
+                }
+            }
+            core.drain_boundaries(Error::RuntimeShutdown);
+            // Every reply is released in this pass rather than accumulating
+            // across passes until conclusion. Handles wait at liveness.
+            assert!(metrics.iter().all(flume::Receiver::is_disconnected));
+            for receiver in subscriptions {
+                assert!(matches!(
+                    receiver.recv().unwrap(),
+                    Err(Error::RuntimeShutdown)
+                ));
+            }
+        }
+        core.conclude();
+        let metrics = handle.terminal_metrics().unwrap().unwrap();
+        assert_eq!(metrics.dropped_boundary_work, acting);
+    }
+
+    #[test]
+    fn teardown_before_conclude_keeps_metrics_unavailable_even_after_a_terminal_input() {
+        let (handle, mut core) = owner();
+        let step = core.handle(
+            receive(
+                OwnerReceive::Fatal(super::super::ReceiveFatal::TransportClosed { cause: None }),
+                Instant::now(),
+            ),
+            &mut Datagrams,
+            Instant::now(),
+            false,
+        );
+        run_turn(&mut core, step);
+        assert!(matches!(
+            handle.disconnected_error(),
+            Error::ConnectionClosed { .. }
+        ));
+        drop(core);
+        assert!(matches!(
+            handle.terminal_metrics(),
+            Some(Err(Error::OwnerTerminated))
+        ));
+        assert!(matches!(
+            handle.disconnected_error(),
+            Error::ConnectionClosed { .. }
+        ));
     }
 
     #[test]

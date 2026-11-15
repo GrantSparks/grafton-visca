@@ -132,11 +132,17 @@ fn an_unanswered_command_counts_ack_timeouts_and_reports_each_retry_decision() {
     // Issue #671: the raw ACK ambiguity fails only this command; the session is
     // still running afterwards rather than poisoned.
     assert_eq!(metrics.session, grafton_visca::SessionStatus::Running);
-    // A later explicit shutdown ends the still-live session in the ordinary
-    // way. Metrics are a control boundary served by the owner worker (#780),
-    // so once it has shut down they report that, as on the async facade.
-    session.shutdown().expect("the live session shuts down");
-    assert!(matches!(session.metrics(), Err(Error::RuntimeShutdown)));
+    // A concluded owner retains its counters as a stable read-only snapshot.
+    session.clone().close().expect("the live session closes");
+    let terminal = session.metrics().expect("terminal metrics");
+    assert_eq!(terminal.session, grafton_visca::SessionStatus::Shutdown);
+    assert_eq!(terminal.active, 0);
+    assert_eq!(terminal.pending, 0);
+    assert_eq!(terminal.writes, metrics.writes);
+    assert_eq!(terminal.ack_timeouts, metrics.ack_timeouts);
+    for _ in 0..8 {
+        assert_eq!(session.metrics().expect("retained metrics"), terminal);
+    }
 }
 
 /// The pairing above holds even with retries removed engine-wide — every count

@@ -721,9 +721,12 @@ fn a_persistent_transient_fault_run_closes_the_session() {
     // Each snapshot blocks this thread on the clock, which lets the paced
     // worker's virtual time move on.
     let error = loop {
-        match owner.metrics() {
-            Err(error) => break error,
-            Ok(_) => assert!(clock.now() < deadline, "the fault run never ended"),
+        match owner.metrics().unwrap().session {
+            crate::SessionStatus::Running => {
+                assert!(clock.now() < deadline, "the fault run never ended");
+            }
+            crate::SessionStatus::Closed => break owner.shutdown().unwrap_err(),
+            status => panic!("unexpected terminal status: {status:?}"),
         }
     };
     assert!(
@@ -1137,7 +1140,21 @@ fn diagnostic_subscriptions_keep_the_blocking_owners_terminal_cause() {
         }
         let terminal = receipt.wait().unwrap_err();
         assert!(terminal.requires_new_session());
-        assert!(owner.metrics().unwrap_err().requires_new_session());
+        if failure == 1 {
+            assert!(matches!(owner.metrics(), Err(Error::OwnerTerminated)));
+        } else {
+            let metrics = owner.metrics().unwrap();
+            assert_eq!(metrics.active, 0);
+            assert_eq!(metrics.pending, 0);
+            assert_eq!(
+                metrics.session,
+                if failure == 0 {
+                    crate::SessionStatus::Closed
+                } else {
+                    crate::SessionStatus::Poisoned
+                }
+            );
+        }
         assert!(owner.close().unwrap_err().requires_new_session());
         let reported = subscription_terminal(&subscription);
         assert!(reported.requires_new_session());

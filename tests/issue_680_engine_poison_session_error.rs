@@ -111,13 +111,10 @@ fn engine_poison_reports_poisoned_status_and_names_the_diagnostic_reason() {
     let diagnostics = session.subscribe_diagnostics(128).expect("diagnostics");
     poison_via_strict_opt_in(&session);
 
-    // The owner has ended, so a metrics request is answered with its terminal
-    // cause, exactly as on the async surface.
-    assert!(
-        matches!(session.metrics(), Err(Error::StreamPoisoned { .. })),
-        "a poisoned owner answers control requests with its terminal cause"
-    );
-
+    let metrics = session.metrics().expect("terminal metrics survive poison");
+    assert_eq!(metrics.session, SessionStatus::Poisoned);
+    assert_eq!(metrics.active, 0);
+    assert_eq!(metrics.pending, 0);
     // The SessionChanged diagnostic reason is the real ErrorKind (IoClosed for a
     // stream poison), not the Other it collapsed to while session_error stayed
     // unset.

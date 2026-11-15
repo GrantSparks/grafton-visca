@@ -186,6 +186,14 @@ async fn stream_poison_resolves_active_and_drains_unstaged_boundary() {
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.state, SessionState::Poisoned);
     assert_eq!(snapshot.active, 0);
+    let public_metrics = handle.metrics().await.unwrap();
+    assert_eq!(public_metrics.session, crate::SessionStatus::Poisoned);
+    assert_eq!(public_metrics.active, 0);
+    assert_eq!(public_metrics.pending, 0);
+    assert_eq!(
+        public_metrics.dropped_boundary_work,
+        snapshot.metrics.dropped_boundary_work
+    );
     assert_eq!(
         snapshot
             .metrics
@@ -350,7 +358,7 @@ async fn a_boundary_request_racing_teardown_never_hangs() {
             // Keep asking until the session answers with its terminal
             // error. Under the bug one of these calls parks forever.
             loop {
-                if asking.metrics().await.is_err() {
+                if asking.metrics().await.unwrap().session != crate::SessionStatus::Running {
                     break;
                 }
                 if asking.snapshot().await.is_err() {
@@ -418,8 +426,67 @@ async fn teardown_answers_queued_work_before_the_liveness_lane_fires() {
         .unwrap();
     let snapshot = actor.run(harness.driver).await;
     assert_eq!(snapshot.state, SessionState::Closed);
-    assert!(matches!(
-        queued.await.unwrap().unwrap_err(),
-        Error::ConnectionClosed { .. }
-    ));
+    let metrics = queued.await.unwrap().unwrap();
+    assert_eq!(metrics.session, crate::SessionStatus::Closed);
+    assert_eq!(metrics.active, 0);
+    assert_eq!(metrics.pending, 0);
+    assert_eq!(
+        metrics.dropped_boundary_work, 0,
+        "a metrics observation is not dropped work"
+    );
+}
+
+#[tokio::test]
+async fn metrics_racing_shutdown_are_running_or_terminal_and_stable_after_close() {
+    for _ in 0..32 {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+        let harness = harness();
+        let actor_task = tokio::spawn(actor.run(harness.driver));
+        let asking = handle.clone();
+        let metrics = tokio::spawn(async move {
+            let mut observed = Vec::new();
+            loop {
+                let snapshot = asking.metrics().await.unwrap();
+                observed.push(snapshot);
+                if snapshot.session != crate::SessionStatus::Running {
+                    return observed;
+                }
+                tokio::task::yield_now().await;
+            }
+        });
+        tokio::task::yield_now().await;
+        handle.shutdown().unwrap();
+        handle.wait_closed().await.unwrap();
+        actor_task.await.unwrap();
+        let final_metrics = handle.metrics().await.unwrap();
+        assert_eq!(final_metrics.session, crate::SessionStatus::Shutdown);
+        assert_eq!(final_metrics.active, 0);
+        assert_eq!(final_metrics.pending, 0);
+        for snapshot in metrics.await.unwrap() {
+            assert!(matches!(
+                snapshot.session,
+                crate::SessionStatus::Running | crate::SessionStatus::Shutdown
+            ));
+        }
+        for _ in 0..8 {
+            assert_eq!(handle.metrics().await.unwrap(), final_metrics);
+        }
+    }
+}
+
+#[tokio::test]
+async fn terminal_metrics_expose_a_drained_admission_through_the_handle() {
+    let runtime = TokioRuntime::from_current().unwrap();
+    let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+    let queued = handle.try_submit(command()).unwrap();
+    handle.shutdown().unwrap();
+    let harness = harness();
+    actor.run(harness.driver).await;
+    assert!(matches!(queued.await, Err(Error::RuntimeShutdown)));
+    let snapshot = handle.metrics().await.unwrap();
+    assert_eq!(snapshot.session, crate::SessionStatus::Shutdown);
+    assert_eq!(snapshot.active, 0);
+    assert_eq!(snapshot.pending, 0);
+    assert_eq!(snapshot.dropped_boundary_work, 1);
 }

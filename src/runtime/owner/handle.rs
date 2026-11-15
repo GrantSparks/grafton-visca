@@ -260,12 +260,42 @@ macro_rules! owner_handle_methods {
                 }
             }
 
-            /// Reads scalar owner metrics through a dedicated bounded control
-            /// request. This path reads only bounded scalar counters.
+            /// Reads bounded scalar owner metrics. A concluded session serves
+            /// its retained terminal snapshot directly from the shared lifecycle.
             pub(crate) $($async)* fn metrics(
                 &self,
             ) -> Result<crate::observability::MetricsSnapshot, crate::Error> {
-                self.control_request(super::boundary::ControlBoundary::Metrics) $($await)* ?
+                self.off_worker("control_request")?;
+                if let Some(snapshot) = self.core.terminal_metrics() {
+                    return snapshot;
+                }
+                if self.core.metrics_concluding() {
+                    return self.terminal_metrics_after_teardown() $($await)*;
+                }
+                match self.control_request(super::boundary::ControlBoundary::Metrics) $($await)* {
+                    Ok(snapshot) => snapshot,
+                    Err(error) => {
+                        // The owner can publish its terminal verdict while
+                        // this request is queued. The drain releases metrics
+                        // boundaries without retaining their replies; await
+                        // the existing teardown barrier before reading the
+                        // completed snapshot.
+                        if self.core.metrics_concluding() {
+                            self.terminal_metrics_after_teardown() $($await)*
+                        } else {
+                            self.core.terminal_metrics().unwrap_or(Err(error))
+                        }
+                    }
+                }
+            }
+
+            $($async)* fn terminal_metrics_after_teardown(
+                &self,
+            ) -> Result<crate::observability::MetricsSnapshot, crate::Error> {
+                let _ = self.boundary_reply(&self.core.actor_alive) $($await)*;
+                self.core.terminal_metrics().unwrap_or_else(|| {
+                    Err(super::boundary::missing_terminal_error())
+                })
             }
 
             pub(crate) $($async)* fn subscribe_diagnostics(

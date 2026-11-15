@@ -31,17 +31,21 @@ without granting control over the protocol engine.
 | `dropped_staged_diagnostics` | Events evicted from bounded pre-admission staging before any subscriber could receive them. |
 | `dropped_diagnostic_events` | Events dropped because a subscriber queue was full. |
 | `dropped_observer_events` | Operation-observer events (terminal outcomes and cancellation failures) dropped because their handle was already detached or dropped. |
-| `dropped_boundary_work` | Boundary messages discarded during owner termination. |
+| `dropped_boundary_work` | Acting boundary messages discarded during owner termination; available in the terminal snapshot. Queued metrics observations are answered and do not count as dropped work. |
 | `active` | Admitted, non-terminal requests currently retained. |
 | `pending` | Queued admissions plus one retained admission, if present; retained cancellations are not pending requests. |
-| `session` | `Running` in snapshots returned by `metrics()`; terminal calls return the terminal error. |
+| `session` | `Running`, or the concluded owner’s terminal status: `Closed`, `Shutdown` or `Poisoned`. |
 
 The counter fields saturate at `u64::MAX`; queue and active counts remain
-bounded by owner policy. Both facades obtain `metrics()` through a separate
-bounded control request answered by the owner. Once the owner terminates,
-`metrics()` returns its published terminal error rather than a final snapshot;
-the `session` field is therefore `Running` in a successful call. Neither facade
-clones subscriber queues, wire buffers, or the state registry.
+bounded by owner policy. While the owner runs, both facades obtain `metrics()`
+through a separate bounded control request. A concluded owner retains its
+terminal snapshot beside its terminal cause, and either facade reads it directly
+from the handle. Its `active` and `pending` counts are zero and all counters
+survive, including work and diagnostics dropped during the final drain. Once
+`close()` returns, every later metrics call returns the same final snapshot.
+An owner that unwound before concluding instead returns `OwnerTerminated`,
+because its unfinished engine state cannot provide a trustworthy snapshot.
+Neither facade clones subscriber queues, wire buffers, or the state registry.
 
 `busy_errors` counts the codes the scheduler itself treats as transient
 camera-side backpressure — command buffer full (`0x03`), no socket (`0x05`),
@@ -468,8 +472,10 @@ camera or network may close it, or the socket may stay open while the camera
 stops answering VISCA. A close surfaces here as `Error::ConnectionClosed`
 (`requires_new_session() == true`) with an optional typed peer-closure cause,
 and — because a dead session retains its original terminal cause (#680) — every
-later command, inquiry, cancellation, or control call on that session keeps
-reporting the same peer-closure cause rather than a generic channel error. This
+later acting call — command, inquiry, cancellation, tuning change, diagnostic
+subscription, shutdown or close — keeps reporting the same peer-closure cause
+rather than a generic channel error. The read-only `metrics()` observation
+returns the retained terminal snapshot with `session == Closed`. This
 is the failure a long-running supervisor must expect during quiet periods.
 
 Silence does **not** produce that verdict. A default built-in inquiry retries
