@@ -1186,13 +1186,44 @@ fn transport_close_normalization_keeps_one_connection_closed_prefix() {
     let reason = transport_close_reason(&contextual).expect("contextual close reason");
     assert_eq!(&*reason, "control socket receive: peer closed connection");
 
-    let normalized = boundary_error_for_input(&Input::Shutdown(ShutdownReason::TransportClosed {
-        reason: Some(reason),
-    }))
-    .expect("shutdown boundary");
+    let mut state = reconfigurable_owner_state();
+    state.input(
+        Input::Shutdown(ShutdownReason::TransportClosed {
+            reason: Some(reason),
+        }),
+        Instant::now(),
+    );
+    let normalized = state.boundary_error().expect("engine terminal verdict");
     assert_eq!(
         normalized.to_string(),
         "Connection closed: control socket receive: peer closed connection"
+    );
+}
+
+/// Boundary observations read the engine's verdict even while its terminal
+/// effect is still waiting to be applied by the owner.
+#[test]
+fn engine_terminal_cause_is_authoritative_before_effect_delivery() {
+    let mut state = reconfigurable_owner_state();
+    let now = Instant::now();
+    let effects = state.engine.handle(
+        Input::Shutdown(ShutdownReason::FramingFailure {
+            reason: "retained stream position lost".into(),
+        }),
+        now,
+    );
+    let expected = state.engine.terminal_error().unwrap();
+    assert_eq!(
+        state.boundary_error().unwrap().to_string(),
+        expected.to_string()
+    );
+    for effect in effects {
+        state.apply_effect(effect);
+    }
+    state.input(Input::Shutdown(ShutdownReason::Explicit), now);
+    assert_eq!(
+        state.boundary_error().unwrap().to_string(),
+        expected.to_string()
     );
 }
 

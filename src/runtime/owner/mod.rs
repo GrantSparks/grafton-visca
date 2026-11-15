@@ -1610,7 +1610,6 @@ pub(crate) struct OwnerState {
     next_ticket: u64,
     metrics: OwnerMetrics,
     buffers: OwnerBuffers,
-    session_error: Option<Error>,
 }
 
 impl OwnerState {
@@ -1658,7 +1657,6 @@ impl OwnerState {
             next_ticket: 1,
             metrics: OwnerMetrics::default(),
             buffers,
-            session_error: None,
         })
     }
 
@@ -1731,7 +1729,7 @@ impl OwnerState {
     }
 
     pub(crate) fn boundary_error(&self) -> Option<Error> {
-        self.session_error.clone()
+        self.engine.terminal_error()
     }
 
     /// Whether `id` is still an active request: admitted, and its terminal
@@ -1980,9 +1978,6 @@ impl OwnerState {
                 response: response_diagnostic(&frame.response),
             });
         }
-        if self.session_error.is_none() {
-            self.session_error = boundary_error_for_input(input);
-        }
     }
 
     pub(crate) fn advance(&mut self, now: Instant) -> VecDeque<Effect> {
@@ -2048,18 +2043,6 @@ impl OwnerState {
         }
         let success = result.is_ok();
         let sequence = result.as_ref().ok().and_then(|meta| meta.sequence);
-        if self.session_error.is_none()
-            && result.is_err()
-            && self.policy.protocol.transport == super::engine::TransportKind::Stream
-        {
-            let reason = result
-                .as_ref()
-                .err()
-                .map_or_else(|| "stream write failed".to_owned(), ToString::to_string);
-            self.session_error = Some(Error::StreamPoisoned {
-                reason: reason.into(),
-            });
-        }
         self.record(DiagnosticEvent::WriteFinished {
             id: staged.request,
             transmission: staged.transmission,
@@ -2497,25 +2480,11 @@ impl OwnerState {
                 AppliedEffect::None
             }
             Effect::SessionChanged { from, to } => {
-                // Issue #680: an engine-initiated terminal transition (deadline
-                // expiry, the strict `strict_unconfirmed_poison` opt-in, a
-                // stream/framing self-poison) reaches the owner only as this
-                // payload-free effect — it does not pass through `observe_input`
-                // with a `Close`/`Poison`/`Shutdown` input, so `session_error`
-                // would otherwise stay `None`. Learn the engine's actual
-                // terminal error on the first non-`Running` transition and latch
-                // it, so `boundary_error()` (hence `shutdown()`/`close()` and
-                // `set_tuning`) surfaces the true cause with the correct
-                // `requires_new_session()` verdict instead of masking it as
-                // `RuntimeShutdown`, and so the diagnostic `reason` below is the
-                // real `ErrorKind` rather than `Other`. An owner-supplied
-                // boundary input already set `session_error` first, so the
-                // `is_none()` guard leaves that verdict untouched.
-                if self.session_error.is_none() && !matches!(to, SessionState::Running) {
-                    self.session_error = self.engine.terminal_error();
-                }
+                // The engine records the exact cause before emitting this
+                // transition, including engine-initiated stream poison.
                 let reason = self
-                    .session_error
+                    .engine
+                    .terminal_error()
                     .as_ref()
                     .map_or(ErrorKind::Other, Error::kind);
                 self.record(DiagnosticEvent::SessionChanged { from, to, reason });
@@ -2615,28 +2584,6 @@ fn cancellation_diagnostic(observation: &CancellationObservation) -> Cancellatio
         CancellationObservation::Cancelled => CancellationDiagnostic::Cancelled,
         CancellationObservation::Completed => CancellationDiagnostic::Completed,
         CancellationObservation::Failed(error) => CancellationDiagnostic::Failed(error.kind()),
-    }
-}
-
-fn boundary_error_for_input(input: &Input) -> Option<Error> {
-    match input {
-        Input::Shutdown(reason) => Some(match reason {
-            ShutdownReason::Explicit => Error::RuntimeShutdown,
-            ShutdownReason::TransportClosed { reason } => Error::ConnectionClosed {
-                reason: reason.as_ref().map(|value| value.to_string().into()),
-            },
-            ShutdownReason::FramingFailure { reason } => Error::StreamPoisoned {
-                reason: reason.to_string().into(),
-            },
-        }),
-        // A transient receive fault is explicitly not a boundary error: the
-        // session survives it and retried work keeps its own outcome.
-        Input::Admit { .. }
-        | Input::TransmissionFinished { .. }
-        | Input::Frame(_)
-        | Input::ReceiveFault { .. } => None,
-        #[cfg(test)]
-        Input::Wake | Input::Cancel { .. } => None,
     }
 }
 
