@@ -12,9 +12,7 @@ use grafton_visca::{
         HasSonyAutoSlowShutter, HasSonySpotlight, HasUsbAudio,
     },
     completion::{AppliedOnly, Targeted},
-    profiles::{
-        PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300, SonyBRCH900, SonyEVIH100, SonyFR7,
-    },
+    profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300, SonyEVIH100, SonyFR7},
     Camera, CompileTimeProfile, Error, Operation, Result,
 };
 
