@@ -369,6 +369,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Gain-limit commands accept all documented nibble values, including `0x8..=0xF`,
+  on PTZOptics G2, G3 and 30X. Admission uses the gain-limit register domain
+  independently of the separate gain-level range (#897).
+
 - Zoom and focus drive wrappers select the exact semantic/source row for
   standard and variable movement in each direction. Source checks no longer
   mistake Wide/Near or variable commands for standard Tele/Far commands
