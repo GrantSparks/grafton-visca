@@ -239,8 +239,8 @@ mod paused {
                 .expect_err("a silent camera cannot answer an inquiry");
             let elapsed = now!().duration_since(started);
             assert!(
-                matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
-                "expected the owner's own deadline, got {error:?}"
+                matches!(&error, Error::InquiryFailed { source, .. } if matches!(source.as_ref(), Error::Timeout { context, .. } if context.stage == FailureStage::Terminal)),
+                "expected the owner's own inquiry deadline, got {error:?}"
             );
             assert!(
                 elapsed >= Duration::from_secs(2),
