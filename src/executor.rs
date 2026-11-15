@@ -343,7 +343,7 @@ pub use tokio_impl::TokioExecutor;
 // smol executor implementation
 #[cfg(feature = "runtime-smol")]
 mod smol_impl {
-    use std::{pin::Pin, time::Duration};
+    use std::{pin::Pin, sync::Mutex, time::Duration};
 
     use super::*;
 
@@ -366,7 +366,7 @@ mod smol_impl {
 
     // Custom join handle wrapper for smol
     #[derive(Debug)]
-    pub struct SmolJoin<T: 'static>(flume::r#async::RecvFut<'static, T>);
+    pub struct SmolJoin<T: 'static>(Mutex<flume::r#async::RecvFut<'static, T>>);
 
     impl<T> Future for SmolJoin<T>
     where
@@ -380,7 +380,15 @@ mod smol_impl {
         ) -> std::task::Poll<Self::Output> {
             // The receive future owns its registered waker. Keep it alive
             // between polls so task completion can wake this join handle.
-            match Pin::new(&mut self.get_mut().0).poll(cx) {
+            // The private mutex preserves the Receiver-backed join's unwind
+            // safety: a panic while polling poisons this state, and a later
+            // poll reports join failure instead of reusing an uncertain hook.
+            let Ok(mut receive) = self.get_mut().0.lock() else {
+                return std::task::Poll::Ready(Err(ExecError::JoinFailed(
+                    "smol join receiver was poisoned while polling".into(),
+                )));
+            };
+            match Pin::new(&mut *receive).poll(cx) {
                 std::task::Poll::Ready(Ok(v)) => std::task::Poll::Ready(Ok(v)),
                 std::task::Poll::Ready(Err(e)) => {
                     std::task::Poll::Ready(Err(ExecError::JoinFailed(e.to_string())))
@@ -423,7 +431,7 @@ mod smol_impl {
                 let _ = tx.send_async(fut.await).await;
             })
             .detach();
-            (SmolJoin(rx.into_recv_async()), ())
+            (SmolJoin(Mutex::new(rx.into_recv_async())), ())
         }
 
         fn block_on<F: Future>(&self, fut: F) -> F::Output {
@@ -449,6 +457,49 @@ mod smol_impl {
         {
             race_timeout(duration, fut)
         }
+    }
+
+    #[cfg(test)]
+    #[test]
+    #[allow(clippy::panic, clippy::unwrap_used)]
+    fn poisoned_join_receiver_reports_join_failure() {
+        use std::{
+            panic::{catch_unwind, AssertUnwindSafe},
+            sync::Arc,
+            task::{Context, Poll, Wake, Waker},
+        };
+
+        struct PanickingWake;
+
+        impl Wake for PanickingWake {
+            fn wake(self: Arc<Self>) {
+                panic!("the consumer's wake callback panicked");
+            }
+        }
+
+        let (sender, receiver) = flume::bounded::<u8>(1);
+        let mut join = SmolJoin(Mutex::new(receiver.clone().into_recv_async()));
+        let mut context = Context::from_waker(Waker::noop());
+        assert!(Pin::new(&mut join).poll(&mut context).is_pending());
+        // Wake the registered hook, then consume the value through another
+        // receiver. Updating that woken hook must call the new consumer waker
+        // during the next guarded poll rather than return a queued value.
+        sender.send(7).unwrap();
+        assert_eq!(receiver.try_recv().unwrap(), 7);
+        let waker = Waker::from(Arc::new(PanickingWake));
+        let mut context = Context::from_waker(&waker);
+        // &mut Future is intentionally not UnwindSafe; the test catches the
+        // callback panic to verify the join's explicit poisoned-state result.
+        let panic = catch_unwind(AssertUnwindSafe(|| {
+            let _ = Pin::new(&mut join).poll(&mut context);
+        }));
+        assert!(panic.is_err());
+        let mut context = Context::from_waker(Waker::noop());
+        assert!(matches!(
+            Pin::new(&mut join).poll(&mut context),
+            Poll::Ready(Err(ExecError::JoinFailed(message)))
+                if message.contains("poisoned")
+        ));
     }
 }
 
