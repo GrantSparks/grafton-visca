@@ -156,12 +156,13 @@ macro_rules! facade_matrix {
             }
             macro_rules! open {
                 ($camera:expr, $config:expr) => {
-                    clock.open_blocking_session($camera.blocking_wire().on_clock(&clock), $config)
+                    clock.open_blocking_session(&_driver, $camera.blocking_wire().on_clock(&clock), $config)
                 };
             }
             macro_rules! open_camera {
                 ($camera:expr, $config:expr) => {
                     clock.open_blocking_camera_session(
+                        &_driver,
                         $camera.blocking_wire().on_clock(&clock),
                         $config,
                     )

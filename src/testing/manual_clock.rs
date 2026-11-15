@@ -3,6 +3,7 @@
 use std::{
     collections::{BTreeMap, HashMap},
     fmt,
+    marker::PhantomData,
     sync::{Arc, Mutex, MutexGuard, PoisonError},
     thread::{self, ThreadId},
     time::{Duration, Instant},
@@ -16,7 +17,10 @@ use std::{
 };
 
 #[cfg(all(feature = "async", feature = "test-utils"))]
-use crate::{executor::Executor, Error};
+use crate::executor::Executor;
+
+#[cfg(all(feature = "test-utils", any(feature = "async", feature = "blocking")))]
+use crate::Error;
 
 /// Why a blocked thread was rung.
 #[derive(Debug, Clone, Copy)]
@@ -105,6 +109,8 @@ struct State {
     threads: HashMap<ThreadId, usize>,
     waiters: BTreeMap<u64, Waiter>,
     next_id: u64,
+    /// Report broken bookkeeping on the next ordinary clock call, never in Drop.
+    invariant_violation: bool,
     #[cfg(all(feature = "async", feature = "test-utils"))]
     tasks: HashMap<u64, TaskState>,
     /// Tasks scheduled or being polled.
@@ -128,6 +134,7 @@ impl State {
             threads: HashMap::new(),
             waiters: BTreeMap::new(),
             next_id: 0,
+            invariant_violation: false,
             #[cfg(all(feature = "async", feature = "test-utils"))]
             tasks: HashMap::new(),
             #[cfg(all(feature = "async", feature = "test-utils"))]
@@ -146,7 +153,7 @@ impl State {
     }
 
     fn changed(&mut self) {
-        self.epoch += 1;
+        self.epoch = self.epoch.wrapping_add(1);
     }
 
     /// Nothing can run until the clock wakes it.
@@ -213,21 +220,35 @@ impl State {
         self.now = self.now.max(target);
         self.changed();
         let now = self.now;
-        let mut resumed = 0;
+        let mut resumed = 0_usize;
         for waiter in self.waiters.values_mut() {
             if !waiter.expired && waiter.deadline.is_some_and(|deadline| deadline <= now) {
                 waiter.expired = true;
-                resumed += waiter.registrations;
+                resumed = resumed.saturating_add(waiter.registrations);
                 wakes.bells.push((waiter.bell.clone(), Bell::Expired));
             }
         }
-        self.running += resumed;
+        self.add_running(resumed);
         #[cfg(all(feature = "async", feature = "test-utils"))]
         {
             let later = self.timers.split_off(&(now, u64::MAX));
             let due = std::mem::replace(&mut self.timers, later);
             self.undelivered += due.len();
             wakes.wakers.extend(due.into_values());
+        }
+    }
+
+    fn add_running(&mut self, count: usize) {
+        match self.running.checked_add(count) {
+            Some(running) => self.running = running,
+            None => self.invariant_violation = true,
+        }
+    }
+
+    fn subtract_running(&mut self, count: usize) {
+        match self.running.checked_sub(count) {
+            Some(running) => self.running = running,
+            None => self.invariant_violation = true,
         }
     }
 
@@ -241,7 +262,10 @@ impl State {
 
     fn unbind(&mut self, thread: ThreadId) {
         if let Some(count) = self.threads.get_mut(&thread) {
-            *count -= 1;
+            *count = count.checked_sub(1).unwrap_or_else(|| {
+                self.invariant_violation = true;
+                0
+            });
             if *count == 0 {
                 self.threads.remove(&thread);
             }
@@ -323,8 +347,28 @@ impl ManualClock {
     /// Run `change` under the state lock, then deliver the wake-ups it
     /// collected.
     fn update<R>(&self, change: impl FnOnce(&mut State, &mut Wakes) -> R) -> R {
+        self.update_inner(true, change)
+    }
+
+    /// Cleanup must remain safe while unwinding, including after a broken invariant.
+    fn update_drop<R>(&self, change: impl FnOnce(&mut State, &mut Wakes) -> R) -> R {
+        self.update_inner(false, change)
+    }
+
+    fn update_inner<R>(
+        &self,
+        check_invariant: bool,
+        change: impl FnOnce(&mut State, &mut Wakes) -> R,
+    ) -> R {
         let mut wakes = Wakes::default();
-        let result = change(&mut self.lock(), &mut wakes);
+        let result = {
+            let mut state = self.lock();
+            debug_assert!(
+                !check_invariant || !state.invariant_violation || thread::panicking(),
+                "ManualClock participant bookkeeping invariant violated"
+            );
+            change(&mut state, &mut wakes)
+        };
         self.deliver(wakes);
         result
     }
@@ -340,8 +384,11 @@ impl ManualClock {
             for waker in wakes.wakers {
                 waker.wake();
             }
-            self.update(|state, wakes| {
-                state.undelivered -= delivered;
+            self.update_drop(|state, wakes| {
+                match state.undelivered.checked_sub(delivered) {
+                    Some(remaining) => state.undelivered = remaining,
+                    None => state.invariant_violation = true,
+                }
                 state.changed();
                 state.settle(wakes);
             });
@@ -351,15 +398,22 @@ impl ManualClock {
     /// The current virtual instant.
     #[must_use]
     pub fn now(&self) -> Instant {
-        self.lock().now
+        self.update(|state, _| state.now)
     }
 
     /// Move virtual time forward by `duration`, ending every wait whose
-    /// deadline that passes.
+    /// deadline that passes. If the duration exceeds the clock's representable
+    /// range, advance through every currently pending finite deadline.
     pub fn advance(&self, duration: Duration) {
         self.update(|state, wakes| {
-            let target = state.now.checked_add(duration).unwrap_or(state.now);
+            let target = state.now.checked_add(duration).unwrap_or_else(|| {
+                let deadlines = state.waiters.values().filter_map(|waiter| waiter.deadline);
+                #[cfg(all(feature = "async", feature = "test-utils"))]
+                let deadlines = deadlines.chain(state.timers.keys().map(|(deadline, _)| *deadline));
+                deadlines.max().unwrap_or(state.now)
+            });
             state.advance_to(target, wakes);
+            state.settle(wakes);
         });
     }
 
@@ -376,7 +430,7 @@ impl ManualClock {
     /// thread is starting.
     pub(crate) fn register(&self) -> PendingParticipant {
         self.update(|state, _| {
-            state.running += 1;
+            state.add_running(1);
             state.changed();
         });
         PendingParticipant {
@@ -413,12 +467,12 @@ impl ManualClock {
         }
         let (bell, rung) = flume::unbounded();
         let thread = thread::current().id();
-        let id = self.update(|state, wakes| {
+        let registration = self.update(|state, wakes| {
             if deadline.is_some_and(|deadline| deadline <= state.now) {
                 return None;
             }
             let registrations = state.registrations(thread);
-            state.running -= registrations;
+            state.subtract_running(registrations);
             let id = state.next_id();
             state.waiters.insert(
                 id,
@@ -432,9 +486,12 @@ impl ManualClock {
             );
             state.changed();
             state.settle(wakes);
-            Some(id)
+            Some(WaitRegistration {
+                clock: self.clone(),
+                id,
+            })
         })?;
-        let value = loop {
+        loop {
             match source.block(&rung) {
                 Ok(value) => break Some(value),
                 // A value ready at the deadline still wins.
@@ -443,20 +500,30 @@ impl ManualClock {
                     if let Some(value) = source.poll() {
                         break Some(value);
                     }
-                    self.update(|state, wakes| state.confirm(id, round, wakes));
+                    self.update(|state, wakes| state.confirm(registration.id, round, wakes));
                 }
             }
-        };
-        self.update(|state, wakes| {
-            if let Some(waiter) = state.waiters.remove(&id) {
+        }
+    }
+}
+
+/// Owns the bookkeeping for one wait, through both return and unwinding.
+struct WaitRegistration {
+    clock: ManualClock,
+    id: u64,
+}
+
+impl Drop for WaitRegistration {
+    fn drop(&mut self) {
+        self.clock.update_drop(|state, wakes| {
+            if let Some(waiter) = state.waiters.remove(&self.id) {
                 if !waiter.expired {
-                    state.running += waiter.registrations;
+                    state.add_running(waiter.registrations);
                 }
             }
             state.changed();
             state.settle(wakes);
         });
-        value
     }
 }
 
@@ -464,16 +531,54 @@ impl ManualClock {
 impl ManualClock {
     /// Spawn a participant thread running `f`. It is registered before the
     /// thread starts and leaves when `f` returns.
-    pub fn spawn<F, T>(&self, f: F) -> thread::JoinHandle<T>
+    pub fn spawn<F, T>(&self, f: F) -> ClockJoinHandle<T>
     where
         F: FnOnce() -> T + Send + 'static,
         T: Send + 'static,
     {
         let registration = self.register();
-        thread::spawn(move || {
+        let (done, completed) = flume::bounded(1);
+        let worker = thread::spawn(move || {
             let _participant = registration.enter();
+            // Disconnect before participation ends, including when f panics.
+            let _completion = done;
             f()
-        })
+        });
+        ClockJoinHandle {
+            clock: self.clone(),
+            worker,
+            completed,
+        }
+    }
+}
+
+/// A participant thread's result, joined without holding virtual time back.
+///
+/// Dropping the handle detaches the thread. [`Self::join`] preserves the
+/// thread's panic result while letting other participants advance the clock.
+#[cfg(feature = "test-utils")]
+#[derive(Debug)]
+pub struct ClockJoinHandle<T> {
+    clock: ManualClock,
+    worker: thread::JoinHandle<T>,
+    completed: flume::Receiver<()>,
+}
+
+#[cfg(feature = "test-utils")]
+impl<T> ClockJoinHandle<T> {
+    /// Wait on the clock for the participant to finish, then return its result.
+    pub fn join(self) -> thread::Result<T> {
+        self.clock.wait_on(
+            None,
+            &mut Polled(|| self.completed.is_disconnected().then_some(())),
+        );
+        self.worker.join()
+    }
+
+    /// Whether the participant thread has finished.
+    #[must_use]
+    pub fn is_finished(&self) -> bool {
+        self.worker.is_finished()
     }
 }
 
@@ -483,18 +588,28 @@ impl ManualClock {
     /// clock: the worker's pacing, read slices and protocol deadlines, and
     /// every wait on the session's handles, are virtual.
     ///
-    /// Enter the clock on the calling thread first, and give the session a
+    /// Pass the calling thread's participant guard for this clock, and give the session a
     /// transport whose reads also wait on this clock (see
     /// [`Self::wait_until`]); a transport that blocks in real time keeps
     /// virtual time from advancing while it reads.
+    ///
+    /// Opening without a participant guard is a compile-time error:
+    ///
+    /// ```compile_fail
+    /// use grafton_visca::{SessionConfig, testing::testkit::{ManualClock, ScriptedBlockingTransport}};
+    /// let clock = ManualClock::new();
+    /// clock.open_blocking_session(ScriptedBlockingTransport::new(vec![]), SessionConfig::default());
+    /// ```
     pub fn open_blocking_session<T>(
         &self,
+        participant: &ClockParticipant,
         transport: T,
         config: crate::SessionConfig,
     ) -> crate::Result<crate::blocking::Session>
     where
         T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
     {
+        self.check_participant(participant)?;
         crate::blocking::Session::open_on(
             transport,
             config.validated()?,
@@ -506,6 +621,7 @@ impl ManualClock {
     /// [`Self::open_blocking_session`].
     pub fn open_blocking_camera_session<P, T>(
         &self,
+        participant: &ClockParticipant,
         transport: T,
         config: &crate::camera::CameraConfig<P>,
     ) -> crate::Result<crate::blocking::CameraSession<P>>
@@ -513,12 +629,23 @@ impl ManualClock {
         P: crate::CompileTimeProfile,
         T: crate::transport::BlockingTransport + crate::transport::HasTransportConfig + 'static,
     {
+        self.check_participant(participant)?;
         let session = crate::blocking::Session::open_on(
             transport,
             config.validated_session_config()?,
             crate::runtime::owner::Clock::Manual(self.clone()),
         )?;
         crate::blocking::CameraSession::from_session(session, config.camera_id)
+    }
+
+    fn check_participant(&self, participant: &ClockParticipant) -> crate::Result<()> {
+        if Arc::ptr_eq(&self.state, &participant.clock.state) {
+            Ok(())
+        } else {
+            Err(Error::InvalidRequest(
+                "the participant belongs to a different ManualClock".into(),
+            ))
+        }
     }
 }
 
@@ -540,6 +667,7 @@ impl PendingParticipant {
         ClockParticipant {
             clock: self.clock.clone(),
             thread,
+            _thread_bound: PhantomData,
         }
     }
 }
@@ -547,8 +675,8 @@ impl PendingParticipant {
 impl Drop for PendingParticipant {
     fn drop(&mut self) {
         if !self.entered {
-            self.clock.update(|state, wakes| {
-                state.running -= 1;
+            self.clock.update_drop(|state, wakes| {
+                state.subtract_running(1);
                 state.changed();
                 state.settle(wakes);
             });
@@ -557,20 +685,39 @@ impl Drop for PendingParticipant {
 }
 
 /// A thread's registration as a [`ManualClock`] participant; dropping it
-/// leaves.
+/// leaves. The guard must stay on the thread that entered the clock.
+///
+/// ```compile_fail
+/// use grafton_visca::testing::testkit::ManualClock;
+/// let clock = ManualClock::new();
+/// let participant = clock.enter();
+/// std::thread::spawn(move || drop(participant));
+/// ```
+///
+/// Sharing the guard with another thread is also rejected:
+///
+/// ```compile_fail
+/// use grafton_visca::testing::testkit::ManualClock;
+/// let clock = ManualClock::new();
+/// let participant = clock.enter();
+/// std::thread::scope(|scope| {
+///     scope.spawn(|| println!("{participant:?}"));
+/// });
+/// ```
 #[must_use = "the thread stops participating when this guard drops"]
 #[derive(Debug)]
 pub struct ClockParticipant {
     clock: ManualClock,
     thread: ThreadId,
+    _thread_bound: PhantomData<*const ()>,
 }
 
 impl Drop for ClockParticipant {
     fn drop(&mut self) {
         let thread = self.thread;
-        self.clock.update(|state, wakes| {
+        self.clock.update_drop(|state, wakes| {
             state.unbind(thread);
-            state.running -= 1;
+            state.subtract_running(1);
             state.changed();
             state.settle(wakes);
         });
@@ -640,13 +787,19 @@ impl State {
     fn task_poll_end(&mut self, id: u64, ready: bool, wakes: &mut Wakes) {
         if ready {
             if self.tasks.remove(&id).is_some() {
-                self.runnable -= 1;
+                match self.runnable.checked_sub(1) {
+                    Some(remaining) => self.runnable = remaining,
+                    None => self.invariant_violation = true,
+                }
             }
         } else {
             match self.tasks.get_mut(&id) {
                 Some(state @ TaskState::Polling) => {
                     *state = TaskState::Idle;
-                    self.runnable -= 1;
+                    match self.runnable.checked_sub(1) {
+                        Some(remaining) => self.runnable = remaining,
+                        None => self.invariant_violation = true,
+                    }
                 }
                 Some(state @ TaskState::PollingWoken) => *state = TaskState::Scheduled,
                 _ => {}
@@ -659,7 +812,10 @@ impl State {
     fn task_dropped(&mut self, id: u64, wakes: &mut Wakes) {
         if let Some(state) = self.tasks.remove(&id) {
             if state != TaskState::Idle {
-                self.runnable -= 1;
+                match self.runnable.checked_sub(1) {
+                    Some(remaining) => self.runnable = remaining,
+                    None => self.invariant_violation = true,
+                }
             }
             self.changed();
             self.settle(wakes);
@@ -744,7 +900,7 @@ impl<F> Drop for Tracked<F> {
             let id = self.track.id;
             self.track
                 .clock
-                .update(|state, wakes| state.task_dropped(id, wakes));
+                .update_drop(|state, wakes| state.task_dropped(id, wakes));
         }
     }
 }
@@ -791,7 +947,7 @@ impl Drop for Sleep {
         if let Some(key) = self.key.take() {
             // Removing a deadline wakes nothing, so a verification round in
             // flight stays valid.
-            self.clock.update(|state, _| {
+            self.clock.update_drop(|state, _| {
                 state.timers.remove(&key);
             });
         }
@@ -884,6 +1040,210 @@ mod tests {
     use super::*;
 
     const HOUR: Duration = Duration::from_secs(3_600);
+
+    fn assert_balanced(clock: &ManualClock) {
+        let state = clock.lock();
+        let registered: usize = state.threads.values().sum();
+        let blocked: usize = state
+            .waiters
+            .values()
+            .filter(|waiter| !waiter.expired)
+            .map(|waiter| waiter.registrations)
+            .sum();
+        assert_eq!(state.running, registered - blocked);
+        assert!(!state.invariant_violation);
+    }
+
+    #[test]
+    #[should_panic(expected = "poll failed")]
+    fn an_unwinding_poll_does_not_panic_again_in_participant_drop() {
+        let clock = ManualClock::new();
+        let _participant = clock.enter();
+        let mut polls = 0;
+        clock.wait_until(clock.now() + HOUR, || {
+            polls += 1;
+            assert!(polls < 2, "poll failed");
+            None::<()>
+        });
+    }
+
+    #[test]
+    fn a_caught_poll_panic_leaves_the_clock_live() {
+        let clock = ManualClock::new();
+        let _participant = clock.enter();
+        let mut polls = 0;
+        let failed = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            clock.wait_until(clock.now() + HOUR, || {
+                polls += 1;
+                assert!(polls < 2, "poll failed");
+                None::<()>
+            });
+        }));
+        assert!(failed.is_err());
+        assert_balanced(&clock);
+        let start = clock.now();
+        clock.sleep(Duration::from_millis(1));
+        assert_eq!(clock.now() - start, Duration::from_millis(1));
+        assert_balanced(&clock);
+    }
+
+    #[test]
+    fn a_panic_in_the_final_deadline_poll_restores_participation_once() {
+        let clock = ManualClock::new();
+        let _participant = clock.enter();
+        let deadline = clock.now() + Duration::from_millis(1);
+        let failed = std::panic::catch_unwind(|| {
+            clock.wait_until(deadline, || {
+                assert!(clock.now() < deadline, "poll failed");
+                None::<()>
+            });
+        });
+        assert!(failed.is_err());
+        assert_balanced(&clock);
+        clock.sleep(Duration::from_millis(1));
+        assert_eq!(clock.now() - deadline, Duration::from_millis(1));
+        assert_balanced(&clock);
+    }
+
+    #[test]
+    fn an_explicit_advance_restarts_an_inflight_verification_round() {
+        let clock = ManualClock::new();
+        let _participant = clock.enter();
+        let deadline = clock.now() + HOUR;
+        let mut polls = 0;
+        let result = clock.wait_until(deadline, || {
+            polls += 1;
+            if polls == 2 {
+                let external = clock.clone();
+                assert!(
+                    thread::spawn(move || external.advance(Duration::from_millis(1)))
+                        .join()
+                        .is_ok()
+                );
+            }
+            None::<()>
+        });
+        assert_eq!(result, None);
+        assert_eq!(clock.now(), deadline);
+        assert_balanced(&clock);
+    }
+
+    #[test]
+    fn overflowing_advance_expires_every_pending_finite_wait() {
+        let clock = ManualClock::new();
+        let _participant = clock.enter();
+        let deadline = clock.now() + HOUR;
+        let mut polls = 0;
+        let result = clock.wait_until(deadline, || {
+            polls += 1;
+            if polls == 2 {
+                clock.advance(Duration::MAX);
+            }
+            None::<()>
+        });
+        assert_eq!(result, None);
+        assert_eq!(clock.now(), deadline);
+        assert_balanced(&clock);
+    }
+
+    #[test]
+    fn broken_counter_bookkeeping_is_reported_after_drop() {
+        let clock = ManualClock::new();
+        let participant = clock.enter();
+        clock.lock().running = 0;
+        assert!(std::panic::catch_unwind(|| drop(participant)).is_ok());
+        assert!(clock.lock().invariant_violation);
+        if cfg!(debug_assertions) {
+            assert!(std::panic::catch_unwind(|| clock.now()).is_err());
+        }
+    }
+
+    #[cfg(feature = "test-utils")]
+    #[test]
+    fn participant_joins_wait_on_the_clock_and_keep_panic_results() {
+        let clock = ManualClock::new();
+        let _participant = clock.enter();
+        let start = clock.now();
+        let timer = clock.clone();
+        let worker = clock.spawn(move || {
+            timer.sleep(Duration::from_millis(10));
+            42
+        });
+        assert_eq!(worker.join().ok(), Some(42));
+        assert_eq!(clock.now() - start, Duration::from_millis(10));
+        let panicking = clock.spawn(|| panic!("worker failed"));
+        assert!(panicking.join().is_err());
+        assert_balanced(&clock);
+    }
+
+    #[cfg(all(feature = "blocking", feature = "test-utils"))]
+    #[test]
+    fn a_session_refuses_a_guard_from_another_clock() {
+        let clock = ManualClock::new();
+        let participant = clock.enter();
+        let other = ManualClock::new();
+        let transport = crate::testing::testkit::ScriptedBlockingTransport::new(vec![]);
+        let result =
+            other.open_blocking_session(&participant, transport, crate::SessionConfig::default());
+        assert!(matches!(result, Err(Error::InvalidRequest(_))));
+        assert_balanced(&clock);
+        assert_balanced(&other);
+    }
+
+    #[cfg(feature = "test-utils")]
+    #[test]
+    fn concurrent_waits_advances_and_caught_panics_keep_participation_balanced() {
+        let clock = ManualClock::new();
+        let _participant = clock.enter();
+        let barrier = Arc::new(std::sync::Barrier::new(5));
+        let workers: Vec<_> = (0..4)
+            .map(|thread_index| {
+                let clock = clock.clone();
+                let timer = clock.clone();
+                let barrier = barrier.clone();
+                clock.spawn(move || {
+                    barrier.wait();
+                    let mut random = thread_index + 1_u64;
+                    for _ in 0..32 {
+                        random = random
+                            .wrapping_mul(6_364_136_223_846_793_005)
+                            .wrapping_add(1);
+                        if random & 4 != 0 {
+                            let mut polls = 0;
+                            let failed =
+                                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                                    timer.wait_until(timer.now() + HOUR, || {
+                                        polls += 1;
+                                        assert!(polls < 2, "poll failed");
+                                        None::<()>
+                                    });
+                                }));
+                            assert!(failed.is_err());
+                        }
+                        assert_balanced(&timer);
+                        timer.sleep(Duration::from_micros(1 + random % 100));
+                        assert_balanced(&timer);
+                    }
+                })
+            })
+            .collect();
+        barrier.wait();
+        let advancer = {
+            let clock = clock.clone();
+            thread::spawn(move || {
+                for _ in 0..128 {
+                    clock.advance(Duration::from_micros(1));
+                    thread::yield_now();
+                }
+            })
+        };
+        for worker in workers {
+            assert!(worker.join().is_ok());
+        }
+        assert!(advancer.join().is_ok());
+        assert_balanced(&clock);
+        assert!(clock.lock().waiters.is_empty());
+    }
 
     #[test]
     fn a_lone_blocked_participant_jumps_straight_to_its_deadline() {

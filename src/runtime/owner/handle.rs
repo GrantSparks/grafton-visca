@@ -273,10 +273,11 @@ macro_rules! owner_handle_methods {
                 &self,
                 capacity: usize,
             ) -> Result<super::DiagnosticSubscription, crate::Error> {
-                self.control_request(|reply| {
+                let subscription = self.control_request(|reply| {
                     super::boundary::ControlBoundary::SubscribeDiagnostics { capacity, reply }
                 })
-                $($await)* ?
+                $($await)* ??;
+                Ok(self.bind_diagnostics(subscription))
             }
 
             /// Installs new session tuning through the owner's control

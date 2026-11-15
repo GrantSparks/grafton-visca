@@ -1303,6 +1303,8 @@ struct AppliedSubscriber {
 pub(crate) struct DiagnosticSubscription {
     receiver: flume::Receiver<DiagnosticEvent>,
     lifecycle: Arc<boundary::OwnerLifecycle>,
+    #[cfg(feature = "blocking")]
+    clock: Clock,
 }
 
 impl DiagnosticSubscription {
@@ -1326,11 +1328,25 @@ impl DiagnosticSubscription {
 
     #[cfg(feature = "blocking")]
     pub(crate) fn recv_timeout(&self, timeout: Duration) -> Result<Option<DiagnosticEvent>, Error> {
-        match self.receiver.recv_timeout(timeout) {
-            Ok(event) => Ok(Some(event)),
-            Err(flume::RecvTimeoutError::Timeout) => Ok(None),
-            Err(flume::RecvTimeoutError::Disconnected) => Err(self.disconnected_error()),
-        }
+        let received = match &self.clock {
+            Clock::System => match self.receiver.recv_timeout(timeout) {
+                Ok(event) => Some(Ok(event)),
+                Err(flume::RecvTimeoutError::Timeout) => None,
+                Err(flume::RecvTimeoutError::Disconnected) => {
+                    Some(Err(flume::RecvError::Disconnected))
+                }
+            },
+            #[cfg(any(test, feature = "test-utils"))]
+            Clock::Manual(_) => {
+                let deadline = self.clock.now().checked_add(timeout);
+                let selection = self.clock.select().recv(&self.receiver, |event| event);
+                match deadline {
+                    Some(deadline) => selection.wait_until(deadline),
+                    None => Some(selection.wait()),
+                }
+            }
+        };
+        received.transpose().map_err(|_| self.disconnected_error())
     }
 }
 
@@ -2261,6 +2277,8 @@ impl OwnerState {
         Ok(DiagnosticSubscription {
             receiver,
             lifecycle,
+            #[cfg(feature = "blocking")]
+            clock: Clock::System,
         })
     }
 

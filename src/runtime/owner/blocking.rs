@@ -435,6 +435,14 @@ impl BlockingOwnerHandle {
         })
     }
 
+    fn bind_diagnostics(
+        &self,
+        mut subscription: super::DiagnosticSubscription,
+    ) -> super::DiagnosticSubscription {
+        subscription.clock = self.clock.clone();
+        subscription
+    }
+
     /// The owner clock every handle wait is measured against.
     pub(crate) fn now(&self) -> Instant {
         self.clock.now()

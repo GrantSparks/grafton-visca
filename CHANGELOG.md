@@ -15,7 +15,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `testkit::ManualClockExecutor`, measure every deadline on virtual time, which
   moves on `advance` or, as Tokio's paused clock does, once every participant
   (`ManualClock::enter`, `ManualClock::spawn`, or a task on the executor) is
-  blocked on the clock. `ClockParticipant` is the participation guard.
+  blocked on the clock. The thread-bound `ClockParticipant` guard is required
+  when opening a blocking session and must belong to the same clock. Spawned
+  participants return a `ClockJoinHandle` whose joins also wait on virtual time.
+  Wait cleanup is unwind-safe; explicit advances preserve automatic progress,
+  overflowing advances end pending finite waits, and diagnostic subscription
+  timeouts use the session's clock.
 
 ### Changed
 

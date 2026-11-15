@@ -497,6 +497,47 @@ fn blocking_owner_matches_canonical_lifecycle_trace() {
     assert_eq!(canonical_owner_trace(events), CANONICAL_OWNER_TRACE);
 }
 
+/// Diagnostic subscription deadlines participate in the session's virtual clock.
+#[test]
+fn diagnostic_receive_timeout_uses_the_session_clock() {
+    let clock = ManualClock::new();
+    let _participant = clock.enter();
+    let (owner, _peer) = Setup::datagram().on(&clock).spawn();
+    let diagnostics = owner.subscribe_diagnostics(128).unwrap();
+    while diagnostics.try_recv().is_some() {}
+    let start = clock.now();
+    let real_start = Instant::now();
+    assert!(diagnostics
+        .recv_timeout(Duration::from_secs(60))
+        .unwrap()
+        .is_none());
+    assert_eq!(clock.now() - start, Duration::from_secs(60));
+    assert!(real_start.elapsed() < Duration::from_secs(2));
+    owner.close().unwrap();
+}
+
+/// A diagnostic emitted at an owner deadline wakes the virtual subscription wait.
+#[test]
+fn diagnostic_receive_observes_an_owner_deadline_without_wall_time() {
+    let clock = ManualClock::new();
+    let _participant = clock.enter();
+    let (owner, peer) = Setup::datagram().on(&clock).spawn();
+    let receipt = owner.submit_command(focus_manual()).unwrap();
+    peer.next_write();
+    let diagnostics = owner.subscribe_diagnostics(128).unwrap();
+    while diagnostics.try_recv().is_some() {}
+    let start = clock.now();
+    let real_start = Instant::now();
+    assert!(diagnostics
+        .recv_timeout(Duration::from_secs(60))
+        .unwrap()
+        .is_some());
+    assert!(clock.now() > start);
+    assert!(real_start.elapsed() < Duration::from_secs(2));
+    drop(receipt);
+    owner.close().unwrap();
+}
+
 /// Out-of-order peer-receipt retention on the Sony sequence-bearing envelope
 /// (#542 §4): several in-flight blocking receipts each keep their own exact
 /// terminal outcome, whatever order the camera answers in and the callers

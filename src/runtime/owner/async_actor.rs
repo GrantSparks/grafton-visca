@@ -235,6 +235,13 @@ pub(crate) struct AsyncOwnerHandle {
 }
 
 impl AsyncOwnerHandle {
+    fn bind_diagnostics(
+        &self,
+        subscription: super::DiagnosticSubscription,
+    ) -> super::DiagnosticSubscription {
+        subscription
+    }
+
     /// Wait until the owner actor has finished its teardown.
     ///
     /// The liveness lane is disconnected only after [`AsyncOwnerActor::run`]

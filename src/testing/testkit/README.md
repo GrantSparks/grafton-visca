@@ -1,3 +1,16 @@
+# Virtual owner time
+
+Use `ManualClock::enter` to register the calling thread. Keep its
+`ClockParticipant` guard on that thread and pass it to `open_blocking_session`
+or `open_blocking_camera_session`. The guard must belong to the same clock.
+Transport reads must also wait on the clock. Session handle waits, including
+`DiagnosticSubscription::recv_timeout`, then use virtual time.
+
+`ManualClock::spawn` registers a participant before its thread starts. Its
+`ClockJoinHandle::join` waits through the clock, so an entered caller can join
+a sleeping participant. A panic in a polling wait removes that wait and
+restores participation before the panic continues.
+
 # Test Infrastructure: Executor Selection Strategy
 
 ## Problem Statement
