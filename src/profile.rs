@@ -3450,6 +3450,25 @@ mod tests {
     }
 
     #[test]
+    fn individually_representable_ack_cannot_overflow_the_full_attempt() {
+        let now = Instant::now();
+        let (mut low, mut high) = (0_u64, u64::MAX);
+        while low < high {
+            let middle = low + (high - low) / 2 + (high - low) % 2;
+            if now.checked_add(Duration::from_secs(middle)).is_some() {
+                low = middle;
+            } else {
+                high = middle - 1;
+            }
+        }
+        let ack = Duration::from_secs(low);
+        let response = Duration::from_secs(1);
+        assert!(monotonic_duration_is_representable(now, ack));
+        assert!(monotonic_duration_is_representable(now, response * 2));
+        assert!(!retry_budget_is_representable(now, response, ack));
+    }
+
+    #[test]
     fn profile_timing_rejects_unrepresentable_deadlines_and_spacing() {
         let complete = || {
             ProfileTiming::builder()
