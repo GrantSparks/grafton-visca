@@ -1013,6 +1013,10 @@ pub(crate) mod macros;
 /// The single row table behind all three noun facades.
 pub(crate) mod noun_table;
 
+/// Shared native preparation and forwarding for camera views.
+#[cfg(any(feature = "blocking", feature = "async"))]
+mod camera_core;
+
 /// Shared expansion helpers for the noun facades.
 #[cfg(any(feature = "blocking", feature = "async"))]
 pub(crate) mod noun_facade;

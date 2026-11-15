@@ -26,6 +26,14 @@ traits. Names such as `DynCameraControl`, `DynPanTiltControl`, and
 `IntoDynCamera` belong to the historical 1.x vocabulary and are not 2.0 API
 names.
 
+The async and blocking camera cores expand from one `camera_core!` definition
+(#865). Both retain one owner handle, immutable target registration and
+submission-class default, and prepare each request using live validated
+tuning. The native blocking expansion calls its owner directly; the async
+expansion awaits its corresponding owner methods. Facade parity checks inspect
+both expanded cores' private and crate-visible methods, bounds and forwarding
+bodies, as well as the public facade signatures.
+
 ## Ownership and lifetime
 
 Construction moves one transport into one serialized owner. The owner is the

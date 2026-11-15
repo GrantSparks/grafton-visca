@@ -16,19 +16,14 @@
 use std::{fmt, marker::PhantomData, sync::Arc, time::Duration};
 
 use crate::{
-    camera::{IdleWait, MotionQuery},
     completion,
-    prepared::{
-        prepare_command, prepare_inquiry, prepare_operation, prepare_position_queries,
-        ClassSelection,
-    },
+    prepared::ClassSelection,
     runtime::owner::{
         BlockingOperationReceipt, BlockingOwnerHandle, BlockingTransportAdapter, Clock,
     },
     target::TargetSlot,
     CameraId, CancellationOutcome, CompileTimeProfile, DiagnosticSubscription, Error, Inquiry,
-    MetricsSnapshot, OperationCommand, OperationalTuning, PlainCommand, ProfileSpec, Result,
-    StateCache, SubmissionClass,
+    MetricsSnapshot, OperationCommand, OperationalTuning, PlainCommand, Result, SubmissionClass,
 };
 
 pub use crate::OperationId;
@@ -374,7 +369,7 @@ impl Session {
     ///
     /// Unlike [`Self::camera`], this selector does not require a
     /// [`CompileTimeProfile`] marker. Every request is still validated against
-    /// the registered [`ProfileSpec`] before encoding or transport I/O.
+    /// the registered [`crate::ProfileSpec`] before encoding or transport I/O.
     ///
     /// # Example: a blocking runtime-only profile
     ///
@@ -584,7 +579,7 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     /// registered from the same `P`.
     ///
     /// This is crate-private and is only reachable from the `P`-typed
-    /// construction paths, where the registered [`ProfileSpec`] was lowered
+    /// construction paths, where the registered [`crate::ProfileSpec`] was lowered
     /// from this exact `P`. That is what makes the bind structural instead of
     /// a runtime profile comparison.
     pub(crate) fn from_session(session: Session, target: CameraId) -> Result<Self, Error> {
@@ -693,159 +688,11 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     }
 }
 
-/// Erased owner-backed blocking target view shared by typed and dynamic
-/// projections.
-///
-/// This is crate-private so the public camera type cannot accidentally expose
-/// transport details. It is the only place that retains the owner handle and
-/// performs request preparation.
-#[derive(Clone)]
-pub(crate) struct BlockingCameraCore {
+crate::camera_core::camera_core! {
+    core: BlockingCameraCore,
     owner: BlockingOwnerHandle,
-    registration: Arc<crate::TargetRegistration>,
-    class: ClassSelection,
-}
-
-impl fmt::Debug for BlockingCameraCore {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("Camera")
-            .field("target", &self.registration.slot().camera())
-            .field("profile", &self.registration.profile())
-            .finish_non_exhaustive()
-    }
-}
-
-impl BlockingCameraCore {
-    #[cfg(feature = "dyn-api")]
-    pub(crate) fn into_typed<P>(self) -> Result<Camera<P>, Error>
-    where
-        P: CompileTimeProfile,
-    {
-        self.registration.profile().ensure_compile_time::<P>()?;
-        Ok(Camera::from_core(self))
-    }
-
-    /// Returns this view's fixed camera target.
-    pub(crate) fn target(&self) -> CameraId {
-        self.registration.slot().camera()
-    }
-
-    /// Returns this view's validated profile facts.
-    pub(crate) fn profile(&self) -> &ProfileSpec {
-        self.registration.profile()
-    }
-
-    /// Returns a cheap live read-only view of this camera's target-local state.
-    pub(crate) fn registration(&self) -> &crate::TargetRegistration {
-        &self.registration
-    }
-
-    pub(crate) fn state_cache(&self) -> StateCache {
-        self.owner.state_cache(self.registration.slot())
-    }
-
-    /// Reads the session's live operational tuning.
-    ///
-    /// This is read once per preparation rather than copied into the view, so a
-    /// view taken before [`Session::set_tuning`] still prepares its next
-    /// request under the new values (#631).
-    fn tuning(&self) -> crate::session_config::ValidatedTuning {
-        self.owner.validated_tuning()
-    }
-
-    /// Returns this view's submission-class default, if it carries one.
-    pub(crate) const fn submission_class(&self) -> Option<SubmissionClass> {
-        self.class.handle_default()
-    }
-
-    /// Sets this view's submission-class default.
-    pub(crate) fn set_submission_class(&mut self, class: Option<SubmissionClass>) {
-        self.class = ClassSelection::from_handle_default(class);
-    }
-
-    /// Executes a plain command through the shared owner.
-    ///
-    /// Ordinary commands wait for their terminal protocol application. A raw
-    /// [`crate::raw::RawReplyShape::NoReply`] command instead succeeds once its
-    /// local transport write succeeds; it does not claim camera application.
-    pub(crate) fn execute<C>(&self, command: &C) -> Result<(), Error>
-    where
-        C: PlainCommand + ?Sized,
-    {
-        let prepared = prepare_command(
-            command,
-            self.registration.as_ref(),
-            self.tuning(),
-            self.class,
-        )?;
-        self.owner.submit_command(prepared)?.wait()
-    }
-
-    /// Submits a typed inquiry and returns its decoded response.
-    pub(crate) fn inquire<Q>(&self, inquiry: &Q) -> Result<Q::Response, Error>
-    where
-        Q: Inquiry + ?Sized,
-    {
-        let prepared = prepare_inquiry(
-            inquiry,
-            self.registration.as_ref(),
-            self.tuning(),
-            self.class,
-        )?;
-        self.owner.submit_inquiry(prepared)?.wait()
-    }
-
-    /// Admits a typed operation and returns its lifecycle handle once the
-    /// owner has accepted it. A transport write failure is reported through
-    /// the operation's outcome.
-    pub(crate) fn submit<K, O>(&self, operation: &O) -> Result<Operation<K>, Error>
-    where
-        K: completion::Kind,
-        O: OperationCommand<K> + ?Sized,
-    {
-        let prepared = prepare_operation::<K, _>(
-            operation,
-            self.registration.as_ref(),
-            self.tuning(),
-            self.class,
-        )?;
-        Ok(Operation::from_receipt(
-            self.owner.submit_operation(prepared)?,
-        ))
-    }
-
-    /// Stops every profile-supported pan/tilt, zoom, and focus axis through
-    /// this camera's one owner.
-    ///
-    /// One halt fences older declared motion, then admits supported STOPs
-    /// independently under a common deadline. The report retains each axis's
-    /// outcome even when another axis fails.
-    pub(crate) fn stop_all_motion(&self) -> Result<crate::HaltReport> {
-        let started = self.owner.now();
-        let prepared = crate::prepared::prepare_halt(self.registration.as_ref(), self.tuning());
-        self.owner.halt(prepared, started)
-    }
-
-    pub(crate) fn is_moving(&self, query: MotionQuery) -> Result<bool, Error> {
-        let window = crate::prepared::MotionWindow::new(query)?;
-        let queries =
-            prepare_position_queries(self.registration.as_ref(), self.tuning(), query.axes)?;
-        self.owner.observe_motion(window, &queries)
-    }
-
-    /// Waits for exactly the selected, profile-supported axes to become idle.
-    ///
-    /// The timeout is lowered once to one absolute deadline. Every inquiry
-    /// admission, reply, and polling interval is bounded by that same
-    /// deadline, and the clock is checked before each new inquiry can be
-    /// enqueued. The owner worker keeps the session progressing while this
-    /// thread sleeps between samples.
-    pub(crate) fn wait_until_idle(&self, wait: IdleWait) -> Result<(), Error> {
-        let queries =
-            prepare_position_queries(self.registration.as_ref(), self.tuning(), wait.axes)?;
-        self.owner.wait_until_idle(wait, &queries)
-    }
+    async: [],
+    await: [],
 }
 
 /// A profile-aware camera view onto one [`Session`] target.
@@ -967,7 +814,7 @@ mod tests {
         profile::{PositionInquirySupport, ProfileEnvelope, ProfileTiming, TransportCompatibility},
         testing::testkit::{helpers, ScriptedBlockingTransport, Step},
         transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
-        CommandTimeouts,
+        CommandTimeouts, ProfileSpec,
     };
 
     struct FailFirstZoomStopSend {

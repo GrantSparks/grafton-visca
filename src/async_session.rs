@@ -14,15 +14,11 @@
 use std::{fmt, marker::PhantomData, sync::Arc};
 
 use crate::{
-    camera::{IdleWait, MotionQuery},
     completion,
     executor::Executor,
     operation::Operation,
-    prepared::{
-        prepare_command, prepare_inquiry, prepare_operation, prepare_position_queries,
-        ClassSelection,
-    },
-    profile::{CompileTimeProfile, OperationalTuning, ProfileSpec},
+    prepared::ClassSelection,
+    profile::{CompileTimeProfile, OperationalTuning},
     runtime::{
         owner::AsyncTransportAdapter,
         owner::{AsyncOwnerActor, AsyncOwnerHandle},
@@ -30,7 +26,7 @@ use crate::{
     target::TargetSlot,
     transport::{AsyncTransport, HasTransportConfig},
     CameraId, DiagnosticSubscription, Inquiry, MetricsSnapshot, OperationCommand, PlainCommand,
-    Result, SessionConfig, StateCache, SubmissionClass,
+    Result, SessionConfig, SubmissionClass,
 };
 
 /// One async serialized owner session.
@@ -137,7 +133,7 @@ impl Session {
     /// Returns the runtime-profile camera view for the sole registered target.
     ///
     /// The view performs no compile-time profile matching: every request is
-    /// validated against the registered [`ProfileSpec`] before encoding or
+    /// validated against the registered [`crate::ProfileSpec`] before encoding or
     /// transport I/O.
     #[cfg(feature = "dyn-api")]
     pub fn camera_dyn(&self) -> Result<crate::dynapi::DynSessionCamera> {
@@ -297,7 +293,7 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     /// registered from the same `P`.
     ///
     /// This is crate-private and is only reachable from the `P`-typed
-    /// construction paths, where the registered [`ProfileSpec`] was lowered
+    /// construction paths, where the registered [`crate::ProfileSpec`] was lowered
     /// from this exact `P`. That is what makes the bind structural instead of
     /// a runtime profile comparison.
     pub(crate) fn from_session(session: Session, target: CameraId) -> Result<Self> {
@@ -412,142 +408,11 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     }
 }
 
-/// Erased owner-backed target view shared by typed and dynamic projections.
-///
-/// This is crate-private so the public camera type cannot accidentally expose
-/// transport or executor details. It is the only place that retains the owner
-/// handle and performs request preparation.
-#[derive(Clone)]
-pub(crate) struct AsyncCameraCore {
+crate::camera_core::camera_core! {
+    core: AsyncCameraCore,
     owner: AsyncOwnerHandle,
-    registration: Arc<crate::TargetRegistration>,
-    class: ClassSelection,
-}
-
-impl AsyncCameraCore {
-    #[cfg(feature = "dyn-api")]
-    pub(crate) fn into_typed<P>(self) -> Result<Camera<P>>
-    where
-        P: CompileTimeProfile,
-    {
-        self.registration.profile().ensure_compile_time::<P>()?;
-        Ok(Camera {
-            core: self,
-            _profile: PhantomData,
-        })
-    }
-
-    pub(crate) fn target(&self) -> CameraId {
-        self.registration.slot().camera()
-    }
-
-    pub(crate) fn profile(&self) -> &ProfileSpec {
-        self.registration.profile()
-    }
-
-    pub(crate) fn registration(&self) -> &crate::TargetRegistration {
-        &self.registration
-    }
-
-    pub(crate) fn state_cache(&self) -> StateCache {
-        self.owner.state_cache(self.registration.slot())
-    }
-
-    /// Reads the session's live operational tuning.
-    ///
-    /// This is read once per preparation rather than copied into the view, so a
-    /// [`Camera`] cloned before [`Session::set_tuning`] still prepares its next
-    /// request under the new values (#631).
-    fn tuning(&self) -> crate::session_config::ValidatedTuning {
-        self.owner.validated_tuning()
-    }
-
-    pub(crate) const fn submission_class(&self) -> Option<SubmissionClass> {
-        self.class.handle_default()
-    }
-
-    pub(crate) fn set_submission_class(&mut self, class: Option<SubmissionClass>) {
-        self.class = ClassSelection::from_handle_default(class);
-    }
-
-    pub(crate) async fn execute<C>(&self, command: &C) -> Result<()>
-    where
-        C: PlainCommand + ?Sized,
-    {
-        self.execute_with_selection(command, self.class).await
-    }
-
-    async fn execute_with_selection<C>(&self, command: &C, class: ClassSelection) -> Result<()>
-    where
-        C: PlainCommand + ?Sized,
-    {
-        let prepared = prepare_command(command, self.registration.as_ref(), self.tuning(), class)?;
-        let receipt = self.owner.submit_command(prepared).await?;
-        receipt.wait().await
-    }
-
-    pub(crate) async fn inquire<Q>(&self, inquiry: &Q) -> Result<Q::Response>
-    where
-        Q: Inquiry + ?Sized,
-    {
-        self.inquire_with_selection(inquiry, self.class).await
-    }
-
-    async fn inquire_with_selection<Q>(
-        &self,
-        inquiry: &Q,
-        class: ClassSelection,
-    ) -> Result<Q::Response>
-    where
-        Q: Inquiry + ?Sized,
-    {
-        let prepared = prepare_inquiry(inquiry, self.registration.as_ref(), self.tuning(), class)?;
-        let receipt = self.owner.submit_inquiry(prepared).await?;
-        receipt.wait().await
-    }
-
-    pub(crate) async fn submit<K, O>(&self, operation: &O) -> Result<Operation<K>>
-    where
-        K: completion::Kind,
-        O: OperationCommand<K> + ?Sized,
-    {
-        self.submit_with_selection::<K, O>(operation, self.class)
-            .await
-    }
-
-    async fn submit_with_selection<K, O>(
-        &self,
-        operation: &O,
-        class: ClassSelection,
-    ) -> Result<Operation<K>>
-    where
-        K: completion::Kind,
-        O: OperationCommand<K> + ?Sized,
-    {
-        let prepared =
-            prepare_operation::<K, _>(operation, self.registration.as_ref(), self.tuning(), class)?;
-        let receipt = self.owner.submit_operation(prepared).await?;
-        Ok(Operation::from_receipt(receipt))
-    }
-
-    pub(crate) async fn stop_all_motion(&self) -> Result<crate::HaltReport> {
-        let started = self.owner.now();
-        let prepared = crate::prepared::prepare_halt(self.registration.as_ref(), self.tuning());
-        self.owner.halt(prepared, started).await
-    }
-
-    pub(crate) async fn is_moving(&self, query: MotionQuery) -> Result<bool> {
-        let window = crate::prepared::MotionWindow::new(query)?;
-        let queries =
-            prepare_position_queries(self.registration.as_ref(), self.tuning(), query.axes)?;
-        self.owner.observe_motion(window, &queries).await
-    }
-
-    pub(crate) async fn wait_until_idle(&self, wait: IdleWait) -> Result<()> {
-        let queries =
-            prepare_position_queries(self.registration.as_ref(), self.tuning(), wait.axes)?;
-        self.owner.wait_until_idle(wait, &queries).await
-    }
+    async: [async],
+    await: [.await],
 }
 
 /// Profile-generic camera view over one session target.
@@ -663,7 +528,7 @@ mod tests {
         profile::{PositionInquirySupport, ProfileEnvelope, ProfileTiming, TransportCompatibility},
         testing::testkit::{helpers, ManualClock, ManualClockExecutor, ScriptedTransport, Step},
         transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
-        CommandTimeouts,
+        CommandTimeouts, ProfileSpec,
     };
 
     struct FailFirstZoomStopSend {

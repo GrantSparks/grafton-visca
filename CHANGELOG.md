@@ -28,6 +28,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Serial startup stores operation-specific phases and retries an entire Address
   Set attempt after framing overflow instead of accepting a salvaged suffix (#891).
+- Async and blocking camera cores expand from one native preparation and
+  forwarding definition, removing redundant selection helpers. Parity checks
+  compare their expanded methods, bounds and bodies, including private and
+  crate-visible helpers (#865).
 
 - **BREAKING** (#867): `StateEntry::Set` carries a typed `KnownState`, replacing
   the removed scalar `StateValue` and `StateEntry::Clear`. Known limit clears
