@@ -30,10 +30,10 @@ Each target has a committed `corpus/<target>/` directory, which is the path
 `cargo-fuzz` uses by default. The structured harnesses derive valid framing
 from the mutated input, so the finite CI budget reaches past protocol headers.
 Every `response_parser` seed is run through the complete generated inquiry
-inventory: 53 queryable rows have 53 distinct response kinds, then 21
-decode-only kinds bring the current total to 74. Together the existing seed
-patterns form the requested kind × pattern matrix, and a newly added inquiry
-kind joins it automatically.
+inventory: the 74 sourced queryable rows have 74 distinct response kinds,
+including parameterized queries. Together the existing seed patterns form the
+requested kind × pattern matrix, and a newly added inquiry kind joins it
+automatically.
 
 The seeds are grouped by filename prefix:
 
