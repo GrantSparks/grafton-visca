@@ -59,6 +59,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Engine terminal results and owner observer slots are typed by command or
+  inquiry lane. Operation application and cancellation share one verdict,
+  ordinary receipt wakes cannot carry cancellation failures, and terminal
+  delivery moves outcomes into their typed slots (#903).
+
 - **BREAKING** (#896): Static noun methods use eleven refining support markers
   for focus infinity, preset memory, shared shutter/gain controls, gain limit,
   standard white-balance modes, menu display/enter-return/status, direct shutter

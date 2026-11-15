@@ -1248,7 +1248,10 @@ mod tests {
     fn concluded_metrics_include_drained_work_and_answer_queued_observations() {
         let (handle, mut core) = owner();
         let (_observer, admission) = handle
-            .enqueue_admission(declared_request(false), None)
+            .enqueue_admission::<crate::runtime::engine::CommandOutcome>(
+                declared_request(false),
+                None,
+            )
             .unwrap();
         let (reply, metrics) = flume::bounded(1);
         handle
