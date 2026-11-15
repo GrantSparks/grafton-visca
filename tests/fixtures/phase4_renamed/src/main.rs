@@ -483,6 +483,10 @@ struct DownstreamProfile;
 type Base = visca_renamed::profiles::GenericVisca;
 
 impl ProfileMetadata for DownstreamProfile {
+    const INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport =
+        grafton_visca::capabilities::InquirySupport::Full;
+    const SUPPORTS_COMMAND_CANCEL: bool = true;
+
     const MODEL_NAME: &'static str = "Downstream renamed profile";
     const DEFAULT_CAMERA_ID: u8 = 3;
     type Envelope = visca_renamed::transport::RawVisca;
@@ -506,6 +510,8 @@ impl PanTilt for DownstreamProfile {
 }
 
 impl Zoom for DownstreamProfile {
+    const SUPPORTS_VARIABLE_ZOOM: bool = true;
+
     const OPTICAL_ZOOM_MAX: u16 = <Base as Zoom>::OPTICAL_ZOOM_MAX;
     const DIGITAL_ZOOM_MAX: Option<u16> = None;
     const ZOOM_SPEED_RANGE: capabilities::CapabilityRange<u8> = <Base as Zoom>::ZOOM_SPEED_RANGE;
@@ -514,6 +520,10 @@ impl Zoom for DownstreamProfile {
 }
 
 impl Focus for DownstreamProfile {
+    const SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool = true;
+
+    const MAX_FOCUS_SPEED: u8 = 7;
+
     const FOCUS_NEAR_LIMIT: u16 = <Base as Focus>::FOCUS_NEAR_LIMIT;
     const FOCUS_FAR_LIMIT: u16 = <Base as Focus>::FOCUS_FAR_LIMIT;
     const SUPPORTS_AUTO_FOCUS: bool = true;

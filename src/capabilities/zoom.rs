@@ -23,11 +23,11 @@ pub trait Zoom {
 
     /// Whether camera supports direct zoom positioning.
     /// If false, zoom must be achieved through zoom in/out commands.
-    const SUPPORTS_DIRECT_ZOOM: bool = true;
+    const SUPPORTS_DIRECT_ZOOM: bool = false;
 
     /// Whether camera supports variable speed zoom.
     /// If false, only standard speed zoom is available.
-    const SUPPORTS_VARIABLE_ZOOM: bool = true;
+    const SUPPORTS_VARIABLE_ZOOM: bool = false;
 
     /// Optical zoom ratio of the profile's lens (`30.0` for a 30x lens).
     ///
@@ -171,10 +171,26 @@ mod tests {
     struct TestCamera;
 
     impl Zoom for TestCamera {
+        const SUPPORTS_DIRECT_ZOOM: bool = true;
+        const SUPPORTS_VARIABLE_ZOOM: bool = true;
+
         const OPTICAL_ZOOM_MAX: u16 = 0x4000;
         const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
         const ZOOM_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 7);
         const OPTICAL_ZOOM_RATIO: Option<f32> = Some(20.0);
+    }
+
+    #[test]
+    fn omitted_optional_zoom_permissions_are_conservative() {
+        struct Conservative;
+        impl Zoom for Conservative {
+            const OPTICAL_ZOOM_MAX: u16 = 0x4000;
+            const DIGITAL_ZOOM_MAX: Option<u16> = None;
+            const ZOOM_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 7);
+            const OPTICAL_ZOOM_RATIO: Option<f32> = None;
+        }
+        const { assert!(!<Conservative as Zoom>::SUPPORTS_DIRECT_ZOOM) };
+        const { assert!(!<Conservative as Zoom>::SUPPORTS_VARIABLE_ZOOM) };
     }
 
     #[test]

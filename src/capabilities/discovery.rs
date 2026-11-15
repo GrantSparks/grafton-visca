@@ -1112,6 +1112,9 @@ mod tests {
     struct MetadataEnabledNoTypedSupport;
 
     impl ProfileMetadata for MetadataEnabledNoTypedSupport {
+        const INQUIRY_SUPPORT: InquirySupport = InquirySupport::Full;
+        const SUPPORTS_COMMAND_CANCEL: bool = true;
+
         const MODEL_NAME: &'static str = "Metadata Enabled Without Typed Support";
         const DEFAULT_CAMERA_ID: u8 = 1;
         type Envelope = RawVisca;
@@ -1135,6 +1138,8 @@ mod tests {
     }
 
     impl Zoom for MetadataEnabledNoTypedSupport {
+        const SUPPORTS_VARIABLE_ZOOM: bool = true;
+
         const OPTICAL_ZOOM_MAX: u16 = 0x4000;
         const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
         const ZOOM_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 7);
@@ -1143,6 +1148,10 @@ mod tests {
     }
 
     impl Focus for MetadataEnabledNoTypedSupport {
+        const SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool = true;
+
+        const MAX_FOCUS_SPEED: u8 = 7;
+
         const FOCUS_NEAR_LIMIT: u16 = 0x1000;
         const FOCUS_FAR_LIMIT: u16 = 0xF000;
         const SUPPORTS_AUTO_FOCUS: bool = true;

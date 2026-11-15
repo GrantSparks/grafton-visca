@@ -48,7 +48,7 @@ pub trait Focus {
 
     /// Maximum focus speed for manual focus operations.
     /// Usually 0-7 where 0 is slowest, 7 is fastest.
-    const MAX_FOCUS_SPEED: u8 = 7;
+    const MAX_FOCUS_SPEED: u8;
 
     /// Whether camera supports auto focus sensitivity adjustment.
     const SUPPORTS_AF_SENSITIVITY: bool = false;
@@ -56,7 +56,7 @@ pub trait Focus {
     /// Whether camera supports the focus near limit inquiry command.
     /// Some cameras (e.g., PTZOptics G2) can accept the near limit set
     /// command but don't support reading it back via VISCA inquiry.
-    const SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool = true;
+    const SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool = false;
 }
 
 /// Extension trait that adds validation methods to cameras with focus support.
@@ -124,10 +124,27 @@ mod tests {
     struct TestCamera;
 
     impl Focus for TestCamera {
+        const SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool = true;
+
+        const MAX_FOCUS_SPEED: u8 = 7;
+
         const FOCUS_NEAR_LIMIT: u16 = 0x1000;
         const FOCUS_FAR_LIMIT: u16 = 0xF000;
         const SUPPORTS_AUTO_FOCUS: bool = true;
         const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
+    }
+
+    #[test]
+    fn omitted_focus_near_limit_inquiry_is_conservative() {
+        struct Conservative;
+        impl Focus for Conservative {
+            const FOCUS_NEAR_LIMIT: u16 = 0;
+            const FOCUS_FAR_LIMIT: u16 = u16::MAX;
+            const SUPPORTS_AUTO_FOCUS: bool = false;
+            const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
+            const MAX_FOCUS_SPEED: u8 = 0;
+        }
+        const { assert!(!<Conservative as Focus>::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY) };
     }
 
     #[test]

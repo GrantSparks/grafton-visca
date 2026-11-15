@@ -24,6 +24,9 @@ use grafton_visca::{
 struct SerialOnly;
 
 impl ProfileMetadata for SerialOnly {
+    const INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport = grafton_visca::capabilities::InquirySupport::Full;
+    const SUPPORTS_COMMAND_CANCEL: bool = true;
+
     const MODEL_NAME: &'static str = "SerialOnly";
     const DEFAULT_CAMERA_ID: u8 = 1;
     type Envelope = RawVisca;
@@ -39,12 +42,19 @@ impl PanTilt for SerialOnly {
     const TILT_DEGREES_TO_UNITS: f32 = <Base as PanTilt>::TILT_DEGREES_TO_UNITS;
 }
 impl Zoom for SerialOnly {
+    const SUPPORTS_DIRECT_ZOOM: bool = true;
+    const SUPPORTS_VARIABLE_ZOOM: bool = true;
+
     const OPTICAL_ZOOM_MAX: u16 = <Base as Zoom>::OPTICAL_ZOOM_MAX;
     const DIGITAL_ZOOM_MAX: Option<u16> = None;
     const ZOOM_SPEED_RANGE: CapabilityRange<u8> = <Base as Zoom>::ZOOM_SPEED_RANGE;
     const OPTICAL_ZOOM_RATIO: Option<f32> = None;
 }
 impl Focus for SerialOnly {
+    const SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool = true;
+
+    const MAX_FOCUS_SPEED: u8 = 7;
+
     const FOCUS_NEAR_LIMIT: u16 = <Base as Focus>::FOCUS_NEAR_LIMIT;
     const FOCUS_FAR_LIMIT: u16 = <Base as Focus>::FOCUS_FAR_LIMIT;
     const SUPPORTS_AUTO_FOCUS: bool = true;

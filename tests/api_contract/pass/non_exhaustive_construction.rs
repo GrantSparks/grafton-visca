@@ -47,7 +47,7 @@ fn main() {
         _ => false,
     };
     let _ = match (InquiryData::Power { status: grafton_visca::PowerStatus::On }) {
-        InquiryData::Power { status } => status,
+        InquiryData::Power { status } => status.is_on(),
         _ => false,
     };
     let _ = FlipState { horizontal: false, vertical: true };

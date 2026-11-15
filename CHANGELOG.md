@@ -29,6 +29,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   timers retain their allocation across resets and use the executor clock.
   `ManualClockExecutor` uses an owned `ManualClockTimer` that replaces its
   virtual registration on reset and can be rearmed after completion.
+- **BREAKING** (#876): Custom compile-time profiles must declare inquiry support,
+  socket cancellation support, and the maximum focus speed. Optional direct
+  zoom, variable zoom, and focus near-limit inquiry permissions default to false.
+  Serial construction checks its transport declaration at compile time, and
+  custom-profile validation checks the selected transport before opening it.
 
 - Request preparation writes directly into owned inline storage. Engine admission
   and reusable polling templates share the inert message only when needed;

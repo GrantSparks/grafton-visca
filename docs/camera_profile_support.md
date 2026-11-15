@@ -520,6 +520,22 @@ explicit in those typed request implementations.
 9. Add or update `Capabilities::from_profile` tests for every affected built-in profile.
 10. Update README, examples docs, crate docs, and the Unreleased changelog entry.
 
+Custom compile-time profiles must explicitly declare
+`ProfileMetadata::INQUIRY_SUPPORT`, `ProfileMetadata::SUPPORTS_COMMAND_CANCEL`,
+and `Focus::MAX_FOCUS_SPEED`. Declare cancellation only with model evidence;
+a socket-cancel packet accepted by another model is insufficient.
+`Zoom::SUPPORTS_DIRECT_ZOOM`, `Zoom::SUPPORTS_VARIABLE_ZOOM`, and
+`Focus::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY` default to `false`.
+
+The remaining defaults in these traits describe absence: no built-in identity,
+no completion/USB audio grant, no focus zones or extra focus modes, and no busy
+period or send pacing. A zero busy/spacing value declares that no delay is
+needed; set documented delays explicitly when the model needs them. Numeric
+focus speed limits have no permissive default. Standard TCP, UDP, and serial
+constructors check that their marker agrees with `TRANSPORTS` at compile time;
+`validate()`, `session_config()`, and opening also check custom profile transport
+facts before any I/O (#876).
+
 ## Common Decisions
 
 | Situation | Profile metadata | Support marker | Notes |

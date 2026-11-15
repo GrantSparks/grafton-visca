@@ -68,6 +68,8 @@ macro_rules! synthetic_profile_impl {
         synthetic_profile_default!($default, $profile);
 
         impl ProfileMetadata for $profile {
+            const SUPPORTS_COMMAND_CANCEL: bool = true;
+
             const MODEL_NAME: &'static str = $model;
             const DEFAULT_CAMERA_ID: u8 = 1;
             type Envelope = RawVisca;
@@ -86,6 +88,8 @@ macro_rules! synthetic_profile_impl {
         }
 
         impl Zoom for $profile {
+            const SUPPORTS_VARIABLE_ZOOM: bool = true;
+
             const OPTICAL_ZOOM_MAX: u16 = 0x4000;
             const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
             const ZOOM_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 7);
@@ -94,6 +98,10 @@ macro_rules! synthetic_profile_impl {
         }
 
         impl Focus for $profile {
+            const SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool = true;
+
+            const MAX_FOCUS_SPEED: u8 = 7;
+
             const FOCUS_NEAR_LIMIT: u16 = 0x1000;
             const FOCUS_FAR_LIMIT: u16 = 0xF000;
             const SUPPORTS_AUTO_FOCUS: bool = true;

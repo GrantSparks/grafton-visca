@@ -264,10 +264,19 @@ where
     }
 
     /// Create a serial camera configuration.
+    ///
+    /// A profile implementing [`SupportsSerial`] must declare serial support in
+    /// [`crate::CompileTimeProfile::TRANSPORTS`], checked at compile time.
     pub fn serial(port: impl Into<String>, baud_rate: u32) -> Self
     where
-        P: SupportsSerial,
+        P: SupportsSerial + crate::CompileTimeProfile,
     {
+        const {
+            assert!(
+                P::TRANSPORTS.supports_serial(),
+                "a profile implementing `SupportsSerial` must declare serial support in `TRANSPORTS`"
+            );
+        }
         Self::new().transport(TransportOptions::serial(port, baud_rate))
     }
 
@@ -420,6 +429,7 @@ where
         if let Some(profile_id) = P::PROFILE_ID {
             self.transport.validate_for_profile(profile_id)?;
         }
+        config.validate_for_transport(Some(self.transport.kind()))?;
         Ok(config)
     }
 
@@ -434,7 +444,7 @@ where
     /// Returns the validated, pure [`crate::SessionConfig`] that standard
     /// construction will pass to the owner-backed session.
     ///
-    /// This performs profile and session-policy validation but no endpoint
+    /// This validates the profile, session policy, and selected transport, but no endpoint
     /// parsing, DNS lookup, device open, task spawn, or protocol I/O. It is
     /// useful when an application needs to inspect or compose the shared
     /// session policy before selecting an async or blocking transport.
@@ -666,6 +676,10 @@ mod tests {
                 struct $name;
 
                 impl ProfileMetadata for $name {
+                    const INQUIRY_SUPPORT: crate::capabilities::InquirySupport =
+                        crate::capabilities::InquirySupport::Full;
+                    const SUPPORTS_COMMAND_CANCEL: bool = true;
+
                     const MODEL_NAME: &'static str = stringify!($name);
                     const DEFAULT_CAMERA_ID: u8 = 1;
                     type Envelope = crate::transport::RawVisca;
@@ -682,12 +696,19 @@ mod tests {
                     const TILT_DEGREES_TO_UNITS: f32 = <Base as PanTilt>::TILT_DEGREES_TO_UNITS;
                 }
                 impl Zoom for $name {
+                    const SUPPORTS_DIRECT_ZOOM: bool = true;
+                    const SUPPORTS_VARIABLE_ZOOM: bool = true;
+
                     const OPTICAL_ZOOM_MAX: u16 = <Base as Zoom>::OPTICAL_ZOOM_MAX;
                     const DIGITAL_ZOOM_MAX: Option<u16> = None;
                     const ZOOM_SPEED_RANGE: CapabilityRange<u8> = <Base as Zoom>::ZOOM_SPEED_RANGE;
                     const OPTICAL_ZOOM_RATIO: Option<f32> = None;
                 }
                 impl Focus for $name {
+                    const SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool = true;
+
+                    const MAX_FOCUS_SPEED: u8 = 7;
+
                     const FOCUS_NEAR_LIMIT: u16 = <Base as Focus>::FOCUS_NEAR_LIMIT;
                     const FOCUS_FAR_LIMIT: u16 = <Base as Focus>::FOCUS_FAR_LIMIT;
                     const SUPPORTS_AUTO_FOCUS: bool = true;
@@ -783,6 +804,25 @@ mod tests {
         // (it fails to build for a `SupportsTcp` implementor without one), and
         // an explicit TCP transport is refused before any I/O.
         impl SupportsUdp for UdpOnly {}
+        for transport in [
+            TransportOptions::tcp("/never-resolved"),
+            TransportOptions::serial("/never-opened", 9600),
+        ] {
+            let config = CameraConfig::<UdpOnly>::new().transport(transport);
+            let preflight = config.validate().expect_err("unsupported custom transport");
+            let session = config.session_config().expect_err("same session preflight");
+            assert_eq!(preflight.to_string(), session.to_string());
+            assert!(matches!(preflight, crate::Error::InvalidRequest(_)));
+        }
+        #[cfg(feature = "blocking")]
+        {
+            let config =
+                CameraConfig::<UdpOnly>::new().transport(TransportOptions::tcp("/never-resolved"));
+            assert_eq!(
+                config.validate().expect_err("preflight").to_string(),
+                config.open().expect_err("refused before DNS").to_string(),
+            );
+        }
         assert!(CameraConfig::<UdpOnly>::new()
             .transport(TransportOptions::tcp("camera.local"))
             .standard_connection_plan()
