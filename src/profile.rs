@@ -1298,6 +1298,12 @@ const REGENERATE_SPEC: &str = "the spec was saved by another release, so regener
      `ProfileSpec::from_compile_time::<P>()` for a built-in profile (or rebuild a custom \
      profile with `ProfileSpec::builder`) and persist the result";
 
+/// Attach the same regeneration guidance to structural and semantic load failures.
+#[cfg(feature = "serde")]
+fn persisted_spec_error<E: serde::de::Error>(error: impl fmt::Display) -> E {
+    E::custom(format_args!("{error}; {REGENERATE_SPEC}"))
+}
+
 /// `schemars(required)` also removes the null alternative from an `Option`.
 /// Persisted facts require the key while retaining explicit null as absence.
 #[cfg(feature = "schemars")]
@@ -1369,11 +1375,9 @@ impl<'de> serde::Deserialize<'de> for ProfileSpec {
     where
         D: serde::Deserializer<'de>,
     {
-        use serde::de::Error as _;
-
-        let facts = ProfileFacts::deserialize(deserializer)
-            .map_err(|error| D::Error::custom(format_args!("{error}; {REGENERATE_SPEC}")))?;
-        Self::validated(facts).map_err(D::Error::custom)
+        let facts =
+            ProfileFacts::deserialize(deserializer).map_err(persisted_spec_error::<D::Error>)?;
+        Self::validated(facts).map_err(persisted_spec_error::<D::Error>)
     }
 }
 
@@ -3326,6 +3330,37 @@ mod tests {
             set(1),
             Err(Error::ParameterOutOfRange { min: 0, max: 0, .. })
         ));
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn saved_builtin_semantic_changes_keep_the_cause_and_one_regeneration_instruction() {
+        let base = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2");
+        let mut saved = serde_json::to_value(&base).expect("serialize current spec");
+        saved["capabilities"]["default_camera_id"] = serde_json::json!(2);
+
+        let facts: ProfileFacts = serde_json::from_value(saved.clone())
+            .expect("the individual ID and complete persisted shape are valid");
+        let builder_error = copy_builder(&base, facts.capabilities)
+            .build()
+            .expect_err("the saved facts conflict with the current built-in identity");
+        assert!(matches!(&builder_error, Error::InvalidRequest(_)));
+        let cause = builder_error.to_string();
+        assert!(cause.contains("`capabilities.profile_id`"), "{cause}");
+        assert!(cause.contains("`capabilities`"), "{cause}");
+        assert!(
+            cause.contains("built-in identity does not match"),
+            "{cause}"
+        );
+
+        let error = serde_json::from_value::<ProfileSpec>(saved)
+            .expect_err("structurally valid stale facts still need regeneration")
+            .to_string();
+        assert!(
+            error.contains(&cause),
+            "original field context was lost: {error}"
+        );
+        assert_eq!(error.matches(REGENERATE_SPEC).count(), 1, "{error}");
     }
 
     #[cfg(feature = "serde")]
