@@ -680,7 +680,7 @@ where
     profile.validate_tuning(tuning)?;
     validate_timeout_class(command.timeout_class(), false)?;
     command.validate_for_target(registration)?;
-    let wire = encode(command, target, profile)?;
+    let wire = encode(command, registration)?;
     let mut context = request_context(command, registration, tuning, class, false, false)?;
     context.motion = command
         .motion_axes()
@@ -761,7 +761,7 @@ where
         });
     }
     inquiry.validate_for_target(registration)?;
-    let wire = encode(inquiry, target, profile)?;
+    let wire = encode(inquiry, registration)?;
     let context = request_context(
         inquiry,
         registration,
@@ -864,7 +864,7 @@ where
             settlement_budget(operation.timeout_class(), profile, tuning),
         ),
     )?;
-    let wire = encode(operation, target, profile)?;
+    let wire = encode(operation, registration)?;
     Ok(PreparedOperation {
         wire,
         context,
@@ -875,10 +875,12 @@ where
     })
 }
 
-fn encode<R>(request: &R, target: TargetSlot, profile: &ProfileSpec) -> Result<PreparedWire>
+fn encode<R>(request: &R, registration: &crate::TargetRegistration) -> Result<PreparedWire>
 where
     R: Request + ?Sized,
 {
+    let target = registration.slot();
+    let profile = registration.profile();
     let declared_max = crate::requests::declared_max_size(request);
     let capacity = declared_max.min(MAX_BYTES);
     if capacity < 2 {
