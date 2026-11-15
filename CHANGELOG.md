@@ -24,6 +24,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING** (#872): Settlement tuning below every built-in targeted retry
+  budget is refused. Default `settled()` waits use the larger of the override
+  and the request retry budget; `settled_with_timeout` remains an exact bound.
+  Movement observations derive both snapshots budgets from their prepared
+  inquiries and pacing, superseding the fixed 30-second budget shipped in #781.
+
 - **BREAKING** (#866): Custom `Executor` implementations provide an associated
   resettable `Timer` and an absolute-deadline `timer` factory. Tokio and smol
   timers retain their allocation across resets and use the executor clock.

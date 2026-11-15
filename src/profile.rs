@@ -953,8 +953,11 @@ impl OperationalTuning {
         self
     }
 
-    /// Overrides the complete profile-selected protocol-settlement budget for targeted
-    /// operations. This is independent of the protocol response deadline.
+    /// Lengthens the default protocol-settlement budget for targeted operations.
+    ///
+    /// The effective budget is the larger of this override and the request's
+    /// retry budget. Values below every built-in targeted operation's retry
+    /// budget are refused. Use `settled_with_timeout` for an exact shorter bound.
     #[must_use]
     pub const fn settlement_timeout(mut self, timeout: Duration) -> Self {
         self.settlement_timeout = Some(timeout);
@@ -1655,6 +1658,26 @@ impl ProfileSpec {
             return Err(Error::InvalidRequest(
                 "operational timeout overrides cannot undercut profile deadlines".into(),
             ));
+        }
+        if let Some(settlement) = tuning.settlement_timeout {
+            let budget = |category| {
+                let deadline = tuning
+                    .command_override(category)
+                    .unwrap_or(self.facts.timing.command_timeouts.get(category));
+                tuning
+                    .lengthen_retry_bounds(RetryBounds::for_request(
+                        self.facts.timing.busy_timeout,
+                        deadline,
+                        ack.saturating_add(deadline),
+                    ))
+                    .total_budget
+            };
+            let floor = budget(CommandCategory::Movement).min(budget(CommandCategory::Preset));
+            if settlement < floor {
+                return Err(Error::InvalidRequest(format!(
+                    "operational settlement timeout cannot undercut the smallest targeted retry budget ({floor:?})"
+                ).into()));
+            }
         }
         if tuning
             .retry_limit
@@ -3859,6 +3882,47 @@ mod tests {
         assert!(profile
             .validate_tuning(OperationalTuning::new().quick_timeout(Duration::ZERO))
             .is_err());
+    }
+
+    #[test]
+    fn settlement_tuning_must_lengthen_at_least_one_targeted_retry_budget() {
+        let profile =
+            ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2 profile");
+        for seconds in [2, 20, 59] {
+            let error = profile
+                .validate_tuning(
+                    OperationalTuning::new().settlement_timeout(Duration::from_secs(seconds)),
+                )
+                .expect_err("an override below the retry floor has no effect");
+            assert!(matches!(error, Error::InvalidRequest(message) if message.contains("60s")));
+        }
+        for seconds in [60, 61, 90, 120] {
+            profile
+                .validate_tuning(
+                    OperationalTuning::new().settlement_timeout(Duration::from_secs(seconds)),
+                )
+                .expect("an override at or above the floor is useful");
+        }
+        let tuned = OperationalTuning::new()
+            .movement_timeout(Duration::from_secs(90))
+            .preset_timeout(Duration::from_secs(70));
+        assert!(profile
+            .validate_tuning(tuned.settlement_timeout(Duration::from_secs(139)))
+            .is_err());
+        profile
+            .validate_tuning(tuned.settlement_timeout(Duration::from_secs(140)))
+            .expect("the smaller Preset retry budget sets the floor");
+        let tuned_retry = OperationalTuning::new().retry_timing(
+            Duration::from_millis(50),
+            Duration::from_millis(500),
+            Duration::from_secs(150),
+        );
+        assert!(profile
+            .validate_tuning(tuned_retry.settlement_timeout(Duration::from_secs(149)))
+            .is_err());
+        profile
+            .validate_tuning(tuned_retry.settlement_timeout(Duration::from_secs(150)))
+            .expect("retry tuning participates in the settlement floor");
     }
 
     #[test]

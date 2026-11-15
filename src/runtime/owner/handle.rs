@@ -369,7 +369,7 @@ macro_rules! owner_handle_methods {
                 window: crate::prepared::MotionWindow,
                 queries: &crate::prepared::PositionQueryPlan,
             ) -> Result<bool, crate::Error> {
-                let deadline = self.deadline_after(window.budget()?)?;
+                let deadline = self.deadline_after(window.budget(queries)?)?;
                 let baseline = self.sample_positions(queries, deadline) $($await)* ?;
                 let window = window.observe_baseline(baseline, self.now(), deadline)?;
                 loop {

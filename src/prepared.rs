@@ -165,6 +165,26 @@ pub(crate) struct PositionQueryPlan {
 }
 
 impl PositionQueryPlan {
+    /// Budget one complete sample from the exact inquiries the plan lowers.
+    /// Each inquiry's observer covers its own retry budget, and pacing may
+    /// delay its admission after the preceding query.
+    fn snapshot_budget(&self) -> Option<Duration> {
+        [
+            self.pan_tilt.as_ref().map(|query| &query.context),
+            self.zoom.as_ref().map(|query| &query.context),
+            self.focus.as_ref().map(|query| &query.context),
+            self.iris.as_ref().map(|query| &query.context),
+            self.nd_filter.as_ref().map(|query| &query.context),
+        ]
+        .into_iter()
+        .flatten()
+        .try_fold(Duration::ZERO, |budget, context| {
+            budget
+                .checked_add(observation_timeout(context, context.timeout.inquiry))?
+                .checked_add(context.control.minimum_spacing)
+        })
+    }
+
     fn prepare(
         target: TargetSlot,
         profile: &ProfileSpec,
@@ -305,16 +325,13 @@ impl MotionWindow {
         Ok(Self { query })
     }
 
-    /// The budget for both snapshots' inquiries, admission and replies, on
-    /// top of the window itself.
-    const INQUIRY_BUDGET: Duration = Duration::from_secs(30);
-
     /// The single absolute budget for the whole observation: both snapshots'
     /// admission and replies plus the intervening wait.
-    pub(crate) fn budget(&self) -> Result<Duration> {
-        self.query
-            .window
-            .checked_add(Self::INQUIRY_BUDGET)
+    pub(crate) fn budget(&self, queries: &PositionQueryPlan) -> Result<Duration> {
+        queries
+            .snapshot_budget()
+            .and_then(|snapshot| snapshot.checked_mul(2))
+            .and_then(|snapshots| self.query.window.checked_add(snapshots))
             .ok_or_else(|| Error::InvalidParameter {
                 parameter: "MotionQuery::window",
                 value: format!("{:?}", self.query.window).into(),
@@ -2045,7 +2062,7 @@ mod tests {
         let tuning = OperationalTuning::new()
             .inquiry_spacing(Duration::from_millis(40))
             .movement_timeout(Duration::from_secs(31))
-            .settlement_timeout(Duration::from_secs(9));
+            .settlement_timeout(Duration::from_secs(62));
         let prepared = prepare_operation::<completion::Targeted, _>(
             &CountingTargeted,
             TargetSlot::CAMERA_2,
@@ -2219,16 +2236,102 @@ mod tests {
 
     #[test]
     fn motion_window_budget_covers_the_window_and_every_inquiry() {
-        let query = MotionQuery::new(AffectedAxes::ZOOM).with_window(Duration::from_millis(250));
-        let window = MotionWindow::new(query).expect("valid window");
-        assert_eq!(
-            window.budget().expect("budget"),
-            Duration::from_millis(30_250)
-        );
-        let huge =
-            MotionWindow::new(MotionQuery::new(AffectedAxes::ZOOM).with_window(Duration::MAX))
-                .expect("a positive window is structurally valid");
-        assert!(matches!(huge.budget(), Err(Error::InvalidParameter { .. })));
+        let profile =
+            ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2 profile");
+        let window = MotionWindow::new(
+            MotionQuery::new(AffectedAxes::ZOOM).with_window(Duration::from_millis(250)),
+        )
+        .expect("valid window");
+        for tuning in [
+            OperationalTuning::new(),
+            OperationalTuning::new()
+                .inquiry_timeout(Duration::from_secs(20))
+                .inquiry_spacing(
+                    profile.timing().minimum_inquiry_spacing() + Duration::from_millis(50),
+                ),
+        ] {
+            let prepared = prepare_inquiry(
+                &ZoomPositionInquiry,
+                TargetSlot::CAMERA_1,
+                &profile,
+                tuning,
+                ClassSelection::Request,
+            )
+            .expect("prepared inquiry");
+            let context = prepared.context;
+            let per_axis = observation_timeout(&context, context.timeout.inquiry)
+                + context.control.minimum_spacing;
+            fn template<R>(context: RequestContext) -> PreparedInquiryTemplate<R> {
+                PreparedInquiryTemplate {
+                    wire: Arc::new(EncodedMessage::new(&[0x81, 0x09, 0xff]).expect("inert wire")),
+                    context,
+                    route: InquiryRoute::RAW,
+                    decoder: ResponseDecoder::from_fn(|_| Err(Error::InvalidResponseFormat)),
+                }
+            }
+            let one_axis = PositionQueryPlan {
+                pan_tilt: None,
+                zoom: Some(template(context)),
+                focus: None,
+                iris: None,
+                nd_filter: None,
+            };
+            let all_axes = PositionQueryPlan {
+                pan_tilt: Some(template(context)),
+                zoom: Some(template(context)),
+                focus: Some(template(context)),
+                iris: Some(template(context)),
+                nd_filter: Some(template(context)),
+            };
+            assert_eq!(
+                window.budget(&one_axis).expect("one axis budget"),
+                Duration::from_millis(250) + per_axis * 2
+            );
+            assert_eq!(
+                window.budget(&all_axes).expect("five axis budget"),
+                Duration::from_millis(250) + per_axis * 10
+            );
+            let huge =
+                MotionWindow::new(MotionQuery::new(AffectedAxes::ZOOM).with_window(Duration::MAX))
+                    .expect("positive window");
+            assert!(matches!(
+                huge.budget(&one_axis),
+                Err(Error::InvalidParameter { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn settlement_overrides_lengthen_each_operations_own_retry_floor() {
+        let profile =
+            ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2 profile");
+        fn check<O: OperationCommand<completion::Targeted>>(
+            operation: &O,
+            profile: &ProfileSpec,
+            seconds: u64,
+        ) {
+            let prepared = prepare_operation::<completion::Targeted, _>(
+                operation,
+                TargetSlot::CAMERA_1,
+                profile,
+                OperationalTuning::new().settlement_timeout(Duration::from_secs(seconds)),
+                ClassSelection::Request,
+            )
+            .expect("accepted settlement override");
+            assert_eq!(
+                prepared.settlement.default_budget(),
+                Duration::from_secs(seconds).max(prepared.context.retry.total_budget)
+            );
+        }
+        let preset = crate::request::builtin::PresetRecall::for_profile(
+            PresetNumber::new(1).expect("preset"),
+            &profile,
+        )
+        .expect("preset recall");
+        for seconds in [60, 90, 120, 180] {
+            check(&crate::request::builtin::PanTiltHome, &profile, seconds);
+            check(&preset, &profile, seconds);
+        }
     }
 
     #[test]

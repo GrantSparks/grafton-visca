@@ -46,6 +46,9 @@ impl Default for MovementTolerance {
 /// it, is not detected. A longer window detects slower movement but makes the
 /// call take longer. Profile inquiry pacing can only lengthen the effective
 /// window, never shorten it.
+/// The overall observation budget covers this window plus two complete
+/// snapshots, using each prepared inquiry's observer timeout (including its
+/// retry budget) and profile-selected inquiry pacing.
 ///
 /// The type is `#[non_exhaustive]`: build it with [`MotionQuery::new`],
 /// [`Default`] or [`From<AffectedAxes>`], then the `with_*` methods.
