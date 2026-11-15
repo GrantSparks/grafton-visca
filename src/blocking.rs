@@ -88,7 +88,7 @@ where
     /// Returns the opaque identity assigned when this operation was admitted.
     #[must_use]
     pub fn id(&self) -> OperationId {
-        OperationId::from_raw(self.receipt.id())
+        OperationId::from_nonzero(self.receipt.id())
     }
 
     /// Waits for exact protocol application, bounded by the configured

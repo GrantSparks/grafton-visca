@@ -24,8 +24,17 @@ impl OperationId {
     }
 
     #[cfg(any(feature = "async", feature = "blocking", test))]
+    pub(crate) const fn from_nonzero(value: NonZeroU64) -> Self {
+        Self(value)
+    }
+
+    #[cfg(test)]
+    #[track_caller]
+    #[allow(clippy::expect_used)]
     pub(crate) fn from_raw(value: u64) -> Self {
-        Self(NonZeroU64::new(value).unwrap_or(NonZeroU64::MIN))
+        Self::from_nonzero(
+            NonZeroU64::new(value).expect("test operation identity must be non-zero"),
+        )
     }
 }
 

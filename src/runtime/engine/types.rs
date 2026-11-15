@@ -123,6 +123,10 @@ impl std::fmt::Debug for EncodedMessage {
 pub(crate) struct RequestId(NonZeroU64);
 
 impl RequestId {
+    pub(crate) const fn as_nonzero(self) -> NonZeroU64 {
+        self.0
+    }
+
     pub(crate) const fn get(self) -> u64 {
         self.0.get()
     }

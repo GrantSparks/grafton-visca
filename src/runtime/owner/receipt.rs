@@ -63,8 +63,8 @@ impl<K, H> OperationReceipt<K, H>
 where
     K: completion::Kind,
 {
-    pub(crate) fn id(&self) -> u64 {
-        self.observation.id().get()
+    pub(crate) fn id(&self) -> std::num::NonZeroU64 {
+        self.observation.id().as_nonzero()
     }
 
     /// The `Debug` output of both facades' public `Operation`: its identity
@@ -75,7 +75,7 @@ where
     ) -> std::fmt::Result {
         formatter
             .debug_struct("Operation")
-            .field("id", &crate::OperationId::from_raw(self.id()))
+            .field("id", &crate::OperationId::from_nonzero(self.id()))
             .finish()
     }
 }

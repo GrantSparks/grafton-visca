@@ -1145,7 +1145,9 @@ impl OperationObservation {
 
     pub(crate) fn check_settlement(&mut self) -> Result<(), Error> {
         if let Some(stamp) = &self.core.motion {
-            if let Err(error) = stamp.check(crate::OperationId::from_raw(self.id().get())) {
+            if let Err(error) =
+                stamp.check(crate::OperationId::from_nonzero(self.id().as_nonzero()))
+            {
                 self.settled = Some(Err(error.clone()));
                 return Err(error);
             }
@@ -1161,7 +1163,7 @@ impl OperationObservation {
         if polled {
             if let Some(stamp) = &self.core.motion {
                 return stamp.commit(
-                    crate::OperationId::from_raw(self.id().get()),
+                    crate::OperationId::from_nonzero(self.id().as_nonzero()),
                     result,
                     &mut self.settled,
                 );
@@ -2492,7 +2494,7 @@ fn cancellation_diagnostic(observation: &CancellationObservation) -> Cancellatio
 #[cfg(any(feature = "async", feature = "blocking"))]
 pub(crate) fn observation_timeout(id: RequestId) -> Error {
     Error::ObservationTimeout {
-        operation: crate::OperationId::from_raw(id.get()),
+        operation: crate::OperationId::from_nonzero(id.as_nonzero()),
     }
 }
 
@@ -2505,7 +2507,7 @@ pub(crate) fn settlement_error(error: Error, id: RequestId) -> Error {
         observation_timeout(id)
     } else {
         Error::SettlementObservationFailed {
-            operation: crate::OperationId::from_raw(id.get()),
+            operation: crate::OperationId::from_nonzero(id.as_nonzero()),
             source: Box::new(error),
         }
     }

@@ -34,6 +34,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use `PanTiltLimitUpdate::clear`. State keys, variants, and typed accessors
   come from one ledger, and each target retains one inline slot per key;
   map allocation and unreachable cache eviction are removed.
+- Internal operation identities retain their non-zero representation from
+  engine allocation through receipts and public handles, removing the silent
+  zero-to-one fallback (#874).
 
 - **BREAKING** (#872): Settlement tuning below every built-in targeted retry
   budget is refused. Default `settled()` waits use the larger of the override
