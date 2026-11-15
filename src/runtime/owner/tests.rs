@@ -244,6 +244,7 @@ mod control_reserve {
 
     fn context(target: u8, class: ControlClass) -> RequestContext {
         RequestContext {
+            requires_extended_pan_tilt_speed: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
@@ -418,6 +419,7 @@ mod metrics {
 
     fn request_context(retry: RetryPolicy) -> RequestContext {
         RequestContext {
+            requires_extended_pan_tilt_speed: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
@@ -1501,6 +1503,7 @@ mod lifecycle_trace {
         RuntimeRequest::Command {
             wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
             context: RequestContext {
+                requires_extended_pan_tilt_speed: false,
                 motion: None,
                 submission_order: 0,
                 dispatch_deadline: None,
@@ -1531,6 +1534,7 @@ mod lifecycle_trace {
         RuntimeRequest::Inquiry {
             wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
             context: RequestContext {
+                requires_extended_pan_tilt_speed: false,
                 motion: None,
                 submission_order: 0,
                 dispatch_deadline: None,

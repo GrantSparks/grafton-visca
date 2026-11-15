@@ -306,6 +306,8 @@ pub(crate) struct MotionEffect {
 /// Every immutable protocol policy carried by an admitted request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RequestContext {
+    /// FR7 speeds above 24 require session-confirmed Extended step mode at dispatch.
+    pub(crate) requires_extended_pan_tilt_speed: bool,
     pub(crate) motion: Option<MotionEffect>,
     /// Assigned under the owner ingress lock, independently of engine admission.
     pub(crate) submission_order: u64,

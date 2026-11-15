@@ -37,6 +37,8 @@ mod private {
 
         fn admission_control_class(&self) -> Result<ControlClass, Error>;
 
+        fn pan_tilt_max_speed(&self) -> Option<u8>;
+
         fn declared_max_size(&self) -> usize;
 
         fn reply_shape(&self) -> RawReplyShape;
@@ -77,6 +79,10 @@ mod private {
 
         fn admission_control_class(&self) -> Result<ControlClass, Error> {
             crate::requests::admission_control_class(self)
+        }
+
+        fn pan_tilt_max_speed(&self) -> Option<u8> {
+            crate::requests::pan_tilt_max_speed(self)
         }
 
         fn declared_max_size(&self) -> usize {
@@ -210,6 +216,11 @@ where
     }
 
     #[allow(private_interfaces)]
+    fn pan_tilt_max_speed(&self, _authority: RequestContractAuthority) -> Option<u8> {
+        self.request.pan_tilt_max_speed()
+    }
+
+    #[allow(private_interfaces)]
     fn declared_max_size(&self, _authority: RequestContractAuthority) -> usize {
         self.request.declared_max_size()
     }
@@ -305,6 +316,19 @@ impl DynCustomOperations for DynSessionCamera {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn erased_pan_tilt_operation_preserves_its_extended_speed_fact() -> crate::Result<()> {
+        let request = request::builtin::PanTiltDrive::new(
+            crate::command::PanTiltDirection::Up,
+            crate::types::PanSpeed::new(50)?,
+            crate::types::TiltSpeed::new(25)?,
+        )?;
+        let erased: &dyn DynAppliedRequest = &request;
+        let adapted = OperationAdapter::<AppliedOnly, _>::new(erased);
+        assert_eq!(crate::requests::pan_tilt_max_speed(&adapted), Some(50));
+        Ok(())
+    }
+
     use super::*;
     use crate::{
         raw::RawReplyShape,

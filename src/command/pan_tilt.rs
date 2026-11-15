@@ -4,8 +4,8 @@
 //! movement, including directional movement, absolute positioning, and relative positioning.
 //!
 //! # Speed Limits
-//! - Pan speed: 0x00 to 0x18 (0-24 decimal)
-//! - Tilt speed: 0x00 to 0x18 (0-24 decimal) syntactically; individual
+//! - Pan speed: 0x00 to 0x32 (0-50 decimal), subject to profile and mode.
+//! - Tilt speed: 0x00 to 0x32 (0-50 decimal) syntactically; individual
 //!   profiles commonly limit standard two-speed movement to 0x14.
 //!
 //! # VISCA Compliance

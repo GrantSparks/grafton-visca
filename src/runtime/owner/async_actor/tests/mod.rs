@@ -374,6 +374,7 @@ fn command_for(target: TargetSlot) -> RuntimeRequest {
             .unwrap(),
         ),
         context: RequestContext {
+            requires_extended_pan_tilt_speed: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
@@ -400,6 +401,7 @@ fn command_with_short_deadlines() -> RuntimeRequest {
     RuntimeRequest::Command {
         wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, 0x00, 0xff]).unwrap()),
         context: RequestContext {
+            requires_extended_pan_tilt_speed: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
@@ -429,6 +431,7 @@ fn raw_command_with_completion_deadline(marker: u8, completion: Duration) -> Run
     RuntimeRequest::Command {
         wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, marker, 0xff]).unwrap()),
         context: RequestContext {
+            requires_extended_pan_tilt_speed: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
@@ -533,6 +536,7 @@ fn inquiry_for(target: TargetSlot) -> RuntimeRequest {
             .unwrap(),
         ),
         context: RequestContext {
+            requires_extended_pan_tilt_speed: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,

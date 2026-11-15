@@ -2902,8 +2902,8 @@ macro_rules! builtin_profile_registry {
                     pan_tilt: {
                         pan_range: range!(i32, -0x09CA7, 0x09CA7),
                         tilt_range: range!(i32, -0x01BA5, 0x0B3B0),
-                        max_pan_speed: 24,
-                        max_tilt_speed: 24,
+                        max_pan_speed: 50,
+                        max_tilt_speed: 50,
                         simultaneous: true,
                         preset_recovery_ms: 0,
                         pan_degrees_to_units: -235.9,

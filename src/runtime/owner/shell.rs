@@ -1243,6 +1243,7 @@ mod tests {
         RuntimeRequest::Command {
             wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, 0x07, 0x00, 0xff]).unwrap()),
             context: RequestContext {
+                requires_extended_pan_tilt_speed: false,
                 motion: Some(MotionEffect {
                     axes: crate::AffectedAxes::ZOOM,
                     stop,

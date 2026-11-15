@@ -677,7 +677,7 @@ centered_level_wire!(BlueTuning, center = 10, parameter = "blue_tuning");
 crate::__grafton_visca_newtype! {
     /// Pan speed value for horizontal camera movement speed.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0x00", max = "0x18", display_prefix = "Pan Speed")]
+    #[visca_value(min = "0x00", max = "0x32", display_prefix = "Pan Speed")]
     pub struct PanSpeed(u8);
 }
 
@@ -695,11 +695,12 @@ impl From<SpeedLevel> for PanSpeed {
 crate::__grafton_visca_newtype! {
     /// Tilt speed value for vertical camera movement speed.
     ///
-    /// The syntactic wire-value range is `0x00..=0x18`. Most standard two-speed
+    /// The syntactic wire-value range is `0x00..=0x32`. Sony FR7 speeds above
+    /// 24 require session-confirmed Extended mode. Most standard two-speed
     /// VISCA profiles limit tilt to `0x14`; request validation applies each
     /// profile's advertised capability range before encoding.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0x00", max = "0x18", display_prefix = "Tilt Speed")]
+    #[visca_value(min = "0x00", max = "0x32", display_prefix = "Tilt Speed")]
     pub struct TiltSpeed(u8);
 }
 
@@ -964,14 +965,18 @@ mod tests {
         assert!(PanSpeed::new(0).is_ok());
         assert!(PanSpeed::new(1).is_ok());
         assert!(PanSpeed::new(24).is_ok());
-        assert!(PanSpeed::new(25).is_err());
+        assert!(PanSpeed::new(25).is_ok());
+        assert!(PanSpeed::new(50).is_ok());
+        assert!(PanSpeed::new(51).is_err());
 
         assert!(TiltSpeed::new(0).is_ok());
         assert!(TiltSpeed::new(1).is_ok());
         assert!(TiltSpeed::new(20).is_ok());
         assert!(TiltSpeed::new(21).is_ok());
         assert!(TiltSpeed::new(24).is_ok());
-        assert!(TiltSpeed::new(25).is_err());
+        assert!(TiltSpeed::new(25).is_ok());
+        assert!(TiltSpeed::new(50).is_ok());
+        assert!(TiltSpeed::new(51).is_err());
 
         let pan_speed = PanSpeed::from(SpeedLevel::Fast);
         assert_eq!(pan_speed.value(), 18);

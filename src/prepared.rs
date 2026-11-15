@@ -1006,6 +1006,10 @@ where
         command_attempt_timeout(&timeout, reply_shape)
     };
     Ok(RequestContext {
+        requires_extended_pan_tilt_speed: profile.pan_tilt_coordinates().is_some_and(
+            |conversion| conversion.wire_codec() == crate::capabilities::PanTiltWireCodec::SonyFr7,
+        ) && crate::requests::pan_tilt_max_speed(request)
+            .is_some_and(|speed| speed > 24),
         motion: None,
         submission_order: 0,
         dispatch_deadline: None,
@@ -1297,6 +1301,79 @@ mod tests {
 
     std::thread_local! {
         static WRITE_COUNT: Cell<usize> = const { Cell::new(0) };
+    }
+
+    #[test]
+    fn fr7_extended_pan_tilt_speeds_carry_a_dispatch_prerequisite() {
+        use crate::request::builtin::PanTiltDrive;
+        let registration = crate::TargetRegistration::new(
+            CameraId::CAMERA_1,
+            ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("FR7"),
+        )
+        .expect("target");
+        for speed in [1, 24, 25, 50] {
+            let pan = PanSpeed::new(speed).expect("pan syntax");
+            let tilt = TiltSpeed::new(speed).expect("tilt syntax");
+            let drive =
+                PanTiltDrive::new(crate::command::PanTiltDirection::Up, pan, tilt).expect("drive");
+            let prepared = prepare_operation::<completion::AppliedOnly, _>(
+                &drive,
+                &registration,
+                OperationalTuning::new(),
+                ClassSelection::Request,
+            )
+            .expect("FR7 drive");
+            assert_eq!(
+                prepared.context.requires_extended_pan_tilt_speed,
+                speed > 24
+            );
+            let absolute =
+                PanTiltAbsolute::for_target(Degrees(1.0), Degrees(1.0), pan, tilt, &registration)
+                    .expect("target");
+            let prepared = prepare_operation::<completion::Targeted, _>(
+                &absolute,
+                &registration,
+                OperationalTuning::new(),
+                ClassSelection::Request,
+            )
+            .expect("FR7 position");
+            assert_eq!(
+                prepared.context.requires_extended_pan_tilt_speed,
+                speed > 24
+            );
+            let relative =
+                PanTiltRelative::for_target(Degrees(1.0), Degrees(1.0), pan, tilt, &registration)
+                    .expect("offset");
+            let prepared = prepare_operation::<completion::Targeted, _>(
+                &relative,
+                &registration,
+                OperationalTuning::new(),
+                ClassSelection::Request,
+            )
+            .expect("FR7 offset");
+            assert_eq!(
+                prepared.context.requires_extended_pan_tilt_speed,
+                speed > 24
+            );
+        }
+        let normal = crate::TargetRegistration::new(
+            CameraId::CAMERA_1,
+            ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2"),
+        )
+        .expect("target");
+        let drive = PanTiltDrive::new(
+            crate::command::PanTiltDirection::Up,
+            PanSpeed::new(25).expect("syntax"),
+            TiltSpeed::new(25).expect("syntax"),
+        )
+        .expect("drive");
+        assert!(prepare_operation::<completion::AppliedOnly, _>(
+            &drive,
+            &normal,
+            OperationalTuning::new(),
+            ClassSelection::Request
+        )
+        .is_err());
     }
 
     fn reset_write_count() {

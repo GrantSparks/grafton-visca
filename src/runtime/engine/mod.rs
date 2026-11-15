@@ -6289,6 +6289,7 @@ mod cancellation_regression_tests {
 
     fn context() -> RequestContext {
         RequestContext {
+            requires_extended_pan_tilt_speed: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,

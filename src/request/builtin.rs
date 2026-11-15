@@ -194,6 +194,12 @@ macro_rules! builtin_request {
 
             #[doc(hidden)]
             #[allow(private_interfaces)]
+            fn pan_tilt_max_speed(&self, _authority: crate::requests::RequestContractAuthority) -> Option<u8> {
+                <Self as BuiltinValidation>::pan_tilt_max_speed(self)
+            }
+
+            #[doc(hidden)]
+            #[allow(private_interfaces)]
             fn admission_control_class(
                 &self,
                 _authority: crate::requests::RequestContractAuthority,
@@ -229,6 +235,10 @@ pub(crate) trait BuiltinValidation {
 
     fn validate_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
         self.validate(target.profile())
+    }
+
+    fn pan_tilt_max_speed(&self) -> Option<u8> {
+        None
     }
 
     #[cfg(any(feature = "blocking", feature = "async"))]
@@ -2037,6 +2047,10 @@ impl BuiltinValidation for PanTiltHome {}
 impl BuiltinValidation for PanTiltReset {}
 
 impl BuiltinValidation for PanTiltDrive {
+    fn pan_tilt_max_speed(&self) -> Option<u8> {
+        Some(self.pan_speed.value().max(self.tilt_speed.value()))
+    }
+
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_pan_tilt_speed(profile, self.pan_speed, self.tilt_speed)
     }
@@ -2049,6 +2063,13 @@ impl BuiltinValidation for PanTiltStop {
 }
 
 impl BuiltinValidation for PanTiltAbsolute {
+    fn pan_tilt_max_speed(&self) -> Option<u8> {
+        Some({
+            let (pan, tilt) = self.speeds.values();
+            pan.max(tilt)
+        })
+    }
+
     fn validate_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
         self.validate(target.profile())?;
         if self.position.mount != target.mount() {
@@ -2066,6 +2087,13 @@ impl BuiltinValidation for PanTiltAbsolute {
 }
 
 impl BuiltinValidation for PanTiltRelative {
+    fn pan_tilt_max_speed(&self) -> Option<u8> {
+        Some({
+            let (pan, tilt) = self.speeds.values();
+            pan.max(tilt)
+        })
+    }
+
     fn validate_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
         self.validate(target.profile())?;
         target.validate_pan_tilt_offset(self.offset.pan, self.offset.tilt)

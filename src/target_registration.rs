@@ -171,6 +171,7 @@ impl TargetRegistration {
         Ok(())
     }
 
+    #[cfg(any(feature = "blocking", feature = "async"))]
     pub(crate) const fn slot(&self) -> TargetSlot {
         self.target
     }

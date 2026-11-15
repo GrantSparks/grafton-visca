@@ -788,6 +788,13 @@ pub trait Request: Send + Sync {
         Ok(())
     }
 
+    /// Carries the largest reviewed built-in pan/tilt speed to owner admission.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn pan_tilt_max_speed(&self, _authority: RequestContractAuthority) -> Option<u8> {
+        None
+    }
+
     /// Returns a crate-selected state effect for exact application.
     ///
     /// The authority token is intentionally hidden and non-forgeable outside
@@ -823,6 +830,11 @@ pub(crate) fn applied_state_projection<R: Request + ?Sized>(
     request: &R,
 ) -> Option<crate::runtime::engine::AppliedStateProjection> {
     request.applied_state_projection(AppliedStateAuthority::new())
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) fn pan_tilt_max_speed<R: Request + ?Sized>(request: &R) -> Option<u8> {
+    request.pan_tilt_max_speed(RequestContractAuthority::new())
 }
 
 /// A command with no physical-operation handle semantics.

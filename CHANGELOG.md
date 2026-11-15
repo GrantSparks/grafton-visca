@@ -50,6 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   uses signed twenty-bit positions at 235.9 units per degree, with rightward
   pan mapped to negative R7 coordinates. Typed position constructors consume
   `TargetRegistration`; request validation uses `validate_for_target`.
+  FR7 speed values extend to 50; values above 24 carry an immutable owner
+  dispatch prerequisite requiring session-confirmed Extended step mode.
 
 - Request preparation writes directly into owned inline storage. Engine admission
   and reusable polling templates share the inert message only when needed;

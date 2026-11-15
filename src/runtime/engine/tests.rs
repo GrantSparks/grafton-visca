@@ -74,6 +74,7 @@ fn retrying() -> RetryPolicy {
 
 fn context(target: u8, cancellation: CancellationPolicy) -> RequestContext {
     RequestContext {
+        requires_extended_pan_tilt_speed: false,
         motion: None,
         submission_order: 0,
         dispatch_deadline: None,
