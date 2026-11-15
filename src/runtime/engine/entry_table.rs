@@ -12,9 +12,9 @@ use std::{
 use smallvec::SmallVec;
 
 use super::{
-    AdmissionSlot, CorrelationKind, CorrelationOwner, Entry, Error, GenerationTicket, Lane,
-    Lifecycle, Phase, RequestId, RuntimeRequest, SequenceRecord, TargetSlot, TransmissionMeta,
-    ViscaSocket, MAX_SEQUENCE_HISTORY,
+    AdmissionSlot, CorrelationKind, CorrelationOwner, Entry, GenerationTicket, Lane, Lifecycle,
+    Phase, RequestId, RuntimeRequest, SequenceRecord, TargetSlot, TransmissionMeta, ViscaSocket,
+    MAX_SEQUENCE_HISTORY,
 };
 use crate::target::PerTarget;
 
@@ -105,11 +105,8 @@ pub(super) enum EntryChange {
     },
     Retry {
         to: Lifecycle,
-        attempt: u32,
-        error: Error,
-        effect_possible: bool,
+        prior: super::PriorAttempts,
     },
-    PossibleEffect,
     CloseObserver,
     DisplaceSocket,
 }
@@ -238,13 +235,10 @@ impl EntryTable {
             }),
             admission_order: facts.order,
             submitted_at: facts.submitted_at,
-            attempt: 0,
-            last_error: None,
+            prior: None,
             generation: facts.generation,
-            current_sequence: None,
             sequence_history: SmallVec::new(),
             slot: facts.slot,
-            effect_possible: false,
         };
         let indexed = IndexFacts::of(&entry);
         self.entries.insert(id, entry);
@@ -286,22 +280,12 @@ impl EntryTable {
         match change {
             EntryChange::DisplaceSocket => entry.lifecycle = entry.lifecycle.displace(),
             EntryChange::Lifecycle(to) => entry.lifecycle = entry.lifecycle.transition(to),
-            EntryChange::Retry {
-                to,
-                attempt,
-                error,
-                effect_possible,
-            } => {
+            EntryChange::Retry { to, prior } => {
                 entry.lifecycle = entry.lifecycle.transition(to);
-                entry.attempt = attempt;
-                entry.last_error = Some(error);
-                entry.effect_possible = effect_possible;
+                entry.prior = Some(prior);
             }
             EntryChange::Written { receipt, kind } => {
                 if let TransmissionMeta::Sony { sequence } = receipt {
-                    if kind == CorrelationKind::Request {
-                        entry.current_sequence = Some(sequence);
-                    }
                     let record = SequenceRecord { sequence, kind };
                     if !entry.sequence_history.contains(&record) {
                         if entry.sequence_history.len() == MAX_SEQUENCE_HISTORY {
@@ -310,9 +294,6 @@ impl EntryTable {
                         entry.sequence_history.push(record);
                     }
                 }
-            }
-            EntryChange::PossibleEffect => {
-                entry.effect_possible |= entry.reply_family() != super::SendingReply::Inquiry
             }
             EntryChange::CloseObserver => {
                 let mut to = entry.lifecycle();

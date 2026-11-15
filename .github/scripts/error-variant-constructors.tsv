@@ -21,8 +21,8 @@ TransportError	src/error.rs	Self::TransportError { source: Arc::new(source), }
 InvalidParameter	src/units.rs	if !value.is_finite() { return Err(Error::InvalidParameter {
 BufferTooSmall	src/command/bytes/frame.rs	Err(Error::buffer_too_small(frame.len, frame.buffer.len()))
 ParameterOutOfRange	src/error.rs	Self::ParameterOutOfRange { parameter, value, min, max, }
-Timeout	src/runtime/engine/mod.rs	Error::timeout(FailureStage::Terminal, terminal_certainty(entry))
-MotionSuperseded	src/runtime/engine/mod.rs	RuntimeOutcome::Failed(Error::MotionSuperseded { axes, context: superseded_context(effect_possible), }), now, &mut effects,
+Timeout	src/error.rs	Self::Timeout { context: FailureContext::new(stage, certainty), }
+MotionSuperseded	src/runtime/engine/mod.rs	RuntimeOutcome::Failed(Error::MotionSuperseded { axes, context: superseded_context(certainty), }), now, &mut effects,
 SettlementSuperseded	src/runtime/owner/motion.rs	let error = Error::SettlementSuperseded
 SettlementObservationFailed	src/runtime/owner/mod.rs	Error::SettlementObservationFailed {
 CancellationObservationFailed	src/error.rs	Self::CancellationObservationFailed { source: Box::new(source), }
