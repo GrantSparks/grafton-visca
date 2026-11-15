@@ -435,6 +435,12 @@ fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -
                 #crate_path::ResponseDecoder::from_fn(decode)
             };
             let profiled = custom.is_none().then(|| quote! {
+                fn payload_shape(&self) -> #crate_path::PayloadShape {
+                    #crate_path::__macro_support::inquiry_payload_shape(#crate_path::command::InquiryKind::#response, ::core::option::Option::None)
+                }
+                fn payload_shape_for_profile(&self, profile: &#crate_path::ProfileSpec) -> #crate_path::PayloadShape {
+                    #crate_path::__macro_support::inquiry_payload_shape(#crate_path::command::InquiryKind::#response, ::core::option::Option::Some(profile))
+                }
                 fn decoder_for_profile(&self, profile: &#crate_path::ProfileSpec) -> #crate_path::ResponseDecoder<Self::Response> {
                     fn lift(response: #crate_path::command::Response) -> ::core::result::Result<#response_type, #crate_path::Error> { #lift }
                     #crate_path::__macro_support::inquiry_decoder(#crate_path::command::InquiryKind::#response, profile, lift)
@@ -561,12 +567,30 @@ mod tests {
     }
 
     #[test]
+    fn raw_and_custom_decoders_keep_unknown_shape() {
+        for input in [
+            syn::parse_quote! { #[visca(opcode = 0x7e, response = Raw)] struct Raw; },
+            syn::parse_quote! { #[visca(opcode = 0, response = Power, parser = Custom, parse_with = parse_custom)] struct Custom; },
+        ] {
+            let tokens = expanded(input);
+            assert!(!tokens.contains("fn payload_shape"), "{tokens}");
+            assert!(!tokens.contains("inquiry_payload_shape"), "{tokens}");
+        }
+    }
+
+    #[test]
     fn canonical_decoders_emit_profile_support_and_preserve_local_type_paths() {
         let tokens = expanded(syn::parse_quote! {
             #[visca(opcode = 0x12, response = PanTiltPosition, typed_response = LocalPosition, typed_field = pan)]
             struct Probe;
         });
         assert!(tokens.contains("fn decoder_for_profile"), "{tokens}");
+        assert!(tokens.contains("fn payload_shape"), "{tokens}");
+        assert!(tokens.contains("fn payload_shape_for_profile"), "{tokens}");
+        assert!(
+            tokens.contains("__macro_support :: inquiry_payload_shape"),
+            "{tokens}"
+        );
         assert!(
             tokens.contains("__macro_support :: inquiry_decoder"),
             "{tokens}"

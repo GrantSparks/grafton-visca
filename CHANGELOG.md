@@ -14,6 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `PayloadShape` describes an inquiry's decoded data width and nibble
   structure. `Inquiry::payload_shape` defaults to `Unknown`, and custom raw
   inquiries can declare their decoder's shape with `with_payload_shape` (#892).
+  Built-in and canonical derived inquiries get this fact from the decoder table;
+  pan/tilt position shapes use the same per-profile axis words as decoding.
+- Serial startup has a bounded fuzz target for arbitrary bus input, I/O results
+  and timing ticks, with reply/noise/echo seeds also exercised on stable (#887).
 
 - `test-utils` (#832): `testkit::ManualClock`, a virtual clock for owner deadline tests. A
   blocking session opened with `ManualClock::open_blocking_session` or

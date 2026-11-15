@@ -965,6 +965,15 @@ pub mod __macro_support {
         crate::ResponseDecoder::for_builtin_profile(kind, profile, lift)
     }
 
+    /// Return structural payload evidence from the canonical inquiry table.
+    #[doc(hidden)]
+    pub fn inquiry_payload_shape(
+        kind: crate::command::InquiryKind,
+        profile: Option<&crate::ProfileSpec>,
+    ) -> crate::PayloadShape {
+        crate::command::inquiry_structs::payload_shape_for_profile(kind, profile)
+    }
+
     #[doc(hidden)]
     pub use crate::command::bytes::constants::INQUIRY;
     #[doc(hidden)]

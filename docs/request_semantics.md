@@ -47,6 +47,13 @@ default to `Unknown`, which overlaps every shape. Known shapes overlap by
 length, pairwise: `Bytes(1)` and `Nibbles(4)` each overlap `Unknown` but do not
 overlap each other. Decoder value, padding and profile-range checks still apply.
 
+Built-in inquiries and canonical `ViscaInquiry` derives take their shape from
+one column beside the decoder in the inquiry table. Pan/tilt position selects
+the profile's same per-axis grammar for both decoding and shape: eight nibble
+bytes for standard VISCA, nine for BRC-300 and ten for FR7. Explicit custom
+parsers and raw derives keep `Unknown`, since their payload structure belongs
+to the caller.
+
 Every operation row contains a non-empty `BuiltinAxisSelection`.  Preset
 recall is the one profile-dependent case: preparation must validate and carry
 the profile's exact preset axes.  It must not substitute all axes.

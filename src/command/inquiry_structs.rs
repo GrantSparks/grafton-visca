@@ -226,6 +226,23 @@ pub(crate) fn dispatch_with_framing(
     }
 }
 
+/// Select the same per-axis position grammar used by the canonical decoder.
+/// An unsupported profile supplies no correlation proof.
+pub(crate) fn payload_shape_for_profile(
+    kind: InquiryKind,
+    profile: Option<&crate::ProfileSpec>,
+) -> crate::PayloadShape {
+    match (kind, profile) {
+        (InquiryKind::PanTiltPosition, Some(profile)) => profile
+            .pan_tilt_coordinates()
+            .map(PanTiltFraming::for_conversion)
+            .map_or(crate::PayloadShape::Unknown, |framing| {
+                crate::PayloadShape::Nibbles(framing.position_nibbles())
+            }),
+        _ => base_payload_shape(kind),
+    }
+}
+
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 fn inquiry_test_profiles() -> Vec<crate::ProfileSpec> {
@@ -261,6 +278,7 @@ macro_rules! define_builtin_inquiries {
             $(
                 $(#[$kind_meta:meta])*
                 $kind:ident $data:tt => |$payload:ident| $decode:expr;
+                shape: $shape:expr;
                 commands [
                     $(
                         $(#[$meta:meta])*
@@ -325,6 +343,8 @@ macro_rules! define_builtin_inquiries {
             };
             let mut payloads = (0..=18).map(|length| vec![0; length]).collect::<Vec<_>>();
             payloads.extend((0..=u8::MAX).map(|byte| vec![byte]));
+            payloads.extend((0..=u8::MAX).map(|byte| vec![0, 0, byte >> 4, byte & 0x0f]));
+            payloads.extend((1..=18).map(|length| vec![0x10; length]));
             payloads.extend(corpus.iter().cloned());
             for bytes in &corpus {
                 if let Some(crate::protocol::response::BasicResponse {
@@ -344,14 +364,29 @@ macro_rules! define_builtin_inquiries {
                 inquiry: I, kind: InquiryKind, profiles: &[crate::ProfileSpec], payloads: &[Vec<u8>],
             ) {
                 let profile_free = inquiry.decoder();
+                let shape = inquiry.payload_shape();
+                assert_eq!(shape, base_payload_shape(kind));
+                let mut accepted = false;
                 for payload in payloads {
+                    if profile_free.decode(payload).is_ok() {
+                        accepted = true;
+                        assert!(shape.admits(payload), "shape rejected canonical {kind:?} payload {payload:02x?}");
+                    }
                     assert_eq!(format!("{:?}", profile_free.decode(payload)),
                         format!("{:?}", dispatch(kind, Payload::new(payload))),
                         "profile-free derived {kind:?} disagrees on {payload:02x?}");
                 }
+                assert!(accepted, "no canonical payload accepted for {kind:?}");
                 for profile in profiles {
                     let decoder = inquiry.decoder_for_profile(profile);
+                    let mut accepted = false;
+                    let shape = inquiry.payload_shape_for_profile(profile);
+                    assert_eq!(shape, payload_shape_for_profile(kind, Some(profile)));
                     for payload in payloads {
+                        if decoder.decode(payload).is_ok() {
+                            accepted = true;
+                            assert!(shape.admits(payload), "shape rejected canonical {kind:?} on {}: {payload:02x?}", profile.name());
+                        }
                         let framing = profile.pan_tilt_coordinates().map(PanTiltFraming::for_conversion);
                         let canonical = match (kind, framing) {
                             (InquiryKind::PanTiltPosition, None) => Err(Error::FeatureNotSupported {
@@ -362,6 +397,27 @@ macro_rules! define_builtin_inquiries {
                         assert_eq!(format!("{:?}", decoder.decode(payload)), format!("{canonical:?}"),
                             "derived {kind:?} on {} disagrees on {payload:02x?}", profile.name());
                     }
+                    assert!(accepted || (kind == InquiryKind::PanTiltPosition && profile.pan_tilt_coordinates().is_none()),
+                        "no canonical {kind:?} payload accepted for {}", profile.name());
+                }
+            }
+            fn check_builtin<I: crate::Inquiry>(
+                inquiry: I, kind: InquiryKind, profiles: &[crate::ProfileSpec], payloads: &[Vec<u8>],
+            ) {
+                assert_eq!(inquiry.payload_shape(), base_payload_shape(kind));
+                for profile in profiles {
+                    let decoder = inquiry.decoder_for_profile(profile);
+                    let shape = inquiry.payload_shape_for_profile(profile);
+                    assert_eq!(shape, payload_shape_for_profile(kind, Some(profile)));
+                    let mut accepted = false;
+                    for payload in payloads {
+                        if decoder.decode(payload).is_ok() {
+                            accepted = true;
+                            assert!(shape.admits(payload), "shape rejected built-in {kind:?} payload {payload:02x?}");
+                        }
+                    }
+                    assert!(accepted || (kind == InquiryKind::PanTiltPosition && profile.pan_tilt_coordinates().is_none()),
+                        "no built-in {kind:?} canonical payload accepted for {}", profile.name());
                 }
             }
             $({
@@ -369,7 +425,15 @@ macro_rules! define_builtin_inquiries {
                 #[visca(opcode = 0, response = $kind)]
                 struct Derived;
                 check(Derived, InquiryKind::$kind, &profiles, &payloads);
+                $(check_builtin($struct, InquiryKind::$kind, &profiles, &payloads);)+
             })*
+        }
+
+        /// Structural data-payload domain generated beside its canonical decoder.
+        pub(crate) const fn base_payload_shape(kind: InquiryKind) -> crate::PayloadShape {
+            match kind {
+                $(InquiryKind::$kind => $shape,)*
+            }
         }
 
         /// Decode an inquiry response with the profile-independent decoder
@@ -469,6 +533,14 @@ macro_rules! define_builtin_inquiries {
                 type Response = builtin_inquiry_response!($typed);
 
 
+                fn payload_shape(&self) -> crate::PayloadShape {
+                    base_payload_shape(Self::KIND)
+                }
+
+                fn payload_shape_for_profile(&self, profile: &crate::ProfileSpec) -> crate::PayloadShape {
+                    payload_shape_for_profile(Self::KIND, Some(profile))
+                }
+
                 fn decoder(&self) -> crate::ResponseDecoder<Self::Response> {
                     crate::ResponseDecoder::from_fn(decode_payload::<Self>)
                 }
@@ -489,8 +561,6 @@ macro_rules! define_builtin_inquiries {
                     true
                 }
             }
-
-            #[cfg(any(feature = "blocking", feature = "async"))]
 
             #[cfg(test)]
             impl BuiltinInquiryCommandMarker for $struct {
@@ -554,6 +624,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Power {
             status: decode_enum(&payload)?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the current power state of the camera.
             PowerInquiry {
@@ -583,6 +654,7 @@ define_builtin_inquiries! {
                 },
             })
         };
+        shape: crate::PayloadShape::Bytes(7);
         commands [
             /// Inquiry command to get the camera version information.
             VersionInquiry {
@@ -603,6 +675,7 @@ define_builtin_inquiries! {
             /// Current tilt position.
             tilt: i32,
         } => |payload| decode_pan_tilt_position(payload, PanTiltFraming::STANDARD);
+        shape: crate::PayloadShape::Nibbles(PanTiltFraming::STANDARD.position_nibbles());
         commands [
             /// Inquiry command to get the current pan/tilt position.
             PanTiltPositionInquiry {
@@ -626,6 +699,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::ZoomPosition {
             position: Nibbles::<4>::try_from(payload)?.u16_quad(0).ok_or(Error::InvalidResponseFormat)?,
         });
+        shape: crate::PayloadShape::Nibbles(4);
         commands [
             /// Inquiry command to get the current zoom position.
             ZoomPositionInquiry {
@@ -649,6 +723,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::FocusPosition {
             position: Nibbles::<4>::try_from(payload)?.u16_quad(0).ok_or(Error::InvalidResponseFormat)?,
         });
+        shape: crate::PayloadShape::Nibbles(4);
         commands [
             /// Inquiry command to get the current focus position.
             FocusPositionInquiry {
@@ -672,6 +747,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::ExposureMode {
             mode: decode_enum(&payload)?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the current exposure mode setting.
             ExposureModeInquiry {
@@ -692,6 +768,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::ExposureCompensation {
             value: ExposureCompensationLevel::from_protocol_value(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?.value(),
         });
+        shape: crate::PayloadShape::Nibbles(4);
         commands [
             /// Inquiry command to get the current exposure compensation value.
             ExposureCompensationInquiry {
@@ -715,6 +792,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::ExposureCompensationMode {
             on: decode_builtin_bool::<ExposureCompensationModeInquiry>(&payload, "exposure_compensation_mode")?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the exposure compensation mode on/off status.
             ExposureCompensationModeInquiry {
@@ -737,6 +815,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Iris {
             position: Nibbles::<4>::try_from(payload)?.zero_extended_u8()?,
         });
+        shape: crate::PayloadShape::Nibbles(4);
         commands [
             /// Inquiry command to get the current iris position value.
             IrisInquiry {
@@ -760,6 +839,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Shutter {
             position: Nibbles::<4>::try_from(payload)?.zero_extended_u8()?,
         });
+        shape: crate::PayloadShape::Nibbles(4);
         commands [
             /// Inquiry command to get the current shutter speed setting.
             ShutterInquiry {
@@ -783,6 +863,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Brightness {
             position: Nibbles::<4>::try_from(payload)?.zero_extended_u8()?,
         });
+        shape: crate::PayloadShape::Nibbles(4);
         commands [
             /// Inquiry command to get the current brightness adjustment value.
             BrightnessInquiry {
@@ -806,6 +887,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::WhiteBalanceMode {
             mode: decode_enum(&payload)?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the current white balance mode.
             WhiteBalanceModeInquiry {
@@ -829,6 +911,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::ColorTemperature {
             temperature: u16::from(decode_byte(&payload)?),
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the current color temperature value.
             ColorTemperatureInquiry {
@@ -852,6 +935,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::RedChannel {
             gain: Nibbles::<4>::try_from(payload)?.zero_extended_u8()?,
         });
+        shape: crate::PayloadShape::Nibbles(4);
         commands [
             /// Inquiry command to get the current red gain value.
             RedGainInquiry {
@@ -875,6 +959,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::BlueChannel {
             gain: Nibbles::<4>::try_from(payload)?.zero_extended_u8()?,
         });
+        shape: crate::PayloadShape::Nibbles(4);
         commands [
             /// Inquiry command to get the current blue gain value.
             BlueGainInquiry {
@@ -898,6 +983,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::SharpnessMode {
             mode: decode_enum(&payload)?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the current sharpness mode setting.
             SharpnessModeInquiry {
@@ -918,6 +1004,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Saturation {
             level: Nibbles::<4>::try_from(payload)?.zero_extended_nibble()?,
         });
+        shape: crate::PayloadShape::Nibbles(4);
         commands [
             /// Inquiry command to get the current color saturation level.
             SaturationInquiry {
@@ -941,6 +1028,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Hue {
             hue: Nibbles::<4>::try_from(payload)?.zero_extended_nibble()?,
         });
+        shape: crate::PayloadShape::Nibbles(4);
         commands [
             /// Inquiry command to get the current hue adjustment value.
             HueInquiry {
@@ -965,6 +1053,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Gain {
             gain: Nibbles::<4>::try_from(payload)?.zero_extended_u8()?,
         });
+        shape: crate::PayloadShape::Nibbles(4);
         commands [
             /// Inquiry command to get the current gain value.
             GainInquiry {
@@ -988,6 +1077,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::GainLimit {
             limit: Nibbles::<1>::try_from(payload)?.byte(0).ok_or(Error::InvalidResponseFormat)?,
         });
+        shape: crate::PayloadShape::Nibbles(1);
         commands [
             /// Inquiry command to get the current gain limit setting.
             GainLimitInquiry {
@@ -1011,6 +1101,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Backlight {
             status: decode_builtin_bool::<BacklightInquiry>(&payload, "backlight_status")?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the backlight compensation mode.
             BacklightInquiry {
@@ -1034,6 +1125,7 @@ define_builtin_inquiries! {
                 horizontal: false,
             },
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Queries the sourced vertical picture-flip register (`09 04 66`).
             ImageFlipInquiry {
@@ -1054,6 +1146,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::FlipState {
             state: FlipState::from(decode_enum::<ImageFlipMode>(&payload)?),
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Queries the PTZOptics combined flip register (`09 04 A4`).
             FlipStateInquiry {
@@ -1074,6 +1167,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::NoiseReduction2DMode {
             mode: decode_enum(&payload)?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the 2D noise reduction mode.
             NoiseReduction2DModeInquiry {
@@ -1094,6 +1188,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::NoiseReduction2D {
             level: decode_byte(&payload)?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the 2D noise reduction level.
             NoiseReduction2DInquiry {
@@ -1117,6 +1212,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::NoiseReduction3D {
             level: decode_byte(&payload)?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the 3D noise reduction level.
             ///
@@ -1146,6 +1242,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::FocusZone {
             zone: decode_enum(&payload)?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the current focus zone selection.
             FocusZoneInquiry {
@@ -1166,6 +1263,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::AutoFocusSensitivity {
             sensitivity: decode_enum(&payload)?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the auto-focus sensitivity setting.
             AutoFocusSensitivityInquiry {
@@ -1189,6 +1287,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::FocusNearLimit {
             position: Nibbles::<4>::try_from(payload)?.u16_quad(0).ok_or(Error::InvalidResponseFormat)?,
         });
+        shape: crate::PayloadShape::Nibbles(4);
         commands [
             /// Inquiry command to get the focus near limit position.
             FocusNearLimitInquiry {
@@ -1212,6 +1311,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::FocusMode {
             mode: decode_enum(&payload)?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the current focus mode.
             FocusModeInquiry {
@@ -1232,6 +1332,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::MenuOpenClose {
             is_open: decode_builtin_bool::<MenuOpenCloseInquiry>(&payload, "menu_status")?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the menu open/close status.
             MenuOpenCloseInquiry {
@@ -1256,6 +1357,7 @@ define_builtin_inquiries! {
             position: NdFilterValue::new(u16::from(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?))
                 .map_err(|error| Error::invalid_response(error.to_string(), payload.as_slice().to_vec()))?,
         });
+        shape: crate::PayloadShape::Nibbles(4);
         commands [
             /// Queries the sourced FR7 variable-ND density register.
             NdFilterInquiry {
@@ -1276,6 +1378,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::PictureEffect {
             effect: PictureEffectMode::from_byte(decode_byte(&payload)?),
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the current picture effect mode.
             PictureEffectInquiry {
@@ -1298,6 +1401,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::AutoWhiteBalanceSensitivity {
             sensitivity: decode_enum(&payload)?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the auto white balance sensitivity setting.
             AutoWhiteBalanceSensitivityInquiry {
@@ -1321,6 +1425,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::ExposureCompensationPosition {
             position: ExposureCompensationPosition::new(u16::from(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)),
         });
+        shape: crate::PayloadShape::Nibbles(4);
         commands [
             /// Inquiry command to get the exposure compensation position.
             ExposureCompensationPositionInquiry {
@@ -1346,6 +1451,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::RedTuning {
             level: RedTuning::from_protocol_value(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?.value(),
         });
+        shape: crate::PayloadShape::Nibbles(4);
         commands [
             /// Inquiry command to get the red channel tuning level.
             RedTuningInquiry {
@@ -1371,6 +1477,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::BlueTuning {
             level: BlueTuning::from_protocol_value(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)?.value(),
         });
+        shape: crate::PayloadShape::Nibbles(4);
         commands [
             /// Inquiry command to get the blue channel tuning level.
             BlueTuningInquiry {
@@ -1396,6 +1503,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Gamma {
             value: decode_byte(&payload)?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the current gamma curve setting.
             GammaInquiry {
@@ -1423,6 +1531,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::SharpnessPosition {
             position: Nibbles::<4>::try_from(payload)?.zero_extended_u8()?,
         });
+        shape: crate::PayloadShape::Nibbles(4);
         commands [
             /// Inquiry command to get the current sharpness position.
             SharpnessPositionInquiry {
@@ -1448,6 +1557,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::MotionSyncMode {
             mode: decode_enum(&payload)?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the motion sync mode setting.
             MotionSyncModeInquiry {
@@ -1468,6 +1578,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::MotionSyncPreset {
             speed: decode_enum(&payload)?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the motion sync speed setting.
             MotionSyncPresetInquiry {
@@ -1488,6 +1599,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::UsbAudio {
             on: decode_builtin_bool::<UsbAudioInquiry>(&payload, "usb_audio_status")?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the USB audio state.
             UsbAudioInquiry {
@@ -1510,6 +1622,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::NdFilterPreset {
             preset: NdFilterPreset::new(decode_byte(&payload)?)?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the ND filter preset setting.
             NdFilterPresetInquiry {
@@ -1531,6 +1644,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::TallyRed {
             on: decode_builtin_bool::<TallyRedInquiry>(&payload, "tally_red_status")?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the red tally light status.
             TallyRedInquiry {
@@ -1551,6 +1665,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::TallyGreen {
             on: decode_builtin_bool::<TallyGreenInquiry>(&payload, "tally_green_status")?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the green tally light status.
             TallyGreenInquiry {
@@ -1571,6 +1686,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::FlickerMode {
             mode: decode_enum(&payload)?,
         });
+        shape: crate::PayloadShape::Bytes(1);
         commands [
             /// Inquiry command to get the current flicker mode setting.
             FlickerModeInquiry {
@@ -1591,6 +1707,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Contrast {
             level: Nibbles::<4>::try_from(payload)?.zero_extended_u8()?,
         });
+        shape: crate::PayloadShape::Nibbles(4);
         commands [
             /// Inquiry command to get the current contrast level.
             ContrastInquiry {
@@ -1614,6 +1731,7 @@ define_builtin_inquiries! {
         } => |payload| Ok(InquiryData::Luminance {
             level: Nibbles::<4>::try_from(payload)?.zero_extended_u8()?,
         });
+        shape: crate::PayloadShape::Nibbles(4);
         commands [
             /// Inquiry command to get the current luminance level.
             LuminanceInquiry {

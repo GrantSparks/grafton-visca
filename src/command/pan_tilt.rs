@@ -902,9 +902,14 @@ impl PanTiltFraming {
         self.write_offset(frame, self.pan.maximum(), self.tilt.maximum())
     }
 
+    /// Number of nibble bytes in this grammar's position reply.
+    pub(crate) const fn position_nibbles(self) -> usize {
+        self.pan.len() + self.tilt.len()
+    }
+
     pub(crate) fn decode_position(self, payload: Payload<'_>) -> Result<(i32, i32), Error> {
         let bytes = payload.as_slice();
-        let expected = self.pan.len() + self.tilt.len();
+        let expected = self.position_nibbles();
         if bytes.len() != expected {
             return Err(Error::invalid_response_length(expected, bytes));
         }
