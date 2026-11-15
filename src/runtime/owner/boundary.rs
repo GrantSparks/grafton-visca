@@ -419,36 +419,59 @@ pub(crate) struct OwnerSnapshot {
     pub(crate) active: usize,
 }
 
-/// The result of the one coalesced shutdown signal attempt. This is separate
-/// from the owner's eventual terminal result: `shutdown` acknowledges only
-/// acceptance into the bounded lane, while `close` waits for that result.
+/// One handle-side lifecycle fact, including shutdown acceptance and the
+/// owner's authoritative terminal verdict.
 #[derive(Debug, Clone)]
-enum ShutdownSignalState {
+enum LifecycleState {
     Open,
-    Accepted,
-    Failed(Error),
+    ShutdownAccepted,
+    SignalFailed(Error),
+    ShutDown,
+    Terminated(Error),
+}
+
+impl LifecycleState {
+    fn terminal(&self) -> Option<Error> {
+        match self {
+            Self::ShutDown => Some(Error::RuntimeShutdown),
+            Self::Terminated(error) => Some(error.clone()),
+            Self::Open | Self::ShutdownAccepted | Self::SignalFailed(_) => None,
+        }
+    }
+
+    fn disconnected_error(&self) -> Error {
+        self.terminal().unwrap_or_else(missing_terminal_error)
+    }
+
+    /// Only an accepted explicit shutdown that actually completed preserves
+    /// shutdown success. A terminal verdict is never replaced by teardown.
+    fn publish(&mut self, error: Error) {
+        *self = match (&*self, error) {
+            (Self::ShutDown | Self::Terminated(_), _) => return,
+            (Self::ShutdownAccepted, Error::RuntimeShutdown) => Self::ShutDown,
+            (_, error) => Self::Terminated(error),
+        };
+    }
 }
 
 /// The lifecycle facts a session's handles and its owner share.
 ///
 /// Terminal publication, shutdown acceptance and admission enqueue all take
-/// the signal lock first, so they have one linearization point. Without it, a
+/// the lifecycle lock, so they have one linearization point. Without it, a
 /// shutdown caller could observe `Open`, enqueue after the owner had already
 /// terminated, and return `Ok(())` even though no owner turn could ever
 /// consume the signal; an admission could likewise strand its permit in a
 /// queue whose receiver will never poll it (#542 §4).
 #[derive(Debug)]
 pub(super) struct OwnerLifecycle {
-    signal: Mutex<ShutdownSignalState>,
-    terminal: Mutex<Option<Error>>,
+    state: Mutex<LifecycleState>,
     next_submission: AtomicU64,
 }
 
 impl OwnerLifecycle {
     fn new() -> Self {
         Self {
-            signal: Mutex::new(ShutdownSignalState::Open),
-            terminal: Mutex::new(None),
+            state: Mutex::new(LifecycleState::Open),
             next_submission: AtomicU64::new(1),
         }
     }
@@ -477,36 +500,30 @@ impl OwnerLifecycle {
         Ok(cutoff)
     }
 
-    fn lock_signal(&self) -> MutexGuard<'_, ShutdownSignalState> {
-        self.signal
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-    }
-
-    fn lock_terminal(&self) -> MutexGuard<'_, Option<Error>> {
-        self.terminal
+    fn lock_state(&self) -> MutexGuard<'_, LifecycleState> {
+        self.state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     /// The published terminal error, if the owner has ended.
     pub(super) fn terminal(&self) -> Option<Error> {
-        self.lock_terminal().clone()
+        self.lock_state().terminal()
     }
 
-    /// Hold the signal lock while the session still accepts boundary work,
+    /// Hold the lifecycle lock while the session still accepts boundary work,
     /// or return the error that rejects it. Holding the returned guard across
     /// an enqueue keeps that enqueue ordered before any terminal publication.
-    fn lock_open(&self) -> Result<MutexGuard<'_, ShutdownSignalState>, Error> {
-        let signal = self.lock_signal();
-        let rejection = match &*signal {
-            ShutdownSignalState::Accepted => Some(Error::RuntimeShutdown),
-            ShutdownSignalState::Failed(error) => Some(error.clone()),
-            ShutdownSignalState::Open => self.terminal(),
-        };
-        match rejection {
-            Some(error) => Err(error),
-            None => Ok(signal),
+    fn lock_open(&self) -> Result<MutexGuard<'_, LifecycleState>, Error> {
+        let state = self.lock_state();
+        match &*state {
+            LifecycleState::Open => Ok(state),
+            LifecycleState::ShutdownAccepted | LifecycleState::ShutDown => {
+                Err(Error::RuntimeShutdown)
+            }
+            LifecycleState::SignalFailed(error) | LifecycleState::Terminated(error) => {
+                Err(error.clone())
+            }
         }
     }
 
@@ -518,16 +535,7 @@ impl OwnerLifecycle {
     /// engine has become terminal but before the loop's epilogue, and
     /// incorrectly receive `Ok(())`.
     pub(super) fn publish_terminal(&self, error: Error) {
-        let mut signal = self.lock_signal();
-        *self.lock_terminal() = Some(error.clone());
-        // Only the caller whose signal produced an explicit shutdown retains
-        // success. An engine close or poison supersedes even a signal accepted
-        // earlier in the same ready-source race.
-        if !matches!(&error, Error::RuntimeShutdown)
-            || !matches!(&*signal, ShutdownSignalState::Accepted)
-        {
-            *signal = ShutdownSignalState::Failed(error);
-        }
+        self.lock_state().publish(error);
     }
 
     /// Fail closed when an owner is torn down, including by an unwind before
@@ -539,18 +547,9 @@ impl OwnerLifecycle {
     /// concurrent shutdown observe rejection rather than accept a signal that
     /// no receiver can poll.
     pub(super) fn fail_closed(&self) -> Error {
-        let mut signal = self.lock_signal();
-        let mut terminal = self.lock_terminal();
-        let error = terminal.clone().unwrap_or_else(missing_terminal_error);
-        if terminal.is_none() {
-            *terminal = Some(error.clone());
-        }
-        if !matches!(&error, Error::RuntimeShutdown)
-            || !matches!(*signal, ShutdownSignalState::Accepted)
-        {
-            *signal = ShutdownSignalState::Failed(error.clone());
-        }
-        error
+        let mut state = self.lock_state();
+        state.publish(missing_terminal_error());
+        state.disconnected_error()
     }
 }
 
@@ -659,10 +658,12 @@ impl OwnerHandleCore {
     /// observable at that boundary (#542 §Terminology, §3 ordering and
     /// transport failure).
     pub(super) fn closed_result(&self) -> Result<(), Error> {
-        match self.lifecycle.terminal() {
-            Some(Error::RuntimeShutdown) => Ok(()),
-            Some(error) => Err(error),
-            None => Err(missing_terminal_error()),
+        match &*self.lifecycle.lock_state() {
+            LifecycleState::ShutDown | LifecycleState::Terminated(Error::RuntimeShutdown) => Ok(()),
+            LifecycleState::Terminated(error) => Err(error.clone()),
+            LifecycleState::Open
+            | LifecycleState::ShutdownAccepted
+            | LifecycleState::SignalFailed(_) => Err(missing_terminal_error()),
         }
     }
 
@@ -684,43 +685,30 @@ impl OwnerHandleCore {
     /// so concurrent callers observe the exact same accepted or failed result;
     /// the consuming `close` call waits separately on the liveness barrier.
     pub(super) fn shutdown(&self) -> Result<(), Error> {
-        let mut signal = self.lifecycle.lock_signal();
-        // Terminal publication and shutdown acceptance share this lifecycle
-        // lock. Check the published engine verdict before occupying the
-        // shutdown lane: a session that already terminalized itself must hand
-        // that cause back to a cleanup caller rather than acknowledge a signal
-        // no owner turn can consume.
-        if let Some(error) = self.lifecycle.terminal() {
-            if matches!(&error, Error::RuntimeShutdown)
-                && matches!(&*signal, ShutdownSignalState::Accepted)
-            {
-                return Ok(());
+        let mut state = self.lifecycle.lock_state();
+        match &*state {
+            LifecycleState::ShutdownAccepted | LifecycleState::ShutDown => Ok(()),
+            LifecycleState::SignalFailed(error) | LifecycleState::Terminated(error) => {
+                Err(error.clone())
             }
-            *signal = ShutdownSignalState::Failed(error.clone());
-            return Err(error);
-        }
-        match &*signal {
-            ShutdownSignalState::Accepted => Ok(()),
-            ShutdownSignalState::Failed(error) => Err(error.clone()),
-            ShutdownSignalState::Open => match self.shutdown.try_send(()) {
+            LifecycleState::Open => match self.shutdown.try_send(()) {
                 Ok(()) => {
-                    *signal = ShutdownSignalState::Accepted;
+                    *state = LifecycleState::ShutdownAccepted;
                     Ok(())
                 }
                 Err(flume::TrySendError::Disconnected(_)) => {
-                    let error = self.disconnected_error();
-                    *signal = ShutdownSignalState::Failed(error.clone());
+                    let error = state.disconnected_error();
+                    *state = LifecycleState::SignalFailed(error.clone());
                     Err(error)
                 }
                 Err(flume::TrySendError::Full(_)) => {
                     // Only this method sends on the one-slot shutdown lane,
-                    // so a full queue while the state is Open is an internal
-                    // invariant failure. Remember it just like a disconnect,
-                    // keeping every concurrent/repeated caller consistent.
+                    // so a full queue while Open is an internal invariant
+                    // failure. Repeated callers observe the same failure.
                     let error = Error::InvalidState(
                         "shutdown signal lane was full before acceptance".into(),
                     );
-                    *signal = ShutdownSignalState::Failed(error.clone());
+                    *state = LifecycleState::SignalFailed(error.clone());
                     Err(error)
                 }
             },
@@ -756,7 +744,7 @@ impl OwnerHandleCore {
         // the observer/reply/boundary construction after that check too: a
         // terminal pre-admission rejection must not allocate transient request
         // state before it returns.
-        let _signal = match self.lifecycle.lock_open() {
+        let lifecycle = match self.lifecycle.lock_open() {
             Ok(signal) => signal,
             Err(error) => {
                 self.record_pre_admission_rejection(target, lane, &error);
@@ -780,7 +768,7 @@ impl OwnerHandleCore {
         match self.admissions.try_send(boundary) {
             Ok(()) => Ok((completion, admission)),
             Err(flume::TrySendError::Disconnected(_)) => {
-                let error = self.disconnected_error();
+                let error = lifecycle.disconnected_error();
                 self.record_pre_admission_rejection(target, lane, &error);
                 Err(error)
             }
@@ -885,15 +873,181 @@ impl OwnerHandleCore {
 
     /// The session's terminal error, for a boundary whose owner is gone.
     pub(super) fn disconnected_error(&self) -> Error {
-        self.lifecycle
-            .terminal()
-            .unwrap_or_else(missing_terminal_error)
+        self.lifecycle.lock_state().disconnected_error()
     }
 }
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
+
     use super::*;
+
+    fn lifecycle_handle() -> (OwnerHandleCore, OwnerEnds) {
+        let policy = super::super::OwnerPolicy::single_target(
+            crate::runtime::engine::ProtocolPolicy::test_default(),
+            TargetSlot::CAMERA_1,
+            crate::runtime::engine::TargetPolicy::test_default(),
+        )
+        .unwrap();
+        let state = OwnerState::new(policy, Instant::now()).unwrap();
+        OwnerHandleCore::new(&state)
+    }
+
+    fn result_error(result: Result<(), Error>) -> Option<String> {
+        result.err().map(|error| format!("{error:?}"))
+    }
+
+    fn assert_lifecycle(
+        state: LifecycleState,
+        shutdown: Option<&str>,
+        closed: Option<&str>,
+        rejection: Option<&str>,
+        disconnected: &str,
+        terminal: Option<&str>,
+    ) {
+        let (handle, _ends) = lifecycle_handle();
+        *handle.lifecycle.lock_state() = state;
+        assert_eq!(
+            handle
+                .lifecycle
+                .terminal()
+                .map(|error| format!("{error:?}")),
+            terminal.map(str::to_owned),
+        );
+        assert_eq!(
+            handle
+                .lifecycle
+                .lock_open()
+                .err()
+                .map(|error| format!("{error:?}")),
+            rejection.map(str::to_owned),
+        );
+        assert_eq!(format!("{:?}", handle.disconnected_error()), disconnected);
+        assert_eq!(
+            result_error(handle.closed_result()),
+            closed.map(str::to_owned)
+        );
+        assert_eq!(result_error(handle.shutdown()), shutdown.map(str::to_owned));
+    }
+
+    #[test]
+    fn lifecycle_reachable_states_preserve_every_boundary_verdict() {
+        const MISSING: &str = "OwnerTerminated";
+        const SHUTDOWN: &str = "RuntimeShutdown";
+        const FAILED: &str = "InvalidState(\"signal failed\")";
+        assert_lifecycle(
+            LifecycleState::Open,
+            None,
+            Some(MISSING),
+            None,
+            MISSING,
+            None,
+        );
+        assert_lifecycle(
+            LifecycleState::ShutdownAccepted,
+            None,
+            Some(MISSING),
+            Some(SHUTDOWN),
+            MISSING,
+            None,
+        );
+        assert_lifecycle(
+            LifecycleState::SignalFailed(Error::InvalidState("signal failed".into())),
+            Some(FAILED),
+            Some(MISSING),
+            Some(FAILED),
+            MISSING,
+            None,
+        );
+        assert_lifecycle(
+            LifecycleState::ShutDown,
+            None,
+            None,
+            Some(SHUTDOWN),
+            SHUTDOWN,
+            Some(SHUTDOWN),
+        );
+        assert_lifecycle(
+            LifecycleState::Terminated(Error::RuntimeShutdown),
+            Some(SHUTDOWN),
+            None,
+            Some(SHUTDOWN),
+            SHUTDOWN,
+            Some(SHUTDOWN),
+        );
+        assert_lifecycle(
+            LifecycleState::Terminated(Error::InvalidState("signal failed".into())),
+            Some(FAILED),
+            Some(FAILED),
+            Some(FAILED),
+            FAILED,
+            Some(FAILED),
+        );
+    }
+
+    #[test]
+    fn every_lifecycle_publication_and_fail_closed_transition_is_idempotent() {
+        let states = [
+            LifecycleState::Open,
+            LifecycleState::ShutdownAccepted,
+            LifecycleState::SignalFailed(Error::InvalidState("signal failed".into())),
+            LifecycleState::ShutDown,
+            LifecycleState::Terminated(Error::RuntimeShutdown),
+            LifecycleState::Terminated(Error::InvalidState("signal failed".into())),
+        ];
+        for initial in states {
+            for explicit_shutdown in [false, true] {
+                let lifecycle = OwnerLifecycle::new();
+                *lifecycle.lock_state() = initial.clone();
+                let expected = match &initial {
+                    LifecycleState::ShutDown => None,
+                    LifecycleState::Terminated(error) => Some(format!("{error:?}")),
+                    LifecycleState::ShutdownAccepted if explicit_shutdown => None,
+                    _ if explicit_shutdown => Some("RuntimeShutdown".to_owned()),
+                    _ => Some("OwnerTerminated".to_owned()),
+                };
+                lifecycle.publish_terminal(if explicit_shutdown {
+                    Error::RuntimeShutdown
+                } else {
+                    Error::OwnerTerminated
+                });
+                // Repeated publication and a subsequent teardown preserve the
+                // authoritative result, including accepted shutdown success.
+                lifecycle.publish_terminal(Error::InvalidState("later result".into()));
+                lifecycle.fail_closed();
+                let state = lifecycle.lock_state().clone();
+                let terminal = state.terminal().unwrap();
+                let terminal = format!("{terminal:?}");
+                let closed = (terminal != "RuntimeShutdown").then_some(terminal.as_str());
+                assert_lifecycle(
+                    state,
+                    expected.as_deref(),
+                    closed,
+                    Some(&terminal),
+                    &terminal,
+                    Some(&terminal),
+                );
+            }
+            let lifecycle = OwnerLifecycle::new();
+            *lifecycle.lock_state() = initial.clone();
+            let expected_terminal = initial.terminal().unwrap_or(Error::OwnerTerminated);
+            assert_eq!(
+                format!("{:?}", lifecycle.fail_closed()),
+                format!("{expected_terminal:?}")
+            );
+            let accepted = matches!(initial, LifecycleState::ShutDown);
+            let terminal = format!("{expected_terminal:?}");
+            assert_lifecycle(
+                lifecycle.lock_state().clone(),
+                (!accepted).then_some(terminal.as_str()),
+                (terminal != "RuntimeShutdown").then_some(terminal.as_str()),
+                Some(&terminal),
+                &terminal,
+                Some(&terminal),
+            );
+        }
+    }
 
     #[test]
     fn admission_rejection_ingress_total_saturates() {
