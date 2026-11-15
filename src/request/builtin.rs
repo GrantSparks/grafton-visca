@@ -317,7 +317,6 @@ fn validate_pan_tilt_position_speed(
 }
 
 fn validate_move_speeds(profile: &crate::ProfileSpec, speeds: MoveSpeeds) -> Result<(), Error> {
-    validate_pan_tilt(profile)?;
     let (pan, tilt) = speeds.values();
     require_in_range("pan speed", pan, &profile.capabilities().pan_speed)?;
     require_in_range("tilt speed", tilt, &profile.capabilities().tilt_speed)?;
@@ -1018,7 +1017,6 @@ impl PreparedPanTiltOffset {
     }
 
     fn validate(self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_pan_tilt(profile)?;
         if profile.pan_tilt_coordinates() != Some(self.conversion) {
             return Err(Error::InvalidRequest(
                 "pan/tilt offset was converted for a different profile".into(),
