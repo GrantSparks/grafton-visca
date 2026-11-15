@@ -42,7 +42,7 @@ Ready queues hold request ids, without queue generations or pruning. Sequence re
 
 `EntryPlacement::Displaced` privately proves that its one logical lifecycle was socketed. It relinquishes active indexes without dropping the logical phase used by ordered transition effects. Removing it cannot clear a successor’s claim. Ordinary due selection sees active phases only; displacement cleanup completes within the same decision.
 
-Each boundary owns a local `Decision`, which consumes `Answered` retroactive frames by value and returns outward effects only after deferred evidence is processed. There is no engine scratch or end-of-input emptiness audit. A real maximal ledger decision returns seven inline frames; the local all-target batch has 51 inline frames and 14 unique displaced identities.
+Each boundary owns a local `Decision`, which consumes `Answered` retroactive frames by value and returns outward effects only after deferred evidence is processed. There is no engine scratch and no ambient instant; every boundary takes its instant explicitly. No end-of-input emptiness audit remains. A real maximal ledger decision returns seven inline frames; the local all-target batch has 51 inline frames and 14 unique displaced identities.
 
 `EngineTurn` has exactly `Complete` and `InputOnly`. The unreachable public `DiagnosticIgnoreReason::StaleQueueTicket` was removed as part of the breaking 2.0 change; the net public API snapshot must reflect that removal.
 
