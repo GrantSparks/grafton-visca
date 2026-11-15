@@ -130,7 +130,7 @@ record_construction InvalidCameraId src/camera_id.rs \
 record_construction ResponseTooLarge src/raw.rs \
   'return Err(Error::ResponseTooLarge {'
 record_construction InquiryNotCancelable src/runtime/engine/mod.rs \
-  'observation: CancellationObservation::Failed(Error::InquiryNotCancelable),'
+  'CancellationDecision::Refused(Error::InquiryNotCancelable)'
 record_construction InvalidAddress src/transport/address.rs \
   'Error::InvalidAddress {'
 record_construction UnsupportedTransport src/runtime/owner/adapter.rs \
