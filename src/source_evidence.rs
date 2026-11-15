@@ -435,6 +435,8 @@ mod tests {
         assert!(!super::token_matches("02", 0x03));
         assert!(super::token_matches("2p", 0x21));
         assert!(!super::token_matches("2p", 0x31));
+        assert!(super::token_matches("3p", 0x37));
+        assert!(!super::token_matches("3p", 0x27));
         assert!(!super::token_matches("xx", 0x21));
         assert!(!super::token_matches("", 0x21));
     }

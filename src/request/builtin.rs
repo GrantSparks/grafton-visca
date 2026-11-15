@@ -2761,6 +2761,30 @@ mod tests {
                     BuiltinCommand::FocusFar,
                     [0x81, 1, 4, 8, 0x20 | focus.min(), 0xff],
                 ),
+                (
+                    BuiltinCommand::ZoomTeleVariable,
+                    [0x81, 1, 4, 7, 0x30 | zoom.min(), 0xff],
+                ),
+                (
+                    BuiltinCommand::ZoomWideVariable,
+                    [0x81, 1, 4, 7, 0x20 | zoom.max(), 0xff],
+                ),
+                (
+                    BuiltinCommand::ZoomTeleVariable,
+                    [0x81, 1, 4, 7, 0x02, 0xff],
+                ),
+                (
+                    BuiltinCommand::FocusFarVariable,
+                    [0x81, 1, 4, 8, 0x30 | focus.min(), 0xff],
+                ),
+                (
+                    BuiltinCommand::FocusNearVariable,
+                    [0x81, 1, 4, 8, 0x20 | focus.max(), 0xff],
+                ),
+                (
+                    BuiltinCommand::FocusFarVariable,
+                    [0x81, 1, 4, 8, 0x02, 0xff],
+                ),
             ] {
                 assert!(
                     wrong

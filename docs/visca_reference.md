@@ -1911,20 +1911,20 @@ vendor-verified claim from this built-in catalog.
 | r8-zoomwide-command | R8 | SonyEviH100, GenericVisca | command.ZoomWide | 01 04 07 03 | - | EVI-H100 Technical Manual command list pp.31–34 |
 | r12-zoomwide-command | R12 | SonyBrc300, GenericVisca | command.ZoomWide | 01 04 07 03 | - | BRC-300 Command List pp.9–12 |
 | r21-zoomwide-command | R21 | NearusBrc300, GenericVisca | command.ZoomWide | 01 04 07 03 | - | BRC-300/300P Command List pp.9–12 |
-| r1-zoomtelevariable-command | R1 | PtzOpticsG2, PtzOptics30X | command.ZoomTeleVariable | 01 04 07 | - | §7 command list |
-| r14-zoomtelevariable-command | R14 | PtzOpticsG3 | command.ZoomTeleVariable | 01 04 07 | - | Current Developer Portal command pages |
-| r7-zoomtelevariable-command | R7 | SonyFr7 | command.ZoomTeleVariable | 01 04 07 | - | FR7 v4 command list pp.14–20 |
-| r11-zoomtelevariable-command | R11 | SonyBrcH900 | command.ZoomTeleVariable | 01 04 07 | - | BRC-H900 v2.20 command list pp.14–18 |
-| r8-zoomtelevariable-command | R8 | SonyEviH100, GenericVisca | command.ZoomTeleVariable | 01 04 07 | - | EVI-H100 Technical Manual command list pp.31–34 |
-| r12-zoomtelevariable-command | R12 | SonyBrc300, GenericVisca | command.ZoomTeleVariable | 01 04 07 | - | BRC-300 Command List pp.9–12 |
-| r21-zoomtelevariable-command | R21 | NearusBrc300, GenericVisca | command.ZoomTeleVariable | 01 04 07 | - | BRC-300/300P Command List pp.9–12 |
-| r1-zoomwidevariable-command | R1 | PtzOpticsG2, PtzOptics30X | command.ZoomWideVariable | 01 04 07 | - | §7 command list |
-| r14-zoomwidevariable-command | R14 | PtzOpticsG3 | command.ZoomWideVariable | 01 04 07 | - | Current Developer Portal command pages |
-| r7-zoomwidevariable-command | R7 | SonyFr7 | command.ZoomWideVariable | 01 04 07 | - | FR7 v4 command list pp.14–20 |
-| r11-zoomwidevariable-command | R11 | SonyBrcH900 | command.ZoomWideVariable | 01 04 07 | - | BRC-H900 v2.20 command list pp.14–18 |
-| r8-zoomwidevariable-command | R8 | SonyEviH100, GenericVisca | command.ZoomWideVariable | 01 04 07 | - | EVI-H100 Technical Manual command list pp.31–34 |
-| r12-zoomwidevariable-command | R12 | SonyBrc300, GenericVisca | command.ZoomWideVariable | 01 04 07 | - | BRC-300 Command List pp.9–12 |
-| r21-zoomwidevariable-command | R21 | NearusBrc300, GenericVisca | command.ZoomWideVariable | 01 04 07 | - | BRC-300/300P Command List pp.9–12 |
+| r1-zoomtelevariable-command | R1 | PtzOpticsG2, PtzOptics30X | command.ZoomTeleVariable | 01 04 07 2p | - | §7 command list |
+| r14-zoomtelevariable-command | R14 | PtzOpticsG3 | command.ZoomTeleVariable | 01 04 07 2p | - | Current Developer Portal command pages |
+| r7-zoomtelevariable-command | R7 | SonyFr7 | command.ZoomTeleVariable | 01 04 07 2p | - | FR7 v4 command list pp.14–20 |
+| r11-zoomtelevariable-command | R11 | SonyBrcH900 | command.ZoomTeleVariable | 01 04 07 2p | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-zoomtelevariable-command | R8 | SonyEviH100, GenericVisca | command.ZoomTeleVariable | 01 04 07 2p | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-zoomtelevariable-command | R12 | SonyBrc300, GenericVisca | command.ZoomTeleVariable | 01 04 07 2p | - | BRC-300 Command List pp.9–12 |
+| r21-zoomtelevariable-command | R21 | NearusBrc300, GenericVisca | command.ZoomTeleVariable | 01 04 07 2p | - | BRC-300/300P Command List pp.9–12 |
+| r1-zoomwidevariable-command | R1 | PtzOpticsG2, PtzOptics30X | command.ZoomWideVariable | 01 04 07 3p | - | §7 command list |
+| r14-zoomwidevariable-command | R14 | PtzOpticsG3 | command.ZoomWideVariable | 01 04 07 3p | - | Current Developer Portal command pages |
+| r7-zoomwidevariable-command | R7 | SonyFr7 | command.ZoomWideVariable | 01 04 07 3p | - | FR7 v4 command list pp.14–20 |
+| r11-zoomwidevariable-command | R11 | SonyBrcH900 | command.ZoomWideVariable | 01 04 07 3p | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-zoomwidevariable-command | R8 | SonyEviH100, GenericVisca | command.ZoomWideVariable | 01 04 07 3p | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-zoomwidevariable-command | R12 | SonyBrc300, GenericVisca | command.ZoomWideVariable | 01 04 07 3p | - | BRC-300 Command List pp.9–12 |
+| r21-zoomwidevariable-command | R21 | NearusBrc300, GenericVisca | command.ZoomWideVariable | 01 04 07 3p | - | BRC-300/300P Command List pp.9–12 |
 | r1-zoomposition-command | R1 | PtzOpticsG2, PtzOptics30X | command.ZoomPosition | 01 04 47 | - | §7 command list |
 | r14-zoomposition-command | R14 | PtzOpticsG3 | command.ZoomPosition | 01 04 47 | - | Current Developer Portal command pages |
 | r7-zoomposition-command | R7 | SonyFr7 | command.ZoomPosition | 01 04 47 | - | FR7 v4 command list pp.14–20 |
@@ -1956,20 +1956,20 @@ vendor-verified claim from this built-in catalog.
 | r8-focusnear-command | R8 | SonyEviH100, GenericVisca | command.FocusNear | 01 04 08 03 | - | EVI-H100 Technical Manual command list pp.31–34 |
 | r12-focusnear-command | R12 | SonyBrc300, GenericVisca | command.FocusNear | 01 04 08 03 | - | BRC-300 Command List pp.9–12 |
 | r21-focusnear-command | R21 | NearusBrc300, GenericVisca | command.FocusNear | 01 04 08 03 | - | BRC-300/300P Command List pp.9–12 |
-| r1-focusfarvariable-command | R1 | PtzOpticsG2, PtzOptics30X | command.FocusFarVariable | 01 04 08 | - | §7 command list |
-| r14-focusfarvariable-command | R14 | PtzOpticsG3 | command.FocusFarVariable | 01 04 08 | - | Current Developer Portal command pages |
-| r7-focusfarvariable-command | R7 | SonyFr7 | command.FocusFarVariable | 01 04 08 | - | FR7 v4 command list pp.14–20 |
-| r11-focusfarvariable-command | R11 | SonyBrcH900 | command.FocusFarVariable | 01 04 08 | - | BRC-H900 v2.20 command list pp.14–18 |
-| r8-focusfarvariable-command | R8 | SonyEviH100, GenericVisca | command.FocusFarVariable | 01 04 08 | - | EVI-H100 Technical Manual command list pp.31–34 |
-| r12-focusfarvariable-command | R12 | SonyBrc300, GenericVisca | command.FocusFarVariable | 01 04 08 | - | BRC-300 Command List pp.9–12 |
-| r21-focusfarvariable-command | R21 | NearusBrc300, GenericVisca | command.FocusFarVariable | 01 04 08 | - | BRC-300/300P Command List pp.9–12 |
-| r1-focusnearvariable-command | R1 | PtzOpticsG2, PtzOptics30X | command.FocusNearVariable | 01 04 08 | - | §7 command list |
-| r14-focusnearvariable-command | R14 | PtzOpticsG3 | command.FocusNearVariable | 01 04 08 | - | Current Developer Portal command pages |
-| r7-focusnearvariable-command | R7 | SonyFr7 | command.FocusNearVariable | 01 04 08 | - | FR7 v4 command list pp.14–20 |
-| r11-focusnearvariable-command | R11 | SonyBrcH900 | command.FocusNearVariable | 01 04 08 | - | BRC-H900 v2.20 command list pp.14–18 |
-| r8-focusnearvariable-command | R8 | SonyEviH100, GenericVisca | command.FocusNearVariable | 01 04 08 | - | EVI-H100 Technical Manual command list pp.31–34 |
-| r12-focusnearvariable-command | R12 | SonyBrc300, GenericVisca | command.FocusNearVariable | 01 04 08 | - | BRC-300 Command List pp.9–12 |
-| r21-focusnearvariable-command | R21 | NearusBrc300, GenericVisca | command.FocusNearVariable | 01 04 08 | - | BRC-300/300P Command List pp.9–12 |
+| r1-focusfarvariable-command | R1 | PtzOpticsG2, PtzOptics30X | command.FocusFarVariable | 01 04 08 2p | - | §7 command list |
+| r14-focusfarvariable-command | R14 | PtzOpticsG3 | command.FocusFarVariable | 01 04 08 2p | - | Current Developer Portal command pages |
+| r7-focusfarvariable-command | R7 | SonyFr7 | command.FocusFarVariable | 01 04 08 2p | - | FR7 v4 command list pp.14–20 |
+| r11-focusfarvariable-command | R11 | SonyBrcH900 | command.FocusFarVariable | 01 04 08 2p | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-focusfarvariable-command | R8 | SonyEviH100, GenericVisca | command.FocusFarVariable | 01 04 08 2p | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-focusfarvariable-command | R12 | SonyBrc300, GenericVisca | command.FocusFarVariable | 01 04 08 2p | - | BRC-300 Command List pp.9–12 |
+| r21-focusfarvariable-command | R21 | NearusBrc300, GenericVisca | command.FocusFarVariable | 01 04 08 2p | - | BRC-300/300P Command List pp.9–12 |
+| r1-focusnearvariable-command | R1 | PtzOpticsG2, PtzOptics30X | command.FocusNearVariable | 01 04 08 3p | - | §7 command list |
+| r14-focusnearvariable-command | R14 | PtzOpticsG3 | command.FocusNearVariable | 01 04 08 3p | - | Current Developer Portal command pages |
+| r7-focusnearvariable-command | R7 | SonyFr7 | command.FocusNearVariable | 01 04 08 3p | - | FR7 v4 command list pp.14–20 |
+| r11-focusnearvariable-command | R11 | SonyBrcH900 | command.FocusNearVariable | 01 04 08 3p | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-focusnearvariable-command | R8 | SonyEviH100, GenericVisca | command.FocusNearVariable | 01 04 08 3p | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-focusnearvariable-command | R12 | SonyBrc300, GenericVisca | command.FocusNearVariable | 01 04 08 3p | - | BRC-300 Command List pp.9–12 |
+| r21-focusnearvariable-command | R21 | NearusBrc300, GenericVisca | command.FocusNearVariable | 01 04 08 3p | - | BRC-300/300P Command List pp.9–12 |
 | r1-focusposition-command | R1 | PtzOpticsG2, PtzOptics30X | command.FocusPosition | 01 04 48 | - | §7 command list |
 | r14-focusposition-command | R14 | PtzOpticsG3 | command.FocusPosition | 01 04 48 | - | Current Developer Portal command pages |
 | r7-focusposition-command | R7 | SonyFr7 | command.FocusPosition | 01 04 48 | - | FR7 v4 command list pp.14–20 |
