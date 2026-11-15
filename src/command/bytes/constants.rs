@@ -60,6 +60,9 @@ pub mod power {
         STATE_INQUIRY = [0x04, 0x00];
     }
 
+    /// BRC-H900 extended-category power-status inquiry (R11).
+    pub const BRC_H900_STATE_INQUIRY: [u8; 4] = [super::INQUIRY, 0x7E, 0x04, 0x00];
+
     /// Power on.
     pub const ON: [u8; 4] = concat(&[&STATE, &[0x02]]);
 

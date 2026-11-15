@@ -97,12 +97,21 @@ macro_rules! builtin_request {
     (@row $this:ident) => { Self::LEDGER_ROW };
     (@row $this:ident, $value:ident) => { $this.ledger_row() };
 
+    (@row_inventory $type:ty, $row:ident, []) => { &[BuiltinCommand::$row] };
+    (@row_inventory $type:ty, $row:ident, [$value:ident]) => { <$type>::VALUE_SELECTED_LEDGER_ROWS };
+
     (@wire $this:tt) => { *$this };
     (@wire $this:tt, $wire:expr) => { ($wire)($this) };
 
     (@contract $type:ty, $row:ident [$(profile_axes)?] [$($by_value:ident)?]) => {
         impl BuiltinRequestContract for $type {
             const LEDGER_ROW: BuiltinCommand = BuiltinCommand::$row;
+            #[cfg(test)]
+            fn selected_ledger_row(&self) -> BuiltinCommand {
+                builtin_request!(@row self $(, $by_value)?)
+            }
+            #[cfg(test)]
+            const LEDGER_ROWS: &'static [BuiltinCommand] = builtin_request!(@row_inventory $type, $row, [$($by_value)?]);
             type State = <crate::command::semantics::LedgerRow<{ BuiltinCommand::$row as usize }> as crate::command::semantics::LedgerState>::State;
         }
     };
@@ -121,6 +130,8 @@ macro_rules! builtin_request {
             "a selected request row changes its class, axes or state-effect contract",
         );)+
         impl $type {
+            #[cfg(test)]
+            pub(crate) const VALUE_SELECTED_LEDGER_ROWS: &'static [BuiltinCommand] = &[$(BuiltinCommand::$row),+];
             /// The ledger row this value serves, whose typed capability gate
             /// admits it.
             #[deny(unreachable_patterns)]
@@ -189,7 +200,13 @@ macro_rules! builtin_request {
             fn write_for_target(&self, target: &crate::TargetRegistration, buffer: &mut [u8], _authority: crate::requests::RequestContractAuthority) -> Result<usize, Error> {
                 let written = <Self as Request>::write_into(self, target.target(), buffer)?;
                 let row = builtin_request!(@row self $(, $value)?);
-                row.source().validate_frame(target.profile(), &buffer[..written], surface_entry(row).feature())?;
+                // One bounded byte/mask comparison keeps selector defence in
+                // depth without reparsing or walking per-reference packet text.
+                if target.profile().capabilities().profile_id.is_some() {
+                    if let Some(packet) = row.packet() {
+                        packet.validate_frame(&buffer[..written], surface_entry(row).feature())?;
+                    }
+                }
                 Ok(written)
             }
 
@@ -2674,8 +2691,9 @@ mod tests {
                     target.profile().name()
                 );
                 assert!(row
-                    .source()
-                    .validate_frame(target.profile(), &frame, "selected zoom source")
+                    .packet()
+                    .expect("selected zoom pattern")
+                    .validate_frame(&frame, "selected zoom source")
                     .is_ok());
             }
             for (value, row, parameter) in [
@@ -2711,8 +2729,9 @@ mod tests {
                     target.profile().name()
                 );
                 assert!(row
-                    .source()
-                    .validate_frame(target.profile(), &frame, "selected focus source")
+                    .packet()
+                    .expect("selected focus pattern")
+                    .validate_frame(&frame, "selected focus source")
                     .is_ok());
             }
             for (wrong, frame) in [
@@ -2753,8 +2772,9 @@ mod tests {
             ] {
                 assert!(
                     wrong
-                        .source()
-                        .validate_frame(target.profile(), &frame, "wrong source key")
+                        .packet()
+                        .expect("sourced selector pattern")
+                        .validate_frame(&frame, "wrong source key")
                         .is_err(),
                     "{} {wrong:?}",
                     target.profile().name()

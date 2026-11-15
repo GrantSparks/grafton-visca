@@ -1,5 +1,128 @@
 //! Typed links from built-in protocol facts to checked positive source rows.
 
+/// An address-free catalogue prefix, including any fixed selector or wildcard
+/// nibble. Its text form exists only in the checked evidence tests.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct PacketPattern {
+    bytes: [u8; 8],
+    mask: [u8; 8],
+    len: usize,
+}
+
+impl PacketPattern {
+    pub(crate) const fn is_empty(self) -> bool {
+        self.len == 0
+    }
+
+    pub(crate) const fn exact(bytes: &[u8]) -> Self {
+        assert!(
+            bytes.len() <= 8,
+            "source packet prefix exceeds pattern capacity"
+        );
+        let mut pattern = Self {
+            bytes: [0; 8],
+            mask: [0; 8],
+            len: bytes.len(),
+        };
+        let mut index = 0;
+        while index < bytes.len() {
+            pattern.bytes[index] = bytes[index];
+            pattern.mask[index] = 0xff;
+            index += 1;
+        }
+        pattern
+    }
+
+    pub(crate) const fn prefix_len(mut self, len: usize) -> Self {
+        assert!(
+            len <= self.len,
+            "source prefix extends past its catalogue bytes"
+        );
+        self.len = len;
+        self
+    }
+
+    pub(crate) const fn then(mut self, bytes: &[u8], mask: &[u8]) -> Self {
+        assert!(
+            bytes.len() == mask.len(),
+            "source pattern bytes and mask differ in length"
+        );
+        assert!(
+            self.len + bytes.len() <= 8,
+            "source packet prefix exceeds pattern capacity"
+        );
+        let mut index = 0;
+        while index < bytes.len() {
+            assert!(
+                matches!(mask[index] & 0x0f, 0 | 0x0f) && matches!(mask[index] >> 4, 0 | 0x0f),
+                "a packet wildcard masks whole nibbles"
+            );
+            self.bytes[self.len + index] = bytes[index] & mask[index];
+            self.mask[self.len + index] = mask[index];
+            index += 1;
+        }
+        self.len += bytes.len();
+        self
+    }
+
+    pub(crate) fn matches_bytes(self, bytes: &[u8]) -> bool {
+        bytes.len() >= self.len
+            && (0..self.len).all(|index| {
+                bytes[index] & self.mask[index] == self.bytes[index] & self.mask[index]
+            })
+    }
+
+    pub(crate) fn validate_frame(self, frame: &[u8], feature: &'static str) -> crate::Result<()> {
+        if frame.get(1..).is_some_and(|body| self.matches_bytes(body)) {
+            Ok(())
+        } else {
+            Err(crate::Error::InvalidRequest(
+                format!("{feature} encoded a packet outside its sourced register/selector").into(),
+            ))
+        }
+    }
+
+    /// The checked table sometimes summarizes selector rows by their common
+    /// register. Expand that summary over the finite noun-row packet set.
+    #[cfg(test)]
+    fn covers_pattern(self, pattern: Self) -> bool {
+        self.len <= pattern.len
+            && (0..self.len).all(|index| {
+                self.mask[index] & pattern.mask[index] == self.mask[index]
+                    && self.bytes[index] & self.mask[index]
+                        == pattern.bytes[index] & self.mask[index]
+            })
+    }
+}
+
+impl PartialEq for PacketPattern {
+    fn eq(&self, other: &Self) -> bool {
+        self.len == other.len
+            && self.bytes[..self.len] == other.bytes[..other.len]
+            && self.mask[..self.len] == other.mask[..other.len]
+    }
+}
+impl Eq for PacketPattern {}
+
+#[cfg(test)]
+impl std::fmt::Display for PacketPattern {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for index in 0..self.len {
+            if index > 0 {
+                formatter.write_str(" ")?;
+            }
+            for shift in [4, 0] {
+                if self.mask[index] & (0xf << shift) == 0 {
+                    formatter.write_str("p")?;
+                } else {
+                    write!(formatter, "{:X}", (self.bytes[index] >> shift) & 0xf)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 macro_rules! source_ids {
     ($($id:ident),+ $(,)?) => {
         /// Reference identities in the checked-in source catalog.
@@ -20,12 +143,12 @@ source_ids! {
     R15, R16, R17, R18, R19, R20, R21, B1,
 }
 
-/// One exact positive row, including the packet/fact that the row establishes.
+/// One exact positive provenance row. The owning ledger or inquiry supplies
+/// its packet pattern once, independently of how many references establish it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Reference {
     pub(crate) id: SourceId,
     pub(crate) row: &'static str,
-    pub(crate) packet: &'static str,
     pub(crate) models: &'static [crate::camera::profiles::ProfileId],
 }
 
@@ -50,7 +173,6 @@ impl Source {
         while index < references.len() {
             let reference = references[index];
             if reference.row.is_empty()
-                || reference.packet.is_empty()
                 || reference.models.is_empty()
                 || reference.id.as_str().is_empty()
                 || reference.id as usize >= SourceId::ALL.len()
@@ -70,40 +192,6 @@ impl Source {
             Ok(())
         } else {
             Err(crate::Error::FeatureNotSupported { feature })
-        }
-    }
-
-    /// Check the actual encoded opcode/selector against this row's positive
-    /// reference. Values and framing widths have their own profile validators.
-    pub(crate) fn validate_frame(
-        self,
-        profile: &crate::ProfileSpec,
-        frame: &[u8],
-        feature: &'static str,
-    ) -> crate::Result<()> {
-        let Some(model) = profile.capabilities().profile_id else {
-            return Ok(());
-        };
-        let Self::References(references) = self else {
-            return Err(crate::Error::FeatureNotSupported { feature });
-        };
-        let body = frame.get(1..).unwrap_or_default();
-        let matches = references
-            .iter()
-            .filter(|reference| reference.models.contains(&model))
-            .any(|reference| {
-                let mut bytes = body.iter();
-                reference
-                    .packet
-                    .split_whitespace()
-                    .all(|token| bytes.next().is_some_and(|byte| token_matches(token, *byte)))
-            });
-        if matches {
-            Ok(())
-        } else {
-            Err(crate::Error::InvalidRequest(
-                format!("{feature} encoded a packet outside its sourced register/selector").into(),
-            ))
         }
     }
 
@@ -147,40 +235,22 @@ impl Source {
     }
 }
 
-fn token_matches(token: &str, byte: u8) -> bool {
-    fn nibble(code: u8, actual: u8) -> bool {
-        match code {
-            b'0'..=b'9' => actual == code - b'0',
-            b'A'..=b'F' => actual == code - b'A' + 10,
-            b'a'..=b'f' => actual == code - b'a' + 10,
-            b'p' => true,
-            _ => false,
-        }
-    }
-    match token.as_bytes() {
-        [high, low] => nibble(*high, byte >> 4) && nibble(*low, byte & 0x0f),
-        _ => false,
-    }
-}
-
 /// Keep references next to the fact they justify, without repeating path names.
 macro_rules! source {
-    ($id:ident, [$($model:ident),+ $(,)?], $row:literal, $packet:literal) => {
+    ($id:ident, [$($model:ident),+ $(,)?], $row:literal) => {
         $crate::source_evidence::Source::References(&[
             $crate::source_evidence::Reference {
                 id: $crate::source_evidence::SourceId::$id,
                 row: $row,
-                packet: $packet,
                 models: &[$($crate::camera::profiles::ProfileId::$model),+],
             },
         ])
     };
-    ([$(($id:ident, [$($model:ident),+], $row:literal, $packet:literal)),+ $(,)?]) => {
+    ([$(($id:ident, [$($model:ident),+], $row:literal)),+ $(,)?]) => {
         $crate::source_evidence::Source::References(&[
             $($crate::source_evidence::Reference {
                 id: $crate::source_evidence::SourceId::$id,
                 row: $row,
-                packet: $packet,
                 models: &[$($crate::camera::profiles::ProfileId::$model),+],
             }),+
         ])
@@ -189,10 +259,12 @@ macro_rules! source {
 pub(crate) use source;
 
 #[cfg(test)]
+#[allow(clippy::expect_used)]
 pub(crate) mod checked {
     use std::collections::{HashMap, HashSet};
 
-    use super::{Source, SourceId};
+    use super::{PacketPattern, Source, SourceId};
+    use crate::{camera::profiles::ProfileId, capabilities::TypedSupportSurface};
 
     const BEGIN: &str = "<!-- BEGIN CHECKED SOURCE EVIDENCE -->";
     const END: &str = "<!-- END CHECKED SOURCE EVIDENCE -->";
@@ -263,6 +335,80 @@ pub(crate) mod checked {
             Ok(Self { catalog, rows })
         }
 
+        /// Every checked evidence row must have a live code reference.
+        pub(crate) fn require_complete(&self, used: &HashSet<&str>) -> Result<(), String> {
+            let mut orphaned = self
+                .rows
+                .keys()
+                .filter(|key| !used.contains(**key))
+                .copied()
+                .collect::<Vec<_>>();
+            orphaned.sort_unstable();
+            if orphaned.is_empty() {
+                Ok(())
+            } else {
+                Err(format!(
+                    "unreferenced checked source evidence: {}",
+                    orphaned.join(", ")
+                ))
+            }
+        }
+
+        /// A grant's packet set is the union of the noun rows it permits on
+        /// this model. The docs may abbreviate a selector family by register;
+        /// expand that prefix over those rows and require equality both ways.
+        pub(crate) fn validate_grant(
+            &self,
+            source: Source,
+            surface: TypedSupportSurface,
+            model: ProfileId,
+        ) -> Result<(), String> {
+            let subject = format!("grant.{surface:?}");
+            self.validate(source, &subject, Some(&format!("{model:?}")), None, None)?;
+            let patterns = grant_patterns(surface, model);
+            if patterns.is_empty() {
+                return Err(format!("{subject}: no gated packet rows for {model:?}"));
+            }
+            let Source::References(references) = source else {
+                unreachable!()
+            };
+            let mut documented = Vec::new();
+            for reference in references
+                .iter()
+                .filter(|reference| reference.models.contains(&model))
+            {
+                let packet = self.rows[reference.row].packet;
+                let source_packets = packet
+                    .split(';')
+                    .map(|packet| grant_pattern(surface, packet))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let source_packets =
+                    project_grant_summary(reference.row, surface, model, source_packets)?;
+                for pattern in &source_packets {
+                    if !patterns
+                        .iter()
+                        .any(|actual| pattern.covers_pattern(*actual))
+                    {
+                        return Err(format!(
+                            "{subject}: {pattern} is not the packet of any gated row"
+                        ));
+                    }
+                }
+                documented.extend(source_packets);
+            }
+            for pattern in &patterns {
+                if !documented
+                    .iter()
+                    .any(|declared| declared.covers_pattern(*pattern))
+                {
+                    return Err(format!(
+                        "{subject}: gated packet {pattern} is missing from its source references"
+                    ));
+                }
+            }
+            Ok(())
+        }
+
         pub(crate) fn validate(
             &self,
             source: Source,
@@ -291,7 +437,6 @@ pub(crate) mod checked {
                 })?;
                 if !row.source.split(',').any(|source| source.trim() == id)
                     || !row.subject.split(',').any(|item| item.trim() == subject)
-                    || row.packet != reference.packet
                     || row.location.is_empty()
                 {
                     return Err(format!(
@@ -350,6 +495,239 @@ pub(crate) mod checked {
         }
     }
 
+    fn grant_patterns(surface: TypedSupportSurface, model: ProfileId) -> Vec<PacketPattern> {
+        use crate::command::{
+            inquiry_structs::{BuiltinInquiryMetadata, BUILTIN_INQUIRIES},
+            semantics::BuiltinCommand,
+            surface::{row_gate, RowGate},
+        };
+        let mut patterns = Vec::new();
+        let mut push = |pattern| {
+            if !patterns.contains(&pattern) {
+                patterns.push(pattern);
+            }
+        };
+        for row in BuiltinCommand::ALL {
+            if matches!(row_gate(*row), RowGate::Typed(gates) if gates.contains(surface))
+                && row.source().covers_model(Some(model))
+            {
+                push(
+                    row.packet()
+                        .expect("a sourced command has its packet pattern"),
+                );
+            }
+        }
+        for BuiltinInquiryMetadata {
+            gate,
+            source,
+            bytes,
+            kind,
+            ..
+        } in BUILTIN_INQUIRIES
+        {
+            if matches!(gate, RowGate::Typed(gates) if gates.contains(surface))
+                && source.covers_model(Some(model))
+            {
+                let bytes = if matches!(kind, crate::command::InquiryKind::Power)
+                    && model == ProfileId::SonyBrcH900
+                {
+                    &crate::command::bytes::constants::power::BRC_H900_STATE_INQUIRY[..]
+                } else {
+                    bytes
+                };
+                push(PacketPattern::exact(bytes));
+            }
+        }
+        // This is the one runtime-only, argument-dependent permission: it
+        // refines ZoomPosition's optical-plus-digital domain rather than a
+        // separate static noun row (#912).
+        if surface == TypedSupportSurface::DigitalZoomRange {
+            push(
+                BuiltinCommand::ZoomPosition
+                    .packet()
+                    .expect("direct zoom pattern"),
+            );
+        }
+        patterns
+    }
+
+    /// Exact exceptions for the historical checked table's aggregate summaries.
+    /// These do not affect permission: the authoritative set is still derived
+    /// from the noun gates above. Each exception names its original reference
+    /// key and checks the entire expected summary before projecting it.
+    fn project_grant_summary(
+        key: &str,
+        surface: TypedSupportSurface,
+        model: ProfileId,
+        documented: Vec<PacketPattern>,
+    ) -> Result<Vec<PacketPattern>, String> {
+        use crate::command::{inquiry_structs::BUILTIN_INQUIRIES, semantics::BuiltinCommand as C};
+        use TypedSupportSurface as S;
+        let command = |row: C| -> Result<PacketPattern, String> {
+            if !row.source().covers_model(Some(model)) {
+                return Err(format!("{key}: supplemental {row:?} has no model source"));
+            }
+            row.packet()
+                .ok_or_else(|| format!("{key}: supplemental {row:?} has no packet"))
+        };
+        let inquiry = |name: &str| -> Result<PacketPattern, String> {
+            let row = BUILTIN_INQUIRIES
+                .iter()
+                .find(|row| row.name == name)
+                .ok_or_else(|| format!("{key}: unknown supplemental inquiry {name}"))?;
+            if !row.source.covers_model(Some(model)) {
+                return Err(format!("{key}: supplemental {name} has no model source"));
+            }
+            Ok(PacketPattern::exact(row.bytes))
+        };
+        let (required, expected, projected) = match key {
+            "r1-ptzopticsg2-ptzopticsantiflicker-grant"
+            | "r10-ptzopticsg3-ptzopticsantiflicker-grant"
+            | "r1-ptzoptics30x-ptzopticsantiflicker-grant" => {
+                // The summary omitted the separately sourced FlickerModeInquiry.
+                let setter = command(C::AntiFlicker)?;
+                (
+                    S::PtzOpticsAntiFlicker,
+                    vec![setter],
+                    vec![setter, inquiry("FlickerModeInquiry")?],
+                )
+            }
+            "r8-sonyevih100-focusnearlimitinquiry-grant" => {
+                // The old inquiry-only spelling omitted its gated setter (#912).
+                let getter = inquiry("FocusNearLimitInquiry")?;
+                (
+                    S::FocusNearLimitInquiry,
+                    vec![getter],
+                    vec![getter, command(C::FocusNearLimit)?],
+                )
+            }
+            "r1-ptzopticsg2-directzoom-grant"
+            | "r14-ptzopticsg3-directzoom-grant"
+            | "r1-ptzoptics30x-directzoom-grant"
+            | "r7-sonyfr7-directzoom-grant"
+            | "r8-sonyevih100-directzoom-grant"
+            | "r12-sonybrc300-directzoom-grant"
+            | "r21-nearusbrc300-directzoom-grant" => {
+                // Readback is sourced baseline context, not a DirectZoom grant.
+                let setter = command(C::ZoomPosition)?;
+                (
+                    S::DirectZoom,
+                    vec![setter, inquiry("ZoomPositionInquiry")?],
+                    vec![setter],
+                )
+            }
+            "r8-sonyevih100-digitalzoomtoggle-grant"
+            | "r12-sonybrc300-digitalzoomtoggle-grant"
+            | "r21-nearusbrc300-digitalzoomtoggle-grant" => {
+                // CAM_DZoomModeInq is raw-only in these source summaries. It
+                // grants no typed method and derives its register from DZoom.
+                let setter = command(C::DigitalZoom)?;
+                let mut raw_inquiry = setter;
+                raw_inquiry.bytes[0] = crate::command::bytes::constants::INQUIRY;
+                (
+                    S::DigitalZoomToggle,
+                    vec![setter, raw_inquiry],
+                    vec![setter],
+                )
+            }
+            "r7-grant-sonyfr7whitebalance" => {
+                // ATW, manual mode and the baseline mode inquiry have separate
+                // noun permissions; this old domain summary included all three.
+                let scene = command(C::Fr7WhiteBalanceSet)?;
+                let preset = command(C::WhiteBalancePreset)?;
+                (
+                    S::SonyFr7WhiteBalance,
+                    vec![
+                        command(C::WhiteBalanceAutoTracking)?,
+                        command(C::WhiteBalanceManual)?,
+                        preset,
+                        scene,
+                        inquiry("WhiteBalanceModeInquiry")?,
+                    ],
+                    vec![scene, preset],
+                )
+            }
+            "r1-ptzopticsg2-usbaudio-grant" | "r1-ptzoptics30x-usbaudio-grant" => {
+                // The obsolete 0A-category prefix in this aggregate summary
+                // is not positive permission. Both actual sourced rows use
+                // the catalogue's 2A-category packet and remain checked.
+                let setter = command(C::UsbAudioOn)?;
+                let getter = inquiry("UsbAudioInquiry")?;
+                assert_eq!(
+                    setter, getter,
+                    "USB command and inquiry share their actual register"
+                );
+                let mut obsolete = setter.prefix_len(3);
+                obsolete.bytes[0] &= !0x20;
+                (S::UsbAudio, vec![obsolete, setter], vec![setter])
+            }
+            "r1-ptzopticsg2-ptzopticspresetrecallspeed-grant"
+            | "r10-ptzopticsg3-ptzopticspresetrecallspeed-grant"
+            | "r1-ptzoptics30x-ptzopticspresetrecallspeed-grant" => {
+                // The summary includes the fully wildcard speed argument;
+                // command patterns deliberately stop at the catalogue prefix.
+                let setter = command(C::PresetRecallSpeed)?;
+                (
+                    S::PtzOpticsPresetRecallSpeed,
+                    vec![setter.then(&[0], &[0])],
+                    vec![setter],
+                )
+            }
+            _ => return Ok(documented),
+        };
+        if surface != required
+            || documented.len() != expected.len()
+            || !documented.iter().all(|pattern| expected.contains(pattern))
+            || !expected.iter().all(|pattern| documented.contains(pattern))
+        {
+            return Err(format!(
+                "{key}: named grant-summary exception packet set changed"
+            ));
+        }
+        Ok(projected)
+    }
+
+    fn grant_pattern(surface: TypedSupportSurface, packet: &str) -> Result<PacketPattern, String> {
+        // The checked table's two historical semantic qualifiers are explicit
+        // exceptions to its byte grammar. Both point to the same sourced
+        // register as the relevant noun row; they are not new packet bytes.
+        let packet = match surface {
+            TypedSupportSurface::RgbTuning => {
+                packet.trim().strip_suffix(" tuning").unwrap_or(packet)
+            }
+            TypedSupportSurface::DigitalZoomRange => packet
+                .trim()
+                .strip_suffix(" digital positions")
+                .unwrap_or(packet),
+            _ => packet,
+        };
+        let mut bytes = Vec::new();
+        let mut masks = Vec::new();
+        for token in packet.split_whitespace() {
+            if token.len() != 2 {
+                return Err(format!("invalid checked grant packet token {token}"));
+            }
+            let mut byte = 0;
+            let mut mask = 0;
+            for nibble in token.chars() {
+                byte <<= 4;
+                mask <<= 4;
+                if nibble != 'p' {
+                    byte |= u8::try_from(
+                        nibble
+                            .to_digit(16)
+                            .ok_or_else(|| format!("invalid checked packet nibble {nibble}"))?,
+                    )
+                    .expect("hex nibble");
+                    mask |= 0xf;
+                }
+            }
+            bytes.push(byte);
+            masks.push(mask);
+        }
+        Ok(PacketPattern::exact(&[]).then(&bytes, &masks))
+    }
+
     fn columns(line: &str) -> Vec<&str> {
         if !line.starts_with('|') {
             return Vec::new();
@@ -362,13 +740,111 @@ pub(crate) mod checked {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::{checked::Index, Source};
+    use crate::{camera::profiles::ProfileId, capabilities::TypedSupportSurface};
+    use std::collections::HashSet;
 
     const FIXTURE: &str = "| R1 | primary |\n| R11 | primary |\nNo source documents 09 04 2B.\n<!-- BEGIN CHECKED SOURCE EVIDENCE -->\n| Evidence key | Source | Models | Subject | Packet | Boolean reply | Location |\n| positive | R1 | GenericVisca | inquiry.Power | 09 04 00 | on=02;off=03 | p. 1 |\n<!-- END CHECKED SOURCE EVIDENCE -->";
 
     #[test]
+    fn every_checked_evidence_row_has_a_live_code_reference() {
+        let index =
+            Index::parse(include_str!("../docs/visca_reference.md")).expect("checked source index");
+        let mut used = HashSet::new();
+        let mut record = |source: Source| {
+            if let Source::References(references) = source {
+                used.extend(references.iter().map(|reference| reference.row));
+            }
+        };
+        for row in crate::command::semantics::BuiltinCommand::ALL {
+            record(row.source());
+        }
+        for inquiry in crate::command::inquiry_structs::BUILTIN_INQUIRIES {
+            record(inquiry.source);
+        }
+        for profile in crate::camera::profiles::BUILTIN_PROFILE_FACTS {
+            for (_, source) in profile.typed_sources {
+                record(*source);
+            }
+        }
+        index
+            .require_complete(&used)
+            .expect("every checked row must be named by code");
+    }
+
+    #[test]
+    fn an_unreferenced_docs_row_is_rejected() {
+        let index = Index::parse(FIXTURE).expect("fixture index");
+        assert!(index
+            .require_complete(&HashSet::new())
+            .expect_err("an unreferenced row must fail")
+            .contains("positive"));
+        index
+            .require_complete(&HashSet::from(["positive"]))
+            .expect("the fixture's only row is referenced");
+    }
+
+    #[test]
+    fn a_grant_cannot_cite_a_packet_outside_its_noun_rows() {
+        let document = FIXTURE
+            .replace("inquiry.Power", "grant.IrisControl")
+            .replace("09 04 00", "01 04 FF");
+        let index = Index::parse(&document).expect("fixture index");
+        let error = index
+            .validate_grant(
+                source!(R1, [GenericVisca], "positive"),
+                TypedSupportSurface::IrisControl,
+                ProfileId::GenericVisca,
+            )
+            .expect_err("an alien grant packet must fail");
+        assert!(error.contains("not the packet of any gated row"), "{error}");
+    }
+
+    #[test]
+    fn named_grant_summary_exceptions_are_exact_and_do_not_follow_a_family() {
+        const KEY: &str = "r1-ptzopticsg2-directzoom-grant";
+        let document = include_str!("../docs/visca_reference.md");
+        let line = document
+            .lines()
+            .find(|line| line.starts_with(&format!("| {KEY} |")))
+            .expect("exact aggregate grant row");
+        let columns = line
+            .trim_matches('|')
+            .split('|')
+            .map(str::trim)
+            .collect::<Vec<_>>();
+        let source = source!(R1, [PtzOpticsG2], "r1-ptzopticsg2-directzoom-grant");
+        let setter = crate::command::semantics::BuiltinCommand::ZoomPosition
+            .packet()
+            .expect("zoom packet")
+            .to_string();
+        for packet in [setter.clone(), format!("{setter};09 04 FF")] {
+            let changed_line = line.replace(columns[4], &packet);
+            let changed = document.replace(line, &changed_line);
+            let index = Index::parse(&changed).expect("changed document still parses");
+            let error = index
+                .validate_grant(
+                    source,
+                    TypedSupportSurface::DirectZoom,
+                    ProfileId::PtzOpticsG2,
+                )
+                .expect_err("changed exception set must fail");
+            assert!(error.contains("exception packet set changed"), "{error}");
+        }
+        let renamed = document.replace(KEY, "unrecognized-direct-zoom-summary");
+        let index = Index::parse(&renamed).expect("renamed row still parses");
+        let error = index
+            .validate_grant(
+                source!(R1, [PtzOpticsG2], "unrecognized-direct-zoom-summary"),
+                TypedSupportSurface::DirectZoom,
+                ProfileId::PtzOpticsG2,
+            )
+            .expect_err("an exception must not follow the surface family to a new row");
+        assert!(error.contains("not the packet of any gated row"), "{error}");
+    }
+    #[test]
     fn evidence_resolves_exact_ids_models_packets_and_polarity() {
         let index = Index::parse(FIXTURE).expect("fixture index");
-        let source = source!(R1, [GenericVisca], "positive", "09 04 00");
+        let source = source!(R1, [GenericVisca], "positive");
         assert!(index
             .validate(
                 source,
@@ -386,7 +862,7 @@ mod tests {
             .is_err());
         assert!(index
             .validate(
-                source!(R11, [GenericVisca], "positive", "09 04 00"),
+                source!(R11, [GenericVisca], "positive"),
                 "inquiry.Power",
                 None,
                 None,
@@ -400,8 +876,8 @@ mod tests {
         let index = Index::parse(FIXTURE).expect("fixture index");
         for source in [
             Source::Unsourced,
-            source!(R1, [GenericVisca], "09 04 2B", "09 04 2B"),
-            source!(R1, [GenericVisca], "positive", "09 04 2B"),
+            source!(R1, [GenericVisca], "09 04 2B"),
+            source!(R1, [GenericVisca], "positive"),
         ] {
             let error = index
                 .validate(
@@ -420,40 +896,46 @@ mod tests {
         use crate::camera::profiles::ProfileId;
         assert!(Source::Unsourced.covers_model(None));
         assert!(!Source::Unsourced.covers_model(Some(ProfileId::SonyFr7)));
-        assert!(!source!(R8, [GenericVisca], "one-manufacturer", "09 04 00")
+        assert!(!source!(R8, [GenericVisca], "one-manufacturer")
             .covers_model(Some(ProfileId::GenericVisca)));
         assert!(source!([
-            (R8, [GenericVisca], "evi", "09 04 00"),
-            (R12, [GenericVisca], "brc300", "09 04 00"),
-            (R21, [GenericVisca], "nearus", "09 04 00")
+            (R8, [GenericVisca], "evi"),
+            (R12, [GenericVisca], "brc300"),
+            (R21, [GenericVisca], "nearus")
         ])
         .covers_model(Some(ProfileId::GenericVisca)));
     }
     #[test]
-    fn source_packet_tokens_match_exact_bytes_and_documented_socket_nibbles() {
-        assert!(super::token_matches("02", 0x02));
-        assert!(!super::token_matches("02", 0x03));
-        assert!(super::token_matches("2p", 0x21));
-        assert!(!super::token_matches("2p", 0x31));
-        assert!(super::token_matches("3p", 0x37));
-        assert!(!super::token_matches("3p", 0x27));
-        assert!(!super::token_matches("xx", 0x21));
-        assert!(!super::token_matches("", 0x21));
+    fn source_packet_patterns_match_exact_bytes_and_documented_socket_nibbles() {
+        use super::PacketPattern;
+        let exact = PacketPattern::exact(&[0x02]);
+        assert!(exact.matches_bytes(&[0x02]));
+        assert!(!exact.matches_bytes(&[0x03]));
+        let variable = PacketPattern::exact(&[]).then(&[0x20], &[0xf0]);
+        assert!(variable.matches_bytes(&[0x21]));
+        assert!(variable.matches_bytes(&[0x27]));
+        assert!(!variable.matches_bytes(&[0x31]));
+        assert!(!variable.matches_bytes(&[]));
+        assert_eq!(variable.to_string(), "2p");
+        assert_eq!(
+            PacketPattern::exact(&[1, 2, 3, 4]).prefix_len(3),
+            PacketPattern::exact(&[1, 2, 3])
+        );
     }
     #[test]
     fn encoded_command_selector_must_match_the_source_row() {
-        let profile =
-            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("FR7");
-        let source = crate::command::semantics::BuiltinCommand::PowerOn.source();
+        let source = crate::command::semantics::BuiltinCommand::PowerOn
+            .packet()
+            .expect("power pattern");
         assert!(source
-            .validate_frame(&profile, &[0x81, 0x01, 0x04, 0x00, 0x02, 0xff], "power on")
+            .validate_frame(&[0x81, 0x01, 0x04, 0x00, 0x02, 0xff], "power on")
             .is_ok());
         assert!(source
-            .validate_frame(&profile, &[0x81, 0x01, 0x04, 0x00, 0x03, 0xff], "power on")
+            .validate_frame(&[0x81, 0x01, 0x04, 0x00, 0x03, 0xff], "power on")
             .is_err());
         assert!(source
-            .validate_frame(&profile, &[0x81, 0x01, 0x04, 0x66, 0x02, 0xff], "power on")
+            .validate_frame(&[0x81, 0x01, 0x04, 0x66, 0x02, 0xff], "power on")
             .is_err());
-        assert!(source.validate_frame(&profile, &[], "power on").is_err());
+        assert!(source.validate_frame(&[], "power on").is_err());
     }
 }

@@ -111,6 +111,8 @@ pub(crate) struct BuiltinInquiryMetadata {
     /// Human-readable registry entry name.
     pub(crate) name: &'static str,
     pub(crate) source: Source,
+    /// Permission inherited from the authoritative noun row.
+    pub(crate) gate: RowGate,
     pub(crate) boolean: Option<BoolConvention>,
     /// Generated command identity.
     pub(crate) command: BuiltinInquiryCommand,
@@ -711,6 +713,7 @@ macro_rules! define_builtin_inquiries {
                 BuiltinInquiryMetadata {
                     name: stringify!($struct),
                     source: <$struct as GeneratedInquiry>::SOURCE,
+                    gate: <$struct as BuiltinInquiryGate>::GATE,
                     boolean: <$struct as GeneratedInquiry>::BOOLEAN,
                     command: <$struct as BuiltinInquiryCommandMarker>::METADATA,
                     kind: InquiryKind::$kind,
@@ -739,7 +742,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current power state of the camera.
             PowerInquiry {
                 bytes: power::STATE_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-power-query", "09 04 00"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-power-query", "09 04 00"), (R1, [PtzOptics30X], "r1-ptzoptics30x-power-query", "09 04 00"), (R7, [SonyFr7], "r7-sonyfr7-power-query", "09 04 00"), (R11, [SonyBrcH900], "r11-sonybrch900-power-query", "09 7E 04 00"), (R8, [SonyEviH100], "r8-sonyevih100-power-query", "09 04 00"), (R12, [SonyBrc300], "r12-sonybrc300-power-query", "09 04 00"), (R21, [NearusBrc300], "r21-nearusbrc300-power-query", "09 04 00"), (R8, [GenericVisca], "r8-genericvisca-power-query", "09 04 00"), (R12, [GenericVisca], "r12-genericvisca-power-query", "09 04 00"), (R21, [GenericVisca], "r21-genericvisca-power-query", "09 04 00")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-power-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-power-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-power-query"), (R7, [SonyFr7], "r7-sonyfr7-power-query"), (R11, [SonyBrcH900], "r11-sonybrch900-power-query"), (R8, [SonyEviH100], "r8-sonyevih100-power-query"), (R12, [SonyBrc300], "r12-sonybrc300-power-query"), (R21, [NearusBrc300], "r21-nearusbrc300-power-query"), (R8, [GenericVisca], "r8-genericvisca-power-query"), (R12, [GenericVisca], "r12-genericvisca-power-query"), (R21, [GenericVisca], "r21-genericvisca-power-query")]),
                 boolean: None,
                 typed: (PowerStatus, { status } => Ok(status)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -769,7 +772,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the camera version information.
             VersionInquiry {
                 bytes: [INQUIRY, 0x00, 0x02],
-                source: source!([(R7, [SonyFr7], "r7-sonyfr7-version-query", "09 00 02"), (R11, [SonyBrcH900], "r11-sonybrch900-version-query", "09 00 02"), (R8, [SonyEviH100], "r8-sonyevih100-version-query", "09 00 02"), (R12, [SonyBrc300], "r12-sonybrc300-version-query", "09 00 02"), (R21, [NearusBrc300], "r21-nearusbrc300-version-query", "09 00 02"), (R8, [GenericVisca], "r8-genericvisca-version-query", "09 00 02"), (R12, [GenericVisca], "r12-genericvisca-version-query", "09 00 02"), (R21, [GenericVisca], "r21-genericvisca-version-query", "09 00 02")]),
+                source: source!([(R7, [SonyFr7], "r7-sonyfr7-version-query"), (R11, [SonyBrcH900], "r11-sonybrch900-version-query"), (R8, [SonyEviH100], "r8-sonyevih100-version-query"), (R12, [SonyBrc300], "r12-sonybrc300-version-query"), (R21, [NearusBrc300], "r21-nearusbrc300-version-query"), (R8, [GenericVisca], "r8-genericvisca-version-query"), (R12, [GenericVisca], "r12-genericvisca-version-query"), (R21, [GenericVisca], "r21-genericvisca-version-query")]),
                 boolean: None,
                 typed: (crate::command::VersionInfo, { info } => Ok(info)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -790,7 +793,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current pan/tilt position.
             PanTiltPositionInquiry {
                 bytes: [INQUIRY, 0x06, 0x12],
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-pantiltposition-query", "09 06 12"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-pantiltposition-query", "09 06 12"), (R1, [PtzOptics30X], "r1-ptzoptics30x-pantiltposition-query", "09 06 12"), (R7, [SonyFr7], "r7-sonyfr7-pantiltposition-query", "09 06 12"), (R11, [SonyBrcH900], "r11-sonybrch900-pantiltposition-query", "09 06 12"), (R8, [SonyEviH100], "r8-sonyevih100-pantiltposition-query", "09 06 12"), (R12, [SonyBrc300], "r12-sonybrc300-pantiltposition-query", "09 06 12"), (R21, [NearusBrc300], "r21-nearusbrc300-pantiltposition-query", "09 06 12"), (R8, [GenericVisca], "r8-genericvisca-pantiltposition-query", "09 06 12"), (R12, [GenericVisca], "r12-genericvisca-pantiltposition-query", "09 06 12"), (R21, [GenericVisca], "r21-genericvisca-pantiltposition-query", "09 06 12")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-pantiltposition-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-pantiltposition-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-pantiltposition-query"), (R7, [SonyFr7], "r7-sonyfr7-pantiltposition-query"), (R11, [SonyBrcH900], "r11-sonybrch900-pantiltposition-query"), (R8, [SonyEviH100], "r8-sonyevih100-pantiltposition-query"), (R12, [SonyBrc300], "r12-sonybrc300-pantiltposition-query"), (R21, [NearusBrc300], "r21-nearusbrc300-pantiltposition-query"), (R8, [GenericVisca], "r8-genericvisca-pantiltposition-query"), (R12, [GenericVisca], "r12-genericvisca-pantiltposition-query"), (R21, [GenericVisca], "r21-genericvisca-pantiltposition-query")]),
                 boolean: None,
                 typed: (
                     crate::camera::PanTiltPosition,
@@ -814,7 +817,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current zoom position.
             ZoomPositionInquiry {
                 bytes: zoom::POSITION_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-zoomposition-query", "09 04 47"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-zoomposition-query", "09 04 47"), (R1, [PtzOptics30X], "r1-ptzoptics30x-zoomposition-query", "09 04 47"), (R7, [SonyFr7], "r7-sonyfr7-zoomposition-query", "09 04 47"), (R8, [SonyEviH100], "r8-sonyevih100-zoomposition-query", "09 04 47"), (R12, [SonyBrc300], "r12-sonybrc300-zoomposition-query", "09 04 47"), (R21, [NearusBrc300], "r21-nearusbrc300-zoomposition-query", "09 04 47"), (R8, [GenericVisca], "r8-genericvisca-zoomposition-query", "09 04 47"), (R12, [GenericVisca], "r12-genericvisca-zoomposition-query", "09 04 47"), (R21, [GenericVisca], "r21-genericvisca-zoomposition-query", "09 04 47"), (R11, [SonyBrcH900], "r11-sonybrch900-zoomposition-query", "09 04 47")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-zoomposition-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-zoomposition-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-zoomposition-query"), (R7, [SonyFr7], "r7-sonyfr7-zoomposition-query"), (R8, [SonyEviH100], "r8-sonyevih100-zoomposition-query"), (R12, [SonyBrc300], "r12-sonybrc300-zoomposition-query"), (R21, [NearusBrc300], "r21-nearusbrc300-zoomposition-query"), (R8, [GenericVisca], "r8-genericvisca-zoomposition-query"), (R12, [GenericVisca], "r12-genericvisca-zoomposition-query"), (R21, [GenericVisca], "r21-genericvisca-zoomposition-query"), (R11, [SonyBrcH900], "r11-sonybrch900-zoomposition-query")]),
                 boolean: None,
                 typed: (
                     crate::types::ZoomPosition,
@@ -838,7 +841,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current focus position.
             FocusPositionInquiry {
                 bytes: focus::POSITION_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-focusposition-query", "09 04 48"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-focusposition-query", "09 04 48"), (R1, [PtzOptics30X], "r1-ptzoptics30x-focusposition-query", "09 04 48"), (R7, [SonyFr7], "r7-sonyfr7-focusposition-query", "09 04 48"), (R8, [SonyEviH100], "r8-sonyevih100-focusposition-query", "09 04 48"), (R12, [SonyBrc300], "r12-sonybrc300-focusposition-query", "09 04 48"), (R21, [NearusBrc300], "r21-nearusbrc300-focusposition-query", "09 04 48"), (R8, [GenericVisca], "r8-genericvisca-focusposition-query", "09 04 48"), (R12, [GenericVisca], "r12-genericvisca-focusposition-query", "09 04 48"), (R21, [GenericVisca], "r21-genericvisca-focusposition-query", "09 04 48"), (R11, [SonyBrcH900], "r11-sonybrch900-focusposition-query", "09 04 48")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-focusposition-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-focusposition-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-focusposition-query"), (R7, [SonyFr7], "r7-sonyfr7-focusposition-query"), (R8, [SonyEviH100], "r8-sonyevih100-focusposition-query"), (R12, [SonyBrc300], "r12-sonybrc300-focusposition-query"), (R21, [NearusBrc300], "r21-nearusbrc300-focusposition-query"), (R8, [GenericVisca], "r8-genericvisca-focusposition-query"), (R12, [GenericVisca], "r12-genericvisca-focusposition-query"), (R21, [GenericVisca], "r21-genericvisca-focusposition-query"), (R11, [SonyBrcH900], "r11-sonybrch900-focusposition-query")]),
                 boolean: None,
                 typed: (
                     crate::types::FocusPosition,
@@ -862,7 +865,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current exposure mode setting.
             ExposureModeInquiry {
                 bytes: exposure::MODE_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-exposuremode-query", "09 04 39"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-exposuremode-query", "09 04 39"), (R1, [PtzOptics30X], "r1-ptzoptics30x-exposuremode-query", "09 04 39"), (R11, [SonyBrcH900], "r11-sonybrch900-exposuremode-query", "09 04 39"), (R8, [SonyEviH100], "r8-sonyevih100-exposuremode-query", "09 04 39"), (R12, [SonyBrc300], "r12-sonybrc300-exposuremode-query", "09 04 39"), (R21, [NearusBrc300], "r21-nearusbrc300-exposuremode-query", "09 04 39"), (R8, [GenericVisca], "r8-genericvisca-exposuremode-query", "09 04 39"), (R12, [GenericVisca], "r12-genericvisca-exposuremode-query", "09 04 39"), (R21, [GenericVisca], "r21-genericvisca-exposuremode-query", "09 04 39")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-exposuremode-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-exposuremode-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-exposuremode-query"), (R11, [SonyBrcH900], "r11-sonybrch900-exposuremode-query"), (R8, [SonyEviH100], "r8-sonyevih100-exposuremode-query"), (R12, [SonyBrc300], "r12-sonybrc300-exposuremode-query"), (R21, [NearusBrc300], "r21-nearusbrc300-exposuremode-query"), (R8, [GenericVisca], "r8-genericvisca-exposuremode-query"), (R12, [GenericVisca], "r12-genericvisca-exposuremode-query"), (R21, [GenericVisca], "r21-genericvisca-exposuremode-query")]),
                 boolean: None,
                 typed: (ExposureMode, { mode } => Ok(mode)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -883,7 +886,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current exposure compensation value.
             ExposureCompensationInquiry {
                 bytes: exposure::COMPENSATION_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-exposurecompensation-query", "09 04 4E"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-exposurecompensation-query", "09 04 4E"), (R1, [PtzOptics30X], "r1-ptzoptics30x-exposurecompensation-query", "09 04 4E"), (R8, [SonyEviH100], "r8-sonyevih100-exposurecompensation-query", "09 04 4E"), (R12, [SonyBrc300], "r12-sonybrc300-exposurecompensation-query", "09 04 4E"), (R21, [NearusBrc300], "r21-nearusbrc300-exposurecompensation-query", "09 04 4E"), (R8, [GenericVisca], "r8-genericvisca-exposurecompensation-query", "09 04 4E"), (R12, [GenericVisca], "r12-genericvisca-exposurecompensation-query", "09 04 4E"), (R21, [GenericVisca], "r21-genericvisca-exposurecompensation-query", "09 04 4E")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-exposurecompensation-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-exposurecompensation-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-exposurecompensation-query"), (R8, [SonyEviH100], "r8-sonyevih100-exposurecompensation-query"), (R12, [SonyBrc300], "r12-sonybrc300-exposurecompensation-query"), (R21, [NearusBrc300], "r21-nearusbrc300-exposurecompensation-query"), (R8, [GenericVisca], "r8-genericvisca-exposurecompensation-query"), (R12, [GenericVisca], "r12-genericvisca-exposurecompensation-query"), (R21, [GenericVisca], "r21-genericvisca-exposurecompensation-query")]),
                 boolean: None,
                 typed: (
                     ExposureCompensationLevel,
@@ -907,7 +910,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the exposure compensation mode on/off status.
             ExposureCompensationModeInquiry {
                 bytes: exposure::COMPENSATION_SWITCH_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-exposurecompensationmode-query", "09 04 3E"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-exposurecompensationmode-query", "09 04 3E"), (R1, [PtzOptics30X], "r1-ptzoptics30x-exposurecompensationmode-query", "09 04 3E"), (R8, [SonyEviH100], "r8-sonyevih100-exposurecompensationmode-query", "09 04 3E"), (R12, [SonyBrc300], "r12-sonybrc300-exposurecompensationmode-query", "09 04 3E"), (R21, [NearusBrc300], "r21-nearusbrc300-exposurecompensationmode-query", "09 04 3E"), (R8, [GenericVisca], "r8-genericvisca-exposurecompensationmode-query", "09 04 3E"), (R12, [GenericVisca], "r12-genericvisca-exposurecompensationmode-query", "09 04 3E"), (R21, [GenericVisca], "r21-genericvisca-exposurecompensationmode-query", "09 04 3E")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-exposurecompensationmode-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-exposurecompensationmode-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-exposurecompensationmode-query"), (R8, [SonyEviH100], "r8-sonyevih100-exposurecompensationmode-query"), (R12, [SonyBrc300], "r12-sonybrc300-exposurecompensationmode-query"), (R21, [NearusBrc300], "r21-nearusbrc300-exposurecompensationmode-query"), (R8, [GenericVisca], "r8-genericvisca-exposurecompensationmode-query"), (R12, [GenericVisca], "r12-genericvisca-exposurecompensationmode-query"), (R21, [GenericVisca], "r21-genericvisca-exposurecompensationmode-query")]),
                 boolean: Some(BoolConvention::OnIs02),
                 typed: (bool, { on } => Ok(on)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -930,7 +933,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current iris position value.
             IrisInquiry {
                 bytes: exposure::IRIS_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-iris-query", "09 04 4B"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-iris-query", "09 04 4B"), (R1, [PtzOptics30X], "r1-ptzoptics30x-iris-query", "09 04 4B"), (R11, [SonyBrcH900], "r11-sonybrch900-iris-query", "09 04 4B"), (R8, [SonyEviH100], "r8-sonyevih100-iris-query", "09 04 4B"), (R12, [SonyBrc300], "r12-sonybrc300-iris-query", "09 04 4B"), (R21, [NearusBrc300], "r21-nearusbrc300-iris-query", "09 04 4B"), (R8, [GenericVisca], "r8-genericvisca-iris-query", "09 04 4B"), (R12, [GenericVisca], "r12-genericvisca-iris-query", "09 04 4B"), (R21, [GenericVisca], "r21-genericvisca-iris-query", "09 04 4B")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-iris-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-iris-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-iris-query"), (R11, [SonyBrcH900], "r11-sonybrch900-iris-query"), (R8, [SonyEviH100], "r8-sonyevih100-iris-query"), (R12, [SonyBrc300], "r12-sonybrc300-iris-query"), (R21, [NearusBrc300], "r21-nearusbrc300-iris-query"), (R8, [GenericVisca], "r8-genericvisca-iris-query"), (R12, [GenericVisca], "r12-genericvisca-iris-query"), (R21, [GenericVisca], "r21-genericvisca-iris-query")]),
                 boolean: None,
                 typed: (
                     crate::types::IrisLevel,
@@ -954,7 +957,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current shutter speed setting.
             ShutterInquiry {
                 bytes: exposure::SHUTTER_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-shutter-query", "09 04 4A"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-shutter-query", "09 04 4A"), (R1, [PtzOptics30X], "r1-ptzoptics30x-shutter-query", "09 04 4A"), (R11, [SonyBrcH900], "r11-sonybrch900-shutter-query", "09 04 4A"), (R8, [SonyEviH100], "r8-sonyevih100-shutter-query", "09 04 4A"), (R12, [SonyBrc300], "r12-sonybrc300-shutter-query", "09 04 4A"), (R21, [NearusBrc300], "r21-nearusbrc300-shutter-query", "09 04 4A"), (R8, [GenericVisca], "r8-genericvisca-shutter-query", "09 04 4A"), (R12, [GenericVisca], "r12-genericvisca-shutter-query", "09 04 4A"), (R21, [GenericVisca], "r21-genericvisca-shutter-query", "09 04 4A")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-shutter-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-shutter-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-shutter-query"), (R11, [SonyBrcH900], "r11-sonybrch900-shutter-query"), (R8, [SonyEviH100], "r8-sonyevih100-shutter-query"), (R12, [SonyBrc300], "r12-sonybrc300-shutter-query"), (R21, [NearusBrc300], "r21-nearusbrc300-shutter-query"), (R8, [GenericVisca], "r8-genericvisca-shutter-query"), (R12, [GenericVisca], "r12-genericvisca-shutter-query"), (R21, [GenericVisca], "r21-genericvisca-shutter-query")]),
                 boolean: None,
                 typed: (
                     crate::types::ShutterSpeed,
@@ -978,7 +981,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current brightness adjustment value.
             BrightnessInquiry {
                 bytes: exposure::BRIGHT_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-brightness-query", "09 04 4D"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-brightness-query", "09 04 4D"), (R1, [PtzOptics30X], "r1-ptzoptics30x-brightness-query", "09 04 4D"), (R8, [SonyEviH100], "r8-sonyevih100-brightness-query", "09 04 4D"), (R12, [SonyBrc300], "r12-sonybrc300-brightness-query", "09 04 4D"), (R21, [NearusBrc300], "r21-nearusbrc300-brightness-query", "09 04 4D"), (R8, [GenericVisca], "r8-genericvisca-brightness-query", "09 04 4D"), (R12, [GenericVisca], "r12-genericvisca-brightness-query", "09 04 4D"), (R21, [GenericVisca], "r21-genericvisca-brightness-query", "09 04 4D")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-brightness-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-brightness-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-brightness-query"), (R8, [SonyEviH100], "r8-sonyevih100-brightness-query"), (R12, [SonyBrc300], "r12-sonybrc300-brightness-query"), (R21, [NearusBrc300], "r21-nearusbrc300-brightness-query"), (R8, [GenericVisca], "r8-genericvisca-brightness-query"), (R12, [GenericVisca], "r12-genericvisca-brightness-query"), (R21, [GenericVisca], "r21-genericvisca-brightness-query")]),
                 boolean: None,
                 typed: (
                     crate::types::BrightnessLevel,
@@ -1002,7 +1005,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current white balance mode.
             WhiteBalanceModeInquiry {
                 bytes: white_balance::MODE_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-whitebalancemode-query", "09 04 35"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-whitebalancemode-query", "09 04 35"), (R1, [PtzOptics30X], "r1-ptzoptics30x-whitebalancemode-query", "09 04 35"), (R7, [SonyFr7], "r7-sonyfr7-whitebalancemode-query", "09 04 35"), (R11, [SonyBrcH900], "r11-sonybrch900-whitebalancemode-query", "09 04 35"), (R8, [SonyEviH100], "r8-sonyevih100-whitebalancemode-query", "09 04 35"), (R12, [SonyBrc300], "r12-sonybrc300-whitebalancemode-query", "09 04 35"), (R21, [NearusBrc300], "r21-nearusbrc300-whitebalancemode-query", "09 04 35"), (R8, [GenericVisca], "r8-genericvisca-whitebalancemode-query", "09 04 35"), (R12, [GenericVisca], "r12-genericvisca-whitebalancemode-query", "09 04 35"), (R21, [GenericVisca], "r21-genericvisca-whitebalancemode-query", "09 04 35")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-whitebalancemode-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-whitebalancemode-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-whitebalancemode-query"), (R7, [SonyFr7], "r7-sonyfr7-whitebalancemode-query"), (R11, [SonyBrcH900], "r11-sonybrch900-whitebalancemode-query"), (R8, [SonyEviH100], "r8-sonyevih100-whitebalancemode-query"), (R12, [SonyBrc300], "r12-sonybrc300-whitebalancemode-query"), (R21, [NearusBrc300], "r21-nearusbrc300-whitebalancemode-query"), (R8, [GenericVisca], "r8-genericvisca-whitebalancemode-query"), (R12, [GenericVisca], "r12-genericvisca-whitebalancemode-query"), (R21, [GenericVisca], "r21-genericvisca-whitebalancemode-query")]),
                 boolean: None,
                 typed: (WhiteBalanceMode, { mode } => Ok(mode)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1026,7 +1029,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current color temperature value.
             ColorTemperatureInquiry {
                 bytes: color::TEMPERATURE_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-colortemperature-query", "09 04 20"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-colortemperature-query", "09 04 20"), (R1, [PtzOptics30X], "r1-ptzoptics30x-colortemperature-query", "09 04 20")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-colortemperature-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-colortemperature-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-colortemperature-query")]),
                 boolean: None,
                 typed: (
                     crate::types::ColorTemp,
@@ -1050,7 +1053,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current red gain value.
             RedGainInquiry {
                 bytes: color::RED_GAIN_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-redgain-query", "09 04 43"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-redgain-query", "09 04 43"), (R1, [PtzOptics30X], "r1-ptzoptics30x-redgain-query", "09 04 43"), (R8, [SonyEviH100], "r8-sonyevih100-redgain-query", "09 04 43"), (R12, [SonyBrc300], "r12-sonybrc300-redgain-query", "09 04 43"), (R21, [NearusBrc300], "r21-nearusbrc300-redgain-query", "09 04 43"), (R8, [GenericVisca], "r8-genericvisca-redgain-query", "09 04 43"), (R12, [GenericVisca], "r12-genericvisca-redgain-query", "09 04 43"), (R21, [GenericVisca], "r21-genericvisca-redgain-query", "09 04 43")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-redgain-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-redgain-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-redgain-query"), (R8, [SonyEviH100], "r8-sonyevih100-redgain-query"), (R12, [SonyBrc300], "r12-sonybrc300-redgain-query"), (R21, [NearusBrc300], "r21-nearusbrc300-redgain-query"), (R8, [GenericVisca], "r8-genericvisca-redgain-query"), (R12, [GenericVisca], "r12-genericvisca-redgain-query"), (R21, [GenericVisca], "r21-genericvisca-redgain-query")]),
                 boolean: None,
                 typed: (
                     crate::types::RedChannel,
@@ -1074,7 +1077,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current blue gain value.
             BlueGainInquiry {
                 bytes: color::BLUE_GAIN_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-bluegain-query", "09 04 44"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-bluegain-query", "09 04 44"), (R1, [PtzOptics30X], "r1-ptzoptics30x-bluegain-query", "09 04 44"), (R8, [SonyEviH100], "r8-sonyevih100-bluegain-query", "09 04 44"), (R12, [SonyBrc300], "r12-sonybrc300-bluegain-query", "09 04 44"), (R21, [NearusBrc300], "r21-nearusbrc300-bluegain-query", "09 04 44"), (R8, [GenericVisca], "r8-genericvisca-bluegain-query", "09 04 44"), (R12, [GenericVisca], "r12-genericvisca-bluegain-query", "09 04 44"), (R21, [GenericVisca], "r21-genericvisca-bluegain-query", "09 04 44")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-bluegain-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-bluegain-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-bluegain-query"), (R8, [SonyEviH100], "r8-sonyevih100-bluegain-query"), (R12, [SonyBrc300], "r12-sonybrc300-bluegain-query"), (R21, [NearusBrc300], "r21-nearusbrc300-bluegain-query"), (R8, [GenericVisca], "r8-genericvisca-bluegain-query"), (R12, [GenericVisca], "r12-genericvisca-bluegain-query"), (R21, [GenericVisca], "r21-genericvisca-bluegain-query")]),
                 boolean: None,
                 typed: (
                     crate::types::BlueChannel,
@@ -1098,7 +1101,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current sharpness mode setting.
             SharpnessModeInquiry {
                 bytes: image::SHARPNESS_MODE_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-sharpnessmode-query", "09 04 05"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-sharpnessmode-query", "09 04 05"), (R1, [PtzOptics30X], "r1-ptzoptics30x-sharpnessmode-query", "09 04 05")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-sharpnessmode-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-sharpnessmode-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-sharpnessmode-query")]),
                 boolean: None,
                 typed: (SharpnessMode, { mode } => Ok(mode)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1119,7 +1122,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current color saturation level.
             SaturationInquiry {
                 bytes: color::SATURATION_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-saturation-query", "09 04 49"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-saturation-query", "09 04 49"), (R1, [PtzOptics30X], "r1-ptzoptics30x-saturation-query", "09 04 49"), (R8, [SonyEviH100], "r8-sonyevih100-saturation-query", "09 04 49")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-saturation-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-saturation-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-saturation-query"), (R8, [SonyEviH100], "r8-sonyevih100-saturation-query")]),
                 boolean: None,
                 typed: (
                     crate::types::SaturationLevel,
@@ -1143,7 +1146,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current hue adjustment value.
             HueInquiry {
                 bytes: color::HUE_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-hue-query", "09 04 4F"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-hue-query", "09 04 4F"), (R1, [PtzOptics30X], "r1-ptzoptics30x-hue-query", "09 04 4F"), (R8, [SonyEviH100], "r8-sonyevih100-hue-query", "09 04 4F")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-hue-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-hue-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-hue-query"), (R8, [SonyEviH100], "r8-sonyevih100-hue-query")]),
                 boolean: None,
                 typed: (
                     crate::types::HueLevel,
@@ -1168,7 +1171,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current gain value.
             GainInquiry {
                 bytes: gain::INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-gain-query", "09 04 4C"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-gain-query", "09 04 4C"), (R1, [PtzOptics30X], "r1-ptzoptics30x-gain-query", "09 04 4C"), (R11, [SonyBrcH900], "r11-sonybrch900-gain-query", "09 04 4C"), (R8, [SonyEviH100], "r8-sonyevih100-gain-query", "09 04 4C"), (R12, [SonyBrc300], "r12-sonybrc300-gain-query", "09 04 4C"), (R21, [NearusBrc300], "r21-nearusbrc300-gain-query", "09 04 4C"), (R8, [GenericVisca], "r8-genericvisca-gain-query", "09 04 4C"), (R12, [GenericVisca], "r12-genericvisca-gain-query", "09 04 4C"), (R21, [GenericVisca], "r21-genericvisca-gain-query", "09 04 4C")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-gain-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-gain-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-gain-query"), (R11, [SonyBrcH900], "r11-sonybrch900-gain-query"), (R8, [SonyEviH100], "r8-sonyevih100-gain-query"), (R12, [SonyBrc300], "r12-sonybrc300-gain-query"), (R21, [NearusBrc300], "r21-nearusbrc300-gain-query"), (R8, [GenericVisca], "r8-genericvisca-gain-query"), (R12, [GenericVisca], "r12-genericvisca-gain-query"), (R21, [GenericVisca], "r21-genericvisca-gain-query")]),
                 boolean: None,
                 typed: (
                     crate::types::GainLevel,
@@ -1192,7 +1195,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current gain limit setting.
             GainLimitInquiry {
                 bytes: gain::LIMIT_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-gainlimit-query", "09 04 2C"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-gainlimit-query", "09 04 2C"), (R1, [PtzOptics30X], "r1-ptzoptics30x-gainlimit-query", "09 04 2C")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-gainlimit-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-gainlimit-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-gainlimit-query")]),
                 boolean: None,
                 typed: (
                     crate::types::GainLimit,
@@ -1216,7 +1219,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the backlight compensation mode.
             BacklightInquiry {
                 bytes: image::BACKLIGHT_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-backlight-query", "09 04 33"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-backlight-query", "09 04 33"), (R1, [PtzOptics30X], "r1-ptzoptics30x-backlight-query", "09 04 33"), (R7, [SonyFr7], "r7-sonyfr7-backlight-query", "09 04 33"), (R11, [SonyBrcH900], "r11-sonybrch900-backlight-query", "09 04 33"), (R8, [SonyEviH100], "r8-sonyevih100-backlight-query", "09 04 33"), (R12, [SonyBrc300], "r12-sonybrc300-backlight-query", "09 04 33"), (R21, [NearusBrc300], "r21-nearusbrc300-backlight-query", "09 04 33"), (R8, [GenericVisca], "r8-genericvisca-backlight-query", "09 04 33"), (R12, [GenericVisca], "r12-genericvisca-backlight-query", "09 04 33"), (R21, [GenericVisca], "r21-genericvisca-backlight-query", "09 04 33")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-backlight-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-backlight-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-backlight-query"), (R7, [SonyFr7], "r7-sonyfr7-backlight-query"), (R11, [SonyBrcH900], "r11-sonybrch900-backlight-query"), (R8, [SonyEviH100], "r8-sonyevih100-backlight-query"), (R12, [SonyBrc300], "r12-sonybrc300-backlight-query"), (R21, [NearusBrc300], "r21-nearusbrc300-backlight-query"), (R8, [GenericVisca], "r8-genericvisca-backlight-query"), (R12, [GenericVisca], "r12-genericvisca-backlight-query"), (R21, [GenericVisca], "r21-genericvisca-backlight-query")]),
                 boolean: Some(BoolConvention::OnIs02),
                 typed: (bool, { status } => Ok(status)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1240,7 +1243,7 @@ define_builtin_inquiries! {
             /// Queries the sourced vertical picture-flip register (`09 04 66`).
             ImageFlipInquiry {
                 bytes: [INQUIRY, 0x04, 0x66],
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-imageflip-query", "09 04 66"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-imageflip-query", "09 04 66"), (R1, [PtzOptics30X], "r1-ptzoptics30x-imageflip-query", "09 04 66"), (R12, [SonyBrc300], "r12-sonybrc300-imageflip-query", "09 04 66"), (R21, [NearusBrc300], "r21-nearusbrc300-imageflip-query", "09 04 66")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-imageflip-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-imageflip-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-imageflip-query"), (R12, [SonyBrc300], "r12-sonybrc300-imageflip-query"), (R21, [NearusBrc300], "r21-nearusbrc300-imageflip-query")]),
                 boolean: Some(BoolConvention::OnIs02),
                 typed: (FlipState, { state } => Ok(state)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1261,7 +1264,7 @@ define_builtin_inquiries! {
             /// Queries the PTZOptics combined flip register (`09 04 A4`).
             FlipStateInquiry {
                 bytes: image::FLIP_COMBINED_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-flipstate-query", "09 04 A4"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-flipstate-query", "09 04 A4"), (R1, [PtzOptics30X], "r1-ptzoptics30x-flipstate-query", "09 04 A4")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-flipstate-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-flipstate-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-flipstate-query")]),
                 boolean: None,
                 typed: (FlipState, { state } => Ok(state)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1282,7 +1285,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the 2D noise reduction mode.
             NoiseReduction2DModeInquiry {
                 bytes: image::NOISE_REDUCTION_2D_MODE_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-noisereduction2dmode-query", "09 04 50"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-noisereduction2dmode-query", "09 04 50"), (R1, [PtzOptics30X], "r1-ptzoptics30x-noisereduction2dmode-query", "09 04 50")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-noisereduction2dmode-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-noisereduction2dmode-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-noisereduction2dmode-query")]),
                 boolean: None,
                 typed: (NoiseReduction2DMode, { mode } => Ok(mode)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1303,7 +1306,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the 2D noise reduction level.
             NoiseReduction2DInquiry {
                 bytes: image::NOISE_REDUCTION_2D_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-noisereduction2d-query", "09 04 53"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-noisereduction2d-query", "09 04 53"), (R1, [PtzOptics30X], "r1-ptzoptics30x-noisereduction2d-query", "09 04 53"), (R8, [SonyEviH100], "r8-sonyevih100-noisereduction2d-query", "09 04 53")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-noisereduction2d-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-noisereduction2d-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-noisereduction2d-query"), (R8, [SonyEviH100], "r8-sonyevih100-noisereduction2d-query")]),
                 boolean: None,
                 typed: (
                     crate::command::NoiseReduction2D,
@@ -1331,7 +1334,7 @@ define_builtin_inquiries! {
             /// documented `04 54` setter domain across PTZOptics profiles (#717).
             NoiseReduction3DInquiry {
                 bytes: image::NOISE_REDUCTION_3D_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-noisereduction3d-query", "09 04 54"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-noisereduction3d-query", "09 04 54"), (R1, [PtzOptics30X], "r1-ptzoptics30x-noisereduction3d-query", "09 04 54")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-noisereduction3d-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-noisereduction3d-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-noisereduction3d-query")]),
                 boolean: None,
                 typed: (
                     crate::command::NoiseReduction3D,
@@ -1357,7 +1360,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current focus zone selection.
             FocusZoneInquiry {
                 bytes: focus::ZONE_INQUIRY,
-                source: source!([(B1, [PtzOpticsG2], "b1-ptzopticsg2-focuszone-query", "09 04 AA"), (B1, [PtzOptics30X], "b1-ptzoptics30x-focuszone-query", "09 04 AA")]),
+                source: source!([(B1, [PtzOpticsG2], "b1-ptzopticsg2-focuszone-query"), (B1, [PtzOptics30X], "b1-ptzoptics30x-focuszone-query")]),
                 boolean: None,
                 typed: (FocusZone, { zone } => Ok(zone)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1378,7 +1381,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the auto-focus sensitivity setting.
             AutoFocusSensitivityInquiry {
                 bytes: focus::AF_SENSITIVITY_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-autofocussensitivity-query", "09 04 58"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-autofocussensitivity-query", "09 04 58"), (R1, [PtzOptics30X], "r1-ptzoptics30x-autofocussensitivity-query", "09 04 58"), (R8, [SonyEviH100], "r8-sonyevih100-autofocussensitivity-query", "09 04 58")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-autofocussensitivity-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-autofocussensitivity-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-autofocussensitivity-query"), (R8, [SonyEviH100], "r8-sonyevih100-autofocussensitivity-query")]),
                 boolean: None,
                 typed: (
                     AutoFocusSensitivity,
@@ -1402,7 +1405,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the focus near limit position.
             FocusNearLimitInquiry {
                 bytes: focus::NEAR_LIMIT_INQUIRY,
-                source: source!([(R8, [SonyEviH100], "r8-sonyevih100-focusnearlimit-query", "09 04 28")]),
+                source: source!([(R8, [SonyEviH100], "r8-sonyevih100-focusnearlimit-query")]),
                 boolean: None,
                 typed: (
                     crate::types::FocusPosition,
@@ -1426,7 +1429,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current focus mode.
             FocusModeInquiry {
                 bytes: focus::MODE_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-focusmode-query", "09 04 38"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-focusmode-query", "09 04 38"), (R1, [PtzOptics30X], "r1-ptzoptics30x-focusmode-query", "09 04 38"), (R7, [SonyFr7], "r7-sonyfr7-focusmode-query", "09 04 38"), (R11, [SonyBrcH900], "r11-sonybrch900-focusmode-query", "09 04 38"), (R8, [SonyEviH100], "r8-sonyevih100-focusmode-query", "09 04 38"), (R12, [SonyBrc300], "r12-sonybrc300-focusmode-query", "09 04 38"), (R21, [NearusBrc300], "r21-nearusbrc300-focusmode-query", "09 04 38"), (R8, [GenericVisca], "r8-genericvisca-focusmode-query", "09 04 38"), (R12, [GenericVisca], "r12-genericvisca-focusmode-query", "09 04 38"), (R21, [GenericVisca], "r21-genericvisca-focusmode-query", "09 04 38")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-focusmode-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-focusmode-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-focusmode-query"), (R7, [SonyFr7], "r7-sonyfr7-focusmode-query"), (R11, [SonyBrcH900], "r11-sonybrch900-focusmode-query"), (R8, [SonyEviH100], "r8-sonyevih100-focusmode-query"), (R12, [SonyBrc300], "r12-sonybrc300-focusmode-query"), (R21, [NearusBrc300], "r21-nearusbrc300-focusmode-query"), (R8, [GenericVisca], "r8-genericvisca-focusmode-query"), (R12, [GenericVisca], "r12-genericvisca-focusmode-query"), (R21, [GenericVisca], "r21-genericvisca-focusmode-query")]),
                 boolean: None,
                 typed: (FocusMode, { mode } => Ok(mode)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1447,7 +1450,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the menu open/close status.
             MenuOpenCloseInquiry {
                 bytes: menu::MENU_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-menuopenclose-query", "09 06 06"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-menuopenclose-query", "09 06 06"), (R1, [PtzOptics30X], "r1-ptzoptics30x-menuopenclose-query", "09 06 06"), (R7, [SonyFr7], "r7-sonyfr7-menuopenclose-query", "09 06 06"), (R11, [SonyBrcH900], "r11-sonybrch900-menuopenclose-query", "09 06 06")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-menuopenclose-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-menuopenclose-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-menuopenclose-query"), (R7, [SonyFr7], "r7-sonyfr7-menuopenclose-query"), (R11, [SonyBrcH900], "r11-sonybrch900-menuopenclose-query")]),
                 boolean: Some(BoolConvention::OnIs02),
                 typed: (bool, { is_open } => Ok(is_open)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1472,7 +1475,7 @@ define_builtin_inquiries! {
             /// Queries the sourced FR7 variable-ND density register.
             NdFilterInquiry {
                 bytes: [INQUIRY, 0x7E, 0x04, 0x42],
-                source: source!([(R7, [SonyFr7], "r7-sonyfr7-ndfilter-query", "09 7E 04 42")]),
+                source: source!([(R7, [SonyFr7], "r7-sonyfr7-ndfilter-query")]),
                 boolean: None,
                 typed: (NdFilterValue, { position } => Ok(position)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1493,7 +1496,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current picture effect mode.
             PictureEffectInquiry {
                 bytes: image::PICTURE_EFFECT_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-pictureeffect-query", "09 04 63"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-pictureeffect-query", "09 04 63"), (R1, [PtzOptics30X], "r1-ptzoptics30x-pictureeffect-query", "09 04 63")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-pictureeffect-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-pictureeffect-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-pictureeffect-query")]),
                 boolean: None,
                 typed: (PictureEffectMode, { effect } => Ok(effect)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1516,7 +1519,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the auto white balance sensitivity setting.
             AutoWhiteBalanceSensitivityInquiry {
                 bytes: white_balance::AWB_SENSITIVITY_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-autowhitebalancesensitivity-query", "09 04 A9"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-autowhitebalancesensitivity-query", "09 04 A9"), (R1, [PtzOptics30X], "r1-ptzoptics30x-autowhitebalancesensitivity-query", "09 04 A9")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-autowhitebalancesensitivity-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-autowhitebalancesensitivity-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-autowhitebalancesensitivity-query")]),
                 boolean: None,
                 typed: (
                     AutoWhiteBalanceSensitivity,
@@ -1540,7 +1543,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the exposure compensation position.
             ExposureCompensationPositionInquiry {
                 bytes: exposure::COMPENSATION_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-exposurecompensationposition-query", "09 04 4E"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-exposurecompensationposition-query", "09 04 4E"), (R1, [PtzOptics30X], "r1-ptzoptics30x-exposurecompensationposition-query", "09 04 4E"), (R8, [SonyEviH100], "r8-sonyevih100-exposurecompensationposition-query", "09 04 4E"), (R12, [SonyBrc300], "r12-sonybrc300-exposurecompensationposition-query", "09 04 4E"), (R21, [NearusBrc300], "r21-nearusbrc300-exposurecompensationposition-query", "09 04 4E"), (R8, [GenericVisca], "r8-genericvisca-exposurecompensationposition-query", "09 04 4E"), (R12, [GenericVisca], "r12-genericvisca-exposurecompensationposition-query", "09 04 4E"), (R21, [GenericVisca], "r21-genericvisca-exposurecompensationposition-query", "09 04 4E")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-exposurecompensationposition-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-exposurecompensationposition-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-exposurecompensationposition-query"), (R8, [SonyEviH100], "r8-sonyevih100-exposurecompensationposition-query"), (R12, [SonyBrc300], "r12-sonybrc300-exposurecompensationposition-query"), (R21, [NearusBrc300], "r21-nearusbrc300-exposurecompensationposition-query"), (R8, [GenericVisca], "r8-genericvisca-exposurecompensationposition-query"), (R12, [GenericVisca], "r12-genericvisca-exposurecompensationposition-query"), (R21, [GenericVisca], "r21-genericvisca-exposurecompensationposition-query")]),
                 boolean: None,
                 typed: (
                     ExposureCompensationPosition,
@@ -1566,7 +1569,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the red channel tuning level.
             RedTuningInquiry {
                 bytes: color::RED_GAIN_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-redtuning-query", "09 04 43"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-redtuning-query", "09 04 43"), (R1, [PtzOptics30X], "r1-ptzoptics30x-redtuning-query", "09 04 43")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-redtuning-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-redtuning-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-redtuning-query")]),
                 boolean: None,
                 typed: (
                     RedTuning,
@@ -1592,7 +1595,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the blue channel tuning level.
             BlueTuningInquiry {
                 bytes: color::BLUE_GAIN_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-bluetuning-query", "09 04 44"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-bluetuning-query", "09 04 44"), (R1, [PtzOptics30X], "r1-ptzoptics30x-bluetuning-query", "09 04 44")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-bluetuning-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-bluetuning-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-bluetuning-query")]),
                 boolean: None,
                 typed: (
                     BlueTuning,
@@ -1618,7 +1621,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current gamma curve setting.
             GammaInquiry {
                 bytes: image::GAMMA_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-gamma-query", "09 04 5B"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-gamma-query", "09 04 5B"), (R1, [PtzOptics30X], "r1-ptzoptics30x-gamma-query", "09 04 5B"), (R8, [SonyEviH100], "r8-sonyevih100-gamma-query", "09 04 5B")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-gamma-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-gamma-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-gamma-query"), (R8, [SonyEviH100], "r8-sonyevih100-gamma-query")]),
                 boolean: None,
                 typed: (
                     crate::types::GammaLevel,
@@ -1646,7 +1649,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current sharpness position.
             SharpnessPositionInquiry {
                 bytes: image::SHARPNESS_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-sharpnessposition-query", "09 04 42"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-sharpnessposition-query", "09 04 42"), (R1, [PtzOptics30X], "r1-ptzoptics30x-sharpnessposition-query", "09 04 42"), (R7, [SonyFr7], "r7-sonyfr7-sharpnessposition-query", "09 04 42"), (R8, [SonyEviH100], "r8-sonyevih100-sharpnessposition-query", "09 04 42")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-sharpnessposition-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-sharpnessposition-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-sharpnessposition-query"), (R7, [SonyFr7], "r7-sonyfr7-sharpnessposition-query"), (R8, [SonyEviH100], "r8-sonyevih100-sharpnessposition-query")]),
                 boolean: None,
                 typed: (
                     crate::types::SharpnessLevel,
@@ -1714,7 +1717,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the USB audio state.
             UsbAudioInquiry {
                 bytes: streaming::USB_AUDIO,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-usbaudio-query", "2A 02 A0 04"), (R1, [PtzOptics30X], "r1-ptzoptics30x-usbaudio-query", "2A 02 A0 04")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-usbaudio-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-usbaudio-query")]),
                 boolean: Some(BoolConvention::OnIs02),
                 typed: (bool, { on } => Ok(on)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1737,7 +1740,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the ND filter preset setting.
             NdFilterPresetInquiry {
                 bytes: [INQUIRY, 0x7E, 0x01, 0x53],
-                source: source!([(R7, [SonyFr7], "r7-sonyfr7-ndfilterpreset-query", "09 7E 01 53")]),
+                source: source!([(R7, [SonyFr7], "r7-sonyfr7-ndfilterpreset-query")]),
                 boolean: None,
                 typed: (NdFilterPreset, { preset } => Ok(preset)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1759,7 +1762,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the red tally light status.
             TallyRedInquiry {
                 bytes: tally::RED_INQUIRY,
-                source: source!([(R7, [SonyFr7], "r7-sonyfr7-tallyred-query", "09 7E 01 0A")]),
+                source: source!([(R7, [SonyFr7], "r7-sonyfr7-tallyred-query")]),
                 boolean: Some(BoolConvention::OnIs02),
                 typed: (bool, { on } => Ok(on)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1780,7 +1783,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the green tally light status.
             TallyGreenInquiry {
                 bytes: tally::GREEN_INQUIRY,
-                source: source!([(R7, [SonyFr7], "r7-sonyfr7-tallygreen-query", "09 7E 04 1A")]),
+                source: source!([(R7, [SonyFr7], "r7-sonyfr7-tallygreen-query")]),
                 boolean: Some(BoolConvention::OnIs02),
                 typed: (bool, { on } => Ok(on)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1801,7 +1804,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current flicker mode setting.
             FlickerModeInquiry {
                 bytes: [INQUIRY, 0x04, 0x55],
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-flickermode-query", "09 04 55"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-flickermode-query", "09 04 55"), (R1, [PtzOptics30X], "r1-ptzoptics30x-flickermode-query", "09 04 55")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-flickermode-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-flickermode-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-flickermode-query")]),
                 boolean: None,
                 typed: (AntiFlickerMode, { mode } => Ok(mode)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1822,7 +1825,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current contrast level.
             ContrastInquiry {
                 bytes: image::CONTRAST_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-contrast-query", "09 04 A2"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-contrast-query", "09 04 A2"), (R1, [PtzOptics30X], "r1-ptzoptics30x-contrast-query", "09 04 A2")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-contrast-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-contrast-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-contrast-query")]),
                 boolean: None,
                 typed: (
                     crate::types::ContrastLevel,
@@ -1846,7 +1849,7 @@ define_builtin_inquiries! {
             /// Inquiry command to get the current luminance level.
             LuminanceInquiry {
                 bytes: image::LUMINANCE_INQUIRY,
-                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-luminance-query", "09 04 A1"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-luminance-query", "09 04 A1"), (R1, [PtzOptics30X], "r1-ptzoptics30x-luminance-query", "09 04 A1")]),
+                source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-luminance-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-luminance-query"), (R1, [PtzOptics30X], "r1-ptzoptics30x-luminance-query")]),
                 boolean: None,
                 typed: (
                     crate::types::LuminanceLevel,
@@ -1866,7 +1869,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 ae level (R7 p. 21).
             Fr7AeLevelInquiry {
                 bytes: [0x09, 0x04, 0x4E],
-                source: source!(R7, [SonyFr7], "r7-fr7aelevelinquiry", "09 04 4E"),
+                source: source!(R7, [SonyFr7], "r7-fr7aelevelinquiry"),
                 boolean: None,
                 typed: (crate::types::AeLevel, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::AlternateTypedInterpretation { canonical: <ExposureCompensationInquiry as BuiltinInquiryCommandMarker>::METADATA },
@@ -1884,7 +1887,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 auto gain (R7 p. 21).
             Fr7AutoGainInquiry {
                 bytes: [0x09, 0x7E, 0x01, 0x75],
-                source: source!(R7, [SonyFr7], "r7-fr7autogaininquiry", "09 7E 01 75"),
+                source: source!(R7, [SonyFr7], "r7-fr7autogaininquiry"),
                 boolean: Some(BoolConvention::OnIs02),
                 typed: (bool, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1902,7 +1905,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 auto shutter (R7 p. 21).
             Fr7AutoShutterInquiry {
                 bytes: [0x09, 0x05, 0x35],
-                source: source!(R7, [SonyFr7], "r7-fr7autoshutterinquiry", "09 05 35"),
+                source: source!(R7, [SonyFr7], "r7-fr7autoshutterinquiry"),
                 boolean: Some(BoolConvention::OnIs02),
                 typed: (bool, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1920,7 +1923,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 auto iris (R7 p. 21).
             Fr7AutoIrisInquiry {
                 bytes: [0x09, 0x05, 0x34],
-                source: source!(R7, [SonyFr7], "r7-fr7autoirisinquiry", "09 05 34"),
+                source: source!(R7, [SonyFr7], "r7-fr7autoirisinquiry"),
                 boolean: Some(BoolConvention::OnIs02),
                 typed: (bool, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1938,7 +1941,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 preset white (R7 p. 21).
             Fr7PresetWhiteInquiry {
                 bytes: [0x09, 0x05, 0x43, 0x01],
-                source: source!(R7, [SonyFr7], "r7-fr7presetwhiteinquiry", "09 05 43 01"),
+                source: source!(R7, [SonyFr7], "r7-fr7presetwhiteinquiry"),
                 boolean: None,
                 typed: (crate::types::WhiteKelvin, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1956,7 +1959,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 memory temperature (R7 p. 21).
             Fr7MemoryColorTemperatureInquiry {
                 bytes: [0x09, 0x05, 0x43, 0x02],
-                source: source!(R7, [SonyFr7], "r7-fr7memorycolortemperatureinquiry", "09 05 43 02"),
+                source: source!(R7, [SonyFr7], "r7-fr7memorycolortemperatureinquiry"),
                 boolean: None,
                 typed: (crate::types::WhiteKelvin, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1974,7 +1977,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 memory red gain (R7 p. 21).
             Fr7MemoryRedGainInquiry {
                 bytes: [0x09, 0x7E, 0x04, 0x46, 0x02],
-                source: source!(R7, [SonyFr7], "r7-fr7memoryredgaininquiry", "09 7E 04 46 02"),
+                source: source!(R7, [SonyFr7], "r7-fr7memoryredgaininquiry"),
                 boolean: None,
                 typed: (crate::types::WhiteBalanceGain, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -1992,7 +1995,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 memory blue gain (R7 p. 21).
             Fr7MemoryBlueGainInquiry {
                 bytes: [0x09, 0x7E, 0x04, 0x56, 0x02],
-                source: source!(R7, [SonyFr7], "r7-fr7memorybluegaininquiry", "09 7E 04 56 02"),
+                source: source!(R7, [SonyFr7], "r7-fr7memorybluegaininquiry"),
                 boolean: None,
                 typed: (crate::types::WhiteBalanceGain, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -2010,7 +2013,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 memory tint (R7 p. 21).
             Fr7MemoryTintInquiry {
                 bytes: [0x09, 0x05, 0x44, 0x02],
-                source: source!(R7, [SonyFr7], "r7-fr7memorytintinquiry", "09 05 44 02"),
+                source: source!(R7, [SonyFr7], "r7-fr7memorytintinquiry"),
                 boolean: None,
                 typed: (crate::types::TintOffset, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -2028,7 +2031,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 atw temperature offset (R7 p. 21).
             Fr7AtwColorTemperatureOffsetInquiry {
                 bytes: [0x09, 0x05, 0x45, 0x00],
-                source: source!(R7, [SonyFr7], "r7-fr7atwcolortemperatureoffsetinquiry", "09 05 45 00"),
+                source: source!(R7, [SonyFr7], "r7-fr7atwcolortemperatureoffsetinquiry"),
                 boolean: None,
                 typed: (crate::types::TintOffset, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -2046,7 +2049,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 atw tint offset (R7 p. 21).
             Fr7AtwTintOffsetInquiry {
                 bytes: [0x09, 0x05, 0x46, 0x00],
-                source: source!(R7, [SonyFr7], "r7-fr7atwtintoffsetinquiry", "09 05 46 00"),
+                source: source!(R7, [SonyFr7], "r7-fr7atwtintoffsetinquiry"),
                 boolean: None,
                 typed: (crate::types::TintOffset, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -2064,7 +2067,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 master black (R7 p. 21).
             Fr7MasterBlackInquiry {
                 bytes: [0x09, 0x05, 0x48],
-                source: source!(R7, [SonyFr7], "r7-fr7masterblackinquiry", "09 05 48"),
+                source: source!(R7, [SonyFr7], "r7-fr7masterblackinquiry"),
                 boolean: None,
                 typed: (crate::types::BlackLevel, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -2082,7 +2085,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 red black (R7 p. 21).
             Fr7RedBlackInquiry {
                 bytes: [0x09, 0x7E, 0x04, 0x43],
-                source: source!(R7, [SonyFr7], "r7-fr7redblackinquiry", "09 7E 04 43"),
+                source: source!(R7, [SonyFr7], "r7-fr7redblackinquiry"),
                 boolean: None,
                 typed: (crate::types::BlackLevel, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -2100,7 +2103,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 blue black (R7 p. 21).
             Fr7BlueBlackInquiry {
                 bytes: [0x09, 0x7E, 0x04, 0x44],
-                source: source!(R7, [SonyFr7], "r7-fr7blueblackinquiry", "09 7E 04 44"),
+                source: source!(R7, [SonyFr7], "r7-fr7blueblackinquiry"),
                 boolean: None,
                 typed: (crate::types::BlackLevel, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -2118,7 +2121,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 detail (R7 p. 21).
             Fr7DetailInquiry {
                 bytes: [0x09, 0x7E, 0x01, 0x60],
-                source: source!(R7, [SonyFr7], "r7-fr7detailinquiry", "09 7E 01 60"),
+                source: source!(R7, [SonyFr7], "r7-fr7detailinquiry"),
                 boolean: Some(BoolConvention::OnIs02),
                 typed: (bool, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -2136,7 +2139,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 knee (R7 p. 22).
             Fr7KneeInquiry {
                 bytes: [0x09, 0x7E, 0x01, 0x6D],
-                source: source!(R7, [SonyFr7], "r7-fr7kneeinquiry", "09 7E 01 6D"),
+                source: source!(R7, [SonyFr7], "r7-fr7kneeinquiry"),
                 boolean: Some(BoolConvention::OnIs02),
                 typed: (bool, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -2154,7 +2157,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 knee mode (R7 p. 22).
             Fr7KneeModeInquiry {
                 bytes: [0x09, 0x7E, 0x01, 0x54],
-                source: source!(R7, [SonyFr7], "r7-fr7kneemodeinquiry", "09 7E 01 54"),
+                source: source!(R7, [SonyFr7], "r7-fr7kneemodeinquiry"),
                 boolean: None,
                 typed: (crate::command::Fr7KneeMode, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -2172,7 +2175,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 knee slope (R7 p. 22).
             Fr7KneeSlopeInquiry {
                 bytes: [0x09, 0x7E, 0x01, 0x6F],
-                source: source!(R7, [SonyFr7], "r7-fr7kneeslopeinquiry", "09 7E 01 6F"),
+                source: source!(R7, [SonyFr7], "r7-fr7kneeslopeinquiry"),
                 boolean: None,
                 typed: (crate::types::KneeSlope, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -2190,7 +2193,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 knee point (R7 p. 22).
             Fr7KneePointInquiry {
                 bytes: [0x09, 0x7E, 0x01, 0x6E],
-                source: source!(R7, [SonyFr7], "r7-fr7kneepointinquiry", "09 7E 01 6E"),
+                source: source!(R7, [SonyFr7], "r7-fr7kneepointinquiry"),
                 boolean: None,
                 typed: (crate::types::KneePoint, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -2209,7 +2212,7 @@ define_builtin_inquiries! {
             Fr7KneePermissionInquiry {
                 bytes: [0x09, 0x7E, 0x04, 0x6D],
                 parameter: { parameter: crate::command::Fr7KneeParameter = crate::command::Fr7KneeParameter::Setting, byte: to_protocol_value },
-                source: source!(R7, [SonyFr7], "r7-fr7kneepermissioninquiry", "09 7E 04 6D"),
+                source: source!(R7, [SonyFr7], "r7-fr7kneepermissioninquiry"),
                 boolean: None,
                 typed: (crate::command::Fr7KneePermission, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -2227,7 +2230,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 clear image position (R7 p. 22).
             Fr7ClearImageZoomPositionInquiry {
                 bytes: [0x09, 0x04, 0x47],
-                source: source!(R7, [SonyFr7], "r7-fr7clearimagezoompositioninquiry", "09 04 47"),
+                source: source!(R7, [SonyFr7], "r7-fr7clearimagezoompositioninquiry"),
                 boolean: None,
                 typed: (crate::types::ClearImageZoomPosition, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::AlternateTypedInterpretation { canonical: <ZoomPositionInquiry as BuiltinInquiryCommandMarker>::METADATA },
@@ -2245,7 +2248,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 speed selection (R7 p. 22).
             Fr7PresetSpeedSelectionInquiry {
                 bytes: [0x09, 0x7E, 0x04, 0x1B],
-                source: source!(R7, [SonyFr7], "r7-fr7presetspeedselectioninquiry", "09 7E 04 1B"),
+                source: source!(R7, [SonyFr7], "r7-fr7presetspeedselectioninquiry"),
                 boolean: None,
                 typed: (crate::command::Fr7PresetSpeedSelection, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -2263,7 +2266,7 @@ define_builtin_inquiries! {
             /// Reads Sony FR7 common speed (R7 p. 22).
             Fr7CommonPresetSpeedInquiry {
                 bytes: [0x09, 0x7E, 0x04, 0x1C],
-                source: source!(R7, [SonyFr7], "r7-fr7commonpresetspeedinquiry", "09 7E 04 1C"),
+                source: source!(R7, [SonyFr7], "r7-fr7commonpresetspeedinquiry"),
                 boolean: None,
                 typed: (crate::types::PresetSpeed, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -2282,7 +2285,7 @@ define_builtin_inquiries! {
             Fr7SeparatePresetModeInquiry {
                 bytes: [0x09, 0x7E, 0x04, 0x27],
                 parameter: { preset: crate::types::Fr7PresetNumber = crate::types::Fr7PresetNumber::MIN, byte: value },
-                source: source!(R7, [SonyFr7], "r7-fr7separatepresetmodeinquiry", "09 7E 04 27"),
+                source: source!(R7, [SonyFr7], "r7-fr7separatepresetmodeinquiry"),
                 boolean: None,
                 typed: (crate::command::Fr7PresetSeparateMode, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -2301,7 +2304,7 @@ define_builtin_inquiries! {
             Fr7SeparatePresetSpeedInquiry {
                 bytes: [0x09, 0x7E, 0x01, 0x0B],
                 parameter: { preset: crate::types::Fr7PresetNumber = crate::types::Fr7PresetNumber::MIN, byte: value },
-                source: source!(R7, [SonyFr7], "r7-fr7separatepresetspeedinquiry", "09 7E 01 0B"),
+                source: source!(R7, [SonyFr7], "r7-fr7separatepresetspeedinquiry"),
                 boolean: None,
                 typed: (crate::types::PresetSpeed, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -2320,7 +2323,7 @@ define_builtin_inquiries! {
             Fr7SeparatePresetDurationInquiry {
                 bytes: [0x09, 0x7E, 0x04, 0x67],
                 parameter: { preset: crate::types::Fr7PresetNumber = crate::types::Fr7PresetNumber::MIN, byte: value },
-                source: source!(R7, [SonyFr7], "r7-fr7separatepresetdurationinquiry", "09 7E 04 67"),
+                source: source!(R7, [SonyFr7], "r7-fr7separatepresetdurationinquiry"),
                 boolean: None,
                 typed: (crate::types::PresetDuration, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
@@ -2376,7 +2379,7 @@ fn body_for_profile(
             Some(crate::profiles::ProfileId::SonyBrcH900)
         )
     {
-        &[INQUIRY, 0x7E, 0x04, 0x00]
+        &power::BRC_H900_STATE_INQUIRY
     } else {
         standard
     }
