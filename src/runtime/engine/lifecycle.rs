@@ -222,6 +222,95 @@ impl Lifecycle {
         }
     }
 
+    /// A queued request owns no active wire attempt.
+    pub(crate) const fn is_off_wire(self) -> bool {
+        self.attempt().is_none()
+    }
+    pub(crate) const fn is_ready(self) -> bool {
+        matches!(self, Self::Ready { .. })
+    }
+    pub(crate) const fn is_sending(self) -> bool {
+        matches!(self, Self::Sending { .. })
+    }
+    pub(crate) const fn is_awaiting_ack(self) -> bool {
+        matches!(self, Self::AwaitingAck { .. })
+    }
+    pub(crate) const fn is_awaiting_reply(self) -> bool {
+        matches!(self, Self::AwaitingReply { .. })
+    }
+    pub(crate) const fn is_awaiting_completion(self) -> bool {
+        matches!(self, Self::AwaitingCompletion { .. })
+    }
+    /// Inquiry occupancy includes the local write, before its reply deadline starts.
+    pub(crate) const fn is_live_inquiry(self) -> bool {
+        matches!(
+            self,
+            Self::Sending {
+                reply: SendingReply::Inquiry,
+                ..
+            } | Self::AwaitingReply { .. }
+        )
+    }
+    /// Command occupancy lasts through cancellation resolution.
+    pub(crate) const fn is_command_on_wire(self) -> bool {
+        matches!(
+            self,
+            Self::Sending {
+                reply: SendingReply::AckThenCompletion
+                    | SendingReply::CompletionOnly
+                    | SendingReply::NoReply,
+                ..
+            } | Self::AwaitingAck { .. }
+                | Self::AwaitingCompletion { .. }
+                | Self::Executing { .. }
+                | Self::AwaitingCancellationResolution { .. }
+        )
+    }
+    pub(crate) const fn is_unacknowledged_command(self) -> bool {
+        matches!(
+            self,
+            Self::Sending {
+                reply: SendingReply::AckThenCompletion
+                    | SendingReply::CompletionOnly
+                    | SendingReply::NoReply,
+                ..
+            } | Self::AwaitingAck { .. }
+                | Self::AwaitingCompletion { .. }
+        )
+    }
+    pub(crate) const fn is_uncorrelated_write(self) -> bool {
+        matches!(
+            self,
+            Self::Sending {
+                reply: SendingReply::CompletionOnly | SendingReply::NoReply,
+                ..
+            }
+        )
+    }
+    pub(crate) const fn is_uncorrelated_command(self) -> bool {
+        self.is_uncorrelated_write() || self.is_awaiting_completion()
+    }
+    /// End of the active response window, before a cancellation's separate
+    /// ambiguity interval is added by its caller.
+    pub(crate) fn response_window_end(self) -> Option<Instant> {
+        match self {
+            Self::AwaitingAck { deadline, .. }
+            | Self::AwaitingCompletion { deadline, .. }
+            | Self::AwaitingReply { deadline, .. } => Some(deadline),
+            Self::Executing {
+                deadline,
+                cancellation,
+                ..
+            } => Some(cancellation.response_deadline(deadline)),
+            Self::AwaitingCancellationResolution {
+                deadline,
+                cancellation,
+                ..
+            } => Some(deadline.max(cancellation.ambiguity_deadline())),
+            Self::Ready { .. } | Self::Sending { .. } | Self::Backoff { .. } => None,
+        }
+    }
+
     /// Stable diagnostic/test projection, never an independently stored phase.
     pub(crate) fn phase(self) -> Phase {
         match self {

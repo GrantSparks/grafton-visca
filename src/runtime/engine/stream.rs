@@ -524,8 +524,7 @@ impl StreamContext<'_> {
         while let Some((target, entry, answered)) = self.stream.next_learned_completion() {
             self.absorb_answered(target, answered, now, effects);
             let awaiting = self.entries.get(&entry.request).is_some_and(|live| {
-                live.generation == entry.generation
-                    && matches!(live.lifecycle().phase(), Phase::AwaitingCompletion { .. })
+                live.generation == entry.generation && live.lifecycle().is_awaiting_completion()
             });
             if awaiting {
                 self.completion(entry.request, None, now, effects);

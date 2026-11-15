@@ -20,7 +20,10 @@ mod entry_table;
 mod inquiry_shape_reservations;
 mod inquiry_shapes;
 mod late_evidence;
+mod lifecycle_predicates;
 mod lifecycle_transition_matrix;
+mod occupancy_cost;
+mod occupancy_oracle;
 mod prepared_retry;
 mod raw_evidence;
 mod raw_stream_model;
@@ -51,6 +54,10 @@ fn extend_fixture_pre_ack(
         panic!("fixture requires datagram holds")
     };
     holds.extend(target, RawHoldScope::PreAck, until, owner);
+}
+
+pub(super) fn assert_occupancy_agrees<E: EngineMethods + ?Sized>(engine: &E, now: Instant) {
+    occupancy_oracle::assert_agrees(engine, now);
 }
 
 fn camera(value: u8) -> TargetSlot {
@@ -5598,6 +5605,7 @@ mod generated_invariant_properties {
                     &mut now,
                 );
                 coverage.record(&engine, &effects);
+                assert_occupancy_agrees(&engine, now);
                 prop_assert!(engine.assert_invariants().is_ok());
                 prop_assert!(lifecycle_transition_matrix::all_entries_have_admissible_pairs(&engine));
             }

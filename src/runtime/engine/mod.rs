@@ -8,6 +8,7 @@ mod correlation;
 mod holds;
 mod inquiry_shape;
 mod lifecycle;
+mod occupancy;
 mod stream;
 mod stream_ledger;
 pub(crate) use lifecycle::*;
@@ -17,6 +18,7 @@ use correlation::{CorrelationMode, CorrelationRef, CorrelationState};
 use holds::StreamScope;
 use inquiry_shape::InquiryShapes;
 pub(crate) use inquiry_shape::MAX_RAW_INQUIRY_SHAPE_CLASSES_PER_TARGET;
+use occupancy::Occupancy;
 use stream::{DatagramContext, StreamContext};
 
 use stream_ledger::{
@@ -636,6 +638,122 @@ impl ProtocolEngine {
 
 /// Shared operations are reusable by a processor borrowing an exact mode.
 trait EngineMethods: EngineAccess {
+    fn stop_wait_bound_in(&self, entry: &Entry, occupancy: &Occupancy) -> Option<Instant> {
+        self.mode().stream().and_then(|stream| {
+            stream.stop_wait_bound(entry, || {
+                occupancy.targets[entry.request.context().target].uncorrelated_write
+            })
+        })
+    }
+    fn pre_ack_bypass_in(&self, entry: &Entry, target: TargetSlot, occupancy: &Occupancy) -> bool {
+        entry.reply_family() == SendingReply::AckThenCompletion
+            && entry.request.context().control.class == ControlClass::Urgent
+            && (!self.mode().is_raw() || occupancy.targets[target].unacknowledged == 0)
+    }
+    fn used_capacity_in(&self, target: TargetSlot, occupancy: &Occupancy) -> usize {
+        occupancy.targets[target]
+            .commands
+            .saturating_add(if self.mode().is_stream() {
+                0
+            } else {
+                self.raw_socket_hold_count(target)
+            })
+    }
+    fn hold_blocks_in(&self, entry: &Entry, target: TargetSlot, occupancy: &Occupancy) -> bool {
+        let stop = urgent_stop(entry);
+        let response_bearing = entry.reply_family() != SendingReply::NoReply;
+        (response_bearing && !stop && self.raw_hold(target, RawHoldScope::AllResponses).is_some())
+            || entry
+                .request
+                .payload_shape()
+                .is_some_and(|shape| self.raw_inquiry_hold_deadline(target, shape).is_some())
+            || (entry.reply_family() != SendingReply::Inquiry
+                && !self.pre_ack_bypass_in(entry, target, occupancy)
+                && self.raw_hold(target, RawHoldScope::PreAck).is_some())
+            || (entry.reply_family() != SendingReply::Inquiry
+                && !self.mode().is_stream()
+                && !stop
+                && occupancy.targets[target].commands < self.command_sockets(target)
+                && self.used_capacity_in(target, occupancy) >= self.command_sockets(target))
+    }
+    fn command_gate_in(&self, entry: &Entry, target: TargetSlot, occupancy: &Occupancy) -> bool {
+        let raw = self.mode().is_raw();
+        let state = &occupancy.targets[target];
+        let urgent_bypass = raw
+            && entry.reply_family() != SendingReply::Inquiry
+            && entry.request.context().control.class == ControlClass::Urgent
+            && !(self.mode().is_stream() && self.mode().ledger().forbids_crossing(target))
+            && state.urgent_bypass(entry, self.mode().is_stream());
+        (raw && state.unacknowledged > 0 && !urgent_bypass)
+            || ((self.raw_hold(target, RawHoldScope::PreAck).is_some()
+                || self.mode().ledger().lane_state(target, Lane::Command) != LaneState::Clear)
+                && !self.pre_ack_bypass_in(entry, target, occupancy))
+            || self.latched_raw_lane_error(&entry.request).is_some()
+    }
+    fn uncorrelated_shape_blocked_in(
+        &self,
+        entry: &Entry,
+        target: TargetSlot,
+        now: Instant,
+        occupancy: &Occupancy,
+    ) -> bool {
+        let state = &occupancy.targets[target];
+        match (&self.mode(), entry.reply_family()) {
+            (CorrelationRef::Sequenced, _) => false,
+            (_, SendingReply::Inquiry) => state.uncorrelated_command,
+            (_, SendingReply::NoReply) => {
+                self.used_capacity_in(target, occupancy) > 0 || state.inquiries > 0
+            }
+            (mode, SendingReply::CompletionOnly) => {
+                self.used_capacity_in(target, occupancy) > 0
+                    || state.inquiries > 0
+                    || self.raw_target_hold_active(target)
+                    || mode.ledger().owes_rejection(target)
+                    || (self.raw_socket_hold_running(target, now)
+                        && !matches!(mode, CorrelationRef::RawStream(stream) if stream.learning[target].completion_sockets == CompletionSockets::Named))
+            }
+            (_, SendingReply::AckThenCompletion) => false,
+        }
+    }
+    fn dispatch_blocked_in(&self, entry: &Entry, now: Instant, occupancy: &Occupancy) -> bool {
+        let target = entry.request.context().target;
+        let state = &occupancy.targets[target];
+        match entry.request.lane() {
+            Lane::Inquiry => {
+                self.hold_blocks_in(entry, target, occupancy)
+                    || (if self.mode().is_raw() {
+                        state.inquiries
+                    } else {
+                        occupancy.total_inquiries
+                    }) >= self.policy.inquiry_capacity
+                    || self.uncorrelated_shape_blocked_in(entry, target, now, occupancy)
+                    || (self.mode().is_raw()
+                        && entry.request.payload_shape().is_some_and(|shape| {
+                            state.overlaps(shape)
+                                || self.mode().ledger().inquiry_state(target, shape)
+                                    != LaneState::Clear
+                        }))
+                    || self.mode().ledger().forbids_crossing(target)
+            }
+            Lane::Command => {
+                let Some(policy) = self.targets[target].policy else {
+                    return true;
+                };
+                !self
+                    .stop_wait_bound_in(entry, occupancy)
+                    .is_some_and(|bound| now >= bound)
+                    && (self.hold_blocks_in(entry, target, occupancy)
+                        || self.command_gate_in(entry, target, occupancy)
+                        || (if urgent_stop(entry) {
+                            state.commands
+                        } else {
+                            self.used_capacity_in(target, occupancy)
+                        }) >= usize::from(policy.command_sockets)
+                        || self.uncorrelated_shape_blocked_in(entry, target, now, occupancy))
+            }
+        }
+    }
+
     /// Registers one target's socket and cancellation policy.
     fn register_target(&mut self, target: TargetSlot, policy: TargetPolicy) -> Result<(), Error> {
         if !(1..=2).contains(&policy.command_sockets) {
@@ -910,6 +1028,8 @@ trait EngineMethods: EngineAccess {
             #[cfg(test)]
             Input::Wake => {}
         }
+        #[cfg(test)]
+        tests::assert_occupancy_agrees(self, now);
     }
 
     /// Runs due internal work, pending cancellation, and ordinary dispatch.
@@ -1009,10 +1129,8 @@ trait EngineMethods: EngineAccess {
             .entries
             .iter()
             .filter_map(|(id, entry)| {
-                (matches!(
-                    entry.lifecycle().phase(),
-                    Phase::Ready | Phase::Backoff { .. }
-                ) && self.motion_superseded(entry.request.context()).is_some())
+                (entry.lifecycle().is_off_wire()
+                    && self.motion_superseded(entry.request.context()).is_some())
                 .then_some((*id, entry.certainty(AttemptEvidence::Unwritten)))
             })
             .collect();
@@ -1190,18 +1308,25 @@ trait EngineMethods: EngineAccess {
             .map(|value| GenerationTicket(value.get()))
     }
 
-    fn eligible_request(&self, lane: Lane, priority: usize, now: Instant) -> Option<RequestId> {
+    fn eligible_request(
+        &self,
+        lane: Lane,
+        priority: usize,
+        now: Instant,
+        occupancy: &Occupancy,
+    ) -> Option<RequestId> {
         self.entries
             .ready(lane, priority)
             .iter()
             .copied()
-            .find(|id| self.dispatch_eligible(*id, now))
+            .find(|id| self.dispatch_eligible(*id, now, occupancy))
     }
 
     fn select_dispatch(&self, now: Instant) -> Option<DispatchSelection> {
+        let occupancy = Occupancy::build(&self.entries);
         for priority in (0..4).rev() {
-            let inquiry = self.eligible_request(Lane::Inquiry, priority, now);
-            let command = self.eligible_request(Lane::Command, priority, now);
+            let inquiry = self.eligible_request(Lane::Inquiry, priority, now, &occupancy);
+            let command = self.eligible_request(Lane::Command, priority, now, &occupancy);
             let request = match (inquiry, command) {
                 (Some(inquiry), Some(command)) => {
                     let inquiry_first = self
@@ -1344,9 +1469,10 @@ trait EngineMethods: EngineAccess {
     /// pacing, keeps ready `entry` from being written. Raw holds, protocol
     /// capacity, the raw command gate, the stream ledger and uncorrelated raw
     /// shapes each block; a byte-stream STOP that has waited out its
-    /// [`Self::stop_wait_bound`] by `now` bypasses the command gates. Pacing
+    /// [`Self::stop_wait_bound_in`] by `now` bypasses the command gates. Pacing
     /// (spacing and the inquiry cooldown) is [`Self::candidate_send_at`]'s
     /// alone.
+    #[cfg(test)]
     fn dispatch_blocked(&self, entry: &Entry, now: Instant) -> bool {
         let target = entry.request.context().target;
         match entry.request.lane() {
@@ -1376,9 +1502,9 @@ trait EngineMethods: EngineAccess {
         }
     }
 
-    fn dispatch_eligible(&self, id: RequestId, now: Instant) -> bool {
+    fn dispatch_eligible(&self, id: RequestId, now: Instant, occupancy: &Occupancy) -> bool {
         self.entries.get(&id).is_some_and(|entry| {
-            !self.dispatch_blocked(entry, now) && self.candidate_send_at(entry) <= now
+            self.candidate_send_at(entry) <= now && !self.dispatch_blocked_in(entry, now, occupancy)
         })
     }
 
@@ -1424,34 +1550,25 @@ trait EngineMethods: EngineAccess {
     /// correlation shares one transport namespace. Raw VISCA has no sequence
     /// field, but its response source identifies the camera, so independent
     /// targets have independent positional inquiry lanes.
+    #[cfg(test)]
     fn inquiries_inflight_for(&self, target: TargetSlot) -> usize {
         self.entries
             .values()
             .filter(|entry| {
-                entry.reply_family() == SendingReply::Inquiry
-                    && (!self.mode().is_raw() || entry.request.context().target == target)
-                    && matches!(
-                        entry.lifecycle().phase(),
-                        Phase::Sending { .. } | Phase::AwaitingReply { .. }
-                    )
+                (!self.mode().is_raw() || entry.request.context().target == target)
+                    && entry.lifecycle().is_live_inquiry()
             })
             .count()
     }
 
+    #[cfg(test)]
     fn commands_inflight(&self, target: TargetSlot) -> usize {
         self.entries
             .values()
             .filter(|entry| {
                 entry.reply_family() != SendingReply::Inquiry
                     && entry.request.context().target == target
-                    && matches!(
-                        entry.lifecycle().phase(),
-                        Phase::Sending { .. }
-                            | Phase::AwaitingAck { .. }
-                            | Phase::AwaitingCompletion { .. }
-                            | Phase::Executing { .. }
-                            | Phase::AwaitingCancellationResolution { .. }
-                    )
+                    && entry.lifecycle().is_command_on_wire()
             })
             .count()
     }
@@ -1461,6 +1578,7 @@ trait EngineMethods: EngineAccess {
     /// identifies a late answer; if the camera is still busy there it
     /// allocates another socket or answers buffer-full, so the hold takes no
     /// capacity.
+    #[cfg(test)]
     fn command_capacity_used(&self, target: TargetSlot) -> usize {
         let held = if self.mode().is_stream() {
             0
@@ -1473,6 +1591,7 @@ trait EngineMethods: EngineAccess {
     /// The command capacity `entry` finds used: a STOP is never held back by
     /// a socket hold (the camera allocates a free socket or answers
     /// buffer-full).
+    #[cfg(test)]
     fn command_capacity_used_by(&self, entry: &Entry, target: TargetSlot) -> usize {
         if urgent_stop(entry) {
             self.commands_inflight(target)
@@ -1491,6 +1610,7 @@ trait EngineMethods: EngineAccess {
     /// unconfirmed (#795). Only the local write of a `NoReply` or
     /// `CompletionOnly` command, which has no write order yet, still holds
     /// it back (`None` until that write has left).
+    #[cfg(test)]
     fn stop_wait_bound(&self, entry: &Entry) -> Option<Instant> {
         self.mode().stream().and_then(|stream| {
             stream.stop_wait_bound(entry, || {
@@ -1501,6 +1621,7 @@ trait EngineMethods: EngineAccess {
 
     /// Whether a `NoReply` or `CompletionOnly` command's local write to
     /// `target` is in flight.
+    #[cfg(test)]
     fn uncorrelated_write_in_flight(&self, target: TargetSlot) -> bool {
         self.entries.values().any(|entry| {
             entry.request.context().target == target
@@ -1515,7 +1636,8 @@ trait EngineMethods: EngineAccess {
     }
 
     /// Whether `entry`, a STOP on a raw byte stream, has waited out
-    /// [`Self::stop_wait_bound`] by `now` and is written whatever else waits.
+    /// [`Self::stop_wait_bound_in`] by `now` and is written whatever else waits.
+    #[cfg(test)]
     fn stop_wait_ended(&self, entry: &Entry, now: Instant) -> bool {
         self.stop_wait_bound(entry)
             .is_some_and(|bound| now >= bound)
@@ -1579,6 +1701,7 @@ trait EngineMethods: EngineAccess {
         Ok(shapes)
     }
 
+    #[cfg(test)]
     fn overlapping_raw_inquiry_inflight(&self, target: TargetSlot, shape: PayloadShape) -> bool {
         self.entries.values().any(|entry| {
             entry.request.context().target == target
@@ -1586,17 +1709,16 @@ trait EngineMethods: EngineAccess {
                     .request
                     .payload_shape()
                     .is_some_and(|live| live.overlaps(shape))
-                && matches!(
-                    entry.lifecycle().phase(),
-                    Phase::Sending { .. } | Phase::AwaitingReply { .. }
-                )
+                && entry.lifecycle().is_live_inquiry()
         })
     }
 
+    #[cfg(test)]
     fn raw_hold_blocks_dispatch(&self, entry: &Entry, target: TargetSlot) -> bool {
         self.raw_hold_dispatch_deadline_for(entry, target).is_some()
     }
 
+    #[cfg(test)]
     fn raw_hold_dispatch_deadline_for(&self, entry: &Entry, target: TargetSlot) -> Option<Instant> {
         let response_bearing = entry.reply_family() != SendingReply::NoReply;
         // A STOP is never held back by a hold (#795): a frame it makes
@@ -1640,6 +1762,7 @@ trait EngineMethods: EngineAccess {
             .max()
     }
 
+    #[cfg(test)]
     fn raw_preack_hold_bypass_available(&self, entry: &Entry, target: TargetSlot) -> bool {
         entry.reply_family() == SendingReply::AckThenCompletion
             && entry.request.context().control.class == ControlClass::Urgent
@@ -1666,6 +1789,7 @@ trait EngineMethods: EngineAccess {
             })
     }
 
+    #[cfg(test)]
     fn raw_socket_hold_wake(&self, target: TargetSlot) -> Option<Instant> {
         [ViscaSocket::S1, ViscaSocket::S2]
             .into_iter()
@@ -1703,6 +1827,7 @@ trait EngineMethods: EngineAccess {
             })
     }
 
+    #[cfg(test)]
     fn raw_unacknowledged_command_count(&self, target: TargetSlot) -> usize {
         match &self.mode() {
             CorrelationRef::Sequenced => 0,
@@ -1723,6 +1848,7 @@ trait EngineMethods: EngineAccess {
     /// candidate (#714). While both are open, the exact raw ACK/error resolvers
     /// see multiple candidates and bind to neither; no temporal guess is made.
     /// A third candidate is never admitted through this exception.
+    #[cfg(test)]
     fn raw_urgent_gate_bypass_available(&self, entry: &Entry, target: TargetSlot) -> bool {
         self.mode().is_raw()
             && entry.reply_family() != SendingReply::Inquiry
@@ -1758,6 +1884,7 @@ trait EngineMethods: EngineAccess {
     /// due pass, and must never be written in between. A `NoReply` command
     /// is no exception on a byte stream: its possible rejection is owed too,
     /// and could not be told from the owed answer.
+    #[cfg(test)]
     fn raw_command_gate_blocks(&self, entry: &Entry, target: TargetSlot) -> bool {
         let owed = self.mode().ledger().lane_state(target, Lane::Command) != LaneState::Clear;
         (self.raw_command_unacknowledged(target)
@@ -1773,19 +1900,18 @@ trait EngineMethods: EngineAccess {
     /// has none during its local write. Both must keep same-target work from
     /// starting: a socketless error received during either phase otherwise has
     /// two possible owners.
+    #[cfg(test)]
     fn raw_uncorrelated_command_inflight(&self, target: TargetSlot) -> bool {
         self.mode().is_raw()
             && self.entries.values().any(|entry| {
                 entry.reply_family() != SendingReply::Inquiry
                     && entry.request.context().target == target
                     && match entry.reply_family() {
-                        SendingReply::NoReply => {
-                            matches!(entry.lifecycle().phase(), Phase::Sending { .. })
+                        SendingReply::NoReply => entry.lifecycle().is_sending(),
+                        SendingReply::CompletionOnly => {
+                            entry.lifecycle().is_sending()
+                                || entry.lifecycle().is_awaiting_completion()
                         }
-                        SendingReply::CompletionOnly => matches!(
-                            entry.lifecycle().phase(),
-                            Phase::Sending { .. } | Phase::AwaitingCompletion { .. }
-                        ),
                         SendingReply::Inquiry | SendingReply::AckThenCompletion => false,
                     }
             })
@@ -1809,6 +1935,7 @@ trait EngineMethods: EngineAccess {
     /// the hold past its deadline for late frames naming the socket; it no
     /// longer delays work.) The rule is raw-only: Sony correlates by
     /// sequence, so these shapes need no exclusivity there.
+    #[cfg(test)]
     fn uncorrelated_raw_shape_blocked(
         &self,
         entry: &Entry,
@@ -1988,7 +2115,7 @@ trait EngineMethods: EngineAccess {
                         deadline,
                         self.mode().is_raw()
                             && entry.reply_family() != SendingReply::Inquiry
-                            && matches!(entry.lifecycle().phase(), Phase::Sending { .. }),
+                            && entry.lifecycle().is_sending(),
                         entry
                             .retry_cause()
                             .cloned()
@@ -2356,7 +2483,7 @@ trait EngineMethods: EngineAccess {
             .iter()
             .filter_map(|(id, entry)| {
                 if entry.reply_family() == SendingReply::Inquiry
-                    || !matches!(entry.lifecycle().phase(), Phase::AwaitingAck { .. })
+                    || !entry.lifecycle().is_awaiting_ack()
                     || entry.lifecycle().cancellation_ambiguity().is_some()
                 {
                     return None;
@@ -2715,7 +2842,7 @@ trait EngineMethods: EngineAccess {
             .filter(|(_, entry)| {
                 entry.request.context().target == target
                     && entry.request.is_inquiry()
-                    && matches!(entry.lifecycle().phase(), Phase::AwaitingReply { .. })
+                    && entry.lifecycle().is_awaiting_reply()
             })
             .map(|(id, _)| *id);
         let candidate = candidates.next()?;
@@ -2732,7 +2859,7 @@ trait EngineMethods: EngineAccess {
                         .request
                         .payload_shape()
                         .is_some_and(|shape| shape.admits(payload))
-                    && matches!(entry.lifecycle().phase(), Phase::AwaitingReply { .. })
+                    && entry.lifecycle().is_awaiting_reply()
             })
             .map(|(id, _)| *id);
         let candidate = candidates.next()?;
@@ -2753,11 +2880,7 @@ trait EngineMethods: EngineAccess {
             .entries
             .values()
             .filter(|entry| {
-                entry.request.context().target == target
-                    && matches!(
-                        entry.lifecycle().phase(),
-                        Phase::Sending { .. } | Phase::AwaitingReply { .. }
-                    )
+                entry.request.context().target == target && entry.lifecycle().is_live_inquiry()
             })
             .filter_map(|entry| entry.request.payload_shape());
         let mut expected = false;
@@ -2778,12 +2901,7 @@ trait EngineMethods: EngineAccess {
     /// ambiguous with every outstanding inquiry and pre-ACK command.
     fn raw_inquiry_inflight(&self, target: TargetSlot) -> bool {
         self.entries.values().any(|entry| {
-            entry.reply_family() == SendingReply::Inquiry
-                && entry.request.context().target == target
-                && matches!(
-                    entry.lifecycle().phase(),
-                    Phase::Sending { .. } | Phase::AwaitingReply { .. }
-                )
+            entry.request.context().target == target && entry.lifecycle().is_live_inquiry()
         })
     }
 
@@ -2813,22 +2931,29 @@ trait EngineMethods: EngineAccess {
     /// explicit two-candidate state: it returns `None` and never turns
     /// admission order or recency into an ACK/error guess. `AwaitingAck` is
     /// the only phase eligible for a new socket assignment.
-    fn unique_raw_command_candidate(&self, target: TargetSlot) -> Option<RequestId> {
-        let raw = self.mode().is_raw();
-        let mut sole = None;
-        for (id, entry) in &self.entries {
-            if !raw
-                || entry.request.context().target != target
-                || !matches!(entry.lifecycle(), Lifecycle::AwaitingAck { .. })
-            {
-                continue;
+    fn sole_raw_candidate(
+        &self,
+        target: TargetSlot,
+        predicate: impl Fn(&Entry) -> bool,
+    ) -> Option<RequestId> {
+        match self.mode() {
+            CorrelationRef::Sequenced => None,
+            CorrelationRef::RawDatagram(_) | CorrelationRef::RawStream(_) => {
+                let mut candidates = self
+                    .entries
+                    .iter()
+                    .filter(|(_, entry)| {
+                        entry.request.context().target == target && predicate(entry)
+                    })
+                    .map(|(id, _)| *id);
+                let first = candidates.next()?;
+                candidates.next().is_none().then_some(first)
             }
-            if sole.is_some() {
-                return None;
-            }
-            sole = Some(*id);
         }
-        sole
+    }
+
+    fn unique_raw_command_candidate(&self, target: TargetSlot) -> Option<RequestId> {
+        self.sole_raw_candidate(target, |entry| entry.lifecycle().is_awaiting_ack())
     }
 
     /// The unique completion-only raw command on `target` awaiting (or about to
@@ -2840,21 +2965,7 @@ trait EngineMethods: EngineAccess {
     /// its completion is unambiguous. It fails closed if a second candidate
     /// exists; `AwaitingCompletion` itself proves the command's reply family.
     fn completion_only_candidate(&self, target: TargetSlot) -> Option<RequestId> {
-        let raw = self.mode().is_raw();
-        let mut sole = None;
-        for (id, entry) in &self.entries {
-            if !raw
-                || entry.request.context().target != target
-                || !matches!(entry.lifecycle(), Lifecycle::AwaitingCompletion { .. })
-            {
-                continue;
-            }
-            if sole.is_some() {
-                return None;
-            }
-            sole = Some(*id);
-        }
-        sole
+        self.sole_raw_candidate(target, |entry| entry.lifecycle().is_awaiting_completion())
     }
 
     /// The unique raw command that may own a socketless camera error on
@@ -2869,27 +2980,11 @@ trait EngineMethods: EngineAccess {
     /// As with the ACK candidate, a second possible owner fails closed rather
     /// than allowing temporal recency to choose one.
     fn unique_raw_error_candidate(&self, target: TargetSlot) -> Option<RequestId> {
-        let raw = self.mode().is_raw();
-        let mut sole = None;
-        for (id, entry) in &self.entries {
-            if !raw
-                || entry.reply_family() == SendingReply::Inquiry
-                || entry.request.context().target != target
-            {
-                continue;
-            }
-            if !matches!(
-                entry.lifecycle(),
-                Lifecycle::AwaitingAck { .. } | Lifecycle::AwaitingCompletion { .. }
-            ) {
-                continue;
-            }
-            if sole.is_some() {
-                return None;
-            }
-            sole = Some(*id);
-        }
-        sole
+        self.sole_raw_candidate(target, |entry| {
+            entry.reply_family() != SendingReply::Inquiry
+                && (entry.lifecycle().is_awaiting_ack()
+                    || entry.lifecycle().is_awaiting_completion())
+        })
     }
 
     fn command_sockets(&self, target: TargetSlot) -> usize {
@@ -3182,12 +3277,8 @@ trait EngineMethods: EngineAccess {
     fn quarantine_raw_inquiry_correlation(&mut self, id: RequestId, now: Instant) {
         let Some((target, shape)) = self.entries.get(&id).and_then(|entry| {
             let shape = entry.request.payload_shape()?;
-            (self.mode().is_raw()
-                && matches!(
-                    entry.lifecycle().phase(),
-                    Phase::Sending { .. } | Phase::AwaitingReply { .. }
-                ))
-            .then_some((entry.request.context().target, shape))
+            (self.mode().is_raw() && entry.lifecycle().is_live_inquiry())
+                .then_some((entry.request.context().target, shape))
         }) else {
             return;
         };
@@ -3365,11 +3456,7 @@ trait EngineMethods: EngineAccess {
         }
         for retro in deferred.retro {
             let awaiting = self.entries.get(&retro.request).is_some_and(|entry| {
-                entry.generation == retro.generation
-                    && !matches!(
-                        entry.lifecycle().phase(),
-                        Phase::Ready | Phase::Backoff { .. }
-                    )
+                entry.generation == retro.generation && !entry.lifecycle().is_off_wire()
             });
             if !awaiting {
                 continue;
@@ -3505,12 +3592,7 @@ trait EngineMethods: EngineAccess {
         let failed: SmallVec<[(RequestId, Error); 4]> = self
             .entries
             .iter()
-            .filter(|(_, entry)| {
-                matches!(
-                    entry.lifecycle().phase(),
-                    Phase::Ready | Phase::Backoff { .. }
-                )
-            })
+            .filter(|(_, entry)| entry.lifecycle().is_off_wire())
             .filter_map(|(id, entry)| {
                 self.latched_raw_lane_error(&entry.request)
                     .map(|error| (*id, error))
@@ -3529,8 +3611,7 @@ trait EngineMethods: EngineAccess {
         effects: &mut Decision,
     ) {
         let compatible = self.entries.get(&id).is_some_and(|entry| {
-            entry.reply_family() == SendingReply::Inquiry
-                && matches!(entry.lifecycle().phase(), Phase::AwaitingReply { .. })
+            entry.reply_family() == SendingReply::Inquiry && entry.lifecycle().is_awaiting_reply()
         });
         if !compatible {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
@@ -3553,12 +3634,11 @@ trait EngineMethods: EngineAccess {
             return;
         };
         if let Some(socket) = socket {
-            if matches!(
-                entry.lifecycle().phase(),
-                Phase::Executing { socket: owned, .. }
-                    | Phase::AwaitingCancellationResolution { socket: owned, .. }
-                    if owned != socket
-            ) {
+            if entry
+                .lifecycle()
+                .socket()
+                .is_some_and(|owned| owned != socket)
+            {
                 effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
                 return;
             }
@@ -3592,10 +3672,7 @@ trait EngineMethods: EngineAccess {
         // independent cancellation correlation, so a merely recorded,
         // socketless cancel intent instead leaves `0x05` as the original
         // request's retryable rejection below.
-        let acknowledged = matches!(
-            entry.lifecycle().phase(),
-            Phase::Executing { .. } | Phase::AwaitingCancellationResolution { .. }
-        );
+        let acknowledged = entry.lifecycle().socket().is_some();
         if acknowledged {
             let cancellation_answered =
                 self.mode().is_raw() && code == 0x05 && raw_cancellation_no_socket_response(entry);
@@ -3706,11 +3783,8 @@ trait EngineMethods: EngineAccess {
         };
         // Inquiry refusal is request-kind authority; a queued inquiry must not
         // take the local command-cancellation path.
-        let queued_inquiry = entry.reply_family() == SendingReply::Inquiry
-            && matches!(
-                entry.lifecycle().phase(),
-                Phase::Ready | Phase::Backoff { .. }
-            );
+        let queued_inquiry =
+            entry.reply_family() == SendingReply::Inquiry && entry.lifecycle().is_off_wire();
         let decision = if queued_inquiry {
             CancellationDecision::Refused(Error::InquiryNotCancelable)
         } else {
@@ -4018,14 +4092,7 @@ trait EngineMethods: EngineAccess {
         // A cancellation can end before its original protocol window. Keep
         // every response from that attempt away from successors through both
         // windows and a fresh ambiguity interval, even if due work was delayed.
-        let phase_deadline = match entry.lifecycle().phase() {
-            Phase::AwaitingAck { deadline, .. }
-            | Phase::AwaitingCompletion { deadline, .. }
-            | Phase::Executing { deadline, .. }
-            | Phase::AwaitingReply { deadline, .. }
-            | Phase::AwaitingCancellationResolution { deadline, .. } => deadline,
-            Phase::Ready | Phase::Sending { .. } | Phase::Backoff { .. } => now,
-        };
+        let phase_deadline = entry.lifecycle().response_window_end().unwrap_or(now);
         let hold_base = if let Some(cancel_deadline) = entry.lifecycle().cancellation_ambiguity() {
             now.max(phase_deadline).max(cancel_deadline)
         } else {
@@ -4375,16 +4442,16 @@ trait EngineMethods: EngineAccess {
                 continue;
             }
             let release = releases.for_target_mut(entry.request.context().target);
-            match entry.lifecycle().phase() {
-                Phase::Executing { socket, .. }
-                | Phase::AwaitingCancellationResolution { socket, .. } => {
+            match entry.lifecycle() {
+                Lifecycle::Executing { socket, .. }
+                | Lifecycle::AwaitingCancellationResolution { socket, .. } => {
                     release.release_exact_socket(socket);
                 }
-                Phase::AwaitingReply { .. } => release.release_inquiry_unkeyed(),
-                Phase::Sending { .. }
-                | Phase::AwaitingAck { .. }
-                | Phase::AwaitingCompletion { .. } => release.release_pre_ack_unkeyed(),
-                Phase::Ready | Phase::Backoff { .. } => {}
+                Lifecycle::AwaitingReply { .. } => release.release_inquiry_unkeyed(),
+                Lifecycle::Sending { .. }
+                | Lifecycle::AwaitingAck { .. }
+                | Lifecycle::AwaitingCompletion { .. } => release.release_pre_ack_unkeyed(),
+                Lifecycle::Ready { .. } | Lifecycle::Backoff { .. } => {}
             }
         }
         releases
@@ -4492,23 +4559,24 @@ trait EngineMethods: EngineAccess {
         if self.state != SessionState::Running {
             return None;
         }
-        let mut wake = self
-            .next_due()
+        let occupancy = Occupancy::build(&self.entries);
+        let mut wake = occupancy
+            .due
             .map(|due| due.at)
             .into_iter()
             .chain(self.raw_hold_wake(now))
             .chain(self.mode().ledger().wake())
             .min();
         for entry in self.entries.values() {
-            let candidate = if matches!(entry.lifecycle().phase(), Phase::Ready)
-                && !self.dispatch_blocked(entry, now)
+            let candidate = if entry.lifecycle().is_ready()
+                && !self.dispatch_blocked_in(entry, now, &occupancy)
             {
                 Some(self.candidate_send_at(entry))
             } else if entry.lifecycle().pending_cancellation_socket().is_some() {
                 Some(self.cancellation_send_at(entry))
-            } else if matches!(entry.lifecycle().phase(), Phase::Ready) {
+            } else if entry.lifecycle().is_ready() {
                 // A blocked STOP on a byte stream is written at its bound.
-                self.stop_wait_bound(entry)
+                self.stop_wait_bound_in(entry, &occupancy)
                     .map(|bound| bound.max(self.candidate_send_at(entry)))
             } else {
                 None
@@ -4721,11 +4789,7 @@ trait EngineMethods: EngineAccess {
                 }
             } else {
                 for entry in self.entries.values().filter(|entry| {
-                    entry.request.context().target == target
-                        && matches!(
-                            entry.lifecycle().phase(),
-                            Phase::Sending { .. } | Phase::AwaitingReply { .. }
-                        )
+                    entry.request.context().target == target && entry.lifecycle().is_live_inquiry()
                 }) {
                     let Some(shape) = entry.request.payload_shape() else {
                         continue;
@@ -4816,21 +4880,17 @@ trait EngineMethods: EngineAccess {
                 entry.generation == outstanding.generation
                     && entry.request.context().target == target
                     && match outstanding.owes {
-                        Owes::Ack => matches!(
-                            entry.lifecycle().phase(),
-                            Phase::Sending { .. } | Phase::AwaitingAck { .. }
-                        ),
-                        Owes::Reply(_) => matches!(
-                            entry.lifecycle().phase(),
-                            Phase::Sending { .. } | Phase::AwaitingReply { .. }
-                        ),
-                        Owes::Rejection => {
-                            matches!(entry.lifecycle().phase(), Phase::Sending { .. })
+                        Owes::Ack => {
+                            entry.lifecycle().is_sending() || entry.lifecycle().is_awaiting_ack()
                         }
-                        Owes::Completion | Owes::AcceptedCompletion => matches!(
-                            entry.lifecycle().phase(),
-                            Phase::Sending { .. } | Phase::AwaitingCompletion { .. }
-                        ),
+                        Owes::Reply(_) => {
+                            entry.lifecycle().is_sending() || entry.lifecycle().is_awaiting_reply()
+                        }
+                        Owes::Rejection => entry.lifecycle().is_sending(),
+                        Owes::Completion | Owes::AcceptedCompletion => {
+                            entry.lifecycle().is_sending()
+                                || entry.lifecycle().is_awaiting_completion()
+                        }
                         Owes::Cancel(socket) => {
                             entry.cancel_attempted_socket() == Some(socket)
                                 && entry.lifecycle().awaiting_cancellation_answer()
@@ -4942,16 +5002,7 @@ fn add_duration(at: Instant, duration: Duration) -> Instant {
 /// predicate, so extending one cannot leave the other with a divergent phase
 /// list.
 fn raw_unacknowledged_command_candidate(entry: &Entry) -> bool {
-    matches!(
-        entry.lifecycle(),
-        Lifecycle::Sending {
-            reply: SendingReply::AckThenCompletion
-                | SendingReply::CompletionOnly
-                | SendingReply::NoReply,
-            ..
-        } | Lifecycle::AwaitingAck { .. }
-            | Lifecycle::AwaitingCompletion { .. }
-    )
+    entry.lifecycle().is_unacknowledged_command()
 }
 
 fn terminal_timeout(entry: &Entry) -> Error {
@@ -5153,15 +5204,9 @@ fn correlation_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
         // Sony sequences deliberately outlive an attempt across retry. A
         // queued/backoff owner therefore needs evidence of an earlier attempt;
         // the ordinary response phases must also agree with the reply shape.
-        CorrelationKind::Request => match entry.lifecycle().phase() {
-            Phase::Ready | Phase::Backoff { .. } => entry.previous_written_attempt().is_some(),
-            Phase::Sending { .. }
-            | Phase::AwaitingReply { .. }
-            | Phase::AwaitingAck { .. }
-            | Phase::Executing { .. }
-            | Phase::AwaitingCancellationResolution { .. }
-            | Phase::AwaitingCompletion { .. } => true,
-        },
+        CorrelationKind::Request => {
+            !entry.lifecycle().is_off_wire() || entry.previous_written_attempt().is_some()
+        }
         CorrelationKind::Cancellation => entry.lifecycle().awaiting_cancellation_answer(),
     }
 }

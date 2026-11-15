@@ -1398,6 +1398,7 @@ impl Session {
     }
 
     fn check(&mut self) {
+        assert_occupancy_agrees(&self.engine, self.now);
         self.engine
             .assert_invariants()
             .unwrap_or_else(|violation| panic!("seed {}: {violation}", self.seed));
