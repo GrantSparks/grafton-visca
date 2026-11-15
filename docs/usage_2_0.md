@@ -333,10 +333,11 @@ one runtime.
 
 ### Sharing a blocking session
 
-`blocking::Session`, its `Camera<P>` views, and their operation handles are
-owned, `Clone + Send + Sync` handles on one owner worker thread. Clone them
-into other threads instead of locking: the worker serializes every call, so a
-thread waiting on one operation never blocks another thread's submit, cancel,
+`blocking::Session` and its `Camera<P>` views are owned,
+`Clone + Send + Sync` handles on one owner worker thread. Clone session or
+camera views into other threads; operation handles are `Send + Sync` and may
+move between threads, while waits borrow them. The worker serializes every
+call, so a thread waiting on one operation never blocks another thread's submit, cancel,
 or STOP.
 
 ```rust,no_run

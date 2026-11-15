@@ -28,6 +28,64 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `StateCache` and `DiagnosticSubscription`, which only a running session can
   produce, are now available only with `blocking` or `async`, alongside the
   sessions that return them. Builds with a facade are unchanged.
+- **BREAKING** (#839): `menu().navigate()` returns an applied-only pan/tilt
+  operation handle on blocking, async and dynamic cameras. Navigation is now
+  tracked and fenced by halt; with the on-screen menu closed it is continuous
+  physical movement and needs an explicit pan/tilt STOP.
+- **BREAKING** (#846): `ViscaInquiry` rejects decoder attributes that its
+  selected parser would ignore, unsupported Mode/Nibble `data_variant`
+  overrides, and `FF` in `opcode`/`subcode`. Use the selector-specific keys
+  documented in the macro README. Standard boolean reply polarity is `02` for
+  on; the opposite convention is register-specific.
+
+### Fixed
+
+- Raw completion-only commands refuse cancellation with `NotSupported` after a
+  successful write and retain their own completion deadline. Cancellation
+  requested during the write is refused when it succeeds. Unconfirmed raw
+  cancellation terminals retain a future hold with the correct phase scope,
+  preventing late replies from applying a successor (#835).
+- Strictly late raw-stream candidates retire before the ledger consumes their
+  first answer. A raced ACK retains its socket evidence even when the write
+  result outlives the total budget (#837).
+- Owner receive pacing preserves input already available at a response or
+  release deadline. Only eager idle reads gain an extra pause; full-timeout
+  reads stay receive-first, and successful writes clear fault pauses and reset
+  idle escalation (#838).
+- Awaiting `SmolExecutor` and `SmolRuntime` joins now retains the receive future
+  and its waker across polls. Dropping a join still detaches the task (#840).
+- Every `StillLive` timeout and cached cancellation failure is nonretryable.
+  `CancellationObservationFailed` retains the original source while stopping
+  futile retry loops; retry guidance and examples distinguish waiting,
+  conclusive failure, and uncertain effects (#841).
+- Retry and observer budgets cover a full ACK-plus-completion attempt under a
+  longer valid ACK override, so healthy executing commands are not ended by a
+  completion-only budget calculation. Untuned built-in budgets are unchanged
+  (#842).
+- Windows UDP port-unreachable receives (`WSAECONNRESET`) are transient faults
+  rather than session death. Stream connection resets remain fatal (#843).
+- Socket options, buffer limits, and admission/reserve/ledger arithmetic are
+  validated before I/O. Keepalive values use whole seconds in `1..=32767`,
+  TTL uses `1..=255`, receive buffers are at most 65,535 bytes, and configured
+  `max_buffer_size` is at most 1,048,576 bytes (#847).
+- Oversized raw stream frames ending in `FF` are counted and discarded while
+  the session keeps running. Cumulative retention overflow and an oversized
+  Sony declaration remain terminal. The retention bound is consistently
+  documented as `max_buffer_size + recv_buffer_size` (#848).
+- Direct IP connectors reject serial addressing before socket creation;
+  blocking stream reads handle zero and unrepresentable timeout budgets
+  consistently, and Address Set immediately reports a chain longer than seven
+  cameras (#849).
+- `test-utils` simulator options now schedule deterministic ACK/execution
+  delays, busy responses, jitter, and dropped datagram replies through real
+  sessions. Socket cancellation, unknown inquiries, reply sources, and
+  per-camera socket bounds follow VISCA. Construction needs no runtime, and
+  the lazy response task stops when the last clone drops (#850).
+- Diagnostic subscriptions preserve the owner's terminal cause. Owner panics
+  report nonretryable `OwnerTerminated`, which requires a new session;
+  subscriber exhaustion reports `DiagnosticSubscriberLimit`. `pending`
+  counts queued and retained admissions, and both facades document that
+  `metrics()` returns the terminal error once the owner ends (#851, #852).
 
 ## [2.0.0-rc.3] - 2026-10-07
 

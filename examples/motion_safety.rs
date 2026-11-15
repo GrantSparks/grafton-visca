@@ -9,7 +9,7 @@
 //!
 //! A PTZOptics G2 in auto-focus mode (the factory default) rejects the focus
 //! STOP as not executable (`90 6y 41 FF`), which the library reports as a
-//! focus failure (`UnsequencedCommandUnconfirmed`) while pan/tilt and zoom are
+//! focus outcome `Failed(CommandNotExecutable)` while pan/tilt and zoom are
 //! `Applied`. In auto focus the camera owns the focus motor, so the example
 //! shows that rejection but does not fail on it; in manual focus a focus STOP
 //! failure is treated as an error like the other axes. With manual focus all

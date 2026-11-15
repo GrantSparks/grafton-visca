@@ -3,8 +3,10 @@
 //! A [`Session`] owns exactly one native owner worker thread and the transport
 //! moved into it (D24). [`Camera`] values are inexpensive target views:
 //! cloning one only clones the owner handle and its immutable target/profile
-//! facts. Every handle is `Clone + Send + Sync`, and calls from any number of
-//! threads are serialized by the worker rather than by the caller. These
+//! facts. Session and camera handles are `Clone + Send + Sync`; operation
+//! handles are `Send + Sync` and may move between threads. Calls from any
+//! number of threads are serialized by the worker rather than by the caller.
+//! These
 //! handles are deliberately mode-native: they expose direct [`Result`]s and
 //! never create or return a future. Dropping a non-final handle leaves the
 //! shared owner running; dropping the final one stops the worker and releases
@@ -259,10 +261,10 @@ pub use construction::{CameraConfig, Connect};
 /// One blocking owner session.
 ///
 /// The transport is moved into one native owner worker thread at
-/// construction (D24). The session, the [`Camera`] views taken from it, and
-/// the [`Operation`] handles they return are all `Clone + Send + Sync` and
-/// borrow nothing, so they may be shared freely between threads: the worker
-/// serializes every call, and one thread waiting on an operation never blocks
+/// construction (D24). The session and its [`Camera`] views are
+/// `Clone + Send + Sync`. An [`Operation`] handle is `Send + Sync`, borrows
+/// nothing, and can move to another thread; its waits borrow that handle.
+/// The worker serializes every call, and one thread waiting on an operation never blocks
 /// another thread's submit, cancel, or STOP. Timers, reads, and correlation
 /// cleanup progress on the worker even while no caller is inside the session.
 ///

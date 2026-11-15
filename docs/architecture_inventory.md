@@ -12,8 +12,9 @@ Caller-visible differences from 1.x are recorded in
 
 The built-in profiles are `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`,
 `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, and
-`GenericVisca`. The first three and last four support raw VISCA over TCP, UDP,
-and serial, with default network ports 5678 and 1259. `SonyFR7` and
+`GenericVisca`. The three PTZOptics profiles and `GenericVisca` support raw VISCA over TCP,
+UDP, and serial, with default network ports 5678 and 1259. `SonyEVIH100`,
+`SonyBRC300`, and `NearusBRC300` support raw serial only. `SonyFR7` and
 `SonyBRCH900` support Sony-encapsulated VISCA over UDP on port 52381. The
 profile-specific capability and transport matrix remains checked in
 `camera::profile_registry` against `camera_profile_support.md`.
@@ -119,6 +120,10 @@ The supported downstream derives are `ViscaInquiry`, `ViscaEnum`, and
 `ScriptedBlockingTransport`, `ScriptedTransport`, `DeterministicExecutor`,
 `DeterministicClock`, `DeterministicExecutorExt`, `TestExecutorSelector`,
 `TestExecutorType`, `TestExecutors`, and the Tokio `ViscaCameraSimulator`.
+The simulator can be constructed without a runtime; sending and receiving
+require Tokio with time enabled. Its fixed-seed timing/loss options schedule
+addressed datagram replies, with per-camera socket cancellation and no polling
+task retained after the last clone drops (#850).
 
 The preserved extension semantics are custom command encoding, typed and raw
 inquiry decoding, caller-owned blocking/async transports, raw/protocol command
