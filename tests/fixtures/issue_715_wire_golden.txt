@@ -348,9 +348,9 @@ ImageFreeze[on]	81 01 04 62 02 FF
 ImageFreeze[off]	81 01 04 62 03 FF
 NdFilterMode[Preset]	81 01 7E 04 52 00 FF
 NdFilterMode[Variable]	81 01 7E 04 52 01 FF
-NdFilterValue[0000]	81 01 7E 04 42 00 00 00 FF
-NdFilterValue[0005]	81 01 7E 04 42 00 00 05 FF
-NdFilterValue[0014]	81 01 7E 04 42 00 01 04 FF
+NdFilterValue[0000]	81 01 7E 04 42 00 00 00 00 FF
+NdFilterValue[0005]	81 01 7E 04 42 00 00 00 05 FF
+NdFilterValue[0014]	81 01 7E 04 42 00 00 01 04 FF
 NdFilterValue[0015]	CTOR_ERR(ParameterOutOfRange { parameter: "ND filter value", value: 21, min: 0, max: 20 })
 NdFilterValue[FFFF]	CTOR_ERR(ParameterOutOfRange { parameter: "ND filter value", value: 65535, min: 0, max: 20 })
 NdFilterStep[Up]	81 01 7E 04 12 02 FF
@@ -409,20 +409,15 @@ MotionSyncPreset[255]	CTOR_ERR(ParameterOutOfRange { parameter: "MotionSyncSpeed
 VariableSpeed[Standard24]	81 01 06 45 08 FF
 VariableSpeed[Fine50]	81 01 06 45 18 FF
 AutoFocusSensitivityInquiry	81 09 04 58 FF
-AutoTraceInquiry	81 09 50 09 FF
 AutoWhiteBalanceSensitivityInquiry	81 09 04 A9 FF
 BacklightInquiry	81 09 04 33 FF
 BlueGainInquiry	81 09 04 44 FF
 BlueTuningInquiry	81 09 04 44 FF
 BrightnessInquiry	81 09 04 4D FF
-BroadcastDomainInquiry	81 09 04 75 FF
 ColorTemperatureInquiry	81 09 04 20 FF
 ContrastInquiry	81 09 04 A2 FF
 DefogLevelInquiry	81 09 04 A0 FF
 DefogModeInquiry	81 09 04 37 FF
-DigitalInquiry	81 09 04 7B FF
-DigitalPtzInquiry	81 09 04 6B FF
-DynamicRangeInquiry	81 09 04 25 FF
 ExposureCompensationInquiry	81 09 04 4E FF
 ExposureCompensationModeInquiry	81 09 04 3E FF
 ExposureCompensationPositionInquiry	81 09 04 4E FF
@@ -432,23 +427,20 @@ FlipStateInquiry	81 09 04 A4 FF
 FocusModeInquiry	81 09 04 38 FF
 FocusNearLimitInquiry	81 09 04 28 FF
 FocusPositionInquiry	81 09 04 48 FF
-FocusRangeInquiry	81 09 04 2A FF
-FocusUnlockInquiry	81 09 54 08 FF
 FocusZoneInquiry	81 09 04 AA FF
 GainInquiry	81 09 04 4C FF
 GainLimitInquiry	81 09 04 2C FF
 GammaInquiry	81 09 04 5B FF
 HueInquiry	81 09 04 4F FF
-ImageFlipInquiry	81 09 04 A4 FF
+ImageFlipInquiry	81 09 04 66 FF
 IrisControlInquiry	81 09 04 2B FF
 IrisInquiry	81 09 04 4B FF
 LuminanceInquiry	81 09 04 A1 FF
 MenuOpenCloseInquiry	81 09 06 06 FF
 MotionSyncModeInquiry	81 09 04 56 FF
 MotionSyncPresetInquiry	81 09 04 57 FF
-NdFilterInquiry	81 09 04 64 FF
+NdFilterInquiry	81 09 7E 04 42 FF
 NdFilterPresetInquiry	81 09 7E 01 53 FF
-NightDayModeInquiry	81 09 04 60 FF
 NoiseReduction2DInquiry	81 09 04 53 FF
 NoiseReduction3DInquiry	81 09 04 54 FF
 PanTiltPositionInquiry	81 09 06 12 FF
@@ -460,12 +452,10 @@ SaturationInquiry	81 09 04 49 FF
 SharpnessModeInquiry	81 09 04 05 FF
 SharpnessPositionInquiry	81 09 04 42 FF
 ShutterInquiry	81 09 04 4A FF
-StandbyInquiry	81 09 04 70 FF
 TallyAutoAdjustInquiry	81 09 04 A9 FF
 TallyGreenInquiry	81 09 7E 04 1A FF
 TallyRedInquiry	81 09 7E 01 0A FF
 TallyStatusInquiry	81 09 04 A8 FF
-TwoToneModeInquiry	81 09 04 74 FF
 UsbAudioInquiry	81 2A 02 A0 04 FF
 VersionInquiry	81 09 00 02 FF
 WhiteBalanceModeInquiry	81 09 04 35 FF
