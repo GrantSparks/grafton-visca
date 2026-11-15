@@ -449,6 +449,22 @@ pub enum Error {
     #[error("Runtime has been shutdown")]
     RuntimeShutdown,
 
+    /// The owner stopped without publishing a terminal result, for example
+    /// because its worker or task panicked. The session cannot make progress
+    /// and must be replaced.
+    #[error("Session owner terminated without publishing a terminal result")]
+    OwnerTerminated,
+
+    /// The session already has its maximum number of diagnostic subscribers.
+    /// Dropping a subscription makes room; request-admission capacity does not
+    /// affect this limit.
+    #[error("Diagnostic subscriber limit reached ({capacity} subscribers)")]
+    #[non_exhaustive]
+    DiagnosticSubscriberLimit {
+        /// Maximum simultaneous diagnostic subscriptions for this session.
+        capacity: usize,
+    },
+
     /// Cancellation intent was recorded after transmission, but the engine could
     /// not prove either original completion or protocol cancellation before the
     /// correlation quarantine expired.
@@ -1013,9 +1029,10 @@ impl Error {
             | Self::CommandCorrelationLost { .. } => ErrorKind::NotExecutable,
 
             // IoClosed: connection/transport no longer usable
-            Self::ConnectionClosed { .. } | Self::RuntimeShutdown | Self::StreamPoisoned { .. } => {
-                ErrorKind::IoClosed
-            }
+            Self::ConnectionClosed { .. }
+            | Self::RuntimeShutdown
+            | Self::StreamPoisoned { .. }
+            | Self::OwnerTerminated => ErrorKind::IoClosed,
 
             // Transport: one failed operation on a live session.
             Self::TransportError(..) => ErrorKind::Transport,
@@ -1058,7 +1075,9 @@ impl Error {
             Self::CommandPending => ErrorKind::Busy,
 
             // Other: truly uncategorizable
-            Self::RuntimeIdentityExhausted => ErrorKind::Other,
+            Self::RuntimeIdentityExhausted | Self::DiagnosticSubscriberLimit { .. } => {
+                ErrorKind::Other
+            }
 
             // Delegated: unwrap context wrapper
             Self::WithContext { source, .. } | Self::SettlementObservationFailed { source, .. } => {
@@ -1146,7 +1165,9 @@ impl Error {
             // Terminal session death that the application did not ask for. The
             // engine and both owners report exactly these variants when a
             // session stops being usable because of the transport.
-            Self::ConnectionClosed { .. } | Self::StreamPoisoned { .. } => true,
+            Self::ConnectionClosed { .. } | Self::StreamPoisoned { .. } | Self::OwnerTerminated => {
+                true
+            }
 
             // Deliberate shutdown. The session is over because the application
             // ended it, so reconnecting is a policy decision, not a repair.
@@ -1201,6 +1222,7 @@ impl Error {
             | Self::CommandCorrelationLost { .. }
             | Self::CommandFailedAfterAck { .. }
             | Self::RuntimeIdentityExhausted
+            | Self::DiagnosticSubscriberLimit { .. }
             | Self::RuntimeQueueFull { .. }
             | Self::ControlReserveExhausted { .. }
             | Self::InvalidCameraId { .. }
@@ -1776,6 +1798,23 @@ mod tests {
             .suggested_retry_delay(),
             None
         );
+    }
+
+    #[test]
+    fn owner_death_and_subscriber_limit_have_distinct_recovery_policies() {
+        let stopped = Error::OwnerTerminated;
+        assert_eq!(stopped.kind(), ErrorKind::IoClosed);
+        assert!(stopped.requires_new_session());
+        assert!(!stopped.is_retryable());
+        assert!(stopped
+            .with_context("waiting for an owner")
+            .requires_new_session());
+
+        let limit = Error::DiagnosticSubscriberLimit { capacity: 4 };
+        assert_eq!(limit.kind(), ErrorKind::Other);
+        assert!(!limit.requires_new_session());
+        assert!(!limit.is_retryable());
+        assert!(limit.to_string().contains("4 subscribers"));
     }
 
     #[test]
