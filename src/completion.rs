@@ -85,7 +85,7 @@ mod private {
 }
 
 #[cfg(any(feature = "blocking", feature = "async"))]
-pub use lowering::Settlement;
+pub(crate) use lowering::Settlement;
 
 /// Settlement lowering into the owner-private plan; it exists only where an
 /// owner does.
@@ -98,7 +98,7 @@ mod lowering {
     use crate::session_config::ValidatedTuning;
     use crate::{AffectedAxes, Result};
 
-    /// Opaque settlement lowering returned by [`Kind`].
+    /// Owner-private settlement proof returned by the sealed lowering.
     ///
     /// Each kind stores exactly its own plan: targeted operations retain their
     /// prepared settlement plan; applied-only operations retain no plan.

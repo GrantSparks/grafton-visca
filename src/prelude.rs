@@ -138,7 +138,7 @@ pub mod r#async {
 /// Blocking prelude - import this for synchronous camera control.
 ///
 /// This prelude provides the high-level API for blocking camera control:
-/// - Camera profiles and borrowed typed camera views
+/// - Camera profiles and typed camera views
 /// - Common types and error handling
 ///
 /// Import advanced extension APIs from their owning modules when needed.

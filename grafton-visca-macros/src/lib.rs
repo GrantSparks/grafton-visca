@@ -147,7 +147,9 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 ///   or `Raw` for a raw custom inquiry
 /// - Downstream derives use the standard five-byte inquiry form. The selected
 ///   `response` kind defines the accepted reply form.
-/// - The struct should implement `Debug`, `Copy`, and `Clone` for full compatibility
+///
+/// `Debug`, `Copy`, and `Clone` are optional; the generated request and inquiry
+/// implementations do not require them.
 #[proc_macro_derive(ViscaInquiry, attributes(visca))]
 pub fn derive_visca_inquiry(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);

@@ -59,6 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING** (#874): `completion::Settlement<K>`, the owner-only generic
+  settlement proof, is crate-private. The root `Settlement` remains the public
+  operation-observation outcome.
+
 - EVI-H100 now admits its sourced aperture level/step controls independently
   of the unsupported sharpness mode register.
 - Sharpness auto/manual mode has its own source-backed permission and marker;
