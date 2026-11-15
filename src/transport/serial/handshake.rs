@@ -67,7 +67,7 @@ impl StartupTiming {
 /// one. Network Change (`z0 38 FF`) and every other frame is not a reply.
 fn address_set_reply(frame: &[u8]) -> Option<u8> {
     match frame {
-        [address, register, next_address @ 0x02..=0x08, VISCA_TERMINATOR]
+        [address, register, next_address @ 0x02..=0x0f, VISCA_TERMINATOR]
             if *address == CameraId::BROADCAST.to_address_byte()
                 && *register == system::ADDRESS_SET_REGISTER =>
         {
@@ -370,6 +370,12 @@ impl SerialStartup {
             match frame {
                 Ok(frame) => {
                     if let Some(camera_count) = address_set_reply(&frame) {
+                        if usize::from(camera_count) > crate::session_config::MAX_REGISTERED_TARGETS
+                        {
+                            return Err(Error::InvalidRequest(
+                                format!("serial chain reports {camera_count} devices; VISCA addresses at most 7").into(),
+                            ));
+                        }
                         return Ok(Some(camera_count));
                     }
                 }
@@ -467,7 +473,7 @@ mod tests {
         );
         assert_eq!(
             address_set_reply(&[0x88, 0x30, 0x09, VISCA_TERMINATOR]),
-            None
+            Some(8)
         );
         assert_eq!(address_set_reply(&[0x88, 0x30, 0x08]), None);
         assert_eq!(address_set_reply(&[]), None);
@@ -510,6 +516,24 @@ mod tests {
         assert!(matches!(startup.next(now), Action::Done(Ok(()))));
         assert_eq!(startup.addressed_cameras(), Some(7));
     }
+
+    #[test]
+    fn an_overlong_chain_is_a_final_reply_and_is_not_retried() {
+        for next_address in 0x09..=0x0f {
+            let mut startup = startup(
+                Config::new("/dev/test").startup(Startup::default().with_address_set(true)),
+            );
+            let now = Instant::now();
+            assert!(matches!(startup.next(now), Action::Write { .. }));
+            startup.wrote(Ok(()));
+            assert!(matches!(startup.next(now), Action::Read { .. }));
+            startup.read(Ok(&[0x88, 0x30, next_address, VISCA_TERMINATOR]));
+            assert!(
+                matches!(startup.next(now), Action::Done(Err(Error::InvalidRequest(message)))
+                if message.contains(&format!("reports {} devices", next_address - 1)))
+            );
+        }
+    }
 }
 
 /// Startup scenarios run through both the blocking and the Tokio driver, so
@@ -547,6 +571,7 @@ pub(crate) mod scenarios {
         Timeout,
         Io(ErrorKind),
         MaxRetries,
+        InvalidChain(u8),
     }
 
     #[derive(Debug, Clone)]
@@ -644,6 +669,15 @@ pub(crate) mod scenarios {
                 discards_input: false,
             },
             Scenario {
+                name: "an overlong chain fails after one Address Set write",
+                config: config(true, false),
+                reads: vec![reply(8)],
+                writes: vec![],
+                expect_writes: vec![ADDRESS_SET.to_vec()],
+                outcome: Outcome::InvalidChain(8),
+                discards_input: false,
+            },
+            Scenario {
                 name: "no reply spends every attempt",
                 config: config(true, false),
                 reads: vec![],
@@ -663,6 +697,10 @@ pub(crate) mod scenarios {
             (Outcome::Timeout, Err(Error::Timeout { .. })) => true,
             (Outcome::Io(kind), Err(Error::Io(error))) => error.kind() == kind,
             (Outcome::MaxRetries, Err(Error::MaxRetriesExceeded)) => true,
+            (Outcome::InvalidChain(count), Err(Error::InvalidRequest(message))) => {
+                message.as_ref()
+                    == format!("serial chain reports {count} devices; VISCA addresses at most 7")
+            }
             _ => false,
         };
         assert!(
