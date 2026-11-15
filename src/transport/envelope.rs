@@ -264,7 +264,10 @@ impl Envelope for SonyEncapsulated {
     }
 
     fn extract_with_meta(&self, framed: Bytes) -> Result<(Bytes, FrameMeta), Error> {
-        match self.extract_owner_response(&framed)? {
+        match self
+            .extract_owner_response(&framed)
+            .map_err(MalformedFrame::into_public_error)?
+        {
             SonyResponse::Visca { sequence, .. } => Ok((
                 framed.slice(SonyHeader::SIZE..),
                 FrameMeta::Sony { sequence },
@@ -356,15 +359,19 @@ impl SonyEncapsulated {
     pub(crate) fn extract_owner_response<'a>(
         &self,
         framed: &'a [u8],
-    ) -> Result<SonyResponse<'a>, Error> {
+    ) -> Result<SonyResponse<'a>, MalformedFrame> {
         let (header, payload) = decode_sony_response_parts(framed)?;
         match header.payload_type {
             PayloadType::ViscaReply => {
-                validate_sony_payload_length(
-                    usize::from(header.payload_length),
-                    Error::ParseError,
-                )?;
-                validate_sony_payload_terminator(payload, Error::ParseError)?;
+                let actual = usize::from(header.payload_length);
+                if !(MIN_SONY_VISCA_PAYLOAD_LENGTH..=MAX_SONY_VISCA_PAYLOAD_LENGTH)
+                    .contains(&actual)
+                {
+                    return Err(MalformedFrame::SonyPayloadLength { actual });
+                }
+                if payload.last().copied() != Some(VISCA_TERMINATOR) {
+                    return Err(MalformedFrame::SonyPayloadTerminator);
+                }
                 Ok(SonyResponse::Visca {
                     payload,
                     sequence: if header.sequence_number >> 16 == 0 {
@@ -377,11 +384,57 @@ impl SonyEncapsulated {
             PayloadType::ControlReply => Ok(SonyResponse::Control {
                 code: decode_sony_control_reply(payload)?,
             }),
-            _ => Err(Error::ParseError(Cow::Owned(format!(
-                "Unexpected Sony payload type in response: {:?}",
-                header.payload_type
-            )))),
+            _ => Err(MalformedFrame::SonyPayloadType(header.payload_type)),
         }
+    }
+}
+
+/// Bounded classification of malformed owner input. Formatting is reserved for
+/// the public envelope extraction API; the owner only counts these verdicts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum MalformedFrame {
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    InvalidSource,
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    UnclassifiedResponse,
+    SonyHeaderTooShort,
+    SonyHeader,
+    SonyLengthMismatch {
+        declared: u16,
+        actual: usize,
+    },
+    SonyPayloadType(PayloadType),
+    SonyPayloadLength {
+        actual: usize,
+    },
+    SonyPayloadTerminator,
+    SonyControlReplyLength,
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    DatagramFrameLimit {
+        limit: usize,
+    },
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    DatagramTrailingBytes,
+}
+
+impl MalformedFrame {
+    /// Preserve the public Sony parser's error spelling at its public boundary.
+    fn into_public_error(self) -> Error {
+        let message = match self {
+            Self::SonyHeaderTooShort => Cow::Borrowed("Sony response too short for header"),
+            Self::SonyHeader => Cow::Borrowed("Invalid Sony header format"),
+            Self::SonyLengthMismatch { declared, actual } => Cow::Owned(format!(
+                "Sony header length mismatch: header says {declared}, actual payload is {actual}")),
+            Self::SonyPayloadType(kind) => Cow::Owned(format!(
+                "Unexpected Sony payload type in response: {kind:?}")),
+            Self::SonyPayloadLength { actual } => Cow::Owned(format!(
+                "Sony VISCA payload length must be between {MIN_SONY_VISCA_PAYLOAD_LENGTH} and {MAX_SONY_VISCA_PAYLOAD_LENGTH} bytes, got {actual}")),
+            Self::SonyPayloadTerminator => Cow::Borrowed("Sony VISCA payload must end with the 0xFF VISCA terminator"),
+            Self::SonyControlReplyLength => Cow::Borrowed("Sony control reply payload must contain one or two bytes"),
+            #[cfg(any(feature = "blocking", feature = "async"))]
+            Self::InvalidSource | Self::UnclassifiedResponse | Self::DatagramFrameLimit { .. } | Self::DatagramTrailingBytes => unreachable!("only Sony extraction projects public envelope errors"),
+        };
+        Error::ParseError(message)
     }
 }
 
@@ -410,38 +463,28 @@ fn normalize_address(original_addr: u8, addressing: AddressingMode) -> u8 {
 }
 
 /// Decode and length-check a Sony response without copying its payload.
-fn decode_sony_response_parts(framed: &[u8]) -> Result<(SonyHeader, &[u8]), Error> {
+fn decode_sony_response_parts(framed: &[u8]) -> Result<(SonyHeader, &[u8]), MalformedFrame> {
     if framed.len() < SonyHeader::SIZE {
-        return Err(Error::ParseError(Cow::Borrowed(
-            "Sony response too short for header",
-        )));
+        return Err(MalformedFrame::SonyHeaderTooShort);
     }
-
-    let header = SonyHeader::decode(&framed[..SonyHeader::SIZE]).ok_or(Error::ParseError(
-        Cow::Borrowed("Invalid Sony header format"),
-    ))?;
-    let expected_payload_len = framed.len() - SonyHeader::SIZE;
-    if usize::from(header.payload_length) != expected_payload_len {
-        return Err(Error::ParseError(Cow::Owned(format!(
-            "Sony header length mismatch: header says {header_length}, actual payload is {expected_payload_len}",
-            header_length = header.payload_length
-        ))));
+    let header =
+        SonyHeader::decode(&framed[..SonyHeader::SIZE]).ok_or(MalformedFrame::SonyHeader)?;
+    let actual = framed.len() - SonyHeader::SIZE;
+    if usize::from(header.payload_length) != actual {
+        return Err(MalformedFrame::SonyLengthMismatch {
+            declared: header.payload_length,
+            actual,
+        });
     }
-
     Ok((header, &framed[SonyHeader::SIZE..]))
 }
 
 /// Decode the bounded payload grammar used by Sony control replies.
-///
-/// Successful control acknowledgements are one byte (`01`); protocol errors
-/// are two bytes (`0F pp`). Preserve either form in one numeric diagnostic.
-fn decode_sony_control_reply(payload: &[u8]) -> Result<u16, Error> {
+fn decode_sony_control_reply(payload: &[u8]) -> Result<u16, MalformedFrame> {
     match payload {
         [code] => Ok(u16::from(*code)),
         [class, detail] => Ok(u16::from_be_bytes([*class, *detail])),
-        _ => Err(Error::ParseError(Cow::Borrowed(
-            "Sony control reply payload must contain one or two bytes",
-        ))),
+        _ => Err(MalformedFrame::SonyControlReplyLength),
     }
 }
 
@@ -1079,7 +1122,7 @@ mod tests {
             framed.extend_from_slice(payload);
             assert!(matches!(
                 envelope.extract_owner_response(&framed),
-                Err(Error::ParseError(_))
+                Err(MalformedFrame::SonyControlReplyLength)
             ));
         }
     }

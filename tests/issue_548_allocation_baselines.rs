@@ -622,3 +622,88 @@ fn warmed_receive_decoding_and_batch_recycling_do_not_allocate() {
         }
     }
 }
+
+#[cfg(all(feature = "test-utils", any(feature = "blocking", feature = "async")))]
+#[test]
+fn warmed_malformed_receive_decoding_does_not_allocate() {
+    use grafton_visca::{
+        profiles::{GenericVisca, SonyFR7},
+        testing::receive::ReceiveProbe,
+        transport::{SendSemantics, TransportConfig},
+        ProfileSpec,
+    };
+    const RAW_ECHO_AND_ACK: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x00, 0xff, 0x90, 0x41, 0xff];
+    const RAW_MALFORMED_AND_ACK: &[u8] = &[0x90, 0x61, 0xff, 0x90, 0x41, 0xff];
+    const SONY_ZERO_PAYLOAD: &[u8] = &[0x01, 0x11, 0, 0, 0, 0, 0, 1];
+    // A complete Sony command-shaped packet cannot classify as a response.
+    const SONY_WRONG_TYPE: &[u8] = &[0x01, 0x00, 0, 3, 0, 0, 0, 1, 0x90, 0x41, 0xff];
+    // Datagram boundaries prove the last declared payload byte is missing.
+    const SONY_LENGTH_MISMATCH: &[u8] = &[0x01, 0x11, 0, 4, 0, 0, 0, 1, 0x90, 0x41, 0xff];
+    for (profile, chunk, semantics, expected) in [
+        (
+            ProfileSpec::from_compile_time::<GenericVisca>().unwrap(),
+            RAW_ECHO_AND_ACK,
+            SendSemantics::Stream,
+            1,
+        ),
+        (
+            ProfileSpec::from_compile_time::<GenericVisca>().unwrap(),
+            RAW_ECHO_AND_ACK,
+            SendSemantics::Datagram,
+            0,
+        ),
+        (
+            ProfileSpec::from_compile_time::<SonyFR7>().unwrap(),
+            SONY_WRONG_TYPE,
+            SendSemantics::Stream,
+            0,
+        ),
+        (
+            ProfileSpec::from_compile_time::<SonyFR7>().unwrap(),
+            SONY_WRONG_TYPE,
+            SendSemantics::Datagram,
+            0,
+        ),
+        (
+            ProfileSpec::from_compile_time::<SonyFR7>().unwrap(),
+            SONY_LENGTH_MISMATCH,
+            SendSemantics::Datagram,
+            0,
+        ),
+        (
+            ProfileSpec::from_compile_time::<GenericVisca>().unwrap(),
+            RAW_MALFORMED_AND_ACK,
+            SendSemantics::Stream,
+            1,
+        ),
+        (
+            ProfileSpec::from_compile_time::<GenericVisca>().unwrap(),
+            RAW_MALFORMED_AND_ACK,
+            SendSemantics::Datagram,
+            0,
+        ),
+        (
+            ProfileSpec::from_compile_time::<SonyFR7>().unwrap(),
+            SONY_ZERO_PAYLOAD,
+            SendSemantics::Stream,
+            0,
+        ),
+        (
+            ProfileSpec::from_compile_time::<SonyFR7>().unwrap(),
+            SONY_ZERO_PAYLOAD,
+            SendSemantics::Datagram,
+            0,
+        ),
+    ] {
+        let mut probe = ReceiveProbe::new(&profile, TransportConfig::default(), semantics).unwrap();
+        assert_eq!(probe.receive(chunk).unwrap(), expected);
+        let mut observed = 0;
+        let allocations = allocations_during(|| {
+            for _ in 0..128 {
+                observed += probe.receive(std::hint::black_box(chunk)).unwrap();
+            }
+        });
+        assert_eq!(observed, 128 * expected);
+        assert_eq!(allocations, 0, "malformed input allocated: {semantics:?}");
+    }
+}
