@@ -483,8 +483,7 @@ struct DownstreamProfile;
 type Base = visca_renamed::profiles::GenericVisca;
 
 impl ProfileMetadata for DownstreamProfile {
-    const INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport =
-        grafton_visca::capabilities::InquirySupport::Full;
+    const INQUIRY_SUPPORT: capabilities::InquirySupport = capabilities::InquirySupport::Full;
     const SUPPORTS_COMMAND_CANCEL: bool = true;
 
     const MODEL_NAME: &'static str = "Downstream renamed profile";
