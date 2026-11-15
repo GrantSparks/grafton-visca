@@ -49,7 +49,6 @@ async fn terminal_stop_is_published_before_shutdown_can_enter_the_live_lane() {
                 received_at: Executor::now(&runtime),
             },
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )

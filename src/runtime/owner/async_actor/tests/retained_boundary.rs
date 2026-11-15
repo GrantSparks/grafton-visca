@@ -83,7 +83,6 @@ impl RetainedRelease {
             .handle_event(
                 OwnerEvent::Admission(Ok(a_boundary)),
                 &mut driver,
-                &runtime,
                 Executor::now(&runtime),
                 false,
             )
@@ -106,7 +105,6 @@ impl RetainedRelease {
                 .handle_event(
                     OwnerEvent::Admission(Ok(boundary)),
                     &mut driver,
-                    &runtime,
                     Executor::now(&runtime),
                     false,
                 )
@@ -125,7 +123,6 @@ impl RetainedRelease {
                 .handle_event(
                     OwnerEvent::Admission(Ok(boundary)),
                     &mut driver,
-                    &runtime,
                     Executor::now(&runtime),
                     false,
                 )
@@ -146,7 +143,7 @@ impl RetainedRelease {
         let at_h = Executor::now(&runtime);
         assert_eq!(
             actor
-                .handle_event(OwnerEvent::Wake, &mut driver, &runtime, at_h, false)
+                .handle_event(OwnerEvent::Wake, &mut driver, at_h, false)
                 .await,
             TurnOutcome::ContinueBuffered,
             "the retained prefix holds the release in its grace"

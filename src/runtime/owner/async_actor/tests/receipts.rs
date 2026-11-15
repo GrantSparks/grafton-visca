@@ -274,7 +274,6 @@ async fn actor_expired_pre_admission_boundary_is_telemetrized_once() {
         .handle_event(
             OwnerEvent::Admission(Ok(boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )

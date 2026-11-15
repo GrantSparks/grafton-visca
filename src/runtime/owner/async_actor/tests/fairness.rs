@@ -101,7 +101,6 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
         .handle_event(
             OwnerEvent::Admission(Ok(predecessor_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -124,7 +123,6 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
             .handle_event(
                 OwnerEvent::Wake,
                 &mut driver,
-                &runtime,
                 Executor::now(&runtime),
                 false,
             )
@@ -212,7 +210,6 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
             .handle_event(
                 OwnerEvent::Admission(Ok(predecessor)),
                 &mut driver,
-                &runtime,
                 Executor::now(&runtime),
                 false,
             )
@@ -231,7 +228,6 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
                 .handle_event(
                     OwnerEvent::Wake,
                     &mut driver,
-                    &runtime,
                     Executor::now(&runtime),
                     false,
                 )
@@ -314,7 +310,6 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
         .handle_event(
             OwnerEvent::Admission(Ok(admission)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -406,7 +401,6 @@ async fn parked_future_wake_charges_the_first_ready_control() {
         .handle_event(
             OwnerEvent::Admission(Ok(admission)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -673,7 +667,6 @@ async fn raw_release_flood_resolves_without_a_prior_timer_turn() {
         .handle_event(
             OwnerEvent::Admission(Ok(predecessor_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )

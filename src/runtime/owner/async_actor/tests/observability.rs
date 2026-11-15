@@ -13,7 +13,6 @@ async fn subscribe_before_run<R: Runtime + Executor>(
         .handle_event(
             OwnerEvent::Control(ControlBoundary::SubscribeDiagnostics { capacity: 1, reply }),
             &mut driver,
-            runtime,
             Executor::now(runtime),
             false,
         )

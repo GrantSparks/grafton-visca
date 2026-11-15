@@ -22,6 +22,8 @@ mod boundary;
 #[cfg(feature = "blocking")]
 mod clock;
 #[cfg(any(feature = "async", feature = "blocking"))]
+mod driver;
+#[cfg(any(feature = "async", feature = "blocking"))]
 mod handle;
 #[cfg(any(feature = "async", feature = "blocking"))]
 mod receipt;

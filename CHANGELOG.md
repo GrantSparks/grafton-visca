@@ -34,10 +34,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Serial startup stores operation-specific phases and retries an entire Address
   Set attempt after framing overflow instead of accepting a salvaged suffix (#891).
-- Async and blocking camera cores expand from one native preparation and
-  forwarding definition, removing redundant selection helpers. Parity checks
-  compare their expanded methods, bounds and bodies, including private and
-  crate-visible helpers (#865).
+- Async and blocking camera cores share one preparation and forwarding
+  definition; native owners share one turn-driver definition. The shells
+  supply clock reads, cooperative handoff, selection and bounded I/O. Parity
+  checks cover expanded core contracts and complete driver call ordering,
+  including write feedback and teardown (#865).
+
 - Owner receives use one closed read verdict and one generated fatal I/O-kind
   table, including `InvalidInput`. Retained stream evidence is an infallible
   snapshot; raw and Sony replies decode from borrowed frames into reused

@@ -3,7 +3,6 @@
 #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
 use super::TransmissionMeta;
 use std::{
-    collections::VecDeque,
     future::Future,
     pin::{pin, Pin},
     sync::Arc,
@@ -482,8 +481,7 @@ where
     R: Executor,
 {
     core: OwnerShellCore,
-    runtime: Arc<R>,
-    timers: ActorTimers<R::Timer>,
+    io: AsyncOwnerIo<R>,
 }
 
 impl<R: Executor> std::fmt::Debug for AsyncOwnerActor<R> {
@@ -511,166 +509,118 @@ where
             },
             Self {
                 core: OwnerShellCore::new(state, ends),
-                runtime,
-                timers,
+                io: AsyncOwnerIo { runtime, timers },
             },
         ))
     }
 
-    pub(crate) async fn run<D>(mut self, mut driver: D) -> OwnerSnapshot
-    where
-        D: AsyncOwnerDriver,
-    {
-        let runtime = Arc::clone(&self.runtime);
-        // Enforced around each receive so the caller's advertised read timeout is
-        // live on the async surface, where the runtime-agnostic transports have
-        // no timer of their own (#675). A timed-out read consumed nothing, so it
-        // is reported as an idle no-data receive.
-        let read_timeout = self.core.state.policy().read_timeout;
-        // Every arbitration and turn decision below is the shell core's; this
-        // loop only samples the clock, polls the futures the plan describes,
-        // and runs the I/O the selected event's turn asks for.
-        while self.core.is_running() {
-            if self.core.begin_turn() {
-                // Polling boundaries first alone is not a cooperative handoff:
-                // if they are all pending, the ready receive wins immediately
-                // and this task can monopolize a single-thread executor.
-                cooperative_yield().await;
-            }
-            // Sample after the cooperative yield: a timer that became due
-            // while another task ran must not inherit a stale positive delay.
-            let now = Executor::now(runtime.as_ref());
-            let event = match self.core.plan(now, &mut driver) {
-                TurnPlan::Redeliver(retained) => self.core.redeliver(retained),
-                TurnPlan::Select(selection) => {
-                    let frame_limit = self.core.state.policy().limits.frames_per_receive;
-                    let receive = async {
-                        match selection.receive {
-                            // The exact no-input probe for this release set is
-                            // done: the receive source is immediately ready
-                            // with the timer event instead of another read.
-                            ReceiveArm::ProofComplete => return OwnerEvent::Wake,
-                            // An idle or faulted read paces the next one; the
-                            // other sources stay live while this one waits.
-                            ReceiveArm::Paced { until } => {
-                                self.timers.pace.as_mut().reset(until);
-                                self.timers.pace.as_mut().await;
-                            }
-                            ReceiveArm::Poll => {}
-                        }
-                        let result = Self::receive_within(
-                            &mut driver,
-                            self.core.state.buffers(),
-                            frame_limit,
-                            runtime.as_ref(),
-                            read_timeout,
-                            self.timers.read.as_mut(),
-                        )
-                        .await;
-                        OwnerEvent::Receive {
-                            result,
-                            received_at: Executor::now(runtime.as_ref()),
-                        }
-                    };
-                    let wake = async {
-                        match selection.timer {
-                            TimerArm::Grace { until } => {
-                                if until > now {
-                                    self.timers.wake.as_mut().reset(until);
-                                    self.timers.wake.as_mut().await;
-                                }
-                                OwnerEvent::Wake
-                            }
-                            TimerArm::Engine { at, due } => {
-                                // Do not rely on a zero-duration executor
-                                // sleep being ready on its first poll: the
-                                // plan already established that this timer is
-                                // due, and `OwnerEvent::Wake` remains the only
-                                // path that advances engine time.
-                                if !due {
-                                    match at {
-                                        Some(deadline) => {
-                                            self.timers.wake.as_mut().reset(deadline);
-                                            self.timers.wake.as_mut().await;
-                                        }
-                                        None => future::pending::<()>().await,
-                                    }
-                                }
-                                OwnerEvent::Wake
-                            }
-                        }
-                    };
-                    select_actor_event(selection, receive, &self.core.receivers, wake).await
-                }
-            };
+    super::driver::owner_turn_driver! {
+        async: [async],
+        await: [.await],
+        driver: AsyncOwnerDriver,
+    }
+}
 
-            let selected_at = Executor::now(runtime.as_ref());
-            let Some(ClassifiedEvent {
-                event,
-                selected,
-                suppress_due,
-            }) = self.core.classify(event, selected_at)
-            else {
-                continue;
-            };
-            let control_consumed_wake = match &event {
-                OwnerEvent::Control(_) => self
-                    .core
-                    .control_consumed_wake(Executor::now(runtime.as_ref())),
-                _ => None,
-            };
-            let outcome = self
-                .handle_event(
-                    event,
-                    &mut driver,
-                    runtime.as_ref(),
-                    selected_at,
-                    suppress_due,
-                )
-                .await;
-            if !self.core.finish(selected, control_consumed_wake, outcome) {
-                break;
-            }
-        }
-        let snapshot = self.core.conclude();
-        // #626: drop the driver first so a waiter using the liveness lane gets
-        // a deterministic transport-release barrier. The shell core's `Drop`
-        // performs one final boundary drain before its alive sender is
-        // dropped, covering messages that race the explicit drain.
-        drop(driver);
-        snapshot
+/// Executor-specific clock, selection and bounded I/O. It borrows the core
+/// only while selecting input, separately from the core's write-buffer borrow.
+struct AsyncOwnerIo<R: Executor> {
+    runtime: Arc<R>,
+    timers: ActorTimers<R::Timer>,
+}
+
+impl<R: Executor> AsyncOwnerIo<R> {
+    fn now(&self) -> Instant {
+        Executor::now(self.runtime.as_ref())
     }
 
-    /// Run the engine turn of one classified event, performing the writes and
-    /// pauses its [`TurnStep`]s ask for.
-    async fn handle_event<D>(
+    async fn cooperative_handoff(&mut self) {
+        cooperative_yield().await;
+    }
+
+    async fn select_event<D: AsyncOwnerDriver>(
         &mut self,
-        event: OwnerEvent,
+        core: &mut OwnerShellCore,
+        selection: Selection,
         driver: &mut D,
-        runtime: &R,
-        selected_at: Instant,
-        suppress_due_for_raw_probe_fault: bool,
-    ) -> TurnOutcome
-    where
-        D: AsyncOwnerDriver,
-    {
-        let mut step =
-            self.core
-                .handle(event, driver, selected_at, suppress_due_for_raw_probe_fault);
-        loop {
-            match step {
-                TurnStep::Drive { effects, then } => {
-                    self.drive(driver, effects, then.input_turn(), runtime)
-                        .await;
-                    step = self.core.resume(then, driver);
+    ) -> OwnerEvent {
+        let runtime = &self.runtime;
+        let now = Executor::now(runtime.as_ref());
+        let read_timeout = core.state.policy().read_timeout;
+
+        let frame_limit = core.state.policy().limits.frames_per_receive;
+        let receive = async {
+            match selection.receive {
+                // The exact no-input probe for this release set is
+                // done: the receive source is immediately ready
+                // with the timer event instead of another read.
+                ReceiveArm::ProofComplete => return OwnerEvent::Wake,
+                // An idle or faulted read paces the next one; the
+                // other sources stay live while this one waits.
+                ReceiveArm::Paced { until } => {
+                    self.timers.pace.as_mut().reset(until);
+                    self.timers.pace.as_mut().await;
                 }
-                TurnStep::Pace { pause, outcome } => {
-                    self.core.pace_receive(pause, Executor::now(runtime));
-                    return outcome;
-                }
-                TurnStep::Done(outcome) => return outcome,
+                ReceiveArm::Poll => {}
             }
-        }
+            let result = Self::receive_within(
+                driver,
+                core.state.buffers(),
+                frame_limit,
+                runtime.as_ref(),
+                read_timeout,
+                self.timers.read.as_mut(),
+            )
+            .await;
+            OwnerEvent::Receive {
+                result,
+                received_at: Executor::now(runtime.as_ref()),
+            }
+        };
+        let wake = async {
+            match selection.timer {
+                TimerArm::Grace { until } => {
+                    if until > now {
+                        self.timers.wake.as_mut().reset(until);
+                        self.timers.wake.as_mut().await;
+                    }
+                    OwnerEvent::Wake
+                }
+                TimerArm::Engine { at, due } => {
+                    // Do not rely on a zero-duration executor
+                    // sleep being ready on its first poll: the
+                    // plan already established that this timer is
+                    // due, and `OwnerEvent::Wake` remains the only
+                    // path that advances engine time.
+                    if !due {
+                        match at {
+                            Some(deadline) => {
+                                self.timers.wake.as_mut().reset(deadline);
+                                self.timers.wake.as_mut().await;
+                            }
+                            None => future::pending::<()>().await,
+                        }
+                    }
+                    OwnerEvent::Wake
+                }
+            }
+        };
+        select_actor_event(selection, receive, &core.receivers, wake).await
+    }
+
+    async fn write<D: AsyncOwnerDriver>(
+        &mut self,
+        driver: &mut D,
+        write: WireWrite<'_>,
+        write_timeout: Duration,
+    ) -> WriteOutcome {
+        Self::write_frame(
+            driver,
+            write,
+            self.runtime.as_ref(),
+            write_timeout,
+            self.timers.write.as_mut(),
+        )
+        .await
     }
 
     /// Run one transport read under the session's read timeout, expressed as a
@@ -768,41 +718,6 @@ where
             WriteOutcome::Failed(Error::io_timeout())
         };
         future::or(driver.write(write), timed_out).await
-    }
-
-    /// Apply `effects` in order, writing each staged transmit under the
-    /// session's write timeout. Inside an input `turn`, a transmit finishes in
-    /// that turn; otherwise it finishes at the instant the write returned.
-    async fn drive<D>(
-        &mut self,
-        driver: &mut D,
-        mut effects: VecDeque<Effect>,
-        turn: Option<&OwnerInputTurn>,
-        runtime: &R,
-    ) where
-        D: AsyncOwnerDriver,
-    {
-        let write_timeout = self.core.state.policy().write_timeout;
-        while let Some(staged) = self
-            .core
-            .next_transmit(&mut effects, OwnerClock::now(&self.runtime))
-        {
-            let result = match self.core.state.prepare_write(&staged) {
-                Ok(write) => {
-                    Self::write_frame(
-                        driver,
-                        write,
-                        runtime,
-                        write_timeout,
-                        self.timers.write.as_mut(),
-                    )
-                    .await
-                }
-                Err(error) => WriteOutcome::NotSent(error),
-            };
-            self.core
-                .finish_transmit(turn, &staged, result, Executor::now(runtime), &mut effects);
-        }
     }
 }
 

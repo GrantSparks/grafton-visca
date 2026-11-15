@@ -117,6 +117,14 @@ boundary for the network, serial, and `test-utils` feature sets; the async
 testkit's executor rides on `async`, so enabling `test-utils` on a blocking-only
 build links no executor.
 
+The native shells expand `run`, `handle_event` and `drive` from one
+`owner_turn_driver!` definition. Clock reads, cooperative handoff, event
+selection and bounded writes are the four native I/O hooks. Every staged
+write reports its outcome and drives the resulting engine effects before the
+owner selects more input or starts another write. The blocking expansion
+contains no future. A recording-core test compares the complete call order
+of both expansions, including transport release before the liveness barrier.
+
 Internally, both shells complete engine input through the same executor-free
 `EngineTurn` policy. A complete turn runs due work, pending cancellation, and
 one ordinary dispatch; an input-only turn preserves retained wire evidence

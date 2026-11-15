@@ -527,7 +527,6 @@ async fn reject_raw_stream_predecessor<D: AsyncOwnerDriver>(
                 received_at: now,
             },
             driver,
-            runtime,
             now,
             false,
         )

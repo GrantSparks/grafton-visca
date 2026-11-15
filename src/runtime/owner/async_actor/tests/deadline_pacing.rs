@@ -27,7 +27,6 @@ async fn full_idle_read_timeouts_do_not_delay_the_next_reply() {
                 .handle_event(
                     OwnerEvent::Admission(Ok(admission)),
                     &mut driver,
-                    &runtime,
                     initial,
                     false,
                 )
@@ -84,7 +83,6 @@ async fn a_paced_receive_at_its_response_deadline_wins_the_timer_race() {
         .handle_event(
             OwnerEvent::Admission(Ok(admission)),
             &mut driver,
-            &runtime,
             initial,
             false,
         )
@@ -99,7 +97,6 @@ async fn a_paced_receive_at_its_response_deadline_wins_the_timer_race() {
                 received_at: initial,
             },
             &mut driver,
-            &runtime,
             initial,
             false,
         )
@@ -179,13 +176,13 @@ async fn a_transports_own_full_timeout_is_not_eager_idle() {
                 wait,
                 fault,
             };
-            let mut receive = Box::pin(AsyncOwnerActor::<ManualRuntime>::receive_within(
+            let mut receive = Box::pin(AsyncOwnerIo::<ManualRuntime>::receive_within(
                 &mut driver,
                 actor.core.state.buffers(),
                 1,
                 &runtime,
                 timeout,
-                actor.timers.read.as_mut(),
+                actor.io.timers.read.as_mut(),
             ));
             let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
             assert!(receive.as_mut().poll(&mut cx).is_pending());

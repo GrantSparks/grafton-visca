@@ -191,7 +191,6 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
         .handle_event(
             OwnerEvent::Admission(Ok(predecessor_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -344,7 +343,6 @@ async fn raw_tombstone_timeout_verdict() -> RawReleaseObserverDeadlineVerdict {
         .handle_event(
             OwnerEvent::Admission(Ok(predecessor_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -387,7 +385,6 @@ async fn raw_tombstone_timeout_verdict() -> RawReleaseObserverDeadlineVerdict {
         .handle_event(
             OwnerEvent::Admission(Ok(expired_successor)),
             &mut driver,
-            &runtime,
             now,
             false,
         )
@@ -456,7 +453,6 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
         .handle_event(
             OwnerEvent::Admission(Ok(a_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -481,7 +477,6 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
         .handle_event(
             OwnerEvent::Admission(Ok(c_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -495,7 +490,6 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
         .handle_event(
             OwnerEvent::Admission(Ok(b_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -527,7 +521,6 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
             .handle_event(
                 OwnerEvent::Wake,
                 &mut driver,
-                &runtime,
                 Executor::now(&runtime),
                 false,
             )
@@ -557,7 +550,6 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
                     received_at: now,
                 },
                 &mut driver,
-                &runtime,
                 now,
                 false,
             )
@@ -570,7 +562,6 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
             .handle_event(
                 OwnerEvent::Wake,
                 &mut driver,
-                &runtime,
                 Executor::now(&runtime),
                 false,
             )
@@ -930,7 +921,6 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
         .handle_event(
             OwnerEvent::Admission(Ok(a_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -949,7 +939,6 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
         .handle_event(
             OwnerEvent::Admission(Ok(b_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -964,7 +953,6 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
             .handle_event(
                 OwnerEvent::Wake,
                 &mut driver,
-                &runtime,
                 Executor::now(&runtime),
                 false,
             )
@@ -985,7 +973,6 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
                     received_at: now,
                 },
                 &mut driver,
-                &runtime,
                 Executor::now(&runtime),
                 false,
             )
@@ -1010,7 +997,6 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
         .handle_event(
             OwnerEvent::Admission(Ok(c_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -1025,7 +1011,6 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
             .handle_event(
                 OwnerEvent::Wake,
                 &mut driver,
-                &runtime,
                 Executor::now(&runtime),
                 false,
             )
@@ -1044,7 +1029,6 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
                     received_at: now,
                 },
                 &mut driver,
-                &runtime,
                 Executor::now(&runtime),
                 false,
             )
