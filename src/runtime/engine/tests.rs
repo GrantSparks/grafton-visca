@@ -995,7 +995,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
         Some(Phase::Backoff { ready_at, .. }) if ready_at == retry_ready
     ));
     assert_eq!(engine.entry(id).unwrap().attempt, 1);
-    assert_eq!(engine.next_wake(), Some(retry_ready));
+    assert_eq!(engine.next_wake(start), Some(retry_ready));
 
     // The old attempt's duplicate is still routable by sequence, but must be
     // inert while the request is in backoff.
@@ -1020,7 +1020,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
         .iter()
         .any(|effect| matches!(effect, Effect::Terminal { .. })));
     assert_eq!(engine.entry(id).unwrap().attempt, 1);
-    assert_eq!(engine.next_wake(), Some(retry_ready));
+    assert_eq!(engine.next_wake(start), Some(retry_ready));
 
     // Hold the sole command socket with another request so the retry reaches
     // Ready at its original deadline. This makes the second stale phase
@@ -1074,7 +1074,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
     // A duplicate retryable error and a stale permanent error are both inert
     // while the retry is queued. In particular, neither changes its attempt
     // budget nor terminalizes the request.
-    let ready_before = (engine.entry(id).unwrap().attempt, engine.next_wake());
+    let ready_before = (engine.entry(id).unwrap().attempt, engine.next_wake(start));
     let stale_ready = engine.handle(
         frame(
             1,
@@ -1109,7 +1109,7 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
             .any(|effect| matches!(effect, Effect::Terminal { .. })));
     }
     assert_eq!(
-        (engine.entry(id).unwrap().attempt, engine.next_wake()),
+        (engine.entry(id).unwrap().attempt, engine.next_wake(start)),
         ready_before
     );
 
@@ -1178,7 +1178,7 @@ fn an_inquiry_is_not_dispatched_before_the_inquiry_cooldown_ends() {
     engine.inquiry_cooldown_until = Some(cooldown_end);
     let (queued, id) = admit(&mut engine, 1, inquiry(1), start);
     assert!(request_transmit_optional(&queued).is_none());
-    assert_eq!(engine.next_wake(), Some(cooldown_end));
+    assert_eq!(engine.next_wake(start), Some(cooldown_end));
     let early = engine.advance(cooldown_end - Duration::from_millis(1));
     assert!(request_transmit_optional(&early).is_none());
     let due = engine.advance(cooldown_end);
@@ -1266,7 +1266,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
         Some(Phase::Ready)
     ));
 
-    let ready_before = (engine.entry(id).unwrap().attempt, engine.next_wake());
+    let ready_before = (engine.entry(id).unwrap().attempt, engine.next_wake(start));
     let stale_ready = engine.handle(
         frame(
             1,
@@ -1301,7 +1301,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
             .any(|effect| matches!(effect, Effect::Terminal { .. })));
     }
     assert_eq!(
-        (engine.entry(id).unwrap().attempt, engine.next_wake()),
+        (engine.entry(id).unwrap().attempt, engine.next_wake(start)),
         ready_before
     );
 
@@ -2541,7 +2541,7 @@ fn unsupported_target_cancels_queued_locally_but_sent_without_intent() {
             .map(|hold| (hold.until, hold.owner)),
         Some((ambiguity_deadline, Some(active_id)))
     );
-    assert_eq!(engine.next_wake(), Some(ambiguity_deadline));
+    assert_eq!(engine.next_wake(start), Some(ambiguity_deadline));
     let resolved = engine.advance(ambiguity_deadline);
     assert!(terminal_outcome(&resolved, active_id).is_none());
     assert!(engine.holds.is_empty());
@@ -2709,7 +2709,10 @@ fn requested_cancellation_waits_for_shared_command_spacing() {
         engine.entry(id).map(Entry::cancellation),
         Some(CancelState::Requested { .. })
     ));
-    assert_eq!(engine.next_wake(), Some(start + Duration::from_millis(10)));
+    assert_eq!(
+        engine.next_wake(start),
+        Some(start + Duration::from_millis(10))
+    );
     engine.assert_invariants().unwrap();
 }
 
@@ -2764,7 +2767,10 @@ fn pending_cancellation_transmits_before_ordinary_work_and_advances_spacing() {
         engine.entry(queued_id).map(Entry::phase),
         Some(Phase::Ready)
     ));
-    assert_eq!(engine.next_wake(), Some(start + Duration::from_millis(20)));
+    assert_eq!(
+        engine.next_wake(start),
+        Some(start + Duration::from_millis(20))
+    );
 
     let ordinary = engine.advance(start + Duration::from_millis(20));
     assert_eq!(request_transmit(&ordinary).1, queued_id);
@@ -2929,7 +2935,7 @@ fn executing_cancel_waits_for_pacing_without_expiring_at_ambiguity() {
     );
     let ambiguity_deadline = start + Duration::from_millis(51);
     let pacing_deadline = start + Duration::from_millis(100);
-    assert_eq!(engine.next_wake(), Some(pacing_deadline));
+    assert_eq!(engine.next_wake(start), Some(pacing_deadline));
 
     let ambiguity_passed = engine.advance(ambiguity_deadline);
     assert!(!ambiguity_passed.iter().any(|effect| matches!(
@@ -2994,7 +3000,7 @@ fn cancel_after_raw_ack_timeout_cannot_resurrect_the_terminal_owner() {
         ignored_reasons(&cancelled),
         vec![IgnoreReason::UnknownRequest]
     );
-    assert_eq!(engine.next_wake(), Some(original_deadline));
+    assert_eq!(engine.next_wake(start), Some(original_deadline));
 
     // A late ACK during the hold is inert and cannot cause a cancellation write
     // or recreate socket ownership.
@@ -4498,7 +4504,7 @@ fn active_transmissions(
 fn due_effects(engine: &mut ProtocolEngine, now: Instant) -> Vec<Effect> {
     let mut decision = Decision::new();
     engine.run_due(now, &mut decision);
-    engine.finish_decision(Some(now), decision)
+    engine.finish_decision(now, decision)
 }
 
 fn fuzz_engine(configuration: FuzzConfiguration) -> ProtocolEngine {
@@ -4726,7 +4732,7 @@ fn fuzz_step(
             )
         }
         6 => {
-            let Some(wake) = engine.next_wake() else {
+            let Some(wake) = engine.next_wake(*now) else {
                 return Vec::new();
             };
             *now = wake.max(*now);
@@ -5795,7 +5801,7 @@ fn failed_cancel_write_does_not_shorten_an_executing_commands_completion_window(
 
     let former_ambiguity_deadline = start + Duration::from_millis(52);
     assert_eq!(
-        engine.next_wake(),
+        engine.next_wake(start),
         Some(start + Duration::from_millis(101)),
         "exact socket ownership leaves the command completion deadline in charge"
     );
@@ -6568,7 +6574,7 @@ fn sequenced_ack_with_two_live_socket_owners_fails_after_ack_without_retry() {
         .unwrap();
     let mut decision = Decision::new();
     engine.ack(third_id, Some(ViscaSocket::S1), start, &mut decision);
-    let effects = engine.finish_decision(Some(start), decision);
+    let effects = engine.finish_decision(start, decision);
     assert_eq!(
         ignored_reasons(&effects),
         vec![IgnoreReason::SocketConflict]
@@ -7782,7 +7788,10 @@ fn assert_initial_attempt_budget_expiry(
     budget_deadline: Instant,
 ) {
     assert_eq!(engine.entry(id).map(|entry| entry.attempt), Some(0));
-    assert_eq!(engine.next_wake(), Some(budget_deadline));
+    assert_eq!(
+        engine.next_wake(engine.entry(id).unwrap().submitted_at),
+        Some(budget_deadline)
+    );
     let expired = engine.advance(budget_deadline);
     assert!(matches!(
         terminal_cause(&expired, id),
@@ -7827,7 +7836,7 @@ fn initial_ready_request_expires_at_admission_budget_without_transmitting() {
     assert!(matches!(phase_of(&engine, queued_id), Some(Phase::Ready)));
 
     let budget_deadline = start + Duration::from_millis(10);
-    assert_eq!(engine.next_wake(), Some(budget_deadline));
+    assert_eq!(engine.next_wake(start), Some(budget_deadline));
     let expired = engine.advance(budget_deadline);
     // Never written, so never accepted: resubmitting is safe (D20, #783).
     assert_eq!(
@@ -7988,7 +7997,7 @@ fn raw_no_reply_write_result_respects_total_budget_boundary() {
         )));
         assert!(engine.entry(id).is_none());
         assert_eq!(
-            engine.next_wake(),
+            engine.next_wake(start),
             Some(budget_deadline + Duration::from_millis(50)),
             "the successful no-reply terminal retains its ordinary raw tombstone"
         );
@@ -8027,7 +8036,7 @@ fn raw_no_reply_write_result_respects_total_budget_boundary() {
             Some((quarantine_deadline, Some(id)))
         );
         assert!(active_transmissions(&engine).next().is_none());
-        assert_eq!(engine.next_wake(), Some(quarantine_deadline));
+        assert_eq!(engine.next_wake(start), Some(quarantine_deadline));
 
         let resolved = engine.advance(quarantine_deadline);
         assert!(terminal_outcome(&resolved, id).is_none());
@@ -8112,7 +8121,7 @@ fn raw_no_reply_write_result_respects_total_budget_boundary() {
         assert_eq!(engine.state(), SessionState::Poisoned);
         assert!(engine.entry(id).is_none());
         assert!(active_transmissions(&engine).next().is_none());
-        assert_eq!(engine.next_wake(), None);
+        assert_eq!(engine.next_wake(start), None);
         engine.assert_invariants().unwrap();
     }
 }
@@ -8210,7 +8219,7 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
         assert!(engine.entry(id).is_none());
         assert!(active_transmissions(&engine).next().is_none());
 
-        assert_eq!(engine.next_wake(), None);
+        assert_eq!(engine.next_wake(start), None);
         engine.assert_invariants().unwrap();
     }
 
@@ -8273,7 +8282,7 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
             SessionState::Running,
             "a late datagram write error must not poison the session"
         );
-        assert_eq!(engine.next_wake(), None);
+        assert_eq!(engine.next_wake(start), None);
         engine.assert_invariants().unwrap();
     }
 }
@@ -8365,7 +8374,7 @@ fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
         assert!(engine.entries.is_empty());
         assert!(active_transmissions(&engine).next().is_none());
 
-        assert_eq!(engine.next_wake(), None);
+        assert_eq!(engine.next_wake(start), None);
 
         let rejected = engine.handle(
             Input::Admit {
@@ -8407,7 +8416,7 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
         let sequence = sony_sequence(id);
         send_ok(&mut equal_engine, &admission, Some(sequence), start);
         let budget_deadline = start + Duration::from_millis(10);
-        assert_eq!(equal_engine.next_wake(), Some(budget_deadline));
+        assert_eq!(equal_engine.next_wake(start), Some(budget_deadline));
 
         let reply = equal_engine.handle(
             frame(
@@ -8554,12 +8563,12 @@ fn initial_budget_and_cancel_ambiguity_do_not_shorten_executing_completion() {
     };
     assert_eq!(ambiguity_deadline, start + Duration::from_millis(50));
     let completion_deadline = start + Duration::from_secs(1);
-    assert_eq!(engine.next_wake(), Some(completion_deadline));
+    assert_eq!(engine.next_wake(start), Some(completion_deadline));
 
     let at_budget = engine.advance(budget_deadline);
     assert!(terminal_outcome(&at_budget, id).is_none());
     assert!(engine.entry(id).is_some());
-    assert_eq!(engine.next_wake(), Some(completion_deadline));
+    assert_eq!(engine.next_wake(start), Some(completion_deadline));
 
     let at_ambiguity = engine.advance(ambiguity_deadline);
     assert!(terminal_outcome(&at_ambiguity, id).is_none());
@@ -8618,7 +8627,7 @@ fn initial_budget_does_not_shorten_raw_unconfirmed_quarantine() {
         .expect("pre-ACK hold")
         .until;
     assert_eq!(quarantine_deadline, start + Duration::from_millis(60));
-    assert_eq!(engine.next_wake(), Some(quarantine_deadline));
+    assert_eq!(engine.next_wake(start), Some(quarantine_deadline));
 
     let still_quarantined = engine.advance(start + Duration::from_millis(59));
     assert!(terminal_outcome(&still_quarantined, id).is_none());
@@ -8672,7 +8681,7 @@ fn retry_budget_expires_while_awaiting_sony_ack() {
     ));
 
     let budget_deadline = start + Duration::from_millis(21);
-    assert_eq!(engine.next_wake(), Some(budget_deadline));
+    assert_eq!(engine.next_wake(start), Some(budget_deadline));
     let expired = engine.advance(budget_deadline);
     assert!(matches!(
         terminal_failure(&expired, id),
@@ -8737,7 +8746,7 @@ fn retry_budget_expires_while_executing_sony_command() {
     )));
 
     let budget_deadline = start + Duration::from_millis(21);
-    assert_eq!(engine.next_wake(), Some(budget_deadline));
+    assert_eq!(engine.next_wake(start), Some(budget_deadline));
     let expired = engine.advance(budget_deadline);
     assert!(matches!(
         terminal_failure(&expired, id),
@@ -8785,7 +8794,7 @@ fn retry_budget_expires_while_awaiting_inquiry_reply() {
     ));
 
     let budget_deadline = start + Duration::from_millis(21);
-    assert_eq!(engine.next_wake(), Some(budget_deadline));
+    assert_eq!(engine.next_wake(start), Some(budget_deadline));
     let expired = engine.advance(budget_deadline);
     assert!(matches!(
         terminal_cause(&expired, id),
@@ -8836,7 +8845,7 @@ fn raw_ready_retry_budget_expiry_reports_last_error_without_poisoning() {
     ));
 
     let budget_deadline = start + Duration::from_millis(21);
-    assert_eq!(engine.next_wake(), Some(budget_deadline));
+    assert_eq!(engine.next_wake(start), Some(budget_deadline));
     let expired = engine.advance(budget_deadline);
     assert!(matches!(
         terminal_failure(&expired, id),
@@ -8890,7 +8899,7 @@ fn raw_active_retry_budget_expiry_quarantines_and_fails_per_request() {
         start + Duration::from_millis(1),
     );
     let budget_deadline = start + Duration::from_millis(21);
-    assert_eq!(engine.next_wake(), Some(budget_deadline));
+    assert_eq!(engine.next_wake(start), Some(budget_deadline));
     let expired = engine.advance(budget_deadline);
     // The in-flight attempt terminates immediately without poisoning, and only
     // its keyed correlation hold remains active.
@@ -9792,7 +9801,10 @@ fn completion_only_accepts_socket_bearing_terminal_completion() {
         Some(RuntimeOutcome::Applied)
     ));
     assert!(phase_of(&engine, id).is_none());
-    assert_eq!(engine.next_wake(), Some(start + Duration::from_millis(50)));
+    assert_eq!(
+        engine.next_wake(start),
+        Some(start + Duration::from_millis(50))
+    );
     engine.assert_invariants().unwrap();
 }
 
@@ -10036,7 +10048,7 @@ fn no_reply_terminal_quarantine_blocks_successor_then_restores_liveness() {
     }
 
     let deadline = start + Duration::from_millis(50);
-    assert_eq!(engine.next_wake(), Some(deadline));
+    assert_eq!(engine.next_wake(start), Some(deadline));
     let released = engine.advance(deadline);
     assert_eq!(
         request_transmit(&released).1,
@@ -10566,7 +10578,10 @@ fn raw_keyed_holds_merge_by_scope_and_expire_independently() {
     assert!(pre_ack_release.for_target(camera(1)).pre_ack_unkeyed());
     assert!(!pre_ack_release.for_target(camera(1)).inquiry_unkeyed());
     engine.advance(start + Duration::from_millis(35));
-    assert_eq!(engine.next_wake(), Some(start + Duration::from_millis(40)));
+    assert_eq!(
+        engine.next_wake(start),
+        Some(start + Duration::from_millis(40))
+    );
 
     let final_release = engine.raw_correlation_releases_due(start + Duration::from_millis(50));
     let target = final_release.for_target(camera(1));
@@ -11125,7 +11140,7 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
         let (queued, successor) = admit(&mut engine, 2, inquiry(1), at);
         assert!(request_transmit_optional(&queued).is_none());
         let release_at = at + Duration::from_millis(50);
-        assert_eq!(engine.next_wake(), Some(release_at));
+        assert_eq!(engine.next_wake(start), Some(release_at));
         let stale = engine.handle(unkeyed_reply(1, 0x0a), release_at);
         assert_eq!(ignored_reasons(&stale), [IgnoreReason::UnmatchedFrame]);
         assert_eq!(request_transmit(&stale).1, successor);
@@ -11370,7 +11385,7 @@ fn uncorrelatable_terminal_allows_no_reply_successor_and_extends_hold() {
         ));
 
         let extended_deadline = successor_at + Duration::from_millis(50);
-        assert_eq!(engine.next_wake(), Some(extended_deadline));
+        assert_eq!(engine.next_wake(start), Some(extended_deadline));
         let still_held = engine.handle(
             frame(
                 1,
@@ -12193,7 +12208,12 @@ fn halt_fence_suppresses_queued_declared_motion_only_and_preserves_new_work() {
         );
         ids.push(admitted(&effects));
     }
-    let halted = engine.halt(camera(1), crate::AffectedAxes::PAN_TILT, 5);
+    let halted = engine.halt_in_turn(
+        &engine.begin_input_turn(now),
+        camera(1),
+        crate::AffectedAxes::PAN_TILT,
+        5,
+    );
     assert!(matches!(
         terminal_failure(&halted, ids[0]),
         Some(Error::MotionSuperseded { .. })
@@ -12233,7 +12253,12 @@ fn halt_during_retry_backoff_suppresses_rewrite_without_claiming_no_prior_effect
         now,
     );
     let (_, _, retry_at) = ack_timeout_retry(&mut engine, &effects, now);
-    let halted = engine.halt(camera(1), crate::AffectedAxes::PAN_TILT, 2);
+    let halted = engine.halt_in_turn(
+        &engine.begin_input_turn(now),
+        camera(1),
+        crate::AffectedAxes::PAN_TILT,
+        2,
+    );
     let error = terminal_failure(&halted, id).expect("retry terminalized by halt");
     assert_eq!(
         error.failure_context(),
@@ -12258,7 +12283,12 @@ fn halt_of_written_motion_preserves_correlation_but_disables_future_retry() {
     );
     send_ok(&mut engine, &effects, Some(sony_sequence(id)), now);
     assert!(engine
-        .halt(camera(1), crate::AffectedAxes::PAN_TILT, 2)
+        .halt_in_turn(
+            &engine.begin_input_turn(now),
+            camera(1),
+            crate::AffectedAxes::PAN_TILT,
+            2
+        )
         .is_empty());
     assert!(phase_of(&engine, id).is_some());
     let timeout = engine.advance(now + Duration::from_millis(20));
@@ -12575,7 +12605,7 @@ fn unsettled_owed_reply_latches_only_that_targets_inquiries_until_it_arrives() {
     ));
     assert!(request_transmit_optional(&latched).is_none());
     assert!(
-        engine.next_wake().is_none_or(|wake| wake > window_end),
+        engine.next_wake(start).is_none_or(|wake| wake > window_end),
         "a latched lane must not wake the owner"
     );
 
@@ -12796,5 +12826,83 @@ fn latched_target_fails_completion_only_commands_promptly() {
             ..
         }
     )));
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn halt_uses_its_turn_instant() {
+    let now = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
+    let (write, id) = admit(
+        &mut engine,
+        1,
+        declared_motion(1, crate::AffectedAxes::PAN_TILT, 1),
+        now,
+    );
+    send_ok(&mut engine, &write, None, now);
+    let rejected = engine.handle(
+        frame(
+            1,
+            None,
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x03,
+            },
+        ),
+        now,
+    );
+    assert!(retry_scheduled(&rejected).is_some());
+    assert!(matches!(phase_of(&engine, id), Some(Phase::Backoff { .. })));
+
+    let halt_at = now + Duration::from_secs(30);
+    let turn = engine.begin_input_turn(halt_at);
+    let halted = engine.halt_in_turn(&turn, camera(1), crate::AffectedAxes::PAN_TILT, 2);
+    assert!(matches!(
+        terminal_failure(&halted, id),
+        Some(Error::MotionSuperseded { .. })
+    ));
+    engine.assert_invariants().unwrap();
+}
+
+#[test]
+fn next_wake_ignores_a_stream_socket_hold_that_expired_after_the_last_turn() {
+    let now = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
+    let hold_until = now + Duration::from_millis(50);
+    engine.extend_raw_hold(
+        camera(1),
+        RawHoldScope::Socket(ViscaSocket::S1),
+        hold_until,
+        None,
+    );
+    let admitted = engine.handle_turn(
+        Input::Admit {
+            ticket: AdmissionTicket(1),
+            request: command_with_reply_shape_and_retry(
+                1,
+                CancellationPolicy::Supported,
+                ReplyShape::CompletionOnly,
+                retrying(),
+            ),
+            slot: AdmissionSlot::Ordinary,
+        },
+        now,
+        EngineTurn::InputOnly,
+    );
+    let id = admitted
+        .iter()
+        .find_map(|effect| match effect {
+            Effect::Admitted { id, .. } => Some(*id),
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(engine.next_wake(now), Some(hold_until));
+
+    let sampled_at = hold_until + Duration::from_millis(1);
+    // The deadline opens the dispatch gate even without another engine turn.
+    // The waiting command supplies its pacing wake, so filtering the expired
+    // hold cannot hide work from the owner's planner.
+    assert_eq!(engine.next_wake(sampled_at), Some(now));
+    assert!(!engine.dispatch_blocked(engine.entry(id).unwrap(), sampled_at));
     engine.assert_invariants().unwrap();
 }

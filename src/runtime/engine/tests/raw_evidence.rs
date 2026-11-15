@@ -501,7 +501,7 @@ fn stream_owed_answer_past_its_window_latches_only_the_command_lane() {
     engine.advance(unconfirmed_at);
     assert_eq!(command_lane(&engine, 1), LaneState::Window);
     let window_end = unconfirmed_at + Duration::from_millis(50);
-    assert!(engine.next_wake().is_some_and(|wake| wake <= window_end));
+    assert!(engine.next_wake(now).is_some_and(|wake| wake <= window_end));
     let (queued, queued_id) = admit(
         &mut engine,
         2,
@@ -621,7 +621,12 @@ fn halt_superseding_never_written_motion_reports_not_accepted() {
     );
     assert!(request_transmit_optional(&queued).is_none());
 
-    let halted = engine.halt(camera(1), crate::AffectedAxes::ZOOM, 2);
+    let halted = engine.halt_in_turn(
+        &engine.begin_input_turn(now),
+        camera(1),
+        crate::AffectedAxes::ZOOM,
+        2,
+    );
     assert_eq!(
         superseded(terminal_failure(&halted, queued_id)),
         FailureContext::new(FailureStage::Terminal, Certainty::NotAccepted)
@@ -675,7 +680,12 @@ fn halt_after_conclusive_rejections_reports_not_accepted() {
         now,
     );
     assert_eq!(retry_scheduled(&rejected).map(|retry| retry.0), Some(id));
-    let halted = engine.halt(camera(1), crate::AffectedAxes::PAN_TILT, 2);
+    let halted = engine.halt_in_turn(
+        &engine.begin_input_turn(now),
+        camera(1),
+        crate::AffectedAxes::PAN_TILT,
+        2,
+    );
     assert_eq!(
         superseded(terminal_failure(&halted, id)),
         FailureContext::new(FailureStage::Terminal, Certainty::NotAccepted)
@@ -692,7 +702,12 @@ fn halt_after_conclusive_rejections_reports_not_accepted() {
     );
     send_ok(&mut engine, &effects, None, now);
     assert!(engine
-        .halt(camera(1), crate::AffectedAxes::PAN_TILT, 2)
+        .halt_in_turn(
+            &engine.begin_input_turn(now),
+            camera(1),
+            crate::AffectedAxes::PAN_TILT,
+            2
+        )
         .is_empty());
     let rejected = engine.handle(
         frame(
@@ -749,7 +764,12 @@ fn halt_after_a_possibly_applied_attempt_reports_unconfirmed() {
         retry_at,
     );
     assert_eq!(retry_scheduled(&rejected).map(|retry| retry.0), Some(id));
-    let halted = engine.halt(camera(1), crate::AffectedAxes::PAN_TILT, 2);
+    let halted = engine.halt_in_turn(
+        &engine.begin_input_turn(now),
+        camera(1),
+        crate::AffectedAxes::PAN_TILT,
+        2,
+    );
     assert_eq!(
         superseded(terminal_failure(&halted, id)),
         FailureContext::new(FailureStage::Terminal, Certainty::Unconfirmed)
@@ -1939,9 +1959,9 @@ fn an_inquiry_reply_ends_a_stop_debt_cascade() {
 }
 
 /// Whether the dispatch gate itself, not pacing, holds queued `id` back.
-fn dispatch_gated(engine: &ProtocolEngine, id: RequestId) -> bool {
+fn dispatch_gated(engine: &ProtocolEngine, id: RequestId, now: Instant) -> bool {
     let entry = engine.entry(id).expect("queued request");
-    matches!(entry.phase(), Phase::Ready) && engine.dispatch_blocked(entry, engine.turn_at)
+    matches!(entry.phase(), Phase::Ready) && engine.dispatch_blocked(entry, now)
 }
 
 /// The gate blocks a queued ordinary command on a latched lane, not only one
@@ -1959,12 +1979,12 @@ fn a_latched_command_lane_never_dispatches_a_queued_command() {
         now,
     );
     assert!(request_transmit_optional(&queued).is_none());
-    assert!(dispatch_gated(&engine, id));
+    assert!(dispatch_gated(&engine, id, now));
     let window_end = now + Duration::from_millis(50);
     // The lane latches with the command still queued.
     engine.ledger.latch_due(window_end);
     assert_eq!(command_lane(&engine, 1), LaneState::Latched);
-    assert!(dispatch_gated(&engine, id));
+    assert!(dispatch_gated(&engine, id, now));
     let failed = engine.advance(window_end);
     assert!(request_transmit_optional(&failed).is_none());
     assert!(matches!(
@@ -1984,12 +2004,12 @@ fn an_inquiry_held_by_a_dispute_schedules_no_wake_of_its_own() {
     let mut engine = numbering_camera(now);
     let (_, _, inquiry_id) = disputed(&mut engine, now);
     assert!(engine.ledger.forbids_crossing(camera(1)));
-    assert!(dispatch_gated(&engine, inquiry_id));
+    assert!(dispatch_gated(&engine, inquiry_id, now));
     assert!(
-        engine.next_wake().is_none_or(|wake| wake > now),
+        engine.next_wake(now).is_none_or(|wake| wake > now),
         "a gated inquiry woke the owner at {:?} for nothing",
         engine
-            .next_wake()
+            .next_wake(now)
             .map(|wake| wake.saturating_duration_since(now))
     );
     // The dispute ends on input, not by time (the ledger schedules no wake),
@@ -1997,7 +2017,7 @@ fn an_inquiry_held_by_a_dispute_schedules_no_wake_of_its_own() {
     // deadline: the gated inquiry contributes nothing.
     assert_eq!(engine.ledger.wake(), None);
     assert_eq!(
-        engine.next_wake(),
+        engine.next_wake(now),
         engine.next_due().map(|due| due.at),
         "the next wake is the next protocol deadline"
     );
@@ -2311,7 +2331,7 @@ fn a_held_back_stop_is_written_at_its_wait_bound() {
     let bound = now + Duration::from_millis(30);
     let mut at = now;
     while at < bound - Duration::from_millis(1) {
-        assert!(engine.next_wake().is_some_and(|wake| wake <= bound));
+        assert!(engine.next_wake(now).is_some_and(|wake| wake <= bound));
         at += Duration::from_millis(1);
         let early = engine.advance(at);
         assert!(request_transmit_optional(&early).is_none());
@@ -2391,7 +2411,9 @@ fn completion_only_work_behind_an_unsettled_no_reply_fails_fast() {
     let (queued, waiting) = admit(&mut engine, 2, completion_only_request(), start);
     assert!(request_transmit_optional(&queued).is_none());
     let window_end = start + Duration::from_millis(50);
-    assert!(engine.next_wake().is_some_and(|wake| wake <= window_end));
+    assert!(engine
+        .next_wake(start)
+        .is_some_and(|wake| wake <= window_end));
     let failed = engine.advance(window_end);
     assert!(request_transmit_optional(&failed).is_none());
     assert!(matches!(

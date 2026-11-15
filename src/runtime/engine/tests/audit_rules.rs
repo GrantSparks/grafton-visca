@@ -53,7 +53,12 @@ fn corrupt_capacity() -> ProtocolEngine {
 #[should_panic(expected = "engine invariant violated")]
 fn halt_runs_the_production_invariant_hook() {
     let mut engine = corrupt_capacity();
-    engine.halt(camera(1), crate::AffectedAxes::PAN_TILT, 0);
+    engine.halt_in_turn(
+        &engine.begin_input_turn(Instant::now()),
+        camera(1),
+        crate::AffectedAxes::PAN_TILT,
+        0,
+    );
 }
 
 #[cfg(debug_assertions)]
@@ -103,7 +108,7 @@ fn ready_and_backoff_have_no_active_attempt() {
                 .lifecycle()
                 .previous_attempt()
                 .unwrap();
-            engine.promote_retry(id, previous, &mut Decision::new());
+            engine.promote_retry(id, previous, start, &mut Decision::new());
         }
         let entry = engine.entry(id).unwrap();
         assert!(entry.lifecycle().attempt().is_none());
