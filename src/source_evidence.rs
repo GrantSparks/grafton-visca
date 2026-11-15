@@ -73,6 +73,40 @@ impl Source {
         }
     }
 
+    /// Check the actual encoded opcode/selector against this row's positive
+    /// reference. Values and framing widths have their own profile validators.
+    pub(crate) fn validate_frame(
+        self,
+        profile: &crate::ProfileSpec,
+        frame: &[u8],
+        feature: &'static str,
+    ) -> crate::Result<()> {
+        let Some(model) = profile.capabilities().profile_id else {
+            return Ok(());
+        };
+        let Self::References(references) = self else {
+            return Err(crate::Error::FeatureNotSupported { feature });
+        };
+        let body = frame.get(1..).unwrap_or_default();
+        let matches = references
+            .iter()
+            .filter(|reference| reference.models.contains(&model))
+            .any(|reference| {
+                let mut bytes = body.iter();
+                reference
+                    .packet
+                    .split_whitespace()
+                    .all(|token| bytes.next().is_some_and(|byte| token_matches(token, *byte)))
+            });
+        if matches {
+            Ok(())
+        } else {
+            Err(crate::Error::InvalidRequest(
+                format!("{feature} encoded a packet outside its sourced register/selector").into(),
+            ))
+        }
+    }
+
     pub(crate) const fn covers_model(
         self,
         model: Option<crate::camera::profiles::ProfileId>,
@@ -110,6 +144,22 @@ impl Source {
         } else {
             any
         }
+    }
+}
+
+fn token_matches(token: &str, byte: u8) -> bool {
+    fn nibble(code: u8, actual: u8) -> bool {
+        match code {
+            b'0'..=b'9' => actual == code - b'0',
+            b'A'..=b'F' => actual == code - b'A' + 10,
+            b'a'..=b'f' => actual == code - b'a' + 10,
+            b'p' => true,
+            _ => false,
+        }
+    }
+    match token.as_bytes() {
+        [high, low] => nibble(*high, byte >> 4) && nibble(*low, byte & 0x0f),
+        _ => false,
     }
 }
 
@@ -311,7 +361,7 @@ pub(crate) mod checked {
 #[cfg(test)]
 #[allow(clippy::expect_used)]
 mod tests {
-    use super::{checked::Index, source, Source};
+    use super::{checked::Index, Source};
 
     const FIXTURE: &str = "| R1 | primary |\n| R11 | primary |\nNo source documents 09 04 2B.\n<!-- BEGIN CHECKED SOURCE EVIDENCE -->\n| Evidence key | Source | Models | Subject | Packet | Boolean reply | Location |\n| positive | R1 | GenericVisca | inquiry.Power | 09 04 00 | on=02;off=03 | p. 1 |\n<!-- END CHECKED SOURCE EVIDENCE -->";
 
@@ -378,5 +428,30 @@ mod tests {
             (R21, [GenericVisca], "nearus", "09 04 00")
         ])
         .covers_model(Some(ProfileId::GenericVisca)));
+    }
+    #[test]
+    fn source_packet_tokens_match_exact_bytes_and_documented_socket_nibbles() {
+        assert!(super::token_matches("02", 0x02));
+        assert!(!super::token_matches("02", 0x03));
+        assert!(super::token_matches("2p", 0x21));
+        assert!(!super::token_matches("2p", 0x31));
+        assert!(!super::token_matches("xx", 0x21));
+        assert!(!super::token_matches("", 0x21));
+    }
+    #[test]
+    fn encoded_command_selector_must_match_the_source_row() {
+        let profile =
+            crate::ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("FR7");
+        let source = crate::command::semantics::BuiltinCommand::PowerOn.source();
+        assert!(source
+            .validate_frame(&profile, &[0x81, 0x01, 0x04, 0x00, 0x02, 0xff], "power on")
+            .is_ok());
+        assert!(source
+            .validate_frame(&profile, &[0x81, 0x01, 0x04, 0x00, 0x03, 0xff], "power on")
+            .is_err());
+        assert!(source
+            .validate_frame(&profile, &[0x81, 0x01, 0x04, 0x66, 0x02, 0xff], "power on")
+            .is_err());
+        assert!(source.validate_frame(&profile, &[], "power on").is_err());
     }
 }

@@ -72,13 +72,13 @@ use crate::{units::Degrees, PanTiltCoordinateConversion};
 ///
 /// `rows` is for a type whose values serve different ledger rows. It
 /// generates the inherent `const fn ledger_row(&self)`, an exhaustive match
-/// with no repeated pattern, and sets `SELECTS_ROW_BY_VALUE`. Each pattern is
-/// a variant path, optionally with tuple fields, so a top-level wildcard or
+/// with no repeated pattern. Each pattern is
+/// a variant path, optionally with tuple or named fields, so a top-level wildcard or
 /// binding cannot absorb a variant added later. The generated request hook
 /// gates each value on the row it selects. Every row then classifies like
-/// the entry's row, and every noun row sending the type must be a `by_value`
-/// row whose value selects that noun row's command: the typed-request
-/// inventory checks both at compile time.
+/// the entry's row. Noun rows with the same class and capability gate can send
+/// a value-selecting type; constant `by_value` rows additionally prove their
+/// exact selected row at compile time.
 macro_rules! builtin_request {
     (@class Plain) => { request::Plain };
     (@class Targeted) => { request::Operation<completion::Targeted> };
@@ -103,7 +103,6 @@ macro_rules! builtin_request {
     (@contract $type:ty, $row:ident [$(profile_axes)?] [$($by_value:ident)?]) => {
         impl BuiltinRequestContract for $type {
             const LEDGER_ROW: BuiltinCommand = BuiltinCommand::$row;
-            $( builtin_request!(@selects_row_by_value $by_value); )?
         }
     };
     (@contract $type:ty, $row:ident [$flag:ident] $by_value:tt) => {
@@ -113,21 +112,21 @@ macro_rules! builtin_request {
             "`; expected profile_axes"
         ));
     };
-    (@selects_row_by_value $value:ident) => {
-        const SELECTS_ROW_BY_VALUE: bool = true;
-    };
-
-    (@rows $type:ty, |$value:ident| $($scrutinee:ident).+ {
-        $($pattern:ident $(::$segment:ident)* $(($($field:pat),*))? => $row:ident),+
+    (@rows $type:ty, |$value:ident| ($scrutinee:expr) {
+        $($pattern:ident $(::$segment:ident)* $(($($field:pat),*))? $({$($named:tt)*})? => $row:ident),+
     }) => {
+        $(const _: () = assert!(
+            BuiltinCommand::$row.classification().same_contract(<$type as BuiltinRequestContract>::LEDGER_ROW.classification()),
+            "a selected request row changes its class, axes or state-effect contract",
+        );)+
         impl $type {
             /// The ledger row this value serves, whose typed capability gate
             /// admits it.
             #[deny(unreachable_patterns)]
             pub(crate) const fn ledger_row(&self) -> BuiltinCommand {
                 let $value = self;
-                match $($scrutinee).+ {
-                    $( $pattern $(::$segment)* $(($($field),*))? => BuiltinCommand::$row, )+
+                match $scrutinee {
+                    $( $pattern $(::$segment)* $(($($field),*))? $({$($named)*})? => BuiltinCommand::$row, )+
                 }
             }
         }
@@ -157,8 +156,8 @@ macro_rules! builtin_request {
             size: $size:expr
             $(, policy: ($timeout:ident, $retry:ident, $control:ident))?
             $(, wire: $wire:expr)?
-            $(, rows: |$value:ident| match $($scrutinee:ident).+ {
-                $($pattern:ident $(::$segment:ident)* $(($($field:pat),*))? => $value_row:ident),+ $(,)?
+            $(, rows: |$value:ident| match ($scrutinee:expr) {
+                $($pattern:ident $(::$segment:ident)* $(($($field:pat),*))? $({$($named:tt)*})? => $value_row:ident),+ $(,)?
             })?
             $(,)?
         };
@@ -184,9 +183,19 @@ macro_rules! builtin_request {
                 )
             }
 
+            #[doc(hidden)]
+            #[allow(private_interfaces)]
+            fn write_for_target(&self, target: &crate::TargetRegistration, buffer: &mut [u8], _authority: crate::requests::RequestContractAuthority) -> Result<usize, Error> {
+                let written = <Self as Request>::write_into(self, target.target(), buffer)?;
+                let row = builtin_request!(@row self $(, $value)?);
+                row.source().validate_frame(target.profile(), &buffer[..written], surface_entry(row).feature())?;
+                Ok(written)
+            }
+
             fn validate_for_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
                 let row = builtin_request!(@row self $(, $value)?);
                 row_gate(row).validate(target.profile(), surface_entry(row).feature())?;
+                row.source().validate_for_profile(target.profile(), surface_entry(row).feature())?;
                 <Self as BuiltinValidation>::validate_target(self, target)
             }
 
@@ -219,8 +228,8 @@ macro_rules! builtin_request {
         // Evaluated by `cargo check`: fails when the class disagrees with the row.
         const _: () = <$type as BuiltinRequestContract>::CLASS_MATCHES_ROW;
         builtin_request!(@operation $type, $class $(, $flag)?);
-        $( builtin_request!(@rows $type, |$value| $($scrutinee).+ {
-            $($pattern $(::$segment)* $(($($field),*))? => $value_row),+
+        $( builtin_request!(@rows $type, |$value| ($scrutinee) {
+            $($pattern $(::$segment)* $(($($field),*))? $({$($named)*})? => $value_row),+
         }); )?
     )+};
 }
@@ -1079,12 +1088,28 @@ builtin_request! {
     crate::command::exposure::AutoSlowShutterOn => AutoSlowShutterOn: Plain { size: 6 };
     crate::command::exposure::AutoSlowShutterOff => AutoSlowShutterOff: Plain { size: 6 };
     crate::command::nd_filter::NdFilterModeCommand => NdFilterMode: Plain { size: 7 };
-    crate::command::nd_filter::AutoNdCommand => NdFilterAutoOn: Plain { size: 7 };
-    crate::command::flip::ImageFreeze => ImageFreezeOn: Plain { size: 6 };
+    crate::command::nd_filter::AutoNdCommand => NdFilterAutoOn: Plain {
+        size: 7,
+        rows: |command| match (command.enabled()) {
+            true => NdFilterAutoOn,
+            false => NdFilterAutoOff,
+        },
+    };
+    crate::command::flip::ImageFreeze => ImageFreezeOn: Plain {
+        size: 6,
+        rows: |command| match (command.enabled()) {
+            true => ImageFreezeOn,
+            false => ImageFreezeOff,
+        },
+    };
     crate::command::zoom::DigitalZoom => DigitalZoom: Plain { size: 6 };
     crate::command::streaming::MulticastStreaming => MulticastStreamingOn: Plain {
         size: 6,
         policy: (Network, Standard, Normal),
+        rows: |command| match (command) {
+            crate::command::streaming::MulticastStreaming::On => MulticastStreamingOn,
+            crate::command::streaming::MulticastStreaming::Off => MulticastStreamingOff,
+        },
     };
     crate::command::streaming::SetNdiQuality => NdiQuality: Plain {
         size: 6,
@@ -1099,22 +1124,89 @@ builtin_request! {
     crate::command::power::PowerOn => PowerOn: Plain { size: 6 };
     crate::command::power::PowerStandby => PowerStandby: Plain { size: 6 };
     crate::command::exposure::ExposureCommand => ExposureMode: Plain { size: 6 };
-    crate::command::exposure::ExposureCompensation => ExposureCompensationOn: Plain { size: 9 };
+    crate::command::exposure::ExposureCompensation => ExposureCompensationOn: Plain {
+        size: 9,
+        rows: |command| match (command) {
+            crate::command::exposure::ExposureCompensation::On => ExposureCompensationOn,
+            crate::command::exposure::ExposureCompensation::Off => ExposureCompensationOff,
+            crate::command::exposure::ExposureCompensation::Reset => ExposureCompensationReset,
+            crate::command::exposure::ExposureCompensation::Up => ExposureCompensationUp,
+            crate::command::exposure::ExposureCompensation::Down => ExposureCompensationDown,
+            crate::command::exposure::ExposureCompensation::SetLevel(_) => ExposureCompensationDirect,
+        },
+    };
     crate::command::exposure::DynamicRange => DynamicRange: Plain { size: 9 };
-    crate::command::exposure::Shutter => ShutterReset: Plain { size: 9 };
-    crate::command::exposure::Brightness => BrightnessReset: Plain { size: 9 };
+    crate::command::exposure::Shutter => ShutterReset: Plain {
+        size: 9,
+        rows: |command| match (command) {
+            crate::command::exposure::Shutter::Reset => ShutterReset,
+            crate::command::exposure::Shutter::Up => ShutterUp,
+            crate::command::exposure::Shutter::Down => ShutterDown,
+            crate::command::exposure::Shutter::SetSpeed(_) => ShutterDirect,
+        },
+    };
+    crate::command::exposure::Brightness => BrightnessReset: Plain {
+        size: 9,
+        rows: |command| match (command) {
+            crate::command::exposure::Brightness::Reset => BrightnessReset,
+            crate::command::exposure::Brightness::Up => BrightnessUp,
+            crate::command::exposure::Brightness::Down => BrightnessDown,
+            crate::command::exposure::Brightness::SetLevel(_) => BrightnessSet,
+        },
+    };
     crate::command::exposure::AntiFlickerCommand => AntiFlicker: Plain { size: 6 };
-    crate::command::gain::Gain => GainReset: Plain { size: 9 };
+    crate::command::gain::Gain => GainReset: Plain {
+        size: 9,
+        rows: |command| match (command) {
+            crate::command::gain::Gain::Reset => GainReset,
+            crate::command::gain::Gain::Up => GainUp,
+            crate::command::gain::Gain::Down => GainDown,
+            crate::command::gain::Gain::SetValue(_) => GainDirect,
+        },
+    };
     crate::command::gain::GainLimitCommand => GainLimit: Plain { size: 6 };
     crate::command::color::OnePushTriggerCommand => OnePushWhiteBalanceTrigger: Plain { size: 6 };
     crate::command::color::RedTuningCommand => RedTuning: Plain { size: 9 };
     crate::command::color::BlueTuningCommand => BlueTuning: Plain { size: 9 };
     crate::command::color::SaturationCommand => Saturation: Plain { size: 9 };
     crate::command::color::HueCommand => Hue: Plain { size: 9 };
-    crate::command::color::ColorTemperature => ColorTemperatureReset: Plain { size: 7 };
-    crate::command::color::RedGain => RedGainReset: Plain { size: 9 };
-    crate::command::color::BlueGain => BlueGainReset: Plain { size: 9 };
-    crate::command::image::Sharpness => SharpnessMode: Plain { size: 9 };
+    crate::command::color::ColorTemperature => ColorTemperatureReset: Plain {
+        size: 7,
+        rows: |command| match (command) {
+            crate::command::color::ColorTemperature::Reset => ColorTemperatureReset,
+            crate::command::color::ColorTemperature::Up => ColorTemperatureUp,
+            crate::command::color::ColorTemperature::Down => ColorTemperatureDown,
+            crate::command::color::ColorTemperature::SetTemperature(_) => ColorTemperatureDirect,
+        },
+    };
+    crate::command::color::RedGain => RedGainReset: Plain {
+        size: 9,
+        rows: |command| match (command) {
+            crate::command::color::RedGain::Reset => RedGainReset,
+            crate::command::color::RedGain::Up => RedGainUp,
+            crate::command::color::RedGain::Down => RedGainDown,
+            crate::command::color::RedGain::SetValue(_) => RedGainDirect,
+        },
+    };
+    crate::command::color::BlueGain => BlueGainReset: Plain {
+        size: 9,
+        rows: |command| match (command) {
+            crate::command::color::BlueGain::Reset => BlueGainReset,
+            crate::command::color::BlueGain::Up => BlueGainUp,
+            crate::command::color::BlueGain::Down => BlueGainDown,
+            crate::command::color::BlueGain::SetValue(_) => BlueGainDirect,
+        },
+    };
+    crate::command::image::Sharpness => SharpnessMode: Plain {
+        size: 9,
+        rows: |command| match (command) {
+            crate::command::image::Sharpness::Mode(_) => SharpnessMode,
+            crate::command::image::Sharpness::Reset => SharpnessReset,
+            crate::command::image::Sharpness::Up => SharpnessUp,
+            crate::command::image::Sharpness::Down => SharpnessDown,
+            crate::command::image::Sharpness::SetLevel { .. } => SharpnessDirect,
+        },
+    };
     crate::command::image::Luminance => Luminance: Plain { size: 9 };
     crate::command::image::Contrast => Contrast: Plain { size: 9 };
     crate::command::image::GammaCommand => Gamma: Plain { size: 6 };
@@ -1141,7 +1233,7 @@ builtin_request! {
     crate::command::focus::FocusNearLimitCommand => FocusNearLimit: Plain { size: 9 };
     crate::command::white_balance::WhiteBalanceCommand => WhiteBalanceAuto: Plain {
         size: 6,
-        rows: |command| match command.mode {
+        rows: |command| match (command.mode) {
             crate::command::WhiteBalanceMode::Auto => WhiteBalanceAuto,
             crate::command::WhiteBalanceMode::Indoor => WhiteBalanceIndoor,
             crate::command::WhiteBalanceMode::Outdoor => WhiteBalanceOutdoor,
@@ -1156,9 +1248,21 @@ builtin_request! {
     };
     crate::command::menu::SetMenuDisplay => MenuDisplay: Plain { size: 6 };
     crate::command::menu::MenuNavigate => MenuNavigate: AppliedOnly { size: 9 };
-    crate::command::menu::PerformMenuAction => MenuSelect: Plain { size: 6 };
+    crate::command::menu::PerformMenuAction => MenuSelect: Plain {
+        size: 6,
+        rows: |command| match (command.action) {
+            crate::command::menu::MenuAction::Select => MenuSelect,
+            crate::command::menu::MenuAction::Cancel => MenuCancel,
+        },
+    };
     crate::command::menu::DirectMenuControl => DirectMenu: Plain { size: 8 };
-    crate::command::streaming::UsbAudio => UsbAudioOn: Plain { size: 7 };
+    crate::command::streaming::UsbAudio => UsbAudioOn: Plain {
+        size: 7,
+        rows: |command| match (command) {
+            crate::command::streaming::UsbAudio::On => UsbAudioOn,
+            crate::command::streaming::UsbAudio::Off => UsbAudioOff,
+        },
+    };
     crate::command::system::SettingsSaveCommand => SettingsSave: Plain { size: 6 };
     crate::command::tally::TallyRedOn => TallyRedOn: Plain { size: 8 };
     crate::command::tally::TallyRedOff => TallyRedOff: Plain { size: 8 };
@@ -1195,6 +1299,10 @@ builtin_request! {
     ImageFlipCommand => ImageFlipOff: Plain {
         size: 6,
         wire: |value: &ImageFlipCommand| crate::command::flip::ImageFlip { flip: value.0 },
+        rows: |command| match (command.0) {
+            Flip::On => ImageFlipVertical,
+            Flip::Off => ImageFlipOff,
+        },
     };
 }
 
@@ -1222,6 +1330,10 @@ builtin_request! {
     ImageMirrorCommand => ImageFlipHorizontal: Plain {
         size: 6,
         wire: |value: &ImageMirrorCommand| crate::command::flip::HorizontalFlip { on: value.enabled },
+        rows: |command| match (command.enabled) {
+            true => ImageFlipHorizontal,
+            false => ImageFlipHorizontalOff,
+        },
     };
 }
 
@@ -1286,17 +1398,12 @@ macro_rules! typed_request_coverage {
 /// Fails const evaluation unless `T` may serve `row` through a request form
 /// that is not a constant: the row must classify exactly like `T`'s own
 /// ledger row (class, axes and state effect) and carry the same typed
-/// capability gate, and `T` must not select its row by value.
+/// capability gate. Value-dependent gates are still checked by the request.
 const fn assert_row_served_by<T: BuiltinRequestContract>(row: BuiltinCommand) {
     assert!(
         row.classification()
             .same_contract(T::LEDGER_ROW.classification()),
         "a typed request serves a ledger row whose classification differs from its own row",
-    );
-    assert!(
-        !T::SELECTS_ROW_BY_VALUE,
-        "a typed request that selects its ledger row by value is sent by a noun row \
-         that is not a `by_value` row",
     );
     assert!(
         row_gate(row).same_as(row_gate(T::LEDGER_ROW)),
@@ -1806,7 +1913,7 @@ builtin_request! {
             FocusTrigger::OnePush => Focus::OnePushTrigger,
             FocusTrigger::Snap => Focus::Snap,
         },
-        rows: |trigger| match trigger {
+        rows: |trigger| match (trigger) {
             FocusTrigger::OnePush => FocusOnePush,
             FocusTrigger::Snap => FocusSnap,
         },
@@ -1831,6 +1938,11 @@ builtin_request! {
             FocusModeCommand::Auto => Focus::Auto,
             FocusModeCommand::Manual => Focus::Manual,
             FocusModeCommand::Toggle => Focus::Toggle,
+        },
+        rows: |command| match (command) {
+            FocusModeCommand::Auto => FocusAuto,
+            FocusModeCommand::Manual => FocusManual,
+            FocusModeCommand::Toggle => FocusToggle,
         },
     };
 }
@@ -4020,6 +4132,68 @@ mod tests {
                     ..
                 }
             ));
+        }
+    }
+
+    #[test]
+    fn source_admission_uses_the_actual_variant_of_a_homogeneous_command() {
+        use crate::command::image::{Sharpness, SharpnessMode};
+        let fr7 = crate::TargetRegistration::new(
+            CameraId::CAMERA_1,
+            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7"),
+        )
+        .expect("target");
+        let direct = Sharpness::SetLevel {
+            value: crate::types::SharpnessLevel::new(7).expect("detail"),
+        };
+        assert_eq!(direct.ledger_row(), BuiltinCommand::SharpnessDirect);
+        assert!(direct.validate_for_target(&fr7).is_ok());
+        let mut buffer = [0; 16];
+        let written = crate::requests::write_for_target(&direct, &fr7, &mut buffer)
+            .expect("source-backed FR7 detail");
+        assert_eq!(
+            &buffer[..written],
+            &[0x81, 0x01, 0x04, 0x42, 0, 0, 0, 7, 0xff]
+        );
+        let mode = Sharpness::Mode(SharpnessMode::Manual);
+        assert_eq!(mode.ledger_row(), BuiltinCommand::SharpnessMode);
+        assert!(matches!(
+            mode.validate_for_target(&fr7),
+            Err(Error::FeatureNotSupported { .. })
+        ));
+        let ptz = crate::TargetRegistration::new(
+            CameraId::CAMERA_1,
+            ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2"),
+        )
+        .expect("target");
+        for (command, row) in [
+            (
+                crate::command::ExposureCompensation::On,
+                BuiltinCommand::ExposureCompensationOn,
+            ),
+            (
+                crate::command::ExposureCompensation::Off,
+                BuiltinCommand::ExposureCompensationOff,
+            ),
+            (
+                crate::command::ExposureCompensation::Reset,
+                BuiltinCommand::ExposureCompensationReset,
+            ),
+            (
+                crate::command::ExposureCompensation::Up,
+                BuiltinCommand::ExposureCompensationUp,
+            ),
+            (
+                crate::command::ExposureCompensation::Down,
+                BuiltinCommand::ExposureCompensationDown,
+            ),
+        ] {
+            assert_eq!(command.ledger_row(), row);
+            command
+                .validate_for_target(&ptz)
+                .expect("source-backed compensation variant");
+            crate::requests::write_for_target(&command, &ptz, &mut buffer)
+                .expect("source-backed variant encoding");
         }
     }
 

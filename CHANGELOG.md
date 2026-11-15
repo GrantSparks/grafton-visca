@@ -66,7 +66,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   auto/manual status. Custom requests and decoders remain the explicit path
   for caller-owned protocol extensions. Built-in inquiry admission resolves exact
   source/model facts before encoding, and BRC-H900 power status uses its
-  documented extended query category. Test inventories and downstream compile
+  documented extended query category. Every built-in command also carries a
+  source and checks its encoded register/selector before admission. Unsupported
+  Sony grants and orphan value types are withdrawn; FR7 core ranges, EVI focus
+  orientation and the generic tilt-speed ceiling follow their model sources. Test inventories and downstream compile
   contracts follow the sourced surface; sharpness-position decoding remains
   covered through its canonical response kind.
 

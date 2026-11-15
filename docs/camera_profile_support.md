@@ -421,6 +421,21 @@ in the hardware release checklist.
 
 ## Known unverified facts
 
+- **BRC-H900 source reference spans (R11 v2.20, p. 37).** The checked
+  pan/tilt table reaches ±169° (±`09BDE` pan) and −30°…+90° tilt
+  (`E458`…`52F8`), at 236 units/degree; increasing pan is left. The focus
+  reference table spans `1000` (infinity) through `C000` (0.8 m), with the
+  high endpoint nearest. These are the conservative supported reference spans,
+  not a claim of measured mechanical stops. Optical zoom is `0000`…`4000`
+  (14×); presets are `00`…`0F` (pp. 18, 37, 39). Hardware behavior is unverified.
+- **BRC-H900 ambiguous/missing setters.** R11 v2.20 p. 18 prints preset Set
+  with selector `00` and Reset with `01`, opposite the other Sony sources.
+  The crate withholds these two destructive actions until an erratum or
+  hardware result resolves the labels. Its menu row establishes only Off,
+  and the extracted spotlight/backlight command rows establish On only;
+  inquiry reply polarity is not evidence for an absent setter. Incomplete
+  families remain available through explicit caller-owned custom requests.
+
 - **FR7 shutter codes (R7).** The shutter table of the FR7 command list could
   not be read, so `SonyFR7` advertises no shutter codes (`shutter_speeds` is
   empty) and `ShutterSpeed` positions are refused before any I/O.
@@ -430,8 +445,9 @@ in the hardware release checklist.
   right and positive up for every profile. R8 (EVI-H100) documents increasing
   raw pan as right and increasing raw tilt as up, and R12/R21 (BRC-300, Nearus)
   document increasing raw pan as left and increasing raw tilt as up. The
-  PTZOptics and BRC-H900 sources give degree ranges but no raw direction,
-  so those profiles follow the R8 convention. Only PTZOptics G2 tilt has been
+  PTZOptics sources give degree ranges but no raw direction, so those profiles
+  follow the R8 convention. R11 v2.20 now establishes BRC-H900 pan increasing
+  left and tilt increasing up; those source-backed signs are used. Only PTZOptics G2 tilt has been
   verified on hardware (below); pan direction, `PtzOpticsG3` and BRC-H900
   remain unverified. `tests/pan_tilt_polarity.rs` pins the encoded direction of
   +45° for every built-in profile.

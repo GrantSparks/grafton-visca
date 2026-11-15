@@ -455,13 +455,13 @@ macro_rules! define_builtin_inquiries {
 
                 fn validate_for_target(&self, target: &crate::TargetRegistration) -> crate::Result<()> {
                     let profile = target.profile();
-                    Self::SOURCE.validate_for_profile(profile, concat!("sourced inquiry ", stringify!($struct)))?;
                     validate_builtin_inquiry_gate(
                         profile,
                         <Self as BuiltinInquiryGate>::GATE,
                         concat!("inquiry ", stringify!($struct)),
                         concat!("typed inquiry ", stringify!($struct)),
-                    )
+                    )?;
+                    Self::SOURCE.validate_for_profile(profile, concat!("sourced inquiry ", stringify!($struct)))
                 }
             }
 
@@ -2352,10 +2352,6 @@ mod wire_decoder_regression_tests {
         ] {
             assert_eq!(error.kind(), crate::ErrorKind::Protocol);
         }
-        assert_eq!(
-            crate::types::DefogLevel::new(0xFF).unwrap_err().kind(),
-            crate::ErrorKind::InvalidParameter
-        );
     }
 
     #[test]

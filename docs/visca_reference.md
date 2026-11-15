@@ -859,6 +859,8 @@ eight-byte envelope itself.
 | ND preset inquiry | `8x 09 7E 01 53 FF` | Reply `y0 50 0p FF`; `p = 0` clear, `1..=3` preset 1–3. The legacy `09 04 66` register in §7.10 is picture-flip state, not this inquiry. |
 | Red tally | `8x 01 7E 01 0A 00 0p FF` | `p = 2` on; `p = 3` off. Inquiry: `8x 09 7E 01 0A FF`. |
 | Green tally | `8x 01 7E 04 1A 00 0p FF` | `p = 2` on; `p = 3` off. Inquiry: `8x 09 7E 04 1A FF`. |
+| ND mode | `8x 01 7E 04 52 0p FF` | R7 p. 14: `0` preset, `1` variable. |
+| ND step | `8x 01 7E 04 12 02/03 FF` | R7 p. 14: up/down, with the density domain established by the separate variable-ND table. |
 | Push AF / Push MF | `8x 01 7E 04 58 0p FF` | `p = 0` release; `p = 1` press. This is distinct from the red-tally `7E 01 0A` family. |
 | Pan/tilt speed-step range | `8x 01 06 45 pp FF` | `pp = 08` normal (24 steps); `pp = 18` extended (50 steps). `7E 04 1B` is FR7 preset-speed selection, not this control. |
 | Auto-tracking white balance | `8x 01 04 35 04 FF` | `04` selects ATW; inquiry `8x 09 04 35 FF` reports `04`. The `09 04 A9` AWB-sensitivity row in §7.10 is a separate PTZOptics register. |
@@ -1816,5 +1818,571 @@ vendor-verified claim from this built-in catalog.
 | r8-genericvisca-onepushwhitebalance-grant | R8 | GenericVisca | grant.OnePushWhiteBalance | 01 04 35 03;01 04 10 05 | - | EVI-H100 Technical Manual command/inquiry lists |
 | r12-genericvisca-onepushwhitebalance-grant | R12 | GenericVisca | grant.OnePushWhiteBalance | 01 04 35 03;01 04 10 05 | - | BRC-300 Technical Manual command/inquiry lists |
 | r21-genericvisca-onepushwhitebalance-grant | R21 | GenericVisca | grant.OnePushWhiteBalance | 01 04 35 03;01 04 10 05 | - | BRC-300/300P Command List |
+
+| r1-pantilthome-command | R1 | PtzOpticsG2, PtzOptics30X | command.PanTiltHome | 01 06 04 | - | §7 command list |
+| r14-pantilthome-command | R14 | PtzOpticsG3 | command.PanTiltHome | 01 06 04 | - | Current Developer Portal command pages |
+| r7-pantilthome-command | R7 | SonyFr7 | command.PanTiltHome | 01 06 04 | - | FR7 v4 command list pp.14–20 |
+| r11-pantilthome-command | R11 | SonyBrcH900 | command.PanTiltHome | 01 06 04 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-pantilthome-command | R8 | SonyEviH100, GenericVisca | command.PanTiltHome | 01 06 04 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-pantilthome-command | R12 | SonyBrc300, GenericVisca | command.PanTiltHome | 01 06 04 | - | BRC-300 Command List pp.9–12 |
+| r21-pantilthome-command | R21 | NearusBrc300, GenericVisca | command.PanTiltHome | 01 06 04 | - | BRC-300/300P Command List pp.9–12 |
+| r1-pantiltreset-command | R1 | PtzOpticsG2, PtzOptics30X | command.PanTiltReset | 01 06 05 | - | §7 command list |
+| r14-pantiltreset-command | R14 | PtzOpticsG3 | command.PanTiltReset | 01 06 05 | - | Current Developer Portal command pages |
+| r7-pantiltreset-command | R7 | SonyFr7 | command.PanTiltReset | 01 06 05 | - | FR7 v4 command list pp.14–20 |
+| r11-pantiltreset-command | R11 | SonyBrcH900 | command.PanTiltReset | 01 06 05 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-pantiltreset-command | R8 | SonyEviH100, GenericVisca | command.PanTiltReset | 01 06 05 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-pantiltreset-command | R12 | SonyBrc300, GenericVisca | command.PanTiltReset | 01 06 05 | - | BRC-300 Command List pp.9–12 |
+| r21-pantiltreset-command | R21 | NearusBrc300, GenericVisca | command.PanTiltReset | 01 06 05 | - | BRC-300/300P Command List pp.9–12 |
+| r1-pantiltdrive-command | R1 | PtzOpticsG2, PtzOptics30X | command.PanTiltDrive | 01 06 01 | - | §7 command list |
+| r14-pantiltdrive-command | R14 | PtzOpticsG3 | command.PanTiltDrive | 01 06 01 | - | Current Developer Portal command pages |
+| r7-pantiltdrive-command | R7 | SonyFr7 | command.PanTiltDrive | 01 06 01 | - | FR7 v4 command list pp.14–20 |
+| r11-pantiltdrive-command | R11 | SonyBrcH900 | command.PanTiltDrive | 01 06 01 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-pantiltdrive-command | R8 | SonyEviH100, GenericVisca | command.PanTiltDrive | 01 06 01 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-pantiltdrive-command | R12 | SonyBrc300, GenericVisca | command.PanTiltDrive | 01 06 01 | - | BRC-300 Command List pp.9–12 |
+| r21-pantiltdrive-command | R21 | NearusBrc300, GenericVisca | command.PanTiltDrive | 01 06 01 | - | BRC-300/300P Command List pp.9–12 |
+| r1-pantiltstop-command | R1 | PtzOpticsG2, PtzOptics30X | command.PanTiltStop | 01 06 01 | - | §7 command list |
+| r14-pantiltstop-command | R14 | PtzOpticsG3 | command.PanTiltStop | 01 06 01 | - | Current Developer Portal command pages |
+| r7-pantiltstop-command | R7 | SonyFr7 | command.PanTiltStop | 01 06 01 | - | FR7 v4 command list pp.14–20 |
+| r11-pantiltstop-command | R11 | SonyBrcH900 | command.PanTiltStop | 01 06 01 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-pantiltstop-command | R8 | SonyEviH100, GenericVisca | command.PanTiltStop | 01 06 01 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-pantiltstop-command | R12 | SonyBrc300, GenericVisca | command.PanTiltStop | 01 06 01 | - | BRC-300 Command List pp.9–12 |
+| r21-pantiltstop-command | R21 | NearusBrc300, GenericVisca | command.PanTiltStop | 01 06 01 | - | BRC-300/300P Command List pp.9–12 |
+| r1-pantiltabsolute-command | R1 | PtzOpticsG2, PtzOptics30X | command.PanTiltAbsolute | 01 06 02 | - | §7 command list |
+| r14-pantiltabsolute-command | R14 | PtzOpticsG3 | command.PanTiltAbsolute | 01 06 02 | - | Current Developer Portal command pages |
+| r7-pantiltabsolute-command | R7 | SonyFr7 | command.PanTiltAbsolute | 01 06 02 | - | FR7 v4 command list pp.14–20 |
+| r11-pantiltabsolute-command | R11 | SonyBrcH900 | command.PanTiltAbsolute | 01 06 02 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-pantiltabsolute-command | R8 | SonyEviH100, GenericVisca | command.PanTiltAbsolute | 01 06 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-pantiltabsolute-command | R12 | SonyBrc300, GenericVisca | command.PanTiltAbsolute | 01 06 02 | - | BRC-300 Command List pp.9–12 |
+| r21-pantiltabsolute-command | R21 | NearusBrc300, GenericVisca | command.PanTiltAbsolute | 01 06 02 | - | BRC-300/300P Command List pp.9–12 |
+| r1-pantiltrelative-command | R1 | PtzOpticsG2, PtzOptics30X | command.PanTiltRelative | 01 06 03 | - | §7 command list |
+| r14-pantiltrelative-command | R14 | PtzOpticsG3 | command.PanTiltRelative | 01 06 03 | - | Current Developer Portal command pages |
+| r7-pantiltrelative-command | R7 | SonyFr7 | command.PanTiltRelative | 01 06 03 | - | FR7 v4 command list pp.14–20 |
+| r11-pantiltrelative-command | R11 | SonyBrcH900 | command.PanTiltRelative | 01 06 03 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-pantiltrelative-command | R8 | SonyEviH100, GenericVisca | command.PanTiltRelative | 01 06 03 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-pantiltrelative-command | R12 | SonyBrc300, GenericVisca | command.PanTiltRelative | 01 06 03 | - | BRC-300 Command List pp.9–12 |
+| r21-pantiltrelative-command | R21 | NearusBrc300, GenericVisca | command.PanTiltRelative | 01 06 03 | - | BRC-300/300P Command List pp.9–12 |
+| r1-pantiltlimitset-command | R1 | PtzOpticsG2, PtzOptics30X | command.PanTiltLimitSet | 01 06 07 00 | - | §7 command list |
+| r14-pantiltlimitset-command | R14 | PtzOpticsG3 | command.PanTiltLimitSet | 01 06 07 00 | - | Current Developer Portal command pages |
+| r7-pantiltlimitset-command | R7 | SonyFr7 | command.PanTiltLimitSet | 01 06 07 00 | - | FR7 v4 command list pp.14–20 |
+| r11-pantiltlimitset-command | R11 | SonyBrcH900 | command.PanTiltLimitSet | 01 06 07 00 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-pantiltlimitset-command | R8 | SonyEviH100, GenericVisca | command.PanTiltLimitSet | 01 06 07 00 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-pantiltlimitset-command | R12 | SonyBrc300, GenericVisca | command.PanTiltLimitSet | 01 06 07 00 | - | BRC-300 Command List pp.9–12 |
+| r21-pantiltlimitset-command | R21 | NearusBrc300, GenericVisca | command.PanTiltLimitSet | 01 06 07 00 | - | BRC-300/300P Command List pp.9–12 |
+| r1-pantiltlimitclear-command | R1 | PtzOpticsG2, PtzOptics30X | command.PanTiltLimitClear | 01 06 07 01 | - | §7 command list |
+| r14-pantiltlimitclear-command | R14 | PtzOpticsG3 | command.PanTiltLimitClear | 01 06 07 01 | - | Current Developer Portal command pages |
+| r7-pantiltlimitclear-command | R7 | SonyFr7 | command.PanTiltLimitClear | 01 06 07 01 | - | FR7 v4 command list pp.14–20 |
+| r11-pantiltlimitclear-command | R11 | SonyBrcH900 | command.PanTiltLimitClear | 01 06 07 01 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-pantiltlimitclear-command | R8 | SonyEviH100, GenericVisca | command.PanTiltLimitClear | 01 06 07 01 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-pantiltlimitclear-command | R12 | SonyBrc300, GenericVisca | command.PanTiltLimitClear | 01 06 07 01 | - | BRC-300 Command List pp.9–12 |
+| r21-pantiltlimitclear-command | R21 | NearusBrc300, GenericVisca | command.PanTiltLimitClear | 01 06 07 01 | - | BRC-300/300P Command List pp.9–12 |
+| r1-zoomstop-command | R1 | PtzOpticsG2, PtzOptics30X | command.ZoomStop | 01 04 07 00 | - | §7 command list |
+| r14-zoomstop-command | R14 | PtzOpticsG3 | command.ZoomStop | 01 04 07 00 | - | Current Developer Portal command pages |
+| r7-zoomstop-command | R7 | SonyFr7 | command.ZoomStop | 01 04 07 00 | - | FR7 v4 command list pp.14–20 |
+| r11-zoomstop-command | R11 | SonyBrcH900 | command.ZoomStop | 01 04 07 00 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-zoomstop-command | R8 | SonyEviH100, GenericVisca | command.ZoomStop | 01 04 07 00 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-zoomstop-command | R12 | SonyBrc300, GenericVisca | command.ZoomStop | 01 04 07 00 | - | BRC-300 Command List pp.9–12 |
+| r21-zoomstop-command | R21 | NearusBrc300, GenericVisca | command.ZoomStop | 01 04 07 00 | - | BRC-300/300P Command List pp.9–12 |
+| r1-zoomtele-command | R1 | PtzOpticsG2, PtzOptics30X | command.ZoomTele | 01 04 07 02 | - | §7 command list |
+| r14-zoomtele-command | R14 | PtzOpticsG3 | command.ZoomTele | 01 04 07 02 | - | Current Developer Portal command pages |
+| r7-zoomtele-command | R7 | SonyFr7 | command.ZoomTele | 01 04 07 02 | - | FR7 v4 command list pp.14–20 |
+| r11-zoomtele-command | R11 | SonyBrcH900 | command.ZoomTele | 01 04 07 02 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-zoomtele-command | R8 | SonyEviH100, GenericVisca | command.ZoomTele | 01 04 07 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-zoomtele-command | R12 | SonyBrc300, GenericVisca | command.ZoomTele | 01 04 07 02 | - | BRC-300 Command List pp.9–12 |
+| r21-zoomtele-command | R21 | NearusBrc300, GenericVisca | command.ZoomTele | 01 04 07 02 | - | BRC-300/300P Command List pp.9–12 |
+| r1-zoomwide-command | R1 | PtzOpticsG2, PtzOptics30X | command.ZoomWide | 01 04 07 03 | - | §7 command list |
+| r14-zoomwide-command | R14 | PtzOpticsG3 | command.ZoomWide | 01 04 07 03 | - | Current Developer Portal command pages |
+| r7-zoomwide-command | R7 | SonyFr7 | command.ZoomWide | 01 04 07 03 | - | FR7 v4 command list pp.14–20 |
+| r11-zoomwide-command | R11 | SonyBrcH900 | command.ZoomWide | 01 04 07 03 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-zoomwide-command | R8 | SonyEviH100, GenericVisca | command.ZoomWide | 01 04 07 03 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-zoomwide-command | R12 | SonyBrc300, GenericVisca | command.ZoomWide | 01 04 07 03 | - | BRC-300 Command List pp.9–12 |
+| r21-zoomwide-command | R21 | NearusBrc300, GenericVisca | command.ZoomWide | 01 04 07 03 | - | BRC-300/300P Command List pp.9–12 |
+| r1-zoomtelevariable-command | R1 | PtzOpticsG2, PtzOptics30X | command.ZoomTeleVariable | 01 04 07 | - | §7 command list |
+| r14-zoomtelevariable-command | R14 | PtzOpticsG3 | command.ZoomTeleVariable | 01 04 07 | - | Current Developer Portal command pages |
+| r7-zoomtelevariable-command | R7 | SonyFr7 | command.ZoomTeleVariable | 01 04 07 | - | FR7 v4 command list pp.14–20 |
+| r11-zoomtelevariable-command | R11 | SonyBrcH900 | command.ZoomTeleVariable | 01 04 07 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-zoomtelevariable-command | R8 | SonyEviH100, GenericVisca | command.ZoomTeleVariable | 01 04 07 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-zoomtelevariable-command | R12 | SonyBrc300, GenericVisca | command.ZoomTeleVariable | 01 04 07 | - | BRC-300 Command List pp.9–12 |
+| r21-zoomtelevariable-command | R21 | NearusBrc300, GenericVisca | command.ZoomTeleVariable | 01 04 07 | - | BRC-300/300P Command List pp.9–12 |
+| r1-zoomwidevariable-command | R1 | PtzOpticsG2, PtzOptics30X | command.ZoomWideVariable | 01 04 07 | - | §7 command list |
+| r14-zoomwidevariable-command | R14 | PtzOpticsG3 | command.ZoomWideVariable | 01 04 07 | - | Current Developer Portal command pages |
+| r7-zoomwidevariable-command | R7 | SonyFr7 | command.ZoomWideVariable | 01 04 07 | - | FR7 v4 command list pp.14–20 |
+| r11-zoomwidevariable-command | R11 | SonyBrcH900 | command.ZoomWideVariable | 01 04 07 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-zoomwidevariable-command | R8 | SonyEviH100, GenericVisca | command.ZoomWideVariable | 01 04 07 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-zoomwidevariable-command | R12 | SonyBrc300, GenericVisca | command.ZoomWideVariable | 01 04 07 | - | BRC-300 Command List pp.9–12 |
+| r21-zoomwidevariable-command | R21 | NearusBrc300, GenericVisca | command.ZoomWideVariable | 01 04 07 | - | BRC-300/300P Command List pp.9–12 |
+| r1-zoomposition-command | R1 | PtzOpticsG2, PtzOptics30X | command.ZoomPosition | 01 04 47 | - | §7 command list |
+| r14-zoomposition-command | R14 | PtzOpticsG3 | command.ZoomPosition | 01 04 47 | - | Current Developer Portal command pages |
+| r7-zoomposition-command | R7 | SonyFr7 | command.ZoomPosition | 01 04 47 | - | FR7 v4 command list pp.14–20 |
+| r11-zoomposition-command | R11 | SonyBrcH900 | command.ZoomPosition | 01 04 47 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-zoomposition-command | R8 | SonyEviH100, GenericVisca | command.ZoomPosition | 01 04 47 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-zoomposition-command | R12 | SonyBrc300, GenericVisca | command.ZoomPosition | 01 04 47 | - | BRC-300 Command List pp.9–12 |
+| r21-zoomposition-command | R21 | NearusBrc300, GenericVisca | command.ZoomPosition | 01 04 47 | - | BRC-300/300P Command List pp.9–12 |
+| r8-digitalzoom-command | R8 | SonyEviH100, GenericVisca | command.DigitalZoom | 01 04 06 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-digitalzoom-command | R12 | SonyBrc300, GenericVisca | command.DigitalZoom | 01 04 06 | - | BRC-300 Command List pp.9–12 |
+| r21-digitalzoom-command | R21 | NearusBrc300, GenericVisca | command.DigitalZoom | 01 04 06 | - | BRC-300/300P Command List pp.9–12 |
+| r1-focusstop-command | R1 | PtzOpticsG2, PtzOptics30X | command.FocusStop | 01 04 08 00 | - | §7 command list |
+| r14-focusstop-command | R14 | PtzOpticsG3 | command.FocusStop | 01 04 08 00 | - | Current Developer Portal command pages |
+| r7-focusstop-command | R7 | SonyFr7 | command.FocusStop | 01 04 08 00 | - | FR7 v4 command list pp.14–20 |
+| r11-focusstop-command | R11 | SonyBrcH900 | command.FocusStop | 01 04 08 00 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-focusstop-command | R8 | SonyEviH100, GenericVisca | command.FocusStop | 01 04 08 00 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-focusstop-command | R12 | SonyBrc300, GenericVisca | command.FocusStop | 01 04 08 00 | - | BRC-300 Command List pp.9–12 |
+| r21-focusstop-command | R21 | NearusBrc300, GenericVisca | command.FocusStop | 01 04 08 00 | - | BRC-300/300P Command List pp.9–12 |
+| r1-focusfar-command | R1 | PtzOpticsG2, PtzOptics30X | command.FocusFar | 01 04 08 02 | - | §7 command list |
+| r14-focusfar-command | R14 | PtzOpticsG3 | command.FocusFar | 01 04 08 02 | - | Current Developer Portal command pages |
+| r7-focusfar-command | R7 | SonyFr7 | command.FocusFar | 01 04 08 02 | - | FR7 v4 command list pp.14–20 |
+| r11-focusfar-command | R11 | SonyBrcH900 | command.FocusFar | 01 04 08 02 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-focusfar-command | R8 | SonyEviH100, GenericVisca | command.FocusFar | 01 04 08 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-focusfar-command | R12 | SonyBrc300, GenericVisca | command.FocusFar | 01 04 08 02 | - | BRC-300 Command List pp.9–12 |
+| r21-focusfar-command | R21 | NearusBrc300, GenericVisca | command.FocusFar | 01 04 08 02 | - | BRC-300/300P Command List pp.9–12 |
+| r1-focusnear-command | R1 | PtzOpticsG2, PtzOptics30X | command.FocusNear | 01 04 08 03 | - | §7 command list |
+| r14-focusnear-command | R14 | PtzOpticsG3 | command.FocusNear | 01 04 08 03 | - | Current Developer Portal command pages |
+| r7-focusnear-command | R7 | SonyFr7 | command.FocusNear | 01 04 08 03 | - | FR7 v4 command list pp.14–20 |
+| r11-focusnear-command | R11 | SonyBrcH900 | command.FocusNear | 01 04 08 03 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-focusnear-command | R8 | SonyEviH100, GenericVisca | command.FocusNear | 01 04 08 03 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-focusnear-command | R12 | SonyBrc300, GenericVisca | command.FocusNear | 01 04 08 03 | - | BRC-300 Command List pp.9–12 |
+| r21-focusnear-command | R21 | NearusBrc300, GenericVisca | command.FocusNear | 01 04 08 03 | - | BRC-300/300P Command List pp.9–12 |
+| r1-focusfarvariable-command | R1 | PtzOpticsG2, PtzOptics30X | command.FocusFarVariable | 01 04 08 | - | §7 command list |
+| r14-focusfarvariable-command | R14 | PtzOpticsG3 | command.FocusFarVariable | 01 04 08 | - | Current Developer Portal command pages |
+| r7-focusfarvariable-command | R7 | SonyFr7 | command.FocusFarVariable | 01 04 08 | - | FR7 v4 command list pp.14–20 |
+| r11-focusfarvariable-command | R11 | SonyBrcH900 | command.FocusFarVariable | 01 04 08 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-focusfarvariable-command | R8 | SonyEviH100, GenericVisca | command.FocusFarVariable | 01 04 08 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-focusfarvariable-command | R12 | SonyBrc300, GenericVisca | command.FocusFarVariable | 01 04 08 | - | BRC-300 Command List pp.9–12 |
+| r21-focusfarvariable-command | R21 | NearusBrc300, GenericVisca | command.FocusFarVariable | 01 04 08 | - | BRC-300/300P Command List pp.9–12 |
+| r1-focusnearvariable-command | R1 | PtzOpticsG2, PtzOptics30X | command.FocusNearVariable | 01 04 08 | - | §7 command list |
+| r14-focusnearvariable-command | R14 | PtzOpticsG3 | command.FocusNearVariable | 01 04 08 | - | Current Developer Portal command pages |
+| r7-focusnearvariable-command | R7 | SonyFr7 | command.FocusNearVariable | 01 04 08 | - | FR7 v4 command list pp.14–20 |
+| r11-focusnearvariable-command | R11 | SonyBrcH900 | command.FocusNearVariable | 01 04 08 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-focusnearvariable-command | R8 | SonyEviH100, GenericVisca | command.FocusNearVariable | 01 04 08 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-focusnearvariable-command | R12 | SonyBrc300, GenericVisca | command.FocusNearVariable | 01 04 08 | - | BRC-300 Command List pp.9–12 |
+| r21-focusnearvariable-command | R21 | NearusBrc300, GenericVisca | command.FocusNearVariable | 01 04 08 | - | BRC-300/300P Command List pp.9–12 |
+| r1-focusposition-command | R1 | PtzOpticsG2, PtzOptics30X | command.FocusPosition | 01 04 48 | - | §7 command list |
+| r14-focusposition-command | R14 | PtzOpticsG3 | command.FocusPosition | 01 04 48 | - | Current Developer Portal command pages |
+| r7-focusposition-command | R7 | SonyFr7 | command.FocusPosition | 01 04 48 | - | FR7 v4 command list pp.14–20 |
+| r11-focusposition-command | R11 | SonyBrcH900 | command.FocusPosition | 01 04 48 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-focusposition-command | R8 | SonyEviH100, GenericVisca | command.FocusPosition | 01 04 48 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-focusposition-command | R12 | SonyBrc300, GenericVisca | command.FocusPosition | 01 04 48 | - | BRC-300 Command List pp.9–12 |
+| r21-focusposition-command | R21 | NearusBrc300, GenericVisca | command.FocusPosition | 01 04 48 | - | BRC-300/300P Command List pp.9–12 |
+| r1-focusauto-command | R1 | PtzOpticsG2, PtzOptics30X | command.FocusAuto | 01 04 38 02 | - | §7 command list |
+| r14-focusauto-command | R14 | PtzOpticsG3 | command.FocusAuto | 01 04 38 02 | - | Current Developer Portal command pages |
+| r7-focusauto-command | R7 | SonyFr7 | command.FocusAuto | 01 04 38 02 | - | FR7 v4 command list pp.14–20 |
+| r11-focusauto-command | R11 | SonyBrcH900 | command.FocusAuto | 01 04 38 02 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-focusauto-command | R8 | SonyEviH100, GenericVisca | command.FocusAuto | 01 04 38 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-focusauto-command | R12 | SonyBrc300, GenericVisca | command.FocusAuto | 01 04 38 02 | - | BRC-300 Command List pp.9–12 |
+| r21-focusauto-command | R21 | NearusBrc300, GenericVisca | command.FocusAuto | 01 04 38 02 | - | BRC-300/300P Command List pp.9–12 |
+| r1-focusmanual-command | R1 | PtzOpticsG2, PtzOptics30X | command.FocusManual | 01 04 38 03 | - | §7 command list |
+| r14-focusmanual-command | R14 | PtzOpticsG3 | command.FocusManual | 01 04 38 03 | - | Current Developer Portal command pages |
+| r7-focusmanual-command | R7 | SonyFr7 | command.FocusManual | 01 04 38 03 | - | FR7 v4 command list pp.14–20 |
+| r11-focusmanual-command | R11 | SonyBrcH900 | command.FocusManual | 01 04 38 03 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-focusmanual-command | R8 | SonyEviH100, GenericVisca | command.FocusManual | 01 04 38 03 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-focusmanual-command | R12 | SonyBrc300, GenericVisca | command.FocusManual | 01 04 38 03 | - | BRC-300 Command List pp.9–12 |
+| r21-focusmanual-command | R21 | NearusBrc300, GenericVisca | command.FocusManual | 01 04 38 03 | - | BRC-300/300P Command List pp.9–12 |
+| r8-focusonepush-command | R8 | SonyEviH100, GenericVisca | command.FocusOnePush | 01 04 18 01 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-focusonepush-command | R12 | SonyBrc300, GenericVisca | command.FocusOnePush | 01 04 18 01 | - | BRC-300 Command List pp.9–12 |
+| r21-focusonepush-command | R21 | NearusBrc300, GenericVisca | command.FocusOnePush | 01 04 18 01 | - | BRC-300/300P Command List pp.9–12 |
+| r11-focusonepush-command | R11 | SonyBrcH900 | command.FocusOnePush | 01 04 18 01 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-focusinfinity-command | R8 | SonyEviH100, GenericVisca | command.FocusInfinity | 01 04 18 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-focusinfinity-command | R12 | SonyBrc300, GenericVisca | command.FocusInfinity | 01 04 18 02 | - | BRC-300 Command List pp.9–12 |
+| r21-focusinfinity-command | R21 | NearusBrc300, GenericVisca | command.FocusInfinity | 01 04 18 02 | - | BRC-300/300P Command List pp.9–12 |
+| r11-focusinfinity-command | R11 | SonyBrcH900 | command.FocusInfinity | 01 04 18 02 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r1-focustoggle-command | R1 | PtzOpticsG2, PtzOptics30X | command.FocusToggle | 01 04 38 10 | - | §7 command list |
+| r14-focustoggle-command | R14 | PtzOpticsG3 | command.FocusToggle | 01 04 38 10 | - | Current Developer Portal command pages |
+| r7-focustoggle-command | R7 | SonyFr7 | command.FocusToggle | 01 04 38 10 | - | FR7 v4 command list pp.14–20 |
+| r11-focustoggle-command | R11 | SonyBrcH900 | command.FocusToggle | 01 04 38 10 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-focustoggle-command | R8 | SonyEviH100, GenericVisca | command.FocusToggle | 01 04 38 10 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-focustoggle-command | R12 | SonyBrc300, GenericVisca | command.FocusToggle | 01 04 38 10 | - | BRC-300 Command List pp.9–12 |
+| r21-focustoggle-command | R21 | NearusBrc300, GenericVisca | command.FocusToggle | 01 04 38 10 | - | BRC-300/300P Command List pp.9–12 |
+| r20-focuszone-command | R20 | PtzOpticsG2, PtzOpticsG3, PtzOptics30X | command.FocusZone | 01 04 AA | - | Focus selection rows |
+| r1-focusautosensitivity-command | R1 | PtzOpticsG2, PtzOptics30X | command.FocusAutoSensitivity | 01 04 58 | - | §7 command list |
+| r14-focusautosensitivity-command | R14 | PtzOpticsG3 | command.FocusAutoSensitivity | 01 04 58 | - | Current Developer Portal command pages |
+| r8-focusautosensitivity-command | R8 | SonyEviH100 | command.FocusAutoSensitivity | 01 04 58 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r8-focusnearlimit-command | R8 | SonyEviH100 | command.FocusNearLimit | 01 04 28 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r1-focuslock-command | R1 | PtzOpticsG2, PtzOptics30X | command.FocusLock | 0A 04 68 | - | §7 command list |
+| r14-focuslock-command | R14 | PtzOpticsG3 | command.FocusLock | 0A 04 68 | - | Current Developer Portal command pages |
+| r7-pushafpress-command | R7 | SonyFr7 | command.PushAfPress | 01 7E 04 58 | - | FR7 v4 command list pp.14–20 |
+| r7-pushafrelease-command | R7 | SonyFr7 | command.PushAfRelease | 01 7E 04 58 | - | FR7 v4 command list pp.14–20 |
+| r1-presetrecall-command | R1 | PtzOpticsG2, PtzOptics30X | command.PresetRecall | 01 04 3F 02 | - | §7 command list |
+| r14-presetrecall-command | R14 | PtzOpticsG3 | command.PresetRecall | 01 04 3F 02 | - | Current Developer Portal command pages |
+| r7-presetrecall-command | R7 | SonyFr7 | command.PresetRecall | 01 04 3F 02 | - | FR7 v4 command list pp.14–20 |
+| r11-presetrecall-command | R11 | SonyBrcH900 | command.PresetRecall | 01 04 3F 02 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-presetrecall-command | R8 | SonyEviH100, GenericVisca | command.PresetRecall | 01 04 3F 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-presetrecall-command | R12 | SonyBrc300, GenericVisca | command.PresetRecall | 01 04 3F 02 | - | BRC-300 Command List pp.9–12 |
+| r21-presetrecall-command | R21 | NearusBrc300, GenericVisca | command.PresetRecall | 01 04 3F 02 | - | BRC-300/300P Command List pp.9–12 |
+| r1-presetrecallspeed-command | R1 | PtzOpticsG2, PtzOptics30X | command.PresetRecallSpeed | 01 06 01 | - | §7 command list |
+| r10-presetrecallspeed-command | R10 | PtzOpticsG3 | command.PresetRecallSpeed | 01 06 01 | - | Move 4K G3 command list |
+| r1-presetset-command | R1 | PtzOpticsG2, PtzOptics30X | command.PresetSet | 01 04 3F 01 | - | §7 command list |
+| r14-presetset-command | R14 | PtzOpticsG3 | command.PresetSet | 01 04 3F 01 | - | Current Developer Portal command pages |
+| r7-presetset-command | R7 | SonyFr7 | command.PresetSet | 01 04 3F 01 | - | FR7 v4 command list pp.14–20 |
+| r8-presetset-command | R8 | SonyEviH100, GenericVisca | command.PresetSet | 01 04 3F 01 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-presetset-command | R12 | SonyBrc300, GenericVisca | command.PresetSet | 01 04 3F 01 | - | BRC-300 Command List pp.9–12 |
+| r21-presetset-command | R21 | NearusBrc300, GenericVisca | command.PresetSet | 01 04 3F 01 | - | BRC-300/300P Command List pp.9–12 |
+| r1-presetreset-command | R1 | PtzOpticsG2, PtzOptics30X | command.PresetReset | 01 04 3F 00 | - | §7 command list |
+| r14-presetreset-command | R14 | PtzOpticsG3 | command.PresetReset | 01 04 3F 00 | - | Current Developer Portal command pages |
+| r7-presetreset-command | R7 | SonyFr7 | command.PresetReset | 01 04 3F 00 | - | FR7 v4 command list pp.14–20 |
+| r8-presetreset-command | R8 | SonyEviH100, GenericVisca | command.PresetReset | 01 04 3F 00 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-presetreset-command | R12 | SonyBrc300, GenericVisca | command.PresetReset | 01 04 3F 00 | - | BRC-300 Command List pp.9–12 |
+| r21-presetreset-command | R21 | NearusBrc300, GenericVisca | command.PresetReset | 01 04 3F 00 | - | BRC-300/300P Command List pp.9–12 |
+| r1-poweron-command | R1 | PtzOpticsG2, PtzOptics30X | command.PowerOn | 01 04 00 02 | - | §7 command list |
+| r14-poweron-command | R14 | PtzOpticsG3 | command.PowerOn | 01 04 00 02 | - | Current Developer Portal command pages |
+| r7-poweron-command | R7 | SonyFr7 | command.PowerOn | 01 04 00 02 | - | FR7 v4 command list pp.14–20 |
+| r11-poweron-command | R11 | SonyBrcH900 | command.PowerOn | 01 04 00 02 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-poweron-command | R8 | SonyEviH100, GenericVisca | command.PowerOn | 01 04 00 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-poweron-command | R12 | SonyBrc300, GenericVisca | command.PowerOn | 01 04 00 02 | - | BRC-300 Command List pp.9–12 |
+| r21-poweron-command | R21 | NearusBrc300, GenericVisca | command.PowerOn | 01 04 00 02 | - | BRC-300/300P Command List pp.9–12 |
+| r1-powerstandby-command | R1 | PtzOpticsG2, PtzOptics30X | command.PowerStandby | 01 04 00 03 | - | §7 command list |
+| r14-powerstandby-command | R14 | PtzOpticsG3 | command.PowerStandby | 01 04 00 03 | - | Current Developer Portal command pages |
+| r7-powerstandby-command | R7 | SonyFr7 | command.PowerStandby | 01 04 00 03 | - | FR7 v4 command list pp.14–20 |
+| r11-powerstandby-command | R11 | SonyBrcH900 | command.PowerStandby | 01 04 00 03 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-powerstandby-command | R8 | SonyEviH100, GenericVisca | command.PowerStandby | 01 04 00 03 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-powerstandby-command | R12 | SonyBrc300, GenericVisca | command.PowerStandby | 01 04 00 03 | - | BRC-300 Command List pp.9–12 |
+| r21-powerstandby-command | R21 | NearusBrc300, GenericVisca | command.PowerStandby | 01 04 00 03 | - | BRC-300/300P Command List pp.9–12 |
+| r1-exposuremode-command | R1 | PtzOpticsG2, PtzOptics30X | command.ExposureMode | 01 04 39 | - | §7 command list |
+| r14-exposuremode-command | R14 | PtzOpticsG3 | command.ExposureMode | 01 04 39 | - | Current Developer Portal command pages |
+| r11-exposuremode-command | R11 | SonyBrcH900 | command.ExposureMode | 01 04 39 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-exposuremode-command | R8 | SonyEviH100, GenericVisca | command.ExposureMode | 01 04 39 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-exposuremode-command | R12 | SonyBrc300, GenericVisca | command.ExposureMode | 01 04 39 | - | BRC-300 Command List pp.9–12 |
+| r21-exposuremode-command | R21 | NearusBrc300, GenericVisca | command.ExposureMode | 01 04 39 | - | BRC-300/300P Command List pp.9–12 |
+| r1-exposurecompensationon-command | R1 | PtzOpticsG2, PtzOptics30X | command.ExposureCompensationOn | 01 04 3E 02 | - | §7 command list |
+| r14-exposurecompensationon-command | R14 | PtzOpticsG3 | command.ExposureCompensationOn | 01 04 3E 02 | - | Current Developer Portal command pages |
+| r8-exposurecompensationon-command | R8 | SonyEviH100, GenericVisca | command.ExposureCompensationOn | 01 04 3E 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-exposurecompensationon-command | R12 | SonyBrc300, GenericVisca | command.ExposureCompensationOn | 01 04 3E 02 | - | BRC-300 Command List pp.9–12 |
+| r21-exposurecompensationon-command | R21 | NearusBrc300, GenericVisca | command.ExposureCompensationOn | 01 04 3E 02 | - | BRC-300/300P Command List pp.9–12 |
+| r1-exposurecompensationoff-command | R1 | PtzOpticsG2, PtzOptics30X | command.ExposureCompensationOff | 01 04 3E 03 | - | §7 command list |
+| r14-exposurecompensationoff-command | R14 | PtzOpticsG3 | command.ExposureCompensationOff | 01 04 3E 03 | - | Current Developer Portal command pages |
+| r8-exposurecompensationoff-command | R8 | SonyEviH100, GenericVisca | command.ExposureCompensationOff | 01 04 3E 03 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-exposurecompensationoff-command | R12 | SonyBrc300, GenericVisca | command.ExposureCompensationOff | 01 04 3E 03 | - | BRC-300 Command List pp.9–12 |
+| r21-exposurecompensationoff-command | R21 | NearusBrc300, GenericVisca | command.ExposureCompensationOff | 01 04 3E 03 | - | BRC-300/300P Command List pp.9–12 |
+| r1-exposurecompensationreset-command | R1 | PtzOpticsG2, PtzOptics30X | command.ExposureCompensationReset | 01 04 0E 00 | - | §7 command list |
+| r14-exposurecompensationreset-command | R14 | PtzOpticsG3 | command.ExposureCompensationReset | 01 04 0E 00 | - | Current Developer Portal command pages |
+| r8-exposurecompensationreset-command | R8 | SonyEviH100, GenericVisca | command.ExposureCompensationReset | 01 04 0E 00 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-exposurecompensationreset-command | R12 | SonyBrc300, GenericVisca | command.ExposureCompensationReset | 01 04 0E 00 | - | BRC-300 Command List pp.9–12 |
+| r21-exposurecompensationreset-command | R21 | NearusBrc300, GenericVisca | command.ExposureCompensationReset | 01 04 0E 00 | - | BRC-300/300P Command List pp.9–12 |
+| r1-exposurecompensationup-command | R1 | PtzOpticsG2, PtzOptics30X | command.ExposureCompensationUp | 01 04 0E 02 | - | §7 command list |
+| r14-exposurecompensationup-command | R14 | PtzOpticsG3 | command.ExposureCompensationUp | 01 04 0E 02 | - | Current Developer Portal command pages |
+| r8-exposurecompensationup-command | R8 | SonyEviH100, GenericVisca | command.ExposureCompensationUp | 01 04 0E 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-exposurecompensationup-command | R12 | SonyBrc300, GenericVisca | command.ExposureCompensationUp | 01 04 0E 02 | - | BRC-300 Command List pp.9–12 |
+| r21-exposurecompensationup-command | R21 | NearusBrc300, GenericVisca | command.ExposureCompensationUp | 01 04 0E 02 | - | BRC-300/300P Command List pp.9–12 |
+| r1-exposurecompensationdown-command | R1 | PtzOpticsG2, PtzOptics30X | command.ExposureCompensationDown | 01 04 0E 03 | - | §7 command list |
+| r14-exposurecompensationdown-command | R14 | PtzOpticsG3 | command.ExposureCompensationDown | 01 04 0E 03 | - | Current Developer Portal command pages |
+| r8-exposurecompensationdown-command | R8 | SonyEviH100, GenericVisca | command.ExposureCompensationDown | 01 04 0E 03 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-exposurecompensationdown-command | R12 | SonyBrc300, GenericVisca | command.ExposureCompensationDown | 01 04 0E 03 | - | BRC-300 Command List pp.9–12 |
+| r21-exposurecompensationdown-command | R21 | NearusBrc300, GenericVisca | command.ExposureCompensationDown | 01 04 0E 03 | - | BRC-300/300P Command List pp.9–12 |
+| r1-exposurecompensationdirect-command | R1 | PtzOpticsG2, PtzOptics30X | command.ExposureCompensationDirect | 01 04 4E | - | §7 command list |
+| r14-exposurecompensationdirect-command | R14 | PtzOpticsG3 | command.ExposureCompensationDirect | 01 04 4E | - | Current Developer Portal command pages |
+| r8-exposurecompensationdirect-command | R8 | SonyEviH100, GenericVisca | command.ExposureCompensationDirect | 01 04 4E | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-exposurecompensationdirect-command | R12 | SonyBrc300, GenericVisca | command.ExposureCompensationDirect | 01 04 4E | - | BRC-300 Command List pp.9–12 |
+| r21-exposurecompensationdirect-command | R21 | NearusBrc300, GenericVisca | command.ExposureCompensationDirect | 01 04 4E | - | BRC-300/300P Command List pp.9–12 |
+| r1-dynamicrange-command | R1 | PtzOpticsG2, PtzOptics30X | command.DynamicRange | 01 04 25 | - | §7 command list |
+| r14-dynamicrange-command | R14 | PtzOpticsG3 | command.DynamicRange | 01 04 25 | - | Current Developer Portal command pages |
+| r1-irisreset-command | R1 | PtzOpticsG2, PtzOptics30X | command.IrisReset | 01 04 0B 00 | - | §7 command list |
+| r14-irisreset-command | R14 | PtzOpticsG3 | command.IrisReset | 01 04 0B 00 | - | Current Developer Portal command pages |
+| r11-irisreset-command | R11 | SonyBrcH900 | command.IrisReset | 01 04 0B 00 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-irisreset-command | R8 | SonyEviH100, GenericVisca | command.IrisReset | 01 04 0B 00 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-irisreset-command | R12 | SonyBrc300, GenericVisca | command.IrisReset | 01 04 0B 00 | - | BRC-300 Command List pp.9–12 |
+| r21-irisreset-command | R21 | NearusBrc300, GenericVisca | command.IrisReset | 01 04 0B 00 | - | BRC-300/300P Command List pp.9–12 |
+| r1-irisup-command | R1 | PtzOpticsG2, PtzOptics30X | command.IrisUp | 01 04 0B 02 | - | §7 command list |
+| r14-irisup-command | R14 | PtzOpticsG3 | command.IrisUp | 01 04 0B 02 | - | Current Developer Portal command pages |
+| r11-irisup-command | R11 | SonyBrcH900 | command.IrisUp | 01 04 0B 02 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-irisup-command | R8 | SonyEviH100, GenericVisca | command.IrisUp | 01 04 0B 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-irisup-command | R12 | SonyBrc300, GenericVisca | command.IrisUp | 01 04 0B 02 | - | BRC-300 Command List pp.9–12 |
+| r21-irisup-command | R21 | NearusBrc300, GenericVisca | command.IrisUp | 01 04 0B 02 | - | BRC-300/300P Command List pp.9–12 |
+| r1-irisdown-command | R1 | PtzOpticsG2, PtzOptics30X | command.IrisDown | 01 04 0B 03 | - | §7 command list |
+| r14-irisdown-command | R14 | PtzOpticsG3 | command.IrisDown | 01 04 0B 03 | - | Current Developer Portal command pages |
+| r11-irisdown-command | R11 | SonyBrcH900 | command.IrisDown | 01 04 0B 03 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-irisdown-command | R8 | SonyEviH100, GenericVisca | command.IrisDown | 01 04 0B 03 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-irisdown-command | R12 | SonyBrc300, GenericVisca | command.IrisDown | 01 04 0B 03 | - | BRC-300 Command List pp.9–12 |
+| r21-irisdown-command | R21 | NearusBrc300, GenericVisca | command.IrisDown | 01 04 0B 03 | - | BRC-300/300P Command List pp.9–12 |
+| r1-irisdirect-command | R1 | PtzOpticsG2, PtzOptics30X | command.IrisDirect | 01 04 4B | - | §7 command list |
+| r14-irisdirect-command | R14 | PtzOpticsG3 | command.IrisDirect | 01 04 4B | - | Current Developer Portal command pages |
+| r11-irisdirect-command | R11 | SonyBrcH900 | command.IrisDirect | 01 04 4B | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-irisdirect-command | R8 | SonyEviH100, GenericVisca | command.IrisDirect | 01 04 4B | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-irisdirect-command | R12 | SonyBrc300, GenericVisca | command.IrisDirect | 01 04 4B | - | BRC-300 Command List pp.9–12 |
+| r21-irisdirect-command | R21 | NearusBrc300, GenericVisca | command.IrisDirect | 01 04 4B | - | BRC-300/300P Command List pp.9–12 |
+| r1-shutterreset-command | R1 | PtzOpticsG2, PtzOptics30X | command.ShutterReset | 01 04 0A 00 | - | §7 command list |
+| r14-shutterreset-command | R14 | PtzOpticsG3 | command.ShutterReset | 01 04 0A 00 | - | Current Developer Portal command pages |
+| r11-shutterreset-command | R11 | SonyBrcH900 | command.ShutterReset | 01 04 0A 00 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-shutterreset-command | R8 | SonyEviH100, GenericVisca | command.ShutterReset | 01 04 0A 00 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-shutterreset-command | R12 | SonyBrc300, GenericVisca | command.ShutterReset | 01 04 0A 00 | - | BRC-300 Command List pp.9–12 |
+| r21-shutterreset-command | R21 | NearusBrc300, GenericVisca | command.ShutterReset | 01 04 0A 00 | - | BRC-300/300P Command List pp.9–12 |
+| r1-shutterup-command | R1 | PtzOpticsG2, PtzOptics30X | command.ShutterUp | 01 04 0A 02 | - | §7 command list |
+| r14-shutterup-command | R14 | PtzOpticsG3 | command.ShutterUp | 01 04 0A 02 | - | Current Developer Portal command pages |
+| r11-shutterup-command | R11 | SonyBrcH900 | command.ShutterUp | 01 04 0A 02 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-shutterup-command | R8 | SonyEviH100, GenericVisca | command.ShutterUp | 01 04 0A 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-shutterup-command | R12 | SonyBrc300, GenericVisca | command.ShutterUp | 01 04 0A 02 | - | BRC-300 Command List pp.9–12 |
+| r21-shutterup-command | R21 | NearusBrc300, GenericVisca | command.ShutterUp | 01 04 0A 02 | - | BRC-300/300P Command List pp.9–12 |
+| r1-shutterdown-command | R1 | PtzOpticsG2, PtzOptics30X | command.ShutterDown | 01 04 0A 03 | - | §7 command list |
+| r14-shutterdown-command | R14 | PtzOpticsG3 | command.ShutterDown | 01 04 0A 03 | - | Current Developer Portal command pages |
+| r11-shutterdown-command | R11 | SonyBrcH900 | command.ShutterDown | 01 04 0A 03 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-shutterdown-command | R8 | SonyEviH100, GenericVisca | command.ShutterDown | 01 04 0A 03 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-shutterdown-command | R12 | SonyBrc300, GenericVisca | command.ShutterDown | 01 04 0A 03 | - | BRC-300 Command List pp.9–12 |
+| r21-shutterdown-command | R21 | NearusBrc300, GenericVisca | command.ShutterDown | 01 04 0A 03 | - | BRC-300/300P Command List pp.9–12 |
+| r1-shutterdirect-command | R1 | PtzOpticsG2, PtzOptics30X | command.ShutterDirect | 01 04 4A | - | §7 command list |
+| r14-shutterdirect-command | R14 | PtzOpticsG3 | command.ShutterDirect | 01 04 4A | - | Current Developer Portal command pages |
+| r11-shutterdirect-command | R11 | SonyBrcH900 | command.ShutterDirect | 01 04 4A | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-shutterdirect-command | R8 | SonyEviH100, GenericVisca | command.ShutterDirect | 01 04 4A | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-shutterdirect-command | R12 | SonyBrc300, GenericVisca | command.ShutterDirect | 01 04 4A | - | BRC-300 Command List pp.9–12 |
+| r21-shutterdirect-command | R21 | NearusBrc300, GenericVisca | command.ShutterDirect | 01 04 4A | - | BRC-300/300P Command List pp.9–12 |
+| r1-brightnessreset-command | R1 | PtzOpticsG2, PtzOptics30X | command.BrightnessReset | 01 04 0D 00 | - | §7 command list |
+| r14-brightnessreset-command | R14 | PtzOpticsG3 | command.BrightnessReset | 01 04 0D 00 | - | Current Developer Portal command pages |
+| r8-brightnessreset-command | R8 | SonyEviH100, GenericVisca | command.BrightnessReset | 01 04 0D 00 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-brightnessreset-command | R12 | SonyBrc300, GenericVisca | command.BrightnessReset | 01 04 0D 00 | - | BRC-300 Command List pp.9–12 |
+| r21-brightnessreset-command | R21 | NearusBrc300, GenericVisca | command.BrightnessReset | 01 04 0D 00 | - | BRC-300/300P Command List pp.9–12 |
+| r1-brightnessup-command | R1 | PtzOpticsG2, PtzOptics30X | command.BrightnessUp | 01 04 0D 02 | - | §7 command list |
+| r14-brightnessup-command | R14 | PtzOpticsG3 | command.BrightnessUp | 01 04 0D 02 | - | Current Developer Portal command pages |
+| r8-brightnessup-command | R8 | SonyEviH100, GenericVisca | command.BrightnessUp | 01 04 0D 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-brightnessup-command | R12 | SonyBrc300, GenericVisca | command.BrightnessUp | 01 04 0D 02 | - | BRC-300 Command List pp.9–12 |
+| r21-brightnessup-command | R21 | NearusBrc300, GenericVisca | command.BrightnessUp | 01 04 0D 02 | - | BRC-300/300P Command List pp.9–12 |
+| r1-brightnessdown-command | R1 | PtzOpticsG2, PtzOptics30X | command.BrightnessDown | 01 04 0D 03 | - | §7 command list |
+| r14-brightnessdown-command | R14 | PtzOpticsG3 | command.BrightnessDown | 01 04 0D 03 | - | Current Developer Portal command pages |
+| r8-brightnessdown-command | R8 | SonyEviH100, GenericVisca | command.BrightnessDown | 01 04 0D 03 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-brightnessdown-command | R12 | SonyBrc300, GenericVisca | command.BrightnessDown | 01 04 0D 03 | - | BRC-300 Command List pp.9–12 |
+| r21-brightnessdown-command | R21 | NearusBrc300, GenericVisca | command.BrightnessDown | 01 04 0D 03 | - | BRC-300/300P Command List pp.9–12 |
+| r1-brightnessset-command | R1 | PtzOpticsG2, PtzOptics30X | command.BrightnessSet | 01 04 4D | - | §7 command list |
+| r14-brightnessset-command | R14 | PtzOpticsG3 | command.BrightnessSet | 01 04 4D | - | Current Developer Portal command pages |
+| r8-brightnessset-command | R8 | SonyEviH100, GenericVisca | command.BrightnessSet | 01 04 4D | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-brightnessset-command | R12 | SonyBrc300, GenericVisca | command.BrightnessSet | 01 04 4D | - | BRC-300 Command List pp.9–12 |
+| r21-brightnessset-command | R21 | NearusBrc300, GenericVisca | command.BrightnessSet | 01 04 4D | - | BRC-300/300P Command List pp.9–12 |
+| r1-antiflicker-command | R1 | PtzOpticsG2, PtzOptics30X | command.AntiFlicker | 01 04 23 | - | §7 command list |
+| r10-antiflicker-command | R10 | PtzOpticsG3 | command.AntiFlicker | 01 04 23 | - | Move 4K G3 command list |
+| r7-spotlighton-command | R7 | SonyFr7 | command.SpotlightOn | 01 04 3A 02 | - | FR7 v4 command list pp.14–20 |
+| r11-spotlighton-command | R11 | SonyBrcH900 | command.SpotlightOn | 01 04 3A 02 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r7-spotlightoff-command | R7 | SonyFr7 | command.SpotlightOff | 01 04 3A 03 | - | FR7 v4 command list pp.14–20 |
+| r8-autoslowshutteron-command | R8 | SonyEviH100, GenericVisca | command.AutoSlowShutterOn | 01 04 5A 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-autoslowshutteron-command | R12 | SonyBrc300, GenericVisca | command.AutoSlowShutterOn | 01 04 5A 02 | - | BRC-300 Command List pp.9–12 |
+| r21-autoslowshutteron-command | R21 | NearusBrc300, GenericVisca | command.AutoSlowShutterOn | 01 04 5A 02 | - | BRC-300/300P Command List pp.9–12 |
+| r8-autoslowshutteroff-command | R8 | SonyEviH100, GenericVisca | command.AutoSlowShutterOff | 01 04 5A 03 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-autoslowshutteroff-command | R12 | SonyBrc300, GenericVisca | command.AutoSlowShutterOff | 01 04 5A 03 | - | BRC-300 Command List pp.9–12 |
+| r21-autoslowshutteroff-command | R21 | NearusBrc300, GenericVisca | command.AutoSlowShutterOff | 01 04 5A 03 | - | BRC-300/300P Command List pp.9–12 |
+| r1-gainreset-command | R1 | PtzOpticsG2, PtzOptics30X | command.GainReset | 01 04 0C 00 | - | §7 command list |
+| r14-gainreset-command | R14 | PtzOpticsG3 | command.GainReset | 01 04 0C 00 | - | Current Developer Portal command pages |
+| r11-gainreset-command | R11 | SonyBrcH900 | command.GainReset | 01 04 0C 00 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-gainreset-command | R8 | SonyEviH100, GenericVisca | command.GainReset | 01 04 0C 00 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-gainreset-command | R12 | SonyBrc300, GenericVisca | command.GainReset | 01 04 0C 00 | - | BRC-300 Command List pp.9–12 |
+| r21-gainreset-command | R21 | NearusBrc300, GenericVisca | command.GainReset | 01 04 0C 00 | - | BRC-300/300P Command List pp.9–12 |
+| r1-gainup-command | R1 | PtzOpticsG2, PtzOptics30X | command.GainUp | 01 04 0C 02 | - | §7 command list |
+| r14-gainup-command | R14 | PtzOpticsG3 | command.GainUp | 01 04 0C 02 | - | Current Developer Portal command pages |
+| r11-gainup-command | R11 | SonyBrcH900 | command.GainUp | 01 04 0C 02 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-gainup-command | R8 | SonyEviH100, GenericVisca | command.GainUp | 01 04 0C 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-gainup-command | R12 | SonyBrc300, GenericVisca | command.GainUp | 01 04 0C 02 | - | BRC-300 Command List pp.9–12 |
+| r21-gainup-command | R21 | NearusBrc300, GenericVisca | command.GainUp | 01 04 0C 02 | - | BRC-300/300P Command List pp.9–12 |
+| r1-gaindown-command | R1 | PtzOpticsG2, PtzOptics30X | command.GainDown | 01 04 0C 03 | - | §7 command list |
+| r14-gaindown-command | R14 | PtzOpticsG3 | command.GainDown | 01 04 0C 03 | - | Current Developer Portal command pages |
+| r11-gaindown-command | R11 | SonyBrcH900 | command.GainDown | 01 04 0C 03 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-gaindown-command | R8 | SonyEviH100, GenericVisca | command.GainDown | 01 04 0C 03 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-gaindown-command | R12 | SonyBrc300, GenericVisca | command.GainDown | 01 04 0C 03 | - | BRC-300 Command List pp.9–12 |
+| r21-gaindown-command | R21 | NearusBrc300, GenericVisca | command.GainDown | 01 04 0C 03 | - | BRC-300/300P Command List pp.9–12 |
+| r1-gaindirect-command | R1 | PtzOpticsG2, PtzOptics30X | command.GainDirect | 01 04 4C | - | §7 command list |
+| r14-gaindirect-command | R14 | PtzOpticsG3 | command.GainDirect | 01 04 4C | - | Current Developer Portal command pages |
+| r11-gaindirect-command | R11 | SonyBrcH900 | command.GainDirect | 01 04 4C | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-gaindirect-command | R8 | SonyEviH100, GenericVisca | command.GainDirect | 01 04 4C | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-gaindirect-command | R12 | SonyBrc300, GenericVisca | command.GainDirect | 01 04 4C | - | BRC-300 Command List pp.9–12 |
+| r21-gaindirect-command | R21 | NearusBrc300, GenericVisca | command.GainDirect | 01 04 4C | - | BRC-300/300P Command List pp.9–12 |
+| r1-gainlimit-command | R1 | PtzOpticsG2, PtzOptics30X | command.GainLimit | 01 04 2C | - | §7 command list |
+| r14-gainlimit-command | R14 | PtzOpticsG3 | command.GainLimit | 01 04 2C | - | Current Developer Portal command pages |
+| r1-whitebalanceauto-command | R1 | PtzOpticsG2, PtzOptics30X | command.WhiteBalanceAuto | 01 04 35 00 | - | §7 command list |
+| r14-whitebalanceauto-command | R14 | PtzOpticsG3 | command.WhiteBalanceAuto | 01 04 35 00 | - | Current Developer Portal command pages |
+| r11-whitebalanceauto-command | R11 | SonyBrcH900 | command.WhiteBalanceAuto | 01 04 35 00 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-whitebalanceauto-command | R8 | SonyEviH100, GenericVisca | command.WhiteBalanceAuto | 01 04 35 00 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-whitebalanceauto-command | R12 | SonyBrc300, GenericVisca | command.WhiteBalanceAuto | 01 04 35 00 | - | BRC-300 Command List pp.9–12 |
+| r21-whitebalanceauto-command | R21 | NearusBrc300, GenericVisca | command.WhiteBalanceAuto | 01 04 35 00 | - | BRC-300/300P Command List pp.9–12 |
+| r1-whitebalanceindoor-command | R1 | PtzOpticsG2, PtzOptics30X | command.WhiteBalanceIndoor | 01 04 35 01 | - | §7 command list |
+| r14-whitebalanceindoor-command | R14 | PtzOpticsG3 | command.WhiteBalanceIndoor | 01 04 35 01 | - | Current Developer Portal command pages |
+| r11-whitebalanceindoor-command | R11 | SonyBrcH900 | command.WhiteBalanceIndoor | 01 04 35 01 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-whitebalanceindoor-command | R8 | SonyEviH100, GenericVisca | command.WhiteBalanceIndoor | 01 04 35 01 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-whitebalanceindoor-command | R12 | SonyBrc300, GenericVisca | command.WhiteBalanceIndoor | 01 04 35 01 | - | BRC-300 Command List pp.9–12 |
+| r21-whitebalanceindoor-command | R21 | NearusBrc300, GenericVisca | command.WhiteBalanceIndoor | 01 04 35 01 | - | BRC-300/300P Command List pp.9–12 |
+| r1-whitebalanceoutdoor-command | R1 | PtzOpticsG2, PtzOptics30X | command.WhiteBalanceOutdoor | 01 04 35 02 | - | §7 command list |
+| r14-whitebalanceoutdoor-command | R14 | PtzOpticsG3 | command.WhiteBalanceOutdoor | 01 04 35 02 | - | Current Developer Portal command pages |
+| r11-whitebalanceoutdoor-command | R11 | SonyBrcH900 | command.WhiteBalanceOutdoor | 01 04 35 02 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-whitebalanceoutdoor-command | R8 | SonyEviH100, GenericVisca | command.WhiteBalanceOutdoor | 01 04 35 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-whitebalanceoutdoor-command | R12 | SonyBrc300, GenericVisca | command.WhiteBalanceOutdoor | 01 04 35 02 | - | BRC-300 Command List pp.9–12 |
+| r21-whitebalanceoutdoor-command | R21 | NearusBrc300, GenericVisca | command.WhiteBalanceOutdoor | 01 04 35 02 | - | BRC-300/300P Command List pp.9–12 |
+| r1-whitebalanceonepush-command | R1 | PtzOpticsG2, PtzOptics30X | command.WhiteBalanceOnePush | 01 04 35 03 | - | §7 command list |
+| r14-whitebalanceonepush-command | R14 | PtzOpticsG3 | command.WhiteBalanceOnePush | 01 04 35 03 | - | Current Developer Portal command pages |
+| r11-whitebalanceonepush-command | R11 | SonyBrcH900 | command.WhiteBalanceOnePush | 01 04 35 03 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-whitebalanceonepush-command | R8 | SonyEviH100, GenericVisca | command.WhiteBalanceOnePush | 01 04 35 03 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-whitebalanceonepush-command | R12 | SonyBrc300, GenericVisca | command.WhiteBalanceOnePush | 01 04 35 03 | - | BRC-300 Command List pp.9–12 |
+| r21-whitebalanceonepush-command | R21 | NearusBrc300, GenericVisca | command.WhiteBalanceOnePush | 01 04 35 03 | - | BRC-300/300P Command List pp.9–12 |
+| r7-whitebalanceautotracking-command | R7 | SonyFr7 | command.WhiteBalanceAutoTracking | 01 04 35 04 | - | FR7 v4 command list pp.14–20 |
+| r1-whitebalancemanual-command | R1 | PtzOpticsG2, PtzOptics30X | command.WhiteBalanceManual | 01 04 35 05 | - | §7 command list |
+| r14-whitebalancemanual-command | R14 | PtzOpticsG3 | command.WhiteBalanceManual | 01 04 35 05 | - | Current Developer Portal command pages |
+| r11-whitebalancemanual-command | R11 | SonyBrcH900 | command.WhiteBalanceManual | 01 04 35 05 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-whitebalancemanual-command | R8 | SonyEviH100, GenericVisca | command.WhiteBalanceManual | 01 04 35 05 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-whitebalancemanual-command | R12 | SonyBrc300, GenericVisca | command.WhiteBalanceManual | 01 04 35 05 | - | BRC-300 Command List pp.9–12 |
+| r21-whitebalancemanual-command | R21 | NearusBrc300, GenericVisca | command.WhiteBalanceManual | 01 04 35 05 | - | BRC-300/300P Command List pp.9–12 |
+| r1-whitebalancecolortemperature-command | R1 | PtzOpticsG2, PtzOptics30X | command.WhiteBalanceColorTemperature | 01 04 35 20 | - | §7 command list |
+| r14-whitebalancecolortemperature-command | R14 | PtzOpticsG3 | command.WhiteBalanceColorTemperature | 01 04 35 20 | - | Current Developer Portal command pages |
+| r1-autowhitebalancesensitivity-command | R1 | PtzOpticsG2, PtzOptics30X | command.AutoWhiteBalanceSensitivity | 01 04 A9 | - | §7 command list |
+| r14-autowhitebalancesensitivity-command | R14 | PtzOpticsG3 | command.AutoWhiteBalanceSensitivity | 01 04 A9 | - | Current Developer Portal command pages |
+| r1-onepushwhitebalancetrigger-command | R1 | PtzOpticsG2, PtzOptics30X | command.OnePushWhiteBalanceTrigger | 01 04 10 05 | - | §7 command list |
+| r14-onepushwhitebalancetrigger-command | R14 | PtzOpticsG3 | command.OnePushWhiteBalanceTrigger | 01 04 10 05 | - | Current Developer Portal command pages |
+| r8-onepushwhitebalancetrigger-command | R8 | SonyEviH100, GenericVisca | command.OnePushWhiteBalanceTrigger | 01 04 10 05 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-onepushwhitebalancetrigger-command | R12 | SonyBrc300, GenericVisca | command.OnePushWhiteBalanceTrigger | 01 04 10 05 | - | BRC-300 Command List pp.9–12 |
+| r21-onepushwhitebalancetrigger-command | R21 | NearusBrc300, GenericVisca | command.OnePushWhiteBalanceTrigger | 01 04 10 05 | - | BRC-300/300P Command List pp.9–12 |
+| r1-redtuning-command | R1 | PtzOpticsG2, PtzOptics30X | command.RedTuning | 01 04 43 | - | §7 command list |
+| r14-redtuning-command | R14 | PtzOpticsG3 | command.RedTuning | 01 04 43 | - | Current Developer Portal command pages |
+| r1-bluetuning-command | R1 | PtzOpticsG2, PtzOptics30X | command.BlueTuning | 01 04 44 | - | §7 command list |
+| r14-bluetuning-command | R14 | PtzOpticsG3 | command.BlueTuning | 01 04 44 | - | Current Developer Portal command pages |
+| r1-saturation-command | R1 | PtzOpticsG2, PtzOptics30X | command.Saturation | 01 04 49 | - | §7 command list |
+| r14-saturation-command | R14 | PtzOpticsG3 | command.Saturation | 01 04 49 | - | Current Developer Portal command pages |
+| r8-saturation-command | R8 | SonyEviH100 | command.Saturation | 01 04 49 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r1-hue-command | R1 | PtzOpticsG2, PtzOptics30X | command.Hue | 01 04 4F | - | §7 command list |
+| r14-hue-command | R14 | PtzOpticsG3 | command.Hue | 01 04 4F | - | Current Developer Portal command pages |
+| r8-hue-command | R8 | SonyEviH100 | command.Hue | 01 04 4F | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r1-colortemperaturereset-command | R1 | PtzOpticsG2, PtzOptics30X | command.ColorTemperatureReset | 01 04 20 | - | §7 command list |
+| r14-colortemperaturereset-command | R14 | PtzOpticsG3 | command.ColorTemperatureReset | 01 04 20 | - | Current Developer Portal command pages |
+| r1-colortemperatureup-command | R1 | PtzOpticsG2, PtzOptics30X | command.ColorTemperatureUp | 01 04 20 | - | §7 command list |
+| r14-colortemperatureup-command | R14 | PtzOpticsG3 | command.ColorTemperatureUp | 01 04 20 | - | Current Developer Portal command pages |
+| r1-colortemperaturedown-command | R1 | PtzOpticsG2, PtzOptics30X | command.ColorTemperatureDown | 01 04 20 | - | §7 command list |
+| r14-colortemperaturedown-command | R14 | PtzOpticsG3 | command.ColorTemperatureDown | 01 04 20 | - | Current Developer Portal command pages |
+| r1-colortemperaturedirect-command | R1 | PtzOpticsG2, PtzOptics30X | command.ColorTemperatureDirect | 01 04 20 | - | §7 command list |
+| r14-colortemperaturedirect-command | R14 | PtzOpticsG3 | command.ColorTemperatureDirect | 01 04 20 | - | Current Developer Portal command pages |
+| r1-redgainreset-command | R1 | PtzOpticsG2, PtzOptics30X | command.RedGainReset | 01 04 03 00 | - | §7 command list |
+| r14-redgainreset-command | R14 | PtzOpticsG3 | command.RedGainReset | 01 04 03 00 | - | Current Developer Portal command pages |
+| r8-redgainreset-command | R8 | SonyEviH100, GenericVisca | command.RedGainReset | 01 04 03 00 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-redgainreset-command | R12 | SonyBrc300, GenericVisca | command.RedGainReset | 01 04 03 00 | - | BRC-300 Command List pp.9–12 |
+| r21-redgainreset-command | R21 | NearusBrc300, GenericVisca | command.RedGainReset | 01 04 03 00 | - | BRC-300/300P Command List pp.9–12 |
+| r1-redgainup-command | R1 | PtzOpticsG2, PtzOptics30X | command.RedGainUp | 01 04 03 02 | - | §7 command list |
+| r14-redgainup-command | R14 | PtzOpticsG3 | command.RedGainUp | 01 04 03 02 | - | Current Developer Portal command pages |
+| r8-redgainup-command | R8 | SonyEviH100, GenericVisca | command.RedGainUp | 01 04 03 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-redgainup-command | R12 | SonyBrc300, GenericVisca | command.RedGainUp | 01 04 03 02 | - | BRC-300 Command List pp.9–12 |
+| r21-redgainup-command | R21 | NearusBrc300, GenericVisca | command.RedGainUp | 01 04 03 02 | - | BRC-300/300P Command List pp.9–12 |
+| r1-redgaindown-command | R1 | PtzOpticsG2, PtzOptics30X | command.RedGainDown | 01 04 03 03 | - | §7 command list |
+| r14-redgaindown-command | R14 | PtzOpticsG3 | command.RedGainDown | 01 04 03 03 | - | Current Developer Portal command pages |
+| r8-redgaindown-command | R8 | SonyEviH100, GenericVisca | command.RedGainDown | 01 04 03 03 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-redgaindown-command | R12 | SonyBrc300, GenericVisca | command.RedGainDown | 01 04 03 03 | - | BRC-300 Command List pp.9–12 |
+| r21-redgaindown-command | R21 | NearusBrc300, GenericVisca | command.RedGainDown | 01 04 03 03 | - | BRC-300/300P Command List pp.9–12 |
+| r1-redgaindirect-command | R1 | PtzOpticsG2, PtzOptics30X | command.RedGainDirect | 01 04 43 | - | §7 command list |
+| r14-redgaindirect-command | R14 | PtzOpticsG3 | command.RedGainDirect | 01 04 43 | - | Current Developer Portal command pages |
+| r8-redgaindirect-command | R8 | SonyEviH100, GenericVisca | command.RedGainDirect | 01 04 43 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-redgaindirect-command | R12 | SonyBrc300, GenericVisca | command.RedGainDirect | 01 04 43 | - | BRC-300 Command List pp.9–12 |
+| r21-redgaindirect-command | R21 | NearusBrc300, GenericVisca | command.RedGainDirect | 01 04 43 | - | BRC-300/300P Command List pp.9–12 |
+| r1-bluegainreset-command | R1 | PtzOpticsG2, PtzOptics30X | command.BlueGainReset | 01 04 04 00 | - | §7 command list |
+| r14-bluegainreset-command | R14 | PtzOpticsG3 | command.BlueGainReset | 01 04 04 00 | - | Current Developer Portal command pages |
+| r8-bluegainreset-command | R8 | SonyEviH100, GenericVisca | command.BlueGainReset | 01 04 04 00 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-bluegainreset-command | R12 | SonyBrc300, GenericVisca | command.BlueGainReset | 01 04 04 00 | - | BRC-300 Command List pp.9–12 |
+| r21-bluegainreset-command | R21 | NearusBrc300, GenericVisca | command.BlueGainReset | 01 04 04 00 | - | BRC-300/300P Command List pp.9–12 |
+| r1-bluegainup-command | R1 | PtzOpticsG2, PtzOptics30X | command.BlueGainUp | 01 04 04 02 | - | §7 command list |
+| r14-bluegainup-command | R14 | PtzOpticsG3 | command.BlueGainUp | 01 04 04 02 | - | Current Developer Portal command pages |
+| r8-bluegainup-command | R8 | SonyEviH100, GenericVisca | command.BlueGainUp | 01 04 04 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-bluegainup-command | R12 | SonyBrc300, GenericVisca | command.BlueGainUp | 01 04 04 02 | - | BRC-300 Command List pp.9–12 |
+| r21-bluegainup-command | R21 | NearusBrc300, GenericVisca | command.BlueGainUp | 01 04 04 02 | - | BRC-300/300P Command List pp.9–12 |
+| r1-bluegaindown-command | R1 | PtzOpticsG2, PtzOptics30X | command.BlueGainDown | 01 04 04 03 | - | §7 command list |
+| r14-bluegaindown-command | R14 | PtzOpticsG3 | command.BlueGainDown | 01 04 04 03 | - | Current Developer Portal command pages |
+| r8-bluegaindown-command | R8 | SonyEviH100, GenericVisca | command.BlueGainDown | 01 04 04 03 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-bluegaindown-command | R12 | SonyBrc300, GenericVisca | command.BlueGainDown | 01 04 04 03 | - | BRC-300 Command List pp.9–12 |
+| r21-bluegaindown-command | R21 | NearusBrc300, GenericVisca | command.BlueGainDown | 01 04 04 03 | - | BRC-300/300P Command List pp.9–12 |
+| r1-bluegaindirect-command | R1 | PtzOpticsG2, PtzOptics30X | command.BlueGainDirect | 01 04 44 | - | §7 command list |
+| r14-bluegaindirect-command | R14 | PtzOpticsG3 | command.BlueGainDirect | 01 04 44 | - | Current Developer Portal command pages |
+| r8-bluegaindirect-command | R8 | SonyEviH100, GenericVisca | command.BlueGainDirect | 01 04 44 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-bluegaindirect-command | R12 | SonyBrc300, GenericVisca | command.BlueGainDirect | 01 04 44 | - | BRC-300 Command List pp.9–12 |
+| r21-bluegaindirect-command | R21 | NearusBrc300, GenericVisca | command.BlueGainDirect | 01 04 44 | - | BRC-300/300P Command List pp.9–12 |
+| r1-sharpnessmode-command | R1 | PtzOpticsG2, PtzOptics30X | command.SharpnessMode | 01 04 05 | - | §7 command list |
+| r14-sharpnessmode-command | R14 | PtzOpticsG3 | command.SharpnessMode | 01 04 05 | - | Current Developer Portal command pages |
+| r1-sharpnessreset-command | R1 | PtzOpticsG2, PtzOptics30X | command.SharpnessReset | 01 04 02 00 | - | §7 command list |
+| r14-sharpnessreset-command | R14 | PtzOpticsG3 | command.SharpnessReset | 01 04 02 00 | - | Current Developer Portal command pages |
+| r7-sharpnessreset-command | R7 | SonyFr7 | command.SharpnessReset | 01 04 02 00 | - | FR7 v4 command list pp.14–20 |
+| r8-sharpnessreset-command | R8 | SonyEviH100 | command.SharpnessReset | 01 04 02 00 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r1-sharpnessup-command | R1 | PtzOpticsG2, PtzOptics30X | command.SharpnessUp | 01 04 02 02 | - | §7 command list |
+| r14-sharpnessup-command | R14 | PtzOpticsG3 | command.SharpnessUp | 01 04 02 02 | - | Current Developer Portal command pages |
+| r7-sharpnessup-command | R7 | SonyFr7 | command.SharpnessUp | 01 04 02 02 | - | FR7 v4 command list pp.14–20 |
+| r8-sharpnessup-command | R8 | SonyEviH100 | command.SharpnessUp | 01 04 02 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r1-sharpnessdown-command | R1 | PtzOpticsG2, PtzOptics30X | command.SharpnessDown | 01 04 02 03 | - | §7 command list |
+| r14-sharpnessdown-command | R14 | PtzOpticsG3 | command.SharpnessDown | 01 04 02 03 | - | Current Developer Portal command pages |
+| r7-sharpnessdown-command | R7 | SonyFr7 | command.SharpnessDown | 01 04 02 03 | - | FR7 v4 command list pp.14–20 |
+| r8-sharpnessdown-command | R8 | SonyEviH100 | command.SharpnessDown | 01 04 02 03 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r1-sharpnessdirect-command | R1 | PtzOpticsG2, PtzOptics30X | command.SharpnessDirect | 01 04 42 | - | §7 command list |
+| r14-sharpnessdirect-command | R14 | PtzOpticsG3 | command.SharpnessDirect | 01 04 42 | - | Current Developer Portal command pages |
+| r7-sharpnessdirect-command | R7 | SonyFr7 | command.SharpnessDirect | 01 04 42 | - | FR7 v4 command list pp.14–20 |
+| r8-sharpnessdirect-command | R8 | SonyEviH100 | command.SharpnessDirect | 01 04 42 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r1-luminance-command | R1 | PtzOpticsG2, PtzOptics30X | command.Luminance | 01 04 A1 | - | §7 command list |
+| r14-luminance-command | R14 | PtzOpticsG3 | command.Luminance | 01 04 A1 | - | Current Developer Portal command pages |
+| r1-contrast-command | R1 | PtzOpticsG2, PtzOptics30X | command.Contrast | 01 04 A2 | - | §7 command list |
+| r14-contrast-command | R14 | PtzOpticsG3 | command.Contrast | 01 04 A2 | - | Current Developer Portal command pages |
+| r1-gamma-command | R1 | PtzOpticsG2, PtzOptics30X | command.Gamma | 01 04 5B | - | §7 command list |
+| r14-gamma-command | R14 | PtzOpticsG3 | command.Gamma | 01 04 5B | - | Current Developer Portal command pages |
+| r8-gamma-command | R8 | SonyEviH100 | command.Gamma | 01 04 5B | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r1-backlight-command | R1 | PtzOpticsG2, PtzOptics30X | command.Backlight | 01 04 33 | - | §7 command list |
+| r14-backlight-command | R14 | PtzOpticsG3 | command.Backlight | 01 04 33 | - | Current Developer Portal command pages |
+| r7-backlight-command | R7 | SonyFr7 | command.Backlight | 01 04 33 | - | FR7 v4 command list pp.14–20 |
+| r8-backlight-command | R8 | SonyEviH100, GenericVisca | command.Backlight | 01 04 33 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-backlight-command | R12 | SonyBrc300, GenericVisca | command.Backlight | 01 04 33 | - | BRC-300 Command List pp.9–12 |
+| r21-backlight-command | R21 | NearusBrc300, GenericVisca | command.Backlight | 01 04 33 | - | BRC-300/300P Command List pp.9–12 |
+| r14-noisereduction2dmode-command | R14 | PtzOpticsG2, PtzOpticsG3, PtzOptics30X | command.NoiseReduction2dMode | 01 04 50 | - | Current Developer Portal command pages |
+| r14-noisereduction2d-command | R14 | PtzOpticsG2, PtzOpticsG3, PtzOptics30X | command.NoiseReduction2d | 01 04 53 | - | Current Developer Portal command pages |
+| r8-noisereduction2d-command | R8 | SonyEviH100 | command.NoiseReduction2d | 01 04 53 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r14-noisereduction2doff-command | R14 | PtzOpticsG2, PtzOpticsG3, PtzOptics30X | command.NoiseReduction2dOff | 01 04 53 | - | Current Developer Portal command pages |
+| r8-noisereduction2doff-command | R8 | SonyEviH100 | command.NoiseReduction2dOff | 01 04 53 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r14-noisereduction3d-command | R14 | PtzOpticsG2, PtzOpticsG3, PtzOptics30X | command.NoiseReduction3d | 01 04 54 | - | Current Developer Portal command pages |
+| r14-noisereduction3doff-command | R14 | PtzOpticsG2, PtzOpticsG3, PtzOptics30X | command.NoiseReduction3dOff | 01 04 54 | - | Current Developer Portal command pages |
+| r1-imageflipoff-command | R1 | PtzOpticsG2, PtzOptics30X | command.ImageFlipOff | 01 04 66 | - | §7 command list |
+| r14-imageflipoff-command | R14 | PtzOpticsG3 | command.ImageFlipOff | 01 04 66 | - | Current Developer Portal command pages |
+| r12-imageflipoff-command | R12 | SonyBrc300 | command.ImageFlipOff | 01 04 66 | - | BRC-300 Command List pp.9–12 |
+| r21-imageflipoff-command | R21 | NearusBrc300 | command.ImageFlipOff | 01 04 66 | - | BRC-300/300P Command List pp.9–12 |
+| r1-imagefliphorizontal-command | R1 | PtzOpticsG2, PtzOptics30X | command.ImageFlipHorizontal | 01 04 61 | - | §7 command list |
+| r14-imagefliphorizontal-command | R14 | PtzOpticsG3 | command.ImageFlipHorizontal | 01 04 61 | - | Current Developer Portal command pages |
+| r1-imagefliphorizontaloff-command | R1 | PtzOpticsG2, PtzOptics30X | command.ImageFlipHorizontalOff | 01 04 61 | - | §7 command list |
+| r14-imagefliphorizontaloff-command | R14 | PtzOpticsG3 | command.ImageFlipHorizontalOff | 01 04 61 | - | Current Developer Portal command pages |
+| r1-imageflipvertical-command | R1 | PtzOpticsG2, PtzOptics30X | command.ImageFlipVertical | 01 04 66 | - | §7 command list |
+| r14-imageflipvertical-command | R14 | PtzOpticsG3 | command.ImageFlipVertical | 01 04 66 | - | Current Developer Portal command pages |
+| r12-imageflipvertical-command | R12 | SonyBrc300 | command.ImageFlipVertical | 01 04 66 | - | BRC-300 Command List pp.9–12 |
+| r21-imageflipvertical-command | R21 | NearusBrc300 | command.ImageFlipVertical | 01 04 66 | - | BRC-300/300P Command List pp.9–12 |
+| r1-imageflipboth-command | R1 | PtzOpticsG2, PtzOptics30X | command.ImageFlipBoth | 01 04 A4 | - | §7 command list |
+| r14-imageflipboth-command | R14 | PtzOpticsG3 | command.ImageFlipBoth | 01 04 A4 | - | Current Developer Portal command pages |
+| r1-imageflipcombined-command | R1 | PtzOpticsG2, PtzOptics30X | command.ImageFlipCombined | 01 04 A4 | - | §7 command list |
+| r14-imageflipcombined-command | R14 | PtzOpticsG3 | command.ImageFlipCombined | 01 04 A4 | - | Current Developer Portal command pages |
+| r1-pictureeffect-command | R1 | PtzOpticsG2, PtzOptics30X | command.PictureEffect | 01 04 63 | - | §7 command list |
+| r14-pictureeffect-command | R14 | PtzOpticsG3 | command.PictureEffect | 01 04 63 | - | Current Developer Portal command pages |
+| r7-ndfiltermode-command | R7 | SonyFr7 | command.NdFilterMode | 01 7E 04 52 | - | FR7 v4 command list pp.14–20 |
+| r7-ndfilterdirect-command | R7 | SonyFr7 | command.NdFilterDirect | 01 7E 04 42 | - | FR7 v4 command list pp.14–20 |
+| r7-ndfilterstepup-command | R7 | SonyFr7 | command.NdFilterStepUp | 01 7E 04 12 02 | - | FR7 v4 command list pp.14–20 |
+| r7-ndfilterstepdown-command | R7 | SonyFr7 | command.NdFilterStepDown | 01 7E 04 12 03 | - | FR7 v4 command list pp.14–20 |
+| r7-ndfilterautoon-command | R7 | SonyFr7 | command.NdFilterAutoOn | 01 7E 04 53 02 | - | FR7 v4 command list pp.14–20 |
+| r7-ndfilterautooff-command | R7 | SonyFr7 | command.NdFilterAutoOff | 01 7E 04 53 03 | - | FR7 v4 command list pp.14–20 |
+| r7-tallyredon-command | R7 | SonyFr7 | command.TallyRedOn | 01 7E 01 0A 00 02 | - | FR7 v4 command list pp.14–20 |
+| r7-tallyredoff-command | R7 | SonyFr7 | command.TallyRedOff | 01 7E 01 0A 00 03 | - | FR7 v4 command list pp.14–20 |
+| r7-tallygreenon-command | R7 | SonyFr7 | command.TallyGreenOn | 01 7E 04 1A 00 02 | - | FR7 v4 command list pp.14–20 |
+| r7-tallygreenoff-command | R7 | SonyFr7 | command.TallyGreenOff | 01 7E 04 1A 00 03 | - | FR7 v4 command list pp.14–20 |
+| r7-menudisplay-command | R7 | SonyFr7 | command.MenuDisplay | 01 06 06 | - | FR7 v4 command list pp.14–20 |
+| r1-menunavigate-command | R1 | PtzOpticsG2, PtzOptics30X | command.MenuNavigate | 01 06 01 | - | §7 command list |
+| r14-menunavigate-command | R14 | PtzOpticsG3 | command.MenuNavigate | 01 06 01 | - | Current Developer Portal command pages |
+| r7-menunavigate-command | R7 | SonyFr7 | command.MenuNavigate | 01 06 01 | - | FR7 v4 command list pp.14–20 |
+| r11-menunavigate-command | R11 | SonyBrcH900 | command.MenuNavigate | 01 06 01 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-menunavigate-command | R8 | SonyEviH100, GenericVisca | command.MenuNavigate | 01 06 01 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-menunavigate-command | R12 | SonyBrc300, GenericVisca | command.MenuNavigate | 01 06 01 | - | BRC-300 Command List pp.9–12 |
+| r21-menunavigate-command | R21 | NearusBrc300, GenericVisca | command.MenuNavigate | 01 06 01 | - | BRC-300/300P Command List pp.9–12 |
+| r1-menuselect-command | R1 | PtzOpticsG2, PtzOptics30X | command.MenuSelect | 01 06 06 | - | §7 command list |
+| r14-menuselect-command | R14 | PtzOpticsG3 | command.MenuSelect | 01 06 06 | - | Current Developer Portal command pages |
+| r1-menucancel-command | R1 | PtzOpticsG2, PtzOptics30X | command.MenuCancel | 01 06 06 | - | §7 command list |
+| r14-menucancel-command | R14 | PtzOpticsG3 | command.MenuCancel | 01 06 06 | - | Current Developer Portal command pages |
+| r7-directmenu-command | R7 | SonyFr7 | command.DirectMenu | 01 7E 04 72 | - | FR7 v4 command list pp.14–20 |
+| r1-multicaststreamingon-command | R1 | PtzOpticsG2, PtzOptics30X | command.MulticastStreamingOn | 0B 01 23 | - | §7 command list |
+| r10-multicaststreamingon-command | R10 | PtzOpticsG3 | command.MulticastStreamingOn | 0B 01 23 | - | Move 4K G3 command list |
+| r1-multicaststreamingoff-command | R1 | PtzOpticsG2, PtzOptics30X | command.MulticastStreamingOff | 0B 01 23 | - | §7 command list |
+| r10-multicaststreamingoff-command | R10 | PtzOpticsG3 | command.MulticastStreamingOff | 0B 01 23 | - | Move 4K G3 command list |
+| r1-ndiquality-command | R1 | PtzOpticsG2, PtzOptics30X | command.NdiQuality | 0B 01 01 | - | §7 command list |
+| r10-ndiquality-command | R10 | PtzOpticsG3 | command.NdiQuality | 0B 01 01 | - | Move 4K G3 command list |
+| r1-usbaudioon-command | R1 | PtzOpticsG2, PtzOptics30X | command.UsbAudioOn | 2A 02 A0 04 | - | §7 command list |
+| r1-usbaudiooff-command | R1 | PtzOpticsG2, PtzOptics30X | command.UsbAudioOff | 2A 02 A0 04 | - | §7 command list |
+| r8-addressset-command | R8 | SonyEviH100, GenericVisca | command.AddressSet | 30 01 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-addressset-command | R12 | SonyBrc300, GenericVisca | command.AddressSet | 30 01 | - | BRC-300 Command List pp.9–12 |
+| r21-addressset-command | R21 | NearusBrc300, GenericVisca | command.AddressSet | 30 01 | - | BRC-300/300P Command List pp.9–12 |
+| r11-addressset-command | R11 | SonyBrcH900 | command.AddressSet | 30 01 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r1-interfaceclear-command | R1 | PtzOpticsG2, PtzOptics30X | command.InterfaceClear | 01 00 01 | - | §7 command list |
+| r14-interfaceclear-command | R14 | PtzOpticsG3 | command.InterfaceClear | 01 00 01 | - | Current Developer Portal command pages |
+| r7-interfaceclear-command | R7 | SonyFr7 | command.InterfaceClear | 01 00 01 | - | FR7 v4 command list pp.14–20 |
+| r11-interfaceclear-command | R11 | SonyBrcH900 | command.InterfaceClear | 01 00 01 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-interfaceclear-command | R8 | SonyEviH100, GenericVisca | command.InterfaceClear | 01 00 01 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-interfaceclear-command | R12 | SonyBrc300, GenericVisca | command.InterfaceClear | 01 00 01 | - | BRC-300 Command List pp.9–12 |
+| r21-interfaceclear-command | R21 | NearusBrc300, GenericVisca | command.InterfaceClear | 01 00 01 | - | BRC-300/300P Command List pp.9–12 |
+| r1-commandcancel-command | R1 | PtzOpticsG2, PtzOptics30X | command.CommandCancel | 2p | - | §7 command list |
+| r14-commandcancel-command | R14 | PtzOpticsG3 | command.CommandCancel | 2p | - | Current Developer Portal command pages |
+| r7-commandcancel-command | R7 | SonyFr7 | command.CommandCancel | 2p | - | FR7 v4 command list pp.14–20 |
+| r11-commandcancel-command | R11 | SonyBrcH900 | command.CommandCancel | 2p | - | BRC-H900 v2.20 command list pp.14–18 |
+| r8-commandcancel-command | R8 | SonyEviH100, GenericVisca | command.CommandCancel | 2p | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r12-commandcancel-command | R12 | SonyBrc300, GenericVisca | command.CommandCancel | 2p | - | BRC-300 Command List pp.9–12 |
+| r21-commandcancel-command | R21 | NearusBrc300, GenericVisca | command.CommandCancel | 2p | - | BRC-300/300P Command List pp.9–12 |
+| r1-settingssave-command | R1 | PtzOpticsG2, PtzOptics30X | command.SettingsSave | 01 04 A5 10 | - | §7 command list |
+| r10-settingssave-command | R10 | PtzOpticsG3 | command.SettingsSave | 01 04 A5 10 | - | Move 4K G3 command list |
+| r7-variablespeedmode-command | R7 | SonyFr7 | command.VariableSpeedMode | 01 06 45 | - | FR7 v4 command list pp.14–20 |
 
 <!-- END CHECKED SOURCE EVIDENCE -->

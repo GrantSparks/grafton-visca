@@ -1365,3 +1365,12 @@ where
 For the complete construction, transport, target, tuning, noun, and lifecycle
 examples, see [`usage_2_0.md`](usage_2_0.md). For bounded state and diagnostic
 behavior, see [`observability_and_recovery.md`](observability_and_recovery.md).
+
+Source enforcement (#878) withdraws unsupported Sony shared controls. FR7 retains
+only its documented shared direct zoom, backlight and detail/ sharpness families;
+its separate cinema controls use the FR7-specific methods. BRC-H900 shared
+digital zoom, focus near-limit, color temperature, tuning and unsourced image
+families are refused. Combined tally, defog, iris auto/manual status and orphan
+response kinds have no built-in replacements; use a custom request and decoder
+when model documentation establishes their packets. The orphan `DefogLevel`,
+`BroadcastDomain` and `FocusRange` values are removed with their only consumers.

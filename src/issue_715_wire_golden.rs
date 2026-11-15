@@ -1033,7 +1033,7 @@ fn assert_inquiry_coverage(rows: &[String]) {
         .collect::<HashSet<_>>();
 
     for metadata in BUILTIN_INQUIRIES {
-        if metadata.command.is_some() {
+        {
             assert!(
                 names.contains(metadata.name),
                 "queryable inquiry {} is absent from the literal wire inventory",

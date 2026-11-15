@@ -792,16 +792,6 @@ impl From<crate::MotionSyncPreset> for MotionSyncSpeed {
     }
 }
 
-crate::__grafton_visca_newtype! {
-    /// Defog processing level for improving visibility in foggy or hazy conditions.
-    ///
-    /// Valid range: 0 to 5 (0x00 to 0x05)
-    /// Higher values apply stronger defog processing.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0x00", max = "0x05", display_prefix = "Defog Level")]
-    pub struct DefogLevel(u8);
-}
-
 /// Exposure compensation position value (high-resolution EV adjustment).
 ///
 /// This is a higher-resolution representation of exposure compensation
@@ -828,19 +818,6 @@ impl ExposureCompensationPosition {
     pub const fn value(self) -> u16 {
         self.0
     }
-}
-
-crate::__grafton_visca_newtype! {
-    /// Broadcast domain setting affecting video output standards.
-    ///
-    /// This setting may affect video timing, color space, and other
-    /// broadcast-related parameters. The specific meaning depends on
-    /// the camera model.
-    ///
-    /// Valid range: Typically 0 to 3
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0x00", max = "0x03", display_prefix = "Broadcast Domain")]
-    pub struct BroadcastDomain(u8);
 }
 
 crate::__grafton_visca_newtype! {
