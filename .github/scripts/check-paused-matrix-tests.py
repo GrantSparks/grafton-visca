@@ -15,6 +15,7 @@ import re
 import shlex
 
 SUITES = {
+    "fr7_pan_tilt": "",
     "issue_565_transport_faults": "",
     "issue_566_retry_recovery": "",
     "issue_631_runtime_tuning": "paused",
@@ -22,6 +23,8 @@ SUITES = {
     "issue_795_raw_correlation_evidence": "",
     "issue_795_stream_stall_inquiry": "",
     "issue_839_menu_navigation": "",
+    "issue_858_late_evidence": "",
+    "issue_869_envelope_admission": "",
     # The #872 observer-budget body has no feature-selected behavior either.
     "issue_872_observer_budgets": "settlement_budget",
     "issue_894_fr7_families": "paused",
@@ -83,6 +86,8 @@ def self_test() -> None:
     # The separate concurrency modules still run without virtual time.
     log = "Running tests/issue_777_operation_observation.rs (target)\ntest async_facade::scenario::smol ... ok\n"
     assert violations("--features runtime-smol", log) == []
+    log = "Running tests/issue_866_owner_timers.rs (target)\ntest local_manual_clock_actor_reuses_four_timer_factories ... ok\n"
+    assert violations("--no-default-features --features async,test-utils", log) == []
     assert not has_test_utils("--features test-utils-extra")
     assert has_test_utils("--features=runtime-tokio,test-utils")
 

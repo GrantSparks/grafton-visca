@@ -77,6 +77,7 @@ readonly FEATURE_LEGS=(
     "default + serde|--features serde --all-targets"
     "blocking + test-utils|--features blocking,test-utils --all-targets"
     "runtime-neutral async|--no-default-features --features async --all-targets"
+    "runtime-neutral async + test-utils|--no-default-features --features async,test-utils --all-targets"
     "Tokio runtime|--no-default-features --features runtime-tokio --all-targets"
     "smol runtime|--no-default-features --features runtime-smol --all-targets"
     "Tokio + test-utils|--no-default-features --features runtime-tokio,test-utils --all-targets"
@@ -94,7 +95,8 @@ readonly FEATURE_LEGS=(
     "Tokio + blocking serial transport|--no-default-features --features runtime-tokio,transport-serial --all-targets"
     "serde + schemars + ts-rs|--no-default-features --features serde,schemars,ts-rs --all-targets"
     # The facade-less shape compiles the shared script vocabulary. Dedicated
-    # blocking, Tokio and smol test-utils legs execute virtual-time scenarios;
+    # runtime-free async, blocking, Tokio and smol test-utils legs execute their
+    # native virtual-time cases;
     # the all-features job also runs their union.
     "test-utils|--no-default-features --features test-utils --all-targets"
     "test-utils + blocking + Tokio|--no-default-features --features test-utils,blocking,runtime-tokio --all-targets"

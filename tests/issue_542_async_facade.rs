@@ -12,8 +12,11 @@
 
 use grafton_visca_test_support::{fake_camera, profile_fixtures, runtime_matrix};
 
+#[path = "common/counting_executor.rs"]
+mod counting_executor;
+use counting_executor::CountingExecutor;
+
 use std::{
-    future::Future,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -152,62 +155,6 @@ fn unsupported_focus_profile() -> ProfileSpec {
         .position_inquiries(PositionInquirySupport::new(false, false, false))
         .build()
         .expect("unsupported profile")
-}
-
-/// Counts actor tasks and timer factories through the selected executor.
-#[derive(Clone)]
-struct CountingExecutor<E> {
-    inner: E,
-    spawned: Arc<AtomicUsize>,
-    timer_calls: Arc<AtomicUsize>,
-}
-
-impl<E: Executor> Executor for CountingExecutor<E> {
-    type Join<T>
-        = <E as Executor>::Join<T>
-    where
-        T: Send + 'static;
-    type Detach = <E as Executor>::Detach;
-
-    type Timer = E::Timer;
-
-    fn timer(&self, deadline: std::time::Instant) -> Self::Timer {
-        self.timer_calls.fetch_add(1, Ordering::SeqCst);
-        self.inner.timer(deadline)
-    }
-
-    fn spawn_with_detach<F>(&self, future: F) -> (Self::Join<F::Output>, Self::Detach)
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        self.spawned.fetch_add(1, Ordering::SeqCst);
-        self.inner.spawn_with_detach(future)
-    }
-
-    fn block_on<F: Future>(&self, future: F) -> F::Output {
-        self.inner.block_on(future)
-    }
-
-    fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
-        self.inner.sleep(duration)
-    }
-
-    fn timeout<'a, F, T>(
-        &'a self,
-        duration: Duration,
-        future: F,
-    ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-    where
-        F: Future<Output = T> + Send + 'a,
-        T: Send + 'a,
-    {
-        self.inner.timeout(duration, future)
-    }
-
-    fn now(&self) -> std::time::Instant {
-        self.inner.now()
-    }
 }
 
 async fn one_owner_admits_plain_inquiry_and_typed_operations<E: Executor>(executor: E) {
@@ -456,53 +403,6 @@ async fn owner_admits_uses_and_closes<E: Executor>(executor: E) {
 
     // Exercise the explicit close path as well as the operation path.
     session.close().await.unwrap();
-}
-
-#[cfg(feature = "test-utils")]
-#[test]
-fn local_manual_clock_actor_reuses_four_timer_factories() {
-    use grafton_visca::testing::testkit::{ManualClock, ManualClockExecutor};
-
-    let clock = ManualClock::new();
-    let timer_calls = Arc::new(AtomicUsize::new(0));
-    let spawned = Arc::new(AtomicUsize::new(0));
-    let executor = CountingExecutor {
-        inner: ManualClockExecutor::local(&clock),
-        spawned: Arc::clone(&spawned),
-        timer_calls: Arc::clone(&timer_calls),
-    };
-    executor.block_on(async {
-        let fake = FakeCamera::acking(1);
-        let session = Session::open(
-            fake.async_wire(),
-            SessionConfig::from_compile_time::<PtzOpticsG2>().expect("profile"),
-            executor.clone(),
-        )
-        .await
-        .expect("session on the runtime-free executor");
-        let camera = session.camera::<PtzOpticsG2>().expect("camera");
-        assert_eq!(timer_calls.load(Ordering::SeqCst), 4);
-        assert_eq!(spawned.load(Ordering::SeqCst), 1);
-        for _ in 0..40 {
-            camera
-                .zoom()
-                .stop()
-                .await
-                .expect("admission")
-                .applied()
-                .await
-                .expect("application");
-            session.metrics().await.expect("owner control turn");
-            // Let bounded reads and receive pacing expire between commands.
-            // This is the actual ManualClock backend, without a Tokio runtime.
-            executor.sleep(Duration::from_secs(1)).await;
-            assert_eq!(timer_calls.load(Ordering::SeqCst), 4);
-        }
-        assert_eq!(fake.write_count(), 40);
-        assert_eq!(session.metrics().await.expect("metrics").writes, 40);
-        session.close().await.expect("close");
-    });
-    assert_eq!(timer_calls.load(Ordering::SeqCst), 4);
 }
 
 runtime_matrix!(

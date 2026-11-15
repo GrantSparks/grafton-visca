@@ -175,7 +175,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inline and spills only for larger fanout. Allocation checks cover pending
   resets, immediate wakes and rearming completed timers on
   `ManualClockExecutor::local`; an actual local actor keeps its four factories
-  across command, control and idle turns. Async
+  across command, control and idle turns, including the `async,test-utils`
+  feature set with no Tokio or smol features. Async
   owners retain four pinned timers for read bounds, engine/release wakes,
   receive pacing and write bounds; turns reset them without constructing
   another timer future.
