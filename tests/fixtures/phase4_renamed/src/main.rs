@@ -487,8 +487,8 @@ impl ProfileMetadata for DownstreamProfile {
     const SUPPORTS_COMMAND_CANCEL: bool = true;
 
     const MODEL_NAME: &'static str = "Downstream renamed profile";
-    const DEFAULT_CAMERA_ID: grafton_visca::IndividualCameraId =
-        grafton_visca::IndividualCameraId::new(3).expect("individual profile default");
+    const DEFAULT_CAMERA_ID: visca_renamed::IndividualCameraId =
+        visca_renamed::IndividualCameraId::new(3).expect("individual profile default");
     type Envelope = visca_renamed::transport::RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(120);
     const COMMAND_TIMEOUTS: visca_renamed::CommandTimeouts = visca_renamed::CommandTimeouts::new(
@@ -502,8 +502,8 @@ impl ProfileMetadata for DownstreamProfile {
 
 impl PanTilt for DownstreamProfile {
     const PAN_RANGE: capabilities::CapabilityRange<i32> = <Base as PanTilt>::PAN_RANGE;
-    const TILT_RANGES: grafton_visca::capabilities::TiltRanges =
-        grafton_visca::capabilities::TiltRanges::Single(<Base as PanTilt>::TILT_RANGES.range(None));
+    const TILT_RANGES: visca_renamed::capabilities::TiltRanges =
+        visca_renamed::capabilities::TiltRanges::Single(<Base as PanTilt>::TILT_RANGES.range(None));
     const MAX_PAN_SPEED: u8 = 9;
     const MAX_TILT_SPEED: u8 = 7;
     const PAN_DEGREES_TO_UNITS: f32 = 10.0;
@@ -525,13 +525,13 @@ impl Focus for DownstreamProfile {
 
     const MAX_FOCUS_SPEED: u8 = 7;
 
-    const FOCUS_RANGE: grafton_visca::capabilities::CapabilityRange<u16> =
-        grafton_visca::capabilities::CapabilityRange::<u16>::new(
+    const FOCUS_RANGE: visca_renamed::capabilities::CapabilityRange<u16> =
+        visca_renamed::capabilities::CapabilityRange::<u16>::new(
             <Base as Focus>::FOCUS_RANGE.min(),
             <Base as Focus>::FOCUS_RANGE.max(),
         );
-    const FOCUS_NEAR_END: grafton_visca::capabilities::FocusNearEnd =
-        grafton_visca::capabilities::FocusNearEnd::Minimum;
+    const FOCUS_NEAR_END: visca_renamed::capabilities::FocusNearEnd =
+        visca_renamed::capabilities::FocusNearEnd::Minimum;
     const SUPPORTS_AUTO_FOCUS: bool = true;
     const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
 }
@@ -542,8 +542,8 @@ impl Exposure for DownstreamProfile {
     const IRIS_RANGE: Option<capabilities::CapabilityDomain<u16>> = <Base as Exposure>::IRIS_RANGE;
     const SHUTTER_SPEEDS: &'static [capabilities::ShutterSpeedEntry] =
         <Base as Exposure>::SHUTTER_SPEEDS;
-    const GAIN_RANGE: Option<grafton_visca::capabilities::CapabilityRange<u8>> =
-        Some(<Base as Exposure>::GAIN_RANGE);
+    const GAIN_RANGE: Option<visca_renamed::capabilities::CapabilityRange<u8>> =
+        <Base as Exposure>::GAIN_RANGE;
     const BRIGHTNESS_RANGE: Option<capabilities::CapabilityDomain<u8>> =
         <Base as Exposure>::BRIGHTNESS_RANGE;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;
@@ -639,8 +639,15 @@ fn renamed_dependency_derive_and_profile_contract() -> visca_renamed::Result<()>
         profile.capabilities().model_name,
         "Downstream renamed profile"
     );
-    assert!(profile.capabilities().has_image_processing);
-    assert_eq!(profile.capabilities().hue_range, Some(0..=14));
+    assert!(profile.capabilities().has_image_processing());
+    assert_eq!(
+        profile
+            .capabilities()
+            .image
+            .as_ref()
+            .and_then(|image| image.hue_range),
+        Some(capabilities::CapabilityRange::<u8>::new(0, 14))
+    );
     assert_eq!(profile.transports().tcp_port(), Some(9876));
     Ok(())
 }
