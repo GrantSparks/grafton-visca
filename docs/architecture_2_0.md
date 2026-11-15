@@ -987,9 +987,11 @@ than claimed as a snapshot-auditor check.
 - Runtime mutation is serialized per transport. (Enforcement: owner: the one serialized
   coordinator.)
 - Every admitted request has exactly one authoritative entry until safe terminal removal.
-  (Enforcement: audit: entry and index ownership.)
+  (Enforcement: audit: entry/index ownership; owner: sole admission map and safe
+  terminal removal.)
 - Every request and cancellation transmission has one active identity and one result. (Enforcement:
-  audit: bidirectional transmission ownership.)
+  audit: bidirectional ownership; owner: identified results consume the transmission identity and
+  stale results are ignored, as pinned by `stale_transmission_and_queue_tickets_are_inert`.)
 - Every request reaches at most one terminal engine transition. (Enforcement: owner: sole-entry
   terminal removal and non-reused request identity.)
 - Every retained operation or cancellation observer resolves at most once. (Enforcement: owner:
