@@ -151,15 +151,6 @@ mod profile_constants {
         WhiteBalanceMode::Manual,
         WhiteBalanceMode::ColorTemperature,
     ];
-
-    pub const SONY_FR7_WB_MODES: &[WhiteBalanceMode] = &[
-        WhiteBalanceMode::Auto,
-        WhiteBalanceMode::Indoor,
-        WhiteBalanceMode::Outdoor,
-        WhiteBalanceMode::ATW,
-        WhiteBalanceMode::OnePush,
-        WhiteBalanceMode::Manual,
-    ];
 }
 
 #[macro_use]

@@ -3026,7 +3026,7 @@ mod tests {
         let mut caps = valid_runtime_capabilities();
         let focus = caps.focus.as_mut().expect("focus");
         focus.near_end = FocusNearEnd::Maximum;
-        assert_eq!((focus.near(), focus.far()), (2000, 0));
+        assert_eq!((focus.near(), focus.far()), (Some(2000), Some(0)));
         assert!(runtime_builder(caps).build().is_ok());
     }
 

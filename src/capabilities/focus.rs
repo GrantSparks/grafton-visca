@@ -63,8 +63,8 @@ pub trait Focus {
 pub trait FocusExt: Focus {
     /// Validate a focus position is within range.
     ///
-    /// `FOCUS_RANGE` is the validated, ordered interval; `FOCUS_NEAR_END`
-    /// separately identifies its physical orientation.
+    /// `FOCUS_RANGE` is the checked numerical interval; it makes no claim
+    /// about physical near and far orientation.
     fn validate_focus_position(&self, position: u16) -> Result<u16, ValidationError> {
         Self::FOCUS_RANGE.validate("focus position", position)
     }
@@ -83,6 +83,9 @@ pub trait FocusExt: Focus {
         let span = range.max() - range.min();
         let offset = (normalized.value() * f32::from(span)).round() as u16;
         let position = match Self::FOCUS_NEAR_END {
+            crate::capabilities::FocusNearEnd::Unknown => {
+                return Err(ValidationError::NotSupported("focus near/far orientation"))
+            }
             crate::capabilities::FocusNearEnd::Minimum => range.min() + offset,
             crate::capabilities::FocusNearEnd::Maximum => range.max() - offset,
         };
@@ -94,6 +97,9 @@ pub trait FocusExt: Focus {
         self.validate_focus_position(units)?;
         let range = Self::FOCUS_RANGE;
         let offset = match Self::FOCUS_NEAR_END {
+            crate::capabilities::FocusNearEnd::Unknown => {
+                return Err(ValidationError::NotSupported("focus near/far orientation"))
+            }
             crate::capabilities::FocusNearEnd::Minimum => units - range.min(),
             crate::capabilities::FocusNearEnd::Maximum => range.max() - units,
         };
@@ -160,6 +166,21 @@ mod tests {
     fn every_builtin_focus_position_round_trips_through_normalized_units() {
         fn check<P: Focus + Default>() {
             let camera = P::default();
+            if matches!(
+                P::FOCUS_NEAR_END,
+                crate::capabilities::FocusNearEnd::Unknown
+            ) {
+                assert!(matches!(
+                    camera.normalized_to_focus_units(UnitInterval::ZERO),
+                    Err(ValidationError::NotSupported("focus near/far orientation"))
+                ));
+                assert!(matches!(
+                    camera.focus_units_to_normalized(P::FOCUS_RANGE.min()),
+                    Err(ValidationError::NotSupported("focus near/far orientation"))
+                ));
+                assert!(camera.validate_focus_position(P::FOCUS_RANGE.min()).is_ok());
+                return;
+            }
             for position in P::FOCUS_RANGE.min()..=P::FOCUS_RANGE.max() {
                 let normalized = camera.focus_units_to_normalized(position).unwrap();
                 assert_eq!(

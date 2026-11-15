@@ -502,7 +502,8 @@ mod tests {
             Some(0x32)
         );
         assert!(PanSpeed::try_from(Raw(0x33_u8)).is_err());
-        assert!(GainLevel::try_from(Raw(0x10_u8)).is_err());
+        assert!(GainLevel::try_from(Raw(0x19_u8)).is_ok());
+        assert!(GainLevel::try_from(Raw(0x1A_u8)).is_err());
         assert!(IrisLevel::try_from(Raw(0x1F_u8)).is_err());
     }
 

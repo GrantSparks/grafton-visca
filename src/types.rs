@@ -7,13 +7,13 @@ use crate::{error::Error, units::Percentage};
 crate::__grafton_visca_newtype! {
     /// Gain level value for direct gain control.
     ///
-    /// This is the syntactic VISCA nibble domain. Individual camera profiles
+    /// The wire domain includes BRC-H900 codes through `0x19` (R11 p. 36). Camera profiles
     /// retain their documented gain range and reject values outside it during
     /// request preparation.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     #[visca_value(
         min = "0x00",
-        max = "0x0F",
+        max = "0x19",
         display_format = "hex",
         display_prefix = "Gain Level"
     )]
@@ -855,10 +855,11 @@ mod tests {
     fn test_gain_value() {
         assert!(GainLevel::new(0x00).is_ok());
         assert!(GainLevel::new(0x0F).is_ok());
-        assert!(GainLevel::new(0x10).is_err());
+        assert!(GainLevel::new(0x19).is_ok());
+        assert!(GainLevel::new(0x1A).is_err());
 
         assert_eq!(GainLevel::MIN.value(), 0x00);
-        assert_eq!(GainLevel::MAX.value(), 0x0F);
+        assert_eq!(GainLevel::MAX.value(), 0x19);
     }
 
     #[test]

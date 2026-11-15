@@ -588,7 +588,7 @@ macro_rules! typed_support_registry {
                     bit: 52,
                     wire: "ptz-optics-tally",
                     area: "Tally",
-                    api: "PTZOptics packed status, mode, and auto-adjust tally family",
+                    api: "PTZOptics tally flash/on/off commands",
                     surface_doc: "PTZOptics tally extensions, independently gated from Sony red/green tally.",
                     marker_doc: "Marker trait indicating hardware-validated PTZOptics tally-extension support.",
                     diagnostic: "profile `{Self}` does not declare validated PTZOptics tally-extension support",

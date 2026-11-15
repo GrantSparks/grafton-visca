@@ -1,8 +1,8 @@
 //! Issue #635: every noun surface can clear the horizontal mirror.
 //!
-//! `enable_horizontal_flip` shipped without its twin, so on a profile that has
-//! `HasImageMirror` but not `HasCombinedImageFlip` — SonyFR7 here — no noun
-//! method could return the mirror to off.  These tests drive
+//! `enable_horizontal_flip` shipped without its twin. These tests exercise the
+//! source-backed PTZOptics mirror family; FR7 does not grant this opcode.
+//! They drive
 //! `disable_horizontal_flip` on all three noun surfaces against a fake camera
 //! and assert the absolute VISCA frame, then pin the state-cache consequence
 //! of the mirror opcode on the noun path.
@@ -37,7 +37,7 @@ mod blocking_surface {
         blocking::{Session, SessionConfig},
         command::{FlipState, ImageFlipMode},
         profile::ProfileSpec,
-        profiles::{PtzOpticsG2, SonyFR7},
+        profiles::PtzOpticsG2,
         state_cache::StateEntry,
         StateKey,
     };
@@ -54,8 +54,8 @@ mod blocking_surface {
     #[test]
     fn blocking_noun_clears_the_horizontal_mirror() {
         let (session, fake) =
-            session(ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"));
-        let camera = session.camera::<SonyFR7>().expect("camera");
+            session(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile"));
+        let camera = session.camera::<PtzOpticsG2>().expect("camera");
 
         camera.image().enable_horizontal_flip().expect("mirror on");
         assert_eq!(fake.take_only_payload(), MIRROR_ON);
@@ -122,8 +122,8 @@ mod blocking_surface {
 #[cfg(all(feature = "async", feature = "runtime-tokio"))]
 mod async_surface {
     use grafton_visca::{
-        profile::ProfileSpec, profiles::SonyFR7, transport::AddressingMode, Session, SessionConfig,
-        TokioRuntime,
+        profile::ProfileSpec, profiles::PtzOpticsG2, transport::AddressingMode, Session,
+        SessionConfig, TokioRuntime,
     };
 
     use super::{acking_camera, FakeCamera, MIRROR_OFF, MIRROR_ON};
@@ -143,8 +143,8 @@ mod async_surface {
     #[tokio::test]
     async fn async_noun_clears_the_horizontal_mirror() {
         let (session, fake) =
-            open(ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile")).await;
-        let camera = session.camera::<SonyFR7>().expect("camera");
+            open(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile")).await;
+        let camera = session.camera::<PtzOpticsG2>().expect("camera");
 
         camera
             .image()
@@ -167,12 +167,8 @@ mod async_surface {
 #[cfg(all(feature = "dyn-api", feature = "runtime-tokio"))]
 mod dyn_surface {
     use grafton_visca::{
-        command::FlipState,
-        dynapi::DynSessionCameraNouns,
-        profile::ProfileSpec,
-        profiles::{PtzOpticsG2, SonyFR7},
-        state_cache::StateEntry,
-        StateKey,
+        command::FlipState, dynapi::DynSessionCameraNouns, profile::ProfileSpec,
+        profiles::PtzOpticsG2, state_cache::StateEntry, StateKey,
     };
 
     use super::{async_surface::open, MIRROR_OFF, MIRROR_ON};
@@ -180,7 +176,7 @@ mod dyn_surface {
     #[tokio::test]
     async fn dynamic_noun_clears_the_horizontal_mirror() {
         let (session, fake) =
-            open(ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile")).await;
+            open(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZOptics profile")).await;
         let camera = session.camera_dyn().expect("dynamic camera");
         let nouns: &dyn DynSessionCameraNouns = &camera;
 

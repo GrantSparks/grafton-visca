@@ -1360,6 +1360,13 @@ R21 is the Nearus model source for the Nearus BRC-300 profile.
 | U3 | `axis_visca-interface-api-description(2).md` | Patched Axis API text including corrected absolute zoom command, Axis-only ranges, focus-near-limit table, red/blue gain, exposure/shutter rows, shutter-speed table, and Axis inquiries. |
 | U4 | `visca_unified_reference(2).md` | Broad unified guide; used only as background except where cross-validated. Non-PTZOptics/non-Axis sections remain unvalidated unless supported by primary sources. |
 
+R21 p. 21 gives BRC-300/P focus reference positions `1000` (Over Inf)
+through `C000` (1 cm): numerical increase moves toward near focus. The same
+orientation applies to the Sony BRC-300 and Nearus profiles, and to the Generic
+VISCA intersection with EVI-H100. The PTZOptics references give a raw position
+packet without proving near/far numerical orientation; those profiles report
+that fact as unknown instead of inheriting a Sony or Axis convention.
+
 ## Checked positive source evidence
 
 This table is the exact positive lookup used by the source invariant tests.

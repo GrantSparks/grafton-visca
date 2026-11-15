@@ -48,6 +48,8 @@ macro_rules! define_typed_support_surfaces {
         ]
     ) => {
         const TYPED_SUPPORT_SURFACE_COUNT: usize = [$($wire),*].len();
+        const _: () = assert!(TYPED_SUPPORT_SURFACE_COUNT <= u128::BITS as usize, "typed support vocabulary exceeds inline bitset capacity");
+        $(const _: () = assert!($bit < u128::BITS, "typed support bit exceeds inline capacity");)*
 
         /// Optional typed API surface backed by a profile support marker.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -68,7 +70,7 @@ macro_rules! define_typed_support_surfaces {
                 $(Self::$surface,)*
             ];
 
-            const fn bit(self) -> u64 {
+            const fn bit(self) -> u128 {
                 1 << match self {
                     $(Self::$surface => $bit,)*
                 }
@@ -148,7 +150,7 @@ super::typed_support_registry::typed_support_registry!(define_typed_surface_look
 
 /// Compact set of typed API surfaces supported by a profile.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct TypedSupportSet(u64);
+pub struct TypedSupportSet(u128);
 
 impl TypedSupportSet {
     /// Empty typed support set.
@@ -338,7 +340,7 @@ mod tests {
         for (index, surface) in TypedSupportSurface::ALL.into_iter().enumerate() {
             assert_eq!(
                 TypedSupportSet::from_surface(surface).0,
-                1_u64 << index,
+                1_u128 << index,
                 "{surface:?} must use the generated bit matching its canonical position"
             );
         }

@@ -554,7 +554,7 @@ impl std::ops::Deref for ValidatedSessionConfig {
 }
 
 #[cfg(all(test, feature = "blocking"))]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     #[cfg(any(feature = "async", feature = "blocking"))]
     #[test]

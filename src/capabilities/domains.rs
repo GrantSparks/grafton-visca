@@ -9,6 +9,8 @@ use std::{num::NonZeroUsize, ops::RangeInclusive, time::Duration};
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub enum FocusNearEnd {
+    /// The source establishes raw positions but not their physical orientation.
+    Unknown,
     /// The numerical minimum is the near endpoint.
     Minimum,
     /// The numerical maximum is the near endpoint.
@@ -448,19 +450,21 @@ impl ZoomCaps {
 impl FocusCaps {
     /// Returns the near endpoint without assuming numerical orientation.
     #[must_use]
-    pub const fn near(&self) -> u16 {
+    pub const fn near(&self) -> Option<u16> {
         match self.near_end {
-            FocusNearEnd::Minimum => self.range.min(),
-            FocusNearEnd::Maximum => self.range.max(),
+            FocusNearEnd::Unknown => None,
+            FocusNearEnd::Minimum => Some(self.range.min()),
+            FocusNearEnd::Maximum => Some(self.range.max()),
         }
     }
 
     /// Returns the far endpoint without assuming numerical orientation.
     #[must_use]
-    pub const fn far(&self) -> u16 {
+    pub const fn far(&self) -> Option<u16> {
         match self.near_end {
-            FocusNearEnd::Minimum => self.range.max(),
-            FocusNearEnd::Maximum => self.range.min(),
+            FocusNearEnd::Unknown => None,
+            FocusNearEnd::Minimum => Some(self.range.max()),
+            FocusNearEnd::Maximum => Some(self.range.min()),
         }
     }
 }

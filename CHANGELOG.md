@@ -91,7 +91,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documented extended query category. Every built-in command also carries a
   source and checks its encoded register/selector before admission. Unsupported
   Sony grants and orphan value types are withdrawn; FR7 core ranges, EVI focus
-  orientation and the generic tilt-speed ceiling follow their model sources. Test inventories and downstream compile
+  orientation and the generic tilt-speed ceiling follow their model sources.
+  Unverified PTZOptics focus orientation is explicit; normalized physical
+  conversion reports an unsupported feature while raw positioning remains
+  available. Typed support uses a checked inline `u128` capacity for the
+  expanded vendor vocabulary. Test inventories and downstream compile
   contracts follow the sourced surface; sharpness-position decoding remains
   covered through its canonical response kind.
 

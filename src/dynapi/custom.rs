@@ -45,6 +45,12 @@ mod private {
 
         fn write_into(&self, camera: CameraId, buffer: &mut [u8]) -> Result<usize, Error>;
 
+        fn write_for_target(
+            &self,
+            target: &crate::TargetRegistration,
+            buffer: &mut [u8],
+        ) -> Result<usize, Error>;
+
         fn validate_for_target(&self, target: &crate::TargetRegistration) -> Result<(), Error>;
 
         fn applied_state_projection(
@@ -95,6 +101,14 @@ mod private {
 
         fn write_into(&self, camera: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
             Request::write_into(self, camera, buffer)
+        }
+
+        fn write_for_target(
+            &self,
+            target: &crate::TargetRegistration,
+            buffer: &mut [u8],
+        ) -> Result<usize, Error> {
+            Request::write_for_target(self, target, buffer, RequestContractAuthority::new())
         }
 
         fn validate_for_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
@@ -231,6 +245,16 @@ where
 
     fn write_into(&self, camera: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         self.request.write_into(camera, buffer)
+    }
+
+    #[allow(private_interfaces)]
+    fn write_for_target(
+        &self,
+        target: &crate::TargetRegistration,
+        buffer: &mut [u8],
+        _authority: RequestContractAuthority,
+    ) -> Result<usize, Error> {
+        self.request.write_for_target(target, buffer)
     }
 
     fn validate_for_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {

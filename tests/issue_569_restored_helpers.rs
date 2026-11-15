@@ -643,10 +643,11 @@ fn typed_cache_getters_decode_the_remaining_write_only_keys() {
     assert_eq!(cache.tally_brightness_is_high(), None);
     assert_eq!(cache.variable_speed_mode(), None);
 
-    camera.zoom().set_digital_zoom(true).expect("digital zoom");
-    assert_eq!(cache.digital_zoom(), Some(true));
-    camera.zoom().set_digital_zoom(false).expect("digital zoom");
-    assert_eq!(cache.digital_zoom(), Some(false));
+    assert!(matches!(
+        camera.execute(&grafton_visca::command::DigitalZoom::new(true)),
+        Err(Error::FeatureNotSupported { .. })
+    ));
+    assert_eq!(cache.digital_zoom(), None);
 
     assert_eq!(cache.tally_brightness_is_high(), None);
 
