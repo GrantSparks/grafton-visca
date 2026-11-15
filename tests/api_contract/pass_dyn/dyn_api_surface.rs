@@ -47,7 +47,7 @@ fn motion_surface(motion: &dyn DynMotion) {
 fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     motion_surface(camera.motion());
     let power = camera.power();
-    let _: DynFuture<'_, Result<bool, Error>> = power.state();
+    let _: DynFuture<'_, Result<grafton_visca::PowerStatus, Error>> = power.state();
     let _: DynFuture<'_, Result<(), Error>> = power.on();
     let _: DynFuture<'_, Result<(), Error>> = power.off();
 

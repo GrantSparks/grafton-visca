@@ -4,7 +4,7 @@
 
 use grafton_visca_macros::ViscaEnum;
 
-use crate::{command::bytes::constants::power, visca_command};
+use crate::{command::bytes::constants::power, macros::consolidated::visca_command};
 
 /// The status reported by a camera's power inquiry.
 ///

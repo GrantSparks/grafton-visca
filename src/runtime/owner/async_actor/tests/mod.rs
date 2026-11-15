@@ -243,10 +243,6 @@ impl Runtime for ManualRuntime {
     ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + 'a {
         async { Err(Error::NotSupported) }
     }
-
-    fn now(&self) -> Instant {
-        crate::executor::Executor::now(self)
-    }
 }
 
 type RecordedWrites = Arc<Mutex<Vec<(RequestId, Vec<u8>, bool)>>>;

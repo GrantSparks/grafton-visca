@@ -12,7 +12,7 @@
 
 use grafton_visca_macros::ViscaEnum;
 
-use crate::{command::bytes::constants::white_balance, visca_command};
+use crate::{command::bytes::constants::white_balance, macros::consolidated::visca_command};
 
 /// White balance modes.
 ///

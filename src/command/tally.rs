@@ -10,7 +10,7 @@
 //! - Green tally light (`GreenOn`, `GreenOff`) - Sony FR7 specific
 //! - Flash/solid modes (`Flash`, `On`, `Off`) - PtzOptics specific
 
-use crate::{command::bytes::constants::tally, visca_command};
+use crate::{command::bytes::constants::tally, macros::consolidated::visca_command};
 
 visca_command! {
     /// Turn red tally light on.

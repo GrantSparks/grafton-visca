@@ -46,7 +46,7 @@ async fn async_manual_clock_rejects_settlement_query_at_deadline() {
         .await
         .unwrap();
     assert_eq!(handle.snapshot().await.unwrap().active, 0);
-    assert_eq!(Runtime::now(&runtime), now);
+    assert_eq!(crate::executor::Executor::now(&runtime), now);
 
     let error = operation.settled(Some(Duration::ZERO)).await.unwrap_err();
     assert!(matches!(error, Error::ObservationTimeout { .. }));

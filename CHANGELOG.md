@@ -52,6 +52,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `TargetRegistration`; request validation uses `validate_for_target`.
   FR7 speed values extend to 50; values above 24 carry an immutable owner
   dispatch prerequisite requiring session-confirmed Extended step mode.
+- Both facade preludes share one export list, including `CameraSession`,
+  metrics, session status and motion synchronization mode (#883).
 
 - Request preparation writes directly into owned inline storage. Engine admission
   and reusable polling templates share the inert message only when needed;
@@ -162,6 +164,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Settlement plans, owner cancellation intents and admission claims use closed
   internal types instead of contradictory optional fields. Cancellation
   refusals return from the same synchronous engine input (#854).
+
+### Removed
+
+- **BREAKING** (#883): `visca_command!` is crate-internal, superseding the
+  downstream macro guidance published in #811. Downstream commands implement
+  `Request` or use `raw::Plain`; hidden encoder and parameter-buffer exports
+  are removed.
+- **BREAKING** (#883): `Runtime::now` is removed. Custom runtime clocks are
+  implemented through the single authoritative `Executor::now` hook.
 
 ### Fixed
 

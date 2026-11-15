@@ -86,14 +86,6 @@ pub trait Runtime: Executor + Clone + Send + Sync + 'static {
         addr: &'a str,
         cfg: TransportConfig,
     ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + 'a;
-
-    /// Get the current time according to this runtime.
-    ///
-    /// Default implementation delegates to the executor's `now()` method.
-    /// This allows test runtimes to provide virtual time.
-    fn now(&self) -> Instant {
-        <Self as Executor>::now(self)
-    }
 }
 
 /// Runtime trait extension for serial transport support.

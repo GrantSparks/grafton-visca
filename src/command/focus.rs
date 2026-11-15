@@ -18,8 +18,8 @@ use crate::{
         encode::WireEncode,
     },
     error::Error,
+    macros::consolidated::visca_command,
     types::{FocusPosition, FocusSpeed},
-    visca_command,
 };
 
 /// Focus mode setting.

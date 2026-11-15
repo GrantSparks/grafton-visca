@@ -7,10 +7,10 @@ use grafton_visca_macros::ViscaEnum;
 
 use crate::{
     command::bytes::{constants::exposure, step_command_encoder},
+    macros::consolidated::visca_command,
     types::{
         BrightnessLevel, DynamicRangeLevel, ExposureCompensationLevel, IrisLevel, ShutterSpeed,
     },
-    visca_command,
 };
 
 /// Shared diagnostic vocabulary for the standard `04 39` command/inquiry

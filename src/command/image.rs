@@ -14,11 +14,11 @@ use crate::{
         resolution::PictureEffectMode,
     },
     error::Error,
+    macros::consolidated::visca_command,
     types::{
         ContrastLevel, GammaLevel, LuminanceLevel, NoiseReduction2DLevel, NoiseReduction3DLevel,
         SharpnessLevel,
     },
-    visca_command,
 };
 
 /// Sharpness control modes.

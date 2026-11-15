@@ -223,8 +223,9 @@ generated from them:
    row gives the command its `BuiltinCommand` identity and its class
    (`plain`, `applied(<AXES>)` or `targeted(<AXES>)`), plus any write-only
    state effect.
-2. **Wire encoder** (`src/command/<domain>.rs`): the request type and its
-   `WireEncode` implementation, written through `FrameWriter`.
+2. **Wire encoder** (`src/command/<domain>.rs`): fixed-body and single-parameter
+   encoders use the crate-internal `visca_command!` generator. Other
+   `WireEncode` implementations write through `FrameWriter`.
 3. **Request entry** (`src/request/builtin.rs`): one `builtin_request!` entry
    names the request type's ledger row and its policy. Each entry still gives
    an explicit `size:`, the `MAX_SIZE` allocation bound for the request's

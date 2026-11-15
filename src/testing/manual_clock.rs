@@ -1260,6 +1260,7 @@ mod tests {
 
     #[cfg(feature = "test-utils")]
     #[test]
+    #[allow(clippy::panic)] // A task panic must be returned by its join handle.
     fn participant_joins_wait_on_the_clock_and_keep_panic_results() {
         let clock = ManualClock::new();
         let _participant = clock.enter();

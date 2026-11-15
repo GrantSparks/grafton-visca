@@ -260,9 +260,10 @@ mod tests {
                 None,
             ),
         ] {
+            assert!(matches!(&result, Err(Error::ConnectionFailed { .. })));
             let Error::ConnectionFailed { addr, source } = result.expect_err("UDP setup fails")
             else {
-                panic!("UDP setup must use ConnectionFailed");
+                return;
             };
             assert_eq!(addr, ENDPOINT);
             if let Some(kind) = expected_kind {

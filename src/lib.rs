@@ -939,7 +939,7 @@
 
 pub use grafton_visca_macros::{ViscaEnum, ViscaInquiry, ViscaValue};
 
-/// Implementation details used by exported declarative macros.
+/// Implementation details used by `visca_range_type!` and the supported derives.
 ///
 /// This is not a supported public API. It exists so macro expansions can refer
 /// to optional dependencies through the defining crate even when a downstream
@@ -967,10 +967,6 @@ pub mod __macro_support {
     pub use crate::command::bytes::constants::INQUIRY;
     #[doc(hidden)]
     pub use crate::command::bytes::{frame_len, write_frame};
-    #[doc(hidden)]
-    pub use crate::command::encode::WireEncode;
-    #[doc(hidden)]
-    pub use crate::macros::param::{IntoParamBuf, ParamBuf};
     #[doc(hidden)]
     pub use crate::macros::public::RangeInner;
     #[doc(hidden)]

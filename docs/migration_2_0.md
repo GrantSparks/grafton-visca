@@ -994,8 +994,10 @@ malformed reply now fails the same way on every inquiry and profile:
 | The gain inquiry decoded only the last nibble of `00 00 0p 0q` | Both digits: `InquiryData::Gain::gain` is `pq`, and a value above `GainLevel`'s `0x0F` is the typed accessor's `InvalidResponse` protocol error instead of being truncated (#845). |
 | A pan/tilt position reply of the wrong length returned `Error::DecoderNotFound { inquiry_kind, payload_hex }` | `Error::InvalidResponseLength`, as for every other inquiry and framing; `Error::DecoderNotFound` is removed. A profile that pairs BRC-300 framing with unsigned-centered coordinates is rejected where it is built: `ProfileSpecBuilder::build`, `ProfileSpec` and `PanTiltCoordinateConversion` deserialization reject it with the profile-field error `InvalidRequest` naming `pan_tilt_coordinates`, and a compile-time profile that declares it fails to build at `PanTiltCoordinateConversion::for_profile`. |
 | `AutoWhiteBalanceSensitivity::to_command_byte()` | `u8::from(sensitivity)`; the enum derives `ViscaEnum`, so `TryFrom<u8>` decodes it. `Flip` and `ImageFlipMode` derive `ViscaEnum` too. |
-| Unit commands (`PowerOn`, `TallyRedOn`, `SpotlightOn`, ...) had hand-written `new()`/`Default` | `visca_command!` generates `#[derive(Default)]` and a `const fn new()` for every unit command, including commands a downstream crate declares with it; delete a downstream unit command's own `new`/`Default`. |
-| `visca_command!` took `bytes = [..]` / `prefix = [..]` literal lists only | Either form takes any `[u8; N]` expression, so a body can be a named constant. Bodies never include the camera address byte. |
+| `visca_command!` declared downstream commands | The generator is crate-internal. Implement `Request` for a downstream command, or send an explicit frame with `raw::Plain` (#883). |
+
+`Runtime::now` is removed. A runtime exposes its time source through
+`Executor::now`; custom virtual-time runtimes implement that one hook (#883).
 
 ### Transport defaults, connect errors and serial startup (#797–#800, #828)
 

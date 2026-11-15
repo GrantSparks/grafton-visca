@@ -194,8 +194,9 @@ mod tests {
                 "setup refused",
             )),
         );
+        assert!(matches!(&result, Err(Error::ConnectionFailed { .. })));
         let Error::ConnectionFailed { addr, source } = result.expect_err("setup fails") else {
-            panic!("socket setup must use the documented connect error");
+            return;
         };
         assert_eq!(addr, "camera.local:1259");
         assert_eq!(source.kind(), ErrorKind::PermissionDenied);

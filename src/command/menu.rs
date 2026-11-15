@@ -9,7 +9,8 @@ use crate::{
         bytes::{constants::menu, FrameWriter},
         pan_tilt::PanTiltDirection,
     },
-    visca_command, Error,
+    macros::consolidated::visca_command,
+    Error,
 };
 
 visca_command! {

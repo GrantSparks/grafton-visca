@@ -4,7 +4,7 @@
 
 use grafton_visca_macros::ViscaEnum;
 
-use crate::{command::bytes::constants::flip, visca_command};
+use crate::{command::bytes::constants::flip, macros::consolidated::visca_command};
 
 /// Image flip state.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]

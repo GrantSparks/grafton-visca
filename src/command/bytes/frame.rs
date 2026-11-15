@@ -93,7 +93,7 @@ pub(crate) const fn nibbles<const N: usize>(value: u32) -> [u8; N] {
 
 /// Writes `address, parts…, FF` for `camera_id` into `buffer`.
 ///
-/// This is the frame writer behind the public `visca_command!` macro and the
+/// This is the frame writer behind the crate-internal `visca_command!` macro and the
 /// `ViscaInquiry` derive; it is public only so their expansions can name it.
 ///
 /// # Errors
