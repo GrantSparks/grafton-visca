@@ -43,7 +43,7 @@ impl AppliedStateAuthority {
     }
 }
 
-#[cfg(any(feature = "blocking", feature = "async"))]
+#[cfg(any(test, feature = "blocking", feature = "async"))]
 impl RequestContractAuthority {
     pub(crate) const fn new() -> Self {
         Self(private::SealedToken)

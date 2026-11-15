@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Profile-aware wire golden cases cover FR7 mount endpoints, signed relative
+  spans and limits, standard/BRC-300 framing, unsigned relative zero and the
+  BRC-H900 target-specific power inquiry. The FR7 source review explicitly
+  distinguishes Sony vendor-angle signs from the right-positive public API
+  (#870, #893).
+
 - All 17 sourced Sony FR7 control families are available through static and
   dynamic nouns and canonical typed inquiries. Separate preset speeds retain
   their raw-byte grammar, common speeds use two nibbles, and durations use

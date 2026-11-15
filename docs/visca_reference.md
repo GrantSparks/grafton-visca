@@ -836,6 +836,14 @@ tilt uses a positive scale. R7's nominal +195° and +15° endpoints sit in a
 half-unit rounding cell; conversion snaps that cell to the documented integer
 endpoint and otherwise rounds to nearest with halves away from zero.
 
+The original #893 acceptance examples used Sony's vendor-angle signs, rather
+than the library's camera-independent right-positive pan convention. This is
+an explicit correction to those profile-lowering expectations: library pan
+`+170°` (right/CW) encodes `F6359`, and library pan `−170°` (left/CCW) encodes
+`09CA7`. Raw codec semantics remain unchanged: raw `+40103` is `09CA7`, and raw
+`−40103` is `F6359`. The raw codec literal test and the registered-profile
+golden cases pin both interpretations separately.
+
 R7 pp. 18 and 22 use five signed nibbles for **each** pan/tilt axis: absolute
 `8x 01 06 02 vv ww 0p 0p 0p 0p 0p 0t 0t 0t 0t 0t FF`, relative
 `8x 01 06 03 vv ww 0p 0p 0p 0p 0p 0t 0t 0t 0t 0t FF`, and position reply

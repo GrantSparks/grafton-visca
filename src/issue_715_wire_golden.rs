@@ -1,9 +1,10 @@
 //! Exhaustive built-in encoder snapshot for issue #715.
 //!
 //! The fixture is the reviewed current wire inventory: one row per generated
-//! case, 466 rows, covering every built-in command encoder, every generated
-//! inquiry and the camera-address variants. Each row was reviewed against the
-//! source register in `docs/visca_reference.md` when it entered the fixture,
+//! case, covering every built-in command encoder, every generated inquiry,
+//! camera-address variants and registered profile-specific preparation. Each
+//! row was reviewed against the source register in `docs/visca_reference.md`
+//! when it entered the fixture,
 //! including the source-backed 2.0 corrections ratified in D5 (#808, #819),
 //! the three 2D-NR mode rows, and the `FocusZone[Zone03]` row
 //! (`81 01 04 AA 03 FF`, PTZOptics G2 bench, 2026-10-04, #795). The
@@ -1301,6 +1302,7 @@ pub(crate) fn rows() -> Vec<String> {
     );
     row!(o, "PowerInquiry@cam7", PowerInquiry, CameraId::CAMERA_7);
     extra_rows(&mut o);
+    o.extend(registered_profile_rows());
 
     let expected = BuiltinCommand::ALL.iter().copied().collect::<HashSet<_>>();
     assert_eq!(
@@ -1392,5 +1394,425 @@ fn extra_rows(o: &mut Vec<String>) {
         o,
         "NoiseReduction2DModeInquiry",
         NoiseReduction2DModeInquiry
+    );
+}
+
+// The facade builds exercise complete preparation and inert admission. The bare
+// library has no owner/preparation module, so it exercises the same sealed
+// target-validation and serialization seam, retaining identical fixture bytes.
+#[cfg(not(any(feature = "blocking", feature = "async")))]
+fn registered_wire<R: crate::Request>(
+    request: &R,
+    target: &crate::TargetRegistration,
+) -> Result<Vec<u8>, Error> {
+    request.validate_for_target(target)?;
+    let mut buffer = [0; 64];
+    let written = crate::Request::write_for_target(
+        request,
+        target,
+        &mut buffer,
+        crate::requests::RequestContractAuthority::new(),
+    )?;
+    Ok(buffer[..written].to_vec())
+}
+
+fn prepared_position<O: crate::OperationCommand<crate::completion::Targeted>>(
+    request: &O,
+    target: &crate::TargetRegistration,
+) -> Result<Vec<u8>, Error> {
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    {
+        crate::prepared::test_support::prepare_operation::<crate::completion::Targeted, _>(
+            request,
+            target,
+            crate::OperationalTuning::new(),
+            crate::prepared::ClassSelection::Request,
+        )
+        .map(|prepared| prepared.admit_with(|request, _, _, _| request.wire().as_bytes().to_vec()))
+    }
+    #[cfg(not(any(feature = "blocking", feature = "async")))]
+    registered_wire(request, target)
+}
+
+fn prepared_limit<C: crate::PlainCommand>(
+    request: &C,
+    target: &crate::TargetRegistration,
+) -> Result<Vec<u8>, Error> {
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    {
+        crate::prepared::test_support::prepare_command(
+            request,
+            target,
+            crate::OperationalTuning::new(),
+            crate::prepared::ClassSelection::Request,
+        )
+        .map(|prepared| prepared.admit_with(|request, _| request.wire().as_bytes().to_vec()))
+    }
+    #[cfg(not(any(feature = "blocking", feature = "async")))]
+    registered_wire(request, target)
+}
+
+fn prepared_query<Q: crate::Inquiry>(
+    request: &Q,
+    target: &crate::TargetRegistration,
+) -> Result<Vec<u8>, Error> {
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    {
+        crate::prepared::test_support::prepare_inquiry(
+            request,
+            target,
+            crate::OperationalTuning::new(),
+            crate::prepared::ClassSelection::Request,
+        )
+        .map(|prepared| prepared.admit_with(|request, _, _| request.wire().as_bytes().to_vec()))
+    }
+    #[cfg(not(any(feature = "blocking", feature = "async")))]
+    registered_wire(request, target)
+}
+
+#[allow(clippy::expect_used)]
+fn registered_target<P: crate::CompileTimeProfile>() -> crate::TargetRegistration {
+    crate::TargetRegistration::new(
+        CameraId::CAMERA_1,
+        crate::ProfileSpec::from_compile_time::<P>().expect("source-backed profile"),
+    )
+    .expect("individual target")
+}
+
+#[allow(clippy::expect_used)]
+fn unsigned_target() -> crate::TargetRegistration {
+    let source =
+        crate::ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2");
+    let mut capabilities = source.capabilities().clone();
+    capabilities.profile_id = None;
+    capabilities.model_name = "Unsigned-centered coordinate fixture".into();
+    capabilities
+        .pan_tilt
+        .as_mut()
+        .expect("pan/tilt")
+        .coordinates = crate::PanTiltCoordinateConversion::new(
+        crate::capabilities::CoordinateSystem::UnsignedCentered,
+        crate::capabilities::PanTiltWireCodec::StandardVisca,
+        14.4,
+        14.4,
+    )
+    .expect("unsigned standard grammar");
+    let profile = crate::ProfileSpec::builder(capabilities)
+        .transports(source.transports())
+        .envelope(source.envelope())
+        .timing(source.timing())
+        .maximum_command_sockets(source.maximum_command_sockets())
+        .supports_operation_complete(source.supports_operation_complete())
+        .supports_command_cancel(source.supports_command_cancel())
+        .position_inquiries(source.position_inquiries())
+        .build()
+        .expect("validated custom profile");
+    crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("unsigned target")
+}
+
+#[allow(clippy::expect_used)]
+fn registered_profile_rows() -> Vec<String> {
+    use crate::{request::builtin, units::Degrees};
+    let desktop = registered_target::<crate::profiles::SonyFR7>();
+    let ceiling = desktop
+        .clone()
+        .with_mount(crate::MountPosition::Ceiling)
+        .expect("ceiling");
+    let standard = registered_target::<crate::profiles::PtzOpticsG2>();
+    let brc = registered_target::<crate::profiles::SonyBRC300>();
+    let unsigned = unsigned_target();
+    let mut output = Vec::new();
+    macro_rules! case {
+        ($label:literal, $bytes:expr) => {{
+            let result: Result<Vec<u8>, Error> = (|| $bytes)();
+            output.push(match result {
+                Ok(bytes) => format!("{}\t{}", $label, hex(&bytes)),
+                Err(error) => format!("{}\tREJECT({:?})", $label, error.kind()),
+            });
+        }};
+    }
+    macro_rules! position {
+        ($label:literal, $target:ident, $kind:ident, $pan:expr, $tilt:expr, $speed:expr, $other:expr) => {
+            case!(
+                $label,
+                prepared_position(
+                    &builtin::$kind::for_target(
+                        Degrees($pan),
+                        Degrees($tilt),
+                        PanSpeed::new($speed)?,
+                        TiltSpeed::new($other)?,
+                        &$target,
+                    )?,
+                    &$target
+                )
+            );
+        };
+    }
+    position!(
+        "FR7[Desktop,ABS,+170,+195]",
+        desktop,
+        PanTiltAbsolute,
+        170.0,
+        195.0,
+        9,
+        5
+    );
+    position!(
+        "FR7[Desktop,ABS,-170,-30]",
+        desktop,
+        PanTiltAbsolute,
+        -170.0,
+        -30.0,
+        9,
+        5
+    );
+    position!(
+        "FR7[Desktop,REL,+200,0]",
+        desktop,
+        PanTiltRelative,
+        200.0,
+        0.0,
+        9,
+        5
+    );
+    position!(
+        "FR7[Desktop,REL,0,-35]",
+        desktop,
+        PanTiltRelative,
+        0.0,
+        -35.0,
+        9,
+        5
+    );
+    position!(
+        "FR7[Desktop,ABS,+200,0,refused]",
+        desktop,
+        PanTiltAbsolute,
+        200.0,
+        0.0,
+        9,
+        5
+    );
+    position!(
+        "FR7[Desktop,ABS,0,-35,refused]",
+        desktop,
+        PanTiltAbsolute,
+        0.0,
+        -35.0,
+        9,
+        5
+    );
+    case!(
+        "FR7[Desktop,LimitSet,UpRight]",
+        prepared_limit(
+            &builtin::PanTiltLimitSet::for_target(
+                PanTiltLimitCorner::UpRight,
+                Degrees(170.0),
+                Degrees(195.0),
+                &desktop,
+            )?,
+            &desktop
+        )
+    );
+    case!(
+        "FR7[Desktop,LimitSet,DownLeft]",
+        prepared_limit(
+            &builtin::PanTiltLimitSet::for_target(
+                PanTiltLimitCorner::DownLeft,
+                Degrees(-170.0),
+                Degrees(-30.0),
+                &desktop,
+            )?,
+            &desktop
+        )
+    );
+    case!(
+        "FR7[LimitClear,UpRight]",
+        prepared_limit(
+            &builtin::PanTiltLimitClear::for_profile(
+                PanTiltLimitCorner::UpRight,
+                desktop.profile(),
+            )?,
+            &desktop
+        )
+    );
+    case!(
+        "FR7[LimitClear,DownLeft]",
+        prepared_limit(
+            &builtin::PanTiltLimitClear::for_profile(
+                PanTiltLimitCorner::DownLeft,
+                desktop.profile(),
+            )?,
+            &desktop
+        )
+    );
+    position!(
+        "FR7[Ceiling,ABS,0,+15]",
+        ceiling,
+        PanTiltAbsolute,
+        0.0,
+        15.0,
+        9,
+        5
+    );
+    position!(
+        "FR7[Ceiling,ABS,0,-210]",
+        ceiling,
+        PanTiltAbsolute,
+        0.0,
+        -210.0,
+        9,
+        5
+    );
+    position!(
+        "FR7[Ceiling,ABS,0,+80,refused]",
+        ceiling,
+        PanTiltAbsolute,
+        0.0,
+        80.0,
+        9,
+        5
+    );
+    position!("G2[REL,0,-45]", standard, PanTiltRelative, 0.0, -45.0, 9, 7);
+    position!(
+        "G2[ABS,0,-45,refused]",
+        standard,
+        PanTiltAbsolute,
+        0.0,
+        -45.0,
+        9,
+        7
+    );
+    position!(
+        "G2[ABS,+45,+15,paired-speed]",
+        standard,
+        PanTiltAbsolute,
+        45.0,
+        15.0,
+        9,
+        7
+    );
+    position!(
+        "G2[ABS,-45,-15,paired-speed]",
+        standard,
+        PanTiltAbsolute,
+        -45.0,
+        -15.0,
+        9,
+        7
+    );
+    position!(
+        "BRC300[ABS,+45,+15,single-speed]",
+        brc,
+        PanTiltAbsolute,
+        45.0,
+        15.0,
+        9,
+        9
+    );
+    position!(
+        "BRC300[ABS,-45,-15,single-speed]",
+        brc,
+        PanTiltAbsolute,
+        -45.0,
+        -15.0,
+        9,
+        9
+    );
+    position!(
+        "BRC300[REL,+45,+15,single-speed]",
+        brc,
+        PanTiltRelative,
+        45.0,
+        15.0,
+        9,
+        9
+    );
+    position!(
+        "BRC300[REL,-45,-15,single-speed]",
+        brc,
+        PanTiltRelative,
+        -45.0,
+        -15.0,
+        9,
+        9
+    );
+    position!(
+        "BRC300[ABS,unequal-speeds,refused]",
+        brc,
+        PanTiltAbsolute,
+        45.0,
+        15.0,
+        9,
+        7
+    );
+    position!(
+        "Unsigned[ABS,zero,bias]",
+        unsigned,
+        PanTiltAbsolute,
+        0.0,
+        0.0,
+        9,
+        7
+    );
+    position!(
+        "Unsigned[REL,zero,no-bias]",
+        unsigned,
+        PanTiltRelative,
+        0.0,
+        0.0,
+        9,
+        7
+    );
+    case!(
+        "H900[PowerInquiry,target-aware]",
+        prepared_query(
+            &PowerInquiry,
+            &registered_target::<crate::profiles::SonyBRCH900>(),
+        )
+    );
+    output
+}
+
+#[test]
+fn registered_profile_rows_match_reviewed_literals() {
+    // R7 v4 p. 12 states endpoint words and mount ranges; p. 18 shows five
+    // nibbles per axis and the exact limit-clear words. Pan degrees point
+    // opposite the raw axis. Interior offsets use the shared nearest-unit
+    // rule: -35 * 235.9 rounds to -8257; +200 pan degrees is -47180 units.
+    // R12's BRC-300 grammar retains its reserved zero after the single speed,
+    // five pan nibbles and four tilt nibbles. R11's power query is extended.
+    let expected = [
+        "FR7[Desktop,ABS,+170,+195]\t81 01 06 02 09 05 0F 06 03 05 09 00 0B 03 0B 00 FF",
+        "FR7[Desktop,ABS,-170,-30]\t81 01 06 02 09 05 00 09 0C 0A 07 0F 0E 04 05 0B FF",
+        "FR7[Desktop,REL,+200,0]\t81 01 06 03 09 05 0F 04 07 0B 04 00 00 00 00 00 FF",
+        "FR7[Desktop,REL,0,-35]\t81 01 06 03 09 05 00 00 00 00 00 0F 0D 0F 0B 0F FF",
+        "FR7[Desktop,ABS,+200,0,refused]\tREJECT(InvalidParameter)",
+        "FR7[Desktop,ABS,0,-35,refused]\tREJECT(InvalidParameter)",
+        "FR7[Desktop,LimitSet,UpRight]\t81 01 06 07 00 01 0F 06 03 05 09 00 0B 03 0B 00 FF",
+        "FR7[Desktop,LimitSet,DownLeft]\t81 01 06 07 00 00 00 09 0C 0A 07 0F 0E 04 05 0B FF",
+        "FR7[LimitClear,UpRight]\t81 01 06 07 01 01 07 0F 0F 0F 0F 07 0F 0F 0F 0F FF",
+        "FR7[LimitClear,DownLeft]\t81 01 06 07 01 00 07 0F 0F 0F 0F 07 0F 0F 0F 0F FF",
+        "FR7[Ceiling,ABS,0,+15]\t81 01 06 02 09 05 00 00 00 00 00 00 00 0D 0D 02 FF",
+        "FR7[Ceiling,ABS,0,-210]\t81 01 06 02 09 05 00 00 00 00 00 0F 03 0E 07 0D FF",
+        "FR7[Ceiling,ABS,0,+80,refused]\tREJECT(InvalidParameter)",
+        "G2[REL,0,-45]\t81 01 06 03 09 07 00 00 00 00 0F 0D 07 08 FF",
+        "G2[ABS,0,-45,refused]\tREJECT(InvalidParameter)",
+        "G2[ABS,+45,+15,paired-speed]\t81 01 06 02 09 07 00 02 08 08 00 00 0D 08 FF",
+        "G2[ABS,-45,-15,paired-speed]\t81 01 06 02 09 07 0F 0D 07 08 0F 0F 02 08 FF",
+        "BRC300[ABS,+45,+15,single-speed]\t81 01 06 02 09 00 0F 0D 0B 07 00 00 0C 03 00 FF",
+        "BRC300[ABS,-45,-15,single-speed]\t81 01 06 02 09 00 00 02 04 09 00 0F 03 0D 00 FF",
+        "BRC300[REL,+45,+15,single-speed]\t81 01 06 03 09 00 0F 0D 0B 07 00 00 0C 03 00 FF",
+        "BRC300[REL,-45,-15,single-speed]\t81 01 06 03 09 00 00 02 04 09 00 0F 03 0D 00 FF",
+        "BRC300[ABS,unequal-speeds,refused]\tREJECT(InvalidParameter)",
+        "Unsigned[ABS,zero,bias]\t81 01 06 02 09 07 08 00 00 00 08 00 00 00 FF",
+        "Unsigned[REL,zero,no-bias]\t81 01 06 03 09 07 00 00 00 00 00 00 00 00 FF",
+        "H900[PowerInquiry,target-aware]\t81 09 7E 04 00 FF",
+    ];
+    let actual = registered_profile_rows();
+    assert_eq!(actual, expected);
+    assert!(
+        rows().ends_with(&actual),
+        "registered cases must enter the golden generator"
     );
 }
