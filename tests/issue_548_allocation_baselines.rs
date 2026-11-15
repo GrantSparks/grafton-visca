@@ -383,17 +383,20 @@ fn profiled_position_inquiry_preparation_and_decoder_clones_stay_inline() {
         ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC-300"),
         ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7"),
     ];
-    for profile in &profiles {
+    let targets = profiles.map(|profile| {
+        grafton_visca::TargetRegistration::new(CameraId::CAMERA_1, profile)
+            .expect("target registration")
+    });
+    for target in &targets {
         let allocations = allocations_during(|| {
             for _ in 0..100 {
                 preparation::check_inquiry(
                     &PanTiltPositionInquiry,
-                    CameraId::CAMERA_1,
-                    profile,
+                    target,
                     OperationalTuning::new(),
                 )
                 .expect("position inquiry prepares");
-                let decoder = PanTiltPositionInquiry.decoder_for_profile(profile);
+                let decoder = PanTiltPositionInquiry.decoder_for_profile(target.profile());
                 std::hint::black_box(decoder.clone());
             }
         });
