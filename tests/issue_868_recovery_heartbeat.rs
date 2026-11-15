@@ -41,7 +41,9 @@ fn heartbeat_policy_counts_every_nonfatal_failure_and_recognizes_new_activity() 
             unanswered += 1;
         }
         if attempt == 0 {
-            assert!(matches!(failure, Error::InquiryFailed { source, .. } if matches!(&*source, Error::Timeout { .. })));
+            assert!(
+                matches!(failure, Error::InquiryFailed { source, .. } if matches!(&*source, Error::Timeout { .. }))
+            );
         } else {
             assert!(matches!(failure, Error::InquiryCorrelationLost { .. }));
         }

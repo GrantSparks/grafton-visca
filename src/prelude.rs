@@ -68,7 +68,7 @@ macro_rules! shared_prelude {
         pub use crate::{
             AutoWhiteBalanceSensitivity, CancellationOutcome, Error, ExposureMode,
             MetricsSnapshot, MotionSyncMode, NdFilterMode, PanTiltDirection,
-            PanTiltLimitCorner, PanTiltLimitUpdate, PowerStatus, PresetNumber,
+            PanTiltLimitCorner, PanTiltLimitUpdate, PowerStatus, PresetNumber, Recovery,
             SessionStatus, StateCache, StateEntry, StateKey, KnownState, WhiteBalanceMode,
         };
         pub use $($facade)::+::{
