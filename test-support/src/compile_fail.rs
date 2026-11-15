@@ -824,6 +824,9 @@ fn append_unattributed(report: &mut String, compilation: &FixtureCompilation, un
 /// the source being checked.
 fn nested_cargo_command() -> Command {
     let mut command = Command::new(cargo_executable());
+    // Internal contract fixtures include their actual production trait source
+    // without exposing a public test-only API or depending on target layout.
+    command.env("GRAFTON_VISCA_SOURCE_ROOT", grafton_visca_root());
     // Do not inherit the host's `/dev/null` for nested Cargo/rustc probes.
     // Some CI/container environments expose a regular file there, and its
     // contents can be consumed by rustc's `-` target-info probe instead of

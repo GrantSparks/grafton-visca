@@ -103,6 +103,7 @@ macro_rules! builtin_request {
     (@contract $type:ty, $row:ident [$(profile_axes)?] [$($by_value:ident)?]) => {
         impl BuiltinRequestContract for $type {
             const LEDGER_ROW: BuiltinCommand = BuiltinCommand::$row;
+            type State = <crate::command::semantics::LedgerRow<{ BuiltinCommand::$row as usize }> as crate::command::semantics::LedgerState>::State;
         }
     };
     (@contract $type:ty, $row:ident [$flag:ident] $by_value:tt) => {
@@ -220,7 +221,7 @@ macro_rules! builtin_request {
                 &self,
                 _authority: crate::requests::AppliedStateAuthority,
             ) -> Option<crate::runtime::engine::AppliedStateProjection> {
-                <Self as BuiltinValidation>::applied_state(self)
+                <<Self as BuiltinRequestContract>::State as BuiltinStateProjection<Self>>::project(self)
             }
         }
 
@@ -234,25 +235,9 @@ macro_rules! builtin_request {
     )+};
 }
 
-pub(crate) trait BuiltinValidation {
-    /// Checks only value-dependent facts after the generated row gate.
-    fn validate(&self, _profile: &crate::ProfileSpec) -> Result<(), Error> {
-        Ok(())
-    }
-
-    fn validate_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
-        self.validate(target.profile())
-    }
-
-    fn pan_tilt_max_speed(&self) -> Option<u8> {
-        None
-    }
-
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        None
-    }
-}
+pub(crate) use super::builtin_contract::BuiltinValidation;
+#[cfg(any(feature = "blocking", feature = "async"))]
+use super::builtin_contract::{BuiltinStateProjection, BuiltinStateValue};
 
 fn require(supported: bool, feature: &'static str) -> Result<(), Error> {
     if supported {
@@ -842,14 +827,7 @@ impl BuiltinValidation for crate::command::image::NoiseReduction2D {}
 
 impl BuiltinValidation for crate::command::image::NoiseReduction3D {}
 
-impl BuiltinValidation for crate::command::image::ImageFlipCombinedCommand {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        // The combined opcode carries both axes in one parameter byte, so a
-        // successful application establishes the complete pair.
-        known_projection(crate::KnownState::Flip(self.mode.into()))
-    }
-}
+impl BuiltinValidation for crate::command::image::ImageFlipCombinedCommand {}
 
 impl BuiltinValidation for crate::command::image::PictureEffectCommand {}
 
@@ -933,46 +911,9 @@ impl BuiltinValidation for crate::command::system::CommandCancelCommand {
     }
 }
 
-impl BuiltinValidation for ImageFlipCommand {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        // This opcode moves only the vertical axis. The horizontal axis keeps
-        // whatever value it had, which this request does not know, so the
-        // complete pair stops being known.
-        invalidated_projection::<Self>()
-    }
-}
+impl BuiltinValidation for ImageFlipCommand {}
 
-impl BuiltinValidation for ImageMirrorCommand {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        // The mirror opcode is the horizontal twin of `ImageFlipCommand` and
-        // leaves the vertical axis unknown for the same reason.
-        invalidated_projection::<Self>()
-    }
-}
-
-#[cfg(any(feature = "blocking", feature = "async"))]
-fn known_projection(
-    value: crate::KnownState,
-) -> Option<crate::runtime::engine::AppliedStateProjection> {
-    Some(crate::runtime::engine::AppliedStateProjection::set(value))
-}
-
-#[cfg(any(feature = "blocking", feature = "async"))]
-fn invalidated_projection<T: BuiltinRequestContract>(
-) -> Option<crate::runtime::engine::AppliedStateProjection> {
-    use crate::command::semantics::AppliedStateEffectRequirement;
-    let state = const {
-        match crate::command::semantics::state_effect::<T>() {
-            AppliedStateEffectRequirement::Invalidate(state) => state,
-            _ => panic!("an invalidating request must declare an invalidation"),
-        }
-    };
-    Some(crate::runtime::engine::AppliedStateProjection::invalidate(
-        state,
-    ))
-}
+impl BuiltinValidation for ImageMirrorCommand {}
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct PreparedPanTiltPosition {
@@ -1353,6 +1294,9 @@ pub(crate) struct BuiltinTypedRequestCoverage {
     /// Command branch/value family represented by the typed request.
     #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     pub branch: &'static str,
+    /// Key selected by the row's generated projection type.
+    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
+    pub state_key: Option<crate::StateKey>,
 }
 
 /// The one construction site of [`BuiltinTypedRequestCoverage`].
@@ -1389,6 +1333,8 @@ macro_rules! typed_request_coverage {
                 type_name: stringify!($ty),
                 #[cfg(all(test, any(feature = "blocking", feature = "async")))]
                 branch: $branch,
+                #[cfg(all(test, any(feature = "blocking", feature = "async")))]
+                state_key: <<$ty as BuiltinRequestContract>::State as super::builtin_contract::StateDescriptor>::KEY,
             }
         }
     };
@@ -2302,16 +2248,6 @@ impl BuiltinValidation for PanTiltLimitSet {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         self.position.validate(profile)
     }
-
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        known_projection(crate::KnownState::PanTiltLimits(
-            crate::PanTiltLimitUpdate::set(
-                self.corner,
-                crate::camera::PanTiltPosition::new(self.position.pan, self.position.tilt),
-            ),
-        ))
-    }
 }
 
 impl BuiltinValidation for PanTiltLimitClear {
@@ -2325,13 +2261,6 @@ impl BuiltinValidation for PanTiltLimitClear {
             ));
         }
         Ok(())
-    }
-
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        known_projection(crate::KnownState::PanTiltLimits(
-            crate::PanTiltLimitUpdate::clear(self.corner),
-        ))
     }
 }
 
@@ -2482,132 +2411,170 @@ impl BuiltinValidation for crate::command::preset::PresetRecallSpeedCommand {
                 })?;
         require_in_range("preset recall speed", speed, range)
     }
-
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        known_projection(crate::KnownState::PresetRecallSpeed(self.speed.value()))
-    }
 }
 
-impl BuiltinValidation for crate::command::focus::FocusLock {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        known_projection(crate::KnownState::FocusLockMode(matches!(self, Self::On)))
+impl BuiltinValidation for crate::command::focus::FocusLock {}
+
+impl BuiltinValidation for crate::command::exposure::SpotlightOn {}
+
+impl BuiltinValidation for crate::command::exposure::SpotlightOff {}
+
+impl BuiltinValidation for crate::command::exposure::AutoSlowShutterOn {}
+
+impl BuiltinValidation for crate::command::exposure::AutoSlowShutterOff {}
+
+impl BuiltinValidation for crate::command::nd_filter::NdFilterModeCommand {}
+
+impl BuiltinValidation for crate::command::nd_filter::AutoNdCommand {}
+
+impl BuiltinValidation for crate::command::flip::ImageFreeze {}
+
+impl BuiltinValidation for crate::command::zoom::DigitalZoom {}
+
+impl BuiltinValidation for crate::command::streaming::MulticastStreaming {}
+
+impl BuiltinValidation for crate::command::streaming::SetNdiQuality {}
+
+impl BuiltinValidation for crate::command::tally::TallyBrightLo {}
+
+impl BuiltinValidation for crate::command::tally::TallyBrightHi {}
+
+impl BuiltinValidation for crate::command::variable_speed::SetVariableSpeedMode {}
+
+impl BuiltinValidation for crate::command::tally::TallyOn {}
+
+impl BuiltinValidation for crate::command::tally::TallyOff {}
+
+impl BuiltinValidation for crate::command::tally::TallyFlash {}
+
+// State keys and verbs come from the ledger; requests supply only typed values.
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<crate::command::FlipState>
+    for crate::command::image::ImageFlipCombinedCommand
+{
+    fn state_value(&self) -> crate::command::FlipState {
+        self.mode.into()
     }
 }
-
-impl BuiltinValidation for crate::command::exposure::SpotlightOn {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        known_projection(crate::KnownState::Spotlight(true))
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<crate::PanTiltLimitUpdate> for PanTiltLimitSet {
+    fn state_value(&self) -> crate::PanTiltLimitUpdate {
+        crate::PanTiltLimitUpdate::set(
+            self.corner,
+            crate::camera::PanTiltPosition::new(self.position.pan, self.position.tilt),
+        )
     }
 }
-
-impl BuiltinValidation for crate::command::exposure::SpotlightOff {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        known_projection(crate::KnownState::Spotlight(false))
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<crate::PanTiltLimitUpdate> for PanTiltLimitClear {
+    fn state_value(&self) -> crate::PanTiltLimitUpdate {
+        crate::PanTiltLimitUpdate::clear(self.corner)
     }
 }
-
-impl BuiltinValidation for crate::command::exposure::AutoSlowShutterOn {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        known_projection(crate::KnownState::AutoSlowShutter(true))
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<u8> for crate::command::preset::PresetRecallSpeedCommand {
+    fn state_value(&self) -> u8 {
+        self.speed.value()
     }
 }
-
-impl BuiltinValidation for crate::command::exposure::AutoSlowShutterOff {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        known_projection(crate::KnownState::AutoSlowShutter(false))
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<bool> for crate::command::focus::FocusLock {
+    fn state_value(&self) -> bool {
+        matches!(self, Self::On)
     }
 }
-
-impl BuiltinValidation for crate::command::nd_filter::NdFilterModeCommand {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        known_projection(crate::KnownState::NdFilterMode(self.mode()))
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<bool> for crate::command::exposure::SpotlightOn {
+    fn state_value(&self) -> bool {
+        true
     }
 }
-
-impl BuiltinValidation for crate::command::nd_filter::AutoNdCommand {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        known_projection(crate::KnownState::AutoNdFilter(self.enabled()))
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<bool> for crate::command::exposure::SpotlightOff {
+    fn state_value(&self) -> bool {
+        false
     }
 }
-
-impl BuiltinValidation for crate::command::flip::ImageFreeze {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        known_projection(crate::KnownState::ImageFreeze(self.enabled()))
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<bool> for crate::command::exposure::AutoSlowShutterOn {
+    fn state_value(&self) -> bool {
+        true
     }
 }
-
-impl BuiltinValidation for crate::command::zoom::DigitalZoom {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        known_projection(crate::KnownState::DigitalZoomMode(self.enabled()))
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<bool> for crate::command::exposure::AutoSlowShutterOff {
+    fn state_value(&self) -> bool {
+        false
     }
 }
-
-impl BuiltinValidation for crate::command::streaming::MulticastStreaming {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        known_projection(crate::KnownState::MulticastStreaming(matches!(
-            self,
-            Self::On
-        )))
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<crate::command::NdFilterMode>
+    for crate::command::nd_filter::NdFilterModeCommand
+{
+    fn state_value(&self) -> crate::command::NdFilterMode {
+        self.mode()
     }
 }
-
-impl BuiltinValidation for crate::command::streaming::SetNdiQuality {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        known_projection(crate::KnownState::NdiQuality(self.quality))
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<bool> for crate::command::nd_filter::AutoNdCommand {
+    fn state_value(&self) -> bool {
+        self.enabled()
     }
 }
-
-impl BuiltinValidation for crate::command::tally::TallyBrightLo {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        known_projection(crate::KnownState::TallyBrightness(false))
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<bool> for crate::command::flip::ImageFreeze {
+    fn state_value(&self) -> bool {
+        self.enabled()
     }
 }
-
-impl BuiltinValidation for crate::command::tally::TallyBrightHi {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        known_projection(crate::KnownState::TallyBrightness(true))
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<bool> for crate::command::zoom::DigitalZoom {
+    fn state_value(&self) -> bool {
+        self.enabled()
     }
 }
-
-impl BuiltinValidation for crate::command::variable_speed::SetVariableSpeedMode {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        known_projection(crate::KnownState::VariableSpeedMode(self.mode))
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<bool> for crate::command::streaming::MulticastStreaming {
+    fn state_value(&self) -> bool {
+        matches!(self, Self::On)
     }
 }
-
-impl BuiltinValidation for crate::command::tally::TallyOn {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        known_projection(crate::KnownState::TallyMode(true))
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<crate::types::NdiQuality> for crate::command::streaming::SetNdiQuality {
+    fn state_value(&self) -> crate::types::NdiQuality {
+        self.quality
     }
 }
-
-impl BuiltinValidation for crate::command::tally::TallyOff {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        known_projection(crate::KnownState::TallyMode(false))
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<bool> for crate::command::tally::TallyBrightLo {
+    fn state_value(&self) -> bool {
+        false
     }
 }
-
-impl BuiltinValidation for crate::command::tally::TallyFlash {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
-        invalidated_projection::<Self>()
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<bool> for crate::command::tally::TallyBrightHi {
+    fn state_value(&self) -> bool {
+        true
+    }
+}
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<crate::command::VariableSpeedMode>
+    for crate::command::variable_speed::SetVariableSpeedMode
+{
+    fn state_value(&self) -> crate::command::VariableSpeedMode {
+        self.mode
+    }
+}
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<bool> for crate::command::tally::TallyOn {
+    fn state_value(&self) -> bool {
+        true
+    }
+}
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl BuiltinStateValue<bool> for crate::command::tally::TallyOff {
+    fn state_value(&self) -> bool {
+        false
     }
 }
 
@@ -3526,21 +3493,12 @@ mod tests {
         command: &C,
         profile: &ProfileSpec,
         semantic: BuiltinCommand,
-        requirement: crate::command::semantics::AppliedStateEffectRequirement,
         expected: crate::runtime::engine::AppliedStateProjection,
     ) where
         C: PlainCommand + ?Sized,
     {
-        assert_eq!(
-            semantic.classification(),
-            crate::command::semantics::BuiltinRequestClass::Plain {
-                state_effect: Some(requirement),
-            },
-            "{name} classification"
-        );
         let actual = prepared_state(command, profile);
-        assert_eq!(actual, expected, "{name} applied-state projection");
-        assert_eq!(actual.key(), requirement.state(), "{name} ledger key");
+        assert_eq!(actual, expected, "{name} {semantic:?} applied-state value");
     }
 
     // Some command rows deliberately have no built-in profile permission yet
@@ -3552,54 +3510,55 @@ mod tests {
         name: &str,
         command: &C,
         semantic: BuiltinCommand,
-        requirement: crate::command::semantics::AppliedStateEffectRequirement,
         expected: crate::runtime::engine::AppliedStateProjection,
     ) where
-        C: BuiltinValidation + ?Sized,
+        C: Request + ?Sized,
     {
-        assert_eq!(
-            semantic.classification(),
-            crate::command::semantics::BuiltinRequestClass::Plain {
-                state_effect: Some(requirement),
-            },
-            "{name} classification"
-        );
-        let actual = BuiltinValidation::applied_state(command)
+        let actual = command
+            .applied_state_projection(crate::requests::AppliedStateAuthority::new())
             .expect("state command must expose an applied-state projection");
-        assert_eq!(actual, expected, "{name} applied-state projection");
-        assert_eq!(actual.key(), requirement.state(), "{name} ledger key");
+        assert_eq!(actual, expected, "{name} {semantic:?} applied-state value");
     }
 
     #[test]
     fn every_write_only_state_command_has_an_exact_closed_projection() {
-        use crate::command::semantics::{
-            AppliedStateEffectRequirement::{Clear, Invalidate, Set},
-            BuiltinCommand as B,
-        };
+        use crate::command::semantics::BuiltinCommand as B;
         use crate::StateKey as S;
+
+        // Coverage comes from the closed ledger and generated request inventory,
+        // not the value examples below. A newly stateful row participates here
+        // automatically; its generated hook must also type-check in every build.
+        for row in BuiltinCommand::ALL {
+            let expected = row
+                .classification()
+                .state_effect()
+                .map(|effect| effect.state());
+            let entries = BUILTIN_TYPED_REQUEST_INVENTORY
+                .iter()
+                .filter(|entry| entry.row == *row);
+            let mut covered = false;
+            for entry in entries {
+                covered = true;
+                assert_eq!(entry.state_key, expected, "{row:?} generated state key");
+            }
+            assert!(covered, "{row:?} has no generated request projection");
+        }
 
         let ptz = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PTZ profile");
         let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
         let evi = ProfileSpec::from_compile_time::<SonyEVIH100>().expect("EVI profile");
 
         macro_rules! row {
-            ($name:literal, $command:expr, $profile:expr, $semantic:expr, $requirement:expr, $expected:expr) => {{
+            ($name:literal, $command:expr, $profile:expr, $semantic:expr, $expected:expr) => {{
                 let command = $command;
-                assert_state_row(
-                    $name,
-                    &command,
-                    $profile,
-                    $semantic,
-                    $requirement,
-                    $expected,
-                );
+                assert_state_row($name, &command, $profile, $semantic, $expected);
             }};
         }
 
         macro_rules! semantic_row {
-            ($name:literal, $command:expr, $semantic:expr, $requirement:expr, $expected:expr) => {{
+            ($name:literal, $command:expr, $semantic:expr, $expected:expr) => {{
                 let command = $command;
-                assert_semantic_state_row($name, &command, $semantic, $requirement, $expected);
+                assert_semantic_state_row($name, &command, $semantic, $expected);
             }};
         }
 
@@ -3616,7 +3575,6 @@ mod tests {
             .expect("limit set"),
             &ptz,
             B::PanTiltLimitSet,
-            Set(S::PanTiltLimits),
             crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::PanTiltLimits(
                 crate::PanTiltLimitUpdate::set(
                     PanTiltLimitCorner::DownLeft,
@@ -3629,7 +3587,6 @@ mod tests {
             PanTiltLimitClear::new(PanTiltLimitCorner::UpRight),
             &ptz,
             B::PanTiltLimitClear,
-            Clear(S::PanTiltLimits),
             crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::PanTiltLimits(
                 crate::PanTiltLimitUpdate::clear(PanTiltLimitCorner::UpRight)
             ))
@@ -3642,7 +3599,6 @@ mod tests {
             },
             &ptz,
             B::PresetRecallSpeed,
-            Set(S::PresetRecallSpeed),
             crate::runtime::engine::AppliedStateProjection::set(
                 crate::KnownState::PresetRecallSpeed(12)
             )
@@ -3652,7 +3608,6 @@ mod tests {
             FocusLock::On,
             &ptz,
             B::FocusLock,
-            Set(S::FocusLockMode),
             crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::FocusLockMode(
                 true
             ))
@@ -3662,7 +3617,6 @@ mod tests {
             FocusLock::Off,
             &ptz,
             B::FocusLock,
-            Set(S::FocusLockMode),
             crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::FocusLockMode(
                 false
             ))
@@ -3673,7 +3627,6 @@ mod tests {
             SpotlightOn::new(),
             &fr7,
             B::SpotlightOn,
-            Set(S::Spotlight),
             crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::Spotlight(true))
         );
         row!(
@@ -3681,7 +3634,6 @@ mod tests {
             SpotlightOff::new(),
             &fr7,
             B::SpotlightOff,
-            Set(S::Spotlight),
             crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::Spotlight(
                 false
             ))
@@ -3691,7 +3643,6 @@ mod tests {
             AutoSlowShutterOn::new(),
             &evi,
             B::AutoSlowShutterOn,
-            Set(S::AutoSlowShutter),
             crate::runtime::engine::AppliedStateProjection::set(
                 crate::KnownState::AutoSlowShutter(true)
             )
@@ -3701,7 +3652,6 @@ mod tests {
             AutoSlowShutterOff::new(),
             &evi,
             B::AutoSlowShutterOff,
-            Set(S::AutoSlowShutter),
             crate::runtime::engine::AppliedStateProjection::set(
                 crate::KnownState::AutoSlowShutter(false)
             )
@@ -3712,7 +3662,6 @@ mod tests {
             NdFilterModeCommand::new(NdFilterMode::Preset),
             &fr7,
             B::NdFilterMode,
-            Set(S::NdFilterMode),
             crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::NdFilterMode(
                 NdFilterMode::Preset
             ))
@@ -3722,7 +3671,6 @@ mod tests {
             NdFilterModeCommand::new(NdFilterMode::Variable),
             &fr7,
             B::NdFilterMode,
-            Set(S::NdFilterMode),
             crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::NdFilterMode(
                 NdFilterMode::Variable
             ))
@@ -3732,7 +3680,6 @@ mod tests {
             AutoNdCommand::new(true),
             &fr7,
             B::NdFilterAutoOn,
-            Set(S::AutoNdFilter),
             crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::AutoNdFilter(
                 true
             ))
@@ -3742,7 +3689,6 @@ mod tests {
             AutoNdCommand::new(false),
             &fr7,
             B::NdFilterAutoOff,
-            Set(S::AutoNdFilter),
             crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::AutoNdFilter(
                 false
             ))
@@ -3752,7 +3698,6 @@ mod tests {
             "image freeze on",
             ImageFreeze::on(),
             B::ImageFreezeOn,
-            Set(S::ImageFreeze),
             crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::ImageFreeze(
                 true
             ))
@@ -3761,7 +3706,6 @@ mod tests {
             "image freeze off",
             ImageFreeze::off(),
             B::ImageFreezeOff,
-            Set(S::ImageFreeze),
             crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::ImageFreeze(
                 false
             ))
@@ -3771,7 +3715,6 @@ mod tests {
             DigitalZoom::new(true),
             &evi,
             B::DigitalZoom,
-            Set(S::DigitalZoomMode),
             crate::runtime::engine::AppliedStateProjection::set(
                 crate::KnownState::DigitalZoomMode(true)
             )
@@ -3781,7 +3724,6 @@ mod tests {
             DigitalZoom::new(false),
             &evi,
             B::DigitalZoom,
-            Set(S::DigitalZoomMode),
             crate::runtime::engine::AppliedStateProjection::set(
                 crate::KnownState::DigitalZoomMode(false)
             )
@@ -3792,7 +3734,6 @@ mod tests {
             MulticastStreaming::On,
             &ptz,
             B::MulticastStreamingOn,
-            Set(S::MulticastStreaming),
             crate::runtime::engine::AppliedStateProjection::set(
                 crate::KnownState::MulticastStreaming(true)
             )
@@ -3802,7 +3743,6 @@ mod tests {
             MulticastStreaming::Off,
             &ptz,
             B::MulticastStreamingOff,
-            Set(S::MulticastStreaming),
             crate::runtime::engine::AppliedStateProjection::set(
                 crate::KnownState::MulticastStreaming(false)
             )
@@ -3819,7 +3759,6 @@ mod tests {
                 &command,
                 &ptz,
                 B::NdiQuality,
-                Set(S::NdiQuality),
                 crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::NdiQuality(
                     quality,
                 )),
@@ -3830,7 +3769,6 @@ mod tests {
             "tally brightness low",
             TallyBrightLo::new(),
             B::TallyBrightLow,
-            Set(S::TallyBrightness),
             crate::runtime::engine::AppliedStateProjection::set(
                 crate::KnownState::TallyBrightness(false)
             )
@@ -3839,7 +3777,6 @@ mod tests {
             "tally brightness high",
             TallyBrightHi::new(),
             B::TallyBrightHigh,
-            Set(S::TallyBrightness),
             crate::runtime::engine::AppliedStateProjection::set(
                 crate::KnownState::TallyBrightness(true)
             )
@@ -3849,7 +3786,6 @@ mod tests {
             crate::command::SetVariableSpeedMode::new(VariableSpeedMode::Standard24),
             &fr7,
             B::VariableSpeedMode,
-            Set(S::VariableSpeedMode),
             crate::runtime::engine::AppliedStateProjection::set(
                 crate::KnownState::VariableSpeedMode(VariableSpeedMode::Standard24)
             )
@@ -3859,7 +3795,6 @@ mod tests {
             crate::command::SetVariableSpeedMode::new(VariableSpeedMode::Fine50),
             &fr7,
             B::VariableSpeedMode,
-            Set(S::VariableSpeedMode),
             crate::runtime::engine::AppliedStateProjection::set(
                 crate::KnownState::VariableSpeedMode(VariableSpeedMode::Fine50)
             )
@@ -3872,14 +3807,12 @@ mod tests {
             "tally on",
             TallyOn::new(),
             B::TallyOn,
-            Set(S::TallyMode),
             crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::TallyMode(true))
         );
         semantic_row!(
             "tally off",
             TallyOff::new(),
             B::TallyOff,
-            Set(S::TallyMode),
             crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::TallyMode(
                 false
             ))
@@ -3888,7 +3821,6 @@ mod tests {
             "tally flash",
             TallyFlash::new(),
             B::TallyFlash,
-            Invalidate(S::TallyMode),
             crate::runtime::engine::AppliedStateProjection::invalidate(S::TallyMode)
         );
 
@@ -3926,7 +3858,6 @@ mod tests {
                 &crate::command::ImageFlipCombinedCommand::new(mode),
                 &ptz,
                 B::ImageFlipCombined,
-                Set(S::Flip),
                 crate::runtime::engine::AppliedStateProjection::set(crate::KnownState::Flip(
                     crate::command::FlipState {
                         horizontal: horizontal != 0,
@@ -3940,7 +3871,6 @@ mod tests {
             ImageFlipCommand::new(Flip::On),
             &ptz,
             B::ImageFlipVertical,
-            Invalidate(S::Flip),
             crate::runtime::engine::AppliedStateProjection::invalidate(S::Flip)
         );
         row!(
@@ -3948,7 +3878,6 @@ mod tests {
             ImageMirrorCommand::new(true),
             &ptz,
             B::ImageFlipHorizontal,
-            Invalidate(S::Flip),
             crate::runtime::engine::AppliedStateProjection::invalidate(S::Flip)
         );
         row!(
@@ -3956,7 +3885,6 @@ mod tests {
             ImageMirrorCommand::new(false),
             &ptz,
             B::ImageFlipHorizontalOff,
-            Invalidate(S::Flip),
             crate::runtime::engine::AppliedStateProjection::invalidate(S::Flip)
         );
     }

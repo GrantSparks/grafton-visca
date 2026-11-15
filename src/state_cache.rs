@@ -48,6 +48,24 @@ macro_rules! state_key_ledger {
             }
         }
 
+        /// Type-level state keys used by the built-in semantic ledger.
+        pub(crate) mod state_values {
+            use super::*;
+
+            $(
+                pub(crate) struct $key;
+
+                impl crate::request::builtin_contract::StateValue for $key {
+                    const KEY: StateKey = StateKey::$key;
+                    type Value = $value;
+
+                    fn known(value: Self::Value) -> KnownState {
+                        KnownState::$key(value)
+                    }
+                }
+            )+
+        }
+
         #[cfg(any(feature = "blocking", feature = "async"))]
         impl StateCache {
             $(#[doc = $doc]

@@ -10,8 +10,7 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::{
-    protocol::framer::RawIncompletePrefix, raw::INLINE_BYTES, raw::MAX_BYTES, Error, StateKey,
-    ViscaSocket,
+    protocol::framer::RawIncompletePrefix, raw::INLINE_BYTES, raw::MAX_BYTES, Error, ViscaSocket,
 };
 
 /// Maximum number of Sony sequences retained for one request across retries.
@@ -403,34 +402,7 @@ impl RequestContext {
     }
 }
 
-/// Closed, inline effect on one write-only key.
-///
-/// Known values imply their key. A cleared limit is a typed known update,
-/// whereas invalidation explicitly records that the key can no longer be trusted.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum AppliedStateProjection {
-    Set(crate::state_cache::KnownState),
-    Invalidate { key: StateKey },
-}
-
-impl AppliedStateProjection {
-    pub(crate) const fn set(value: crate::state_cache::KnownState) -> Self {
-        Self::Set(value)
-    }
-    pub(crate) const fn invalidate(key: StateKey) -> Self {
-        Self::Invalidate { key }
-    }
-    pub(crate) const fn key(self) -> StateKey {
-        match self {
-            Self::Set(value) => value.key(),
-            Self::Invalidate { key } => key,
-        }
-    }
-    #[cfg(test)]
-    pub(crate) const fn is_known(self) -> bool {
-        matches!(self, Self::Set(_))
-    }
-}
+pub(crate) use crate::request::builtin_contract::AppliedStateProjection;
 
 /// The two kinds of protocol work a camera serves independently.
 ///
