@@ -52,8 +52,8 @@ The optional typed gates are exactly the following closed list:
 `PtzOpticsAntiFlicker`, `PtzOpticsSettingsSave`,
 `PtzOpticsPresetRecallSpeed`, `SonySpotlight`, `SonyAutoSlowShutter`,
 `PtzOpticsMulticastStreaming`, `PtzOpticsNdiQuality`, `ExposureMode`,
-`IrisControlInquiry`, `NoiseReduction2DControl`,
-`NoiseReduction3DControl`, `ImageFreeze`, `DefogLevel`, `TallyBrightness`,
+`NoiseReduction2DControl`,
+`NoiseReduction3DControl`, `ImageFreeze`, `TallyBrightness`,
 `PtzOpticsTally`, `VersionInquiry`, `ColorTemperatureInquiry`, and `NoiseReduction2DMode`.
 <!-- END OPTIONAL TYPED GATES -->
 

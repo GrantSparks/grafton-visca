@@ -180,11 +180,10 @@ surface specifically for `PtzOpticsG3`; the current PTZOptics G2/G3 Developer
 Portal (R14 in [`docs/visca_reference.md`](docs/visca_reference.md)) sources it
 for `PtzOpticsG2` and `PtzOpticsG3`; raw `PtzOptics30X` uses separate
 PTZOptics Gen-2/R1 evidence; and the Sony-standard profiles follow the same
-R11/R8/R12/R21 model rows described above. `iris_control()` instead
-sends the separate `09 04 2B` auto/manual-status inquiry and requires
-`HasIrisControlInquiry` / `TypedSupportSurface::IrisControlInquiry`; none of the
-checked sources establishes that distinct row, so no built-in profile enables
-it. The Sony FR7 command list instead documents a vendor-relative `7E 04 4B`
+R11/R8/R12/R21 model rows described above. The unsourced auto/manual-status
+inquiry has no typed built-in model. A caller-owned request and decoder can
+represent an extension once its packet and reply are established for that
+camera. The Sony FR7 command list instead documents a vendor-relative `7E 04 4B`
 iris Up/Down family and `05 34` Auto Iris inquiry, not the shared `04 39`
 AE-mode command/inquiry family, standard absolute Iris Direct command, or `09
 04 4B` position inquiry. Those FR7 protocol families remain available through

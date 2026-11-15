@@ -31,7 +31,7 @@ Optional vendor features and profile-specific sub-capabilities use two layers:
 | Layer | Meaning | Example |
 | ----- | ------- | ------- |
 | Metadata traits and constants | Runtime discovery facts for `Capabilities::from_profile::<P>()`; unsupported defaults are valid. | `NdFilterMetadata`, `DIGITAL_ZOOM_MAX`, `IRIS_RANGE`, `SUPPORTS_ONE_PUSH_FOCUS` |
-| Support markers | Compile-time permission for typed control/accessor/inquiry APIs. | `HasNdFilter`, `HasDigitalZoomToggle`, `HasDirectZoom`, `HasIrisControl`, `HasIrisControlInquiry`, `HasOnePushFocus` |
+| Support markers | Compile-time permission for typed control/accessor/inquiry APIs. | `HasNdFilter`, `HasDigitalZoomToggle`, `HasDirectZoom`, `HasIrisControl`, `HasOnePushFocus` |
 
 `Profile` requires metadata traits so discovery can report the same fields for
 every profile. Do not treat those metadata traits as proof of support. Implement
@@ -116,11 +116,9 @@ declarative vocabulary rather than this marked region.
 | Streaming | `HasPtzOpticsMulticastStreaming` | PTZOptics multicast-streaming controls |
 | Streaming | `HasPtzOpticsNdiQuality` | PTZOptics NDI-quality control |
 | Exposure | `HasExposureMode` | shared `04 39` exposure-mode control and inquiry |
-| Exposure | `HasIrisControlInquiry` | `IrisControlInquiryControl` (`09 04 2B` auto/manual status) |
 | Image | `HasNoiseReduction2DControl` | 2D noise-reduction level control and disable |
 | Image | `HasNoiseReduction3DControl` | 3D noise-reduction level control and disable |
 | Image | `HasImageFreeze` | image-freeze control |
-| Image | `HasDefogLevel` | vendor defog-level inquiry |
 | Tally | `HasTallyBrightness` | extended tally-brightness commands |
 | Tally | `HasPtzOpticsTally` | PTZOptics packed status, mode, and auto-adjust tally family |
 | System | `HasVersionInquiry` | `camera.system().version()` (`09 00 02` Sony-format `CAM_VersionInq` decode) |
@@ -312,12 +310,13 @@ hold:
    to the stored JSON (or to the `TypedSupportSet` before building the
    `ProfileSpec`).
 
-The row-specific surfaces `HasImageFreeze`, `HasDefogLevel`,
-`HasTallyBrightness`, and `HasPtzOpticsTally` currently have no built-in profile
-grant. Image freeze remains firmware/path-specific until its VISCA command path
-is validated; defog level, extended tally brightness, and PTZOptics tally
-extensions likewise remain custom/evidenced-profile surfaces. Sony FR7's
-source-backed red/green tally controls remain under `HasTally`.
+The row-specific surfaces `HasImageFreeze`, `HasTallyBrightness`, and
+`HasPtzOpticsTally` currently have no built-in profile grant. Image freeze
+remains firmware/path-specific until its VISCA command path is validated;
+extended tally brightness and PTZOptics tally extensions remain
+custom/evidenced-profile surfaces. Defog inquiries have no typed built-in
+model; a caller-owned request and decoder require model-specific evidence.
+Sony FR7's source-backed red/green tally controls remain under `HasTally`.
 
 R14 documents the current G2/G3 noise-reduction command inputs and inquiry
 outputs separately. Its `04 50` input selects Auto (`02`) or Manual (`03`),
@@ -523,9 +522,9 @@ p. 44) lists `00` CLOSE and `05`..`11` and its Bright table (p. 45) `00` and
 every iris position `00`..`11` (R12, R21). Generic VISCA admits the iris
 positions all three list: `00` and `05`..`11`. The PTZOptics sources (R1, R14)
 give no iris or bright tables, so those profiles keep their contiguous ranges.
-The distinct `09 04 2B` auto/manual status inquiry is instead gated by
-`HasIrisControlInquiry`; none of the checked sources establishes that distinct
-row, so no built-in profile implements the marker. The FR7 command list
+The unsourced auto/manual status inquiry is removed from the typed surface.
+Caller-owned requests and decoders can model an extension once its packet and
+reply are established for that camera. The FR7 command list
 documents a vendor-relative `7E 04 4B` Up/Down family and `05 34` Auto Iris
 inquiry; it does not establish the shared `04 39` or `09 04 4B` families.
 Until those FR7 families have their own models, they remain available only

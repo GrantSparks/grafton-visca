@@ -319,7 +319,7 @@ Optional typed controls now name the exact evidence boundary:
 | 1.x/broad assumption | 2.0 bound or action |
 | --- | --- |
 | Exposure-mode methods were available through broad exposure support | Add `HasExposureMode`; `SonyFR7` intentionally does not implement it because its documented family is different. |
-| `iris_control()` followed the standard iris-control marker | Add `HasIrisControlInquiry`. No built-in profile opts into the ambiguous `09 04 2B` status inquiry; standard iris position/control remains under `HasIrisControl` where documented. |
+| `iris_control()` followed the standard iris-control marker | The unsourced status inquiry is removed. Use a caller-owned request and decoder only when model documentation establishes the packet and reply; standard iris position/control remains under `HasIrisControl` where documented. |
 | One focus-zone marker covered command and inquiry | The inquiry requires `HasFocusZoneInquiry`. Only `PtzOpticsG2` and the legacy `PtzOptics30X` profile carry it; `PtzOpticsG3` and `SonyFR7` no longer compile for this unsourced inquiry. |
 | Aggregate noise-reduction support implied setters and inquiries | Use `HasNoiseReduction2D` / `HasNoiseReduction3D` for inquiries and the matching `*Control` markers for setters, as detailed below. |
 | PTZOptics advanced methods were ungated | Add the relevant `HasPtzOpticsAntiFlicker`, `HasPtzOpticsMulticastStreaming`, `HasPtzOpticsNdiQuality`, `HasPtzOpticsPresetRecallSpeed`, or `HasPtzOpticsSettingsSave` bound. |
