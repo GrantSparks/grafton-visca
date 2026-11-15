@@ -3019,6 +3019,37 @@ mod tests {
                     }
                 }
             }
+            let inquiry = crate::raw::Inquiry::from_fn(
+                [0x81, 0x09, 0x04, 0x00, 0xff],
+                crate::InquiryRoute::RAW,
+                |_payload: &[u8]| Ok(0_u8),
+                TimeoutClass::Inquiry,
+                RetryClass::Inquiry,
+                ControlClass::Normal,
+            )
+            .expect("raw inquiry");
+            for ack in [
+                profile.timing().ack_timeout(),
+                Duration::from_secs(8),
+                Duration::from_secs(10),
+                Duration::from_secs(60),
+                Duration::from_secs(3600),
+            ] {
+                let prepared = prepare_inquiry(
+                    &inquiry,
+                    CameraId::CAMERA_1,
+                    &profile,
+                    OperationalTuning::new().ack_timeout(ack),
+                    ClassSelection::Request,
+                )
+                .expect("inquiries keep their single reply deadline");
+                let budget = prepared.context.retry.total_budget;
+                let expected = MINIMUM_RETRY_BUDGET
+                    .max(prepared.context.timeout.inquiry * 2)
+                    .max(profile.timing().busy_timeout());
+                assert_eq!(budget, expected, "ACK tuning changed an inquiry budget");
+                prepared.admit_with(|_, _, observer| assert!(observer >= budget));
+            }
         }
         check::<crate::profiles::PtzOpticsG2>();
         check::<crate::profiles::PtzOpticsG3>();
