@@ -56,7 +56,10 @@ fn response_counter_distinguishes_silence_from_positive_liveness() {
         .state()
         .expect_err("silent peer must exhaust the bounded probe");
     assert!(matches!(error, Error::Timeout { .. }));
-    assert!(error.is_retryable());
+    assert!(matches!(
+        error.recovery(),
+        grafton_visca::Recovery::Resubmit { .. }
+    ));
     assert!(!error.requires_new_session());
     // The probe is bounded by the profile's own retry budget: ten seconds
     // for a 1 s inquiry deadline. Tuning may lengthen that bound but never

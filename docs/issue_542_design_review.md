@@ -410,6 +410,12 @@ encoding.
     exhaustive. Record:
     [`decisions/2.0/decision-788.md`](decisions/2.0/decision-788.md) (#788).
 
+28. One typed `Error::recovery()` verdict combines session validity, request
+    certainty and temporary conditions; only `Resubmit { after }` authorizes
+    automatic replay. Supersedes D20 item 5 while retaining its typed stages,
+    certainties and observer timeout. Record:
+    [`decisions/2.0/decision-868.md`](decisions/2.0/decision-868.md) (#868).
+
 ## Release-candidate boundary
 
 Development-complete issue closure should require implementation, contract

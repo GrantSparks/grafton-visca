@@ -1132,7 +1132,10 @@ fn diagnostic_subscriber_capacity_has_its_own_nonretryable_error() {
         error,
         Error::DiagnosticSubscriberLimit { capacity: 4 }
     ));
-    assert!(!error.is_retryable());
+    assert!(!matches!(
+        error.recovery(),
+        crate::Recovery::Resubmit { .. }
+    ));
     subscriptions.pop();
     subscriptions.push(owner.subscribe_diagnostics(1).unwrap());
     owner.close().unwrap();

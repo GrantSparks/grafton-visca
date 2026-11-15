@@ -345,7 +345,7 @@ facade_matrix! {
             "{result:?}"
         );
         let error = result.unwrap_err();
-        assert!(!error.is_retryable());
+        assert!(!matches!(error.recovery(), grafton_visca::Recovery::Resubmit { .. }));
         assert_eq!(
             error.failure_context(),
             Some(FailureContext::new(

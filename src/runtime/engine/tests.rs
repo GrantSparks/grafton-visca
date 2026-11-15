@@ -13601,7 +13601,10 @@ fn unsettled_owed_reply_latches_only_that_targets_inquiries_until_it_arrives() {
         ))
     );
     assert!(!failure.requires_new_session());
-    assert!(!failure.is_retryable());
+    assert!(!matches!(
+        failure.recovery(),
+        crate::Recovery::Resubmit { .. }
+    ));
     assert!(request_transmit_optional(&latched).is_none());
     assert!(
         engine.next_wake().is_none_or(|wake| wake > window_end),

@@ -321,7 +321,10 @@ fn acknowledged_commands_are_never_rewritten_after_a_rejection() {
         Error::CommandFailedAfterAck { source, .. }
             if matches!(**source, Error::CommandNotExecutable)
     ));
-    assert!(!error.is_retryable());
+    assert!(!matches!(
+        error.recovery(),
+        crate::Recovery::Resubmit { .. }
+    ));
     assert_eq!(
         error.failure_context(),
         Some(FailureContext::new(
@@ -1444,7 +1447,10 @@ fn a_cancellation_rejected_after_ack_is_unconfirmed_on_both_envelopes() {
             &error,
             Error::CommandFailedAfterAck { source, .. } if matches!(**source, Error::NoSocket)
         ));
-        assert!(!error.is_retryable());
+        assert!(!matches!(
+            error.recovery(),
+            crate::Recovery::Resubmit { .. }
+        ));
     };
 
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Datagram);

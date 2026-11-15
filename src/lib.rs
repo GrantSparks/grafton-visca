@@ -986,7 +986,7 @@ pub use crate::{
         MotionSyncPreset, NdFilterMode, NdFilterPosition, PanTiltDirection, PanTiltLimitCorner,
         PictureEffectMode, PowerStatus, PresetNumber, WhiteBalanceMode,
     },
-    error::{Certainty, Error, ErrorKind, FailureContext, FailureStage, Result},
+    error::{Certainty, Error, ErrorKind, FailureContext, FailureStage, Recovery, Result},
     inquiry_conversions::{zoom_from_normalized, PanTiltPositionDeg, ZoomDomain},
     types::{FocusSpeed, MotionSyncSpeed, SpeedLevel, ZoomSpeed},
     units::UnitInterval,

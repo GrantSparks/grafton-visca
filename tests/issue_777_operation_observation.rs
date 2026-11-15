@@ -167,7 +167,7 @@ facade_matrix! {
         let expired = wait!(moving.applied_with_timeout(SHORT))
             .expect_err("nothing concluded the zoom");
         assert!(matches!(expired, Error::ObservationTimeout { operation, .. } if operation == id));
-        assert!(!expired.is_retryable());
+        assert!(!matches!(expired.recovery(), grafton_visca::Recovery::Resubmit { .. }));
         camera.push(frames::complete(1));
         wait!(moving.applied()).expect("the handle observes the completion");
         wait!(moving.applied_with_timeout(Duration::ZERO))
@@ -360,8 +360,8 @@ facade_matrix! {
             "{failed:?}"
         );
         let again = wait!(moving.cancel()).expect_err("the failure is cached");
-        assert!(!failed.is_retryable());
-        assert!(!again.is_retryable());
+        assert!(!matches!(failed.recovery(), grafton_visca::Recovery::Resubmit { .. }));
+        assert!(!matches!(again.recovery(), grafton_visca::Recovery::Resubmit { .. }));
         assert_eq!(again.failure_context(), failed.failure_context());
         assert_eq!(
             camera.writes(),
@@ -389,11 +389,11 @@ facade_matrix! {
         let session = open!(camera, config()).expect("owner session");
         let mut moving = running_zoom!(session, camera);
         let first = wait!(moving.cancel()).expect_err("cancel write fails");
-        assert!(!first.is_retryable());
+        assert!(!matches!(first.recovery(), grafton_visca::Recovery::Resubmit { .. }));
         let source = std::error::Error::source(&first).expect("transport source retained");
         assert!(source.to_string().contains("cancel send failed"));
         let again = wait!(moving.cancel()).expect_err("cached cancellation failure");
-        assert!(!again.is_retryable());
+        assert!(!matches!(again.recovery(), grafton_visca::Recovery::Resubmit { .. }));
         assert_eq!(debug(&first), debug(&again));
         assert_eq!(camera.writes(), vec![ZOOM_TELE.to_vec(), CANCEL_SOCKET_ONE.to_vec()]);
         assert!(matches!(wait!(moving.applied_with_timeout(SHORT)),
@@ -530,7 +530,10 @@ mod async_facade {
             .await
             .expect_err("nothing concluded the zoom");
         assert!(matches!(expired, Error::ObservationTimeout { operation, .. } if operation == id));
-        assert!(!expired.is_retryable());
+        assert!(!matches!(
+            expired.recovery(),
+            grafton_visca::Recovery::Resubmit { .. }
+        ));
         let lost = future::or(async { Some(moving.applied().await) }, async {
             executor.sleep(SHORT).await;
             None

@@ -968,8 +968,14 @@ mod metrics {
                 matches!(error, Error::CancellationUnconfirmed),
                 "expected the canonical ambiguity verdict, got {error:?}"
             );
-            assert!(!error.is_retryable());
-            assert_eq!(error.suggested_retry_delay(), None);
+            assert!(!matches!(
+                error.recovery(),
+                crate::Recovery::Resubmit { .. }
+            ));
+            assert!(!matches!(
+                error.recovery(),
+                crate::Recovery::Resubmit { .. }
+            ));
             assert_eq!(
                 error.failure_context(),
                 Some(crate::FailureContext::new(
@@ -1067,7 +1073,10 @@ mod metrics {
                 crate::Certainty::Unconfirmed
             ))
         );
-        assert!(!error.is_retryable());
+        assert!(!matches!(
+            error.recovery(),
+            crate::Recovery::Resubmit { .. }
+        ));
         assert!(
             matches!(error, Error::SettlementObservationFailed { operation, source } if operation.get() == observation.id().get() && source.failure_context() == Some(crate::FailureContext::new(crate::FailureStage::Terminal, crate::Certainty::FailedConclusively)))
         );

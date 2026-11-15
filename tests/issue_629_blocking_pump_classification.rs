@@ -121,7 +121,10 @@ fn connection_reset_during_settlement_polling_classifies_as_session_death() {
     let Error::ConnectionClosed { reason, .. } = source.as_ref() else {
         panic!("settlement must report the session close, got {error:?}");
     };
-    assert!(!error.is_retryable());
+    assert!(!matches!(
+        error.recovery(),
+        grafton_visca::Recovery::Resubmit { .. }
+    ));
     let context = error
         .failure_context()
         .expect("applied move observation context");
@@ -199,7 +202,10 @@ fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
     };
     assert!(reason.contains("public settlement retry write failed"));
     assert!(error.requires_new_session());
-    assert!(!error.is_retryable());
+    assert!(!matches!(
+        error.recovery(),
+        grafton_visca::Recovery::Resubmit { .. }
+    ));
     let context = error
         .failure_context()
         .expect("applied move observation context");

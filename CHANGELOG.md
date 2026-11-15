@@ -71,10 +71,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ordinary preparation no longer allocates an `Arc` or copies a scratch frame.
   Profile-aware pan/tilt inquiry decoders also store their canonical decoding
   facts inline, including when cloned (#866).
+
+- **BREAKING** (#868): D28 supersedes #783 (D20 item 5): `Error::recovery()`
+  gives one exhaustive typed verdict with its resubmission delay. ACKs and
+  cancellation-attempt failures ask callers to wait; uncertain effects require
+  reconciliation. Deliberately superseded settlement observations have no new
+  effect uncertainty and return `Abandon`; only actual caller deadlines become
+  query timeouts. The checked recovery tables cover every public error variant.
+
 - **BREAKING** (#869): `TransportError` retains its typed cause in
   `source: Arc<Error>` instead of a diagnostic string. Construct it with
   `Error::transport_error(cause)`, which preserves OS error chains and request
   certainty while classifying the failure as one operation on a usable session.
+  `TransmissionNotSent` separately records a zero-byte attempt while retaining
+  any logical uncertainty from an earlier write.
 
 - **BREAKING** (#882): Command values have one typed spelling per wire value.
   ND stop conversion rounds to the nearest quarter stop; Sony FR7 direct-menu
@@ -186,6 +196,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   are removed.
 - **BREAKING** (#883): `Runtime::now` is removed. Custom runtime clocks are
   implemented through the single authoritative `Executor::now` hook.
+
+- **BREAKING** (#868): `Error::is_retryable()` and `suggested_retry_delay()`.
+  Match `recovery()` instead of combining predicates to decide replay.
 
 ### Fixed
 

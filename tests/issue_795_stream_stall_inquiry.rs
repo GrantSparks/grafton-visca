@@ -260,7 +260,10 @@ fn latched_inquiry_failure<T: fmt::Debug>(result: &Result<T, Error>) {
             Certainty::NotAccepted
         ))
     );
-    assert!(!error.is_retryable());
+    assert!(!matches!(
+        error.recovery(),
+        grafton_visca::Recovery::Resubmit { .. }
+    ));
     assert!(!error.requires_new_session(), "{error}");
 }
 

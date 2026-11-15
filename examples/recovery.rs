@@ -4,13 +4,12 @@
 //! resubmits on its own. Recovery keeps the reusable `SessionConfig`, builds a
 //! *fresh* session from a re-callable transport factory, and re-queries camera
 //! state before deliberately restoring the desired power-on state — the new
-//! session's state cache starts `Unknown`. `Error::requires_new_session()` is
-//! the reconnect decision.
+//! session's state cache starts `Unknown`. `Recovery::ReopenSession` is the reconnect decision.
 //!
 //! This is exactly the path a long-running supervisor takes when a TCP camera
 //! closes or stops answering. A peer close is positive session-death evidence;
 //! a silent open socket instead ends its bounded heartbeat with `Error::Timeout`
-//! and `requires_new_session() == false`. The application owns the silence
+//! and a resubmission verdict rather than `ReopenSession`. The application owns the silence
 //! threshold. It compares `MetricsSnapshot::received_frames` around each
 //! heartbeat and deliberately rebuilds once its policy sees no positive reply.
 //! The library runs no heartbeat timer of its own. See
@@ -32,7 +31,7 @@ use grafton_visca::{
     command::CommandKind,
     profile::ProfileSpec,
     transport::{BlockingTransport, HasTransportConfig, ReceiveOutcome, TransportConfig},
-    Error, OperationalTuning,
+    Error, OperationalTuning, Recovery,
 };
 
 #[derive(Debug, Clone, Copy)]
@@ -139,7 +138,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             session.close()?;
             println!("first session healthy (power {state:?}); nothing to recover");
         }
-        Err(error) if error.requires_new_session() => {
+        Err(error) if error.recovery() == Recovery::ReopenSession => {
             let _ = session.close();
             println!("session unusable ({error}); rebuilding from the retained config");
             recover(&config, &mut new_transport)?;

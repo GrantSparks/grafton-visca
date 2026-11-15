@@ -49,3 +49,4 @@ InvalidAddress	src/transport/address.rs	Error::InvalidAddress { reason: reason.i
 UnsupportedTransport	src/runtime/owner/adapter.rs	return Err(Error::UnsupportedTransport {
 MissingRuntime	src/executor.rs	.map_err(|_| Error::MissingRuntime)
 WithContext	src/error.rs	Self::WithContext { context: context.into(), source: Box::new(self), }
+TransmissionNotSent	src/error.rs	Self::TransmissionNotSent { source: Arc::new(source), context: FailureContext::new(FailureStage::Terminal, certainty), }

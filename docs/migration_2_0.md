@@ -883,10 +883,9 @@ camera operation. They have no name-preserving alias in 2.0:
 
 For a central application error adapter, prefer `error.kind()` when several
 wire-level variants have the same application meaning. Map `ErrorKind::Timeout`
-to a request timeout, but decide replay with `error.failure_context()`, not
-`is_retryable()`: an `ObservationTimeout` (your wait expired, the request is
-still running) is never retryable, and a resubmission is safe only after
-`Certainty::NotAccepted` or `Certainty::FailedConclusively`. 1.x had one unit `Timeout` for every deadline; 2.0's
+to a request timeout, but decide recovery with `error.recovery()`. An
+`ObservationTimeout` asks you to wait on the existing operation; unconfirmed
+effects require reconciliation, and deliberate supersession is not replayed. 1.x had one unit `Timeout` for every deadline; 2.0's
 `Timeout` carries a `FailureContext`, so match it as `Error::Timeout { .. }`,
 and a custom transport reports an expired read or write with
 `Error::io_timeout()`. Map `BufferFull` to a retryable busy/capacity state, and
@@ -896,7 +895,7 @@ or establish the prerequisite before retrying, and retry only when the command's
 semantics make that safe. Map `Unsupported` to an unsupported feature; retain a
 wildcard because `ErrorKind` is non-exhaustive. Preserve the original `Error`
 as the source when possible. Decide whether to rebuild the
-connection with `error.requires_new_session()` rather than treating every
+connection with `Recovery::ReopenSession` rather than treating every
 `IoClosed` kind as an unexpected disconnect: deliberate `RuntimeShutdown` has
 that kind but does not require a replacement session. `OwnerTerminated` does
 require one. A cached `CancellationObservationFailed { source }` and every
@@ -1178,33 +1177,17 @@ request already admitted on the deadlines it was admitted with. The owner's
 session-wide pacing floor and per-target socket capacity *are* applied at once,
 so work still queued behind pacing is released under the new values.
 
-If a command that is already running must move onto a widened deadline, cancel
-it and resubmit:
+Widen deadlines for future submissions directly. An already-admitted operation
+keeps its original deadline; discarding a cancellation result and resubmitting
+could repeat a physical effect. Observe the original operation and use
+`error.recovery()` on failure before deciding whether new work is appropriate.
 
 ```rust
 use std::time::Duration;
+use grafton_visca::{blocking::Session, Error, OperationalTuning};
 
-use grafton_visca::{
-    blocking::{Camera, Operation, Session},
-    camera::profiles::PtzOpticsG2,
-    completion::AppliedOnly,
-    Error, OperationCommand, OperationalTuning,
-};
-
-fn resubmit_after_widening<O>(
-    session: &Session,
-    camera: &Camera<PtzOpticsG2>,
-    mut operation: Operation<AppliedOnly>,
-    command: O,
-) -> Result<Operation<AppliedOnly>, Error>
-where
-    O: OperationCommand<AppliedOnly>,
-{
-    session.set_tuning(OperationalTuning::new().ack_timeout(Duration::from_secs(2)))?;
-    // `operation` was admitted before the update and keeps its old deadline.
-    let _ = operation.cancel_with_timeout(Duration::from_secs(1));
-    let operation = camera.submit::<AppliedOnly, _>(&command)?;
-    Ok(operation)
+fn widen_future_deadlines(session: &Session) -> Result<(), Error> {
+    session.set_tuning(OperationalTuning::new().ack_timeout(Duration::from_secs(2)))
 }
 ```
 
@@ -1234,6 +1217,11 @@ retry class.
 
 ## Recovery changes
 
+| 1.x API | 2.0 replacement |
+| --- | --- |
+| `Error::is_retryable()` and `suggested_retry_delay()` | Both are removed. Match `error.recovery()`: `Resubmit { after }`, `WaitAgain`, `Reconcile`, `ReopenSession`, or `Abandon`. Only `Resubmit` permits an automatic new submission; the other variants keep live work, unknown effects, dead sessions and deliberate failures distinct. `kind()` and `failure_context()` remain facts, not another recovery recipe. |
+
+
 `Error::TransportError(Cow<str>)` becomes `TransportError { source: Arc<Error> }`.
 Use `Error::transport_error(cause)` with the original `Error` or `io::Error`,
 then match `TransportError { source, .. }` to inspect it. Repeated normalization
@@ -1261,12 +1249,12 @@ outcomes most likely to cause an incorrect reconnect or retry loop:
 | --- | --- | --- | --- |
 | The peer closed the connection, including an OS TCP keepalive timeout normalized from `io::ErrorKind::TimedOut` | `ConnectionClosed` | `true` | Open a fresh session and re-query. |
 | The stream position became unknowable, or the strict opt-in poisoned the session for an unconfirmable command | `StreamPoisoned` | `true` | Open a fresh session; never blindly replay uncertain work. |
-| A typed STOP finds its camera's control reserve and ordinary admission both full | `ControlReserveExhausted` (`is_retryable() == true`) | `false` | Back off briefly; earlier stops for that camera are still pending. Ordinary saturation alone no longer rejects a STOP (D26). |
-| Your own wait on an operation, command, or inquiry expires while the request is still running | `ObservationTimeout { operation }` (`is_retryable() == false`) | `false` | Wait again on the handle, or reconcile; never resubmit. |
-| An open peer answers no built-in inquiry through its default retry policy (ten-second total-budget floor, approximately 10.05 seconds with the first backoff) | `Timeout` (stage `Terminal`, certainty `FailedConclusively`; `is_retryable() == true`) | `false` | Compare `MetricsSnapshot::received_frames` around bounded heartbeats; replace the session only when the application's silence threshold is met. |
+| A typed STOP finds its camera's control reserve and ordinary admission both full | `ControlReserveExhausted` (`Recovery::Resubmit { .. }`) | `false` | Back off briefly; earlier stops for that camera are still pending. Ordinary saturation alone no longer rejects a STOP (D26). |
+| Your own wait on an operation, command, or inquiry expires while the request is still running | `ObservationTimeout { operation }` (`Recovery::WaitAgain`) | `false` | Wait again on the handle, or reconcile; never resubmit. |
+| An open peer answers no built-in inquiry through its default retry policy (ten-second total-budget floor, approximately 10.05 seconds with the first backoff) | `Timeout` (stage `Terminal`, certainty `FailedConclusively`; `Recovery::Resubmit { .. }`) | `false` | Compare `MetricsSnapshot::received_frames` around bounded heartbeats; replace the session only when the application's silence threshold is met. |
 | A sent unsequenced command on a raw-VISCA envelope cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity or active retry-budget expiry; the review probe reached this in about 2.56 seconds) | `UnsequencedCommandUnconfirmed` (`kind() == Unconfirmed`) | `false` | Reconcile that command's camera effect; do not replay it blindly or infer that the session died. |
-| Raw-VISCA over a stream: a camera's earlier inquiry timed out after it was written and its owed reply has not arrived within the profile's ambiguity window | `InquiryCorrelationLost { camera }` (`is_retryable() == false`; `Terminal`/`NotAccepted`, nothing sent) | `false` | The session is live and other cameras work. That camera's inquiries reopen when the owed reply arrives or the camera answers a later command (proving the reply will never come); close and reopen the session to recover them sooner. |
-| Raw-VISCA over a stream: a camera's earlier command ended unconfirmed before its ACK and its owed answer has not arrived within that command's ambiguity window | `CommandCorrelationLost { camera }` (`is_retryable() == false`; `Terminal`/`NotAccepted`, nothing sent) | `false` | The session is live; STOPs and inquiries to that camera still work. Ordinary and `NoReply` commands resume when the owed answer arrives or the camera answers a later inquiry or STOP; close and reopen the session to recover them sooner. A `CompletionOnly` command also fails this way behind a `NoReply` command the camera has answered nothing since, past that command's window (#795). |
+| Raw-VISCA over a stream: a camera's earlier inquiry timed out after it was written and its owed reply has not arrived within the profile's ambiguity window | `InquiryCorrelationLost { camera }` (`Recovery::Abandon`; `Terminal`/`NotAccepted`, nothing sent) | `false` | The session is live and other cameras work. That camera's inquiries reopen when the owed reply arrives or the camera answers a later command (proving the reply will never come); close and reopen the session to recover them sooner. |
+| Raw-VISCA over a stream: a camera's earlier command ended unconfirmed before its ACK and its owed answer has not arrived within that command's ambiguity window | `CommandCorrelationLost { camera }` (`Recovery::Abandon`; `Terminal`/`NotAccepted`, nothing sent) | `false` | The session is live; STOPs and inquiries to that camera still work. Ordinary and `NoReply` commands resume when the owed answer arrives or the camera answers a later inquiry or STOP; close and reopen the session to recover them sooner. A `CompletionOnly` command also fails this way behind a `NoReply` command the camera has answered nothing since, past that command's window (#795). |
 | The application shut the session down | `RuntimeShutdown` | `false` | Reconnect only if the application intends to start another session. |
 
 `received_frames` is positive evidence, not an automatic failure detector. An
