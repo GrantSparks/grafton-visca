@@ -1120,9 +1120,9 @@ struct ActiveRequest {
 }
 
 #[derive(Debug)]
-struct CancellationIntent {
-    observer: Arc<ObserverCell<Error>>,
-    recorded: bool,
+enum CancellationIntent {
+    Requested(Arc<ObserverCell<Error>>),
+    Recorded(Arc<ObserverCell<Error>>),
 }
 
 /// What a cancellation tells its caller once the operation's terminal outcome
@@ -1641,9 +1641,6 @@ pub(crate) struct OwnerState {
     permits: AdmissionPermitPool,
     pending: BTreeMap<AdmissionTicket, PendingAdmission>,
     active: BTreeMap<RequestId, ActiveRequest>,
-    /// A cancellation the engine refused while handling the request that is
-    /// being driven right now; read back by `conclude_cancellation`.
-    cancellation_refusal: Option<(RequestId, Error)>,
     motion: Arc<MotionRegistry>,
     target_cache: Arc<[Mutex<TargetStateCache>; 9]>,
     subscribers: BTreeMap<u64, AppliedSubscriber>,
@@ -1710,7 +1707,6 @@ impl OwnerState {
             permits,
             pending: BTreeMap::new(),
             active: BTreeMap::new(),
-            cancellation_refusal: None,
             motion: Arc::new(MotionRegistry::default()),
             target_cache: Arc::new(array::from_fn(|_| Mutex::new(TargetStateCache::default()))),
             subscribers: BTreeMap::new(),
@@ -2173,7 +2169,9 @@ impl OwnerState {
             .get_mut(&id)
             .and_then(|active| active.cancellation.as_mut())
         {
-            intent.recorded = true;
+            if let CancellationIntent::Requested(observer) = intent {
+                *intent = CancellationIntent::Recorded(Arc::clone(observer));
+            }
         }
     }
 
@@ -2188,9 +2186,9 @@ impl OwnerState {
             return;
         };
         match &active.cancellation {
-            Some(intent) if intent.recorded => {
+            Some(CancellationIntent::Recorded(observer)) => {
                 if matches!(
-                    intent.observer.resolve_at(
+                    observer.resolve_at(
                         Error::cancellation_observation_failed(error),
                         self.observed_at
                     ),
@@ -2200,10 +2198,7 @@ impl OwnerState {
                         self.metrics.dropped_observer_events.saturating_add(1);
                 }
             }
-            Some(_) => {
-                active.cancellation = None;
-                self.cancellation_refusal = Some((id, error));
-            }
+            Some(CancellationIntent::Requested(_)) => active.cancellation = None,
             None => {}
         }
     }
@@ -2219,33 +2214,32 @@ impl OwnerState {
         }
     }
 
-    /// Installs a handle's cancellation intent and returns the engine input to
-    /// drive, or `None` when there is nothing to send (#777):
-    ///
-    /// - the request is no longer active, so its terminal outcome has already
-    ///   been delivered to the handle;
-    /// - the handle's intent is already installed, so cancelling again
-    ///   observes it instead of sending a second cancellation.
-    pub(crate) fn begin_cancellation(&mut self, request: CancellationRequest) -> Option<Input> {
-        self.cancellation_refusal = None;
-        let active = self.active.get_mut(&request.id)?;
+    /// Installs the handle's one intent and returns the engine's synchronous
+    /// refusal alongside the effects to drive. A missing or already-recorded
+    /// request needs no new engine input.
+    pub(crate) fn begin_cancellation(
+        &mut self,
+        request: CancellationRequest,
+        now: Instant,
+    ) -> (VecDeque<Effect>, Result<(), Error>) {
+        let Some(active) = self.active.get_mut(&request.id) else {
+            return (VecDeque::new(), Ok(()));
+        };
         if active.cancellation.is_some() {
-            return None;
+            return (VecDeque::new(), Ok(()));
         }
-        active.cancellation = Some(CancellationIntent {
-            observer: request.observer,
-            recorded: false,
-        });
-        Some(Input::Cancel { id: request.id })
-    }
-
-    /// The answer to a cancellation request once its input has been driven:
-    /// the engine's refusal, if it refused, else success.
-    pub(crate) fn conclude_cancellation(&mut self, id: RequestId) -> Result<(), Error> {
-        match self.cancellation_refusal.take() {
-            Some((refused, error)) if refused == id => Err(error),
-            _ => Ok(()),
+        active.cancellation = Some(CancellationIntent::Requested(request.observer));
+        self.observed_at = now;
+        let turn = self.engine.begin_input_turn(now);
+        let (mut effects, answer) = self.engine.cancel_in_turn(&turn, request.id);
+        if answer.is_err() {
+            // A refusal records no intent; the original operation stays live.
+            if let Some(active) = self.active.get_mut(&request.id) {
+                active.cancellation = None;
+            }
         }
+        effects.extend(self.engine.finish_input_turn(turn, EngineTurn::COMPLETE));
+        (effects.into(), answer)
     }
 
     // Consumed by the async actor's `Subscribe` control arm and the owner
@@ -2764,10 +2758,9 @@ fn boundary_error_for_input(input: &Input) -> Option<Error> {
         Input::Admit { .. }
         | Input::TransmissionFinished { .. }
         | Input::Frame(_)
-        | Input::Cancel { .. }
         | Input::ReceiveFault { .. } => None,
         #[cfg(test)]
-        Input::Wake => None,
+        Input::Wake | Input::Cancel { .. } => None,
     }
 }
 

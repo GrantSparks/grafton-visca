@@ -193,14 +193,18 @@ pub(super) struct AdmissionBoundary {
     pub(super) permit: AdmissionPermit,
     pub(super) observer: Arc<ObserverCell<RuntimeOutcome>>,
     pub(super) reply: flume::Sender<Result<Admitted, Error>>,
-    /// Present only for a caller deadline that applies before admission.
-    pub(super) validity: Option<AdmissionValidity>,
-    /// The owner has already won the caller's pre-admission deadline race,
-    /// but a raw-correlation release gate has retained this boundary until it
-    /// can safely enter the engine.  Keeping that one-way answer on the
-    /// boundary preserves the caller's established admission promise without
-    /// letting the retained admission run a due/dispatch turn early.
-    pub(super) validity_claimed: bool,
+    pub(super) claim: AdmissionBoundaryClaim,
+}
+
+/// The owner's one-way answer to the pre-admission deadline race.
+#[derive(Debug)]
+pub(super) enum AdmissionBoundaryClaim {
+    /// No caller deadline constrains admission.
+    Unbounded,
+    /// The owner has not yet claimed the caller's bounded admission.
+    Pending(AdmissionValidity),
+    /// The owner won the race before retaining the boundary behind raw input.
+    Claimed,
 }
 
 /// A rejection that happened before a handle could allocate any owner-owned
@@ -761,8 +765,10 @@ impl OwnerHandleCore {
             permit,
             observer,
             reply,
-            validity,
-            validity_claimed: false,
+            claim: validity.map_or(
+                AdmissionBoundaryClaim::Unbounded,
+                AdmissionBoundaryClaim::Pending,
+            ),
         };
         match self.admissions.try_send(boundary) {
             Ok(()) => Ok((completion, admission)),

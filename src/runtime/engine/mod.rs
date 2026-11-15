@@ -604,6 +604,7 @@ impl ProtocolEngine {
     /// remain in the exact order produced by this input; the owner drains them
     /// before passing the next wire frame.
     pub(crate) fn handle_in_turn(&mut self, turn: &InputTurn, input: Input) -> Vec<Effect> {
+        #[cfg(test)]
         if let Input::Cancel { id } = input {
             return self.cancel_in_turn(turn, id).0;
         }
@@ -663,6 +664,7 @@ impl ProtocolEngine {
                 result,
             } => self.transmission_finished(transmission, result, now, effects),
             Input::Frame(frame) => self.frame(frame, now, effects),
+            #[cfg(test)]
             Input::Cancel { id } => {
                 let _ = self.cancel(id, now, effects);
             }

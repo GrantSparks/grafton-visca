@@ -29,9 +29,9 @@ use std::{
 use crate::Error;
 
 use super::boundary::{
-    missing_terminal_error, AdmissionBoundary, AdmissionClaim, AdmissionRejectionIngress,
-    BoundaryReceivers, CancellationBoundary, ControlBoundary, OwnerEnds, OwnerLifecycle,
-    OwnerSnapshot, PreAdmissionRejection, RetainedBoundary,
+    missing_terminal_error, AdmissionBoundary, AdmissionBoundaryClaim, AdmissionClaim,
+    AdmissionRejectionIngress, BoundaryReceivers, CancellationBoundary, ControlBoundary, OwnerEnds,
+    OwnerLifecycle, OwnerSnapshot, PreAdmissionRejection, RetainedBoundary,
 };
 use super::turn::{Disposition, OwnerCoordinator, ReceiveClass, Selected, TurnOutcome, TurnPlan};
 use super::{
@@ -40,9 +40,7 @@ use super::{
     RetainedStreamInput, SessionState, ShutdownReason, StagedWrite, TransientFaultRun,
     TransmissionMeta,
 };
-use crate::runtime::engine::{
-    Effect, EngineTurn, IgnoreReason, RawPrefixEvidence, RequestId, TransportKind,
-};
+use crate::runtime::engine::{Effect, EngineTurn, IgnoreReason, RawPrefixEvidence, TransportKind};
 
 /// One event an owner shell selected.
 ///
@@ -112,7 +110,7 @@ enum Continuation {
     /// Answer a cancellation once its input has been driven, so the answer
     /// reflects any conclusion the drive reached.
     ConcludeCancellation {
-        id: RequestId,
+        answer: Result<(), Error>,
         reply: flume::Sender<Result<(), Error>>,
     },
     /// Feed the next frame of an input turn.
@@ -399,13 +397,10 @@ impl OwnerShellCore {
                 }
             }
             OwnerEvent::Cancellation(CancellationBoundary::Cancel { request, reply }) => {
-                let id = request.id;
-                match self.state.begin_cancellation(request) {
-                    Some(input) => TurnStep::Drive {
-                        effects: self.state.input(input, selected_at),
-                        then: Resume(Continuation::ConcludeCancellation { id, reply }),
-                    },
-                    None => self.conclude_cancellation(id, &reply),
+                let (effects, answer) = self.state.begin_cancellation(request, selected_at);
+                TurnStep::Drive {
+                    effects,
+                    then: Resume(Continuation::ConcludeCancellation { answer, reply }),
                 }
             }
             OwnerEvent::Control(control) => {
@@ -460,8 +455,9 @@ impl OwnerShellCore {
     ) -> TurnStep {
         match then.0 {
             Continuation::Done(outcome) => TurnStep::Done(outcome),
-            Continuation::ConcludeCancellation { id, reply } => {
-                self.conclude_cancellation(id, &reply)
+            Continuation::ConcludeCancellation { answer, reply } => {
+                let _ = reply.try_send(answer);
+                TurnStep::Done(TurnOutcome::Continue)
             }
             Continuation::NextFrame(frames) => self.next_frame(frames, driver),
             Continuation::Discard { error, received_at } => {
@@ -945,17 +941,15 @@ impl OwnerShellCore {
         admission: &mut AdmissionBoundary,
         now: Instant,
     ) -> bool {
-        if admission.validity_claimed {
-            return true;
-        }
+        let validity = match &admission.claim {
+            AdmissionBoundaryClaim::Unbounded | AdmissionBoundaryClaim::Claimed => return true,
+            AdmissionBoundaryClaim::Pending(validity) => validity,
+        };
         let target = admission.request.context().target;
         let lane = admission.request.lane();
-        let Some(validity) = admission.validity.as_ref() else {
-            return true;
-        };
         match validity.claim_for_admission(now) {
             AdmissionClaim::Claimed => {
-                admission.validity_claimed = true;
+                admission.claim = AdmissionBoundaryClaim::Claimed;
                 true
             }
             AdmissionClaim::ExpiredHere => {
@@ -992,18 +986,6 @@ impl OwnerShellCore {
             effects: self.state.input(input, accepted_at),
             then: Resume::done(TurnOutcome::Continue),
         }
-    }
-
-    /// Answer a cancellation. A refusal leaves the original request
-    /// scheduled; the caller keeps its handle and the operation's terminal
-    /// slot (#612, #777).
-    fn conclude_cancellation(
-        &mut self,
-        id: RequestId,
-        reply: &flume::Sender<Result<(), Error>>,
-    ) -> TurnStep {
-        let _ = reply.try_send(self.state.conclude_cancellation(id));
-        TurnStep::Done(TurnOutcome::Continue)
     }
 
     /// Merges handle-side, pre-boundary rejection telemetry into owner-held

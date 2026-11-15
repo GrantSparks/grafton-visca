@@ -885,6 +885,7 @@ pub(crate) enum Input {
         result: Result<TransmissionMeta, Error>,
     },
     Frame(DecodedFrame),
+    #[cfg(test)]
     Cancel {
         id: RequestId,
     },
