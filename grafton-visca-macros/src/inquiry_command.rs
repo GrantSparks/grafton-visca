@@ -685,7 +685,11 @@ fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -
                     fn __grafton_visca_decode_payload(
                         payload: &[u8],
                     ) -> ::core::result::Result<#crate_path::command::Response, #crate_path::Error> {
-                        #decode_body
+                        (|| -> ::core::result::Result<
+                            #crate_path::command::Response, #crate_path::Error
+                        > { #decode_body })().map_err(|error| {
+                            #crate_path::__macro_support::inquiry_reply_error(error, payload)
+                        })
                     }
 
                     #parse_response
@@ -708,7 +712,9 @@ fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -
                             ) -> ::core::result::Result<#response_type, #crate_path::Error> {
                                 <#struct_name as #crate_path::command::ResponseParser>::from_response(
                                     #struct_name::__grafton_visca_decode_payload(payload)?,
-                                )
+                                ).map_err(|error| {
+                                    #crate_path::__macro_support::inquiry_reply_error(error, payload)
+                                })
                             }
                             #crate_path::ResponseDecoder::from_fn(decode)
                         },
@@ -949,11 +955,13 @@ fn generate_typed_impl(
             fn from_response(
                 resp: #crate_path::command::Response,
             ) -> ::core::result::Result<Self::Response, #crate_path::Error> {
-                match resp {
+                (match resp {
                     #crate_path::command::Response::Inquiry(#destructure) => #construction,
                     #crate_path::command::Response::Error(e) => ::core::result::Result::Err(e),
                     _ => ::core::result::Result::Err(#crate_path::Error::UnexpectedResponseType),
-                }
+                }).map_err(|error| {
+                    #crate_path::__macro_support::inquiry_reply_error(error, &[])
+                })
             }
         }
     }

@@ -1876,7 +1876,7 @@ define_builtin_inquiries! {
 
 /// A constructor rejecting a value read from the camera describes a protocol
 /// fault. Callers using the same constructor directly keep its caller-error kind.
-fn reply_value_error(error: Error, payload: &[u8]) -> Error {
+pub(crate) fn reply_value_error(error: Error, payload: &[u8]) -> Error {
     if error.kind() == crate::ErrorKind::InvalidParameter {
         Error::invalid_response(format!("camera reply value: {error}"), payload.to_vec())
     } else {
