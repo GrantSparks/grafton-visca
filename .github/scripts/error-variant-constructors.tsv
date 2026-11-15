@@ -1,6 +1,6 @@
 # Variant	Production source	Unique construction expression (literal contents ignored)
 ConnectionFailed	src/transport/connect.rs	Error::connection_failed(endpoint.to_owned(), std::sync::Arc::new(error))
-ConnectionClosed	src/runtime/owner/mod.rs	ShutdownReason::TransportClosed { reason } => Error::ConnectionClosed {
+ConnectionClosed	src/error.rs	Self::ConnectionClosed { reason }
 CommandPending	src/command/response/types.rs	Response::CmdAck { .. } => Err(Error::CommandPending)
 InvalidResponse	src/command/response/types.rs	Response::Unknown { data, .. } => Err(Error::InvalidResponse {
 FeatureNotSupported	src/prepared.rs	crate::capabilities::InquirySupport::None ) { return Err(Error::FeatureNotSupported {
@@ -30,7 +30,7 @@ ObservationTimeout	src/runtime/owner/mod.rs	Error::ObservationTimeout {
 ControlReserveExhausted	src/runtime/owner/mod.rs	return Err(Error::ControlReserveExhausted {
 MaxRetriesExceeded	src/transport/serial/handshake.rs	self.fail(Error::MaxRetriesExceeded);
 NotSupported	src/runtime/owner/adapter.rs	if config.addressing == AddressingMode::Ip && profiles.len() > 1 { return Err(Error::NotSupported);
-InvalidState	src/runtime/owner/blocking.rs	return Err(Error::InvalidState(
+InvalidState	src/runtime/owner/blocking.rs	return Err(Error::InvalidState(format!("blocking owner worker cannot call {call} on its own session").into(),));
 OwnerTerminated	src/runtime/owner/boundary.rs	fn missing_terminal_error() -> Error { Error::OwnerTerminated }
 DiagnosticSubscriberLimit	src/runtime/owner/mod.rs	return Err(Error::DiagnosticSubscriberLimit {
 RuntimeShutdown	src/runtime/engine/mod.rs	self.terminate_session(SessionState::Shutdown, Error::RuntimeShutdown, effects)
