@@ -17,7 +17,7 @@ Unknown	src/error.rs	_ => Self::Unknown(code),
 InvalidRequest	src/raw.rs	const fn urgent_control_class_error() -> Error { Error::InvalidRequest(Cow::Borrowed(
 MessageLengthError	src/error.rs	0x01 => Self::MessageLengthError,
 ParseError	src/error.rs	Self::ParseError(Cow::Owned(err.to_string()))
-TransportError	src/runtime/owner/mod.rs	Error::TransportError(format!("datagram send failed: {error}").into())
+TransportError	src/error.rs	Self::TransportError { source: Arc::new(source), }
 InvalidParameter	src/units.rs	if !value.is_finite() { return Err(Error::InvalidParameter {
 BufferTooSmall	src/command/bytes/frame.rs	Err(Error::buffer_too_small(frame.len, frame.buffer.len()))
 ParameterOutOfRange	src/error.rs	Self::ParameterOutOfRange { parameter, value, min, max, }
@@ -43,7 +43,7 @@ RuntimeIdentityExhausted	src/runtime/engine/mod.rs	let Some(id) = self.allocate_
 RuntimeQueueFull	src/runtime/engine/mod.rs	return Err(Error::RuntimeQueueFull {
 StreamPoisoned	src/runtime/engine/mod.rs	Error::StreamPoisoned { reason: Cow::Owned(reason.into()), }
 InvalidCameraId	src/camera_id.rs	_ => Err(Error::InvalidCameraId { id }),
-ResponseTooLarge	src/raw.rs	return Err(Error::ResponseTooLarge {
+ResponseTooLarge	src/error.rs	Self::ResponseTooLarge { max_size }
 InquiryNotCancelable	src/runtime/engine/mod.rs	CancellationDecision::Refused(Error::InquiryNotCancelable)
 InvalidAddress	src/transport/address.rs	Error::InvalidAddress { reason: reason.into(), }
 UnsupportedTransport	src/runtime/owner/adapter.rs	return Err(Error::UnsupportedTransport {

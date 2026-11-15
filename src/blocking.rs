@@ -1009,9 +1009,9 @@ mod tests {
                 .push(bytes.to_vec());
             if !self.failed && bytes.starts_with(&[0x81, 0x01, 0x04, 0x07]) {
                 self.failed = true;
-                return Err(Error::TransportError(
-                    "injected zoom stop send failure".into(),
-                ));
+                return Err(Error::transport_error(std::io::Error::other(
+                    "injected zoom stop send failure",
+                )));
             }
             self.inner.send_with_timeout(bytes, kind, timeout)
         }
@@ -1220,7 +1220,7 @@ mod tests {
         assert!(matches!(report.pan_tilt, crate::HaltOutcome::Unsupported));
         assert!(matches!(
             report.zoom,
-            crate::HaltOutcome::Failed(Error::TransportError(_))
+            crate::HaltOutcome::Failed(Error::TransportError { .. })
         ));
         assert!(matches!(report.focus, crate::HaltOutcome::Applied));
         assert_eq!(

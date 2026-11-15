@@ -713,9 +713,9 @@ where
         // prove generally); both are executor-neutral and behave identically.
         let timed_out = async {
             Executor::sleep(runtime, write_timeout).await;
-            Err(Error::TransportError(
-                format!("transport write did not complete within {write_timeout:?}").into(),
-            ))
+            Err(Error::transport_error(Error::io_timeout().with_context(
+                format!("transport write did not complete within {write_timeout:?}"),
+            )))
         };
         future::or(driver.write(write), timed_out).await
     }

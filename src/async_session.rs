@@ -705,9 +705,9 @@ mod tests {
             self.failed |= should_fail;
             async move {
                 if should_fail {
-                    Err(Error::TransportError(
-                        "injected zoom stop send failure".into(),
-                    ))
+                    Err(Error::transport_error(std::io::Error::other(
+                        "injected zoom stop send failure",
+                    )))
                 } else {
                     self.inner.send(bytes).await
                 }
@@ -921,7 +921,7 @@ mod tests {
         assert!(matches!(report.pan_tilt, crate::HaltOutcome::Unsupported));
         assert!(matches!(
             report.zoom,
-            crate::HaltOutcome::Failed(Error::TransportError(_))
+            crate::HaltOutcome::Failed(Error::TransportError { .. })
         ));
         assert!(matches!(report.focus, crate::HaltOutcome::Applied));
         assert_eq!(

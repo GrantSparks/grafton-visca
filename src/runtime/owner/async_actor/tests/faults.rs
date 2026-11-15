@@ -302,8 +302,8 @@ async fn a_burst_of_transient_faults_then_recovery_keeps_the_session() {
     // Two consecutive faults, each retransmitting the very same request.
     for _ in 0..2 {
         frames
-            .send_async(Ok(OwnerReceive::Fault(Error::TransportError(
-                "ICMP port unreachable".into(),
+            .send_async(Ok(OwnerReceive::Fault(Error::transport_error(
+                std::io::Error::other("ICMP port unreachable"),
             ))))
             .await
             .unwrap();
@@ -341,8 +341,8 @@ async fn a_burst_of_transient_faults_then_recovery_keeps_the_session() {
     // transient and the session is still answering.
     for _ in 0..3 {
         frames
-            .send_async(Ok(OwnerReceive::Fault(Error::TransportError(
-                "ICMP port unreachable".into(),
+            .send_async(Ok(OwnerReceive::Fault(Error::transport_error(
+                std::io::Error::other("ICMP port unreachable"),
             ))))
             .await
             .unwrap();
@@ -819,7 +819,7 @@ async fn a_datagram_send_failure_never_demands_a_new_session() {
         !error.requires_new_session(),
         "a live session must never hand out a replacement-session verdict: {error:?}"
     );
-    assert!(matches!(error, Error::TransportError(_)));
+    assert!(matches!(error, Error::TransportError { .. }));
     assert_eq!(
         handle.snapshot().await.unwrap().state,
         SessionState::Running,

@@ -1461,7 +1461,7 @@ mod tests {
             (Duration::from_millis(1), Duration::from_millis(20)),
         ] {
             let at = start + offset;
-            let fault = Error::TransportError("transient receive fault".into());
+            let fault = Error::transport_error(std::io::Error::other("transient receive fault"));
             let step = core.handle(
                 receive(Ok(OwnerReceive::Fault(fault)), at),
                 &mut Datagrams,
@@ -1539,7 +1539,12 @@ mod tests {
         let (_handle, mut core) = owner();
         let now = Instant::now();
         let step = core.handle(
-            receive(Err(Error::TransportError("bad datagram".into())), now),
+            receive(
+                Err(Error::transport_error(std::io::Error::other(
+                    "bad datagram",
+                ))),
+                now,
+            ),
             &mut Datagrams,
             now,
             false,

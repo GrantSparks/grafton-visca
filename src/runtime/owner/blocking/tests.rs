@@ -127,7 +127,9 @@ impl BlockingTransport for ChannelTransport {
             callback();
         }
         if self.fail_writes {
-            return Err(Error::TransportError("injected write failure".into()));
+            return Err(Error::transport_error(std::io::Error::other(
+                "injected write failure",
+            )));
         }
         let _ = self.writes.send(bytes.to_vec());
         Ok(())
@@ -432,7 +434,7 @@ fn submission_succeeds_at_admission_and_a_failed_write_is_the_outcome() {
     let receipt = owner
         .submit_command(focus_manual())
         .expect("admission does not wait for the write");
-    assert!(matches!(receipt.wait(), Err(Error::TransportError(_))));
+    assert!(matches!(receipt.wait(), Err(Error::TransportError { .. })));
     owner.close().unwrap();
 }
 
@@ -687,7 +689,9 @@ fn a_persistent_transient_fault_run_closes_the_session() {
     let _driver = clock.enter();
     let (owner, peer) = Setup::datagram().on(&clock).spawn();
     for _ in 0..64 {
-        peer.send(Read::Fail(Error::TransportError("transient".into())));
+        peer.send(Read::Fail(Error::transport_error(std::io::Error::other(
+            "transient",
+        ))));
     }
     let closed = clock.now();
     let deadline = closed + Duration::from_secs(5);
@@ -931,7 +935,7 @@ fn a_failed_startup_leaves_no_worker_and_drops_the_transport() {
         .with_sony_sequence_reset_on_connect(true);
     assert!(matches!(
         crate::blocking::Session::open(transport, config),
-        Err(Error::TransportError(_))
+        Err(Error::TransportError { .. })
     ));
     assert!(peer.transport_dropped());
     assert_eq!(peer.read_calls.load(Ordering::Relaxed), 0);

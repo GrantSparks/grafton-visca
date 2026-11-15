@@ -1212,6 +1212,13 @@ retry class.
 
 ## Recovery changes
 
+`Error::TransportError(Cow<str>)` becomes `TransportError { source: Arc<Error> }`.
+Use `Error::transport_error(cause)` with the original `Error` or `io::Error`,
+then match `TransportError { source, .. }` to inspect it. Repeated normalization
+keeps the original wrapper. This failure describes one transport operation on a
+usable session; receive-side evidence decides session death. Its source chain
+retains OS error codes and any request certainty (#869).
+
 Do not reconnect by reusing a poisoned owner, old view, subscriber, or operation
 handle. Keep `SessionConfig`, open a fresh session, select fresh views, and
 expect every cache entry to start `Unknown`. Re-query camera state explicitly;

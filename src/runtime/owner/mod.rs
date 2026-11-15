@@ -2671,7 +2671,7 @@ pub(crate) fn transport_close_reason(error: &Error) -> Option<Box<str>> {
 /// always pumping, and a socket that is genuinely gone fails its next read.
 pub(crate) fn normalize_datagram_send_error(error: Error) -> Error {
     if error.requires_new_session() {
-        Error::TransportError(format!("datagram send failed: {error}").into())
+        Error::transport_error(error)
     } else {
         error
     }

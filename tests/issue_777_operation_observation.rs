@@ -383,7 +383,7 @@ facade_matrix! {
     fn a_failed_cancel_write_is_nonretryable_and_keeps_its_source() {
         let camera = FakeCamera::new(|write, answer| {
             if write == CANCEL_SOCKET_ONE {
-                answer.fail_send(Error::TransportError("cancel send failed".into()));
+                answer.fail_send(Error::transport_error(std::io::Error::other("cancel send failed")));
             }
         });
         let session = open!(camera, config()).expect("owner session");

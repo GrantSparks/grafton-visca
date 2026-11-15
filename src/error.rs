@@ -250,7 +250,7 @@ pub enum Error {
 
     /// Underlying IO error from network operations.
     #[error("IO error: {0}")]
-    Io(Arc<io::Error>),
+    Io(#[source] Arc<io::Error>),
 
     /// VISCA protocol syntax error (0x02): Command format is incorrect or parameters are illegal.
     #[error("Syntax error in VISCA command")]
@@ -327,9 +327,15 @@ pub enum Error {
     /// This is a retryable per-request failure with
     /// [`ErrorKind::Transport`]. The receive side remains authoritative for
     /// session death; use [`Self::requires_new_session()`] rather than treating
-    /// this error as a reconnect signal.
-    #[error("Transport error: {0}")]
-    TransportError(Cow<'static, str>),
+    /// this error as a reconnect signal. The original cause is retained through
+    /// [`std::error::Error::source`], including any OS error and request certainty.
+    #[error("Transport error: {source}")]
+    #[non_exhaustive]
+    TransportError {
+        /// The original failure, including its OS cause and request certainty.
+        #[source]
+        source: Arc<Error>,
+    },
 
     /// Invalid parameter provided to a command.
     #[error("Invalid parameter '{parameter}': {reason} (value: {value})")]
@@ -1068,7 +1074,7 @@ impl Error {
             | Self::OwnerTerminated => ErrorKind::IoClosed,
 
             // Transport: one failed operation on a live session.
-            Self::TransportError(..) => ErrorKind::Transport,
+            Self::TransportError { .. } => ErrorKind::Transport,
 
             // Unconfirmed: one transmitted operation has an unknowable result
             Self::CancellationUnconfirmed
@@ -1239,7 +1245,7 @@ impl Error {
             | Self::InvalidRequest(..)
             | Self::MessageLengthError
             | Self::ParseError(..)
-            | Self::TransportError(..)
+            | Self::TransportError { .. }
             | Self::InvalidParameter { .. }
             | Self::BufferTooSmall { .. }
             | Self::ParameterOutOfRange { .. }
@@ -1466,7 +1472,23 @@ impl Error {
                 )))
             }
             Self::WithContext { source, .. } => source.failure_context(),
+            Self::TransportError { source, .. } => source.failure_context(),
             _ => None,
+        }
+    }
+
+    /// Preserves the cause of a failed transport operation on a usable session.
+    ///
+    /// An existing transport-operation wrapper is returned unchanged; repeated
+    /// normalization never adds another layer to its source chain.
+    #[must_use]
+    pub fn transport_error(source: impl Into<Error>) -> Self {
+        let source = source.into();
+        match source {
+            Self::TransportError { .. } => source,
+            source => Self::TransportError {
+                source: Arc::new(source),
+            },
         }
     }
 
@@ -1677,6 +1699,42 @@ mod tests {
     use crate::command::bytes::VISCA_TERMINATOR;
 
     #[test]
+    fn transport_wrapper_preserves_source_chain_and_is_idempotent() {
+        let error = Error::transport_error(io::Error::from_raw_os_error(111));
+        assert_eq!(error.kind(), ErrorKind::Transport);
+        assert!(!error.requires_new_session());
+        let Error::TransportError { source, .. } = &error else {
+            panic!("transport wrapper")
+        };
+        let Error::Io(os) = source.as_ref() else {
+            panic!("original OS source")
+        };
+        assert_eq!(os.raw_os_error(), Some(111));
+        let Some(intermediate) = std::error::Error::source(&error) else {
+            panic!("typed source")
+        };
+        let Some(original) = intermediate.source() else {
+            panic!("OS source chain")
+        };
+        assert_eq!(original.to_string(), os.to_string());
+        let again = Error::transport_error(error.clone());
+        let Error::TransportError { source: same, .. } = again else {
+            panic!("same wrapper")
+        };
+        assert!(Arc::ptr_eq(source, &same));
+    }
+
+    #[test]
+    fn transport_wrapper_keeps_certainty_without_claiming_session_death() {
+        let timeout = Error::io_timeout();
+        let context = timeout.failure_context();
+        assert_eq!(Error::transport_error(timeout).failure_context(), context);
+        let closed = Error::transport_error(Error::ConnectionClosed { reason: None });
+        assert_eq!(closed.kind(), ErrorKind::Transport);
+        assert!(!closed.requires_new_session());
+    }
+
+    #[test]
     fn test_visca_error_from_code() {
         assert!(matches!(Error::from_code(0x01), Error::MessageLengthError));
         assert!(matches!(Error::from_code(0x02), Error::SyntaxError));
@@ -1792,7 +1850,7 @@ mod tests {
         assert!(Error::CommandBufferFull.is_retryable());
         assert!(Error::io_timeout().is_retryable());
         assert!(Error::RuntimeQueueFull { capacity: 8 }.is_retryable());
-        assert!(Error::TransportError(Cow::Borrowed("datagram send failed")).is_retryable());
+        assert!(Error::transport_error(io::Error::other("datagram send failed")).is_retryable());
 
         // Issue #501: NoSocket is transient capacity and should be retryable
         assert!(Error::NoSocket.is_retryable());
@@ -1827,7 +1885,8 @@ mod tests {
             Some(Duration::from_secs(2))
         );
         assert_eq!(
-            Error::TransportError(Cow::Borrowed("datagram send failed")).suggested_retry_delay(),
+            Error::transport_error(io::Error::other("datagram send failed"))
+                .suggested_retry_delay(),
             Some(Duration::from_millis(50))
         );
 
@@ -1856,8 +1915,8 @@ mod tests {
     #[test]
     fn cached_cancellation_failure_preserves_its_source_without_retrying() {
         use std::error::Error as _;
-        let error = Error::cancellation_observation_failed(Error::TransportError(
-            "cancel send failed".into(),
+        let error = Error::cancellation_observation_failed(Error::transport_error(
+            io::Error::other("cancel send failed"),
         ));
         assert_eq!(error.kind(), ErrorKind::Transport);
         assert!(!error.is_retryable());
@@ -1872,10 +1931,14 @@ mod tests {
         let Some(source) = error.source() else {
             panic!("source must be retained");
         };
-        assert_eq!(source.to_string(), "Transport error: cancel send failed");
+        assert_eq!(
+            source.to_string(),
+            "Transport error: IO error: cancel send failed"
+        );
         assert!(!error.with_context("cancel zoom").is_retryable());
 
-        let cause = Error::TransportError("cancel send failed".into()).with_context("cancel write");
+        let cause = Error::transport_error(io::Error::other("cancel send failed"))
+            .with_context("cancel write");
         assert!(cause.is_retryable());
         let expected = format!("{cause:?}");
         let contextual = Error::cancellation_observation_failed(cause);
@@ -1905,9 +1968,9 @@ mod tests {
             Error::OwnerTerminated,
             Error::RuntimeShutdown,
             Error::CancellationUnconfirmed.with_context("cancel zoom"),
-            Error::cancellation_observation_failed(Error::TransportError(
-                "cancel write failed".into(),
-            )),
+            Error::cancellation_observation_failed(Error::transport_error(io::Error::other(
+                "cancel write failed",
+            ))),
         ];
         for stage in [
             FailureStage::PreAdmission,
@@ -1969,7 +2032,7 @@ mod tests {
             ),
             (
                 "isolated datagram transport failure",
-                Error::TransportError(Cow::Borrowed("datagram send failed")),
+                Error::transport_error(io::Error::other("datagram send failed")),
                 ErrorKind::Transport,
                 Some(Duration::from_millis(50)),
             ),
@@ -2247,7 +2310,7 @@ mod tests {
         assert_eq!(Error::RuntimeShutdown.kind(), ErrorKind::IoClosed);
         // Transport
         assert_eq!(
-            Error::TransportError(Cow::Borrowed("test")).kind(),
+            Error::transport_error(io::Error::other("test")).kind(),
             ErrorKind::Transport
         );
         // Unconfirmed
@@ -2448,7 +2511,7 @@ mod tests {
             // Issue #671: a raw command's default unconfirmed outcome fails the
             // one request while the session keeps running.
             Error::UnsequencedCommandUnconfirmed,
-            Error::TransportError(Cow::Borrowed("serial encode failed")),
+            Error::transport_error(io::Error::other("serial encode failed")),
             Error::ConnectionFailed {
                 addr: Cow::Borrowed("192.168.1.100:5678"),
                 source: Arc::new(io::Error::other("refused")),

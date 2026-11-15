@@ -77,7 +77,9 @@ fn first_write_failure_camera() -> (FakeCamera, AcceptedWrites) {
     let camera = FakeCamera::new(move |write, answer| {
         sends = sends.saturating_add(1);
         if sends == 1 {
-            answer.fail_send(Error::TransportError(FIRST_WRITE_ERROR.into()));
+            answer.fail_send(Error::transport_error(std::io::Error::other(
+                FIRST_WRITE_ERROR,
+            )));
             return;
         }
         log.lock().expect("accepted lock").push(write.to_vec());
@@ -98,7 +100,9 @@ fn pacing_camera(minimum_spacing: Duration) -> (FakeCamera, AcceptedWrites) {
     let camera = FakeCamera::visca(move |write, answer| {
         let now = Instant::now();
         if next_eligible.is_some_and(|eligible| now < eligible) {
-            answer.fail_send(Error::TransportError("transport pacing violation".into()));
+            answer.fail_send(Error::transport_error(std::io::Error::other(
+                "transport pacing violation",
+            )));
             return;
         }
         log.lock().expect("accepted lock").push(write.to_vec());
@@ -195,7 +199,9 @@ fn a_failed_operation_write_is_its_outcome_and_releases_the_permit() {
         .applied()
         .expect_err("the failed write is the operation's outcome");
     match &error {
-        Error::TransportError(reason) => assert_eq!(reason.as_ref(), FIRST_WRITE_ERROR),
+        Error::TransportError { source: reason, .. } => {
+            assert!(reason.to_string().ends_with(FIRST_WRITE_ERROR))
+        }
         other => panic!("expected the exact transport error, got {other:?}"),
     }
     assert_eq!(fake.write_count(), 1, "the failed operation tried once");

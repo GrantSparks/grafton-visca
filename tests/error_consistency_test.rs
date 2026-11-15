@@ -54,7 +54,7 @@ fn test_error_retryability_consistency() {
 
     // These errors should always be retryable
     let retryable_errors = [
-        Error::TransportError("datagram send failed".into()),
+        Error::transport_error(std::io::Error::other("datagram send failed")),
         Error::CommandPending,
         Error::CommandBufferFull,
         Error::io_timeout(),

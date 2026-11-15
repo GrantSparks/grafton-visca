@@ -166,7 +166,9 @@ fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
         ],
         Some((
             4,
-            Error::TransportError("public settlement retry write failed".into()),
+            Error::transport_error(std::io::Error::other(
+                "public settlement retry write failed",
+            )),
         )),
     );
     let session = Session::open(serial_stream_wire(&fake), config).expect("owner session");

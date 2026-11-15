@@ -273,7 +273,7 @@ mod tests {
     fn a_read_timeout_is_no_data_and_a_failed_read_is_a_fault() {
         let mut adapter = adapter(ScriptedTransport::new([
             Err(Error::io_timeout()),
-            Err(Error::TransportError("boom".into())),
+            Err(Error::transport_error(std::io::Error::other("boom"))),
             Ok(Vec::new()),
         ]));
         let mut buffers = buffers(&adapter);
@@ -283,7 +283,7 @@ mod tests {
         ));
         assert!(matches!(
             receive(&mut adapter, &mut buffers),
-            Ok(OwnerReceive::Fault(Error::TransportError(_)))
+            Ok(OwnerReceive::Fault(Error::TransportError { .. }))
         ));
         assert!(
             matches!(

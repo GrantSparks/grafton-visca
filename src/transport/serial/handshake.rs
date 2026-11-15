@@ -144,7 +144,7 @@ impl Frame {
         let len = command
             .write_into(CameraId::CAMERA_1, &mut bytes)
             .map_err(|error| {
-                Error::TransportError(format!("Failed to encode {name}: {error}").into())
+                Error::transport_error(error.with_context(format!("Failed to encode {name}")))
             })?;
         Ok(Self { bytes, len })
     }

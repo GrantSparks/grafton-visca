@@ -34,9 +34,9 @@ async fn async_diagnostic_subscriptions_keep_peer_close_and_poison_causes() {
         let (frames, receives) = flume::bounded(1);
         frames
             .send(if poison {
-                Err(Error::TransportError(
-                    "consumed undecodable stream input".into(),
-                ))
+                Err(Error::transport_error(std::io::Error::other(
+                    "consumed undecodable stream input",
+                )))
             } else {
                 Ok(OwnerReceive::Closed)
             })

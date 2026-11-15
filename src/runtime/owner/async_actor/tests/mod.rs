@@ -1946,8 +1946,8 @@ impl AsyncOwnerDriver for AlternatingFaultNoData {
         async move {
             if reads.fetch_add(1, Ordering::Relaxed).is_multiple_of(2) {
                 faults.fetch_add(1, Ordering::Relaxed);
-                Ok(OwnerReceive::Fault(Error::TransportError(
-                    "simulated intermittent adapter fault".into(),
+                Ok(OwnerReceive::Fault(Error::transport_error(
+                    std::io::Error::other("simulated intermittent adapter fault"),
                 )))
             } else {
                 Ok(OwnerReceive::NoData)
@@ -2062,9 +2062,9 @@ impl AlternatingFaultAndTruncatedDatagrams {
     fn next_receive(&self, dst: &mut [u8]) -> Result<crate::transport::ReceiveOutcome, Error> {
         if self.reads.fetch_add(1, Ordering::Relaxed).is_multiple_of(2) {
             self.faults.fetch_add(1, Ordering::Relaxed);
-            return Err(Error::TransportError(
-                "simulated intermittent datagram adapter fault".into(),
-            ));
+            return Err(Error::transport_error(std::io::Error::other(
+                "simulated intermittent datagram adapter fault",
+            )));
         }
         let prefix = [0x90, 0x41, 0xff];
         dst[..prefix.len()].copy_from_slice(&prefix);

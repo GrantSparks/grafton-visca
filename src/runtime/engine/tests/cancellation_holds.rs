@@ -131,7 +131,9 @@ fn unconfirmed_cancel_write_failure_and_resolution_expiry_retain_future_socket_h
                 result: if success {
                     Ok(TransmissionMeta { sequence: None })
                 } else {
-                    Err(Error::TransportError("cancel write failed".into()))
+                    Err(Error::transport_error(std::io::Error::other(
+                        "cancel write failed",
+                    )))
                 },
             },
             now,

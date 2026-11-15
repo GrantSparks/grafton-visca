@@ -58,6 +58,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   ordinary preparation no longer allocates an `Arc` or copies a scratch frame.
   Profile-aware pan/tilt inquiry decoders also store their canonical decoding
   facts inline, including when cloned (#866).
+- **BREAKING** (#869): `TransportError` retains its typed cause in
+  `source: Arc<Error>` instead of a diagnostic string. Construct it with
+  `Error::transport_error(cause)`, which preserves OS error chains and request
+  certainty while classifying the failure as one operation on a usable session.
+
+- **BREAKING** (#882): Command values have one typed spelling per wire value.
+  ND stop conversion rounds to the nearest quarter stop; Sony FR7 direct-menu
+  controls take `DirectMenuTarget` and `MenuButton`. Noise reduction uses
+  `Off | Level(nonzero)` for commands and inquiry readback, with per-value
+  ledger rows. `PictureEffectMode::Unknown` carries a validated
+  `UnknownPictureEffect` that excludes known codes, including in persisted data.
 
 - **BREAKING** (#873): `Request::MAX_SIZE` is an upper bound; preparation encodes
   once and uses the length returned by `write_into`. `Request::encoded_size` is

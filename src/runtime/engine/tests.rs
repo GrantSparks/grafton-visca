@@ -3214,7 +3214,9 @@ fn datagram_cancel_failure_resolves_token_but_original_remains_routable() {
     let failed = engine.handle(
         Input::TransmissionFinished {
             transmission: cancel_tx,
-            result: Err(Error::TransportError("cancel write failed".into())),
+            result: Err(Error::transport_error(std::io::Error::other(
+                "cancel write failed",
+            ))),
         },
         start + Duration::from_millis(2),
     );
@@ -3222,7 +3224,7 @@ fn datagram_cancel_failure_resolves_token_but_original_remains_routable() {
         effect,
         Effect::CancellationObservation {
             id: seen,
-            observation: CancellationObservation::Failed(Error::TransportError(_))
+            observation: CancellationObservation::Failed(Error::TransportError { .. })
         } if *seen == id
     )));
     assert!(engine.entry(id).is_some());
@@ -3345,7 +3347,9 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
     let isolated = datagram_engine.handle(
         Input::TransmissionFinished {
             transmission: first_tx,
-            result: Err(Error::TransportError("datagram write".into())),
+            result: Err(Error::transport_error(std::io::Error::other(
+                "datagram write",
+            ))),
         },
         start,
     );
@@ -3541,7 +3545,9 @@ fn applied_state_actions_are_closed_and_failure_does_not_emit_one() {
     let failed = engine.handle(
         Input::TransmissionFinished {
             transmission,
-            result: Err(Error::TransportError("request write".into())),
+            result: Err(Error::transport_error(std::io::Error::other(
+                "request write",
+            ))),
         },
         start + Duration::from_millis(153),
     );
@@ -4468,7 +4474,7 @@ fn fuzz_receive_fault(action: u64) -> Error {
     match action % 3 {
         0 => Error::io_timeout(),
         1 => Error::from(std::io::Error::from(std::io::ErrorKind::WouldBlock)),
-        _ => Error::TransportError("fuzz receive fault".into()),
+        _ => Error::transport_error(std::io::Error::other("fuzz receive fault")),
     }
 }
 
@@ -5642,7 +5648,9 @@ fn datagram_cancel_failure_keeps_ownership_until_ambiguity_deadline() {
     engine.handle(
         Input::TransmissionFinished {
             transmission: cancel_tx,
-            result: Err(Error::TransportError("cancel write".into())),
+            result: Err(Error::transport_error(std::io::Error::other(
+                "cancel write",
+            ))),
         },
         start + Duration::from_millis(2),
     );
@@ -5689,7 +5697,9 @@ fn failed_cancel_write_does_not_shorten_an_executing_commands_completion_window(
     let failed = engine.handle(
         Input::TransmissionFinished {
             transmission: cancel_tx,
-            result: Err(Error::TransportError("cancel write".into())),
+            result: Err(Error::transport_error(std::io::Error::other(
+                "cancel write",
+            ))),
         },
         start + Duration::from_millis(2),
     );
@@ -5697,7 +5707,7 @@ fn failed_cancel_write_does_not_shorten_an_executing_commands_completion_window(
         effect,
         Effect::CancellationObservation {
             id: seen,
-            observation: CancellationObservation::Failed(Error::TransportError(_)),
+            observation: CancellationObservation::Failed(Error::TransportError { .. }),
         } if *seen == id
     )));
 
@@ -6086,7 +6096,7 @@ fn receive_fault_fails_only_unretryable_work_and_never_the_session() {
 
     let fault = engine.handle(
         Input::ReceiveFault {
-            error: Error::TransportError("ICMP port unreachable".into()),
+            error: Error::transport_error(std::io::Error::other("ICMP port unreachable")),
         },
         start,
     );
@@ -6096,7 +6106,7 @@ fn receive_fault_fails_only_unretryable_work_and_never_the_session() {
         effect,
         Effect::Terminal {
             id,
-            outcome: RuntimeOutcome::Failed(Error::TransportError(_)),
+            outcome: RuntimeOutcome::Failed(Error::TransportError { .. }),
         } if *id == command_id
     )));
     assert!(
@@ -6163,7 +6173,7 @@ fn stream_write_failure_poisons_with_the_transport_cause_in_the_reason() {
     let failure = engine.handle(
         Input::TransmissionFinished {
             transmission: second_tx,
-            result: Err(Error::TransportError("short write".into())),
+            result: Err(Error::transport_error(std::io::Error::other("short write"))),
         },
         start,
     );
@@ -6220,7 +6230,9 @@ fn datagram_write_failure_fails_exactly_one_request() {
     let failure = engine.handle(
         Input::TransmissionFinished {
             transmission: second_tx,
-            result: Err(Error::TransportError("datagram refused".into())),
+            result: Err(Error::transport_error(std::io::Error::other(
+                "datagram refused",
+            ))),
         },
         start,
     );
@@ -8414,7 +8426,9 @@ fn raw_no_reply_write_result_respects_total_budget_boundary() {
         let late = engine.handle(
             Input::TransmissionFinished {
                 transmission,
-                result: Err(Error::TransportError("late raw write result".into())),
+                result: Err(Error::transport_error(std::io::Error::other(
+                    "late raw write result",
+                ))),
             },
             late_at,
         );
@@ -8749,7 +8763,9 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
         let late = finish_write_input_only(
             &mut engine,
             transmission,
-            Err(Error::TransportError("late Sony write result".into())),
+            Err(Error::transport_error(std::io::Error::other(
+                "late Sony write result",
+            ))),
             budget_deadline + Duration::from_nanos(1),
         );
         assert!(matches!(
@@ -8814,7 +8830,7 @@ fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
             start,
         );
         let (transmission, failed_id, _) = request_transmit(&failed);
-        let result = Err(Error::TransportError(cause.into()));
+        let result = Err(Error::transport_error(std::io::Error::other(cause)));
         let poisoned = if use_no_due_ingress {
             finish_write_input_only(&mut engine, transmission, result, late_at)
         } else {
@@ -8827,7 +8843,7 @@ fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
             )
         };
 
-        let expected_reason = format!("Transport error: {cause}");
+        let expected_reason = Error::transport_error(std::io::Error::other(cause)).to_string();
         let terminal_ids: Vec<_> = poisoned
             .iter()
             .filter_map(|effect| match effect {

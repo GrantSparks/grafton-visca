@@ -1151,7 +1151,7 @@ fn an_idle_read_error_reports_no_data_rather_than_a_fault() {
     }
     for fault in [
         Error::Io(Arc::new(std::io::Error::from(ErrorKind::TimedOut))),
-        Error::TransportError("ICMP port unreachable".into()),
+        Error::transport_error(std::io::Error::other("ICMP port unreachable")),
         Error::Io(Arc::new(std::io::Error::from(ErrorKind::ConnectionRefused))),
         Error::ConnectionClosed { reason: None },
     ] {
@@ -1237,7 +1237,7 @@ fn a_datagram_send_failure_is_normalized_to_a_per_request_error() {
     let normalized = normalize_datagram_send_error(Error::ConnectionClosed {
         reason: Some("socket closed".into()),
     });
-    assert!(matches!(normalized, Error::TransportError(_)));
+    assert!(matches!(normalized, Error::TransportError { .. }));
     assert!(!normalized.requires_new_session());
     assert!(
         normalized.to_string().contains("socket closed"),
@@ -1250,8 +1250,10 @@ fn a_datagram_send_failure_is_normalized_to_a_per_request_error() {
         Error::Timeout { .. }
     ));
     assert!(matches!(
-        normalize_datagram_send_error(Error::TransportError("serial encode failed".into())),
-        Error::TransportError(_)
+        normalize_datagram_send_error(Error::transport_error(std::io::Error::other(
+            "serial encode failed"
+        ))),
+        Error::TransportError { .. }
     ));
 }
 
@@ -1272,7 +1274,6 @@ fn a_datagram_send_failure_is_normalized_to_a_per_request_error() {
 /// emits no record of its own.
 mod lifecycle_trace {
     use std::{
-        borrow::Cow,
         collections::{BTreeMap, BTreeSet, VecDeque},
         sync::Arc,
         time::{Duration, Instant},
@@ -1430,7 +1431,10 @@ mod lifecycle_trace {
             Error::RuntimeShutdown => "RuntimeShutdown".to_owned(),
             Error::StreamPoisoned { .. } => "StreamPoisoned".to_owned(),
             Error::RuntimeQueueFull { .. } => "Capacity".to_owned(),
-            Error::TransportError(reason) => reason.to_string(),
+            Error::TransportError { source: reason, .. } => match reason.as_ref() {
+                Error::Io(source) => source.to_string(),
+                other => error_label(other),
+            },
             other => format!("{other:?}"),
         }
     }
@@ -1451,7 +1455,9 @@ mod lifecycle_trace {
         match label {
             "ok" => Ok(TransmissionMeta { sequence: None }),
             "Timeout" => Err(Error::io_timeout()),
-            other => Err(Error::TransportError(Cow::Owned(other.to_owned()))),
+            other => Err(Error::transport_error(std::io::Error::other(
+                other.to_owned(),
+            ))),
         }
     }
 

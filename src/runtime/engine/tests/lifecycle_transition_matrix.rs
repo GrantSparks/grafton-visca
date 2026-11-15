@@ -343,7 +343,9 @@ impl Fixture {
             },
             Action::WriteFailed => Input::TransmissionFinished {
                 transmission: self.transmission,
-                result: Err(Error::TransportError("matrix write failed".into())),
+                result: Err(Error::transport_error(std::io::Error::other(
+                    "matrix write failed",
+                ))),
             },
             Action::Ack => frame(
                 1,
@@ -378,7 +380,9 @@ impl Fixture {
                 return self.engine.advance(due);
             }
             Action::ReceiveFault => Input::ReceiveFault {
-                error: Error::TransportError("matrix transient receive fault".into()),
+                error: Error::transport_error(std::io::Error::other(
+                    "matrix transient receive fault",
+                )),
             },
         };
         checked_input(&mut self.engine, input, self.now)
@@ -404,7 +408,7 @@ fn assert_expected(fixture: &Fixture, effects: &[Effect], expected: Expected) {
         Applied => matches!(&outcome, RuntimeOutcome::Applied),
         Cancelled => matches!(&outcome, RuntimeOutcome::Cancelled),
         WriteFailure => {
-            matches!(&outcome, RuntimeOutcome::Failed(Error::TransportError(message)) if message.as_ref() == "matrix write failed")
+            matches!(&outcome, RuntimeOutcome::Failed(Error::TransportError { source: message, .. }) if message.to_string().ends_with("matrix write failed"))
         }
         SyntaxFailure => matches!(&outcome, RuntimeOutcome::Failed(Error::SyntaxError)),
         AfterAckFailure => {

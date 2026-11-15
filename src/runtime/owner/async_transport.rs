@@ -463,7 +463,7 @@ mod tests {
     #[test]
     fn real_read_failures_still_reach_the_owner_as_faults() {
         for fault in [
-            Error::TransportError("ICMP port unreachable".into()),
+            Error::transport_error(std::io::Error::other("ICMP port unreachable")),
             Error::Io(std::sync::Arc::new(std::io::Error::from(
                 std::io::ErrorKind::TimedOut,
             ))),
