@@ -8,6 +8,9 @@ mod adapter;
 #[cfg(any(feature = "async", feature = "blocking"))]
 mod halt;
 mod motion;
+use crate::observability::DiagnosticEvent;
+mod diagnostics;
+
 use motion::{Admitted, MotionRegistry, MotionStamp};
 #[cfg(feature = "async")]
 mod async_actor;
@@ -77,19 +80,18 @@ use crate::{
     target::{PerTarget, TargetSlot},
     StateKey,
 };
-use crate::{raw::MAX_BYTES, CancellationOutcome, Error, ErrorKind, ViscaSocket};
+use crate::{raw::MAX_BYTES, CancellationOutcome, Error, ErrorKind};
 
 use super::engine::{
-    AdmissionSlot, AppliedStateProjection, CancellationObservation, CancellationPolicy,
-    CommandOutcome, ControlClass, DeadlineKind, DecodedFrame, DecodedResponse, Effect, EngineTurn,
-    EnvelopeKind, EnvelopeSequence, IgnoreReason, Input, InputTurn, InquiryOutcome, Lane,
-    Lifecycle, ProtocolEngine, ProtocolPolicy, RequestContext, RequestId, RetryPolicy,
-    RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy,
+    AdmissionSlot, AppliedStateProjection, CancellationObservation, CommandOutcome, ControlClass,
+    DeadlineKind, DecodedFrame, DecodedResponse, Effect, EngineTurn, IgnoreReason, Input,
+    InputTurn, InquiryOutcome, Lane, Lifecycle, ProtocolEngine, ProtocolPolicy, RequestContext,
+    RequestId, RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason, TargetPolicy,
     Transmission, TransmissionId, TransmissionMeta, TransportKind, WriteFraming, WriteOutcome,
 };
 
 #[cfg(test)]
-use super::engine::{CancelState, Phase};
+use super::engine::{CancelState, EnvelopeSequence, Phase};
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 use super::engine::{RawCorrelationReleaseSet, RawPrefixEvidence, RawReleaseGateAction};
@@ -152,35 +154,32 @@ pub(crate) fn canonical_owner_trace(
         .into_iter()
         .filter_map(|event| match event {
             DiagnosticEvent::Admitted { .. } => Some(CanonicalOwnerStep::Admitted),
-            DiagnosticEvent::Transition { to, .. }
-                if matches!(to.phase(), Phase::Sending { .. }) =>
-            {
-                Some(CanonicalOwnerStep::Sending)
-            }
+            DiagnosticEvent::Transition {
+                to: crate::observability::DiagnosticPhase::Sending,
+                ..
+            } => Some(CanonicalOwnerStep::Sending),
             DiagnosticEvent::WriteFinished {
                 cancellation: false,
                 ..
             } => Some(CanonicalOwnerStep::RequestWrite),
-            DiagnosticEvent::Transition { to, .. }
-                if matches!(to.phase(), Phase::AwaitingAck { .. }) =>
-            {
-                Some(CanonicalOwnerStep::AwaitingAck)
-            }
+            DiagnosticEvent::Transition {
+                to: crate::observability::DiagnosticPhase::AwaitingAck,
+                ..
+            } => Some(CanonicalOwnerStep::AwaitingAck),
             DiagnosticEvent::FrameReceived {
-                response: ResponseDiagnostic::Ack(_),
+                response: crate::observability::DiagnosticResponse::Ack,
                 ..
             } => Some(CanonicalOwnerStep::Ack),
-            DiagnosticEvent::Transition { to, .. }
-                if matches!(to.phase(), Phase::Executing { .. }) =>
-            {
-                Some(CanonicalOwnerStep::Executing)
-            }
+            DiagnosticEvent::Transition {
+                to: crate::observability::DiagnosticPhase::Executing,
+                ..
+            } => Some(CanonicalOwnerStep::Executing),
             DiagnosticEvent::FrameReceived {
-                response: ResponseDiagnostic::Completion(_),
+                response: crate::observability::DiagnosticResponse::Completion,
                 ..
             } => Some(CanonicalOwnerStep::Completion),
             DiagnosticEvent::Terminal {
-                outcome: OutcomeDiagnostic::Applied,
+                outcome: crate::observability::DiagnosticOutcome::Applied,
                 ..
             } => Some(CanonicalOwnerStep::Applied),
             _ => None,
@@ -361,142 +360,18 @@ const fn error_code_is_busy(code: u8) -> bool {
 const CANCELLATION_REPLY_CODE: u8 = 0x04;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum ResponseDiagnostic {
-    Ack(Option<ViscaSocket>),
-    Completion(Option<ViscaSocket>),
-    InquiryReply,
-    Error {
-        socket: Option<ViscaSocket>,
-        code: u8,
-    },
-    SonyControl {
-        code: u16,
-    },
-    NetworkChange,
-    Unknown,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum OutcomeDiagnostic {
-    /// The local transport accepted a raw plain fire-and-forget write. This
-    /// carries no camera protocol-application claim.
-    Written,
-    Applied,
-    Reply,
-    Cancelled,
-    Failed(ErrorKind),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum CancellationDiagnostic {
-    Recorded,
-    Cancelled,
-    Completed,
-    Failed(ErrorKind),
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RequestSummary {
     target: TargetSlot,
     lane: Lane,
-    timeout: TimeoutPolicy,
-    retry: RetryPolicy,
-    control: ControlClass,
-    cancellation: CancellationPolicy,
 }
 
 impl RequestSummary {
     fn new(request: &RuntimeRequest) -> Self {
-        let context = request.context();
         Self {
-            target: context.target,
+            target: request.context().target,
             lane: request.lane(),
-            timeout: context.timeout,
-            retry: context.retry,
-            control: context.control.class,
-            cancellation: context.cancellation,
         }
     }
-}
-
-/// Compact, bounded diagnostic events. Wire payloads and arbitrary strings are
-/// deliberately excluded so diagnostics cannot become an unbounded byte sink.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum DiagnosticEvent {
-    Admitted {
-        id: RequestId,
-        target: TargetSlot,
-        lane: Lane,
-        timeout: TimeoutPolicy,
-        retry: RetryPolicy,
-        control: ControlClass,
-        cancellation: CancellationPolicy,
-    },
-    AdmissionRejected {
-        target: TargetSlot,
-        lane: Lane,
-        error: ErrorKind,
-    },
-    FrameReceived {
-        target: TargetSlot,
-        sequence: Option<EnvelopeSequence>,
-        response: ResponseDiagnostic,
-    },
-    Transition {
-        id: RequestId,
-        target: TargetSlot,
-        from: Lifecycle,
-        to: Lifecycle,
-    },
-    WriteFinished {
-        id: RequestId,
-        transmission: TransmissionId,
-        target: TargetSlot,
-        cancellation: bool,
-        envelope: EnvelopeKind,
-        sequence: Option<u32>,
-        success: bool,
-    },
-    RetryScheduled {
-        id: RequestId,
-        target: TargetSlot,
-        attempt: u32,
-        ready_at: Instant,
-    },
-    /// One of a request's own protocol deadlines expired, carrying the engine's
-    /// actual retry decision so a subscriber never has to infer it from a
-    /// `Transition` and the absence of a `RetryScheduled`.
-    DeadlineExpired {
-        id: RequestId,
-        target: TargetSlot,
-        deadline: DeadlineKind,
-        will_retry: bool,
-    },
-    CancellationRecorded {
-        id: RequestId,
-        target: TargetSlot,
-    },
-    CancellationObserved {
-        id: RequestId,
-        target: TargetSlot,
-        observation: CancellationDiagnostic,
-    },
-    AppliedState {
-        id: RequestId,
-        target: TargetSlot,
-        key: StateKey,
-    },
-    Terminal {
-        id: RequestId,
-        target: TargetSlot,
-        outcome: OutcomeDiagnostic,
-    },
-    SessionChanged {
-        from: SessionState,
-        to: SessionState,
-        reason: ErrorKind,
-    },
-    Ignored(IgnoreReason),
 }
 
 #[derive(Debug, Default)]
@@ -1768,8 +1643,8 @@ impl OwnerState {
         error: ErrorKind,
     ) {
         self.record(DiagnosticEvent::AdmissionRejected {
-            target,
-            lane,
+            target: target.camera(),
+            lane: diagnostics::lane(lane),
             error,
         });
     }
@@ -1894,9 +1769,8 @@ impl OwnerState {
                 }
             }
             self.record(DiagnosticEvent::FrameReceived {
-                target: frame.target,
-                sequence: frame.sequence,
-                response: response_diagnostic(&frame.response),
+                target: frame.target.camera(),
+                response: diagnostics::response(&frame.response),
             });
         }
     }
@@ -1960,22 +1834,19 @@ impl OwnerState {
     }
 
     fn observe_write(&mut self, staged: &StagedWrite, result: &WriteOutcome) {
-        let (success, sequence) = match result {
+        let success = match result {
             WriteOutcome::NotSent(_) => return,
-            WriteOutcome::Sent(meta) => (true, meta.sequence()),
-            WriteOutcome::Failed(_) => (false, None),
+            WriteOutcome::Sent(_) => true,
+            WriteOutcome::Failed(_) => false,
         };
         self.metrics.writes = self.metrics.writes.saturating_add(1);
         if !success {
             self.metrics.write_failures = self.metrics.write_failures.saturating_add(1);
         }
         self.record(DiagnosticEvent::WriteFinished {
-            id: staged.request,
-            transmission: staged.transmission,
-            target: staged.target(),
+            id: diagnostics::id(staged.request),
+            target: staged.target().camera(),
             cancellation: matches!(staged.kind, Transmission::Cancel { .. }),
-            envelope: self.policy.protocol.wire.kind(),
-            sequence,
             success,
         });
     }
@@ -2024,13 +1895,9 @@ impl OwnerState {
                 self.metrics.control_reserve_admitted.saturating_add(1);
         }
         self.record(DiagnosticEvent::Admitted {
-            id,
-            target: summary.target,
-            lane: summary.lane,
-            timeout: summary.timeout,
-            retry: summary.retry,
-            control: summary.control,
-            cancellation: summary.cancellation,
+            id: diagnostics::id(id),
+            target: summary.target.camera(),
+            lane: diagnostics::lane(summary.lane),
         });
         Ok(Admitted { id, motion })
     }
@@ -2244,10 +2111,10 @@ impl OwnerState {
             Effect::Transition { id, from, to } => {
                 if let Some(target) = self.active.get(&id).map(|active| active.summary.target) {
                     self.record(DiagnosticEvent::Transition {
-                        id,
-                        target,
-                        from,
-                        to,
+                        id: diagnostics::id(id),
+                        target: target.camera(),
+                        from: diagnostics::phase(from),
+                        to: diagnostics::phase(to),
                     });
                 }
                 AppliedEffect::None
@@ -2261,11 +2128,7 @@ impl OwnerState {
                 request,
                 kind,
             }),
-            Effect::RetryScheduled {
-                id,
-                attempt,
-                ready_at,
-            } => {
+            Effect::RetryScheduled { id, attempt, .. } => {
                 // Counted where the retry is emitted, not where it is decided:
                 // every retry reason the engine has — a busy camera, an expired
                 // deadline, a transient receive fault (#565) — funnels through
@@ -2274,10 +2137,9 @@ impl OwnerState {
                 self.metrics.retries_scheduled = self.metrics.retries_scheduled.saturating_add(1);
                 if let Some(target) = self.active.get(&id).map(|active| active.summary.target) {
                     self.record(DiagnosticEvent::RetryScheduled {
-                        id,
-                        target,
+                        id: diagnostics::id(id),
+                        target: target.camera(),
                         attempt,
-                        ready_at,
                     });
                 }
                 AppliedEffect::None
@@ -2295,9 +2157,9 @@ impl OwnerState {
                 *counter = counter.saturating_add(1);
                 if let Some(target) = self.active.get(&id).map(|active| active.summary.target) {
                     self.record(DiagnosticEvent::DeadlineExpired {
-                        id,
-                        target,
-                        deadline,
+                        id: diagnostics::id(id),
+                        target: target.camera(),
+                        deadline: diagnostics::deadline(deadline),
                         will_retry,
                     });
                 }
@@ -2307,13 +2169,16 @@ impl OwnerState {
                 self.metrics.cancellations = self.metrics.cancellations.saturating_add(1);
                 self.mark_cancellation_recorded(id);
                 if let Some(target) = self.active.get(&id).map(|active| active.summary.target) {
-                    self.record(DiagnosticEvent::CancellationRecorded { id, target });
+                    self.record(DiagnosticEvent::CancellationRecorded {
+                        id: diagnostics::id(id),
+                        target: target.camera(),
+                    });
                 }
                 AppliedEffect::None
             }
             Effect::CancellationObservation { id, observation } => {
                 let target = self.active.get(&id).map(|active| active.summary.target);
-                let diagnostic = cancellation_diagnostic(&observation);
+                let diagnostic = diagnostics::cancellation(&observation);
                 match observation {
                     CancellationObservation::Recorded
                     | CancellationObservation::Cancelled
@@ -2324,8 +2189,8 @@ impl OwnerState {
                 }
                 if let Some(target) = target {
                     self.record(DiagnosticEvent::CancellationObserved {
-                        id,
-                        target,
+                        id: diagnostics::id(id),
+                        target: target.camera(),
                         observation: diagnostic,
                     });
                 }
@@ -2339,14 +2204,14 @@ impl OwnerState {
                 }
                 self.metrics.cache_updates = self.metrics.cache_updates.saturating_add(1);
                 self.record(DiagnosticEvent::AppliedState {
-                    id: effect.request,
-                    target: effect.target,
+                    id: diagnostics::id(effect.request),
+                    target: effect.target.camera(),
                     key: effect.projection.key(),
                 });
                 AppliedEffect::None
             }
             Effect::Terminal { id, outcome } => {
-                let diagnostic = outcome_diagnostic(&outcome);
+                let diagnostic = diagnostics::outcome(&outcome);
                 if let Some(active) = self.active.remove(&id) {
                     let target = active.summary.target;
                     if matches!(
@@ -2358,8 +2223,8 @@ impl OwnerState {
                     }
                     // Dropping active releases admission capacity only here.
                     self.record(DiagnosticEvent::Terminal {
-                        id,
-                        target,
+                        id: diagnostics::id(id),
+                        target: target.camera(),
                         outcome: diagnostic,
                     });
                 }
@@ -2374,7 +2239,11 @@ impl OwnerState {
                     .terminal_error()
                     .as_ref()
                     .map_or(ErrorKind::Other, Error::kind);
-                self.record(DiagnosticEvent::SessionChanged { from, to, reason });
+                self.record(DiagnosticEvent::SessionChanged {
+                    from: crate::observability::SessionStatus::from_engine(from),
+                    to: crate::observability::SessionStatus::from_engine(to),
+                    reason,
+                });
                 AppliedEffect::None
             }
             Effect::Ignored(reason) => {
@@ -2394,7 +2263,9 @@ impl OwnerState {
                         .ignored_reply_shape_mismatches
                         .saturating_add(1);
                 }
-                self.record(DiagnosticEvent::Ignored(reason));
+                self.record(DiagnosticEvent::Ignored {
+                    reason: diagnostics::ignored(reason),
+                });
                 AppliedEffect::None
             }
         }
@@ -2443,43 +2314,6 @@ fn allocate_subscription_id<T>(next: &mut u64, values: &BTreeMap<u64, T>) -> u64
         if !values.contains_key(&id) {
             return id;
         }
-    }
-}
-
-fn response_diagnostic(response: &DecodedResponse) -> ResponseDiagnostic {
-    match response {
-        DecodedResponse::Ack { socket } => ResponseDiagnostic::Ack(*socket),
-        DecodedResponse::Completion { socket } => ResponseDiagnostic::Completion(*socket),
-        DecodedResponse::InquiryReply { .. } => ResponseDiagnostic::InquiryReply,
-        DecodedResponse::Error { socket, code } => ResponseDiagnostic::Error {
-            socket: *socket,
-            code: *code,
-        },
-        DecodedResponse::SonyControl { code } => ResponseDiagnostic::SonyControl { code: *code },
-        DecodedResponse::NetworkChange => ResponseDiagnostic::NetworkChange,
-        DecodedResponse::Unknown => ResponseDiagnostic::Unknown,
-    }
-}
-
-fn outcome_diagnostic(outcome: &RuntimeOutcome) -> OutcomeDiagnostic {
-    match outcome {
-        RuntimeOutcome::Command(CommandOutcome::Written) => OutcomeDiagnostic::Written,
-        RuntimeOutcome::Command(CommandOutcome::Applied) => OutcomeDiagnostic::Applied,
-        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { .. }) => OutcomeDiagnostic::Reply,
-        RuntimeOutcome::Command(CommandOutcome::Cancelled) => OutcomeDiagnostic::Cancelled,
-        RuntimeOutcome::Command(CommandOutcome::Failed(error))
-        | RuntimeOutcome::Inquiry(InquiryOutcome::Failed(error)) => {
-            OutcomeDiagnostic::Failed(error.kind())
-        }
-    }
-}
-
-fn cancellation_diagnostic(observation: &CancellationObservation) -> CancellationDiagnostic {
-    match observation {
-        CancellationObservation::Recorded => CancellationDiagnostic::Recorded,
-        CancellationObservation::Cancelled => CancellationDiagnostic::Cancelled,
-        CancellationObservation::Completed => CancellationDiagnostic::Completed,
-        CancellationObservation::Failed(error) => CancellationDiagnostic::Failed(error.kind()),
     }
 }
 

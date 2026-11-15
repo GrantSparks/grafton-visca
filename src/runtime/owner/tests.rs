@@ -692,9 +692,121 @@ mod metrics {
             matches!(
                 event,
                 DiagnosticEvent::DeadlineExpired { deadline, will_retry, .. }
-                    if *deadline == expected && *will_retry == retrying
+                    if *deadline == diagnostics::deadline(expected) && *will_retry == retrying
             )
         })
+    }
+
+    /// The complete public stream for one plain command, including every phase
+    /// and transport event. This sequence also passes against the pre-#913
+    /// producer/consumer projection; no event is filtered out of this assertion.
+    #[test]
+    fn plain_focus_command_emits_the_complete_public_event_sequence() {
+        use crate::{
+            observability::{
+                DiagnosticEvent as Event, DiagnosticLane, DiagnosticOutcome, DiagnosticPhase,
+                DiagnosticResponse,
+            },
+            prepared::{test_support::prepare_command, ClassSelection},
+            profiles::GenericVisca,
+            request::builtin::FocusModeCommand,
+            CameraId, OperationalTuning, ProfileSpec, TargetRegistration,
+        };
+
+        let start = Instant::now();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), start).unwrap();
+        let (_, ends) = boundary::OwnerHandleCore::new(&state);
+        let subscription = crate::observability::DiagnosticSubscription::from_owner(
+            state.subscribe_diagnostics(128, ends.lifecycle).unwrap(),
+        );
+        let target = CameraId::CAMERA_1;
+        let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
+        let prepared = prepare_command(
+            &FocusModeCommand::Manual,
+            &TargetRegistration::new(target, profile).unwrap(),
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .unwrap();
+        let request = prepared.admit_with(|request, _| request);
+        let observer = sent(&mut state, request, None, start);
+        apply(
+            &mut state,
+            frame(
+                None,
+                DecodedResponse::Ack {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            start + Duration::from_millis(1),
+        );
+        apply(
+            &mut state,
+            frame(
+                None,
+                DecodedResponse::Completion {
+                    socket: Some(ViscaSocket::S1),
+                },
+            ),
+            start + Duration::from_millis(2),
+        );
+        assert!(matches!(
+            observer.try_recv(),
+            Some(RuntimeOutcome::Command(CommandOutcome::Applied))
+        ));
+
+        let events: Vec<_> = std::iter::from_fn(|| subscription.try_recv()).collect();
+        assert_eq!(events.len(), 8, "the full stream has exactly eight events");
+        let Event::Admitted { id, .. } = events[0] else {
+            panic!("the first event must be admission");
+        };
+        assert_eq!(
+            events,
+            [
+                Event::Admitted {
+                    id,
+                    target,
+                    lane: DiagnosticLane::Command
+                },
+                Event::Transition {
+                    id,
+                    target,
+                    from: DiagnosticPhase::Ready,
+                    to: DiagnosticPhase::Sending
+                },
+                Event::WriteFinished {
+                    id,
+                    target,
+                    cancellation: false,
+                    success: true
+                },
+                Event::Transition {
+                    id,
+                    target,
+                    from: DiagnosticPhase::Sending,
+                    to: DiagnosticPhase::AwaitingAck
+                },
+                Event::FrameReceived {
+                    target,
+                    response: DiagnosticResponse::Ack
+                },
+                Event::Transition {
+                    id,
+                    target,
+                    from: DiagnosticPhase::AwaitingAck,
+                    to: DiagnosticPhase::Executing
+                },
+                Event::FrameReceived {
+                    target,
+                    response: DiagnosticResponse::Completion
+                },
+                Event::Terminal {
+                    id,
+                    target,
+                    outcome: DiagnosticOutcome::Applied
+                },
+            ]
+        );
     }
 
     #[test]
@@ -867,14 +979,15 @@ mod metrics {
         assert!(diagnostics.events().iter().any(|event| matches!(
             event,
             DiagnosticEvent::FrameReceived {
-                target: TargetSlot::CAMERA_1,
-                sequence: None,
-                response: ResponseDiagnostic::SonyControl { code: 0x0F01 },
+                target: crate::CameraId::CAMERA_1,
+                response: crate::observability::DiagnosticResponse::SonyControl { code: 0x0F01 },
             }
         )));
         assert!(diagnostics.events().iter().any(|event| matches!(
             event,
-            DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
+            DiagnosticEvent::Ignored {
+                reason: crate::observability::DiagnosticIgnoreReason::UnmatchedFrame
+            }
         )));
     }
 
@@ -2448,7 +2561,7 @@ mod lifecycle_trace {
                         id: recorded,
                         target,
                         ..
-                    } if *recorded == id => Some(*target),
+                    } if *recorded == diagnostics::id(id) => Some(*target),
                     _ => None,
                 })
                 .next_back()
@@ -2463,7 +2576,7 @@ mod lifecycle_trace {
                 self.at,
                 pending.label,
                 id.get(),
-                target.camera().id(),
+                target.id(),
                 if acquired { "acquired" } else { "unclaimed" },
                 phase_name(phase),
                 match pending.kind {

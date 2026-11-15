@@ -800,13 +800,6 @@ pub(crate) enum TransmissionMeta {
 }
 
 impl TransmissionMeta {
-    pub(crate) const fn sequence(self) -> Option<u32> {
-        match self {
-            Self::Raw => None,
-            Self::Sony { sequence } => Some(sequence),
-        }
-    }
-
     #[cfg(test)]
     pub(crate) const fn for_sequence(sequence: Option<u32>) -> Self {
         match sequence {
@@ -1132,6 +1125,7 @@ pub(crate) enum Effect {
     RetryScheduled {
         id: RequestId,
         attempt: u32,
+        #[cfg(test)]
         ready_at: Instant,
     },
     /// One of a request's own protocol deadlines expired.

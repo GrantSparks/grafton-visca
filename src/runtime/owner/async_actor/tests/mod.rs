@@ -24,12 +24,11 @@ use crate::{
 
 #[cfg(feature = "runtime-tokio")]
 use crate::runtime::engine::{
-    ControlClass, EnvelopeKind, EnvelopeSequence, IgnoreReason, InquiryOutcome, SequenceWidth,
-    TransportKind,
+    ControlClass, EnvelopeKind, EnvelopeSequence, InquiryOutcome, SequenceWidth, TransportKind,
 };
 
+use crate::observability::DiagnosticEvent;
 use crate::runtime::engine::{DecodedFrame, SessionState};
-use crate::runtime::owner::DiagnosticEvent;
 #[cfg(feature = "runtime-tokio")]
 use crate::runtime::owner::{cancellation_outcome, canonical_owner_trace, CANONICAL_OWNER_TRACE};
 #[cfg(feature = "runtime-smol")]
@@ -1435,7 +1434,9 @@ async fn assert_raw_release_probe_precedes_stale_frame_after_idle_sleep(policy: 
     handle.metrics().await.unwrap();
     assert!(diagnostics.events().iter().any(|event| matches!(
         event,
-        DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
+        DiagnosticEvent::Ignored {
+            reason: crate::observability::DiagnosticIgnoreReason::UnmatchedFrame
+        }
     )));
 
     harness
@@ -1521,7 +1522,9 @@ async fn assert_pre_h_idle_read_resumed_at_h_requires_fresh_probe(policy: OwnerP
     .iter()
     .any(|event| matches!(
         event,
-        DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
+        DiagnosticEvent::Ignored {
+            reason: crate::observability::DiagnosticIgnoreReason::UnmatchedFrame
+        }
     )));
 
     harness
@@ -1669,7 +1672,9 @@ async fn assert_parked_cross_target_write_returns_to_raw_coordinator(policy: Own
     .iter()
     .any(|event| matches!(
         event,
-        DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
+        DiagnosticEvent::Ignored {
+            reason: crate::observability::DiagnosticIgnoreReason::UnmatchedFrame
+        }
     )));
 
     harness
@@ -1758,7 +1763,9 @@ async fn assert_raw_release_fault_then_stale_frame_stays_input_first(policy: Own
     handle.metrics().await.unwrap();
     assert!(diagnostics.events().iter().any(|event| matches!(
         event,
-        DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
+        DiagnosticEvent::Ignored {
+            reason: crate::observability::DiagnosticIgnoreReason::UnmatchedFrame
+        }
     )));
 
     harness

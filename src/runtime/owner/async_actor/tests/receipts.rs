@@ -130,7 +130,9 @@ async fn async_urgent_stop_binds_its_ack_under_a_preack_hold() {
     assert!(
         !diagnostics.events().iter().any(|event| matches!(
             event,
-            DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
+            DiagnosticEvent::Ignored {
+                reason: crate::observability::DiagnosticIgnoreReason::UnmatchedFrame
+            }
         )),
         "the stop ACK must not be discarded by the predecessor tombstone"
     );
@@ -189,8 +191,8 @@ async fn expired_pre_admission_boundary_never_writes_and_releases_capacity() {
     assert_eq!(
         diagnostics.events(),
         vec![DiagnosticEvent::AdmissionRejected {
-            target: crate::target::TargetSlot::CAMERA_1,
-            lane: crate::runtime::engine::Lane::Inquiry,
+            target: crate::CameraId::CAMERA_1,
+            lane: crate::observability::DiagnosticLane::Inquiry,
             error: crate::ErrorKind::Timeout,
         }],
         "the caller-expiry winner records exactly one pre-admission rejection"
@@ -245,8 +247,8 @@ async fn immediate_pre_admission_deadline_is_telemetrized() {
     assert_eq!(
         diagnostics.events(),
         vec![DiagnosticEvent::AdmissionRejected {
-            target: crate::target::TargetSlot::CAMERA_1,
-            lane: crate::runtime::engine::Lane::Inquiry,
+            target: crate::CameraId::CAMERA_1,
+            lane: crate::observability::DiagnosticLane::Inquiry,
             error: crate::ErrorKind::Timeout,
         }]
     );
@@ -301,8 +303,8 @@ async fn actor_expired_pre_admission_boundary_is_telemetrized_once() {
     assert_eq!(
         diagnostics.events(),
         vec![DiagnosticEvent::AdmissionRejected {
-            target: crate::target::TargetSlot::CAMERA_1,
-            lane: crate::runtime::engine::Lane::Inquiry,
+            target: crate::CameraId::CAMERA_1,
+            lane: crate::observability::DiagnosticLane::Inquiry,
             error: crate::ErrorKind::Timeout,
         }]
     );
@@ -529,8 +531,8 @@ async fn fail_fast_capacity_rejection_records_metrics_and_diagnostic() {
     assert_eq!(
         rejected,
         DiagnosticEvent::AdmissionRejected {
-            target: crate::target::TargetSlot::CAMERA_1,
-            lane: crate::runtime::engine::Lane::Command,
+            target: crate::CameraId::CAMERA_1,
+            lane: crate::observability::DiagnosticLane::Command,
             error: crate::ErrorKind::BufferFull,
         }
     );
@@ -572,8 +574,8 @@ fn smol_fail_fast_capacity_rejection_records_telemetry() {
     assert_eq!(
         diagnostics.events(),
         vec![DiagnosticEvent::AdmissionRejected {
-            target: crate::target::TargetSlot::CAMERA_1,
-            lane: crate::runtime::engine::Lane::Inquiry,
+            target: crate::CameraId::CAMERA_1,
+            lane: crate::observability::DiagnosticLane::Inquiry,
             error: crate::ErrorKind::BufferFull,
         }]
     );
@@ -616,8 +618,8 @@ async fn pre_admission_rejection_ingress_reports_bounded_diagnostic_loss() {
     assert_eq!(
         diagnostics.events(),
         vec![DiagnosticEvent::AdmissionRejected {
-            target: crate::target::TargetSlot::CAMERA_1,
-            lane: crate::runtime::engine::Lane::Inquiry,
+            target: crate::CameraId::CAMERA_1,
+            lane: crate::observability::DiagnosticLane::Inquiry,
             error: crate::ErrorKind::IoClosed,
         }],
         "the bounded queue retains the newest rejection fact"
@@ -650,8 +652,8 @@ async fn disconnected_pre_boundary_admission_is_telemetrized() {
     assert_eq!(
         diagnostics.events(),
         vec![DiagnosticEvent::AdmissionRejected {
-            target: crate::target::TargetSlot::CAMERA_1,
-            lane: crate::runtime::engine::Lane::Command,
+            target: crate::CameraId::CAMERA_1,
+            lane: crate::observability::DiagnosticLane::Command,
             error: crate::ErrorKind::IoClosed,
         }]
     );

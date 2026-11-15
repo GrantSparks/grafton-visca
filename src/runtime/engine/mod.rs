@@ -4394,6 +4394,7 @@ impl ProtocolEngine {
         effects.push(Effect::RetryScheduled {
             id,
             attempt: next_retry_count,
+            #[cfg(test)]
             ready_at,
         });
         if self.entries.get(&id).is_some_and(|entry| {
