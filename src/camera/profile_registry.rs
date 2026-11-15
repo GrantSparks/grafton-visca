@@ -3263,7 +3263,7 @@ macro_rules! builtin_profile_registry {
                         (NoiseReduction2D, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-noisereduction2d-grant", "09 04 53")])),
                         (NoiseReduction2DControl, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-noisereduction2dcontrol-grant", "01 04 53")])),
                     ],
-                    withheld: [WideDynamicRange, SharpnessMode, PictureEffect],
+                    withheld: [WideDynamicRange, PictureEffect],
                     evidence: [
                         ("transport", "The EVI-H100S/H100V technical manual (R8) documents VISCA over RS-232C and RS-422 at 9,600 or 38,400 bps; it documents no IP transport, so the profile is serial-only."),
                         ("shutter", "The EVI-H100S/H100V technical manual (R8) shutter table (VISCA Command Setting Values, exposure control 1/2), 60/30 mode: `00` 1/1 s through `15` 1/10000 s. The 50/25 mode assigns several codes other times (for example `13` 1/3500 s); the profile uses the 60/30 column."),

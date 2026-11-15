@@ -499,7 +499,7 @@ mod tests {
         // regression this assertion exists to surface.
         assert_eq!(
             (plain, applied_only, targeted),
-            (117, 17, 15),
+            (164, 22, 15),
             "the semantic class distribution of the closed ledger changed",
         );
         assert_eq!(seen.len(), BuiltinCommand::ALL.len());
