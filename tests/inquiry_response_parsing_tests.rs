@@ -39,7 +39,10 @@ fn sony_fr7_profile_path_advertises_and_decodes_atw() {
     let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile");
     assert!(
         fr7.capabilities()
-            .white_balance_modes
+            .white_balance
+            .as_ref()
+            .expect("white-balance domain")
+            .modes
             .contains(&WhiteBalanceMode::ATW),
         "the FR7 registry advertises its typed ATW wire value"
     );
@@ -47,7 +50,10 @@ fn sony_fr7_profile_path_advertises_and_decodes_atw() {
     assert!(
         !generic
             .capabilities()
-            .white_balance_modes
+            .white_balance
+            .as_ref()
+            .expect("white-balance domain")
+            .modes
             .contains(&WhiteBalanceMode::ATW),
         "ATW remains an FR7-specific advertised mode"
     );

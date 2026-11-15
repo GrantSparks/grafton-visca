@@ -11,11 +11,9 @@
 #![allow(clippy::expect_used)]
 
 use grafton_visca::{
-    camera::TransportKind,
-    capabilities::{Capabilities, CoordinateSystem},
-    profiles::GenericVisca,
-    raw, CameraId, ControlClass, Error, OperationalTuning, ProfileEnvelope, ProfileSpec,
-    RetryClass, SessionConfig, SessionStatus, TimeoutClass, TransportCompatibility,
+    camera::TransportKind, capabilities::Capabilities, profiles::GenericVisca, raw, CameraId,
+    ControlClass, Error, OperationalTuning, ProfileEnvelope, ProfileSpec, RetryClass,
+    SessionConfig, SessionStatus, TimeoutClass, TransportCompatibility,
 };
 use grafton_visca_test_support::{
     facade_matrix,
@@ -44,14 +42,12 @@ fn sony_profile() -> ProfileSpec {
     let mut capabilities = Capabilities::from_profile::<GenericVisca>();
     capabilities.profile_id = None;
     ProfileSpec::builder(capabilities)
-        .pan_tilt_coordinates(CoordinateSystem::SignedCentered, 16.0, 16.0)
         .transports(TransportCompatibility::new(Some(5678), Some(52381), false))
         .envelope(ProfileEnvelope::SonyEncapsulated)
         .timing(baseline.timing())
         .maximum_command_sockets(baseline.maximum_command_sockets())
         .supports_operation_complete(baseline.supports_operation_complete())
         .supports_command_cancel(baseline.supports_command_cancel())
-        .preset_recall_axes(baseline.preset_recall_axes())
         .position_inquiries(baseline.position_inquiries())
         .build()
         .expect("Sony-envelope runtime profile")

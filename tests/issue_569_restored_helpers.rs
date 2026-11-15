@@ -104,10 +104,21 @@ fn directional_pan_tilt_drive_encodes_each_direction() {
 fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
     let (session, fake) = fr7_session();
     let camera = session.camera::<SonyFR7>().expect("camera");
-    let optical_max = *camera.capabilities().zoom_range_optical.end();
+    let optical_max = *camera
+        .capabilities()
+        .zoom
+        .as_ref()
+        .expect("zoom domain")
+        .optical_range()
+        .as_inclusive()
+        .end();
     let digital_max = *camera
         .capabilities()
-        .zoom_range_digital
+        .zoom
+        .as_ref()
+        .expect("zoom domain")
+        .digital_range()
+        .map(|range| range.as_inclusive())
         .as_ref()
         .expect("FR7 documents a digital zoom range")
         .end();
@@ -386,7 +397,7 @@ fn typed_cameras_expose_their_runtime_capability_inventory() {
     let camera = session.camera::<PtzOpticsG2>().expect("camera");
     let capabilities = camera.capabilities();
     assert_eq!(capabilities.model_name, "PtzOptics G2");
-    assert!(capabilities.has_pan_tilt);
+    assert!(capabilities.has_pan_tilt());
 
     // `camera.capabilities()` is defined as `camera.profile().capabilities()`,
     // so comparing those two by address asserts nothing. Compare against an

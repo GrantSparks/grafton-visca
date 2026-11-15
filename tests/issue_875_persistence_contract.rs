@@ -48,7 +48,14 @@ fn every_nested_persisted_object_refuses_unknown_keys() {
         let error = serde_json::from_value::<ProfileSpec>(changed)
             .expect_err("unknown facts must not be silently discarded")
             .to_string();
-        assert!(error.contains("unknown field"), "{path}: {error}");
+        // TiltRanges is externally tagged: an extra key violates the
+        // single-variant map shape before field validation runs.
+        let unknown_fact = if path == "/capabilities/pan_tilt/tilt_ranges" {
+            error.contains("expected map with a single key")
+        } else {
+            error.contains("unknown field")
+        };
+        assert!(unknown_fact, "{path}: {error}");
         assert!(error.contains("regenerate it"), "{path}: {error}");
     }
 }
@@ -145,19 +152,22 @@ fn schema_requires_every_profile_fact_and_closes_every_object() {
         objects > 10,
         "follow definitions, including Duration and RangeInclusive"
     );
-    for (definition, key) in [
-        ("Capabilities", "profile_id"),
-        ("Capabilities", "optical_zoom_ratio"),
-        ("TransportCompatibility", "tcp_port"),
+    for path in [
+        "/$defs/Capabilities/properties/profile_id",
+        "/$defs/Capabilities/properties/zoom",
+        "/$defs/Capabilities/properties/zoom/anyOf/0/properties/optical_ratio",
+        "/$defs/TransportCompatibility/properties/tcp_port",
     ] {
-        let property = &schema["$defs"][definition]["properties"][key];
-        assert!(
-            property["anyOf"]
+        // Required optional domains are inlined beneath the null alternative.
+        let property = schema
+            .pointer(path)
+            .expect("current capability schema path");
+        let nullable = property["anyOf"]
+            .as_array()
+            .is_some_and(|variants| variants.iter().any(|v| v["type"] == "null"))
+            || property["type"]
                 .as_array()
-                .expect("nullable required fact")
-                .iter()
-                .any(|v| v["type"] == "null"),
-            "{definition}.{key}: {property}"
-        );
+                .is_some_and(|types| types.iter().any(|kind| kind == "null"));
+        assert!(nullable, "{path}: {property}");
     }
 }

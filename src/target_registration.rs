@@ -35,7 +35,10 @@ impl TargetRegistration {
 
     pub(crate) fn from_profile(target: TargetSlot, profile: ProfileSpec) -> Self {
         let mount = profile
-            .supports_mount_selection()
+            .capabilities()
+            .pan_tilt
+            .as_ref()
+            .is_some_and(|domain| domain.tilt_ranges.supports_mount_selection())
             .then_some(MountPosition::Desktop);
         Self {
             target,
@@ -48,7 +51,13 @@ impl TargetRegistration {
     ///
     /// Profiles with one fixed tilt range refuse this selection.
     pub fn with_mount(mut self, mount: MountPosition) -> Result<Self> {
-        if !self.profile.supports_mount_selection() {
+        if !self
+            .profile
+            .capabilities()
+            .pan_tilt
+            .as_ref()
+            .is_some_and(|domain| domain.tilt_ranges.supports_mount_selection())
+        {
             return Err(Error::FeatureNotSupported {
                 feature: "mount-dependent tilt range",
             });
@@ -75,90 +84,81 @@ impl TargetRegistration {
         self.mount
     }
 
-    /// Returns the target's effective raw tilt bounds.
+    /// Returns effective tilt bounds, absent when the profile has no pan/tilt domain.
     #[must_use]
-    pub fn tilt_range(&self) -> RangeInclusive<i32> {
-        self.profile.tilt_range_for_mount(self.mount)
+    pub fn tilt_range(&self) -> Option<crate::capabilities::CapabilityRange<i32>> {
+        self.profile
+            .capabilities()
+            .pan_tilt
+            .as_ref()
+            .map(|domain| domain.tilt_ranges.range(self.mount))
     }
 
-    /// Returns the target's effective logical tilt bounds in degrees.
+    /// Returns the effective nominal tilt bounds in degrees.
     #[must_use]
     pub fn tilt_range_degrees(&self) -> Option<RangeInclusive<f32>> {
         self.profile
-            .pan_tilt_coordinates()
-            .map(|conversion| conversion.tilt_degree_range(&self.tilt_range()))
+            .capabilities()
+            .pan_tilt
+            .as_ref()
+            .map(|domain| domain.tilt_range_degrees(self.mount))
+    }
+
+    fn convert_coordinates(
+        &self,
+        pan: f32,
+        tilt: f32,
+        kind: crate::profile::CoordinateKind,
+    ) -> Result<(i32, i32)> {
+        let domain =
+            self.profile
+                .capabilities()
+                .pan_tilt
+                .as_ref()
+                .ok_or(Error::FeatureNotSupported {
+                    feature: "pan/tilt",
+                })?;
+        let position = domain.coordinates.checked_units(
+            crate::inquiry_conversions::PanTiltPositionDeg::new(
+                crate::units::Degrees(pan),
+                crate::units::Degrees(tilt),
+            ),
+            crate::profile::PanTiltRanges {
+                pan_units: domain.pan_range,
+                tilt_units: domain.tilt_ranges.range(self.mount),
+                endpoint_quantization: domain.endpoint_quantization,
+            },
+            kind,
+        )?;
+        Ok((position.pan, position.tilt))
     }
 
     pub(crate) fn convert_pan_tilt_degrees(&self, pan: f32, tilt: f32) -> Result<(i32, i32)> {
-        let conversion = self.profile.pan_tilt_coordinates().ok_or_else(|| {
-            Error::InvalidRequest("profile has no pan/tilt coordinate conversion".into())
-        })?;
-        if !self.profile.supports_mount_selection() {
-            let capabilities = self.profile.capabilities();
-            let position = conversion.checked_units(
-                crate::inquiry_conversions::PanTiltPositionDeg::new(
-                    crate::units::Degrees(pan),
-                    crate::units::Degrees(tilt),
-                ),
-                crate::profile::PanTiltRanges {
-                    pan_degrees: &capabilities.pan_range_degrees,
-                    tilt_degrees: &capabilities.tilt_range_degrees,
-                    pan_units: &capabilities.pan_range,
-                    tilt_units: &capabilities.tilt_range,
-                },
-            )?;
-            return Ok((position.pan, position.tilt));
-        }
-        let convert =
-            |axis: &'static str, degrees: f32, scale: f32, range: &RangeInclusive<i32>| {
-                let raw = degrees * scale;
-                // R7's integer endpoints are rounded representations of nominal
-                // degree limits (195*235.9=46000.5). Snap only the documented
-                // half-unit endpoint cell; interior values retain nearest-away
-                // rounding. No extrapolation beyond a source endpoint is allowed.
-                let endpoint_cell = if self.profile.supports_mount_selection() {
-                    0.5
-                } else {
-                    0.0
-                };
-                if !raw.is_finite()
-                    || raw < *range.start() as f32 - endpoint_cell
-                    || raw > *range.end() as f32 + endpoint_cell
-                {
-                    return Err(Error::InvalidParameter {
-                        parameter: axis,
-                        value: degrees.to_string().into(),
-                        reason: format!("position is outside raw limits {range:?}").into(),
-                    });
-                }
-                Ok((raw.round() as i32).clamp(*range.start(), *range.end()))
-            };
-        Ok((
-            convert(
-                "pan",
-                pan,
-                conversion.pan_degrees_to_units(),
-                &self.profile.capabilities().pan_range,
-            )?,
-            convert(
-                "tilt",
-                tilt,
-                conversion.tilt_degrees_to_units(),
-                &self.tilt_range(),
-            )?,
-        ))
+        self.convert_coordinates(pan, tilt, crate::profile::CoordinateKind::Position)
+    }
+
+    pub(crate) fn convert_pan_tilt_offset_degrees(
+        &self,
+        pan: f32,
+        tilt: f32,
+    ) -> Result<(i32, i32)> {
+        self.convert_coordinates(pan, tilt, crate::profile::CoordinateKind::Offset)
     }
 
     pub(crate) fn validate_pan_tilt_offset(&self, pan: i32, tilt: i32) -> Result<()> {
+        let domain =
+            self.profile
+                .capabilities()
+                .pan_tilt
+                .as_ref()
+                .ok_or(Error::FeatureNotSupported {
+                    feature: "pan/tilt",
+                })?;
         for (parameter, value, range) in [
-            (
-                "pan offset",
-                pan,
-                self.profile.capabilities().pan_range.clone(),
-            ),
-            ("tilt offset", tilt, self.tilt_range()),
+            ("pan offset", pan, domain.pan_range),
+            ("tilt offset", tilt, domain.tilt_ranges.range(self.mount)),
         ] {
-            let span = i64::from(*range.end()) - i64::from(*range.start());
+            let span = i64::from(range.max()) - i64::from(range.min());
             if i64::from(value).abs() > span {
                 return Err(Error::InvalidParameter {
                     parameter,
@@ -210,7 +210,12 @@ mod tests {
         let target = config
             .registration(CameraId::CAMERA_1)
             .expect("registered target");
-        assert_eq!(target.tilt_range(), -49539..=3538);
+        assert_eq!(
+            target.tilt_range(),
+            Some(crate::capabilities::CapabilityRange::<i32>::new(
+                -49539, 3538
+            ))
+        );
         assert_eq!(target.mount(), Some(MountPosition::Ceiling));
         assert!(absolute(target, 0.0, 15.0).is_ok());
         assert!(absolute(target, 0.0, -210.0).is_ok());

@@ -283,7 +283,7 @@ macro_rules! __define_builtin_profiles {
                     },
                     pan_tilt: {
                         pan_range: $pan_range:expr,
-                        tilt_range: $tilt_range:expr,
+                        tilt_ranges: $tilt_ranges:expr,
                         max_pan_speed: $max_pan_speed:expr,
                         max_tilt_speed: $max_tilt_speed:expr,
                         simultaneous: $pan_tilt_simultaneous:expr,
@@ -292,6 +292,7 @@ macro_rules! __define_builtin_profiles {
                         tilt_degrees_to_units: $tilt_degrees_to_units:expr,
                         coordinate_system: $coordinate_system:expr,
                         wire_codec: $pan_tilt_wire_codec:expr,
+                        $(endpoint_quantization: $endpoint_quantization:expr,)?
                     },
                     zoom: {
                         optical_max: $optical_zoom_max:expr,
@@ -302,8 +303,8 @@ macro_rules! __define_builtin_profiles {
                         optical_zoom_ratio: $optical_zoom_ratio:expr,
                     },
                     focus: {
-                        near_limit: $focus_near_limit:expr,
-                        far_limit: $focus_far_limit:expr,
+                        range: $focus_range:expr,
+                        near_end: $focus_near_end:expr,
                         auto_focus: $supports_auto_focus:expr,
                         one_push: $supports_one_push_focus:expr,
                         focus_zone_inquiry: $supports_focus_zone_inquiry:expr,
@@ -342,11 +343,8 @@ macro_rules! __define_builtin_profiles {
                         flip: $supports_flip:expr,
                         mirror: $supports_mirror:expr,
                         hue_range: $hue_range:expr,
-                        nr_2d: $supports_2d_nr:expr,
-                        nr_3d: $supports_3d_nr:expr,
                         picture_effect: $supports_picture_effect:expr,
                         luminance_range: $luminance_range:expr,
-                        combined_flip: $uses_combined_flip_command:expr,
                         save_after_flip: $requires_settings_save_for_flip:expr,
                         gamma_range: $gamma_range:expr,
                     },
@@ -356,7 +354,6 @@ macro_rules! __define_builtin_profiles {
                         tour: $supports_preset_tour:expr,
                         recall_delay_ms: $preset_recall_delay_ms:expr,
                         thumbnail: $supports_preset_thumbnail:expr,
-                        names: $supports_preset_names:expr,
                         max_name_len: $max_preset_name_length:expr,
                     },
                     power: {
@@ -401,7 +398,7 @@ macro_rules! __define_builtin_profiles {
                 const PROFILE_ID: Option<$crate::camera::profiles::ProfileId> =
                     Some($crate::camera::profiles::ProfileId::$id);
                 const MODEL_NAME: &'static str = $model_name;
-                const DEFAULT_CAMERA_ID: u8 = $default_camera_id;
+                const DEFAULT_CAMERA_ID: $crate::IndividualCameraId = $crate::IndividualCameraId::new($default_camera_id).expect("individual profile default");
                 type Envelope = $envelope;
                 const ACK_TIMEOUT: std::time::Duration =
                     std::time::Duration::from_millis($ack_timeout_ms);
@@ -421,7 +418,8 @@ macro_rules! __define_builtin_profiles {
 
             impl $crate::capabilities::PanTilt for $profile {
                 const PAN_RANGE: $crate::capabilities::CapabilityRange<i32> = $pan_range;
-                const TILT_RANGE: $crate::capabilities::CapabilityRange<i32> = $tilt_range;
+                const TILT_RANGES: $crate::capabilities::TiltRanges = $tilt_ranges;
+                $(const ENDPOINT_QUANTIZATION: $crate::capabilities::EndpointQuantization = $endpoint_quantization;)?
                 const MAX_PAN_SPEED: u8 = $max_pan_speed;
                 const MAX_TILT_SPEED: u8 = $max_tilt_speed;
                 const PAN_TILT_SIMULTANEOUS: bool = $pan_tilt_simultaneous;
@@ -444,8 +442,8 @@ macro_rules! __define_builtin_profiles {
             }
 
             impl $crate::capabilities::Focus for $profile {
-                const FOCUS_NEAR_LIMIT: u16 = $focus_near_limit;
-                const FOCUS_FAR_LIMIT: u16 = $focus_far_limit;
+                const FOCUS_RANGE: $crate::capabilities::CapabilityRange<u16> = $focus_range;
+                const FOCUS_NEAR_END: $crate::capabilities::FocusNearEnd = $focus_near_end;
                 const SUPPORTS_AUTO_FOCUS: bool = $supports_auto_focus;
                 const SUPPORTS_ONE_PUSH_FOCUS: bool = $supports_one_push_focus;
                 const SUPPORTS_FOCUS_ZONE_INQUIRY: bool = $supports_focus_zone_inquiry;
@@ -462,7 +460,7 @@ macro_rules! __define_builtin_profiles {
                 const IRIS_RANGE: Option<$crate::capabilities::CapabilityDomain<u16>> = $iris_range;
                 const SHUTTER_SPEEDS: &'static [$crate::capabilities::ShutterSpeedEntry] =
                     $shutter_speeds;
-                const GAIN_RANGE: $crate::capabilities::CapabilityRange<u8> = $gain_range;
+                const GAIN_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $gain_range;
                 const BRIGHTNESS_RANGE: Option<$crate::capabilities::CapabilityDomain<u8>> = $brightness_range;
                 const SUPPORTS_BACKLIGHT_COMP: bool = $supports_backlight_comp;
                 const EXPOSURE_COMP_RANGE: Option<$crate::capabilities::CapabilityRange<i8>> = $exposure_comp_range;
@@ -486,11 +484,8 @@ macro_rules! __define_builtin_profiles {
                 const SUPPORTS_FLIP: bool = $supports_flip;
                 const SUPPORTS_MIRROR: bool = $supports_mirror;
                 const HUE_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $hue_range;
-                const SUPPORTS_2D_NR: bool = $supports_2d_nr;
-                const SUPPORTS_3D_NR: bool = $supports_3d_nr;
                 const SUPPORTS_PICTURE_EFFECT: bool = $supports_picture_effect;
                 const LUMINANCE_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $luminance_range;
-                const USES_COMBINED_FLIP_COMMAND: bool = $uses_combined_flip_command;
                 const REQUIRES_SETTINGS_SAVE_FOR_FLIP: bool = $requires_settings_save_for_flip;
                 const GAMMA_RANGE: Option<$crate::capabilities::CapabilityRange<u8>> = $gamma_range;
                 const SUPPORTS_IMAGE_PROCESSING: bool = $supports_image_processing;
@@ -503,7 +498,6 @@ macro_rules! __define_builtin_profiles {
                 const PRESET_RECALL_DELAY: std::time::Duration =
                     std::time::Duration::from_millis($preset_recall_delay_ms);
                 const SUPPORTS_PRESET_THUMBNAIL: bool = $supports_preset_thumbnail;
-                const SUPPORTS_PRESET_NAMES: bool = $supports_preset_names;
                 const MAX_PRESET_NAME_LENGTH: usize = $max_preset_name_length;
             }
 
@@ -712,9 +706,9 @@ macro_rules! __define_builtin_profiles {
             }
 
             /// Returns the default camera ID for this profile.
-            pub const fn default_camera_id(&self) -> u8 {
+            pub const fn default_camera_id(&self) -> $crate::IndividualCameraId {
                 match self {
-                    $(ProfileId::$id => $default_camera_id,)*
+                    $(ProfileId::$id => <$profile as $crate::capabilities::ProfileMetadata>::DEFAULT_CAMERA_ID,)*
                 }
             }
 
@@ -971,8 +965,8 @@ macro_rules! __define_builtin_profiles {
                 assert_eq!(facts.tcp.is_some(), id.supports_tcp());
                 assert_eq!(facts.udp.is_some(), id.supports_udp());
                 assert_eq!(facts.serial, id.supports_serial());
-                assert_eq!(facts.default_camera_id, P::DEFAULT_CAMERA_ID);
-                assert_eq!(facts.default_camera_id, id.default_camera_id());
+                assert_eq!(facts.default_camera_id, P::DEFAULT_CAMERA_ID.value());
+                assert_eq!(facts.default_camera_id, id.default_camera_id().value());
                 assert_eq!(facts.inquiry_support, P::INQUIRY_SUPPORT);
                 assert_eq!(facts.inquiry_support, id.inquiry_support());
                 assert_eq!(facts.position_inquiries, P::POSITION_INQUIRIES);
@@ -983,7 +977,7 @@ macro_rules! __define_builtin_profiles {
                     "{id:?} image base-support registry fact and metadata must match"
                 );
                 assert_eq!(
-                    caps.has_image_processing,
+                    caps.has_image_processing(),
                     facts.image_base_support,
                     "{id:?} runtime image permission must come from the registry fact"
                 );
@@ -1020,7 +1014,7 @@ macro_rules! __define_builtin_profiles {
                     "{id:?} focus-zone inquiry registry fact and metadata must match"
                 );
                 assert_eq!(
-                    caps.has_focus_zone_inquiry,
+                    caps.has_focus_zone_inquiry(),
                     facts.focus_zone_inquiry,
                     "{id:?} runtime focus-zone inquiry fact must come from the registry"
                 );
@@ -1037,7 +1031,7 @@ macro_rules! __define_builtin_profiles {
                     "{id:?} USB-audio registry fact and metadata must match"
                 );
                 assert_eq!(
-                    caps.has_usb_audio,
+                    caps.has_usb_audio(),
                     facts.usb_audio,
                     "{id:?} runtime USB-audio fact must come from the registry"
                 );
@@ -1080,7 +1074,7 @@ macro_rules! __define_builtin_profiles {
                 );
                 assert!(P::PAN_RANGE.min() <= P::PAN_RANGE.max(), "{id:?} pan metadata must be non-empty");
                 assert!(
-                    P::TILT_RANGE.min() <= P::TILT_RANGE.max(),
+                    P::TILT_RANGES.range(None).min() <= P::TILT_RANGES.range(None).max(),
                     "{id:?} tilt metadata must be non-empty"
                 );
                 assert!(
@@ -1090,10 +1084,7 @@ macro_rules! __define_builtin_profiles {
                 if let Some(range) = P::IRIS_RANGE {
                     assert!(range.min() <= range.max(), "{id:?} iris metadata must be non-empty");
                 }
-                assert!(
-                    P::GAIN_RANGE.min() <= P::GAIN_RANGE.max(),
-                    "{id:?} gain metadata must be non-empty"
-                );
+                if let Some(range) = P::GAIN_RANGE { assert!(range.min() <= range.max(), "{id:?} gain metadata"); }
                 if let Some(range) = P::BRIGHTNESS_RANGE {
                     assert!(
                         range.min() <= range.max(),
@@ -1174,143 +1165,87 @@ macro_rules! __define_builtin_profiles {
 
                 assert_eq!(caps.model_name, P::MODEL_NAME);
                 assert_eq!(caps.default_camera_id, P::DEFAULT_CAMERA_ID);
-                assert_eq!(caps.pan_speed, 1..=P::MAX_PAN_SPEED);
-                assert_eq!(caps.tilt_speed, 1..=P::MAX_TILT_SPEED);
-                assert_eq!(caps.pan_range, P::PAN_RANGE.as_inclusive());
-                assert_eq!(caps.tilt_range, P::TILT_RANGE.as_inclusive());
-                assert_eq!(caps.pan_tilt_simultaneous, P::PAN_TILT_SIMULTANEOUS);
-                assert_eq!(caps.preset_recovery_time, P::PRESET_RECOVERY_TIME);
-                assert_eq!(caps.zoom_range_optical, 0..=P::OPTICAL_ZOOM_MAX);
-                assert_eq!(
-                    caps.zoom_range_digital,
-                    P::DIGITAL_ZOOM_MAX.map(|max| P::OPTICAL_ZOOM_MAX..=max)
-                );
-                assert_eq!(caps.zoom_speed, P::ZOOM_SPEED_RANGE.as_inclusive());
-                assert_eq!(caps.supports_direct_zoom, P::SUPPORTS_DIRECT_ZOOM);
-                assert_eq!(caps.supports_variable_zoom, P::SUPPORTS_VARIABLE_ZOOM);
-                assert_eq!(caps.has_auto_focus, P::SUPPORTS_AUTO_FOCUS);
-                assert_eq!(caps.has_one_push_focus, P::SUPPORTS_ONE_PUSH_FOCUS);
-                assert_eq!(caps.focus_range, P::FOCUS_NEAR_LIMIT..=P::FOCUS_FAR_LIMIT);
-                assert_eq!(caps.focus_speed, 0..=P::MAX_FOCUS_SPEED);
-                assert_eq!(caps.focus_zones, P::FOCUS_ZONES);
-                assert_eq!(
-                    caps.has_focus_zone_inquiry,
-                    P::SUPPORTS_FOCUS_ZONE_INQUIRY
-                );
-                assert_eq!(caps.has_af_sensitivity, P::SUPPORTS_AF_SENSITIVITY);
-                assert_eq!(
-                    caps.has_focus_near_limit_inquiry,
-                    P::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY
-                );
-                assert_eq!(caps.exposure_modes, P::EXPOSURE_MODES);
-                assert_eq!(caps.has_backlight_comp, P::SUPPORTS_BACKLIGHT_COMP);
-                assert_eq!(caps.has_wdr, P::SUPPORTS_WDR);
-                assert_eq!(
-                    caps.iris_range,
-                    P::IRIS_RANGE
-                );
-                assert_eq!(caps.gain_range, P::GAIN_RANGE.as_inclusive());
-                assert_eq!(caps.shutter_speeds.len(), P::SHUTTER_SPEEDS.len());
-                for (runtime, static_speed) in caps.shutter_speeds.iter().zip(P::SHUTTER_SPEEDS) {
-                    assert_eq!(runtime.exposure, static_speed.exposure);
-                    assert_eq!(runtime.value, static_speed.value);
+                let pan = caps.pan_tilt.as_ref().expect("pan/tilt domain");
+                assert_eq!(pan.pan_range, P::PAN_RANGE);
+                assert_eq!(pan.tilt_ranges, P::TILT_RANGES);
+                assert_eq!(pan.pan_speed, $crate::capabilities::CapabilityRange::<u8>::new(1, P::MAX_PAN_SPEED));
+                assert_eq!(pan.tilt_speed, $crate::capabilities::CapabilityRange::<u8>::new(1, P::MAX_TILT_SPEED));
+                assert_eq!(pan.endpoint_quantization, P::ENDPOINT_QUANTIZATION);
+                assert_eq!(pan.simultaneous, P::PAN_TILT_SIMULTANEOUS);
+                assert_eq!(pan.preset_recovery_time, P::PRESET_RECOVERY_TIME);
+                assert_eq!(pan.motion_sync_speed_range, P::MOTION_SYNC_SPEED_RANGE);
+                assert_eq!(pan.variable_speed, P::SUPPORTS_VARIABLE_SPEED);
+                let zoom = caps.zoom.as_ref().expect("zoom domain");
+                assert_eq!(zoom.optical_max, P::OPTICAL_ZOOM_MAX);
+                assert_eq!(zoom.digital_max, P::DIGITAL_ZOOM_MAX);
+                assert_eq!(zoom.speed, P::ZOOM_SPEED_RANGE);
+                assert_eq!(zoom.direct, P::SUPPORTS_DIRECT_ZOOM);
+                assert_eq!(zoom.variable, P::SUPPORTS_VARIABLE_ZOOM);
+                assert_eq!(zoom.optical_ratio, P::OPTICAL_ZOOM_RATIO);
+                let focus = caps.focus.as_ref().expect("focus domain");
+                assert_eq!(focus.range, P::FOCUS_RANGE);
+                assert_eq!(focus.near_end, P::FOCUS_NEAR_END);
+                assert_eq!(focus.speed, $crate::capabilities::CapabilityRange::<u8>::new(0, P::MAX_FOCUS_SPEED));
+                assert_eq!(focus.auto_focus, P::SUPPORTS_AUTO_FOCUS);
+                assert_eq!(focus.one_push, P::SUPPORTS_ONE_PUSH_FOCUS);
+                assert_eq!(focus.zones, P::FOCUS_ZONES);
+                assert_eq!(focus.zone_inquiry, P::SUPPORTS_FOCUS_ZONE_INQUIRY);
+                assert_eq!(focus.af_sensitivity, P::SUPPORTS_AF_SENSITIVITY);
+                assert_eq!(focus.near_limit_inquiry, P::SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY);
+                let exposure = caps.exposure.as_ref().expect("exposure domain");
+                assert_eq!(exposure.modes, P::EXPOSURE_MODES);
+                assert_eq!(exposure.iris_range, P::IRIS_RANGE);
+                assert_eq!(exposure.gain_range, P::GAIN_RANGE);
+                assert_eq!(exposure.shutter_speeds, P::SHUTTER_SPEEDS);
+                assert_eq!(exposure.brightness_range, P::BRIGHTNESS_RANGE);
+                assert_eq!(exposure.compensation_range, P::EXPOSURE_COMP_RANGE);
+                assert_eq!(exposure.backlight, P::SUPPORTS_BACKLIGHT_COMP);
+                assert_eq!(exposure.wdr, P::SUPPORTS_WDR);
+                let wb = caps.white_balance.as_ref().expect("white-balance domain");
+                assert_eq!(wb.modes, P::WB_MODES);
+                assert_eq!(wb.one_push, P::SUPPORTS_ONE_PUSH_WB);
+                assert_eq!(wb.color_temp_range, P::COLOR_TEMP_RANGE);
+                assert_eq!(wb.rgb_gain.as_ref().map(|gain| gain.red), P::RED_GAIN_RANGE);
+                assert_eq!(wb.rgb_gain.as_ref().map(|gain| gain.blue), P::BLUE_GAIN_RANGE);
+                assert_eq!(wb.rgb_tuning.as_ref().map(|gain| gain.red), P::RG_TUNING_RANGE);
+                assert_eq!(wb.rgb_tuning.as_ref().map(|gain| gain.blue), P::BG_TUNING_RANGE);
+                if let Some(image) = &caps.image {
+                    assert_eq!(image.contrast_range, P::CONTRAST_RANGE);
+                    assert_eq!(image.sharpness_range, P::SHARPNESS_RANGE);
+                    assert_eq!(image.saturation_range, P::SATURATION_RANGE);
+                    assert_eq!(image.hue_range, P::HUE_RANGE);
+                    assert_eq!(image.luminance_range, P::LUMINANCE_RANGE);
+                    assert_eq!(image.gamma_range, P::GAMMA_RANGE);
+                    assert_eq!(image.flip, P::SUPPORTS_FLIP);
+                    assert_eq!(image.mirror, P::SUPPORTS_MIRROR);
+                    assert_eq!(image.picture_effect, P::SUPPORTS_PICTURE_EFFECT);
+                    assert_eq!(image.requires_settings_save_for_flip, P::REQUIRES_SETTINGS_SAVE_FOR_FLIP);
                 }
-                assert_eq!(
-                    caps.exposure_brightness_range,
-                    P::BRIGHTNESS_RANGE
-                );
-                assert_eq!(
-                    caps.exposure_comp_range,
-                    P::EXPOSURE_COMP_RANGE.map(|range| range.as_inclusive())
-                );
-                assert_eq!(caps.has_one_push_wb, P::SUPPORTS_ONE_PUSH_WB);
-                assert_eq!(
-                    caps.color_temp_range,
-                    P::COLOR_TEMP_RANGE.map(|range| range.as_inclusive())
-                );
-                assert_eq!(
-                    caps.rg_tuning_range,
-                    P::RG_TUNING_RANGE.map(|range| range.as_inclusive())
-                );
-                assert_eq!(
-                    caps.bg_tuning_range,
-                    P::BG_TUNING_RANGE.map(|range| range.as_inclusive())
-                );
-                assert_eq!(
-                    caps.red_gain_range,
-                    P::RED_GAIN_RANGE.map(|range| range.as_inclusive())
-                );
-                assert_eq!(
-                    caps.blue_gain_range,
-                    P::BLUE_GAIN_RANGE.map(|range| range.as_inclusive())
-                );
-                assert_eq!(caps.white_balance_modes, P::WB_MODES);
-                assert_eq!(
-                    caps.contrast_range,
-                    P::CONTRAST_RANGE.map(|range| range.as_inclusive())
-                );
-                assert_eq!(
-                    caps.sharpness_range,
-                    P::SHARPNESS_RANGE.map(|range| range.as_inclusive())
-                );
-                assert_eq!(
-                    caps.saturation_range,
-                    P::SATURATION_RANGE.map(|range| range.as_inclusive())
-                );
-                assert_eq!(
-                    caps.hue_range,
-                    P::HUE_RANGE.map(|range| range.as_inclusive())
-                );
-                assert_eq!(
-                    caps.luminance_range,
-                    P::LUMINANCE_RANGE.map(|range| range.as_inclusive())
-                );
-                assert_eq!(
-                    caps.gamma_range,
-                    P::GAMMA_RANGE.map(|range| range.as_inclusive())
-                );
-                assert_eq!(caps.supports_flip, P::SUPPORTS_FLIP);
-                assert_eq!(caps.supports_mirror, P::SUPPORTS_MIRROR);
-                assert_eq!(caps.uses_combined_flip_command, P::USES_COMBINED_FLIP_COMMAND);
-                assert_eq!(caps.requires_settings_save_for_flip, P::REQUIRES_SETTINGS_SAVE_FOR_FLIP);
-                assert_eq!(caps.has_2d_nr, P::SUPPORTS_2D_NR);
-                assert_eq!(caps.has_3d_nr, P::SUPPORTS_3D_NR);
-                assert_eq!(caps.has_picture_effect, P::SUPPORTS_PICTURE_EFFECT);
-                assert_eq!(caps.has_tally, P::SUPPORTS_TALLY);
-                assert_eq!(caps.highest_preset, P::HIGHEST_PRESET);
-                assert_eq!(
-                    caps.preset_speed_range,
-                    P::PRESET_SPEED_RANGE.map(|range| range.as_inclusive())
-                );
-                assert_eq!(caps.supports_preset_tour, P::SUPPORTS_PRESET_TOUR);
-                assert_eq!(caps.supports_preset_thumbnail, P::SUPPORTS_PRESET_THUMBNAIL);
-                assert_eq!(caps.preset_recall_delay, P::PRESET_RECALL_DELAY);
-                assert_eq!(caps.supports_preset_names, P::SUPPORTS_PRESET_NAMES);
-                assert_eq!(caps.max_preset_name_length, P::MAX_PRESET_NAME_LENGTH);
-                assert_eq!(caps.supports_standby, P::SUPPORTS_STANDBY);
-                assert_eq!(caps.supports_wake_on_lan, P::SUPPORTS_WAKE_ON_LAN);
-                assert_eq!(caps.power_on_time, P::POWER_ON_TIME);
-                assert_eq!(caps.standby_time, P::STANDBY_TIME);
-                assert_eq!(caps.retains_settings_on_power_off, P::RETAINS_SETTINGS_ON_POWER_OFF);
-                assert_eq!(caps.home_on_power_up, P::HOME_ON_POWER_UP);
-                assert_eq!(
-                    caps.has_nd_filter,
-                    !matches!(P::ND_MODE, $crate::capabilities::NdFilterMode::None)
-                );
+                assert_eq!(caps.image.is_some(), P::SUPPORTS_IMAGE_PROCESSING);
+                if let Some(presets) = &caps.presets {
+                    assert_eq!(Some(presets.recall_axes), P::PRESET_RECALL_AXES);
+                    assert_eq!(presets.highest, P::HIGHEST_PRESET);
+                    assert_eq!(presets.speed_range, P::PRESET_SPEED_RANGE);
+                    assert_eq!(presets.tour, P::SUPPORTS_PRESET_TOUR);
+                    assert_eq!(presets.thumbnail, P::SUPPORTS_PRESET_THUMBNAIL);
+                    assert_eq!(presets.recall_delay, P::PRESET_RECALL_DELAY);
+                    assert_eq!(presets.names.map_or(0, std::num::NonZeroUsize::get), P::MAX_PRESET_NAME_LENGTH);
+                }
+                assert_eq!(caps.presets.is_some(), P::PRESET_RECALL_AXES.is_some());
+                let power = caps.power.as_ref().expect("power domain");
+                assert_eq!(power.on_time, P::POWER_ON_TIME);
+                assert_eq!(power.standby, P::SUPPORTS_STANDBY.then_some(P::STANDBY_TIME));
+                assert_eq!(power.wake_on_lan, P::SUPPORTS_WAKE_ON_LAN);
+                assert_eq!(power.retains_settings, P::RETAINS_SETTINGS_ON_POWER_OFF);
+                assert_eq!(power.home_on_up, P::HOME_ON_POWER_UP);
                 assert_eq!(caps.nd_filter_mode, P::ND_MODE);
-                assert_eq!(
-                    caps.motion_sync_speed_range,
-                    P::MOTION_SYNC_SPEED_RANGE.map(|range| range.as_inclusive())
-                );
-                assert_eq!(caps.has_direct_menu_control, P::SUPPORTS_DIRECT_CONTROL);
-                assert_eq!(caps.has_variable_speed, P::SUPPORTS_VARIABLE_SPEED);
-                assert_eq!(caps.has_usb_audio, P::SUPPORTS_USB_AUDIO);
+                assert_eq!(caps.tally, P::SUPPORTS_TALLY);
+                assert_eq!(caps.direct_menu, P::SUPPORTS_DIRECT_CONTROL);
+                assert_eq!(caps.usb_audio, P::SUPPORTS_USB_AUDIO);
                 assert_eq!(caps.inquiry_support, P::INQUIRY_SUPPORT);
-                assert_eq!(caps.supports_operation_complete, P::SUPPORTS_OPERATION_COMPLETE);
-                assert_eq!(
-                    caps.typed_support,
-                    <P as $crate::capabilities::ProfileTypedSupport>::TYPED_SUPPORT
-                );
+                assert_eq!(spec.supports_operation_complete(), P::SUPPORTS_OPERATION_COMPLETE);
+                assert_eq!(caps.typed_support, P::TYPED_SUPPORT);
+
             }
 
             #[test]
@@ -1457,12 +1392,17 @@ macro_rules! __define_builtin_profiles {
                     let caps = spec.capabilities();
                     let conversion = spec.pan_tilt_coordinates().expect("pan/tilt conversion");
 
-                    for pan in sweep(&caps.pan_range_degrees) {
+                    let pan_tilt = caps.pan_tilt.as_ref().expect("pan/tilt");
+                    let pan_range = pan_tilt.pan_range.as_inclusive();
+                    let tilt_range = pan_tilt.tilt_ranges.range(None).as_inclusive();
+                    let pan_degrees = conversion.pan_degree_range(&pan_range);
+                    let tilt_degrees = conversion.tilt_degree_range(&tilt_range);
+                    for pan in sweep(&pan_degrees) {
                         let expected = camera
                             .degrees_to_pan_units(pan)
                             .zip(camera.degrees_to_tilt_units(0.0))
                             .filter(|(pan, tilt)| {
-                                caps.pan_range.contains(pan) && caps.tilt_range.contains(tilt)
+                                pan_range.contains(pan) && tilt_range.contains(tilt)
                             });
                         assert_eq!(
                             $crate::TargetRegistration::from_profile($crate::target::TargetSlot::CAMERA_1, spec.clone()).convert_pan_tilt_degrees(pan, 0.0).ok(),
@@ -1470,12 +1410,12 @@ macro_rules! __define_builtin_profiles {
                             "{id:?} pan {pan}°"
                         );
                     }
-                    for tilt in sweep(&caps.tilt_range_degrees) {
+                    for tilt in sweep(&tilt_degrees) {
                         let expected = camera
                             .degrees_to_pan_units(0.0)
                             .zip(camera.degrees_to_tilt_units(tilt))
                             .filter(|(pan, tilt)| {
-                                caps.pan_range.contains(pan) && caps.tilt_range.contains(tilt)
+                                pan_range.contains(pan) && tilt_range.contains(tilt)
                             });
                         assert_eq!(
                             $crate::TargetRegistration::from_profile($crate::target::TargetSlot::CAMERA_1, spec.clone()).convert_pan_tilt_degrees(0.0, tilt).ok(),
@@ -1483,14 +1423,14 @@ macro_rules! __define_builtin_profiles {
                             "{id:?} tilt {tilt}°"
                         );
                     }
-                    for units in caps.pan_range.clone() {
+                    for units in pan_range.clone() {
                         assert_eq!(
                             conversion.pan_units(conversion.pan_degrees(units)),
                             Some(units),
                             "{id:?} pan unit {units}"
                         );
                     }
-                    for units in caps.tilt_range.clone() {
+                    for units in tilt_range.clone() {
                         assert_eq!(
                             conversion.tilt_units(conversion.tilt_degrees(units)),
                             Some(units),
@@ -1498,7 +1438,7 @@ macro_rules! __define_builtin_profiles {
                         );
                     }
 
-                    assert_eq!(caps.optical_zoom_ratio, P::OPTICAL_ZOOM_RATIO, "{id:?}");
+                    assert_eq!(caps.zoom.as_ref().expect("zoom").optical_ratio, P::OPTICAL_ZOOM_RATIO, "{id:?}");
                     match (P::OPTICAL_ZOOM_RATIO, caps.zoom_scale()) {
                         (Some(ratio), Ok(scale)) => {
                             assert_eq!(scale.optical_ratio(), ratio, "{id:?}");
@@ -1511,7 +1451,7 @@ macro_rules! __define_builtin_profiles {
                         (ratio, scale) => panic!("{id:?}: ratio {ratio:?} gave {scale:?}"),
                     }
 
-                    for entry in &caps.shutter_speeds {
+                    for entry in &caps.exposure.as_ref().expect("exposure").shutter_speeds {
                         let code = $crate::types::ShutterSpeed::new(entry.value);
                         assert_eq!(
                             caps.shutter_speed_for(entry.exposure).ok(),
@@ -1521,8 +1461,8 @@ macro_rules! __define_builtin_profiles {
                         );
                     }
 
-                    if let Some(range) = &caps.color_temp_range {
-                        for kelvin in (*range.start()..=*range.end()).step_by(100) {
+                    if let Some(range) = &caps.white_balance.as_ref().expect("white balance").color_temp_range {
+                        for kelvin in (range.min()..=range.max()).step_by(100) {
                             let color_temp = $crate::types::ColorTemp::from_kelvin(kelvin)
                                 .unwrap_or_else(|error| panic!("{id:?} {kelvin} K: {error}"));
                             assert_eq!(color_temp.to_kelvin(), kelvin, "{id:?}");
@@ -1537,7 +1477,7 @@ macro_rules! __define_builtin_profiles {
                 // The PTZOptics G2 family's lens is a camera fact: each bench
                 // lens (PT12X/PT20X/PT30X-NDI G2, §4.1) reaches its optical end.
                 let g2 = $crate::capabilities::Capabilities::from_profile::<PtzOpticsG2>();
-                assert_eq!(g2.optical_zoom_ratio, None);
+                assert_eq!(g2.zoom.as_ref().expect("zoom").optical_ratio, None);
                 for ratio in [12.0, 20.0, 30.0] {
                     let scale = g2.zoom_scale_for_lens(ratio).expect("G2 lens");
                     assert_reachable(ProfileId::PtzOpticsG2, scale);
@@ -1607,8 +1547,8 @@ macro_rules! __define_builtin_profiles {
                 let profile = $crate::ProfileSpec::from_compile_time::<$crate::profiles::SonyFR7>()
                     .expect("Sony FR7 profile");
                 let capabilities = profile.capabilities();
-                assert!(capabilities.has_exposure);
-                assert!(capabilities.exposure_modes.is_empty());
+                assert!(capabilities.has_exposure());
+                assert!(capabilities.exposure.as_ref().expect("exposure").modes.is_empty());
                 assert!(!capabilities.supports_typed(
                     $crate::capabilities::TypedSupportSurface::ExposureMode
                 ));
@@ -1703,7 +1643,7 @@ macro_rules! __define_builtin_profiles {
                         $crate::profile::TransportCompatibility::new(Some(5678), Some(1259), true)
                     );
                     assert_eq!(P::PAN_RANGE, range!(i32, -2448, 2448));
-                    assert_eq!(P::TILT_RANGE, range!(i32, -432, 1296));
+                    assert_eq!(P::TILT_RANGES.range(None), range!(i32, -432, 1296));
                     assert_eq!(P::MAX_PAN_SPEED, 24);
                     assert_eq!(P::MAX_TILT_SPEED, 20);
                     assert_eq!(P::OPTICAL_ZOOM_MAX, 0x4000);
@@ -2354,7 +2294,7 @@ macro_rules! builtin_profile_registry {
                     },
                     pan_tilt: {
                         pan_range: range!(i32, -2448, 2448),
-                        tilt_range: range!(i32, -432, 1296),
+                        tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -432, 1296)),
                         max_pan_speed: 24,
                         max_tilt_speed: 20,
                         simultaneous: true,
@@ -2374,8 +2314,8 @@ macro_rules! builtin_profile_registry {
                         optical_zoom_ratio: None,
                     },
                     focus: {
-                        near_limit: 0x0000,
-                        far_limit: 0xFFFF,
+                        range: range!(u16, 0x0000, 0xFFFF),
+                        near_end: $crate::capabilities::FocusNearEnd::Minimum,
                         auto_focus: true,
                         one_push: false,
                         focus_zone_inquiry: true,
@@ -2388,7 +2328,7 @@ macro_rules! builtin_profile_registry {
                         modes: profile_constants::STANDARD_EXPOSURE_MODES,
                         iris_range: Some(domain!(u16, 0x00, 0x0C)),
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
-                        gain_range: range!(u8, 0, 7),
+                        gain_range: Some(range!(u8, 0, 7)),
                         brightness_range: Some(domain!(u8, 0, 17)),
                         backlight_comp: true,
                         exposure_comp_range: Some(range!(i8, -7, 7)),
@@ -2411,11 +2351,8 @@ macro_rules! builtin_profile_registry {
                         flip: true,
                         mirror: true,
                         hue_range: Some(range!(u8, 0, 14)),
-                        nr_2d: true,
-                        nr_3d: true,
                         picture_effect: true,
                         luminance_range: Some(range!(u8, 0, 14)),
-                        combined_flip: true,
                         save_after_flip: true,
                         gamma_range: Some(range!(u8, 0, 4)),
                     },
@@ -2425,7 +2362,6 @@ macro_rules! builtin_profile_registry {
                         tour: false,
                         recall_delay_ms: 0,
                         thumbnail: false,
-                        names: false,
                         max_name_len: 0,
                     },
                     power: {
@@ -2536,7 +2472,7 @@ macro_rules! builtin_profile_registry {
                     },
                     pan_tilt: {
                         pan_range: range!(i32, -2448, 2448),
-                        tilt_range: range!(i32, -432, 1296),
+                        tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -432, 1296)),
                         max_pan_speed: 24,
                         max_tilt_speed: 20,
                         simultaneous: true,
@@ -2556,8 +2492,8 @@ macro_rules! builtin_profile_registry {
                         optical_zoom_ratio: None,
                     },
                     focus: {
-                        near_limit: 0x0000,
-                        far_limit: 0xFFFF,
+                        range: range!(u16, 0x0000, 0xFFFF),
+                        near_end: $crate::capabilities::FocusNearEnd::Minimum,
                         auto_focus: true,
                         one_push: false,
                         focus_zone_inquiry: false,
@@ -2570,7 +2506,7 @@ macro_rules! builtin_profile_registry {
                         modes: profile_constants::STANDARD_EXPOSURE_MODES,
                         iris_range: Some(domain!(u16, 0x00, 0x0C)),
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
-                        gain_range: range!(u8, 0, 7),
+                        gain_range: Some(range!(u8, 0, 7)),
                         brightness_range: Some(domain!(u8, 0, 17)),
                         backlight_comp: true,
                         exposure_comp_range: Some(range!(i8, -7, 7)),
@@ -2593,11 +2529,8 @@ macro_rules! builtin_profile_registry {
                         flip: true,
                         mirror: true,
                         hue_range: Some(range!(u8, 0, 14)),
-                        nr_2d: true,
-                        nr_3d: true,
                         picture_effect: true,
                         luminance_range: Some(range!(u8, 0, 14)),
-                        combined_flip: true,
                         save_after_flip: true,
                         gamma_range: Some(range!(u8, 0, 4)),
                     },
@@ -2607,7 +2540,6 @@ macro_rules! builtin_profile_registry {
                         tour: false,
                         recall_delay_ms: 0,
                         thumbnail: false,
-                        names: false,
                         max_name_len: 0,
                     },
                     power: {
@@ -2718,7 +2650,7 @@ macro_rules! builtin_profile_registry {
                     },
                     pan_tilt: {
                         pan_range: range!(i32, -2448, 2448),
-                        tilt_range: range!(i32, -432, 1296),
+                        tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -432, 1296)),
                         max_pan_speed: 24,
                         max_tilt_speed: 20,
                         simultaneous: true,
@@ -2738,8 +2670,8 @@ macro_rules! builtin_profile_registry {
                         optical_zoom_ratio: Some(30.0),
                     },
                     focus: {
-                        near_limit: 0x0000,
-                        far_limit: 0xFFFF,
+                        range: range!(u16, 0x0000, 0xFFFF),
+                        near_end: $crate::capabilities::FocusNearEnd::Minimum,
                         auto_focus: true,
                         one_push: false,
                         focus_zone_inquiry: true,
@@ -2752,7 +2684,7 @@ macro_rules! builtin_profile_registry {
                         modes: profile_constants::STANDARD_EXPOSURE_MODES,
                         iris_range: Some(domain!(u16, 0x00, 0x0C)),
                         shutter_speeds: profile_constants::PTZ_OPTICS_G2_SHUTTER_SPEEDS,
-                        gain_range: range!(u8, 0, 7),
+                        gain_range: Some(range!(u8, 0, 7)),
                         brightness_range: Some(domain!(u8, 0, 17)),
                         backlight_comp: true,
                         exposure_comp_range: Some(range!(i8, -7, 7)),
@@ -2775,11 +2707,8 @@ macro_rules! builtin_profile_registry {
                         flip: true,
                         mirror: true,
                         hue_range: Some(range!(u8, 0, 14)),
-                        nr_2d: true,
-                        nr_3d: true,
                         picture_effect: true,
                         luminance_range: Some(range!(u8, 0, 14)),
-                        combined_flip: true,
                         save_after_flip: true,
                         gamma_range: Some(range!(u8, 0, 4)),
                     },
@@ -2789,7 +2718,6 @@ macro_rules! builtin_profile_registry {
                         tour: false,
                         recall_delay_ms: 0,
                         thumbnail: false,
-                        names: false,
                         max_name_len: 0,
                     },
                     power: {
@@ -2901,7 +2829,9 @@ macro_rules! builtin_profile_registry {
                     },
                     pan_tilt: {
                         pan_range: range!(i32, -0x09CA7, 0x09CA7),
-                        tilt_range: range!(i32, -0x01BA5, 0x0B3B0),
+                        tilt_ranges: $crate::capabilities::TiltRanges::MountDependent {
+                            desktop: range!(i32, -0x1BA5, 0xB3B0), ceiling: range!(i32, -0xC183, 0xDD2),
+                        },
                         max_pan_speed: 50,
                         max_tilt_speed: 50,
                         simultaneous: true,
@@ -2910,6 +2840,7 @@ macro_rules! builtin_profile_registry {
                         tilt_degrees_to_units: 235.9,
                         coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
                         wire_codec: $crate::capabilities::PanTiltWireCodec::SonyFr7,
+                        endpoint_quantization: $crate::capabilities::EndpointQuantization::WholeDegrees,
                     },
                     zoom: {
                         optical_max: 0x4000,
@@ -2921,8 +2852,8 @@ macro_rules! builtin_profile_registry {
                         optical_zoom_ratio: None,
                     },
                     focus: {
-                        near_limit: 0x1000,
-                        far_limit: 0xF000,
+                        range: range!(u16, 0x1000, 0xF000),
+                        near_end: $crate::capabilities::FocusNearEnd::Minimum,
                         auto_focus: true,
                         one_push: false,
                         focus_zone_inquiry: false,
@@ -2935,7 +2866,7 @@ macro_rules! builtin_profile_registry {
                         modes: profile_constants::NO_SHARED_EXPOSURE_MODES,
                         iris_range: None,
                         shutter_speeds: profile_constants::NO_SHUTTER_SPEEDS,
-                        gain_range: range!(u8, 0, 15),
+                        gain_range: Some(range!(u8, 0, 15)),
                         brightness_range: None,
                         backlight_comp: true,
                         exposure_comp_range: Some(range!(i8, -7, 7)),
@@ -2958,11 +2889,8 @@ macro_rules! builtin_profile_registry {
                         flip: true,
                         mirror: true,
                         hue_range: Some(range!(u8, 0, 14)),
-                        nr_2d: false,
-                        nr_3d: false,
                         picture_effect: false,
                         luminance_range: None,
-                        combined_flip: false,
                         save_after_flip: false,
                         gamma_range: Some(range!(u8, 0, 4)),
                     },
@@ -2972,7 +2900,6 @@ macro_rules! builtin_profile_registry {
                         tour: true,
                         recall_delay_ms: 0,
                         thumbnail: true,
-                        names: false,
                         max_name_len: 0,
                     },
                     power: {
@@ -3075,7 +3002,7 @@ macro_rules! builtin_profile_registry {
                     },
                     pan_tilt: {
                         pan_range: range!(i32, -2700, 2700),
-                        tilt_range: range!(i32, -300, 1200),
+                        tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -300, 1200)),
                         max_pan_speed: 24,
                         max_tilt_speed: 24,
                         simultaneous: true,
@@ -3095,8 +3022,8 @@ macro_rules! builtin_profile_registry {
                         optical_zoom_ratio: None,
                     },
                     focus: {
-                        near_limit: 0x1000,
-                        far_limit: 0xF000,
+                        range: range!(u16, 0x1000, 0xF000),
+                        near_end: $crate::capabilities::FocusNearEnd::Minimum,
                         auto_focus: true,
                         one_push: false,
                         focus_zone_inquiry: false,
@@ -3109,7 +3036,7 @@ macro_rules! builtin_profile_registry {
                         modes: profile_constants::BRC_H900_EXPOSURE_MODES,
                         iris_range: Some(domain!(u16, 0x00, 0x1E)),
                         shutter_speeds: profile_constants::NO_SHUTTER_SPEEDS,
-                        gain_range: range!(u8, 0, 15),
+                        gain_range: Some(range!(u8, 0, 15)),
                         brightness_range: None,
                         backlight_comp: true,
                         exposure_comp_range: None,
@@ -3132,11 +3059,8 @@ macro_rules! builtin_profile_registry {
                         flip: true,
                         mirror: true,
                         hue_range: None,
-                        nr_2d: false,
-                        nr_3d: false,
                         picture_effect: false,
                         luminance_range: None,
-                        combined_flip: false,
                         save_after_flip: false,
                         gamma_range: Some(range!(u8, 0, 4)),
                     },
@@ -3146,7 +3070,6 @@ macro_rules! builtin_profile_registry {
                         tour: true,
                         recall_delay_ms: 0,
                         thumbnail: false,
-                        names: false,
                         max_name_len: 0,
                     },
                     power: {
@@ -3239,7 +3162,7 @@ macro_rules! builtin_profile_registry {
                     },
                     pan_tilt: {
                         pan_range: range!(i32, -0x1E1B, 0x1E1B),
-                        tilt_range: range!(i32, -0x038B, 0x0FF0),
+                        tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -0x038B, 0x0FF0)),
                         max_pan_speed: 0x18,
                         max_tilt_speed: 0x17,
                         simultaneous: true,
@@ -3259,8 +3182,8 @@ macro_rules! builtin_profile_registry {
                         optical_zoom_ratio: None,
                     },
                     focus: {
-                        near_limit: 0x1000,
-                        far_limit: 0xF000,
+                        range: range!(u16, 0x1000, 0xF000),
+                        near_end: $crate::capabilities::FocusNearEnd::Minimum,
                         auto_focus: true,
                         one_push: true,
                         focus_zone_inquiry: false,
@@ -3273,7 +3196,7 @@ macro_rules! builtin_profile_registry {
                         modes: profile_constants::STANDARD_EXPOSURE_MODES,
                         iris_range: Some(domain!(u16, 0x00, 0x11, gaps: [0x01, 0x02, 0x03, 0x04])),
                         shutter_speeds: profile_constants::SONY_EVI_H100_SHUTTER_SPEEDS,
-                        gain_range: range!(u8, 0x00, 0x0F),
+                        gain_range: Some(range!(u8, 0x00, 0x0F)),
                         brightness_range: Some(domain!(u8, 0x00, 0x1F, gaps: [0x01, 0x02, 0x03, 0x04])),
                         backlight_comp: true,
                         exposure_comp_range: Some(range!(i8, -7, 7)),
@@ -3298,11 +3221,8 @@ macro_rules! builtin_profile_registry {
                         flip: false,
                         mirror: false,
                         hue_range: Some(range!(u8, 0x00, 0x0E)),
-                        nr_2d: true,
-                        nr_3d: false,
                         picture_effect: true,
                         luminance_range: None,
-                        combined_flip: false,
                         save_after_flip: false,
                         gamma_range: Some(range!(u8, 0, 4)),
                     },
@@ -3312,7 +3232,6 @@ macro_rules! builtin_profile_registry {
                         tour: false,
                         recall_delay_ms: 0,
                         thumbnail: false,
-                        names: false,
                         max_name_len: 0,
                     },
                     power: {
@@ -3425,7 +3344,7 @@ macro_rules! builtin_profile_registry {
                         // and positive tilt up, so pan is opposite the raw
                         // axis and tilt follows it.
                         pan_range: range!(i32, -0x08A58, 0x08A58),
-                        tilt_range: range!(i32, -0x186A, 0x493D),
+                        tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -0x186A, 0x493D)),
                         max_pan_speed: 0x18,
                         // BRC-300 position frames have one speed byte. The
                         // profile-aware coarse-speed lowering mirrors it into
@@ -3451,8 +3370,8 @@ macro_rules! builtin_profile_registry {
                         optical_zoom_ratio: None,
                     },
                     focus: {
-                        near_limit: 0x1000,
-                        far_limit: 0xC000,
+                        range: range!(u16, 0x1000, 0xC000),
+                        near_end: $crate::capabilities::FocusNearEnd::Minimum,
                         auto_focus: true,
                         one_push: true,
                         focus_zone_inquiry: false,
@@ -3465,7 +3384,7 @@ macro_rules! builtin_profile_registry {
                         modes: profile_constants::STANDARD_EXPOSURE_MODES,
                         iris_range: Some(domain!(u16, 0x00, 0x11)),
                         shutter_speeds: profile_constants::SONY_BRC300_SHUTTER_SPEEDS,
-                        gain_range: range!(u8, 0x00, 0x07),
+                        gain_range: Some(range!(u8, 0x00, 0x07)),
                         brightness_range: Some(domain!(u8, 0x00, 0x17)),
                         backlight_comp: true,
                         exposure_comp_range: Some(range!(i8, -7, 7)),
@@ -3491,11 +3410,8 @@ macro_rules! builtin_profile_registry {
                         flip: true,
                         mirror: false,
                         hue_range: None,
-                        nr_2d: false,
-                        nr_3d: false,
                         picture_effect: false,
                         luminance_range: None,
-                        combined_flip: false,
                         save_after_flip: false,
                         gamma_range: None,
                     },
@@ -3510,7 +3426,6 @@ macro_rules! builtin_profile_registry {
                         tour: false,
                         recall_delay_ms: 0,
                         thumbnail: false,
-                        names: false,
                         max_name_len: 0,
                     },
                     power: {
@@ -3612,7 +3527,7 @@ macro_rules! builtin_profile_registry {
                         // and positive tilt up, so pan is opposite the raw
                         // axis and tilt follows it.
                         pan_range: range!(i32, -0x08A58, 0x08A58),
-                        tilt_range: range!(i32, -0x186A, 0x493D),
+                        tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -0x186A, 0x493D)),
                         max_pan_speed: 0x18,
                         // The position frame has one speed byte; explicit
                         // paired speeds must agree and use this same maximum.
@@ -3637,8 +3552,8 @@ macro_rules! builtin_profile_registry {
                         optical_zoom_ratio: None,
                     },
                     focus: {
-                        near_limit: 0x1000,
-                        far_limit: 0xC000,
+                        range: range!(u16, 0x1000, 0xC000),
+                        near_end: $crate::capabilities::FocusNearEnd::Minimum,
                         auto_focus: true,
                         one_push: true,
                         focus_zone_inquiry: false,
@@ -3651,7 +3566,7 @@ macro_rules! builtin_profile_registry {
                         modes: profile_constants::STANDARD_EXPOSURE_MODES,
                         iris_range: Some(domain!(u16, 0x00, 0x11)),
                         shutter_speeds: profile_constants::SONY_BRC300_SHUTTER_SPEEDS,
-                        gain_range: range!(u8, 0x00, 0x07),
+                        gain_range: Some(range!(u8, 0x00, 0x07)),
                         brightness_range: Some(domain!(u8, 0x00, 0x17)),
                         backlight_comp: true,
                         exposure_comp_range: Some(range!(i8, -7, 7)),
@@ -3674,11 +3589,8 @@ macro_rules! builtin_profile_registry {
                         flip: true,
                         mirror: false,
                         hue_range: None,
-                        nr_2d: false,
-                        nr_3d: false,
                         picture_effect: false,
                         luminance_range: None,
-                        combined_flip: false,
                         save_after_flip: false,
                         gamma_range: None,
                     },
@@ -3688,7 +3600,6 @@ macro_rules! builtin_profile_registry {
                         tour: false,
                         recall_delay_ms: 0,
                         thumbnail: false,
-                        names: false,
                         max_name_len: 0,
                     },
                     power: {
@@ -3784,7 +3695,7 @@ macro_rules! builtin_profile_registry {
                     },
                     pan_tilt: {
                         pan_range: range!(i32, -2880, 2880),
-                        tilt_range: range!(i32, -1440, 1440),
+                        tilt_ranges: $crate::capabilities::TiltRanges::Single(range!(i32, -1440, 1440)),
                         max_pan_speed: 24,
                         max_tilt_speed: 24,
                         simultaneous: true,
@@ -3804,8 +3715,8 @@ macro_rules! builtin_profile_registry {
                         optical_zoom_ratio: None,
                     },
                     focus: {
-                        near_limit: 0x1000,
-                        far_limit: 0xE000,
+                        range: range!(u16, 0x1000, 0xE000),
+                        near_end: $crate::capabilities::FocusNearEnd::Minimum,
                         auto_focus: true,
                         one_push: true,
                         focus_zone_inquiry: false,
@@ -3818,7 +3729,7 @@ macro_rules! builtin_profile_registry {
                         modes: profile_constants::STANDARD_EXPOSURE_MODES,
                         iris_range: Some(domain!(u16, 0x00, 0x11, gaps: [0x01, 0x02, 0x03, 0x04])),
                         shutter_speeds: profile_constants::SONY_BRC300_SHUTTER_SPEEDS,
-                        gain_range: range!(u8, 0, 7),
+                        gain_range: Some(range!(u8, 0, 7)),
                         brightness_range: None,
                         backlight_comp: false,
                         exposure_comp_range: None,
@@ -3841,11 +3752,8 @@ macro_rules! builtin_profile_registry {
                         flip: false,
                         mirror: false,
                         hue_range: None,
-                        nr_2d: false,
-                        nr_3d: false,
                         picture_effect: false,
                         luminance_range: None,
-                        combined_flip: false,
                         save_after_flip: false,
                         gamma_range: None,
                     },
@@ -3855,7 +3763,6 @@ macro_rules! builtin_profile_registry {
                         tour: false,
                         recall_delay_ms: 0,
                         thumbnail: false,
-                        names: false,
                         max_name_len: 0,
                     },
                     power: {

@@ -203,3 +203,75 @@ mod tests {
         assert!(CameraId::try_from(9).is_err());
     }
 }
+
+/// An individual VISCA camera address, excluding controller and broadcast.
+///
+/// Profile defaults use this type so a default session target is always 1–7.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[cfg_attr(
+    feature = "serde",
+    derive(serde::Serialize, serde::Deserialize),
+    serde(try_from = "u8", into = "u8")
+)]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub struct IndividualCameraId(u8);
+
+impl IndividualCameraId {
+    /// Camera 1, the usual individual-camera default.
+    pub const CAMERA_1: Self = Self(1);
+
+    /// Creates an individual address, refusing zero and broadcast.
+    #[must_use]
+    pub const fn new(value: u8) -> Option<Self> {
+        if value >= 1 && value <= 7 {
+            Some(Self(value))
+        } else {
+            None
+        }
+    }
+
+    /// Returns the individual address in `1..=7`.
+    #[must_use]
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+}
+
+impl TryFrom<u8> for IndividualCameraId {
+    type Error = Error;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::new(value).ok_or_else(|| {
+            Error::parameter_out_of_range("individual camera ID", i32::from(value), 1, 7)
+        })
+    }
+}
+impl TryFrom<CameraId> for IndividualCameraId {
+    type Error = Error;
+    fn try_from(value: CameraId) -> Result<Self, Self::Error> {
+        Self::try_from(value.id())
+    }
+}
+impl From<IndividualCameraId> for CameraId {
+    fn from(value: IndividualCameraId) -> Self {
+        Self(value.0)
+    }
+}
+impl From<IndividualCameraId> for u8 {
+    fn from(value: IndividualCameraId) -> Self {
+        value.0
+    }
+}
+impl fmt::Display for IndividualCameraId {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for IndividualCameraId {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "IndividualCameraId".into()
+    }
+    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({ "type": "integer", "minimum": 1, "maximum": 7 })
+    }
+}

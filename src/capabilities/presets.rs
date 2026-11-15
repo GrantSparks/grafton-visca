@@ -27,9 +27,6 @@ pub trait Presets {
     /// Whether camera supports preset thumbnail capture.
     const SUPPORTS_PRESET_THUMBNAIL: bool = false;
 
-    /// Whether camera supports preset names/labels.
-    const SUPPORTS_PRESET_NAMES: bool = false;
-
     /// Maximum preset name length if supported.
     const MAX_PRESET_NAME_LENGTH: usize = 0;
 }

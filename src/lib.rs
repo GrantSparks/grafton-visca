@@ -980,7 +980,7 @@ pub mod __macro_support {
 }
 
 pub use crate::{
-    camera_id::CameraId,
+    camera_id::{CameraId, IndividualCameraId},
     command::{
         AutoFocusSensitivity, AutoWhiteBalanceSensitivity, ExposureMode, FocusMode, MotionSyncMode,
         MotionSyncPreset, NdFilterMode, NdFilterPosition, PanTiltDirection, PanTiltLimitCorner,

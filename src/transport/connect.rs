@@ -194,13 +194,12 @@ mod tests {
                 "setup refused",
             )),
         );
-        assert!(matches!(&result, Err(Error::ConnectionFailed { .. })));
-        let Error::ConnectionFailed { addr, source } = result.expect_err("setup fails") else {
-            return;
-        };
-        assert_eq!(addr, "camera.local:1259");
-        assert_eq!(source.kind(), ErrorKind::PermissionDenied);
-        assert_eq!(source.to_string(), "setup refused");
+        assert!(
+            matches!(result, Err(Error::ConnectionFailed { addr, source })
+            if addr == "camera.local:1259"
+                && source.kind() == ErrorKind::PermissionDenied
+                && source.to_string() == "setup refused")
+        );
     }
 
     #[test]

@@ -16,11 +16,11 @@ pub(crate) const DOCUMENTED_FOCUS_ZONES: &[FocusZone] =
 /// This trait defines the constants and capabilities for focus operations.
 /// Cameras implementing this trait gain access to focus control methods.
 pub trait Focus {
-    /// Minimum focus position (near limit) in VISCA units.
-    const FOCUS_NEAR_LIMIT: u16;
+    /// Ordered focus position bounds, independent of physical orientation.
+    const FOCUS_RANGE: CapabilityRange<u16>;
 
-    /// Maximum focus position (far limit) in VISCA units.
-    const FOCUS_FAR_LIMIT: u16;
+    /// Which numerical endpoint is nearest to the camera.
+    const FOCUS_NEAR_END: crate::capabilities::FocusNearEnd;
 
     /// Whether camera supports auto focus mode.
     const SUPPORTS_AUTO_FOCUS: bool;
@@ -66,8 +66,7 @@ pub trait FocusExt: Focus {
     /// A profile whose `FOCUS_NEAR_LIMIT` exceeds its `FOCUS_FAR_LIMIT` fails to
     /// compile a call to this method.
     fn validate_focus_position(&self, position: u16) -> Result<u16, ValidationError> {
-        const { CapabilityRange::<u16>::new(Self::FOCUS_NEAR_LIMIT, Self::FOCUS_FAR_LIMIT) }
-            .validate("focus position", position)
+        Self::FOCUS_RANGE.validate("focus position", position)
     }
 
     /// Validate a focus speed against `0..=MAX_FOCUS_SPEED`.
@@ -80,18 +79,25 @@ pub trait FocusExt: Focus {
 
     /// Convert a normalized focus position to VISCA units.
     fn normalized_to_focus_units(&self, normalized: UnitInterval) -> Result<u16, ValidationError> {
-        let range =
-            const { CapabilityRange::<u16>::new(Self::FOCUS_NEAR_LIMIT, Self::FOCUS_FAR_LIMIT) };
+        let range = Self::FOCUS_RANGE;
         let span = range.max() - range.min();
-        let position = range.min() + (normalized.value() * f32::from(span)).round() as u16;
+        let offset = (normalized.value() * f32::from(span)).round() as u16;
+        let position = match Self::FOCUS_NEAR_END {
+            crate::capabilities::FocusNearEnd::Minimum => range.min() + offset,
+            crate::capabilities::FocusNearEnd::Maximum => range.max() - offset,
+        };
         self.validate_focus_position(position)
     }
 
-    /// Convert VISCA units to a normalized focus position.
+    /// Converts raw units to a fraction from the near endpoint to the far end.
     fn focus_units_to_normalized(&self, units: u16) -> Result<UnitInterval, ValidationError> {
         self.validate_focus_position(units)?;
-        let range = Self::FOCUS_FAR_LIMIT - Self::FOCUS_NEAR_LIMIT;
-        UnitInterval::new((units - Self::FOCUS_NEAR_LIMIT) as f32 / range as f32).map_err(|_| {
+        let range = Self::FOCUS_RANGE;
+        let offset = match Self::FOCUS_NEAR_END {
+            crate::capabilities::FocusNearEnd::Minimum => units - range.min(),
+            crate::capabilities::FocusNearEnd::Maximum => range.max() - units,
+        };
+        UnitInterval::new(f32::from(offset) / f32::from(range.max() - range.min())).map_err(|_| {
             ValidationError::invalid_value(
                 "focus position",
                 "could not convert VISCA units to a unit interval",
@@ -128,8 +134,9 @@ mod tests {
 
         const MAX_FOCUS_SPEED: u8 = 7;
 
-        const FOCUS_NEAR_LIMIT: u16 = 0x1000;
-        const FOCUS_FAR_LIMIT: u16 = 0xF000;
+        const FOCUS_RANGE: CapabilityRange<u16> = CapabilityRange::<u16>::new(0x1000, 0xF000);
+        const FOCUS_NEAR_END: crate::capabilities::FocusNearEnd =
+            crate::capabilities::FocusNearEnd::Minimum;
         const SUPPORTS_AUTO_FOCUS: bool = true;
         const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
     }
@@ -138,8 +145,9 @@ mod tests {
     fn omitted_focus_near_limit_inquiry_is_conservative() {
         struct Conservative;
         impl Focus for Conservative {
-            const FOCUS_NEAR_LIMIT: u16 = 0;
-            const FOCUS_FAR_LIMIT: u16 = u16::MAX;
+            const FOCUS_RANGE: CapabilityRange<u16> = CapabilityRange::<u16>::new(0, u16::MAX);
+            const FOCUS_NEAR_END: crate::capabilities::FocusNearEnd =
+                crate::capabilities::FocusNearEnd::Minimum;
             const SUPPORTS_AUTO_FOCUS: bool = false;
             const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
             const MAX_FOCUS_SPEED: u8 = 0;
@@ -152,7 +160,7 @@ mod tests {
     fn every_builtin_focus_position_round_trips_through_normalized_units() {
         fn check<P: Focus + Default>() {
             let camera = P::default();
-            for position in P::FOCUS_NEAR_LIMIT..=P::FOCUS_FAR_LIMIT {
+            for position in P::FOCUS_RANGE.min()..=P::FOCUS_RANGE.max() {
                 let normalized = camera.focus_units_to_normalized(position).unwrap();
                 assert_eq!(
                     camera.normalized_to_focus_units(normalized).unwrap(),

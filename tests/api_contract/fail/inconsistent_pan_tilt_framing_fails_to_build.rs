@@ -12,7 +12,8 @@ struct Inconsistent;
 
 impl PanTilt for Inconsistent {
     const PAN_RANGE: CapabilityRange<i32> = CapabilityRange::<i32>::new(-100, 100);
-    const TILT_RANGE: CapabilityRange<i32> = CapabilityRange::<i32>::new(-100, 100);
+    const TILT_RANGES: grafton_visca::capabilities::TiltRanges =
+        grafton_visca::capabilities::TiltRanges::Single(CapabilityRange::<i32>::new(-100, 100));
     const MAX_PAN_SPEED: u8 = 0x18;
     const MAX_TILT_SPEED: u8 = 0x18;
     const PAN_DEGREES_TO_UNITS: f32 = 1.0;
@@ -27,4 +28,4 @@ fn main() {
 }
 
 //~ E0080
-//~ "Sony BRC-300 pan/tilt framing requires signed-centered coordinates"
+//~ "Sony position framing requires signed-centered coordinates"

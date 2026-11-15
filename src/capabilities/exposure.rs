@@ -34,7 +34,7 @@ pub trait Exposure {
     const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry];
 
     /// Valid range for gain values.
-    const GAIN_RANGE: CapabilityRange<u8>;
+    const GAIN_RANGE: Option<CapabilityRange<u8>>;
 
     /// VISCA exposure bright positions, if supported: the bounds of the
     /// profile's Bright table minus any position it does not list.
@@ -73,7 +73,7 @@ pub trait ExposureExt: Exposure {
 
     /// Validate gain value is within range.
     fn validate_gain(&self, gain: u8) -> Result<u8, ValidationError> {
-        Self::GAIN_RANGE.validate("gain", gain)
+        Self::GAIN_RANGE.validate_supported("gain", gain)
     }
 
     /// Validate exposure brightness value is within range.
@@ -167,7 +167,7 @@ mod tests {
             &[0x01, 0x02],
         ));
         const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry] = TEST_SHUTTER_SPEEDS;
-        const GAIN_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 15);
+        const GAIN_RANGE: Option<CapabilityRange<u8>> = Some(CapabilityRange::<u8>::new(0, 15));
         const BRIGHTNESS_RANGE: Option<CapabilityDomain<u8>> =
             Some(CapabilityDomain::<u8>::new(0, 17));
         const SUPPORTS_BACKLIGHT_COMP: bool = true;
@@ -181,7 +181,7 @@ mod tests {
         const EXPOSURE_MODES: &'static [ExposureMode] = &[ExposureMode::Auto, ExposureMode::Manual];
         const IRIS_RANGE: Option<CapabilityDomain<u16>> = None;
         const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry] = TEST_SHUTTER_SPEEDS;
-        const GAIN_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 15);
+        const GAIN_RANGE: Option<CapabilityRange<u8>> = Some(CapabilityRange::<u8>::new(0, 15));
         const BRIGHTNESS_RANGE: Option<CapabilityDomain<u8>> = None;
         const SUPPORTS_BACKLIGHT_COMP: bool = true;
     }

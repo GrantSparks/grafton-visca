@@ -140,8 +140,16 @@ fn r8_color_gain_and_hue_are_the_saturation_and_hue_controls() {
 fn r8_aperture_and_picture_effect_are_metadata_only() {
     let profile = profile();
     let capabilities = profile.capabilities();
-    assert_eq!(capabilities.sharpness_range, Some(0x00..=0x0F));
-    assert!(capabilities.has_picture_effect);
+    assert_eq!(
+        capabilities
+            .image
+            .as_ref()
+            .expect("image domain")
+            .sharpness_range
+            .map(|range| range.as_inclusive()),
+        Some(0x00..=0x0F)
+    );
+    assert!(capabilities.has_picture_effect());
     assert!(!capabilities.supports_typed(TypedSupportSurface::SharpnessControl));
     assert!(!capabilities.supports_typed(TypedSupportSurface::PictureEffect));
 

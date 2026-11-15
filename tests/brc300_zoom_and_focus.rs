@@ -45,9 +45,23 @@ fn target(position: u16) -> ZoomTarget {
 fn zoom_tables_follow_the_sources() {
     for (name, profile) in profiles() {
         let capabilities = profile.capabilities();
-        assert_eq!(capabilities.zoom_range_optical, 0x0000..=0x4000, "{name}");
         assert_eq!(
-            capabilities.zoom_range_digital,
+            capabilities
+                .zoom
+                .as_ref()
+                .expect("zoom domain")
+                .optical_range()
+                .as_inclusive(),
+            0x0000..=0x4000,
+            "{name}"
+        );
+        assert_eq!(
+            capabilities
+                .zoom
+                .as_ref()
+                .expect("zoom domain")
+                .digital_range()
+                .map(|range| range.as_inclusive()),
             Some(0x4000..=0x7F00),
             "{name}"
         );

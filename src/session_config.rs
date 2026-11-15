@@ -205,12 +205,11 @@ pub struct SessionConfig {
 }
 
 impl SessionConfig {
-    /// Creates a single-target configuration for camera 1.
+    /// Creates a single-target configuration for the profile's individual default.
     #[must_use]
     pub fn new(profile: ProfileSpec) -> Self {
-        // Camera 1 is always a valid individual target, so this constructor
-        // is infallible.
-        Self::with_profile(TargetSlot::ALL[0], profile)
+        let target = TargetSlot::from(profile.capabilities().default_camera_id);
+        Self::with_profile(target, profile)
     }
 
     /// Creates a single-target configuration for an explicit camera.
@@ -218,7 +217,7 @@ impl SessionConfig {
         Ok(Self::with_profile(TargetSlot::try_from(target)?, profile))
     }
 
-    /// Creates a camera-1 configuration from a compile-time profile.
+    /// Creates a configuration using the compile-time profile's default target.
     pub fn from_compile_time<P>() -> Result<Self>
     where
         P: CompileTimeProfile,

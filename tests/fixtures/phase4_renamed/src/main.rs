@@ -487,7 +487,8 @@ impl ProfileMetadata for DownstreamProfile {
     const SUPPORTS_COMMAND_CANCEL: bool = true;
 
     const MODEL_NAME: &'static str = "Downstream renamed profile";
-    const DEFAULT_CAMERA_ID: u8 = 3;
+    const DEFAULT_CAMERA_ID: grafton_visca::IndividualCameraId =
+        grafton_visca::IndividualCameraId::new(3).expect("individual profile default");
     type Envelope = visca_renamed::transport::RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(120);
     const COMMAND_TIMEOUTS: visca_renamed::CommandTimeouts = visca_renamed::CommandTimeouts::new(
@@ -501,7 +502,8 @@ impl ProfileMetadata for DownstreamProfile {
 
 impl PanTilt for DownstreamProfile {
     const PAN_RANGE: capabilities::CapabilityRange<i32> = <Base as PanTilt>::PAN_RANGE;
-    const TILT_RANGE: capabilities::CapabilityRange<i32> = <Base as PanTilt>::TILT_RANGE;
+    const TILT_RANGES: grafton_visca::capabilities::TiltRanges =
+        grafton_visca::capabilities::TiltRanges::Single(<Base as PanTilt>::TILT_RANGES.range(None));
     const MAX_PAN_SPEED: u8 = 9;
     const MAX_TILT_SPEED: u8 = 7;
     const PAN_DEGREES_TO_UNITS: f32 = 10.0;
@@ -523,8 +525,13 @@ impl Focus for DownstreamProfile {
 
     const MAX_FOCUS_SPEED: u8 = 7;
 
-    const FOCUS_NEAR_LIMIT: u16 = <Base as Focus>::FOCUS_NEAR_LIMIT;
-    const FOCUS_FAR_LIMIT: u16 = <Base as Focus>::FOCUS_FAR_LIMIT;
+    const FOCUS_RANGE: grafton_visca::capabilities::CapabilityRange<u16> =
+        grafton_visca::capabilities::CapabilityRange::<u16>::new(
+            <Base as Focus>::FOCUS_RANGE.min(),
+            <Base as Focus>::FOCUS_RANGE.max(),
+        );
+    const FOCUS_NEAR_END: grafton_visca::capabilities::FocusNearEnd =
+        grafton_visca::capabilities::FocusNearEnd::Minimum;
     const SUPPORTS_AUTO_FOCUS: bool = true;
     const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
 }
@@ -535,7 +542,8 @@ impl Exposure for DownstreamProfile {
     const IRIS_RANGE: Option<capabilities::CapabilityDomain<u16>> = <Base as Exposure>::IRIS_RANGE;
     const SHUTTER_SPEEDS: &'static [capabilities::ShutterSpeedEntry] =
         <Base as Exposure>::SHUTTER_SPEEDS;
-    const GAIN_RANGE: capabilities::CapabilityRange<u8> = <Base as Exposure>::GAIN_RANGE;
+    const GAIN_RANGE: Option<grafton_visca::capabilities::CapabilityRange<u8>> =
+        Some(<Base as Exposure>::GAIN_RANGE);
     const BRIGHTNESS_RANGE: Option<capabilities::CapabilityDomain<u8>> =
         <Base as Exposure>::BRIGHTNESS_RANGE;
     const SUPPORTS_BACKLIGHT_COMP: bool = true;

@@ -48,7 +48,11 @@ pub trait PanTilt {
 
     /// Valid range for tilt position in VISCA units.
     /// Typically maps to degrees based on camera model.
-    const TILT_RANGE: CapabilityRange<i32>;
+    const TILT_RANGES: crate::capabilities::TiltRanges;
+
+    /// Quantization policy of the source's nominal degree endpoints.
+    const ENDPOINT_QUANTIZATION: crate::capabilities::EndpointQuantization =
+        crate::capabilities::EndpointQuantization::Exact;
 
     /// Maximum pan speed (0x01-0x18 for most cameras).
     const MAX_PAN_SPEED: u8;
@@ -97,7 +101,7 @@ pub trait PanTiltExt: PanTilt {
 
     /// Validate a tilt position is within range.
     fn validate_tilt(&self, tilt: i32) -> Result<i32, ValidationError> {
-        Self::TILT_RANGE.validate("tilt", tilt)
+        Self::TILT_RANGES.range(None).validate("tilt", tilt)
     }
 
     /// Validate a pan speed against `1..=MAX_PAN_SPEED`.
@@ -163,7 +167,8 @@ mod tests {
 
     impl PanTilt for TestCamera {
         const PAN_RANGE: CapabilityRange<i32> = CapabilityRange::<i32>::new(-170, 170);
-        const TILT_RANGE: CapabilityRange<i32> = CapabilityRange::<i32>::new(-30, 90);
+        const TILT_RANGES: crate::capabilities::TiltRanges =
+            crate::capabilities::TiltRanges::Single(CapabilityRange::<i32>::new(-30, 90));
         const MAX_PAN_SPEED: u8 = 24;
         const MAX_TILT_SPEED: u8 = 24;
         const PAN_DEGREES_TO_UNITS: f32 = 100.0;

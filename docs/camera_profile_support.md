@@ -238,7 +238,7 @@ values are evidence-driven vendor values rather than one fixed protocol table.
 
 Sending a zone is gated per value, following the `exposure_modes` precedent.
 `Focus::FOCUS_ZONES` lists the values a profile may send (default: the
-documented three) and `Capabilities::focus_zones` mirrors it at runtime; it is
+documented three) and `Capabilities::focus.as_ref().map(|focus| &focus.zones)` mirrors it at runtime; it is
 empty exactly when focus-zone selection is unsupported and must be
 duplicate-free. `FocusZoneCommand` refuses a value outside the list with
 `Error::InvalidParameter { parameter: "focus_zone", .. }` before any I/O, on
@@ -615,3 +615,42 @@ test in the PR so reviewers know what remains unresolved.
   `camera` module re-exports, checked `UnitInterval` values, and checked camera
   ID conversion. Root control traits are 1.x vocabulary and are not 2.0 API.
 - Any source conflict is documented near the relevant capability, not only in the PR discussion.
+
+
+### Grouped runtime facts
+
+`Capabilities` owns optional domain records. `None` means the domain is absent;
+its bounds, speeds and refinements cannot survive independently. Use validated
+`CapabilityRange` values, direction-free `FocusCaps::range` plus `near_end`, and
+an optional shared gain range for cameras with a different vendor gain family.
+RGB gain and tuning each require both channels in one value.
+
+Coordinates belong to `PanTiltCaps`; the target registration only selects a
+source-declared tilt range. Degree bounds derive from wire bounds and the
+conversion. `EndpointQuantization::Exact` uses exact degree bounds;
+`WholeDegrees` expresses a source's whole-degree endpoint cells, validates that
+each nominal endpoint is within one wire unit, and clamps that final rounding
+cell. Values outside the nominal degree range are always refused. Relative
+moves use the selected source range's full span and the same conversion rule.
+
+`PositionInquirySupport` remains the sole per-axis low-level settlement matrix
+in `ProfileSpec`. These facts describe settlement queries, distinct from public
+typed inquiry grants. `PresetCaps::recall_axes` describes exact recall effects;
+completionless profiles need every corresponding settlement inquiry.
+
+Profile defaults use the validated `IndividualCameraId` and cannot select
+broadcast. `SessionConfig::new` registers that proven default directly. Every
+optional persisted field remains required (explicit `null` represents absence),
+and every record refuses unknown keys; regenerate specs with the current shape.
+
+
+The flat validator at `8899a3e7` had 33 explicit refusal sites across 727 lines.
+After grouping, `ProfileFacts::validate` has 13 refusal sites: transport and
+framing, timing/socket/name facts, exact built-in identity, typed-to-metadata
+permission, settlement queries, and preset axes. Domain validation has nine
+refusal sites including its shared range-fit helper, covering typed bounds,
+endpoint quantization, unique inventories and remaining physical constraints.
+The combined count is 22. Equality-only refusals for domain flags, stored degree
+ranges, zoom starts, completion copies, preset presence/names, RGB half-pairs,
+combined-flip strategy copies and noise-reduction copies are gone; their former
+mutation tests are replaced by construction, derived-value and boundary checks.

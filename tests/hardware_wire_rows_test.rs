@@ -702,17 +702,38 @@ fn direct_zoom_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Ch
     let before = before?;
 
     let capabilities = camera.capabilities();
-    let optical_max = *capabilities.zoom_range_optical.end();
+    let optical_max = *capabilities
+        .zoom
+        .as_ref()
+        .expect("zoom domain")
+        .optical_range()
+        .as_inclusive()
+        .end();
     hw!(
         hw,
         "profile.zoom model_name={:?} optical_range=0x{:04X}..=0x{:04X} digital_range={:?} \
          optical_zoom_ratio={:?} supports_direct={}",
         capabilities.model_name,
-        capabilities.zoom_range_optical.start(),
+        capabilities
+            .zoom
+            .as_ref()
+            .expect("zoom domain")
+            .optical_range()
+            .as_inclusive()
+            .start(),
         optical_max,
-        capabilities.zoom_range_digital,
-        capabilities.optical_zoom_ratio,
-        capabilities.supports_direct_zoom
+        capabilities
+            .zoom
+            .as_ref()
+            .expect("zoom domain")
+            .digital_range()
+            .map(|range| range.as_inclusive()),
+        capabilities
+            .zoom
+            .as_ref()
+            .expect("zoom domain")
+            .optical_ratio,
+        capabilities.supports_direct_zoom()
     );
     hw!(
         hw,
@@ -775,7 +796,11 @@ fn direct_zoom_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Ch
              profile_optical_zoom_ratio={:?} model_name={:?}",
             position.value(),
             magnification(capabilities, position.value()),
-            capabilities.optical_zoom_ratio,
+            capabilities
+                .zoom
+                .as_ref()
+                .expect("zoom domain")
+                .optical_ratio,
             capabilities.model_name
         );
     }
@@ -846,21 +871,54 @@ fn absolute_pan_tilt_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Res
         hw,
         "profile.pan_tilt pan_range={:?} tilt_range={:?} pan_speed_range={:?} \
          tilt_speed_range={:?} pan_degrees_to_units={pan_units} tilt_degrees_to_units={tilt_units}",
-        capabilities.pan_range,
-        capabilities.tilt_range,
-        capabilities.pan_speed,
-        capabilities.tilt_speed
+        capabilities
+            .pan_tilt
+            .as_ref()
+            .expect("pan/tilt domain")
+            .pan_range
+            .as_inclusive(),
+        capabilities
+            .pan_tilt
+            .as_ref()
+            .expect("pan/tilt domain")
+            .tilt_ranges
+            .range(None)
+            .as_inclusive(),
+        capabilities
+            .pan_tilt
+            .as_ref()
+            .expect("pan/tilt domain")
+            .pan_speed
+            .as_inclusive(),
+        capabilities
+            .pan_tilt
+            .as_ref()
+            .expect("pan/tilt domain")
+            .tilt_speed
+            .as_inclusive()
     );
 
     let target_pan = p0.pan + PAN_OFFSET_RAW;
     let target_tilt = p0.tilt;
-    if !capabilities.pan_range.contains(&target_pan) {
+    if !capabilities
+        .pan_tilt
+        .as_ref()
+        .expect("pan/tilt domain")
+        .pan_range
+        .as_inclusive()
+        .contains(&target_pan)
+    {
         // The typed API would reject this target; never substitute another
         // direction or offset silently.
         hw!(
             hw,
             "SKIP_RANGE pan target {target_pan} is outside {:?}; no motion issued",
-            capabilities.pan_range
+            capabilities
+                .pan_tilt
+                .as_ref()
+                .expect("pan/tilt domain")
+                .pan_range
+                .as_inclusive()
         );
         report_restored(camera, hw);
         checks.check(hw, "pan_target_in_range", false);
@@ -870,8 +928,24 @@ fn absolute_pan_tilt_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Res
     let conversion = PanTiltCoordinateConversion::for_profile::<P>();
     let pan_degrees = conversion.pan_degrees(target_pan);
     let tilt_degrees = conversion.tilt_degrees(target_tilt);
-    let pan_speed = slowest_speed(&capabilities.pan_speed, slowest.to_pan_speed());
-    let tilt_speed = slowest_speed(&capabilities.tilt_speed, slowest.to_tilt_speed());
+    let pan_speed = slowest_speed(
+        &capabilities
+            .pan_tilt
+            .as_ref()
+            .expect("pan/tilt domain")
+            .pan_speed
+            .as_inclusive(),
+        slowest.to_pan_speed(),
+    );
+    let tilt_speed = slowest_speed(
+        &capabilities
+            .pan_tilt
+            .as_ref()
+            .expect("pan/tilt domain")
+            .tilt_speed
+            .as_inclusive(),
+        slowest.to_tilt_speed(),
+    );
     hw!(
         hw,
         "pan_tilt.target raw=({target_pan},{target_tilt}) degrees=({pan_degrees},{tilt_degrees}) \
@@ -1143,7 +1217,11 @@ fn shutter_body<P: WireRowProfile>(
 ) -> Result<Checks, Error> {
     let mut checks = Checks::default();
     let capabilities = camera.capabilities();
-    let table = &capabilities.shutter_speeds;
+    let table = &capabilities
+        .exposure
+        .as_ref()
+        .expect("exposure domain")
+        .shutter_speeds;
     for entry in table {
         hw!(
             hw,
@@ -1418,16 +1496,40 @@ fn tilt_polarity_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<
     hw!(
         hw,
         "profile.pan_tilt tilt_range={:?} tilt_degrees_to_units={} pan_tolerance_raw={PAN_TOLERANCE_RAW}",
-        capabilities.tilt_range,
+        capabilities.pan_tilt.as_ref().expect("pan/tilt domain").tilt_ranges.range(None).as_inclusive(),
         <P as PanTilt>::TILT_DEGREES_TO_UNITS
     );
     // An axis at a limit cannot show a change; never move it there.
-    if p0.tilt <= *capabilities.tilt_range.start() || p0.tilt >= *capabilities.tilt_range.end() {
+    if p0.tilt
+        <= *capabilities
+            .pan_tilt
+            .as_ref()
+            .expect("pan/tilt domain")
+            .tilt_ranges
+            .range(None)
+            .as_inclusive()
+            .start()
+        || p0.tilt
+            >= *capabilities
+                .pan_tilt
+                .as_ref()
+                .expect("pan/tilt domain")
+                .tilt_ranges
+                .range(None)
+                .as_inclusive()
+                .end()
+    {
         hw!(
             hw,
             "SKIP_RANGE tilt {} is at a limit of {:?}; no motion issued",
             p0.tilt,
-            capabilities.tilt_range
+            capabilities
+                .pan_tilt
+                .as_ref()
+                .expect("pan/tilt domain")
+                .tilt_ranges
+                .range(None)
+                .as_inclusive()
         );
         report_restored(camera, hw);
         checks.check(hw, "tilt_start_inside_range", false);

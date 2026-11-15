@@ -112,13 +112,13 @@ impl DomainGate {
     pub(crate) fn permits(self, profile: &crate::ProfileSpec) -> bool {
         let capabilities = profile.capabilities();
         match self {
-            Self::Power => capabilities.has_power,
-            Self::Zoom => capabilities.has_zoom,
-            Self::PanTilt => capabilities.has_pan_tilt && profile.pan_tilt_coordinates().is_some(),
-            Self::Focus => capabilities.has_focus,
-            Self::Exposure => capabilities.has_exposure,
-            Self::WhiteBalance => capabilities.has_white_balance,
-            Self::Presets => capabilities.has_presets,
+            Self::Power => capabilities.has_power(),
+            Self::Zoom => capabilities.has_zoom(),
+            Self::PanTilt => capabilities.has_pan_tilt(),
+            Self::Focus => capabilities.has_focus(),
+            Self::Exposure => capabilities.has_exposure(),
+            Self::WhiteBalance => capabilities.has_white_balance(),
+            Self::Presets => capabilities.has_presets(),
             Self::MenuControl => true,
         }
     }

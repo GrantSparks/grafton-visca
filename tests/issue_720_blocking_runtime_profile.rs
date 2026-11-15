@@ -19,8 +19,13 @@ use grafton_visca::{
 fn runtime_power_profile() -> ProfileSpec {
     let mut capabilities =
         Capabilities::runtime_baseline("Issue 720 runtime camera", 1).expect("baseline");
-    capabilities.has_power = true;
-    capabilities.power_on_time = Duration::from_secs(1);
+    capabilities.power = Some(grafton_visca::capabilities::PowerCaps {
+        on_time: Duration::from_secs(1),
+        standby: None,
+        wake_on_lan: false,
+        retains_settings: false,
+        home_on_up: false,
+    });
 
     let timing = ProfileTiming::builder()
         .ack_timeout(Duration::from_millis(100))
@@ -42,7 +47,6 @@ fn runtime_power_profile() -> ProfileSpec {
         .maximum_command_sockets(1)
         .supports_operation_complete(true)
         .supports_command_cancel(false)
-        .preset_recall_axes(None)
         .position_inquiries(PositionInquirySupport::new(false, false, false))
         .build()
         .expect("runtime power profile")

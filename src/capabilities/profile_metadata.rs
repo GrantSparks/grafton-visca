@@ -86,7 +86,7 @@ pub trait ProfileMetadata {
 
     /// Default camera ID (usually 1).
     /// This is the VISCA address identifier for the camera.
-    const DEFAULT_CAMERA_ID: u8;
+    const DEFAULT_CAMERA_ID: crate::IndividualCameraId;
 
     /// Protocol envelope type for compile-time protocol selection.
     /// This determines whether commands use raw VISCA or Sony encapsulation.
@@ -297,7 +297,8 @@ mod tests {
         const SUPPORTS_COMMAND_CANCEL: bool = true;
 
         const MODEL_NAME: &'static str = "Test Camera";
-        const DEFAULT_CAMERA_ID: u8 = 1;
+        const DEFAULT_CAMERA_ID: crate::IndividualCameraId =
+            crate::IndividualCameraId::new(1).expect("individual profile default");
         type Envelope = crate::transport::RawVisca;
         const ACK_TIMEOUT: Duration = Duration::from_millis(100);
         const COMMAND_TIMEOUTS: crate::CommandTimeouts = crate::CommandTimeouts::new(

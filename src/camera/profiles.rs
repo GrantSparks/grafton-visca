@@ -285,7 +285,13 @@ mod tests {
             Capabilities::from_profile::<SonyFR7>(),
             Capabilities::from_profile::<SonyBRCH900>(),
         ] {
-            assert!(caps.shutter_speeds.is_empty(), "{}", caps.model_name);
+            assert!(
+                caps.exposure
+                    .as_ref()
+                    .is_some_and(|domain| domain.shutter_speeds.is_empty()),
+                "{}",
+                caps.model_name
+            );
             assert_eq!(code(&caps, 1, 60), None, "{}", caps.model_name);
         }
     }

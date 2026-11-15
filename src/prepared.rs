@@ -1322,14 +1322,11 @@ mod tests {
         position_inquiries: PositionInquirySupport,
         preset_axes: AffectedAxes,
     ) -> ProfileSpec {
-        capabilities.supports_operation_complete = operation_complete;
+        if let Some(presets) = &mut capabilities.presets {
+            presets.recall_axes = preset_axes;
+        }
         let transports = TransportCompatibility::new(Some(5678), Some(1259), false);
         ProfileSpec::builder(capabilities)
-            .pan_tilt_coordinates(
-                crate::capabilities::CoordinateSystem::SignedCentered,
-                16.0,
-                16.0,
-            )
             .transports(transports)
             .envelope(ProfileEnvelope::RawVisca)
             .timing(
@@ -1349,7 +1346,6 @@ mod tests {
             .maximum_command_sockets(1)
             .supports_operation_complete(operation_complete)
             .supports_command_cancel(false)
-            .preset_recall_axes(Some(preset_axes))
             .position_inquiries(position_inquiries)
             .build()
             .expect("valid test profile")
@@ -1724,8 +1720,7 @@ mod tests {
         };
         let error = prepare_command(
             &request,
-            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, sony.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::from_profile(TargetSlot::CAMERA_1, sony.clone()),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1744,33 +1739,33 @@ mod tests {
         );
         prepare_command(
             &request,
-            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, raw.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::from_profile(TargetSlot::CAMERA_1, raw.clone()),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
         .expect("raw framing supports larger bounded requests");
-        let fr7 = ProfileSpec::builder(raw.capabilities().clone())
-            .pan_tilt_coordinates(
+        let mut fr7_caps = raw.capabilities().clone();
+        fr7_caps.pan_tilt.as_mut().expect("pan/tilt").coordinates =
+            crate::PanTiltCoordinateConversion::new(
                 crate::capabilities::CoordinateSystem::SignedCentered,
+                crate::capabilities::PanTiltWireCodec::SonyFr7,
                 16.0,
                 16.0,
             )
-            .pan_tilt_wire_codec(crate::capabilities::PanTiltWireCodec::SonyFr7)
+            .expect("FR7 framing");
+        let fr7 = ProfileSpec::builder(fr7_caps)
             .transports(raw.transports())
             .envelope(ProfileEnvelope::SonyEncapsulated)
             .timing(raw.timing())
             .maximum_command_sockets(raw.maximum_command_sockets())
             .supports_operation_complete(raw.supports_operation_complete())
             .supports_command_cancel(raw.supports_command_cancel())
-            .preset_recall_axes(raw.preset_recall_axes())
             .position_inquiries(raw.position_inquiries())
             .build()
             .expect("FR7-format runtime profile");
         prepare_command(
             &request,
-            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, fr7.clone())
-                .expect("valid target registration"),
+            &crate::TargetRegistration::from_profile(TargetSlot::CAMERA_1, fr7.clone()),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1782,8 +1777,7 @@ mod tests {
         assert!(matches!(
             prepare_command(
                 &oversize,
-                &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, fr7.clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::from_profile(TargetSlot::CAMERA_1, fr7.clone()),
                 OperationalTuning::new(),
                 ClassSelection::Request
             ),
@@ -1862,7 +1856,7 @@ mod tests {
 
         let mut missing_custom_zoom = Capabilities::from_profile::<crate::profiles::GenericVisca>();
         missing_custom_zoom.profile_id = None;
-        missing_custom_zoom.supports_direct_zoom = false;
+        missing_custom_zoom.zoom.as_mut().expect("zoom").direct = false;
         missing_custom_zoom.typed_support = TypedSupportSet::empty();
         let missing_custom_zoom = runtime_profile(
             missing_custom_zoom,
@@ -2063,7 +2057,6 @@ mod tests {
                 .maximum_command_sockets(1)
                 .supports_operation_complete(false)
                 .supports_command_cancel(false)
-                .preset_recall_axes(None)
                 .position_inquiries(PositionInquirySupport::new(false, false, false))
                 .build()
                 .expect("valid minimal profile")
@@ -2106,8 +2099,13 @@ mod tests {
         // the still-absent zoom domain keeps its inquiry refused: the erased
         // gate tracks each noun's base marker independently.
         let power_only = minimal_profile(|capabilities| {
-            capabilities.has_power = true;
-            capabilities.power_on_time = Duration::from_millis(750);
+            capabilities.power = Some(crate::capabilities::PowerCaps {
+                on_time: Duration::from_millis(750),
+                standby: None,
+                wake_on_lan: false,
+                retains_settings: false,
+                home_on_up: false,
+            });
         });
         assert!(admits(&PowerInquiry, &power_only));
         assert!(!admits(&ZoomPositionInquiry, &power_only));
@@ -2330,8 +2328,7 @@ mod tests {
         ] {
             let prepared = prepare_inquiry(
                 &ZoomPositionInquiry,
-                &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::from_profile(TargetSlot::CAMERA_1, profile.clone()),
                 tuning,
                 ClassSelection::Request,
             )
@@ -2389,8 +2386,7 @@ mod tests {
         ) {
             let prepared = prepare_operation::<completion::Targeted, _>(
                 operation,
-                &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
-                    .expect("valid target registration"),
+                &crate::TargetRegistration::from_profile(TargetSlot::CAMERA_1, profile.clone()),
                 OperationalTuning::new().settlement_timeout(Duration::from_secs(seconds)),
                 ClassSelection::Request,
             )
@@ -3896,7 +3892,7 @@ mod tests {
 
         let mut no_direct_caps = Capabilities::from_profile::<crate::profiles::GenericVisca>();
         no_direct_caps.profile_id = None;
-        no_direct_caps.supports_direct_zoom = false;
+        no_direct_caps.zoom.as_mut().expect("zoom").direct = false;
         no_direct_caps.typed_support = TypedSupportSet::empty();
         let no_direct = runtime_profile(
             no_direct_caps,
@@ -3918,9 +3914,9 @@ mod tests {
 
         let mut bounded_zoom_caps = Capabilities::from_profile::<crate::profiles::GenericVisca>();
         bounded_zoom_caps.profile_id = None;
-        bounded_zoom_caps.zoom_range_optical = 0..=0x4000;
-        bounded_zoom_caps.zoom_range_digital = Some(0x4000..=0x5000);
-        bounded_zoom_caps.supports_direct_zoom = true;
+        bounded_zoom_caps.zoom.as_mut().expect("zoom").optical_max = 0x4000;
+        bounded_zoom_caps.zoom.as_mut().expect("zoom").digital_max = Some(0x5000);
+        bounded_zoom_caps.zoom.as_mut().expect("zoom").direct = true;
         bounded_zoom_caps.typed_support = TypedSupportSet::from_surfaces(&[
             crate::capabilities::TypedSupportSurface::DirectZoom,
             crate::capabilities::TypedSupportSurface::DigitalZoomRange,

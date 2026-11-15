@@ -71,7 +71,7 @@ macro_rules! synthetic_profile_impl {
             const SUPPORTS_COMMAND_CANCEL: bool = true;
 
             const MODEL_NAME: &'static str = $model;
-            const DEFAULT_CAMERA_ID: u8 = 1;
+            const DEFAULT_CAMERA_ID: grafton_visca::IndividualCameraId = grafton_visca::IndividualCameraId::new(1).expect("individual profile default");
             type Envelope = RawVisca;
             const ACK_TIMEOUT: Duration = Duration::from_millis(100);
             const COMMAND_TIMEOUTS: CommandTimeouts = synthetic_command_timeouts!($($command_timeouts)?);
@@ -80,7 +80,7 @@ macro_rules! synthetic_profile_impl {
 
         impl PanTilt for $profile {
             const PAN_RANGE: CapabilityRange<i32> = CapabilityRange::<i32>::new(-1700, 1700);
-            const TILT_RANGE: CapabilityRange<i32> = CapabilityRange::<i32>::new(-300, 900);
+            const TILT_RANGES: grafton_visca::capabilities::TiltRanges = grafton_visca::capabilities::TiltRanges::Single(CapabilityRange::<i32>::new(-300, 900));
             const MAX_PAN_SPEED: u8 = 24;
             const MAX_TILT_SPEED: u8 = 20;
             const PAN_DEGREES_TO_UNITS: f32 = 10.0;
@@ -102,8 +102,8 @@ macro_rules! synthetic_profile_impl {
 
             const MAX_FOCUS_SPEED: u8 = 7;
 
-            const FOCUS_NEAR_LIMIT: u16 = 0x1000;
-            const FOCUS_FAR_LIMIT: u16 = 0xF000;
+            const FOCUS_RANGE: grafton_visca::capabilities::CapabilityRange<u16> = grafton_visca::capabilities::CapabilityRange::<u16>::new(0x1000, 0xF000);
+    const FOCUS_NEAR_END: grafton_visca::capabilities::FocusNearEnd = grafton_visca::capabilities::FocusNearEnd::Minimum;
             const SUPPORTS_AUTO_FOCUS: bool = true;
             const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
             const FOCUS_ZONES: &'static [FocusZone] =
@@ -115,7 +115,7 @@ macro_rules! synthetic_profile_impl {
             const EXPOSURE_MODES: &'static [ExposureMode] = EXPOSURE_MODES;
             const IRIS_RANGE: Option<CapabilityDomain<u16>> = None;
             const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry] = SHUTTER_SPEEDS;
-            const GAIN_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 15);
+            const GAIN_RANGE: Option<grafton_visca::capabilities::CapabilityRange<u8>> = Some(CapabilityRange::<u8>::new(0, 15));
             const SUPPORTS_BACKLIGHT_COMP: bool = false;
         }
 

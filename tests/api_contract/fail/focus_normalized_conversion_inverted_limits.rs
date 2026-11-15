@@ -1,5 +1,8 @@
 //@ build
-use grafton_visca::{capabilities::{focus::FocusExt, Focus}, UnitInterval};
+use grafton_visca::{
+    capabilities::{focus::FocusExt, Focus},
+    UnitInterval,
+};
 
 struct Inverted;
 impl Focus for Inverted {
@@ -7,8 +10,10 @@ impl Focus for Inverted {
 
     const MAX_FOCUS_SPEED: u8 = 7;
 
-    const FOCUS_NEAR_LIMIT: u16 = 2;
-    const FOCUS_FAR_LIMIT: u16 = 1;
+    const FOCUS_RANGE: grafton_visca::capabilities::CapabilityRange<u16> =
+        grafton_visca::capabilities::CapabilityRange::<u16>::new(2, 1);
+    const FOCUS_NEAR_END: grafton_visca::capabilities::FocusNearEnd =
+        grafton_visca::capabilities::FocusNearEnd::Minimum;
     const SUPPORTS_AUTO_FOCUS: bool = false;
     const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
 }

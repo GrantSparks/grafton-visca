@@ -83,7 +83,13 @@ samples! {
 }
 impl Sample for types::FocusPosition {
     fn sample(profile: &ProfileSpec) -> Self {
-        Self::new(*profile.capabilities().focus_range.start())
+        Self::new(
+            profile
+                .capabilities()
+                .focus
+                .as_ref()
+                .map_or(0, |domain| domain.range.min()),
+        )
     }
 }
 impl Sample for types::ShutterSpeed {
@@ -91,8 +97,9 @@ impl Sample for types::ShutterSpeed {
         Self::new(
             profile
                 .capabilities()
-                .shutter_speeds
-                .first()
+                .exposure
+                .as_ref()
+                .and_then(|domain| domain.shutter_speeds.first())
                 .map_or(0, |entry| entry.value),
         )
     }
@@ -103,58 +110,56 @@ impl Sample for types::ColorTemp {
         Self::from_kelvin(
             profile
                 .capabilities()
-                .color_temp_range
+                .white_balance
                 .as_ref()
-                .map_or(2500, |range| *range.start()),
+                .and_then(|domain| domain.color_temp_range)
+                .map_or(2500, |range| range.min()),
         )
         .expect("temperature")
     }
 }
 
 fn build(capabilities: Capabilities, source: &ProfileSpec, with_domains: bool) -> ProfileSpec {
-    let mut builder = ProfileSpec::builder(capabilities)
+    ProfileSpec::builder(capabilities)
         .transports(source.transports())
         .envelope(source.envelope())
         .timing(source.timing())
         .maximum_command_sockets(source.maximum_command_sockets())
         .supports_operation_complete(false)
         .supports_command_cancel(false)
-        .preset_recall_axes(with_domains.then_some(crate::AffectedAxes::MOVEMENT))
         .position_inquiries(PositionInquirySupport::new_with_iris_nd(
             with_domains,
             with_domains,
             with_domains,
             with_domains,
             with_domains,
-        ));
-    if with_domains {
-        let conversion = source.pan_tilt_coordinates().expect("coordinates");
-        builder = builder.pan_tilt_coordinates(
-            conversion.coordinate_system(),
-            conversion.pan_degrees_to_units(),
-            conversion.tilt_degrees_to_units(),
-        );
-    }
-    builder.build().expect("validated gate test profile")
+        ))
+        .build()
+        .expect("validated gate test profile")
 }
+
 fn profiles() -> (ProfileSpec, ProfileSpec, ProfileSpec) {
     let source = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2");
     let mut caps = source.capabilities().clone();
     caps.profile_id = None;
     caps.model_name = "All documented row gates".into();
-    caps.supports_operation_complete = false;
     caps.typed_support = TypedSupportSet::from_surfaces(&TypedSupportSurface::ALL);
-    caps.zoom_range_digital = Some(*caps.zoom_range_optical.end()..=0x7000);
-    caps.has_one_push_focus = true;
-    caps.has_af_sensitivity = true;
-    caps.has_focus_near_limit_inquiry = true;
-    caps.has_tally = true;
-    caps.has_direct_menu_control = true;
-    caps.has_nd_filter = true;
+    caps.zoom.as_mut().expect("zoom").digital_max = Some(0x7000);
+    caps.focus.as_mut().expect("focus").one_push = true;
+    caps.focus.as_mut().expect("focus").af_sensitivity = true;
+    caps.focus.as_mut().expect("focus").near_limit_inquiry = true;
+    caps.tally = true;
+    caps.direct_menu = true;
     caps.nd_filter_mode = crate::capabilities::NdFilterMode::Variable;
-    caps.has_variable_speed = true;
-    caps.motion_sync_speed_range = Some(1..=24);
-    caps.white_balance_modes
+    caps.pan_tilt.as_mut().expect("pan/tilt").variable_speed = true;
+    caps.pan_tilt
+        .as_mut()
+        .expect("pan/tilt")
+        .motion_sync_speed_range = Some(crate::capabilities::CapabilityRange::<u8>::new(1, 24));
+    caps.white_balance
+        .as_mut()
+        .expect("white balance")
+        .modes
         .push(command::WhiteBalanceMode::ATW);
     let full = build(caps, &source, true);
     let none = build(
@@ -164,9 +169,6 @@ fn profiles() -> (ProfileSpec, ProfileSpec, ProfileSpec) {
     );
     let mut caps = full.capabilities().clone();
     caps.typed_support = TypedSupportSet::empty();
-    caps.uses_combined_flip_command = false;
-    caps.has_2d_nr = false;
-    caps.has_3d_nr = false;
     let no_typed = build(caps, &source, true);
     (full, none, no_typed)
 }

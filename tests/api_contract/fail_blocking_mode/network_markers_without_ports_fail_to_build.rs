@@ -24,18 +24,21 @@ use grafton_visca::{
 struct SerialOnly;
 
 impl ProfileMetadata for SerialOnly {
-    const INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport = grafton_visca::capabilities::InquirySupport::Full;
+    const INQUIRY_SUPPORT: grafton_visca::capabilities::InquirySupport =
+        grafton_visca::capabilities::InquirySupport::Full;
     const SUPPORTS_COMMAND_CANCEL: bool = true;
 
     const MODEL_NAME: &'static str = "SerialOnly";
-    const DEFAULT_CAMERA_ID: u8 = 1;
+    const DEFAULT_CAMERA_ID: grafton_visca::IndividualCameraId =
+        grafton_visca::IndividualCameraId::new(1).expect("individual profile default");
     type Envelope = RawVisca;
     const ACK_TIMEOUT: Duration = <Base as ProfileMetadata>::ACK_TIMEOUT;
     const COMMAND_TIMEOUTS: CommandTimeouts = CommandTimeouts::DEFAULT;
 }
 impl PanTilt for SerialOnly {
     const PAN_RANGE: CapabilityRange<i32> = <Base as PanTilt>::PAN_RANGE;
-    const TILT_RANGE: CapabilityRange<i32> = <Base as PanTilt>::TILT_RANGE;
+    const TILT_RANGES: grafton_visca::capabilities::TiltRanges =
+        grafton_visca::capabilities::TiltRanges::Single(<Base as PanTilt>::TILT_RANGES.range(None));
     const MAX_PAN_SPEED: u8 = <Base as PanTilt>::MAX_PAN_SPEED;
     const MAX_TILT_SPEED: u8 = <Base as PanTilt>::MAX_TILT_SPEED;
     const PAN_DEGREES_TO_UNITS: f32 = <Base as PanTilt>::PAN_DEGREES_TO_UNITS;
@@ -55,15 +58,21 @@ impl Focus for SerialOnly {
 
     const MAX_FOCUS_SPEED: u8 = 7;
 
-    const FOCUS_NEAR_LIMIT: u16 = <Base as Focus>::FOCUS_NEAR_LIMIT;
-    const FOCUS_FAR_LIMIT: u16 = <Base as Focus>::FOCUS_FAR_LIMIT;
+    const FOCUS_RANGE: grafton_visca::capabilities::CapabilityRange<u16> =
+        grafton_visca::capabilities::CapabilityRange::<u16>::new(
+            <Base as Focus>::FOCUS_RANGE.min(),
+            <Base as Focus>::FOCUS_RANGE.max(),
+        );
+    const FOCUS_NEAR_END: grafton_visca::capabilities::FocusNearEnd =
+        grafton_visca::capabilities::FocusNearEnd::Minimum;
     const SUPPORTS_AUTO_FOCUS: bool = true;
     const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
 }
 impl Exposure for SerialOnly {
     const IRIS_RANGE: Option<CapabilityDomain<u16>> = None;
     const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry] = <Base as Exposure>::SHUTTER_SPEEDS;
-    const GAIN_RANGE: CapabilityRange<u8> = <Base as Exposure>::GAIN_RANGE;
+    const GAIN_RANGE: Option<grafton_visca::capabilities::CapabilityRange<u8>> =
+        <Base as Exposure>::GAIN_RANGE;
     const SUPPORTS_BACKLIGHT_COMP: bool = false;
 }
 impl WhiteBalance for SerialOnly {

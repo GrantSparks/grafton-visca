@@ -52,6 +52,26 @@ where
     }
 }
 
+impl<T: Copy> CapabilityRange<T> {
+    /// Returns the inclusive minimum.
+    #[must_use]
+    pub const fn min(self) -> T {
+        self.min
+    }
+
+    /// Returns the inclusive maximum.
+    #[must_use]
+    pub const fn max(self) -> T {
+        self.max
+    }
+
+    /// Projects the validated closed bounds to a standard inclusive interval.
+    #[must_use]
+    pub fn as_inclusive(self) -> RangeInclusive<T> {
+        self.min..=self.max
+    }
+}
+
 /// The positions a profile admits for one numeric fact whose source is a
 /// table: closed bounds minus the positions the table does not list.
 ///
@@ -109,11 +129,14 @@ where
         &self.gaps
     }
 
-    /// Returns the bounds as a standard inclusive range. Gaps are not
+    /// Returns the validated inclusive bounds. Gaps are not
     /// represented; use [`Self::contains`] to test a value.
     #[must_use]
-    pub fn bounds(&self) -> RangeInclusive<T> {
-        self.min..=self.max
+    pub fn bounds(&self) -> CapabilityRange<T> {
+        CapabilityRange {
+            min: self.min,
+            max: self.max,
+        }
     }
 
     /// Returns true when `value` is a documented position.
@@ -284,18 +307,6 @@ macro_rules! impl_capability_range {
                 Self { min, max }
             }
 
-            /// Returns the inclusive minimum value.
-            #[must_use]
-            pub const fn min(self) -> $ty {
-                self.min
-            }
-
-            /// Returns the inclusive maximum value.
-            #[must_use]
-            pub const fn max(self) -> $ty {
-                self.max
-            }
-
             /// Returns true when `value` is within the closed bounds.
             #[must_use]
             pub const fn contains(self, value: $ty) -> bool {
@@ -325,12 +336,6 @@ macro_rules! impl_capability_range {
                         f64::from(self.max),
                     ))
                 }
-            }
-
-            /// Converts the closed bounds to a standard inclusive range.
-            #[must_use]
-            pub fn as_inclusive(self) -> RangeInclusive<$ty> {
-                self.min..=self.max
             }
         }
 
@@ -468,7 +473,7 @@ mod tests {
     fn capability_domain_admits_bounds_and_refuses_gaps_through_one_rule() {
         let domain = CapabilityDomain::<u8>::with_gaps(0x00, 0x11, &[0x01, 0x02, 0x03, 0x04]);
         assert_eq!(domain.gaps(), &[0x01, 0x02, 0x03, 0x04]);
-        assert_eq!(domain.bounds(), 0x00..=0x11);
+        assert_eq!(domain.bounds(), CapabilityRange::<u8>::new(0x00, 0x11));
         for admitted in [0x00, 0x05, 0x11] {
             assert!(domain.contains(admitted));
             assert_eq!(domain.validate("iris", admitted), Ok(admitted));

@@ -51,6 +51,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   previous typed answers, removing independent snapshot/axis selectors and
   missing-axis branches. Non-zero identities, one inquiry provenance hook, and
   private settlement lowering replace redundant conversions and checks (#874).
+- **BREAKING** (#879): Runtime capabilities use optional per-domain structs.
+  Coordinates, recall axes, RGB pairs, preset names and standby facts live in
+  their owning domain; redundant presence flags, degree bounds, zoom starts,
+  completion copies and typed-bit copies are removed. Readable presence queries
+  are derived methods. Runtime builder domain setters take complete domain
+  values, focus uses an ordered range plus its near endpoint, and shared gain
+  is optional. Profile defaults use `IndividualCameraId` (`1..=7`) without a
+  fallback; `SessionConfig::new` selects that proven default. Regenerate persisted
+  flat profiles. Target mounts select declared tilt ranges, and one checked
+  coordinate conversion enforces exact or documented whole-degree endpoints.
 
 - **BREAKING** (#872): Settlement tuning below every built-in targeted retry
   budget is refused. Default `settled()` waits use the larger of the override

@@ -34,9 +34,6 @@ fn wire<R: Request + ?Sized>(request: &R) -> Vec<u8> {
 
 fn inquiry_only_noise_reduction_profile() -> grafton_visca::Result<ProfileSpec> {
     let source = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
-    let coordinates = source
-        .pan_tilt_coordinates()
-        .expect("G2 pan/tilt conversion");
     let mut capabilities = source.capabilities().clone();
     capabilities.profile_id = None;
     capabilities.model_name = "NR inquiry without NR control".into();
@@ -46,19 +43,12 @@ fn inquiry_only_noise_reduction_profile() -> grafton_visca::Result<ProfileSpec> 
         .without(TypedSupportSurface::NoiseReduction3DControl);
 
     ProfileSpec::builder(capabilities)
-        .pan_tilt_coordinates(
-            coordinates.coordinate_system(),
-            coordinates.pan_degrees_to_units(),
-            coordinates.tilt_degrees_to_units(),
-        )
-        .pan_tilt_wire_codec(coordinates.wire_codec())
         .transports(source.transports())
         .envelope(source.envelope())
         .timing(source.timing())
         .maximum_command_sockets(source.maximum_command_sockets())
         .supports_operation_complete(source.supports_operation_complete())
         .supports_command_cancel(source.supports_command_cancel())
-        .preset_recall_axes(source.preset_recall_axes())
         .position_inquiries(source.position_inquiries())
         .build()
 }
@@ -303,7 +293,16 @@ fn focus_zone_values_are_gated_per_profile_while_decoding_stays_universal() {
         ),
     ] {
         let profile = profile.expect("built-in profile");
-        assert_eq!(profile.capabilities().focus_zones, expected, "{name}");
+        assert_eq!(
+            profile
+                .capabilities()
+                .focus
+                .as_ref()
+                .expect("focus domain")
+                .zones,
+            expected,
+            "{name}"
+        );
         for zone in g2_family {
             let admitted = FocusZoneCommand::new(zone).validate_for_target(
                 &grafton_visca::TargetRegistration::new(
@@ -699,11 +698,23 @@ fn noise_reduction_controls_match_the_documented_absolute_visca_frames() {
 }
 
 #[test]
-fn inquiry_only_noise_reduction_runtime_profile_is_rejected_at_construction() {
-    let error = inquiry_only_noise_reduction_profile()
-        .expect_err("an inquiry-only NR profile violates the paired-surface invariant");
-    assert!(matches!(error, Error::InvalidRequest(message)
-        if message.contains("noise-reduction metadata and paired inquiry/control typed support must agree")));
+fn inquiry_only_noise_reduction_profile_admits_reads_and_refuses_writes() {
+    let profile =
+        inquiry_only_noise_reduction_profile().expect("inquiry and control grants are independent");
+    let target = grafton_visca::TargetRegistration::new(CameraId::CAMERA_1, profile)
+        .expect("target registration");
+    NoiseReduction2DInquiry
+        .validate_for_target(&target)
+        .expect("2D inquiry remains permitted");
+    NoiseReduction3DInquiry
+        .validate_for_target(&target)
+        .expect("3D inquiry remains permitted");
+    for result in [
+        NoiseReduction2D::off().validate_for_target(&target),
+        NoiseReduction3D::off().validate_for_target(&target),
+    ] {
+        assert!(matches!(result, Err(Error::FeatureNotSupported { .. })));
+    }
 }
 
 #[test]
@@ -809,8 +820,8 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
 
     for profile in [&g2, &g3, &ptzoptics_30x] {
         let capabilities = profile.capabilities();
-        assert!(capabilities.has_2d_nr);
-        assert!(capabilities.has_3d_nr);
+        assert!(capabilities.has_2d_nr());
+        assert!(capabilities.has_3d_nr());
         assert!(capabilities.supports_typed(TypedSupportSurface::NoiseReduction2D));
         assert!(capabilities.supports_typed(TypedSupportSurface::NoiseReduction3D));
         assert!(capabilities.supports_typed(TypedSupportSurface::NoiseReduction2DControl));
@@ -895,8 +906,8 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
     // R14 directly documents the G3 inquiry rows, so this is a regression
     // guard against accidentally retaining the former inquiry denial.
     let g3_capabilities = g3.capabilities();
-    assert!(g3_capabilities.has_2d_nr);
-    assert!(g3_capabilities.has_3d_nr);
+    assert!(g3_capabilities.has_2d_nr());
+    assert!(g3_capabilities.has_3d_nr());
     assert!(g3_capabilities.supports_typed(TypedSupportSurface::NoiseReduction2D));
     assert!(g3_capabilities.supports_typed(TypedSupportSurface::NoiseReduction3D));
     assert!(g3_capabilities.supports_typed(TypedSupportSurface::NoiseReduction2DControl));

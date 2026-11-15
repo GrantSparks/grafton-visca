@@ -88,6 +88,11 @@ mod validation;
 pub use validation::ValidationError;
 
 // Structured capabilities response
+mod domains;
+pub use domains::{
+    EndpointQuantization, ExposureCaps, FocusCaps, FocusNearEnd, ImageCaps, PanTiltCaps, PowerCaps,
+    PresetCaps, RgbGainRanges, RgbTuningRanges, TiltRanges, WhiteBalanceCaps, ZoomCaps,
+};
 mod discovery;
 pub use discovery::Capabilities;
 #[cfg(test)]

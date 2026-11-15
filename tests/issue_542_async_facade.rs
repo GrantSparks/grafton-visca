@@ -149,7 +149,6 @@ fn unsupported_focus_profile() -> ProfileSpec {
         .maximum_command_sockets(1)
         .supports_operation_complete(false)
         .supports_command_cancel(false)
-        .preset_recall_axes(None)
         .position_inquiries(PositionInquirySupport::new(false, false, false))
         .build()
         .expect("unsupported profile")

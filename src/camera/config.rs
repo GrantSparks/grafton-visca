@@ -207,7 +207,7 @@ where
             transport_config: None,
             #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
             serial_startup: crate::transport::serial::Startup::default(),
-            camera_id: CameraId::new(P::DEFAULT_CAMERA_ID).unwrap_or_default(),
+            camera_id: P::DEFAULT_CAMERA_ID.into(),
             _phantom: PhantomData,
         }
     }
@@ -681,7 +681,8 @@ mod tests {
                     const SUPPORTS_COMMAND_CANCEL: bool = true;
 
                     const MODEL_NAME: &'static str = stringify!($name);
-                    const DEFAULT_CAMERA_ID: u8 = 1;
+                    const DEFAULT_CAMERA_ID: crate::IndividualCameraId =
+                        crate::IndividualCameraId::new(1).expect("individual profile default");
                     type Envelope = crate::transport::RawVisca;
                     const ACK_TIMEOUT: Duration = <Base as ProfileMetadata>::ACK_TIMEOUT;
                     const COMMAND_TIMEOUTS: crate::CommandTimeouts =
@@ -689,7 +690,10 @@ mod tests {
                 }
                 impl PanTilt for $name {
                     const PAN_RANGE: CapabilityRange<i32> = <Base as PanTilt>::PAN_RANGE;
-                    const TILT_RANGE: CapabilityRange<i32> = <Base as PanTilt>::TILT_RANGE;
+                    const TILT_RANGES: crate::capabilities::TiltRanges =
+                        crate::capabilities::TiltRanges::Single(
+                            <Base as PanTilt>::TILT_RANGES.range(None),
+                        );
                     const MAX_PAN_SPEED: u8 = <Base as PanTilt>::MAX_PAN_SPEED;
                     const MAX_TILT_SPEED: u8 = <Base as PanTilt>::MAX_TILT_SPEED;
                     const PAN_DEGREES_TO_UNITS: f32 = <Base as PanTilt>::PAN_DEGREES_TO_UNITS;
@@ -709,8 +713,13 @@ mod tests {
 
                     const MAX_FOCUS_SPEED: u8 = 7;
 
-                    const FOCUS_NEAR_LIMIT: u16 = <Base as Focus>::FOCUS_NEAR_LIMIT;
-                    const FOCUS_FAR_LIMIT: u16 = <Base as Focus>::FOCUS_FAR_LIMIT;
+                    const FOCUS_RANGE: crate::capabilities::CapabilityRange<u16> =
+                        crate::capabilities::CapabilityRange::<u16>::new(
+                            <Base as Focus>::FOCUS_RANGE.min(),
+                            <Base as Focus>::FOCUS_RANGE.max(),
+                        );
+                    const FOCUS_NEAR_END: crate::capabilities::FocusNearEnd =
+                        crate::capabilities::FocusNearEnd::Minimum;
                     const SUPPORTS_AUTO_FOCUS: bool = true;
                     const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
                 }
@@ -718,7 +727,8 @@ mod tests {
                     const IRIS_RANGE: Option<CapabilityDomain<u16>> = None;
                     const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry] =
                         <Base as Exposure>::SHUTTER_SPEEDS;
-                    const GAIN_RANGE: CapabilityRange<u8> = <Base as Exposure>::GAIN_RANGE;
+                    const GAIN_RANGE: Option<crate::capabilities::CapabilityRange<u8>> =
+                        <Base as Exposure>::GAIN_RANGE;
                     const SUPPORTS_BACKLIGHT_COMP: bool = false;
                 }
                 impl WhiteBalance for $name {

@@ -44,7 +44,13 @@ fn sony_shutter_replies_decode_to_their_source_table_codes() -> Result<(), Error
     }
     // BRC-H900's command list could not be read, so it advertises no codes.
     let brc_h900 = ProfileSpec::from_compile_time::<SonyBRCH900>()?;
-    assert!(brc_h900.capabilities().shutter_speeds.is_empty());
+    assert!(brc_h900
+        .capabilities()
+        .exposure
+        .as_ref()
+        .expect("exposure domain")
+        .shutter_speeds
+        .is_empty());
     Ok(())
 }
 
@@ -77,7 +83,12 @@ fn every_advertised_shutter_code_is_a_typed_shutter_command() {
         Capabilities::from_profile::<SonyEVIH100>(),
         Capabilities::from_profile::<PtzOpticsG2>(),
     ] {
-        for entry in &caps.shutter_speeds {
+        for entry in &caps
+            .exposure
+            .as_ref()
+            .expect("exposure domain")
+            .shutter_speeds
+        {
             let code = ShutterSpeed::new(entry.value);
             assert!(
                 matches!(Shutter::SetSpeed(code), Shutter::SetSpeed(c) if c.value() == entry.value)
@@ -233,7 +244,13 @@ fn fr7_and_brc_h900_advertise_no_shutter_codes() -> Result<(), Error> {
     ] {
         let name = profile.name().to_owned();
         assert!(
-            profile.capabilities().shutter_speeds.is_empty(),
+            profile
+                .capabilities()
+                .exposure
+                .as_ref()
+                .expect("exposure domain")
+                .shutter_speeds
+                .is_empty(),
             "{name} shutter table"
         );
         for code in [0x00, 0x05, 0x0F, 0x15] {

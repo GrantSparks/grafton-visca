@@ -38,17 +38,8 @@ fn camera() -> FakeCamera {
 }
 
 fn runtime_equivalent(static_profile: &ProfileSpec) -> ProfileSpec {
-    let coordinates = static_profile
-        .pan_tilt_coordinates()
-        .expect("Sony BRC-300 pan/tilt conversion");
     let timing: ProfileTiming = static_profile.timing();
     ProfileSpec::builder(static_profile.capabilities().clone())
-        .pan_tilt_coordinates(
-            coordinates.coordinate_system(),
-            coordinates.pan_degrees_to_units(),
-            coordinates.tilt_degrees_to_units(),
-        )
-        .pan_tilt_wire_codec(coordinates.wire_codec())
         .transports(static_profile.transports())
         .envelope(static_profile.envelope())
         .timing(
@@ -68,7 +59,6 @@ fn runtime_equivalent(static_profile: &ProfileSpec) -> ProfileSpec {
         .maximum_command_sockets(static_profile.maximum_command_sockets())
         .supports_operation_complete(static_profile.supports_operation_complete())
         .supports_command_cancel(static_profile.supports_command_cancel())
-        .preset_recall_axes(static_profile.preset_recall_axes())
         .position_inquiries(static_profile.position_inquiries())
         .build()
         .expect("runtime profile equivalent")
@@ -80,12 +70,14 @@ fn runtime_equivalent(static_profile: &ProfileSpec) -> ProfileSpec {
 fn documented_digital_zoom_profile(digital_range_permission: bool) -> ProfileSpec {
     let mut capabilities =
         Capabilities::runtime_baseline("Documented Digital Zoom", 1).expect("baseline profile");
-    capabilities.has_zoom = true;
-    capabilities.zoom_range_optical = 0..=0x4000;
-    capabilities.zoom_range_digital = Some(0x4000..=0x7000);
-    capabilities.zoom_speed = 0..=7;
-    capabilities.supports_direct_zoom = true;
-    capabilities.optical_zoom_ratio = None;
+    capabilities.zoom = Some(grafton_visca::capabilities::ZoomCaps {
+        optical_max: 0x4000,
+        digital_max: Some(0x7000),
+        speed: grafton_visca::capabilities::CapabilityRange::<u8>::new(0, 7),
+        direct: true,
+        variable: false,
+        optical_ratio: None,
+    });
     capabilities.inquiry_support = InquirySupport::None;
     capabilities.typed_support = if digital_range_permission {
         TypedSupportSet::from_surfaces(&[
@@ -116,7 +108,6 @@ fn documented_digital_zoom_profile(digital_range_permission: bool) -> ProfileSpe
         .maximum_command_sockets(1)
         .supports_operation_complete(true)
         .supports_command_cancel(false)
-        .preset_recall_axes(None)
         .position_inquiries(PositionInquirySupport::new(false, false, false))
         .build()
         .expect("documented digital zoom profile")
@@ -128,13 +119,21 @@ fn documented_digital_zoom_profile(digital_range_permission: bool) -> ProfileSpe
 fn documented_exposure_mode_profile_without_typed_permission() -> ProfileSpec {
     let mut capabilities =
         Capabilities::runtime_baseline("Documented Exposure Modes", 1).expect("baseline profile");
-    capabilities.has_exposure = true;
-    capabilities.exposure_modes = vec![ExposureMode::Auto];
-    capabilities.shutter_speeds = vec![ShutterSpeedEntry {
-        exposure: grafton_visca::units::Fraction::new(1, 60).expect("nonzero denominator"),
-        value: 1,
-    }];
-    capabilities.gain_range = 0..=1;
+    capabilities.exposure = Some(grafton_visca::capabilities::ExposureCaps {
+        modes: vec![ExposureMode::Auto],
+        backlight: false,
+        wdr: false,
+        compensation_range: None,
+        iris_range: None,
+        gain_range: Some(grafton_visca::capabilities::CapabilityRange::<u8>::new(
+            0, 1,
+        )),
+        shutter_speeds: vec![ShutterSpeedEntry {
+            exposure: grafton_visca::units::Fraction::new(1, 60).expect("nonzero denominator"),
+            value: 1,
+        }],
+        brightness_range: None,
+    });
     capabilities.inquiry_support = InquirySupport::Partial;
     capabilities.typed_support = TypedSupportSet::empty();
 
@@ -158,7 +157,6 @@ fn documented_exposure_mode_profile_without_typed_permission() -> ProfileSpec {
         .maximum_command_sockets(1)
         .supports_operation_complete(true)
         .supports_command_cancel(false)
-        .preset_recall_axes(None)
         .position_inquiries(PositionInquirySupport::new(false, false, false))
         .build()
         .expect("documented exposure-mode profile without typed permission")
@@ -322,8 +320,14 @@ where
     // `04 39` mode family. The erased noun remains callable and rejects both
     // projections before the owner reaches its transport.
     let fr7_profile = ProfileSpec::from_compile_time::<SonyFR7>().expect("Sony FR7 profile");
-    assert!(fr7_profile.capabilities().has_exposure);
-    assert!(fr7_profile.capabilities().exposure_modes.is_empty());
+    assert!(fr7_profile.capabilities().has_exposure());
+    assert!(fr7_profile
+        .capabilities()
+        .exposure
+        .as_ref()
+        .expect("exposure domain")
+        .modes
+        .is_empty());
     assert!(!fr7_profile
         .capabilities()
         .supports_typed(TypedSupportSurface::ExposureMode));
@@ -373,8 +377,14 @@ where
     // fact that makes the shared mode family physically plausible, but omits
     // only its typed permission bit.
     let partial_profile = documented_exposure_mode_profile_without_typed_permission();
-    assert!(partial_profile.capabilities().has_exposure);
-    assert!(!partial_profile.capabilities().exposure_modes.is_empty());
+    assert!(partial_profile.capabilities().has_exposure());
+    assert!(!partial_profile
+        .capabilities()
+        .exposure
+        .as_ref()
+        .expect("exposure domain")
+        .modes
+        .is_empty());
     assert!(!partial_profile
         .capabilities()
         .supports_typed(TypedSupportSurface::ExposureMode));

@@ -60,8 +60,8 @@ where
     );
     println!(
         "  Tilt range: {}..{} VISCA units",
-        P::TILT_RANGE.min(),
-        P::TILT_RANGE.max()
+        P::TILT_RANGES.range(None).min(),
+        P::TILT_RANGES.range(None).max()
     );
     println!("  Optical zoom max: 0x{:04X}", P::OPTICAL_ZOOM_MAX);
     println!("  Digital zoom max: {:?}", P::DIGITAL_ZOOM_MAX);

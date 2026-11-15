@@ -105,9 +105,21 @@ focus methods.
 
 Dynamic callers get the same marker-derived permission model through
 `Capabilities::typed_support` and `Capabilities::supports_typed(...)`. Metadata
-fields such as `zoom_range_digital` and `supports_direct_zoom` remain runtime
-discovery facts; use typed support checks before calling optional dyn typed
-operations.
+facts live in optional domain records: `caps.zoom.as_ref()` yields the lens
+maxima and direct-positioning fact, and `caps.has_zoom()` derives domain presence.
+Use typed support checks before calling optional dyn typed operations.
+
+| Runtime domain | Owning facts |
+| --- | --- |
+| `pan_tilt: Option<PanTiltCaps>` | Raw bounds, conversion, nominal endpoint policy, speed ranges and mount-selected tilt limits |
+| `zoom: Option<ZoomCaps>` | Optical maximum, optional digital maximum, speed range and lens ratio |
+| `focus`, `exposure`, `white_balance`, `image` | Each domain's sourced numeric ranges and inventories |
+| `presets: Option<PresetCaps>` | Highest memory number, exact recall axes and optional nonzero name length |
+| `power: Option<PowerCaps>` | Power-on timing and optional standby timing |
+
+Profile defaults use `IndividualCameraId` (`1..=7`); broadcast cannot become a
+session default. Persisted profiles use the current grouped shape and must be
+regenerated when upgrading from the flat capability record.
 
 | Typed control surface | Built-in profiles |
 | --------------------- | ----------------- |
