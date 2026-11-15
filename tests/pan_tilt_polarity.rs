@@ -54,16 +54,24 @@ fn table() -> Vec<Polarity> {
     use Raw::{Decreasing, Increasing};
 
     // The Sony-standard convention (R8): increasing raw pan is right and
-    // increasing raw tilt is up. The PTZOptics, FR7 and BRC-H900 sources give
-    // degree ranges but no raw direction, so those rows follow it unverified
+    // increasing raw tilt is up. The PTZOptics sources give degree ranges
+    // but no raw direction, so those rows follow it unverified
     // (see "Known unverified facts" in docs/camera_profile_support.md).
     const STANDARD: &str = "Sony-standard raw axes; model source gives no direction (unverified)";
     vec![
         polarity::<PtzOpticsG2>(Increasing, Increasing, STANDARD),
         polarity::<PtzOpticsG3>(Increasing, Increasing, STANDARD),
         polarity::<PtzOptics30X>(Increasing, Increasing, STANDARD),
-        polarity::<SonyFR7>(Increasing, Increasing, STANDARD),
-        polarity::<SonyBRCH900>(Increasing, Increasing, STANDARD),
+        polarity::<SonyFR7>(
+            Decreasing,
+            Increasing,
+            "R7 p.12: 09CA7 is +170° CCW/left; 0B3B0 is +195° up",
+        ),
+        polarity::<SonyBRCH900>(
+            Decreasing,
+            Increasing,
+            "R11 v2.20 p.37: positive pan 09BDE is left; tilt 52F8 is up",
+        ),
         polarity::<SonyEVIH100>(
             Increasing,
             Increasing,
@@ -106,6 +114,11 @@ fn raw_words(frame: &[u8], codec: PanTiltWireCodec) -> (i32, i32) {
             sign_extend(nibbles(&frame[6..11]), 20),
             sign_extend(nibbles(&frame[11..15]), 16),
         ),
+        // 81 01 06 02 VV WW 0p 0p 0p 0p 0p 0t 0t 0t 0t 0t FF
+        PanTiltWireCodec::SonyFr7 => (
+            sign_extend(nibbles(&frame[6..11]), 20),
+            sign_extend(nibbles(&frame[11..16]), 20),
+        ),
         other => panic!("no polarity decoder for {other:?}"),
     }
 }
@@ -147,7 +160,7 @@ fn positive_degrees_are_right_and_up_for_every_built_in_profile() {
             .expect("target registration"),
         )
         .unwrap_or_else(|error| panic!("{:?}: +45°/+45° must encode: {error}", row.id));
-        let mut frame = vec![0_u8; 16];
+        let mut frame = vec![0_u8; PanTiltAbsolute::MAX_SIZE];
         let written = request
             .write_into(CameraId::CAMERA_1, &mut frame)
             .expect("absolute position frame");

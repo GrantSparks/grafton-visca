@@ -27,6 +27,7 @@ SUITES = {
     "issue_869_envelope_admission": "",
     # The #872 observer-budget body has no feature-selected behavior either.
     "issue_872_observer_budgets": "settlement_budget",
+    "issue_870_relative_offsets": "facades",
     "issue_894_fr7_families": "paused",
     "issue_892_payload_shape": "",
 }

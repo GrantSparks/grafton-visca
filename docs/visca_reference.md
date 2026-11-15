@@ -853,6 +853,13 @@ are seventeen bytes, despite the older R7 transport introduction stating a
 sixteen-byte payload ceiling; the model command rows take precedence for these
 FR7 commands. This does not establish a general Sony payload maximum.
 
+Relative positions use the displacement between reachable absolute positions,
+without the absolute coordinate bias. Quantized endpoint inputs preserve the
+exact signed unit difference. For arbitrary continuous-degree endpoints,
+independent nearest rounding can differ by one unit:
+`round(end - start)` need not equal `round(end) - round(start)`. This refines
+#870's property test without changing the relative command's rounding rule.
+
 
 The following R7 rows are the narrow source basis for FR7-only or
 Sony-professional typed surfaces. `8x` is the VISCA camera address before Sony

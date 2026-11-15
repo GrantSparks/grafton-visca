@@ -224,6 +224,38 @@ fn absolute_and_relative_pan_tilt_positions_match_golden_frames() {
     );
 }
 
+/// A relative displacement can exceed the profile's absolute tilt bounds.
+#[test]
+fn g2_relative_negative_45_degrees_matches_the_signed_offset_literal() {
+    use grafton_visca::units::Degrees;
+
+    let target = grafton_visca::TargetRegistration::new(CameraId::CAMERA_1, ptz_optics_profile())
+        .expect("G2 registration");
+    let relative = PanTiltRelative::for_target(
+        Degrees(0.0),
+        Degrees(-45.0),
+        pan_speed(9),
+        tilt_speed(7),
+        &target,
+    )
+    .expect("reachable G2 displacement");
+    assert_golden(
+        "G2 relative (0, -45)",
+        &relative,
+        &[0x81, 1, 6, 3, 9, 7, 0, 0, 0, 0, 15, 13, 7, 8, 0xff],
+    );
+    assert!(matches!(
+        PanTiltAbsolute::for_target(
+            Degrees(0.0),
+            Degrees(-45.0),
+            pan_speed(9),
+            tilt_speed(7),
+            &target,
+        ),
+        Err(Error::InvalidParameter { .. })
+    ));
+}
+
 /// Standard VISCA assigns `0x00` to the down-left limit corner and `0x01` to
 /// the up-right corner.  These public request-path vectors are independently
 /// hand-derived, pinning the discriminator in both set and clear frames.

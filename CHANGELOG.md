@@ -410,7 +410,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   framing shares per-axis word widths, including FR7 five-nibble pan and tilt;
   BRC-300 movement retains its single speed. Profile-aware golden cases pin
   mount endpoints, relative spans and the raw/public sign distinction
-  (#893, #882).
+  (#893, #882). Quantized start/end positions preserve exact relative unit
+  differences; independently rounded continuous endpoints may differ by one
+  wire unit (#870).
 
 - Scripted auto-response helpers answer every send, and signalled shutdown
   deterministically wins over a queued reply (#885).
