@@ -35,6 +35,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   timers retain their allocation across resets and use the executor clock.
   `ManualClockExecutor` uses an owned `ManualClockTimer` that replaces its
   virtual registration on reset and can be rearmed after completion.
+- **BREAKING** (#877): ND metadata exposes only the implemented `None` and
+  `Variable` modes. Unsourced fixed/stepped variants, step-count facts and
+  helpers are removed. Profile validation refuses preset speeds outside the
+  typed domain and tally refinements without typed tally permission.
+
 - **BREAKING** (#876): Custom compile-time profiles must declare inquiry support,
   socket cancellation support, and the maximum focus speed. Optional direct
   zoom, variable zoom, and focus near-limit inquiry permissions default to false.
@@ -137,6 +142,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   refusals return from the same synchronous engine input (#854).
 
 ### Fixed
+
+- Variable-ND helper validation uses the request value's `00..14` hexadecimal
+  domain; discovery, profile validation and request gates agree (#877).
 
 - Custom blocking transports cannot deadlock their owner by calling session
   controls, submitting requests, halting, cancelling or waiting for operations

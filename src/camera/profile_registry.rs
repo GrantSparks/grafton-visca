@@ -377,8 +377,7 @@ macro_rules! __define_builtin_profiles {
                         speed_range: $motion_sync_speed_range:expr $(,)?
                     },
                     nd_filter: {
-                        mode: $nd_mode:expr,
-                        steps: $nd_steps:expr $(,)?
+                        mode: $nd_mode:expr $(,)?
                     },
                     variable_speed: {
                         supported: $supports_variable_speed:expr $(,)?
@@ -534,7 +533,6 @@ macro_rules! __define_builtin_profiles {
 
             impl $crate::capabilities::NdFilterMetadata for $profile {
                 const ND_MODE: $crate::capabilities::NdFilterMode = $nd_mode;
-                const ND_STEPS: Option<u8> = $nd_steps;
             }
 
             impl $crate::capabilities::VariableSpeedMetadata for $profile {
@@ -1300,7 +1298,6 @@ macro_rules! __define_builtin_profiles {
                     !matches!(P::ND_MODE, $crate::capabilities::NdFilterMode::None)
                 );
                 assert_eq!(caps.nd_filter_mode, P::ND_MODE);
-                assert_eq!(caps.nd_filter_steps, P::ND_STEPS);
                 assert_eq!(
                     caps.motion_sync_speed_range,
                     P::MOTION_SYNC_SPEED_RANGE.map(|range| range.as_inclusive())
@@ -2442,7 +2439,7 @@ macro_rules! builtin_profile_registry {
                     menu: { direct: false },
                     tally: { supported: false },
                     motion_sync: { speed_range: None },
-                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
+                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None },
                     variable_speed: { supported: false },
                     usb_audio: { supported: true },
                     typed_support: [
@@ -2624,7 +2621,7 @@ macro_rules! builtin_profile_registry {
                     menu: { direct: false },
                     tally: { supported: false },
                     motion_sync: { speed_range: None },
-                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
+                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None },
                     variable_speed: { supported: false },
                     usb_audio: { supported: false },
                     typed_support: [
@@ -2806,7 +2803,7 @@ macro_rules! builtin_profile_registry {
                     menu: { direct: false },
                     tally: { supported: false },
                     motion_sync: { speed_range: None },
-                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
+                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None },
                     variable_speed: { supported: false },
                     usb_audio: { supported: true },
                     typed_support: [
@@ -2989,7 +2986,7 @@ macro_rules! builtin_profile_registry {
                     menu: { direct: true },
                     tally: { supported: true },
                     motion_sync: { speed_range: None },
-                    nd_filter: { mode: $crate::capabilities::NdFilterMode::Variable, steps: None },
+                    nd_filter: { mode: $crate::capabilities::NdFilterMode::Variable },
                     variable_speed: { supported: true },
                     typed_support: [
                         VersionInquiry,
@@ -3163,7 +3160,7 @@ macro_rules! builtin_profile_registry {
                     menu: { direct: false },
                     tally: { supported: false },
                     motion_sync: { speed_range: None },
-                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
+                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None },
                     variable_speed: { supported: false },
                     typed_support: [
                         VersionInquiry,
@@ -3329,7 +3326,7 @@ macro_rules! builtin_profile_registry {
                     menu: { direct: false },
                     tally: { supported: false },
                     motion_sync: { speed_range: None },
-                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
+                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None },
                     variable_speed: { supported: false },
                     typed_support: [
                         VersionInquiry,
@@ -3527,7 +3524,7 @@ macro_rules! builtin_profile_registry {
                     menu: { direct: false },
                     tally: { supported: false },
                     motion_sync: { speed_range: None },
-                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
+                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None },
                     variable_speed: { supported: false },
                     typed_support: [
                         VersionInquiry,
@@ -3705,7 +3702,7 @@ macro_rules! builtin_profile_registry {
                     menu: { direct: false },
                     tally: { supported: false },
                     motion_sync: { speed_range: None },
-                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
+                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None },
                     variable_speed: { supported: false },
                     typed_support: [
                         VersionInquiry,
@@ -3872,7 +3869,7 @@ macro_rules! builtin_profile_registry {
                     menu: { direct: false },
                     tally: { supported: false },
                     motion_sync: { speed_range: None },
-                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None, steps: None },
+                    nd_filter: { mode: $crate::capabilities::NdFilterMode::None },
                     variable_speed: { supported: false },
                     typed_support: [
                         VersionInquiry,

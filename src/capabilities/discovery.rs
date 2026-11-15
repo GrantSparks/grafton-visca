@@ -414,14 +414,6 @@ pub struct Capabilities {
     /// Exact typed ND filter operating mode.
     pub nd_filter_mode: super::NdFilterMode,
 
-    /// Explicit ND step count when supplied by the profile.
-    #[cfg_attr(
-        feature = "serde",
-        serde(deserialize_with = "crate::profile::required_option")
-    )]
-    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
-    pub nd_filter_steps: Option<u8>,
-
     /// Motion-sync speeds the camera accepts, or `None` when it has no motion
     /// sync.
     #[cfg_attr(
@@ -564,7 +556,6 @@ impl Capabilities {
             home_on_power_up: false,
             has_nd_filter: false,
             nd_filter_mode: super::NdFilterMode::None,
-            nd_filter_steps: None,
             motion_sync_speed_range: None,
             has_direct_menu_control: false,
             has_variable_speed: false,
@@ -732,7 +723,6 @@ impl Capabilities {
             // Special capabilities
             has_nd_filter,
             nd_filter_mode: P::ND_MODE,
-            nd_filter_steps: P::ND_STEPS,
             motion_sync_speed_range: P::MOTION_SYNC_SPEED_RANGE.map(|range| range.as_inclusive()),
             has_direct_menu_control: P::SUPPORTS_DIRECT_CONTROL,
             has_variable_speed: P::SUPPORTS_VARIABLE_SPEED,
@@ -841,7 +831,7 @@ impl Capabilities {
             S::PictureEffect => Dedicated(image && self.has_picture_effect),
             S::Tally => Dedicated(self.has_tally),
             S::DirectMenu => Dedicated(self.has_direct_menu_control),
-            S::NdFilter => Dedicated(self.has_nd_filter),
+            S::NdFilter => Dedicated(matches!(self.nd_filter_mode, super::NdFilterMode::Variable)),
             S::VariableSpeed => Dedicated(self.has_pan_tilt && self.has_variable_speed),
             S::MotionSync => Dedicated(self.has_pan_tilt && self.motion_sync_speed_range.is_some()),
             S::UsbAudio => Dedicated(self.has_usb_audio),
@@ -857,7 +847,9 @@ impl Capabilities {
             }
             S::AutoWhiteBalanceSensitivity => ParentDomain(white_balance),
             S::ImageFreeze | S::DefogLevel => ParentDomain(image),
-            S::TallyBrightness | S::PtzOpticsTally => ParentDomain(self.has_tally),
+            S::TallyBrightness | S::PtzOpticsTally => {
+                ParentDomain(self.has_tally && self.supports_typed(S::Tally))
+            }
             // The color-temperature reply layout refines the color-temperature
             // domain; the marker records only that the reply layout is sourced.
             // The auto/manual mode refines the 2D noise-reduction domain; the

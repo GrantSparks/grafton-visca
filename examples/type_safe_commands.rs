@@ -95,8 +95,8 @@ fn demonstrate_value_validation() {
     }
 
     println!(
-        "  Sony FR7 variable ND accepts midpoint value: {}",
-        sony.validate_nd_filter(128).is_ok()
+        "  Sony FR7 variable ND accepts maximum density code: {}",
+        sony.validate_nd_filter(0x14).is_ok()
     );
     println!();
 }

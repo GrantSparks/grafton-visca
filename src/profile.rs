@@ -418,7 +418,7 @@ impl PanTiltCoordinateConversion {
                     P::PAN_TILT_WIRE_CODEC,
                     P::COORDINATE_SYSTEM,
                 ),
-                "Sony BRC-300 pan/tilt framing requires signed-centered coordinates",
+                "Sony position framing requires signed-centered coordinates",
             );
         }
         Self {
@@ -2177,7 +2177,9 @@ impl ProfileFacts {
         }) || !optional_range_fits_domain(
             capabilities.motion_sync_speed_range.as_ref(),
             |value| crate::types::MotionSyncSpeed::new(value).is_ok(),
-        ) {
+        ) || !optional_range_fits_domain(capabilities.preset_speed_range.as_ref(), |value| {
+            crate::command::PresetRecallSpeed::new(value).is_ok()
+        }) {
             return Err(invalid_profile_fields(
                 &[
                     "capabilities.exposure_comp_range",
@@ -2195,6 +2197,7 @@ impl ProfileFacts {
                     "capabilities.luminance_range",
                     "capabilities.gamma_range",
                     "capabilities.motion_sync_speed_range",
+                    "capabilities.preset_speed_range",
                 ],
                 "advertised capability ranges must fit their typed value domains",
             ));
@@ -2249,22 +2252,11 @@ impl ProfileFacts {
                 "enabled leaf capabilities require their parent domain",
             ));
         }
-        let nd_facts_valid = match capabilities.nd_filter_mode {
-            capabilities::NdFilterMode::None => capabilities.nd_filter_steps.is_none(),
-            capabilities::NdFilterMode::Fixed(value) => {
-                value != 0 && capabilities.nd_filter_steps.is_none()
-            }
-            capabilities::NdFilterMode::Stepped(steps) => {
-                steps != 0 && capabilities.nd_filter_steps == Some(steps)
-            }
-            capabilities::NdFilterMode::Variable => capabilities.nd_filter_steps.is_none(),
-        };
         let has_typed_nd_mode = !matches!(
             capabilities.nd_filter_mode,
             capabilities::NdFilterMode::None
         );
         if capabilities.has_nd_filter != has_typed_nd_mode
-            || !nd_facts_valid
             || ((capabilities.motion_sync_speed_range.is_some() || capabilities.has_variable_speed)
                 && !capabilities.has_pan_tilt)
         {
@@ -2272,7 +2264,6 @@ impl ProfileFacts {
                 &[
                     "capabilities.has_nd_filter",
                     "capabilities.nd_filter_mode",
-                    "capabilities.nd_filter_steps",
                     "capabilities.motion_sync_speed_range",
                     "capabilities.has_variable_speed",
                     "capabilities.has_pan_tilt",
@@ -3344,7 +3335,7 @@ mod tests {
         assert!(matches!(
             validate(&none, 1),
             Err(Error::FeatureNotSupported {
-                feature: "motion sync"
+                feature: "set_speed"
             })
         ));
 
@@ -3365,7 +3356,7 @@ mod tests {
             matches!(
                 result,
                 Err(Error::InvalidRequest(message))
-                    if message.as_ref() == "profile field `pan_tilt_coordinates`: Sony BRC-300 pan/tilt framing requires signed-centered coordinates"
+                    if message.as_ref() == "profile field `pan_tilt_coordinates`: Sony position framing requires signed-centered coordinates"
             )
         };
 
@@ -4376,6 +4367,43 @@ mod tests {
     }
 
     #[test]
+    fn advertised_preset_speed_must_fit_the_typed_domain() {
+        let mut caps = valid_runtime_capabilities();
+        caps.preset_speed_range = Some(1..=200);
+        let error = runtime_builder(caps)
+            .build()
+            .expect_err("wide preset domain");
+        assert!(error
+            .to_string()
+            .contains("capabilities.preset_speed_range"));
+    }
+
+    #[test]
+    fn tally_refinements_require_the_typed_parent() {
+        for refinement in [
+            capabilities::TypedSupportSurface::TallyBrightness,
+            capabilities::TypedSupportSurface::PtzOpticsTally,
+        ] {
+            let mut caps = valid_runtime_capabilities();
+            caps.has_tally = true;
+            caps.typed_support = capabilities::TypedSupportSet::from_surface(refinement);
+            assert!(
+                runtime_builder(caps.clone()).build().is_err(),
+                "{refinement:?}"
+            );
+            caps.typed_support =
+                caps.typed_support
+                    .union(capabilities::TypedSupportSet::from_surface(
+                        capabilities::TypedSupportSurface::Tally,
+                    ));
+            assert!(
+                runtime_builder(caps).build().is_ok(),
+                "{refinement:?} with Tally"
+            );
+        }
+    }
+
+    #[test]
     fn runtime_builder_rejects_incoherent_exact_inventory_facts() {
         let mut converter = valid_runtime_capabilities();
         converter.pan_range_degrees = -9.0..=10.0;
@@ -4405,8 +4433,7 @@ mod tests {
 
         let mut nd_filter = valid_runtime_capabilities();
         nd_filter.has_nd_filter = true;
-        nd_filter.nd_filter_mode = capabilities::NdFilterMode::Stepped(3);
-        nd_filter.nd_filter_steps = Some(2);
+        nd_filter.nd_filter_mode = capabilities::NdFilterMode::None;
         assert!(runtime_builder(nd_filter).build().is_err());
 
         let mut combined_flip = valid_runtime_capabilities();

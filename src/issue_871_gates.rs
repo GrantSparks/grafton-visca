@@ -57,7 +57,6 @@ samples! {
     command::AutoWhiteBalanceSensitivity => command::AutoWhiteBalanceSensitivity::Normal;
     types::RedTuning => types::RedTuning::new(0).expect("tuning");
     types::BlueTuning => types::BlueTuning::new(0).expect("tuning");
-    types::ColorTemp => types::ColorTemp::from_kelvin(2500).expect("temperature");
     types::RedChannel => types::RedChannel::new(0).expect("red");
     types::BlueChannel => types::BlueChannel::new(0).expect("blue");
     types::SaturationLevel => types::SaturationLevel::new(0).expect("saturation");
@@ -87,7 +86,26 @@ impl Sample for types::FocusPosition {
 }
 impl Sample for types::ShutterSpeed {
     fn sample(profile: &ProfileSpec) -> Self {
-        Self::new(profile.capabilities().shutter_speeds[0].value)
+        Self::new(
+            profile
+                .capabilities()
+                .shutter_speeds
+                .first()
+                .map_or(0, |entry| entry.value),
+        )
+    }
+}
+
+impl Sample for types::ColorTemp {
+    fn sample(profile: &ProfileSpec) -> Self {
+        Self::from_kelvin(
+            profile
+                .capabilities()
+                .color_temp_range
+                .as_ref()
+                .map_or(2500, |range| *range.start()),
+        )
+        .expect("temperature")
     }
 }
 
@@ -212,10 +230,51 @@ macro_rules! collect_surfaces {
     ($kind:ident, [], $request:tt, $seen:ident) => {};
 }
 
+macro_rules! agreement_row {
+    (inquiry, [], $ret:ty, [$($request:tt)*], $args:tt, $profile:ident) => {{
+        let gate = <$($request)* as crate::command::surface::BuiltinInquiryGate>::GATE;
+        if let RowGate::Typed(surfaces) = gate {
+            let expected = surfaces.iter().all(|surface| $profile.capabilities().supports_typed(surface));
+            assert_eq!(crate::Request::validate_for_profile(&$($request)*, $profile).is_ok(), expected,
+                "{} inquiry {}", $profile.name(), stringify!($($request)*));
+        }
+    }};
+    ($kind:ident, [$row:ident], $ret:ty, [$($request:tt)*], [$($arg:ident: $ty:ty),*], $profile:ident) => {{
+        if let RowGate::Typed(surfaces) = row_gate(BuiltinCommand::$row) {
+            $(let $arg = <$ty as Sample>::sample($profile);)*
+            let request = crate::noun_facade::noun_request!($profile; $ret; $($request)*).expect(stringify!($row));
+            let expected = surfaces.iter().all(|surface| $profile.capabilities().supports_typed(surface));
+            assert_eq!(crate::Request::validate_for_profile(&request, $profile).is_ok(), expected,
+                "{} command {:?}", $profile.name(), BuiltinCommand::$row);
+        }
+    }};
+    ($kind:ident, [], $ret:ty, $request:tt, $args:tt, $profile:ident) => {};
+}
+
 macro_rules! gate_tests {
     ($(@noun $noun:ident { accessor: $accessor:ident, getter: $getter:ident, dyn_trait: $dyn_trait:ident, gate: $gate:tt, doc: $doc:literal $(,)? };
        $($(#[$row_doc:meta])* $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty $(where $rgate:ident $(+ $extra:ident)*)? = [$($request:tt)*];)*)*
        @exceptions; $($exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty;)*) => {
+        #[test]
+        fn every_builtin_and_mutated_spec_agrees_with_discovery_for_typed_rows() {
+            let (full, none, no_typed) = profiles();
+            let profiles = [
+                ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2"),
+                ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG3>().expect("G3"),
+                ProfileSpec::from_compile_time::<crate::profiles::PtzOptics30X>().expect("30X"),
+                ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("FR7"),
+                ProfileSpec::from_compile_time::<crate::profiles::SonyBRCH900>().expect("H900"),
+                ProfileSpec::from_compile_time::<crate::profiles::SonyEVIH100>().expect("EVI"),
+                ProfileSpec::from_compile_time::<crate::profiles::SonyBRC300>().expect("BRC300"),
+                ProfileSpec::from_compile_time::<crate::profiles::NearusBRC300>().expect("Nearus"),
+                ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().expect("generic"),
+                full, none, no_typed,
+            ];
+            for profile in &profiles {
+                $($(agreement_row!($kind, [$($command)?], $ret, [$($request)*], [$($arg: $ty),*], profile);)*)*
+            }
+        }
+
         #[test]
         fn every_command_row_admits_its_gate_and_refuses_missing_permissions_before_encoding() {
             let (full, none, no_typed) = profiles();

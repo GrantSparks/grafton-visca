@@ -391,35 +391,6 @@ fn validate_pan_tilt_position(
     Ok(())
 }
 
-fn validate_nd_filter_step(profile: &crate::ProfileSpec) -> Result<(), Error> {
-    if matches!(
-        profile.capabilities().nd_filter_mode,
-        crate::capabilities::NdFilterMode::Variable
-    ) {
-        Ok(())
-    } else {
-        // The step encoder is documented for the variable-ND VISCA
-        // extension.  A generic stepped metadata fact is not evidence that
-        // this vendor-specific wire command is valid for that profile.
-        Err(Error::FeatureNotSupported {
-            feature: "variable ND filter step movement",
-        })
-    }
-}
-
-fn validate_variable_nd_filter_control(profile: &crate::ProfileSpec) -> Result<(), Error> {
-    if matches!(
-        profile.capabilities().nd_filter_mode,
-        crate::capabilities::NdFilterMode::Variable
-    ) {
-        Ok(())
-    } else {
-        Err(Error::FeatureNotSupported {
-            feature: "variable ND filter control",
-        })
-    }
-}
-
 fn validate_power_state(profile: &crate::ProfileSpec, standby: bool) -> Result<(), Error> {
     let capabilities = profile.capabilities();
 
@@ -2219,39 +2190,11 @@ impl BuiltinValidation for IrisDirect {
     }
 }
 
-impl BuiltinValidation for NdFilterDirect {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        if !matches!(
-            profile.capabilities().nd_filter_mode,
-            crate::capabilities::NdFilterMode::Variable
-        ) {
-            return Err(Error::FeatureNotSupported {
-                feature: "direct ND filter positioning",
-            });
-        }
-        // NdFilterValue validates the protocol's exact variable-ND range at
-        // construction.  Keep the value extraction here explicit so profile
-        // admission cannot silently turn a future wider value into a
-        // valid typed request without a corresponding profile fact.
-        require_in_range(
-            "ND filter value",
-            self.0.value(),
-            &(0..=NdFilterValue::MAX_VALUE),
-        )
-    }
-}
+impl BuiltinValidation for NdFilterDirect {}
 
-impl BuiltinValidation for NdFilterStepUp {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_nd_filter_step(profile)
-    }
-}
+impl BuiltinValidation for NdFilterStepUp {}
 
-impl BuiltinValidation for NdFilterStepDown {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_nd_filter_step(profile)
-    }
-}
+impl BuiltinValidation for NdFilterStepDown {}
 
 impl BuiltinValidation for PushAfPress {}
 
@@ -2348,10 +2291,6 @@ impl BuiltinValidation for crate::command::exposure::AutoSlowShutterOff {
 }
 
 impl BuiltinValidation for crate::command::nd_filter::NdFilterModeCommand {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_variable_nd_filter_control(profile)
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         scalar_projection::<Self>(match self.mode() {
@@ -2362,10 +2301,6 @@ impl BuiltinValidation for crate::command::nd_filter::NdFilterModeCommand {
 }
 
 impl BuiltinValidation for crate::command::nd_filter::AutoNdCommand {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_variable_nd_filter_control(profile)
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(self.enabled())

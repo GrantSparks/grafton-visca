@@ -296,7 +296,9 @@ mod tests {
 
         assert!(fr7.has_nd_filter());
         assert_eq!(fr7.nd_filter_description(), "Variable ND filter");
-        assert!(fr7.validate_nd_filter(128).is_ok());
+        assert!(fr7.validate_nd_filter(0x14).is_ok());
+        assert!(fr7.validate_nd_filter(0x15).is_err());
+        assert!(fr7.validate_nd_filter(128).is_err());
     }
 
     #[test]
