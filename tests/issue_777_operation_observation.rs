@@ -360,6 +360,8 @@ facade_matrix! {
             "{failed:?}"
         );
         let again = wait!(moving.cancel()).expect_err("the failure is cached");
+        assert!(!failed.is_retryable());
+        assert!(!again.is_retryable());
         assert_eq!(again.failure_context(), failed.failure_context());
         assert_eq!(
             camera.writes(),
@@ -373,6 +375,31 @@ facade_matrix! {
             wait!(moving.cancel()).expect("the outcome decides"),
             CancellationOutcome::Completed
         );
+        session.shutdown().expect("owner shutdown");
+    }
+
+    /// #841: a failed datagram cancellation write is a cached observation,
+    /// never an invitation to resend the handle's single cancellation intent.
+    fn a_failed_cancel_write_is_nonretryable_and_keeps_its_source() {
+        let camera = FakeCamera::new(|write, answer| {
+            if write == CANCEL_SOCKET_ONE {
+                answer.fail_send(Error::TransportError("cancel send failed".into()));
+            }
+        });
+        let session = open!(camera, config()).expect("owner session");
+        let mut moving = running_zoom!(session, camera);
+        let first = wait!(moving.cancel()).expect_err("cancel write fails");
+        assert!(!first.is_retryable());
+        let source = std::error::Error::source(&first).expect("transport source retained");
+        assert!(source.to_string().contains("cancel send failed"));
+        let again = wait!(moving.cancel()).expect_err("cached cancellation failure");
+        assert!(!again.is_retryable());
+        assert_eq!(debug(&first), debug(&again));
+        assert_eq!(camera.writes(), vec![ZOOM_TELE.to_vec(), CANCEL_SOCKET_ONE.to_vec()]);
+        assert!(matches!(wait!(moving.applied_with_timeout(SHORT)),
+            Err(Error::ObservationTimeout { .. })));
+        camera.push(frames::complete(1));
+        wait!(moving.applied()).expect("the operation's outcome remains observable");
         session.shutdown().expect("owner shutdown");
     }
 

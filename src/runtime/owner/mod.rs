@@ -2190,7 +2190,10 @@ impl OwnerState {
         match &active.cancellation {
             Some(intent) if intent.recorded => {
                 if matches!(
-                    intent.observer.resolve_at(error, self.observed_at),
+                    intent.observer.resolve_at(
+                        Error::cancellation_observation_failed(error),
+                        self.observed_at
+                    ),
                     ObserverResolution::ReceiverLost
                 ) {
                     self.metrics.dropped_observer_events =
