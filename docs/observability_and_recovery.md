@@ -390,9 +390,9 @@ alongside `transport::FATAL_RECEIVE_IO_KINDS` for both transport traits. A raw O
 connected TCP socket commonly reports it when keepalive has exhausted; it is
 not the spelling for an application-owned idle timer. The owner normalizes
 that fatal receive closure to
-`Error::ConnectionClosed` and retains the original transport error's text in
-the closure reason; it does not expose the raw `Io` value as the session-death
-verdict or call it stream poison. A failed read consumes nothing and so cannot
+`Error::ConnectionClosed` and retains the original typed transport error in
+its `source()` chain. The outer session-death verdict remains `ConnectionClosed`;
+a framing or write failure uses `StreamPoisoned` with its own typed cause. A failed read consumes nothing and so cannot
 desynchronize framing.
 
 A read that reports *no data* is a third case and not a fault at all.
@@ -423,7 +423,8 @@ A fault that never stops repeating stops being called transient. Consecutive
 transient faults, with no successful read between them, escalate their pause
 from 10 ms to a 250 ms ceiling, and a read that has failed twelve times in a row
 over at least a second ends the session as `ConnectionClosed` with the count and
-underlying transport error retained in its reason, rather than retrying against
+underlying typed transport error retained through `WithContext` in its source
+chain, rather than retrying against
 a dead adapter forever. One successful read, or a five-second gap between
 faults, clears the run.
 
@@ -458,14 +459,14 @@ side stays the authority on session death. A failed stream write poisons the
 session: no transport trait in this crate reports how many bytes of a frame
 reached the wire, so a partial write must be assumed and the byte-stream
 position treated as unknowable. The exact transport cause is carried in the
-`StreamPoisoned` reason.
+`StreamPoisoned::source()` chain.
 
 ## Silent peers and connection liveness
 
 A long-lived TCP control link can fail in two materially different ways. The
 camera or network may close it, or the socket may stay open while the camera
 stops answering VISCA. A close surfaces here as `Error::ConnectionClosed`
-(`requires_new_session() == true`) with the reason `peer closed connection`,
+(`requires_new_session() == true`) with an optional typed peer-closure cause,
 and — because a dead session retains its original terminal cause (#680) — every
 later command, inquiry, cancellation, or control call on that session keeps
 reporting the same peer-closure cause rather than a generic channel error. This

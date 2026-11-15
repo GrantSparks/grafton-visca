@@ -48,7 +48,7 @@ pub trait AsyncTransport: Send {
     ///
     /// - [`SendSemantics::Stream`]: the byte-stream position is now unknowable,
     ///   so the runtime poisons the session. Every request in flight fails with
-    ///   [`Error::StreamPoisoned`] carrying this error's text.
+    ///   [`Error::StreamPoisoned`] carrying this error as its `source()`.
     /// - [`SendSemantics::Datagram`]: only the request being written fails and
     ///   the session keeps running. Because the session survives, the runtime
     ///   normalizes a session-fatal error value (any error for which

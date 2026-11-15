@@ -763,8 +763,8 @@ mod tests {
         let mut buf = [0u8; 16];
         assert!(matches!(
             transport.recv_into_with_timeout(&mut buf, Duration::from_millis(10)),
-            Err(Error::ConnectionClosed { reason: Some(ref reason) })
-                if reason == SERIAL_PORT_CLOSED
+            Err(Error::ConnectionClosed { source: Some(ref source) })
+                if matches!(source.as_ref(), Error::Io(io) if io.kind() == ErrorKind::UnexpectedEof)
         ));
     }
 

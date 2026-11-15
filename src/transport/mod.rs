@@ -171,7 +171,7 @@ pub use envelope::{Envelope, FrameMeta, FrameSequence, RawVisca, SonyEncapsulate
 ///
 /// A zero-byte read from a stream means the peer closed it. Every built-in
 /// stream transport reports that as [`crate::Error::ConnectionClosed`] with
-/// its own `reason`, so the closure reason a caller sees does not depend on
+/// a typed `UnexpectedEof` source, so closure classification does not depend on
 /// the transport or facade.
 #[cfg(any(
     feature = "blocking",
@@ -180,7 +180,12 @@ pub use envelope::{Envelope, FrameMeta, FrameSequence, RawVisca, SonyEncapsulate
 ))]
 pub(crate) fn stream_read(read: usize, closed: &'static str) -> crate::Result<usize> {
     if read == 0 {
-        Err(crate::Error::connection_closed(Some(closed.into())))
+        Err(crate::Error::connection_closed(Some(std::sync::Arc::new(
+            crate::Error::from(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                closed,
+            )),
+        ))))
     } else {
         Ok(read)
     }

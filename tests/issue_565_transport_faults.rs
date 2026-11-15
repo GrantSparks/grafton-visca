@@ -346,13 +346,11 @@ facade_matrix! {
             .expect("the second submission is admitted before its write");
 
         let error = wait!(failing.applied()).expect_err("the second write fails on the wire");
-        let Error::StreamPoisoned { reason, .. } = &error else {
+        let Error::StreamPoisoned { source, .. } = &error else {
             panic!("a stream write failure is terminal for the session, got {error:?}");
         };
-        assert!(
-            reason.contains("peer went away mid-frame"),
-            "the transport cause must survive in the poison reason: {reason}"
-        );
+        assert!(matches!(source.as_ref(), Error::Io(io) if io.kind() == std::io::ErrorKind::WriteZero));
+        assert!(std::error::Error::source(&error).is_some());
         assert!(error.requires_new_session());
 
         let poisoned = wait!(held.applied()).expect_err("the rest of the session is poisoned too");

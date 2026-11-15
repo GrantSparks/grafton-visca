@@ -118,13 +118,11 @@ fn os_keepalive_timeout_is_session_death_not_idle_no_data() {
         .state()
         .expect_err("OS timeout must terminate the connection");
     let cause = inquiry_cause(&error);
-    let Error::ConnectionClosed { reason, .. } = cause else {
+    let Error::ConnectionClosed { source, .. } = cause else {
         panic!("the OS keepalive cause must remain a session close, got {error:?}");
     };
-    assert!(reason
-        .as_deref()
-        .expect("the session close preserves its OS timeout reason")
-        .contains("timed out"));
+    assert!(matches!(source.as_deref(), Some(Error::Io(io))
+        if io.kind() == std::io::ErrorKind::TimedOut));
     assert!(cause.requires_new_session());
     assert!(error.requires_new_session());
     assert_eq!(error.recovery(), grafton_visca::Recovery::ReopenSession);

@@ -1295,7 +1295,7 @@ fn an_idle_read_error_reports_no_data_rather_than_a_fault() {
         Error::Io(Arc::new(std::io::Error::from(ErrorKind::TimedOut))),
         Error::transport_error(std::io::Error::other("ICMP port unreachable")),
         Error::Io(Arc::new(std::io::Error::from(ErrorKind::ConnectionRefused))),
-        Error::ConnectionClosed { reason: None },
+        Error::ConnectionClosed { source: None },
     ] {
         assert!(
             !matches!(
@@ -1329,28 +1329,47 @@ fn an_idle_read_error_reports_no_data_rather_than_a_fault() {
 /// duplicate the public variant prefix.
 #[test]
 fn transport_close_normalization_keeps_one_connection_closed_prefix() {
-    let direct = Error::ConnectionClosed {
-        reason: Some("peer closed connection".into()),
-    };
-    let reason = transport_close_reason(&direct).expect("typed close reason");
-    assert_eq!(&*reason, "peer closed connection");
-
-    let contextual = direct.with_context("control socket receive");
-    let reason = transport_close_reason(&contextual).expect("contextual close reason");
-    assert_eq!(&*reason, "control socket receive: peer closed connection");
-
-    let mut state = reconfigurable_owner_state_at(Instant::now());
-    state.input(
-        Input::Shutdown(ShutdownReason::TransportClosed {
-            reason: Some(reason),
-        }),
-        Instant::now(),
-    );
-    let normalized = state.boundary_error().expect("engine terminal verdict");
-    assert_eq!(
-        normalized.to_string(),
-        "Connection closed: control socket receive: peer closed connection"
-    );
+    let original = Arc::new(Error::from(std::io::Error::from(
+        std::io::ErrorKind::ConnectionReset,
+    )));
+    let direct = Error::connection_closed(Some(original.clone()));
+    for depth in 0..5 {
+        let mut contextual = direct.clone();
+        for _ in 0..depth {
+            contextual = contextual.with_context("control socket receive");
+        }
+        let expected = contextual.to_string();
+        let mut state = reconfigurable_owner_state_at(Instant::now());
+        state.input(
+            Input::Shutdown(ShutdownReason::TransportClosed {
+                cause: Some(Arc::new(contextual)),
+            }),
+            Instant::now(),
+        );
+        let normalized = state.boundary_error().expect("engine terminal verdict");
+        assert_eq!(normalized.to_string(), expected);
+        assert_eq!(
+            normalized.to_string().matches("Connection closed").count(),
+            1
+        );
+        let mut cursor: &(dyn std::error::Error + 'static) = &normalized;
+        let mut closes = 0;
+        loop {
+            if let Some(Error::ConnectionClosed {
+                source: Some(source),
+            }) = cursor
+                .downcast_ref::<Error>()
+                .or_else(|| cursor.downcast_ref::<Arc<Error>>().map(Arc::as_ref))
+                .or_else(|| cursor.downcast_ref::<Box<Error>>().map(Box::as_ref))
+            {
+                closes += 1;
+                assert!(Arc::ptr_eq(source, &original));
+            }
+            let Some(source) = cursor.source() else { break };
+            cursor = source;
+        }
+        assert_eq!(closes, 1);
+    }
 }
 
 /// Boundary observations read the engine's verdict even while its terminal
@@ -1361,7 +1380,9 @@ fn engine_terminal_cause_is_authoritative_before_effect_delivery() {
     let now = Instant::now();
     let effects = state.engine.handle(
         Input::Shutdown(ShutdownReason::FramingFailure {
-            reason: "retained stream position lost".into(),
+            cause: Arc::new(Error::from(std::io::Error::other(
+                "retained stream position lost",
+            ))),
         }),
         now,
     );
@@ -1386,7 +1407,10 @@ fn engine_terminal_cause_is_authoritative_before_effect_delivery() {
 #[test]
 fn a_datagram_send_failure_is_normalized_to_a_per_request_error() {
     let normalized = normalize_datagram_send_error(Error::ConnectionClosed {
-        reason: Some("socket closed".into()),
+        source: Some(Arc::new(Error::from(std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "socket closed",
+        )))),
     });
     assert!(matches!(normalized, Error::TransportError { .. }));
     assert!(!normalized.requires_new_session());
@@ -1617,14 +1641,14 @@ mod lifecycle_trace {
     /// session from the owner's own boundary error.
     fn poison_cause(state: &OwnerState) -> String {
         match state.boundary_error() {
-            Some(Error::StreamPoisoned { reason }) => ["WriteFailed", "WriteTimeout", "Timeout"]
+            Some(Error::StreamPoisoned { source }) => ["WriteFailed", "WriteTimeout", "Timeout"]
                 .into_iter()
                 .find(|label| {
                     write_result(label)
                         .err()
-                        .is_some_and(|error| error.to_string() == reason.as_ref())
+                        .is_some_and(|error| error.to_string() == source.to_string())
                 })
-                .map_or_else(|| reason.to_string(), ToOwned::to_owned),
+                .map_or_else(|| source.to_string(), ToOwned::to_owned),
             other => panic!("a poisoned session without a stream-poison boundary error: {other:?}"),
         }
     }

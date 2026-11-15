@@ -18,8 +18,8 @@ use std::ops::ControlFlow;
 
 use super::super::receipt::OperationWait;
 use super::super::{
-    canonical_owner_trace, BlockingTransportAdapter, OperationObservation, RuntimeOutcome,
-    RuntimeRequest, CANONICAL_OWNER_TRACE,
+    canonical_owner_trace, BlockingTransportAdapter, DeadlineKind, DiagnosticEvent,
+    OperationObservation, RuntimeOutcome, RuntimeRequest, CANONICAL_OWNER_TRACE,
 };
 use super::*;
 use crate::testing::manual_clock::ManualClock;
@@ -523,13 +523,14 @@ fn diagnostic_receive_timeout_uses_the_session_clock() {
     let diagnostics = owner.subscribe_diagnostics(128).unwrap();
     while diagnostics.try_recv().is_some() {}
     let start = clock.now();
-    let real_start = Instant::now();
+    // This registered thread keeps virtual time still during an untracked
+    // wall-clock wait. Reaching the exact deadline therefore proves that the
+    // subscription waits on the session clock, regardless of host CPU load.
     assert!(diagnostics
         .recv_timeout(Duration::from_secs(60))
         .unwrap()
         .is_none());
     assert_eq!(clock.now() - start, Duration::from_secs(60));
-    assert!(real_start.elapsed() < Duration::from_secs(2));
     owner.close().unwrap();
 }
 
@@ -541,16 +542,21 @@ fn diagnostic_receive_observes_an_owner_deadline_without_wall_time() {
     let (owner, peer) = Setup::datagram().on(&clock).spawn();
     let receipt = owner.submit_command(focus_manual()).unwrap();
     peer.next_write();
+    let ack_deadline = clock.now() + generic_profile().timing().ack_timeout();
     let diagnostics = owner.subscribe_diagnostics(128).unwrap();
     while diagnostics.try_recv().is_some() {}
     let start = clock.now();
-    let real_start = Instant::now();
-    assert!(diagnostics
+    let event = diagnostics
         .recv_timeout(Duration::from_secs(60))
         .unwrap()
-        .is_some());
-    assert!(clock.now() > start);
-    assert!(real_start.elapsed() < Duration::from_secs(2));
+        .expect("the owner ACK deadline emits a diagnostic before the subscription deadline");
+    assert!(matches!(event, DiagnosticEvent::DeadlineExpired {
+        id,
+        deadline: DeadlineKind::Ack,
+        ..
+    } if id == receipt.core.id));
+    assert!(start < ack_deadline);
+    assert_eq!(clock.now(), ack_deadline);
     drop(receipt);
     owner.close().unwrap();
 }
@@ -685,6 +691,24 @@ fn a_zero_byte_stream_read_closes_the_session() {
     assert!(peer.transport_dropped());
 }
 
+/// A fatal read retains the precise OS error, including keepalive expiry.
+#[test]
+fn fatal_stream_reads_retain_the_typed_os_cause() {
+    for kind in [std::io::ErrorKind::BrokenPipe, std::io::ErrorKind::TimedOut] {
+        let (owner, peer) = Setup::stream().spawn();
+        let receipt = owner.submit_command(focus_manual()).unwrap();
+        peer.next_write();
+        peer.send(Read::Fail(Error::from(std::io::Error::from(kind))));
+        let error = receipt.wait().expect_err("fatal read closes the stream");
+        assert!(
+            matches!(&error, Error::ConnectionClosed { source: Some(source) }
+            if matches!(source.as_ref(), Error::Io(io) if io.kind() == kind))
+        );
+        assert!(std::error::Error::source(&error).is_some());
+        assert!(matches!(owner.close(), Err(Error::ConnectionClosed { .. })));
+    }
+}
+
 /// #625: a read that keeps failing transiently for long enough is a broken
 /// transport. The worker paces the run and then ends the session with the
 /// cause rather than retrying forever.
@@ -709,8 +733,9 @@ fn a_persistent_transient_fault_run_closes_the_session() {
         }
     };
     assert!(
-        matches!(&error, Error::ConnectionClosed { reason: Some(reason) }
-            if reason.contains("consecutive receive faults")),
+        matches!(&error, Error::ConnectionClosed { source: Some(source) }
+            if matches!(source.as_ref(), Error::WithContext { context, source }
+                if context.contains("consecutive receive faults") && matches!(source.as_ref(), Error::TransportError { .. }))),
         "{error:?}"
     );
     assert!(

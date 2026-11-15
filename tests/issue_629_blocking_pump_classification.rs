@@ -118,7 +118,7 @@ fn connection_reset_during_settlement_polling_classifies_as_session_death() {
     let Error::SettlementObservationFailed { source, .. } = &error else {
         panic!("settlement must preserve its inquiry cause, got {error:?}");
     };
-    let Error::ConnectionClosed { reason, .. } = source.as_ref() else {
+    let Error::ConnectionClosed { source, .. } = source.as_ref() else {
         panic!("settlement must report the session close, got {error:?}");
     };
     assert!(!matches!(
@@ -130,11 +130,9 @@ fn connection_reset_during_settlement_polling_classifies_as_session_death() {
         .expect("applied move observation context");
     assert_eq!(context.stage, FailureStage::Observation);
     assert_eq!(context.certainty, Certainty::Unconfirmed);
-    let reason = reason.as_ref().expect("the read fault names the close");
-    assert!(
-        reason.contains("connection reset"),
-        "the transport cause must survive in the close reason: {reason}"
-    );
+    let cause = source.as_ref().expect("the read fault preserves its cause");
+    assert!(matches!(cause.as_ref(), Error::Io(io)
+        if io.kind() == std::io::ErrorKind::ConnectionReset));
     assert!(
         error.requires_new_session(),
         "a settlement wait interrupted by a dead transport must ask for a new session"
@@ -201,7 +199,11 @@ fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
     let Error::InquiryFailed { source, .. } = inquiry else {
         panic!("settlement must retain the failed polling inquiry, got {error:?}");
     };
-    let Error::StreamPoisoned { reason, .. } = source.as_ref() else {
+    let Error::StreamPoisoned {
+        source: write_cause,
+        ..
+    } = source.as_ref()
+    else {
         panic!("settlement must report stream poison, got {error:?}");
     };
     let context = inquiry.failure_context().expect("terminal inquiry context");
@@ -218,7 +220,23 @@ fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
             .to_string(),
         source.to_string(),
     );
-    assert!(reason.contains("public settlement retry write failed"));
+    let write_source = inquiry_cause
+        .source()
+        .unwrap()
+        .source()
+        .expect("poison exposes its typed write cause");
+    assert!(write_source.downcast_ref::<Arc<Error>>().is_some());
+    assert!(
+        matches!(write_cause.as_ref(), Error::TransportError { source, .. }
+        if matches!(source.as_ref(), Error::Io(io) if io.kind() == std::io::ErrorKind::Other))
+    );
+    assert!(write_source
+        .source()
+        .expect("transport exposes I/O cause")
+        .source()
+        .unwrap()
+        .downcast_ref::<Arc<std::io::Error>>()
+        .is_some());
     assert!(error.requires_new_session());
     assert_eq!(error.recovery(), grafton_visca::Recovery::ReopenSession);
     let context = error

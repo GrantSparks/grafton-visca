@@ -212,7 +212,10 @@ fn every_uncertain_terminal_invalidates_from_attempt_facts() {
                 }
                 _ => engine.handle(
                     Input::Shutdown(ShutdownReason::TransportClosed {
-                        reason: Some("peer disappeared".into()),
+                        cause: Some(Arc::new(Error::from(std::io::Error::new(
+                            std::io::ErrorKind::UnexpectedEof,
+                            "peer disappeared",
+                        )))),
                     }),
                     now,
                 ),
