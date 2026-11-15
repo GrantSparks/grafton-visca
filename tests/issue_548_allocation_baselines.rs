@@ -350,7 +350,16 @@ fn built_in_command_and_inquiry_preparation_stay_inline() {
     };
     let profile = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
     let tuning = OperationalTuning::new();
+    let raw = grafton_visca::raw::Plain::new(
+        [0x81, 1, 4, 0, 2, 0xff],
+        grafton_visca::TimeoutClass::Quick,
+        grafton_visca::RetryClass::Never,
+        grafton_visca::ControlClass::Normal,
+    )
+    .expect("inline raw request");
     let allocations = allocations_during(|| {
+        preparation::check_command(&raw, CameraId::CAMERA_1, &profile, tuning)
+            .expect("an owned inline raw frame stays inline in preparation");
         preparation::check_command(
             &grafton_visca::command::PowerOn::new(),
             CameraId::CAMERA_1,

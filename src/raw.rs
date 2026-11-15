@@ -498,6 +498,14 @@ macro_rules! raw_request_forwarding {
             self.policy.control_class()
         }
 
+        #[allow(private_interfaces)]
+        fn declared_max_size(
+            &self,
+            _authority: crate::requests::RequestContractAuthority,
+        ) -> usize {
+            self.wire.len()
+        }
+
         fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize> {
             self.wire.write_into(buffer)
         }

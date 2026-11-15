@@ -751,9 +751,10 @@ pub trait Request: Send + Sync {
     /// Returns the fixed encoded-size declaration used for owner admission.
     ///
     /// The default is exactly [`Self::MAX_SIZE`]. The hidden authority lets an
-    /// internal erased adapter project the original concrete request's bound
-    /// without allowing a downstream implementation to relax its static
-    /// declaration.
+    /// internal erased adapter project the original concrete request's bound,
+    /// or a crate-owned raw value tighten it to its already validated frame
+    /// length, without allowing a downstream implementation to relax its
+    /// static declaration.
     #[doc(hidden)]
     #[allow(private_interfaces)]
     fn declared_max_size(&self, _authority: RequestContractAuthority) -> usize {
