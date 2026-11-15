@@ -631,7 +631,9 @@ async fn a_malformed_datagram_does_not_kill_the_async_session() {
     assert!(
         diagnostics.events().iter().any(|event| matches!(
             event,
-            DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
+            DiagnosticEvent::Ignored {
+                reason: crate::observability::DiagnosticIgnoreReason::MalformedFrame
+            }
         )),
         "the discarded datagram must still be observable"
     );
@@ -696,7 +698,9 @@ async fn a_malformed_stream_frame_is_discarded_and_keeps_the_session() {
     assert!(
         diagnostics.events().iter().any(|event| matches!(
             event,
-            DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
+            DiagnosticEvent::Ignored {
+                reason: crate::observability::DiagnosticIgnoreReason::MalformedFrame
+            }
         )),
         "the discarded malformed stream frame must still be observable"
     );

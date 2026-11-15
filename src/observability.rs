@@ -437,16 +437,13 @@ impl DiagnosticSubscription {
     /// Receives one event without waiting.  Empty and disconnected queues both
     /// return `None`.
     pub fn try_recv(&self) -> Option<DiagnosticEvent> {
-        self.inner.try_recv().map(DiagnosticEvent::from_owner)
+        self.inner.try_recv()
     }
 
     /// Receives one event asynchronously under the selected executor.
     #[cfg(feature = "async")]
     pub async fn recv(&self) -> Result<DiagnosticEvent, Error> {
-        self.inner
-            .recv_async()
-            .await
-            .map(DiagnosticEvent::from_owner)
+        self.inner.recv_async().await
     }
 
     /// Waits up to `timeout` for one event on the calling thread.
@@ -461,196 +458,7 @@ impl DiagnosticSubscription {
         &self,
         timeout: std::time::Duration,
     ) -> Result<Option<DiagnosticEvent>, Error> {
-        self.inner
-            .recv_timeout(timeout)
-            .map(|event| event.map(DiagnosticEvent::from_owner))
-    }
-}
-
-#[cfg(any(feature = "blocking", feature = "async"))]
-impl DiagnosticEvent {
-    pub(crate) fn from_owner(event: crate::runtime::owner::DiagnosticEvent) -> Self {
-        use crate::runtime::engine::{DeadlineKind, IgnoreReason, Lane, Lifecycle, Phase};
-        use crate::runtime::owner::{
-            CancellationDiagnostic, DiagnosticEvent as OwnerEvent, OutcomeDiagnostic,
-            ResponseDiagnostic,
-        };
-
-        let phase = |value: Lifecycle| match value.phase() {
-            Phase::Ready => DiagnosticPhase::Ready,
-            Phase::Sending { .. } => DiagnosticPhase::Sending,
-            Phase::AwaitingAck { .. } => DiagnosticPhase::AwaitingAck,
-            Phase::AwaitingCompletion { .. } => DiagnosticPhase::AwaitingCompletion,
-            Phase::Executing { .. } => DiagnosticPhase::Executing,
-            Phase::AwaitingReply { .. } => DiagnosticPhase::AwaitingReply,
-            Phase::Backoff { .. } => DiagnosticPhase::Backoff,
-            Phase::AwaitingCancellationResolution { .. } => {
-                DiagnosticPhase::AwaitingCancellationResolution
-            }
-        };
-        let lane = |value: Lane| match value {
-            Lane::Command => DiagnosticLane::Command,
-            Lane::Inquiry => DiagnosticLane::Inquiry,
-        };
-        let response = |value: ResponseDiagnostic| match value {
-            ResponseDiagnostic::Ack(_) => DiagnosticResponse::Ack,
-            ResponseDiagnostic::Completion(_) => DiagnosticResponse::Completion,
-            ResponseDiagnostic::InquiryReply => DiagnosticResponse::InquiryReply,
-            ResponseDiagnostic::Error { .. } => DiagnosticResponse::Error,
-            ResponseDiagnostic::SonyControl { code } => DiagnosticResponse::SonyControl { code },
-            ResponseDiagnostic::NetworkChange => DiagnosticResponse::NetworkChange,
-            ResponseDiagnostic::Unknown => DiagnosticResponse::Unknown,
-        };
-        let deadline = |value: DeadlineKind| match value {
-            DeadlineKind::Ack => DiagnosticDeadline::Ack,
-            DeadlineKind::Completion => DiagnosticDeadline::Completion,
-            DeadlineKind::InquiryReply => DiagnosticDeadline::InquiryReply,
-        };
-        let cancellation = |value: CancellationDiagnostic| match value {
-            CancellationDiagnostic::Recorded => DiagnosticCancellation::Recorded,
-            CancellationDiagnostic::Cancelled => DiagnosticCancellation::Cancelled,
-            CancellationDiagnostic::Completed => DiagnosticCancellation::Completed,
-            CancellationDiagnostic::Failed(error) => DiagnosticCancellation::Failed(error),
-        };
-        let outcome = |value: OutcomeDiagnostic| match value {
-            OutcomeDiagnostic::Written => DiagnosticOutcome::Written,
-            OutcomeDiagnostic::Applied => DiagnosticOutcome::Applied,
-            OutcomeDiagnostic::Reply => DiagnosticOutcome::Reply,
-            OutcomeDiagnostic::Cancelled => DiagnosticOutcome::Cancelled,
-            OutcomeDiagnostic::Failed(error) => DiagnosticOutcome::Failed(error),
-        };
-        let ignored = |value: IgnoreReason| match value {
-            IgnoreReason::UnknownRequest => DiagnosticIgnoreReason::UnknownRequest,
-            IgnoreReason::StaleTransmission => DiagnosticIgnoreReason::StaleTransmission,
-            IgnoreReason::IncompatibleTransmissionResult => {
-                DiagnosticIgnoreReason::IncompatibleTransmissionResult
-            }
-            IgnoreReason::MalformedFrame => DiagnosticIgnoreReason::MalformedFrame,
-            IgnoreReason::ReplyShapeMismatch => DiagnosticIgnoreReason::ReplyShapeMismatch,
-            IgnoreReason::UnmatchedFrame => DiagnosticIgnoreReason::UnmatchedFrame,
-            IgnoreReason::UnmatchedSequencedFrame => {
-                DiagnosticIgnoreReason::UnmatchedSequencedFrame
-            }
-            IgnoreReason::TargetIncompatibleSequence => {
-                DiagnosticIgnoreReason::TargetIncompatibleSequence
-            }
-            IgnoreReason::AmbiguousLower16Sequence => {
-                DiagnosticIgnoreReason::AmbiguousLower16Sequence
-            }
-            IgnoreReason::SocketConflict => DiagnosticIgnoreReason::SocketConflict,
-            IgnoreReason::DuplicateCancellation => DiagnosticIgnoreReason::DuplicateCancellation,
-            IgnoreReason::SessionNotRunning => DiagnosticIgnoreReason::SessionNotRunning,
-        };
-
-        match event {
-            OwnerEvent::Admitted {
-                id,
-                target,
-                lane: value,
-                ..
-            } => Self::Admitted {
-                id: DiagnosticId::from_owner(id.get()),
-                target: target.camera(),
-                lane: lane(value),
-            },
-            OwnerEvent::AdmissionRejected {
-                target,
-                lane: value,
-                error,
-            } => Self::AdmissionRejected {
-                target: target.camera(),
-                lane: lane(value),
-                error,
-            },
-            OwnerEvent::FrameReceived {
-                target,
-                response: value,
-                ..
-            } => Self::FrameReceived {
-                target: target.camera(),
-                response: response(value),
-            },
-            OwnerEvent::Transition {
-                id,
-                target,
-                from,
-                to,
-                ..
-            } => Self::Transition {
-                id: DiagnosticId::from_owner(id.get()),
-                target: target.camera(),
-                from: phase(from),
-                to: phase(to),
-            },
-            OwnerEvent::WriteFinished {
-                id,
-                target,
-                cancellation,
-                success,
-                ..
-            } => Self::WriteFinished {
-                id: DiagnosticId::from_owner(id.get()),
-                target: target.camera(),
-                cancellation,
-                success,
-            },
-            OwnerEvent::RetryScheduled {
-                id,
-                target,
-                attempt,
-                ..
-            } => Self::RetryScheduled {
-                id: DiagnosticId::from_owner(id.get()),
-                target: target.camera(),
-                attempt,
-            },
-            OwnerEvent::DeadlineExpired {
-                id,
-                target,
-                deadline: value,
-                will_retry,
-            } => Self::DeadlineExpired {
-                id: DiagnosticId::from_owner(id.get()),
-                target: target.camera(),
-                deadline: deadline(value),
-                will_retry,
-            },
-            OwnerEvent::CancellationRecorded { id, target } => Self::CancellationRecorded {
-                id: DiagnosticId::from_owner(id.get()),
-                target: target.camera(),
-            },
-            OwnerEvent::CancellationObserved {
-                id,
-                target,
-                observation,
-            } => Self::CancellationObserved {
-                id: DiagnosticId::from_owner(id.get()),
-                target: target.camera(),
-                observation: cancellation(observation),
-            },
-            OwnerEvent::AppliedState { id, target, key } => Self::AppliedState {
-                id: DiagnosticId::from_owner(id.get()),
-                target: target.camera(),
-                key,
-            },
-            OwnerEvent::Terminal {
-                id,
-                target,
-                outcome: value,
-            } => Self::Terminal {
-                id: DiagnosticId::from_owner(id.get()),
-                target: target.camera(),
-                outcome: outcome(value),
-            },
-            OwnerEvent::SessionChanged { from, to, reason } => Self::SessionChanged {
-                from: SessionStatus::from_engine(from),
-                to: SessionStatus::from_engine(to),
-                reason,
-            },
-            OwnerEvent::Ignored(value) => Self::Ignored {
-                reason: ignored(value),
-            },
-        }
+        self.inner.recv_timeout(timeout)
     }
 }
 
@@ -704,5 +512,13 @@ pub(crate) fn metrics_snapshot(
         active,
         pending,
         session,
+    }
+}
+
+#[cfg(all(test, target_pointer_width = "64"))]
+mod diagnostic_size_tests {
+    #[test]
+    fn sanitized_events_fit_in_sixteen_byte_subscriber_slots() {
+        assert!(size_of::<super::DiagnosticEvent>() <= 16);
     }
 }

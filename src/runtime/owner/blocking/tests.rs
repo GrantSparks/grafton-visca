@@ -548,9 +548,9 @@ fn diagnostic_receive_observes_an_owner_deadline_without_wall_time() {
         .expect("the owner ACK deadline emits a diagnostic before the subscription deadline");
     assert!(matches!(event, DiagnosticEvent::DeadlineExpired {
         id,
-        deadline: DeadlineKind::Ack,
+        deadline: crate::observability::DiagnosticDeadline::Ack,
         ..
-    } if id == receipt.core.id));
+    } if id == crate::observability::DiagnosticId::from_owner(receipt.core.id.get())));
     assert!(start < ack_deadline);
     assert_eq!(clock.now(), ack_deadline);
     drop(receipt);

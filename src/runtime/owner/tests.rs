@@ -692,7 +692,7 @@ mod metrics {
             matches!(
                 event,
                 DiagnosticEvent::DeadlineExpired { deadline, will_retry, .. }
-                    if *deadline == expected && *will_retry == retrying
+                    if *deadline == diagnostics::deadline(expected) && *will_retry == retrying
             )
         })
     }
@@ -867,14 +867,15 @@ mod metrics {
         assert!(diagnostics.events().iter().any(|event| matches!(
             event,
             DiagnosticEvent::FrameReceived {
-                target: TargetSlot::CAMERA_1,
-                sequence: None,
-                response: ResponseDiagnostic::SonyControl { code: 0x0F01 },
+                target: crate::CameraId::CAMERA_1,
+                response: crate::observability::DiagnosticResponse::SonyControl { code: 0x0F01 },
             }
         )));
         assert!(diagnostics.events().iter().any(|event| matches!(
             event,
-            DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
+            DiagnosticEvent::Ignored {
+                reason: crate::observability::DiagnosticIgnoreReason::UnmatchedFrame
+            }
         )));
     }
 
@@ -2448,7 +2449,7 @@ mod lifecycle_trace {
                         id: recorded,
                         target,
                         ..
-                    } if *recorded == id => Some(*target),
+                    } if *recorded == diagnostics::id(id) => Some(*target),
                     _ => None,
                 })
                 .next_back()
@@ -2463,7 +2464,7 @@ mod lifecycle_trace {
                 self.at,
                 pending.label,
                 id.get(),
-                target.camera().id(),
+                target.id(),
                 if acquired { "acquired" } else { "unclaimed" },
                 phase_name(phase),
                 match pending.kind {

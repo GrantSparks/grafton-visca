@@ -92,7 +92,9 @@ async fn async_receive_batch_rejects_an_overdue_completion() {
     );
     assert!(diagnostics.events().iter().any(|event| matches!(
         event,
-        DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
+        DiagnosticEvent::Ignored {
+            reason: crate::observability::DiagnosticIgnoreReason::UnmatchedFrame
+        }
     )));
     let outcome = terminal_within_test_deadline(
         &receipt,
@@ -1118,7 +1120,9 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
     handle.metrics().await.unwrap();
     assert!(diagnostics.events().iter().any(|event| matches!(
         event,
-        DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
+        DiagnosticEvent::Ignored {
+            reason: crate::observability::DiagnosticIgnoreReason::UnmatchedFrame
+        }
     )));
     chunk_tx
         .send_async(vec![0x90, 0x50, 0xb2, 0xff])
@@ -1204,7 +1208,9 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
         assert_eq!(snapshot.state, SessionState::Running);
         assert!(diagnostics.events().iter().any(|event| matches!(
             event,
-            DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
+            DiagnosticEvent::Ignored {
+                reason: crate::observability::DiagnosticIgnoreReason::MalformedFrame
+            }
         )));
         chunk_tx
             .send_async(vec![0x90, 0x50, 0xb2, 0xff])
@@ -1683,7 +1689,9 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
             .iter()
             .filter(|event| matches!(
                 event,
-                DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
+                DiagnosticEvent::Ignored {
+                    reason: crate::observability::DiagnosticIgnoreReason::MalformedFrame
+                }
             ))
             .count(),
         1,
@@ -2127,7 +2135,9 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
     assert!(
         !diagnostics.events().iter().any(|event| matches!(
             event,
-            DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
+            DiagnosticEvent::Ignored {
+                reason: crate::observability::DiagnosticIgnoreReason::MalformedFrame
+            }
         )),
         "the owed reply's prefix is not discarded as an orphan"
     );
