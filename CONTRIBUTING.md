@@ -235,7 +235,8 @@ generated from them:
    different ledger rows adds
    `rows: |value| match value[.field] { Variant => Row, ... }`, an exhaustive
    match whose patterns are variant paths (a wildcard is rejected), and its
-   validator gates each value on the row it selects, `self.ledger_row()`.
+   generated request hook gates each value on the row it selects,
+   `self.ledger_row()`, before per-value validation.
 4. **Noun row** (`src/noun_table.rs`): one row under the owning `@noun` header
    gives the method name, arguments, rustdoc, capability `where` marker and
    request. The blocking, async and `Dyn*` methods, the static surface entry

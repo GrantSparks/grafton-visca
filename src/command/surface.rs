@@ -33,6 +33,47 @@ pub(crate) enum RowGate {
     Typed(TypedSupportSet),
 }
 
+impl RowGate {
+    /// Enforces the same noun-row contract for commands and inquiries.
+    pub(crate) fn validate(
+        self,
+        profile: &crate::ProfileSpec,
+        feature: &'static str,
+    ) -> crate::Result<()> {
+        let denied = match self {
+            Self::Always => return Ok(()),
+            Self::Domain(domain) if domain.permits(profile) => return Ok(()),
+            Self::Domain(_) => feature,
+            Self::Typed(surfaces) => {
+                let Some(surface) = surfaces
+                    .iter()
+                    .find(|surface| !profile.capabilities().permits_typed(*surface))
+                else {
+                    return Ok(());
+                };
+                if surface == crate::capabilities::TypedSupportSurface::ExposureMode {
+                    crate::command::exposure::SHARED_EXPOSURE_MODE_FEATURE
+                } else {
+                    feature
+                }
+            }
+        };
+        Err(crate::Error::FeatureNotSupported { feature: denied })
+    }
+
+    /// Const comparison used by the generated request inventory.
+    pub(crate) const fn same_as(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Always, Self::Always) => true,
+            (Self::Domain(left), Self::Domain(right)) => left as u8 == right as u8,
+            (Self::Typed(left), Self::Typed(right)) => {
+                left.contains_all(right) && right.contains_all(left)
+            }
+            _ => false,
+        }
+    }
+}
+
 /// The base-domain marker of a noun header's `[domain <Marker>]` gate.
 ///
 /// There is one variant per domain that some noun-table row inherits.  The
@@ -208,6 +249,15 @@ pub(crate) struct StaticSurfaceEntry {
 }
 
 impl StaticSurfaceEntry {
+    /// Canonical method spelling for a refused row's diagnostic.
+    pub(crate) const fn feature(self) -> &'static str {
+        match self.disposition {
+            StaticSurfaceDisposition::Noun { method, .. }
+            | StaticSurfaceDisposition::BroadcastHandshake { method }
+            | StaticSurfaceDisposition::InternalCancellation { method } => method,
+        }
+    }
+
     /// Returns whether the row may become a target camera noun method.
     #[must_use]
     #[cfg(test)]
@@ -389,21 +439,17 @@ macro_rules! surface_registry {
 
 noun_table!(surface_registry);
 
-/// Returns all runtime typed-support surfaces required by one static command row.
+/// Returns the full capability gate of one static command row.
 ///
-/// Request validation uses this projection for vendor commands whose typed
-/// permission is represented by noun and row markers. Dynamic admission
-/// therefore follows both bounds that govern static method resolution.
+/// Every built-in request checks this projection before validating its values.
+/// Dynamic admission therefore follows the same noun and row bounds as static
+/// method resolution, including base-domain gates.
 #[must_use]
-pub(crate) const fn typed_surface_for_command(command: BuiltinCommand) -> Option<TypedSupportSet> {
+pub(crate) const fn row_gate(command: BuiltinCommand) -> RowGate {
     match surface_entry(command).disposition {
-        StaticSurfaceDisposition::Noun {
-            gate: RowGate::Typed(surface),
-            ..
-        } => Some(surface),
-        StaticSurfaceDisposition::Noun { .. }
-        | StaticSurfaceDisposition::BroadcastHandshake { .. }
-        | StaticSurfaceDisposition::InternalCancellation { .. } => None,
+        StaticSurfaceDisposition::Noun { gate, .. } => gate,
+        StaticSurfaceDisposition::BroadcastHandshake { .. }
+        | StaticSurfaceDisposition::InternalCancellation { .. } => RowGate::Always,
     }
 }
 

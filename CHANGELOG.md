@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parsers preserve network-change notifications as `Response::NetworkChange`;
   `into_result()` rejects them as `UnexpectedResponseType` because they do not
   complete a command.
+- **BREAKING** (#871): Static typed noun methods require a matching runtime
+  typed-support bit for every profile marker at compile time. Commands and
+  inquiries enforce the same generated noun-row capability gate before value
+  validation, so a new built-in request cannot omit its runtime gate.
 
 - **BREAKING** (#829): The minimum supported Rust version is now 1.98 (was 1.88 in
   2.0.0-rc.3). The project builds and tests on one stable toolchain, 1.98.0;

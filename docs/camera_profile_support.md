@@ -42,9 +42,9 @@ The runtime equivalent of the marker contract is `TypedSupportSet`.
 `ProfileTypedSupport::TYPED_SUPPORT` records the optional typed surfaces a
 profile exposes, and `Capabilities::supports_typed(...)` is the dyn-api
 permission check for those surfaces. Built-in profiles derive marker impls and
-`TYPED_SUPPORT` from the same `typed_support: [...]` registry list. Custom
-profiles must keep optional marker impls and `TYPED_SUPPORT` in sync; do not use
-metadata constants as a fallback permission source.
+`TYPED_SUPPORT` from the same `typed_support: [...]` registry list. Static typed noun methods prove at compile time that each optional marker
+has its corresponding `TYPED_SUPPORT` bit. A bit without a marker widens only
+the erased surface. Do not use metadata constants as a fallback permission source.
 
 The two broad baseline markers are intentionally asymmetric. Implementing
 `Exposure` establishes a usable baseline exposure domain, so every

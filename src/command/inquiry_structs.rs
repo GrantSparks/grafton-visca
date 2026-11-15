@@ -205,50 +205,11 @@ fn validate_builtin_inquiry_gate(
     inquiry: &'static str,
     typed_inquiry: &'static str,
 ) -> Result<(), Error> {
-    match gate {
-        RowGate::Always => Ok(()),
-        RowGate::Domain(domain) if domain.permits(profile) => Ok(()),
-        RowGate::Domain(_) => Err(Error::FeatureNotSupported { feature: inquiry }),
-        RowGate::Typed(surfaces) => {
-            for surface in surfaces.iter() {
-                validate_builtin_inquiry_surface(profile, surface, typed_inquiry)?;
-            }
-            Ok(())
-        }
-    }
-}
-
-fn validate_builtin_inquiry_surface(
-    profile: &crate::ProfileSpec,
-    surface: crate::capabilities::TypedSupportSurface,
-    inquiry: &'static str,
-) -> Result<(), Error> {
-    let capabilities = profile.capabilities();
-    // These vendor/status surfaces require both the typed admission bit and
-    // the underlying source-backed protocol fact. Keeping this narrow match
-    // here lets the noun-table rows remain the single gate list.
-    let source_backed = match surface {
-        crate::capabilities::TypedSupportSurface::FocusZoneInquiry => {
-            capabilities.has_focus_zone_inquiry
-        }
-        crate::capabilities::TypedSupportSurface::UsbAudio => capabilities.has_usb_audio,
-        crate::capabilities::TypedSupportSurface::ExposureMode => {
-            !capabilities.exposure_modes.is_empty()
-        }
-        _ => true,
+    let feature = match gate {
+        RowGate::Typed(_) => typed_inquiry,
+        RowGate::Always | RowGate::Domain(_) => inquiry,
     };
-
-    if source_backed && capabilities.supports_typed(surface) {
-        Ok(())
-    } else {
-        Err(Error::FeatureNotSupported {
-            feature: if surface == crate::capabilities::TypedSupportSurface::ExposureMode {
-                crate::command::exposure::SHARED_EXPOSURE_MODE_FEATURE
-            } else {
-                inquiry
-            },
-        })
-    }
+    gate.validate(profile, feature)
 }
 
 /// The facts every generated inquiry command shares with the generic decode

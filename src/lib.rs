@@ -1255,3 +1255,6 @@ mod usage_guide_snippets {}
 // Exhaustive literal-byte inventory tied to the built-in semantic ledger.
 #[cfg(test)]
 mod issue_715_wire_golden;
+
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+mod issue_871_gates;

@@ -31,6 +31,30 @@ macro_rules! noun_request {
 
 pub(crate) use noun_request;
 
+/// Proves a static marker's runtime bit at the method's monomorphization.
+macro_rules! assert_profile_gate {
+    (@marker $profile:ident, $marker:ident) => {
+        const {
+            assert!(
+                <$profile as $crate::capabilities::ProfileTypedSupport>::TYPED_SUPPORT
+                    .contains($crate::capabilities::typed_surface!($marker)),
+                concat!("profile marker `", stringify!($marker), "` requires its typed-support bit"),
+            );
+        }
+    };
+    ($profile:ident; [typed $base:ident]; [$($marker:ident $(+ $extra:ident)*)?]) => {
+        $crate::noun_facade::assert_profile_gate!(@marker $profile, $base);
+        $($crate::noun_facade::assert_profile_gate!(@marker $profile, $marker);
+          $($crate::noun_facade::assert_profile_gate!(@marker $profile, $extra);)*)?
+    };
+    ($profile:ident; $base:tt; [$($marker:ident $(+ $extra:ident)*)?]) => {
+        $($crate::noun_facade::assert_profile_gate!(@marker $profile, $marker);
+          $($crate::noun_facade::assert_profile_gate!(@marker $profile, $extra);)*)?
+    };
+}
+
+pub(crate) use assert_profile_gate;
+
 /// Generates one static noun facade — blocking or async — from
 /// [`crate::noun_table::noun_table`].
 ///
@@ -93,27 +117,29 @@ macro_rules! static_noun_facade {
         }
     };
 
-    (@method [$($async:tt)?] [$($await:tt)*] [$(#[$doc:meta])*] inquiry $method:ident() -> $ret:ty;
+    (@method [$($async:tt)?] [$($await:tt)*] $base:tt [$(#[$doc:meta])*] inquiry $method:ident() -> $ret:ty;
         [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
         pub $($async)? fn $method(&self) -> $crate::Result<$ret>
         $(where P: $crate::capabilities::$gate $(+ $crate::capabilities::$extra)*)?
         {
+            $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);
             self.camera.inquire(&$($request)*) $($await)*
         }
     };
-    (@method [$($async:tt)?] [$($await:tt)*] [$(#[$doc:meta])*] plain
+    (@method [$($async:tt)?] [$($await:tt)*] $base:tt [$(#[$doc:meta])*] plain
         $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty;
         [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
         pub $($async)? fn $method(&self, $($arg: $ty),*) -> $crate::Result<()>
         $(where P: $crate::capabilities::$gate $(+ $crate::capabilities::$extra)*)?
         {
+            $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);
             let request = $crate::noun_facade::noun_request!(self.camera.profile(); $ret; $($request)*)?;
             self.camera.execute(&request) $($await)*
         }
     };
-    (@method [$($async:tt)?] [$($await:tt)*] [$(#[$doc:meta])*] applied
+    (@method [$($async:tt)?] [$($await:tt)*] $base:tt [$(#[$doc:meta])*] applied
         $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty;
         [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
@@ -121,11 +147,12 @@ macro_rules! static_noun_facade {
             -> $crate::Result<Operation<$crate::completion::AppliedOnly>>
         $(where P: $crate::capabilities::$gate $(+ $crate::capabilities::$extra)*)?
         {
+            $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);
             let request = $crate::noun_facade::noun_request!(self.camera.profile(); $ret; $($request)*)?;
             self.camera.submit::<$crate::completion::AppliedOnly, _>(&request) $($await)*
         }
     };
-    (@method [$($async:tt)?] [$($await:tt)*] [$(#[$doc:meta])*] targeted
+    (@method [$($async:tt)?] [$($await:tt)*] $base:tt [$(#[$doc:meta])*] targeted
         $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty;
         [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
@@ -133,6 +160,7 @@ macro_rules! static_noun_facade {
             -> $crate::Result<Operation<$crate::completion::Targeted>>
         $(where P: $crate::capabilities::$gate $(+ $crate::capabilities::$extra)*)?
         {
+            $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);
             let request = $crate::noun_facade::noun_request!(self.camera.profile(); $ret; $($request)*)?;
             self.camera.submit::<$crate::completion::Targeted, _>(&request) $($await)*
         }
@@ -158,7 +186,7 @@ macro_rules! static_noun_facade {
         $(
             $crate::noun_facade::static_noun_facade!(@accessor $gate $accessor $getter $doc {
                 $(
-                    $crate::noun_facade::static_noun_facade!(@method $mode $await
+                    $crate::noun_facade::static_noun_facade!(@method $mode $await $gate
                         [$(#[$row_doc])*] $kind $method($($arg: $ty),*) -> $ret;
                         [$($rgate $(+ $extra)*)?]; [$($request)*]);
                 )*

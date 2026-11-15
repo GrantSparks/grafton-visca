@@ -9,7 +9,7 @@ use crate::{
     command::{
         encode::WireEncode,
         semantics::{BuiltinCommand, BuiltinRequestContract},
-        surface::typed_surface_for_command,
+        surface::{row_gate, surface_entry},
         Flip, Focus, Iris, NdFilterStep, NdFilterStepCommand, NdFilterValue, PanTilt,
         PanTiltDirection, PanTiltLimitCorner, PresetAction, PresetCommand, PresetNumber, PushAF,
         Zoom,
@@ -75,8 +75,8 @@ use crate::{units::Degrees, PanTiltCoordinateConversion};
 /// `rows` is for a type whose values serve different ledger rows. It
 /// generates the inherent `const fn ledger_row(&self)`, an exhaustive match
 /// with no repeated pattern, and sets `SELECTS_ROW_BY_VALUE`. Each pattern is
-/// a path naming one variant, so a wildcard or binding cannot absorb a
-/// variant added later. The validator
+/// a variant path, optionally with tuple fields, so a top-level wildcard or
+/// binding cannot absorb a variant added later. The generated request hook
 /// gates each value on the row it selects. Every row then classifies like
 /// the entry's row, and every noun row sending the type must be a `by_value`
 /// row whose value selects that noun row's command: the typed-request
@@ -95,6 +95,9 @@ macro_rules! builtin_request {
     (@policy $operation:ident) => {
         (TimeoutClass::Movement, RetryClass::Movement, ControlClass::User)
     };
+
+    (@row $this:ident) => { Self::LEDGER_ROW };
+    (@row $this:ident, $value:ident) => { $this.ledger_row() };
 
     (@wire $this:tt) => { *$this };
     (@wire $this:tt, $wire:expr) => { ($wire)($this) };
@@ -117,7 +120,7 @@ macro_rules! builtin_request {
     };
 
     (@rows $type:ty, |$value:ident| $($scrutinee:ident).+ {
-        $($pattern:path => $row:ident),+
+        $($pattern:ident $(::$segment:ident)* $(($($field:pat),*))? => $row:ident),+
     }) => {
         impl $type {
             /// The ledger row this value serves, whose typed capability gate
@@ -126,7 +129,7 @@ macro_rules! builtin_request {
             pub(crate) const fn ledger_row(&self) -> BuiltinCommand {
                 let $value = self;
                 match $($scrutinee).+ {
-                    $( $pattern => BuiltinCommand::$row, )+
+                    $( $pattern $(::$segment)* $(($($field),*))? => BuiltinCommand::$row, )+
                 }
             }
         }
@@ -157,7 +160,7 @@ macro_rules! builtin_request {
             $(, policy: ($timeout:ident, $retry:ident, $control:ident))?
             $(, wire: $wire:expr)?
             $(, rows: |$value:ident| match $($scrutinee:ident).+ {
-                $($pattern:path => $value_row:ident),+ $(,)?
+                $($pattern:ident $(::$segment:ident)* $(($($field:pat),*))? => $value_row:ident),+ $(,)?
             })?
             $(,)?
         };
@@ -184,6 +187,8 @@ macro_rules! builtin_request {
             }
 
             fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
+                let row = builtin_request!(@row self $(, $value)?);
+                row_gate(row).validate(profile, surface_entry(row).feature())?;
                 <Self as BuiltinValidation>::validate(self, profile)
             }
 
@@ -211,13 +216,16 @@ macro_rules! builtin_request {
         const _: () = <$type as BuiltinRequestContract>::CLASS_MATCHES_ROW;
         builtin_request!(@operation $type, $class $(, $flag)?);
         $( builtin_request!(@rows $type, |$value| $($scrutinee).+ {
-            $($pattern => $value_row),+
+            $($pattern $(::$segment)* $(($($field),*))? => $value_row),+
         }); )?
     )+};
 }
 
 pub(crate) trait BuiltinValidation {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error>;
+    /// Checks only value-dependent facts after the generated row gate.
+    fn validate(&self, _profile: &crate::ProfileSpec) -> Result<(), Error> {
+        Ok(())
+    }
 
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
@@ -281,16 +289,11 @@ where
     }
 }
 
-fn validate_pan_tilt(profile: &crate::ProfileSpec) -> Result<(), Error> {
-    require(profile.capabilities().has_pan_tilt, "pan/tilt control")
-}
-
 fn validate_pan_tilt_speed(
     profile: &crate::ProfileSpec,
     pan: PanSpeed,
     tilt: TiltSpeed,
 ) -> Result<(), Error> {
-    validate_pan_tilt(profile)?;
     let capabilities = profile.capabilities();
     require_in_range("pan speed", pan.value(), &capabilities.pan_speed)?;
     require_in_range("tilt speed", tilt.value(), &capabilities.tilt_speed)?;
@@ -378,7 +381,6 @@ fn validate_pan_tilt_position(
     tilt: i32,
     conversion: PanTiltCoordinateConversion,
 ) -> Result<(), Error> {
-    validate_pan_tilt(profile)?;
     let capabilities = profile.capabilities();
     if profile.pan_tilt_coordinates() != Some(conversion) {
         return Err(Error::InvalidRequest(
@@ -390,26 +392,7 @@ fn validate_pan_tilt_position(
     Ok(())
 }
 
-fn validate_iris_control(profile: &crate::ProfileSpec, row: BuiltinCommand) -> Result<(), Error> {
-    let capabilities = profile.capabilities();
-    require(
-        capabilities.has_exposure && capabilities.iris_range.is_some(),
-        "iris control",
-    )?;
-    validate_static_typed_command(profile, row, "typed iris control")
-}
-
-fn validate_nd_filter_control(
-    profile: &crate::ProfileSpec,
-    row: BuiltinCommand,
-) -> Result<(), Error> {
-    let capabilities = profile.capabilities();
-    require(capabilities.has_nd_filter, "ND filter control")?;
-    validate_static_typed_command(profile, row, "typed ND filter control")
-}
-
-fn validate_nd_filter_step(profile: &crate::ProfileSpec, row: BuiltinCommand) -> Result<(), Error> {
-    validate_nd_filter_control(profile, row)?;
+fn validate_nd_filter_step(profile: &crate::ProfileSpec) -> Result<(), Error> {
     if matches!(
         profile.capabilities().nd_filter_mode,
         crate::capabilities::NdFilterMode::Variable
@@ -425,11 +408,7 @@ fn validate_nd_filter_step(profile: &crate::ProfileSpec, row: BuiltinCommand) ->
     }
 }
 
-fn validate_variable_nd_filter_control(
-    profile: &crate::ProfileSpec,
-    row: BuiltinCommand,
-) -> Result<(), Error> {
-    validate_nd_filter_control(profile, row)?;
+fn validate_variable_nd_filter_control(profile: &crate::ProfileSpec) -> Result<(), Error> {
     if matches!(
         profile.capabilities().nd_filter_mode,
         crate::capabilities::NdFilterMode::Variable
@@ -442,55 +421,9 @@ fn validate_variable_nd_filter_control(
     }
 }
 
-/// Gates the source-backed Sony FR7 red/green tally family. PTZOptics packed
-/// status, brightness, mode, and auto-adjust candidates deliberately remain
-/// low-level wire types and are refused by every built-in profile.
-fn validate_tally_state(profile: &crate::ProfileSpec, row: BuiltinCommand) -> Result<(), Error> {
-    let capabilities = profile.capabilities();
-    require(capabilities.has_tally, "tally control")?;
-    validate_static_typed_command(profile, row, "typed tally control")
-}
-
-/// Validates a command gate derived from the static noun-table row.
-///
-/// The dynamic facade has no marker bounds, so it must consult the same typed
-/// support surfaces that its static noun header and method's `where Has*`
-/// clause project to. Only rows with typed gates may call this helper.
-fn validate_static_typed_command(
-    profile: &crate::ProfileSpec,
-    command: BuiltinCommand,
-    feature: &'static str,
-) -> Result<(), Error> {
-    let Some(surfaces) = typed_surface_for_command(command) else {
-        return Err(Error::InvalidRequest(
-            "static typed-command gate is missing from the noun surface".into(),
-        ));
-    };
-    require(
-        surfaces
-            .iter()
-            .all(|surface| profile.capabilities().permits_typed(surface)),
-        feature,
-    )
-}
-
-/// USB audio is a model capability, not a family-wide PTZOptics assumption.
-///
-/// Keep runtime validation on the same registry facts that emit the static
-/// `HasUsbAudio` marker. In particular, a G3 profile remains denied until its
-/// UAC command and response support are independently evidenced.
-fn validate_usb_audio_state(
-    profile: &crate::ProfileSpec,
-    row: BuiltinCommand,
-) -> Result<(), Error> {
-    let capabilities = profile.capabilities();
-    require(capabilities.has_usb_audio, "USB audio control")?;
-    validate_static_typed_command(profile, row, "typed USB audio control")
-}
-
 fn validate_power_state(profile: &crate::ProfileSpec, standby: bool) -> Result<(), Error> {
     let capabilities = profile.capabilities();
-    require(capabilities.has_power, "power control")?;
+
     if standby {
         require(capabilities.supports_standby, "standby power control")?;
     }
@@ -499,30 +432,23 @@ fn validate_power_state(profile: &crate::ProfileSpec, standby: bool) -> Result<(
 
 fn validate_exposure_mode(
     profile: &crate::ProfileSpec,
-    row: BuiltinCommand,
     mode: crate::command::ExposureMode,
 ) -> Result<(), Error> {
     let capabilities = profile.capabilities();
-    require(capabilities.has_exposure, "exposure control")?;
+
     require(
         capabilities.supports_exposure_mode(mode),
         crate::command::exposure::SHARED_EXPOSURE_MODE_FEATURE,
     )?;
-    validate_static_typed_command(
-        profile,
-        row,
-        crate::command::exposure::SHARED_EXPOSURE_MODE_FEATURE,
-    )
+    Ok(())
 }
 
 fn validate_exposure_compensation(
     profile: &crate::ProfileSpec,
-    row: BuiltinCommand,
     value: Option<i8>,
 ) -> Result<(), Error> {
     let capabilities = profile.capabilities();
-    require(capabilities.has_exposure, "exposure control")?;
-    validate_static_typed_command(profile, row, "exposure compensation")?;
+
     if let Some(value) = value {
         let range =
             capabilities
@@ -536,12 +462,7 @@ fn validate_exposure_compensation(
     Ok(())
 }
 
-fn validate_numeric_exposure(profile: &crate::ProfileSpec) -> Result<(), Error> {
-    require(profile.capabilities().has_exposure, "exposure control")
-}
-
 fn validate_shutter(profile: &crate::ProfileSpec, value: Option<u8>) -> Result<(), Error> {
-    validate_numeric_exposure(profile)?;
     if let Some(value) = value {
         if !profile
             .capabilities()
@@ -560,14 +481,9 @@ fn validate_shutter(profile: &crate::ProfileSpec, value: Option<u8>) -> Result<(
     Ok(())
 }
 
-fn validate_brightness(
-    profile: &crate::ProfileSpec,
-    row: BuiltinCommand,
-    value: Option<u8>,
-) -> Result<(), Error> {
+fn validate_brightness(profile: &crate::ProfileSpec, value: Option<u8>) -> Result<(), Error> {
     let capabilities = profile.capabilities();
-    require(capabilities.has_exposure, "exposure control")?;
-    validate_static_typed_command(profile, row, "brightness control")?;
+
     if let Some(value) = value {
         let range =
             capabilities
@@ -582,76 +498,30 @@ fn validate_brightness(
 }
 
 fn validate_gain(profile: &crate::ProfileSpec, value: Option<u8>) -> Result<(), Error> {
-    validate_numeric_exposure(profile)?;
     if let Some(value) = value {
         require_in_range("gain level", value, &profile.capabilities().gain_range)?;
     }
     Ok(())
 }
 
-/// Checks the white-balance domain and the profile's mode list, then, for a
-/// mode whose ledger row has one, that row's typed capability gate.
+/// Checks membership in the profile's white-balance mode inventory after
+/// the generated request hook has checked the selected row's gate.
 fn validate_white_balance_mode(
     profile: &crate::ProfileSpec,
     command: &crate::command::WhiteBalanceCommand,
 ) -> Result<(), Error> {
-    use crate::command::WhiteBalanceMode;
-
     let capabilities = profile.capabilities();
-    require(capabilities.has_white_balance, "white balance control")?;
+
     require(
         capabilities.white_balance_modes.contains(&command.mode),
         "selected white-balance mode",
     )?;
-    let feature = match command.mode {
-        WhiteBalanceMode::OnePush => "one-push white balance",
-        WhiteBalanceMode::ATW => "auto-tracking white balance",
-        WhiteBalanceMode::ColorTemperature => "color-temperature white balance",
-        // These modes select ledger rows whose noun rows carry no `Has*`
-        // marker, so they have no typed gate: the profile's mode list above is
-        // their whole check. The build fails if one of those rows gains a
-        // typed surface.
-        WhiteBalanceMode::Auto
-        | WhiteBalanceMode::Indoor
-        | WhiteBalanceMode::Outdoor
-        | WhiteBalanceMode::Manual => {
-            const {
-                assert!(
-                    !white_balance_mode_is_typed(WhiteBalanceMode::Auto)
-                        && !white_balance_mode_is_typed(WhiteBalanceMode::Indoor)
-                        && !white_balance_mode_is_typed(WhiteBalanceMode::Outdoor)
-                        && !white_balance_mode_is_typed(WhiteBalanceMode::Manual)
-                );
-            }
-            return Ok(());
-        }
-    };
-    validate_static_typed_command(profile, command.ledger_row(), feature)
+    Ok(())
 }
 
-/// Whether the ledger row a white-balance mode selects has a typed gate.
-const fn white_balance_mode_is_typed(mode: crate::command::WhiteBalanceMode) -> bool {
-    typed_surface_for_command(crate::command::WhiteBalanceCommand { mode }.ledger_row()).is_some()
-}
-
-fn validate_awb_sensitivity(
-    profile: &crate::ProfileSpec,
-    row: BuiltinCommand,
-) -> Result<(), Error> {
+fn validate_tuning(profile: &crate::ProfileSpec, value: i8, red: bool) -> Result<(), Error> {
     let capabilities = profile.capabilities();
-    require(capabilities.has_white_balance, "white balance control")?;
-    validate_static_typed_command(profile, row, "auto white-balance sensitivity")
-}
 
-fn validate_tuning(
-    profile: &crate::ProfileSpec,
-    row: BuiltinCommand,
-    value: i8,
-    red: bool,
-) -> Result<(), Error> {
-    let capabilities = profile.capabilities();
-    require(capabilities.has_white_balance, "white balance control")?;
-    validate_static_typed_command(profile, row, "RGB tuning")?;
     let range = if red {
         capabilities.rg_tuning_range.as_ref()
     } else {
@@ -666,12 +536,10 @@ fn validate_tuning(
 
 fn validate_color_temperature(
     profile: &crate::ProfileSpec,
-    row: BuiltinCommand,
     value: Option<crate::types::ColorTemp>,
 ) -> Result<(), Error> {
     let capabilities = profile.capabilities();
-    require(capabilities.has_white_balance, "white balance control")?;
-    validate_static_typed_command(profile, row, "color temperature control")?;
+
     if let Some(value) = value {
         let range = capabilities
             .color_temp_range
@@ -688,13 +556,11 @@ fn validate_color_temperature(
 
 fn validate_rgb_gain(
     profile: &crate::ProfileSpec,
-    row: BuiltinCommand,
     value: Option<u8>,
     red: bool,
 ) -> Result<(), Error> {
     let capabilities = profile.capabilities();
-    require(capabilities.has_white_balance, "white balance control")?;
-    validate_static_typed_command(profile, row, "RGB gain control")?;
+
     if let Some(value) = value {
         let range = if red {
             capabilities.red_gain_range.as_ref()
@@ -709,68 +575,20 @@ fn validate_rgb_gain(
     Ok(())
 }
 
-fn validate_image_control(
-    profile: &crate::ProfileSpec,
-    row: BuiltinCommand,
-    feature: &'static str,
-) -> Result<(), Error> {
-    let capabilities = profile.capabilities();
-    require(capabilities.has_image_processing, "image processing")?;
-    validate_static_typed_command(profile, row, feature)
-}
-
 fn validate_image_range(
-    profile: &crate::ProfileSpec,
-    row: BuiltinCommand,
     feature: &'static str,
     range: Option<&std::ops::RangeInclusive<u8>>,
     value: u8,
 ) -> Result<(), Error> {
-    validate_image_control(profile, row, feature)?;
     let range = range.ok_or(Error::FeatureNotSupported { feature })?;
     require_in_range(feature, value, range)?;
     Ok(())
-}
-
-fn validate_flip_mode(
-    profile: &crate::ProfileSpec,
-    row: BuiltinCommand,
-    mode: crate::command::ImageFlipMode,
-) -> Result<(), Error> {
-    let capabilities = profile.capabilities();
-    require(capabilities.has_image_processing, "image processing")?;
-    validate_static_typed_command(profile, row, "combined image flip")?;
-    match mode {
-        crate::command::ImageFlipMode::Off | crate::command::ImageFlipMode::Vertical => {
-            require(capabilities.supports_flip, "vertical image flip")
-        }
-        crate::command::ImageFlipMode::Horizontal => {
-            require(capabilities.supports_mirror, "horizontal image mirror")
-        }
-        crate::command::ImageFlipMode::Both => {
-            require(capabilities.supports_flip, "vertical image flip")?;
-            require(capabilities.supports_mirror, "horizontal image mirror")
-        }
-    }
-}
-
-fn validate_separate_flip(
-    profile: &crate::ProfileSpec,
-    row: BuiltinCommand,
-    feature: &'static str,
-) -> Result<(), Error> {
-    require(
-        profile.capabilities().has_image_processing,
-        "image processing",
-    )?;
-    validate_static_typed_command(profile, row, feature)
 }
 
 /// The profile's motion-sync speed range, which is also its only motion-sync
 /// fact: `None` means the camera has no motion sync.
 fn motion_sync_speed_range(
     profile: &crate::ProfileSpec,
-    row: BuiltinCommand,
 ) -> Result<&std::ops::RangeInclusive<u8>, Error> {
     let capabilities = profile.capabilities();
     let range =
@@ -780,19 +598,18 @@ fn motion_sync_speed_range(
             .ok_or(Error::FeatureNotSupported {
                 feature: "motion sync",
             })?;
-    validate_static_typed_command(profile, row, "typed motion sync")?;
+
     Ok(range)
 }
 
 fn validate_motion_sync_speed(
     profile: &crate::ProfileSpec,
-    row: BuiltinCommand,
     speed: crate::types::MotionSyncSpeed,
 ) -> Result<(), Error> {
     require_in_range(
         "motion sync speed",
         speed.value(),
-        motion_sync_speed_range(profile, row)?,
+        motion_sync_speed_range(profile)?,
     )
 }
 
@@ -810,7 +627,7 @@ impl BuiltinValidation for crate::command::power::PowerStandby {
 
 impl BuiltinValidation for crate::command::exposure::ExposureCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_exposure_mode(profile, Self::LEDGER_ROW, self.mode)
+        validate_exposure_mode(profile, self.mode)
     }
 }
 
@@ -820,16 +637,11 @@ impl BuiltinValidation for crate::command::exposure::ExposureCompensation {
             Self::SetLevel(level) => Some(level.value()),
             _ => None,
         };
-        validate_exposure_compensation(profile, Self::LEDGER_ROW, value)
+        validate_exposure_compensation(profile, value)
     }
 }
 
-impl BuiltinValidation for crate::command::exposure::DynamicRange {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        require(profile.capabilities().has_exposure, "exposure control")?;
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "wide dynamic range")
-    }
-}
+impl BuiltinValidation for crate::command::exposure::DynamicRange {}
 
 impl BuiltinValidation for crate::command::exposure::Shutter {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
@@ -847,7 +659,6 @@ impl BuiltinValidation for crate::command::exposure::Brightness {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_brightness(
             profile,
-            Self::LEDGER_ROW,
             match self {
                 Self::SetLevel(level) => Some(level.value()),
                 _ => None,
@@ -856,11 +667,7 @@ impl BuiltinValidation for crate::command::exposure::Brightness {
     }
 }
 
-impl BuiltinValidation for crate::command::exposure::AntiFlickerCommand {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "anti-flicker control")
-    }
-}
+impl BuiltinValidation for crate::command::exposure::AntiFlickerCommand {}
 
 impl BuiltinValidation for crate::command::gain::Gain {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
@@ -880,31 +687,23 @@ impl BuiltinValidation for crate::command::gain::GainLimitCommand {
     }
 }
 
-impl BuiltinValidation for crate::command::color::OnePushTriggerCommand {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        let capabilities = profile.capabilities();
-        require(capabilities.has_white_balance, "white balance control")?;
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "one-push white balance")
-    }
-}
+impl BuiltinValidation for crate::command::color::OnePushTriggerCommand {}
 
 impl BuiltinValidation for crate::command::color::RedTuningCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_tuning(profile, Self::LEDGER_ROW, self.level.value(), true)
+        validate_tuning(profile, self.level.value(), true)
     }
 }
 
 impl BuiltinValidation for crate::command::color::BlueTuningCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_tuning(profile, Self::LEDGER_ROW, self.level.value(), false)
+        validate_tuning(profile, self.level.value(), false)
     }
 }
 
 impl BuiltinValidation for crate::command::color::SaturationCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_image_range(
-            profile,
-            Self::LEDGER_ROW,
             "saturation control",
             profile.capabilities().saturation_range.as_ref(),
             self.level.value(),
@@ -915,8 +714,6 @@ impl BuiltinValidation for crate::command::color::SaturationCommand {
 impl BuiltinValidation for crate::command::color::HueCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_image_range(
-            profile,
-            Self::LEDGER_ROW,
             "hue control",
             profile.capabilities().hue_range.as_ref(),
             self.level.value(),
@@ -928,7 +725,6 @@ impl BuiltinValidation for crate::command::color::ColorTemperature {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_color_temperature(
             profile,
-            Self::LEDGER_ROW,
             match self {
                 Self::SetTemperature(value) => Some(*value),
                 _ => None,
@@ -941,7 +737,6 @@ impl BuiltinValidation for crate::command::color::RedGain {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_rgb_gain(
             profile,
-            Self::LEDGER_ROW,
             match self {
                 Self::SetValue(value) => Some(value.value()),
                 _ => None,
@@ -955,7 +750,6 @@ impl BuiltinValidation for crate::command::color::BlueGain {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_rgb_gain(
             profile,
-            Self::LEDGER_ROW,
             match self {
                 Self::SetValue(value) => Some(value.value()),
                 _ => None,
@@ -969,13 +763,11 @@ impl BuiltinValidation for crate::command::image::Sharpness {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         match self {
             Self::SetLevel { value } => validate_image_range(
-                profile,
-                Self::LEDGER_ROW,
                 "sharpness control",
                 profile.capabilities().sharpness_range.as_ref(),
                 value.value(),
             ),
-            _ => validate_image_control(profile, Self::LEDGER_ROW, "sharpness control"),
+            _ => Ok(()),
         }
     }
 }
@@ -983,8 +775,6 @@ impl BuiltinValidation for crate::command::image::Sharpness {
 impl BuiltinValidation for crate::command::image::Luminance {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_image_range(
-            profile,
-            Self::LEDGER_ROW,
             "luminance control",
             profile.capabilities().luminance_range.as_ref(),
             self.value.value(),
@@ -995,8 +785,6 @@ impl BuiltinValidation for crate::command::image::Luminance {
 impl BuiltinValidation for crate::command::image::Contrast {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_image_range(
-            profile,
-            Self::LEDGER_ROW,
             "contrast control",
             profile.capabilities().contrast_range.as_ref(),
             self.value.value(),
@@ -1007,8 +795,6 @@ impl BuiltinValidation for crate::command::image::Contrast {
 impl BuiltinValidation for crate::command::image::GammaCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_image_range(
-            profile,
-            Self::LEDGER_ROW,
             "gamma control",
             profile.capabilities().gamma_range.as_ref(),
             self.level.value(),
@@ -1016,44 +802,15 @@ impl BuiltinValidation for crate::command::image::GammaCommand {
     }
 }
 
-impl BuiltinValidation for crate::command::image::BacklightCommand {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        let capabilities = profile.capabilities();
-        validate_image_control(profile, Self::LEDGER_ROW, "backlight compensation")?;
-        require(capabilities.has_exposure, "exposure control")?;
-        require(capabilities.has_backlight_comp, "backlight compensation")
-    }
-}
+impl BuiltinValidation for crate::command::image::BacklightCommand {}
 
-impl BuiltinValidation for crate::command::image::NoiseReduction2DModeCommand {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        let capabilities = profile.capabilities();
-        require(capabilities.has_2d_nr, "2D noise reduction")?;
-        validate_image_control(profile, Self::LEDGER_ROW, "2D noise reduction mode")
-    }
-}
+impl BuiltinValidation for crate::command::image::NoiseReduction2DModeCommand {}
 
-impl BuiltinValidation for crate::command::image::NoiseReduction2D {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        let capabilities = profile.capabilities();
-        require(capabilities.has_2d_nr, "2D noise reduction")?;
-        validate_image_control(profile, Self::LEDGER_ROW, "2D noise reduction control")
-    }
-}
+impl BuiltinValidation for crate::command::image::NoiseReduction2D {}
 
-impl BuiltinValidation for crate::command::image::NoiseReduction3D {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        let capabilities = profile.capabilities();
-        require(capabilities.has_3d_nr, "3D noise reduction")?;
-        validate_image_control(profile, Self::LEDGER_ROW, "3D noise reduction control")
-    }
-}
+impl BuiltinValidation for crate::command::image::NoiseReduction3D {}
 
 impl BuiltinValidation for crate::command::image::ImageFlipCombinedCommand {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_flip_mode(profile, Self::LEDGER_ROW, self.mode)
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         // The combined opcode carries both axes in one parameter byte, so a
@@ -1066,17 +823,12 @@ impl BuiltinValidation for crate::command::image::ImageFlipCombinedCommand {
     }
 }
 
-impl BuiltinValidation for crate::command::image::PictureEffectCommand {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_image_control(profile, Self::LEDGER_ROW, "picture effect")
-    }
-}
+impl BuiltinValidation for crate::command::image::PictureEffectCommand {}
 
 impl BuiltinValidation for crate::command::focus::FocusZoneCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let capabilities = profile.capabilities();
-        require(capabilities.has_focus, "focus control")?;
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "focus zone")?;
+
         if capabilities.supports_focus_zone(self.zone) {
             Ok(())
         } else {
@@ -1091,19 +843,12 @@ impl BuiltinValidation for crate::command::focus::FocusZoneCommand {
     }
 }
 
-impl BuiltinValidation for crate::command::focus::AutoFocusSensitivityCommand {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        let capabilities = profile.capabilities();
-        require(capabilities.has_focus, "focus control")?;
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "auto-focus sensitivity")
-    }
-}
+impl BuiltinValidation for crate::command::focus::AutoFocusSensitivityCommand {}
 
 impl BuiltinValidation for crate::command::focus::FocusNearLimitCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let capabilities = profile.capabilities();
-        require(capabilities.has_focus, "focus control")?;
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "focus near limit")?;
+
         let value = self.position.value();
         require_in_range("focus near limit", value, &capabilities.focus_range)
     }
@@ -1115,95 +860,43 @@ impl BuiltinValidation for crate::command::white_balance::WhiteBalanceCommand {
     }
 }
 
-impl BuiltinValidation for crate::command::white_balance::AWBSensitivityCommand {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_awb_sensitivity(profile, Self::LEDGER_ROW)
-    }
-}
+impl BuiltinValidation for crate::command::white_balance::AWBSensitivityCommand {}
 
-impl BuiltinValidation for crate::command::menu::SetMenuDisplay {
-    fn validate(&self, _profile: &crate::ProfileSpec) -> Result<(), Error> {
-        Ok(())
-    }
-}
+impl BuiltinValidation for crate::command::menu::SetMenuDisplay {}
 
-impl BuiltinValidation for crate::command::menu::MenuNavigate {
-    fn validate(&self, _profile: &crate::ProfileSpec) -> Result<(), Error> {
-        Ok(())
-    }
-}
+impl BuiltinValidation for crate::command::menu::MenuNavigate {}
 
-impl BuiltinValidation for crate::command::menu::PerformMenuAction {
-    fn validate(&self, _profile: &crate::ProfileSpec) -> Result<(), Error> {
-        Ok(())
-    }
-}
+impl BuiltinValidation for crate::command::menu::PerformMenuAction {}
 
-impl BuiltinValidation for crate::command::menu::DirectMenuControl {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "direct menu control")
-    }
-}
+impl BuiltinValidation for crate::command::menu::DirectMenuControl {}
 
-impl BuiltinValidation for crate::command::streaming::UsbAudio {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_usb_audio_state(profile, Self::LEDGER_ROW)
-    }
-}
+impl BuiltinValidation for crate::command::streaming::UsbAudio {}
 
-impl BuiltinValidation for crate::command::system::SettingsSaveCommand {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "settings save")
-    }
-}
+impl BuiltinValidation for crate::command::system::SettingsSaveCommand {}
 
-impl BuiltinValidation for crate::command::tally::TallyRedOn {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_tally_state(profile, Self::LEDGER_ROW)
-    }
-}
+impl BuiltinValidation for crate::command::tally::TallyRedOn {}
 
-impl BuiltinValidation for crate::command::tally::TallyRedOff {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_tally_state(profile, Self::LEDGER_ROW)
-    }
-}
+impl BuiltinValidation for crate::command::tally::TallyRedOff {}
 
-impl BuiltinValidation for crate::command::tally::TallyGreenOn {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_tally_state(profile, Self::LEDGER_ROW)
-    }
-}
+impl BuiltinValidation for crate::command::tally::TallyGreenOn {}
 
-impl BuiltinValidation for crate::command::tally::TallyGreenOff {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_tally_state(profile, Self::LEDGER_ROW)
-    }
-}
+impl BuiltinValidation for crate::command::tally::TallyGreenOff {}
 
 impl BuiltinValidation for crate::command::motion_sync::SetMotionSyncMode {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        motion_sync_speed_range(profile, Self::LEDGER_ROW).map(|_| ())
+        motion_sync_speed_range(profile).map(|_| ())
     }
 }
 
 impl BuiltinValidation for crate::command::motion_sync::SetMotionSyncPreset {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_motion_sync_speed(profile, Self::LEDGER_ROW, self.speed())
+        validate_motion_sync_speed(profile, self.speed())
     }
 }
 
-impl BuiltinValidation for crate::command::system::AddressSetCommand {
-    fn validate(&self, _profile: &crate::ProfileSpec) -> Result<(), Error> {
-        Ok(())
-    }
-}
+impl BuiltinValidation for crate::command::system::AddressSetCommand {}
 
-impl BuiltinValidation for crate::command::system::InterfaceClearCommand {
-    fn validate(&self, _profile: &crate::ProfileSpec) -> Result<(), Error> {
-        Ok(())
-    }
-}
+impl BuiltinValidation for crate::command::system::InterfaceClearCommand {}
 
 impl BuiltinValidation for crate::command::system::CommandCancelCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
@@ -1215,10 +908,6 @@ impl BuiltinValidation for crate::command::system::CommandCancelCommand {
 }
 
 impl BuiltinValidation for ImageFlipCommand {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_separate_flip(profile, Self::LEDGER_ROW, "vertical image flip")
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         // This opcode moves only the vertical axis. The horizontal axis keeps
@@ -1229,10 +918,6 @@ impl BuiltinValidation for ImageFlipCommand {
 }
 
 impl BuiltinValidation for ImageMirrorCommand {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_separate_flip(profile, Self::LEDGER_ROW, "horizontal image mirror")
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         // The mirror opcode is the horizontal twin of `ImageFlipCommand` and
@@ -1570,11 +1255,8 @@ const fn assert_row_served_by<T: BuiltinRequestContract>(row: BuiltinCommand) {
          that is not a `by_value` row",
     );
     assert!(
-        same_typed_gate(
-            typed_surface_for_command(row),
-            typed_surface_for_command(T::LEDGER_ROW),
-        ),
-        "a typed request serves ledger rows with different typed capability gates",
+        row_gate(row).same_as(row_gate(T::LEDGER_ROW)),
+        "a typed request serves ledger rows with different capability gates",
     );
 }
 
@@ -1594,17 +1276,6 @@ const fn assert_value_selects_row<T: BuiltinRequestContract>(
         selected as usize == row as usize,
         "a `by_value` noun row sends a value whose ledger row is a different row",
     );
-}
-
-const fn same_typed_gate(
-    left: Option<crate::capabilities::TypedSupportSet>,
-    right: Option<crate::capabilities::TypedSupportSet>,
-) -> bool {
-    match (left, right) {
-        (None, None) => true,
-        (Some(left), Some(right)) => left.contains_all(right) && right.contains_all(left),
-        (None, Some(_)) | (Some(_), None) => false,
-    }
 }
 
 /// Generates the typed-request inventory from the noun table.
@@ -1891,7 +1562,6 @@ impl PanTiltLimitClear {
         corner: PanTiltLimitCorner,
         profile: &crate::ProfileSpec,
     ) -> Result<Self, Error> {
-        validate_pan_tilt(profile)?;
         let conversion = profile
             .pan_tilt_coordinates()
             .ok_or(Error::FeatureNotSupported {
@@ -2389,17 +2059,9 @@ builtin_request! {
     };
 }
 
-impl BuiltinValidation for PanTiltHome {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_pan_tilt(profile)
-    }
-}
+impl BuiltinValidation for PanTiltHome {}
 
-impl BuiltinValidation for PanTiltReset {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_pan_tilt(profile)
-    }
-}
+impl BuiltinValidation for PanTiltReset {}
 
 impl BuiltinValidation for PanTiltDrive {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
@@ -2447,7 +2109,6 @@ impl BuiltinValidation for PanTiltLimitSet {
 
 impl BuiltinValidation for PanTiltLimitClear {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_pan_tilt(profile)?;
         if profile
             .pan_tilt_coordinates()
             .is_none_or(|conversion| conversion.wire_codec() != self.wire_codec)
@@ -2468,8 +2129,7 @@ impl BuiltinValidation for PanTiltLimitClear {
 impl BuiltinValidation for ZoomTarget {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let capabilities = profile.capabilities();
-        require(capabilities.has_zoom, "zoom control")?;
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "direct zoom positioning")?;
+
         if matches!(self.1, Some(crate::ZoomDomain::OpticalPlusDigital)) {
             require(
                 capabilities.permits_typed(TypedSupportSurface::DigitalZoomRange),
@@ -2492,7 +2152,7 @@ impl BuiltinValidation for ZoomTarget {
 impl BuiltinValidation for ZoomDrive {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let capabilities = profile.capabilities();
-        require(capabilities.has_zoom, "zoom control")?;
+
         let speed = match self {
             Self::Tele | Self::Wide => return Ok(()),
             Self::TeleVariable(speed) | Self::WideVariable(speed) => speed.value(),
@@ -2502,30 +2162,22 @@ impl BuiltinValidation for ZoomDrive {
     }
 }
 
-impl BuiltinValidation for ZoomStop {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        require(profile.capabilities().has_zoom, "zoom control")
-    }
-}
+impl BuiltinValidation for ZoomStop {}
 
 impl BuiltinValidation for FocusTarget {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let capabilities = profile.capabilities();
-        require(capabilities.has_focus, "focus control")?;
+
         require_in_range("focus position", self.0.value(), &capabilities.focus_range)
     }
 }
 
-impl BuiltinValidation for FocusInfinity {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        require(profile.capabilities().has_focus, "focus control")
-    }
-}
+impl BuiltinValidation for FocusInfinity {}
 
 impl BuiltinValidation for FocusDrive {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let capabilities = profile.capabilities();
-        require(capabilities.has_focus, "focus control")?;
+
         let speed = match self {
             Self::Far | Self::Near => return Ok(()),
             Self::FarVariable(speed) | Self::NearVariable(speed) => speed.value(),
@@ -2534,28 +2186,14 @@ impl BuiltinValidation for FocusDrive {
     }
 }
 
-impl BuiltinValidation for FocusStop {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        require(profile.capabilities().has_focus, "focus control")
-    }
-}
+impl BuiltinValidation for FocusStop {}
 
-impl BuiltinValidation for FocusTrigger {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        let capabilities = profile.capabilities();
-        require(capabilities.has_focus, "focus control")?;
-        let feature = match self {
-            Self::OnePush => "one-push focus",
-            Self::Snap => "snap focus",
-        };
-        validate_static_typed_command(profile, self.ledger_row(), feature)
-    }
-}
+impl BuiltinValidation for FocusTrigger {}
 
 impl BuiltinValidation for FocusModeCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         let capabilities = profile.capabilities();
-        require(capabilities.has_focus, "focus control")?;
+
         if matches!(self, Self::Auto | Self::Toggle) {
             require(capabilities.has_auto_focus, "automatic focus")?;
         }
@@ -2563,27 +2201,14 @@ impl BuiltinValidation for FocusModeCommand {
     }
 }
 
-impl BuiltinValidation for IrisReset {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_iris_control(profile, Self::LEDGER_ROW)
-    }
-}
+impl BuiltinValidation for IrisReset {}
 
-impl BuiltinValidation for IrisUp {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_iris_control(profile, Self::LEDGER_ROW)
-    }
-}
+impl BuiltinValidation for IrisUp {}
 
-impl BuiltinValidation for IrisDown {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_iris_control(profile, Self::LEDGER_ROW)
-    }
-}
+impl BuiltinValidation for IrisDown {}
 
 impl BuiltinValidation for IrisDirect {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_iris_control(profile, Self::LEDGER_ROW)?;
         let range =
             profile
                 .capabilities()
@@ -2598,7 +2223,6 @@ impl BuiltinValidation for IrisDirect {
 
 impl BuiltinValidation for NdFilterDirect {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_nd_filter_control(profile, Self::LEDGER_ROW)?;
         if !matches!(
             profile.capabilities().nd_filter_mode,
             crate::capabilities::NdFilterMode::Variable
@@ -2621,35 +2245,23 @@ impl BuiltinValidation for NdFilterDirect {
 
 impl BuiltinValidation for NdFilterStepUp {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_nd_filter_step(profile, Self::LEDGER_ROW)
+        validate_nd_filter_step(profile)
     }
 }
 
 impl BuiltinValidation for NdFilterStepDown {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_nd_filter_step(profile, Self::LEDGER_ROW)
+        validate_nd_filter_step(profile)
     }
 }
 
-impl BuiltinValidation for PushAfPress {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        let capabilities = profile.capabilities();
-        require(capabilities.has_focus, "focus control")?;
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "push autofocus")
-    }
-}
+impl BuiltinValidation for PushAfPress {}
 
-impl BuiltinValidation for PushAfRelease {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        let capabilities = profile.capabilities();
-        require(capabilities.has_focus, "focus control")?;
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "push autofocus")
-    }
-}
+impl BuiltinValidation for PushAfRelease {}
 
 fn validate_preset(profile: &crate::ProfileSpec, preset: PresetNumber) -> Result<(), Error> {
     let capabilities = profile.capabilities();
-    require(capabilities.has_presets, "preset control")?;
+
     require_in_range(
         "preset number",
         preset.value(),
@@ -2684,9 +2296,8 @@ impl BuiltinValidation for PresetReset {
 
 impl BuiltinValidation for crate::command::preset::PresetRecallSpeedCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "preset recall speed")?;
         let capabilities = profile.capabilities();
-        require(capabilities.has_presets, "preset control")?;
+
         let speed = self.speed.value();
         let range = capabilities
             .preset_speed_range
@@ -2704,12 +2315,6 @@ impl BuiltinValidation for crate::command::preset::PresetRecallSpeedCommand {
 }
 
 impl BuiltinValidation for crate::command::focus::FocusLock {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        let capabilities = profile.capabilities();
-        require(capabilities.has_focus, "focus lock")?;
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "typed focus lock")
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(matches!(self, Self::On))
@@ -2717,10 +2322,6 @@ impl BuiltinValidation for crate::command::focus::FocusLock {
 }
 
 impl BuiltinValidation for crate::command::exposure::SpotlightOn {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "spotlight control")
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(true)
@@ -2728,10 +2329,6 @@ impl BuiltinValidation for crate::command::exposure::SpotlightOn {
 }
 
 impl BuiltinValidation for crate::command::exposure::SpotlightOff {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "spotlight control")
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(false)
@@ -2739,10 +2336,6 @@ impl BuiltinValidation for crate::command::exposure::SpotlightOff {
 }
 
 impl BuiltinValidation for crate::command::exposure::AutoSlowShutterOn {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "auto slow shutter control")
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(true)
@@ -2750,10 +2343,6 @@ impl BuiltinValidation for crate::command::exposure::AutoSlowShutterOn {
 }
 
 impl BuiltinValidation for crate::command::exposure::AutoSlowShutterOff {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "auto slow shutter control")
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(false)
@@ -2762,7 +2351,7 @@ impl BuiltinValidation for crate::command::exposure::AutoSlowShutterOff {
 
 impl BuiltinValidation for crate::command::nd_filter::NdFilterModeCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_variable_nd_filter_control(profile, Self::LEDGER_ROW)
+        validate_variable_nd_filter_control(profile)
     }
 
     #[cfg(any(feature = "blocking", feature = "async"))]
@@ -2776,7 +2365,7 @@ impl BuiltinValidation for crate::command::nd_filter::NdFilterModeCommand {
 
 impl BuiltinValidation for crate::command::nd_filter::AutoNdCommand {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_variable_nd_filter_control(profile, Self::LEDGER_ROW)
+        validate_variable_nd_filter_control(profile)
     }
 
     #[cfg(any(feature = "blocking", feature = "async"))]
@@ -2786,15 +2375,6 @@ impl BuiltinValidation for crate::command::nd_filter::AutoNdCommand {
 }
 
 impl BuiltinValidation for crate::command::flip::ImageFreeze {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        let command = if self.enabled() {
-            BuiltinCommand::ImageFreezeOn
-        } else {
-            BuiltinCommand::ImageFreezeOff
-        };
-        validate_static_typed_command(profile, command, "validated image-freeze command")
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(self.enabled())
@@ -2802,13 +2382,6 @@ impl BuiltinValidation for crate::command::flip::ImageFreeze {
 }
 
 impl BuiltinValidation for crate::command::zoom::DigitalZoom {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        let capabilities = profile.capabilities();
-        require(capabilities.has_zoom, "zoom control")?;
-        require(capabilities.zoom_range_digital.is_some(), "digital zoom")?;
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "typed digital zoom toggle")
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(self.enabled())
@@ -2816,14 +2389,6 @@ impl BuiltinValidation for crate::command::zoom::DigitalZoom {
 }
 
 impl BuiltinValidation for crate::command::streaming::MulticastStreaming {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        let command = match self {
-            Self::On => BuiltinCommand::MulticastStreamingOn,
-            Self::Off => BuiltinCommand::MulticastStreamingOff,
-        };
-        validate_static_typed_command(profile, command, "multicast streaming")
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(matches!(self, Self::On))
@@ -2831,10 +2396,6 @@ impl BuiltinValidation for crate::command::streaming::MulticastStreaming {
 }
 
 impl BuiltinValidation for crate::command::streaming::SetNdiQuality {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "NDI quality control")
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         let value = match self.quality {
@@ -2848,14 +2409,6 @@ impl BuiltinValidation for crate::command::streaming::SetNdiQuality {
 }
 
 impl BuiltinValidation for crate::command::tally::TallyBrightLo {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_static_typed_command(
-            profile,
-            Self::LEDGER_ROW,
-            "validated tally-brightness command",
-        )
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         scalar_projection::<Self>(0)
@@ -2863,14 +2416,6 @@ impl BuiltinValidation for crate::command::tally::TallyBrightLo {
 }
 
 impl BuiltinValidation for crate::command::tally::TallyBrightHi {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_static_typed_command(
-            profile,
-            Self::LEDGER_ROW,
-            "validated tally-brightness command",
-        )
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         scalar_projection::<Self>(1)
@@ -2878,13 +2423,6 @@ impl BuiltinValidation for crate::command::tally::TallyBrightHi {
 }
 
 impl BuiltinValidation for crate::command::variable_speed::SetVariableSpeedMode {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        let capabilities = profile.capabilities();
-        require(capabilities.has_pan_tilt, "pan/tilt control")?;
-        require(capabilities.has_variable_speed, "variable speed mode")?;
-        validate_static_typed_command(profile, Self::LEDGER_ROW, "typed variable speed mode")
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         let value = match self.mode {
@@ -2896,14 +2434,6 @@ impl BuiltinValidation for crate::command::variable_speed::SetVariableSpeedMode 
 }
 
 impl BuiltinValidation for crate::command::tally::TallyOn {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_static_typed_command(
-            profile,
-            Self::LEDGER_ROW,
-            "validated PTZOptics tally-mode command",
-        )
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(true)
@@ -2911,14 +2441,6 @@ impl BuiltinValidation for crate::command::tally::TallyOn {
 }
 
 impl BuiltinValidation for crate::command::tally::TallyOff {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_static_typed_command(
-            profile,
-            Self::LEDGER_ROW,
-            "validated PTZOptics tally-mode command",
-        )
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         bool_projection::<Self>(false)
@@ -2926,14 +2448,6 @@ impl BuiltinValidation for crate::command::tally::TallyOff {
 }
 
 impl BuiltinValidation for crate::command::tally::TallyFlash {
-    fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_static_typed_command(
-            profile,
-            Self::LEDGER_ROW,
-            "validated PTZOptics tally-mode command",
-        )
-    }
-
     #[cfg(any(feature = "blocking", feature = "async"))]
     fn applied_state(&self) -> Option<crate::runtime::engine::AppliedStateProjection> {
         state_projection::<Self>(&[])
@@ -3298,11 +2812,7 @@ mod tests {
                 let result = WhiteBalanceCommand::new(mode).validate_for_profile(&profile);
                 if mode == denied {
                     assert!(
-                        matches!(
-                            result,
-                            Err(Error::FeatureNotSupported { feature: reported })
-                                if reported == feature
-                        ),
+                        matches!(result, Err(Error::FeatureNotSupported { .. })),
                         "{mode:?} without {surface:?} must report {feature:?}, got {result:?}"
                     );
                 } else {

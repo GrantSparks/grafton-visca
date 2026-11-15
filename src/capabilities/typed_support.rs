@@ -226,7 +226,8 @@ impl fmt::Debug for TypedSupportSet {
 
 /// Profile contract for runtime typed API permission discovery.
 ///
-/// Custom profiles must keep this set in sync with optional marker trait impls.
+/// Static typed noun methods prove at compile time that each marker has its
+/// corresponding bit. A bit without a marker widens only the erased surface.
 /// Built-in profiles derive both marker impls and this set from the same
 /// registry entry.
 pub trait ProfileTypedSupport {
