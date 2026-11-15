@@ -1076,6 +1076,7 @@ pub use state_cache::StateCache;
 pub use state_cache::{PanTiltLimitUpdate, StateEntry, StateKey, StateValue};
 
 mod session_config;
+mod target;
 pub use session_config::{SessionConfig, DEFAULT_ADMISSION_CAPACITY};
 
 mod outcome;
