@@ -13,8 +13,10 @@ The following boundaries are release gates:
   path.
 * Standard payloads remain in inline storage; a command does not allocate once
   merely because it is prepared for a target.
-* Raw and Sony receive decoding borrows each frame and recycles bounded batch
-  storage without allocating after warm-up, for both stream and datagram reads.
+* Successful raw and Sony receive decoding for standard payloads that fit
+  inline storage borrows each frame and recycles bounded batch storage without
+  allocating after warm-up, for both stream and datagram reads. Larger custom
+  data replies and detailed malformed-frame errors can allocate owned payloads.
 * One immutable wire authority adds one shared allocation at session construction.
   Raw write plans
   copy their encoder; Sony plans clone the existing allocator handle. Neither

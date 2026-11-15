@@ -3830,8 +3830,9 @@ impl ProtocolEngine {
 
     /// Holds the socket a disputed ACK names, since one of its two
     /// `candidates` executes there, for the longer of their completion
-    /// deadlines (a candidate still being written counts: its answer may
-    /// overtake its write result). Like an owed command's hold, evidence
+    /// windows. The write-first input contract ensures each candidate's write
+    /// result is already known when this ACK is processed. Like an owed
+    /// command's hold, evidence
     /// releases it: a completion or error naming the socket, or another ACK
     /// naming it.
     fn hold_disputed_command_socket(
