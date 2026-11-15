@@ -131,6 +131,7 @@ impl PreparedWire {
 pub(crate) struct PreparedInquiryTemplate<R> {
     wire: Arc<EncodedMessage>,
     context: RequestContext,
+    payload_shape: crate::PayloadShape,
     decoder: ResponseDecoder<R>,
 }
 
@@ -139,6 +140,7 @@ impl<R> PreparedInquiryTemplate<R> {
         PreparedInquiry {
             wire: PreparedWire::Shared(Arc::clone(&self.wire)),
             context: self.context,
+            payload_shape: self.payload_shape,
             decoder: self.decoder.clone(),
         }
     }
@@ -479,6 +481,7 @@ pub(crate) struct PreparedCommand {
 pub(crate) struct PreparedInquiry<R> {
     wire: PreparedWire,
     context: RequestContext,
+    payload_shape: crate::PayloadShape,
     decoder: ResponseDecoder<R>,
 }
 
@@ -643,6 +646,7 @@ where
     Ok(PreparedInquiry {
         wire,
         context,
+        payload_shape: inquiry.payload_shape_for_profile(profile),
         decoder: inquiry.decoder_for_profile(profile),
     })
 }
@@ -1058,6 +1062,7 @@ impl<R> PreparedInquiry<R> {
         PreparedInquiryTemplate {
             wire: self.wire.into_shared(),
             context: self.context,
+            payload_shape: self.payload_shape,
             decoder: self.decoder,
         }
     }
@@ -1070,6 +1075,7 @@ impl<R> PreparedInquiry<R> {
         let request = RuntimeRequest::Inquiry {
             wire: self.wire.into_shared(),
             context: self.context,
+            payload_shape: self.payload_shape,
         };
         admit(request, self.decoder, timeout)
     }
@@ -1233,6 +1239,89 @@ mod tests {
         PositionInquirySupport, PresetNumber, ProfileEnvelope, ProfileTiming,
         TransportCompatibility,
     };
+
+    #[test]
+    fn profile_payload_shape_is_selected_once_and_retained_through_templates_and_admission() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct ProfileSelectedInquiry(AtomicUsize);
+        impl Request for ProfileSelectedInquiry {
+            type Class = crate::request::Inquiry;
+            const MAX_SIZE: usize = 5;
+            const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
+            const RETRY_CLASS: RetryClass = RetryClass::Never;
+            const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+            fn write_into(&self, target: crate::CameraId, buffer: &mut [u8]) -> Result<usize> {
+                let available = buffer.len();
+                let frame = buffer
+                    .get_mut(..5)
+                    .ok_or_else(|| Error::buffer_too_small(5, available))?;
+                frame.copy_from_slice(&[target.to_address_byte(), 0x09, 0x04, 0x99, 0xFF]);
+                Ok(5)
+            }
+        }
+        impl Inquiry for ProfileSelectedInquiry {
+            type Response = usize;
+            fn payload_shape(&self) -> crate::PayloadShape {
+                crate::PayloadShape::Bytes(1)
+            }
+            fn payload_shape_for_profile(&self, _: &ProfileSpec) -> crate::PayloadShape {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                crate::PayloadShape::Nibbles(4)
+            }
+            fn decoder(&self) -> ResponseDecoder<usize> {
+                ResponseDecoder::from_fn(|payload| {
+                    if crate::PayloadShape::Bytes(1).admits(payload) {
+                        Ok(payload.len())
+                    } else {
+                        Err(Error::InvalidResponseFormat)
+                    }
+                })
+            }
+            fn decoder_for_profile(&self, _: &ProfileSpec) -> ResponseDecoder<usize> {
+                ResponseDecoder::from_fn(|payload| {
+                    if crate::PayloadShape::Nibbles(4).admits(payload) {
+                        Ok(payload.len())
+                    } else {
+                        Err(Error::InvalidResponseFormat)
+                    }
+                })
+            }
+        }
+        let query = ProfileSelectedInquiry(AtomicUsize::new(0));
+        let profile =
+            ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().expect("profile");
+        let registration =
+            crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile).expect("target");
+        let prepared = prepare_inquiry(
+            &query,
+            &registration,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("prepare");
+        assert_eq!(query.payload_shape(), crate::PayloadShape::Bytes(1));
+        assert_eq!(prepared.payload_shape, crate::PayloadShape::Nibbles(4));
+        assert_eq!(query.0.load(Ordering::Relaxed), 1);
+        let template = prepared.into_template();
+        for template in [template.clone(), template] {
+            template.instantiate().admit_with(|request, decoder, _| {
+                assert!(matches!(
+                    request,
+                    RuntimeRequest::Inquiry {
+                        payload_shape: crate::PayloadShape::Nibbles(4),
+                        ..
+                    }
+                ));
+                assert_eq!(decoder.decode(&[0, 1, 14, 15]).expect("profile decoder"), 4);
+                assert!(decoder.decode(&[0]).is_err());
+            });
+        }
+        assert_eq!(
+            query.0.load(Ordering::Relaxed),
+            1,
+            "instantiation and admission reuse the selected evidence"
+        );
+    }
 
     std::thread_local! {
         static WRITE_COUNT: Cell<usize> = const { Cell::new(0) };
@@ -2203,6 +2292,7 @@ mod tests {
         PositionQuery::new(PreparedInquiryTemplate {
             wire: template.wire,
             context: template.context,
+            payload_shape: template.payload_shape,
             decoder: ResponseDecoder::from_fn(|_| Err(Error::InvalidResponseFormat)),
         })
     }
@@ -2349,6 +2439,7 @@ mod tests {
                 PositionQuery::new(PreparedInquiryTemplate {
                     wire: Arc::new(EncodedMessage::new(&[0x81, 0x09, 0xff]).expect("inert wire")),
                     context,
+                    payload_shape: crate::PayloadShape::Unknown,
                     decoder: ResponseDecoder::from_fn(|_| Err(Error::InvalidResponseFormat)),
                 })
             }

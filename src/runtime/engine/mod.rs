@@ -4,10 +4,14 @@
 //! retry, correlation, and protocol cancellation. It performs no I/O and knows
 //! nothing about channels, executors, facade cameras, or observers.
 
+mod inquiry_shape;
 mod lifecycle;
 mod stream_ledger;
 pub(crate) use lifecycle::*;
 mod types;
+
+use inquiry_shape::InquiryShapes;
+pub(crate) use inquiry_shape::MAX_RAW_INQUIRY_SHAPE_CLASSES_PER_TARGET;
 
 use stream_ledger::{
     Answer, Answered, Evidence, LaneState, NamedFrame, Outstanding, Owes, Resolved, Retro,
@@ -28,7 +32,7 @@ use smallvec::SmallVec;
 
 use crate::protocol::framer::RawIncompletePrefix;
 use crate::target::{PerTarget, TargetSlot};
-use crate::{Certainty, Error, FailureContext, FailureStage, ViscaSocket};
+use crate::{Certainty, Error, FailureContext, FailureStage, PayloadShape, ViscaSocket};
 
 mod decision;
 mod entry_table;
@@ -70,25 +74,27 @@ struct TransmissionOwner {
 ///
 /// Every bounded quarantine is keyed through this vocabulary. `Socket` is an
 /// exact command-completion identity, `PreAck` is the target-local positional
-/// command slot, `InquiryUnkeyed` is target/data-only inquiry correlation, and
+/// command slot, `Inquiry(shape)` retains the exact inquiry declaration, and
 /// `AllResponses` is the broad hold left by a command that never earned a wire
 /// identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RawHoldScope {
     Socket(ViscaSocket),
     PreAck,
-    InquiryUnkeyed,
+    Inquiry(PayloadShape),
     AllResponses,
 }
 
 impl RawHoldScope {
-    const fn order(self) -> u8 {
+    const fn order(self) -> (u8, usize) {
         match self {
-            Self::Socket(ViscaSocket::S1) => 0,
-            Self::Socket(ViscaSocket::S2) => 1,
-            Self::PreAck => 2,
-            Self::InquiryUnkeyed => 3,
-            Self::AllResponses => 4,
+            Self::Socket(ViscaSocket::S1) => (0, 0),
+            Self::Socket(ViscaSocket::S2) => (1, 0),
+            Self::PreAck => (2, 0),
+            Self::Inquiry(PayloadShape::Unknown) => (3, 0),
+            Self::Inquiry(PayloadShape::Bytes(length)) => (4, length),
+            Self::Inquiry(PayloadShape::Nibbles(length)) => (5, length),
+            Self::AllResponses => (6, 0),
         }
     }
 }
@@ -924,6 +930,27 @@ impl ProtocolEngine {
             });
             return;
         };
+        if let Some(shape) = request
+            .payload_shape()
+            .filter(|_| self.policy.wire.kind() == EnvelopeKind::Raw)
+        {
+            let available = self
+                .tracked_inquiry_shapes(context.target)
+                .is_ok_and(|tracked| {
+                    tracked.contains(shape)
+                        || tracked.len() < MAX_RAW_INQUIRY_SHAPE_CLASSES_PER_TARGET
+                });
+            if !available {
+                effects.push(Effect::AdmissionRejected {
+                    ticket,
+                    error: Error::inquiry_shape_capacity_exhausted(
+                        context.target.camera(),
+                        MAX_RAW_INQUIRY_SHAPE_CLASSES_PER_TARGET,
+                    ),
+                });
+                return;
+            }
+        }
         if let Some(error) = self.latched_raw_lane_error(&request) {
             effects.push(Effect::AdmissionRejected { ticket, error });
             return;
@@ -1153,7 +1180,11 @@ impl ProtocolEngine {
                 self.raw_hold_blocks_dispatch(entry, target)
                     || self.inquiries_inflight_for(target) >= self.policy.inquiry_capacity
                     || self.uncorrelated_raw_shape_blocked(entry, target)
-                    || self.ledger.lane_state(target, Lane::Inquiry) != LaneState::Clear
+                    || (self.policy.wire.kind() == EnvelopeKind::Raw
+                        && entry.request.payload_shape().is_some_and(|shape| {
+                            self.overlapping_raw_inquiry_inflight(target, shape)
+                                || self.ledger.inquiry_state(target, shape) != LaneState::Clear
+                        }))
                     || self.ledger.forbids_crossing(target)
             }
             Lane::Command => {
@@ -1362,6 +1393,63 @@ impl ProtocolEngine {
     /// the narrow inquiry skew blocks only another inquiry. A second `NoReply`
     /// consumes no response at all, so it can safely write and extend a broad
     /// hold.
+    fn raw_inquiry_holds(
+        &self,
+        target: TargetSlot,
+    ) -> impl Iterator<Item = (PayloadShape, RawHold)> + '_ {
+        self.holds
+            .iter()
+            .filter_map(move |(key, hold)| match key.scope {
+                RawHoldScope::Inquiry(shape) if key.target == target => Some((shape, *hold)),
+                _ => None,
+            })
+    }
+
+    fn raw_inquiry_hold_deadline(
+        &self,
+        target: TargetSlot,
+        shape: PayloadShape,
+    ) -> Option<Instant> {
+        self.raw_inquiry_holds(target)
+            .filter(|(held, _)| held.overlaps(shape))
+            .map(|(_, hold)| hold.until)
+            .max()
+    }
+
+    /// Derives the exact reservation union at this instant. Queued inquiries
+    /// reserve their declaration without excluding disjoint wire scheduling;
+    /// retired requests retain it through their debt or reply-skew hold.
+    fn tracked_inquiry_shapes(&self, target: TargetSlot) -> Result<InquiryShapes, Box<str>> {
+        let mut shapes = InquiryShapes::default();
+        let admitted = self
+            .entries
+            .values()
+            .filter(|entry| entry.request.context().target == target)
+            .filter_map(|entry| entry.request.payload_shape());
+        let owed = self.ledger.inquiry_shapes(target);
+        let held = self.raw_inquiry_holds(target).map(|(shape, _)| shape);
+        for shape in admitted.chain(owed).chain(held) {
+            if !shapes.try_insert(shape) {
+                return Err("raw inquiry declaration reservation exceeds its bound".into());
+            }
+        }
+        Ok(shapes)
+    }
+
+    fn overlapping_raw_inquiry_inflight(&self, target: TargetSlot, shape: PayloadShape) -> bool {
+        self.entries.values().any(|entry| {
+            entry.request.context().target == target
+                && entry
+                    .request
+                    .payload_shape()
+                    .is_some_and(|live| live.overlaps(shape))
+                && matches!(
+                    entry.lifecycle().phase(),
+                    Phase::Sending { .. } | Phase::AwaitingReply { .. }
+                )
+        })
+    }
+
     fn raw_hold_blocks_dispatch(&self, entry: &Entry, target: TargetSlot) -> bool {
         self.raw_hold_dispatch_deadline_for(entry, target).is_some()
     }
@@ -1383,10 +1471,8 @@ impl ProtocolEngine {
         // ordinary or urgent command (#712).
         let inquiry_unkeyed = entry
             .request
-            .is_inquiry()
-            .then(|| self.raw_hold(target, RawHoldScope::InquiryUnkeyed))
-            .flatten()
-            .map(|hold| hold.until);
+            .payload_shape()
+            .and_then(|shape| self.raw_inquiry_hold_deadline(target, shape));
         let pre_ack = (entry.reply_family() != SendingReply::Inquiry
             && !self.raw_preack_hold_bypass_available(entry, target))
         .then(|| self.raw_hold(target, RawHoldScope::PreAck))
@@ -1460,9 +1546,7 @@ impl ProtocolEngine {
             return false;
         }
         self.raw_hold(target, RawHoldScope::AllResponses).is_some()
-            || self
-                .raw_hold(target, RawHoldScope::InquiryUnkeyed)
-                .is_some()
+            || self.raw_inquiry_holds(target).next().is_some()
     }
 
     /// Raw VISCA has no request identity before the camera assigns a socket.
@@ -1801,10 +1885,10 @@ impl ProtocolEngine {
             // recovery mode).
             self.terminate_unconfirmed_raw(owner.request, now, effects);
         } else {
-            // A raw single-flight inquiry can be physically uncertain while
+            // A raw inquiry can be physically uncertain while
             // its write result is still pending too. Retain the same bounded
-            // target hold before normal terminal cleanup so a delayed reply
-            // cannot bind to its same-target successor. A successful stream
+            // shape hold before normal terminal cleanup so a delayed reply
+            // cannot bind to an overlapping successor. A successful stream
             // write proves the bytes entered the stream, so there the reply
             // is owed instead (`retire_stream_answers`).
             if !(written && self.raw_stream()) {
@@ -1868,13 +1952,7 @@ impl ProtocolEngine {
         match owner.kind {
             CorrelationKind::Request => {
                 let context = *entry.request.context();
-                let Lifecycle::Sending {
-                    transmission,
-                    attempt,
-                    reply,
-                    ..
-                } = lifecycle
-                else {
+                let Lifecycle::Sending { attempt, reply, .. } = lifecycle else {
                     effects.push(Effect::Ignored(
                         IgnoreReason::IncompatibleTransmissionResult,
                     ));
@@ -1885,7 +1963,6 @@ impl ProtocolEngine {
                         self.transition(
                             owner.request,
                             Lifecycle::AwaitingReply {
-                                send_order: transmission,
                                 sent_at: now,
                                 deadline: add_duration(now, context.timeout.inquiry.get()),
                                 attempt,
@@ -2215,6 +2292,11 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::SessionNotRunning));
             return;
         }
+        let unmatched = if self.raw_reply_shape_mismatch(&frame) {
+            IgnoreReason::ReplyShapeMismatch
+        } else {
+            IgnoreReason::UnmatchedFrame
+        };
         // Sony transport-control replies are observable protocol diagnostics,
         // never VISCA request-correlation evidence.
         if matches!(frame.response, DecodedResponse::SonyControl { .. }) {
@@ -2233,7 +2315,7 @@ impl ProtocolEngine {
             && !self.raw_stream()
             && self.raw_held_response(&frame)
         {
-            effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+            effects.push(Effect::Ignored(unmatched));
             return;
         }
         let resolved = if let Some(sequence) = frame.sequence {
@@ -2262,7 +2344,7 @@ impl ProtocolEngine {
         };
         self.apply_retro(now, effects);
         let Some((id, correlation_kind)) = resolved else {
-            effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+            effects.push(Effect::Ignored(unmatched));
             return;
         };
         let compatible_target = self
@@ -2341,9 +2423,7 @@ impl ProtocolEngine {
                 _ => false,
             };
         }
-        let inquiry_unkeyed = self
-            .raw_hold(target, RawHoldScope::InquiryUnkeyed)
-            .is_some();
+        let inquiry_unkeyed = self.raw_inquiry_holds(target).next().is_some();
         let pre_ack = self.raw_hold(target, RawHoldScope::PreAck).is_some();
         let any_socket = self.raw_socket_hold_count(target) != 0;
         match &frame.response {
@@ -2355,11 +2435,13 @@ impl ProtocolEngine {
             }
             // An inquiry reply is target/data-correlated and a socketless error
             // has no command/inquiry discriminator, so both remain inert.
-            DecodedResponse::InquiryReply { .. } => inquiry_unkeyed,
+            DecodedResponse::InquiryReply { payload } => self
+                .raw_inquiry_holds(target)
+                .any(|(shape, _)| shape.admits(payload)),
             DecodedResponse::Error { socket: None, .. } => inquiry_unkeyed || pre_ack || any_socket,
             // A named terminal is safe only when the exact socket is still
             // owned. An unowned named frame must not fall through to any
-            // successor or inquiry FIFO while this hold is active.
+            // successor inquiry while this hold is active.
             DecodedResponse::Completion {
                 socket: Some(socket),
             }
@@ -2406,12 +2488,12 @@ impl ProtocolEngine {
                     .sole_socket_holder(target)
                     .or_else(|| self.completion_only_candidate(target)),
             },
-            DecodedResponse::InquiryReply { .. } => self.raw_inquiry_front(target),
+            DecodedResponse::InquiryReply { payload } => self.raw_inquiry_matching(target, payload),
             DecodedResponse::Error { socket, code } => {
                 if let Some(socket) = socket {
                     return self.resolve_raw_named_error(target, *socket, *code);
                 }
-                let inquiry_owner = self.raw_inquiry_front(target);
+                let inquiry_owner = self.sole_raw_inquiry(target);
                 let inquiry_live = inquiry_owner.is_some() || self.raw_inquiry_inflight(target);
                 if self.raw_command_unacknowledged(target) {
                     // A socketless error can identify a command only when it
@@ -2483,26 +2565,74 @@ impl ProtocolEngine {
         self.unique_raw_command_candidate(target)
     }
 
-    fn raw_inquiry_front(&self, target: TargetSlot) -> Option<RequestId> {
-        self.entries
-            .active_entries()
-            .filter_map(|(id, entry)| {
-                if entry.request.context().target != target {
-                    return None;
-                }
-                match entry.lifecycle() {
-                    Lifecycle::AwaitingReply { send_order, .. } => Some((send_order, *id)),
-                    _ => None,
-                }
+    fn sole_raw_inquiry(&self, target: TargetSlot) -> Option<RequestId> {
+        let mut candidates = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| {
+                entry.request.context().target == target
+                    && entry.request.is_inquiry()
+                    && matches!(entry.lifecycle().phase(), Phase::AwaitingReply { .. })
             })
-            .min_by_key(|(order, _)| *order)
-            .map(|(_, id)| id)
+            .map(|(id, _)| *id);
+        let candidate = candidates.next()?;
+        candidates.next().is_none().then_some(candidate)
     }
 
-    /// Whether a raw inquiry has been sent or is awaiting its reply on
-    /// `target`.  `raw_inquiry_front` derives the oldest sent owner for
-    /// routing, but a Sending inquiry is still live and must make a concurrent
-    /// socketless error ambiguous with an unacknowledged command.
+    fn raw_inquiry_matching(&self, target: TargetSlot, payload: &[u8]) -> Option<RequestId> {
+        let mut candidates = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| {
+                entry.request.context().target == target
+                    && entry
+                        .request
+                        .payload_shape()
+                        .is_some_and(|shape| shape.admits(payload))
+                    && matches!(entry.lifecycle().phase(), Phase::AwaitingReply { .. })
+            })
+            .map(|(id, _)| *id);
+        let candidate = candidates.next()?;
+        // Overlap exclusion guarantees uniqueness. Retaining this closed check
+        // also makes an invalid private state fail without guessing an owner.
+        candidates.next().is_none().then_some(candidate)
+    }
+
+    fn raw_reply_shape_mismatch(&self, frame: &DecodedFrame) -> bool {
+        let DecodedResponse::InquiryReply { payload } = &frame.response else {
+            return false;
+        };
+        if self.policy.wire.kind() != EnvelopeKind::Raw || frame.sequence.is_some() {
+            return false;
+        }
+        let target = frame.target;
+        let live = self
+            .entries
+            .values()
+            .filter(|entry| {
+                entry.request.context().target == target
+                    && matches!(
+                        entry.lifecycle().phase(),
+                        Phase::Sending { .. } | Phase::AwaitingReply { .. }
+                    )
+            })
+            .filter_map(|entry| entry.request.payload_shape());
+        let mut expected = false;
+        for shape in live
+            .chain(self.ledger.inquiry_shapes(target))
+            .chain(self.raw_inquiry_holds(target).map(|(shape, _)| shape))
+        {
+            expected = true;
+            if shape.admits(payload) {
+                return false;
+            }
+        }
+        expected
+    }
+
+    /// Whether an inquiry has reached the raw wire on this target. Inquiry
+    /// data has structural evidence; a socketless error has none and remains
+    /// ambiguous with every outstanding inquiry and pre-ACK command.
     fn raw_inquiry_inflight(&self, target: TargetSlot) -> bool {
         self.entries.values().any(|entry| {
             entry.reply_family() == SendingReply::Inquiry
@@ -2918,30 +3048,24 @@ impl ProtocolEngine {
         );
     }
 
-    /// Retains one bounded raw inquiry hold when timeout, error, or retry
-    /// release leaves a late target-only reply possible. A matched reply never
-    /// enters this path (#712). The hold is a bounded ambiguity policy rather
-    /// than a claim of permanent identity: stale frames are inert until expiry,
-    /// then a queued inquiry may acquire the lane. This helper's single-flight
-    /// precondition is intentional: a wider raw FIFO cannot distinguish a late
-    /// reply from an already-live next inquiry. Production raw owners enter
-    /// this engine through the adapter with `inquiry_capacity == 1`.
+    /// Retains the exact declaration's reply skew after an uncertain raw
+    /// datagram release. A matched reply exhausts its response immediately;
+    /// unrelated declarations never inherit this quarantine.
     fn quarantine_raw_inquiry_correlation(&mut self, id: RequestId, now: Instant) {
-        let Some(target) = self.entries.get(&id).and_then(|entry| {
+        let Some((target, shape)) = self.entries.get(&id).and_then(|entry| {
+            let shape = entry.request.payload_shape()?;
             (self.policy.wire.kind() == EnvelopeKind::Raw
-                && self.policy.inquiry_capacity == 1
-                && entry.reply_family() == SendingReply::Inquiry
                 && matches!(
                     entry.lifecycle().phase(),
                     Phase::Sending { .. } | Phase::AwaitingReply { .. }
                 ))
-            .then_some(entry.request.context().target)
+            .then_some((entry.request.context().target, shape))
         }) else {
             return;
         };
         self.extend_raw_hold(
             target,
-            RawHoldScope::InquiryUnkeyed,
+            RawHoldScope::Inquiry(shape),
             add_duration(now, self.policy.raw_inquiry_release_hold),
             Some(id),
         );
@@ -2951,18 +3075,10 @@ impl ProtocolEngine {
     // The raw byte-stream correlation ledger (#795). See `stream_ledger`.
     // ---------------------------------------------------------------------
 
-    /// Whether `entry` is a raw single-flight inquiry on a stream transport.
-    ///
-    /// A stream loses nothing it accepted, so once such an inquiry's bytes
-    /// were written a missed reply deadline means the reply is late — a
-    /// stalled connection or a slow camera — not lost, and the camera will
-    /// answer it unless it never answers that inquiry at all. A resend could
-    /// only multiply late replies, so the inquiry retry policy never resends
-    /// it on a reply timeout.
-    fn raw_stream_single_flight_inquiry(&self, entry: &Entry) -> bool {
-        self.raw_stream()
-            && self.policy.inquiry_capacity == 1
-            && entry.reply_family() == SendingReply::Inquiry
+    /// A written inquiry on a lossless raw stream is never resent for a
+    /// missing reply: its first answer remains owed in this shape class.
+    fn raw_stream_inquiry(&self, entry: &Entry) -> bool {
+        self.raw_stream() && entry.request.is_inquiry()
     }
 
     /// The first answer `entry`'s write will be owed, when it is written on a
@@ -2973,7 +3089,7 @@ impl ProtocolEngine {
             return None;
         }
         match entry.reply_family() {
-            SendingReply::Inquiry => Some(Owes::Reply),
+            SendingReply::Inquiry => entry.request.payload_shape().map(Owes::Reply),
             SendingReply::AckThenCompletion => Some(Owes::Ack),
             SendingReply::CompletionOnly => Some(Owes::Completion),
             SendingReply::NoReply => Some(Owes::Rejection),
@@ -2985,14 +3101,14 @@ impl ProtocolEngine {
     ///
     /// A debt's window is the request's ambiguity interval (an inquiry's is at
     /// least the reply skew), started now. An owed raw stream inquiry reply
-    /// also retains the target's `InquiryUnkeyed` hold through that window, so
-    /// same-target inquiries wait; it then latches instead of expiring.
+    /// also retains the declaration's inquiry hold through that window, so
+    /// overlapping inquiries wait; that class then latches instead of expiring.
     fn retire_stream_answers(&mut self, id: RequestId, effects: &mut Decision) {
-        let Some((target, timeout, single_flight)) = self.entries.get(&id).map(|entry| {
+        let Some((target, timeout, shape)) = self.entries.get(&id).map(|entry| {
             (
                 entry.request.context().target,
                 entry.request.context().timeout,
-                self.raw_stream_single_flight_inquiry(entry),
+                entry.request.payload_shape(),
             )
         }) else {
             return;
@@ -3013,21 +3129,21 @@ impl ProtocolEngine {
         let reply_written = self
             .ledger
             .live(target, id)
-            .any(|entry| entry.written && matches!(entry.owes, Owes::Reply));
-        if single_flight && reply_written {
+            .any(|entry| entry.written && matches!(entry.owes, Owes::Reply(_)));
+        if let (Some(shape), true) = (shape, reply_written) {
             self.extend_raw_hold(
                 target,
-                RawHoldScope::InquiryUnkeyed,
+                RawHoldScope::Inquiry(shape),
                 reply_window_end,
                 Some(id),
             );
-            if let Some(hold) = self.raw_hold(target, RawHoldScope::InquiryUnkeyed) {
+            if let Some(hold) = self.raw_hold(target, RawHoldScope::Inquiry(shape)) {
                 reply_window_end = hold.until;
             }
         }
         let command_window_end = add_duration(now, timeout.ambiguity.get());
         let answered = self.ledger.retire(target, id, |owes| match owes {
-            Owes::Reply => (reply_window_end, Duration::ZERO),
+            Owes::Reply(_) => (reply_window_end, Duration::ZERO),
             Owes::Ack
             | Owes::Completion
             | Owes::AcceptedCompletion
@@ -3133,7 +3249,7 @@ impl ProtocolEngine {
         let target = frame.target;
         let (answer, socket) = match &frame.response {
             DecodedResponse::Ack { .. } => (Some(Answer::Ack), None),
-            DecodedResponse::InquiryReply { .. } => (Some(Answer::Reply), None),
+            DecodedResponse::InquiryReply { payload } => (Some(Answer::Reply(payload)), None),
             DecodedResponse::Completion { socket } => {
                 (socket.is_none().then_some(Answer::Completion), *socket)
             }
@@ -3268,8 +3384,8 @@ impl ProtocolEngine {
                     Resolved::Nothing => None,
                 }
             }
-            DecodedResponse::InquiryReply { .. } => self
-                .take_stream_answer(target, Answer::Reply, evidence, now, effects)?
+            DecodedResponse::InquiryReply { payload } => self
+                .take_stream_answer(target, Answer::Reply(payload), evidence, now, effects)?
                 .ok(),
             // A completion naming a socket is the completion of a command
             // that earned that socket: its live owner's, or the late one of a
@@ -3604,7 +3720,7 @@ impl ProtocolEngine {
     fn take_stream_answer(
         &mut self,
         target: TargetSlot,
-        answer: Answer,
+        answer: Answer<'_>,
         evidence: Evidence,
         now: Instant,
         effects: &mut Decision,
@@ -3662,11 +3778,11 @@ impl ProtocolEngine {
             self.targets[target].retired_completion_only += 1;
         }
         effects.defer_frames(answered.retro);
-        if answered.reply_settled {
-            let skew_until = add_duration(now, self.policy.raw_inquiry_release_hold);
+        let skew_until = add_duration(now, self.policy.raw_inquiry_release_hold);
+        for shape in answered.replies_settled.iter() {
             if let Some(hold) = self
                 .holds
-                .get_mut(&RawHoldKey::new(target, RawHoldScope::InquiryUnkeyed))
+                .get_mut(&RawHoldKey::new(target, RawHoldScope::Inquiry(shape)))
             {
                 hold.until = skew_until;
             }
@@ -3817,8 +3933,11 @@ impl ProtocolEngine {
         let target = context.target;
         let family = SendingReply::new(request);
         let completion_only = family == SendingReply::CompletionOnly;
-        if (request.is_inquiry() || completion_only)
-            && self.ledger.lane_state(target, Lane::Inquiry) == LaneState::Latched
+        if request
+            .payload_shape()
+            .is_some_and(|shape| self.ledger.inquiry_state(target, shape) == LaneState::Latched)
+            || (completion_only
+                && self.ledger.lane_state(target, Lane::Inquiry) == LaneState::Latched)
         {
             return Some(Error::inquiry_correlation_lost(target.camera()));
         }
@@ -4162,9 +4281,9 @@ impl ProtocolEngine {
             self.finish(id, RuntimeOutcome::Failed(error), effects);
             return;
         }
-        // Releasing a raw inquiry FIFO owner for a retry would otherwise let a
-        // delayed attempt-N reply bind to the requeued attempt or its next
-        // same-target inquiry. The target tombstone is the bounded policy; it
+        // Releasing a raw inquiry for a retry could let a delayed attempt-N
+        // reply bind to the requeued attempt or an overlapping successor.
+        // The exact declaration's skew hold is the bounded policy; it
         // intentionally cannot make unidentifiable raw traffic safe forever.
         // A stream never reaches this path on a reply timeout: its reply is
         // owed instead (`retire_stream_answers`).
@@ -4622,7 +4741,7 @@ impl ProtocolEngine {
             DueAction::InquiryReply { retry } => {
                 let mark = effects.len();
                 let retry_timeout =
-                    context.retry.inquiry_timeout && !self.raw_stream_single_flight_inquiry(entry);
+                    context.retry.inquiry_timeout && !self.raw_stream_inquiry(entry);
                 let error = Error::timeout(FailureStage::Terminal, Certainty::FailedConclusively);
                 self.retain_unanswered_inquiry(id, now);
                 if retry_timeout {
@@ -4694,7 +4813,7 @@ impl ProtocolEngine {
             match key.scope {
                 RawHoldScope::Socket(socket) => release.release_exact_socket(socket),
                 RawHoldScope::PreAck => release.release_pre_ack_unkeyed(),
-                RawHoldScope::InquiryUnkeyed => release.release_inquiry_unkeyed(),
+                RawHoldScope::Inquiry(_) => release.release_inquiry_unkeyed(),
                 RawHoldScope::AllResponses => release.release_terminal_all(),
             }
         }
@@ -4906,11 +5025,11 @@ impl ProtocolEngine {
             .min()
     }
 
-    /// Whether `key` never expires by time: an `InquiryUnkeyed` hold whose
+    /// Whether `key` never expires by time: an inquiry-shape hold whose
     /// target still owes an inquiry reply, or a byte stream's `Socket` hold,
     /// whose late answer is delayed, never lost (#795).
     fn raw_hold_released_by_evidence(&self, key: RawHoldKey) -> bool {
-        (key.scope == RawHoldScope::InquiryUnkeyed && self.ledger.owes_reply(key.target))
+        matches!(key.scope, RawHoldScope::Inquiry(shape) if self.ledger.owes_reply(key.target, shape))
             || (self.raw_stream() && matches!(key.scope, RawHoldScope::Socket(_)))
     }
 
@@ -4924,14 +5043,13 @@ impl ProtocolEngine {
         // An owed raw stream inquiry reply is never released by time (its
         // window end latches the lane instead, `StreamLedger::latch_due`), nor
         // is a stream's socket hold.
-        let retained: SmallVec<[RawHoldKey; 4]> = self
-            .holds
-            .keys()
-            .copied()
-            .filter(|key| self.raw_hold_released_by_evidence(*key))
-            .collect();
-        self.holds
-            .retain(|key, hold| hold.until > now || retained.contains(key));
+        let stream = self.raw_stream();
+        let ledger = &self.ledger;
+        self.holds.retain(|key, hold| {
+            hold.until > now
+                || matches!(key.scope, RawHoldScope::Inquiry(shape) if ledger.owes_reply(key.target, shape))
+                || (stream && matches!(key.scope, RawHoldScope::Socket(_)))
+        });
     }
 
     fn finish(&mut self, id: RequestId, outcome: RuntimeOutcome, effects: &mut Decision) {
@@ -5021,8 +5139,56 @@ impl ProtocolEngine {
         effects.clear_deferred();
     }
 
+    /// The declaration cap and overlap exclusion are separate facts: Ready
+    /// entries reserve exact declarations, while only staged/written entries
+    /// can owe a reply. Pairwise exclusion also proves every inquiry debt is a
+    /// single member and charges at most one row per reserved declaration in
+    /// the stream ledger's storage bound.
+    fn check_inquiry_shape_invariants(&self) -> Result<(), Box<str>> {
+        if self.policy.wire.kind() != EnvelopeKind::Raw {
+            return Ok(());
+        }
+        for target in TargetSlot::ALL {
+            self.tracked_inquiry_shapes(target)?;
+            let mut previous = InquiryShapes::default();
+            if self.raw_stream() {
+                for (_, row) in self.ledger.entries().filter(|(owner, _)| *owner == target) {
+                    let Owes::Reply(shape) = row.owes else {
+                        continue;
+                    };
+                    if row.members != 1 || previous.iter().any(|older| older.overlaps(shape)) {
+                        return Err("overlapping staged, live or owed raw stream inquiries".into());
+                    }
+                    if !previous.try_insert(shape) {
+                        return Err("raw stream inquiry rows exceed declaration bound".into());
+                    }
+                }
+            } else {
+                for entry in self.entries.values().filter(|entry| {
+                    entry.request.context().target == target
+                        && matches!(
+                            entry.lifecycle().phase(),
+                            Phase::Sending { .. } | Phase::AwaitingReply { .. }
+                        )
+                }) {
+                    let Some(shape) = entry.request.payload_shape() else {
+                        continue;
+                    };
+                    if previous.iter().any(|older| older.overlaps(shape)) {
+                        return Err("overlapping staged or live raw datagram inquiries".into());
+                    }
+                    if !previous.try_insert(shape) {
+                        return Err("raw datagram inquiries exceed declaration bound".into());
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Audits cross-domain safety rules that construction alone cannot prove.
     pub(crate) fn assert_invariants(&self) -> Result<(), Box<str>> {
+        self.check_inquiry_shape_invariants()?;
         if self.state != SessionState::Running
             && (!self.entries.is_empty() || !self.holds.is_empty() || !self.ledger.is_empty())
         {
@@ -5102,7 +5268,7 @@ impl ProtocolEngine {
                             entry.lifecycle().phase(),
                             Phase::Sending { .. } | Phase::AwaitingAck { .. }
                         ),
-                        Owes::Reply => matches!(
+                        Owes::Reply(_) => matches!(
                             entry.lifecycle().phase(),
                             Phase::Sending { .. } | Phase::AwaitingReply { .. }
                         ),

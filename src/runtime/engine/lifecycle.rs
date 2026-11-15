@@ -196,7 +196,6 @@ pub(crate) enum Lifecycle {
         cancellation: ExecutingCancellation,
     },
     AwaitingReply {
-        send_order: TransmissionId,
         sent_at: Instant,
         deadline: Instant,
         attempt: AttemptFacts,

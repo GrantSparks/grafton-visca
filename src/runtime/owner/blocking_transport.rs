@@ -232,7 +232,10 @@ mod tests {
             crate::runtime::engine::EnvelopeKind::Raw
         );
         assert_eq!(adapter.policy().protocol.transport, TransportKind::Datagram);
-        assert_eq!(adapter.policy().protocol.inquiry_capacity, 1);
+        assert_eq!(
+            adapter.policy().protocol.inquiry_capacity,
+            adapter.policy().protocol.capacity
+        );
 
         let owner =
             BlockingOwnerHandle::spawn(adapter.policy().clone(), adapter, Clock::System).unwrap();

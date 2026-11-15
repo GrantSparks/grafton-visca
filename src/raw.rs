@@ -755,6 +755,9 @@ impl<R> Inquiry<R> {
     /// shape supplies raw-reply correlation evidence; decoder value checks
     /// still apply. The default [`crate::PayloadShape::Unknown`] overlaps all
     /// shapes and preserves conservative positional correlation.
+    /// Raw targets reserve at most 16 exact declarations across admitted
+    /// inquiries, unpaid replies and skew holds; a new declaration at capacity
+    /// fails with [`Error::InquiryShapeCapacityExhausted`].
     #[must_use]
     pub const fn with_payload_shape(mut self, shape: crate::PayloadShape) -> Self {
         self.payload_shape = shape;

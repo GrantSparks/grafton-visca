@@ -883,6 +883,11 @@ pub trait Inquiry: Request<Class = request::Inquiry> {
     ///
     /// Custom inquiries may declare a shape to supply correlation evidence for
     /// raw VISCA replies. The default retains conservative positional behavior.
+    /// A raw target reserves at most 16 exact declarations across admitted
+    /// inquiries, unpaid replies and skew holds. A new declaration at that
+    /// limit fails with [`Error::InquiryShapeCapacityExhausted`]; releasing its
+    /// retained evidence frees a reservation. Equal-length declarations overlap
+    /// even when their byte/nibble restrictions differ.
     fn payload_shape(&self) -> PayloadShape {
         PayloadShape::Unknown
     }

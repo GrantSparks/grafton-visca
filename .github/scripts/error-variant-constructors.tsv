@@ -21,7 +21,7 @@ TransportError	src/error.rs	Self::TransportError { source: Arc::new(source), }
 InvalidParameter	src/units.rs	if !value.is_finite() { return Err(Error::InvalidParameter {
 BufferTooSmall	src/command/bytes/frame.rs	Err(Error::buffer_too_small(frame.len, frame.buffer.len()))
 ParameterOutOfRange	src/error.rs	Self::ParameterOutOfRange { parameter, value, min, max, }
-Timeout	src/runtime/engine/mod.rs	Certainty::Unconfirmed }; Error::timeout(FailureStage::Terminal, certainty)
+Timeout	src/runtime/engine/mod.rs	Error::timeout(FailureStage::Terminal, terminal_certainty(entry))
 MotionSuperseded	src/runtime/engine/mod.rs	RuntimeOutcome::Failed(Error::MotionSuperseded { axes, context: superseded_context(effect_possible), }), &mut effects,
 SettlementSuperseded	src/runtime/owner/motion.rs	let error = Error::SettlementSuperseded
 SettlementObservationFailed	src/runtime/owner/mod.rs	Error::SettlementObservationFailed {
@@ -34,7 +34,7 @@ InvalidState	src/runtime/owner/blocking.rs	return Err(Error::InvalidState(format
 OwnerTerminated	src/runtime/owner/boundary.rs	fn missing_terminal_error() -> Error { Error::OwnerTerminated }
 DiagnosticSubscriberLimit	src/runtime/owner/mod.rs	return Err(Error::DiagnosticSubscriberLimit {
 RuntimeShutdown	src/runtime/engine/mod.rs	self.terminate_session(SessionState::Shutdown, Error::RuntimeShutdown, effects)
-CancellationUnconfirmed	src/runtime/engine/mod.rs	Phase::AwaitingCancellationResolution { deadline, .. } if deadline <= now => { let error = if self.policy.wire.kind() == EnvelopeKind::Raw { Error::UnsequencedCommandUnconfirmed } else { Error::CancellationUnconfirmed };
+CancellationUnconfirmed	src/runtime/engine/mod.rs	RuntimeOutcome::Failed(Error::CancellationUnconfirmed)
 UnsequencedCommandUnconfirmed	src/runtime/engine/mod.rs	self.finish( id, RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed), effects, )
 InquiryCorrelationLost	src/runtime/engine/mod.rs	return Some(Error::inquiry_correlation_lost(target.camera()));
 CommandCorrelationLost	src/runtime/engine/mod.rs	.then(|| Error::command_correlation_lost(target.camera()))
@@ -51,3 +51,4 @@ MissingRuntime	src/executor.rs	.map_err(|_| Error::MissingRuntime)
 WithContext	src/error.rs	Self::WithContext { context: context.into(), source: Box::new(self), }
 TransmissionNotSent	src/error.rs	Self::TransmissionNotSent { source: Arc::new(source), context: FailureContext::new(FailureStage::Terminal, certainty), }
 InquiryFailed	src/error.rs	Self::InquiryFailed { source: Arc::new(source), }
+InquiryShapeCapacityExhausted	src/error.rs	Self::InquiryShapeCapacityExhausted { camera, capacity }

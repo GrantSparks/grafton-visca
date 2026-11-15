@@ -402,6 +402,7 @@ fn zoom_stop() -> crate::prepared::PreparedOperation<AppliedOnly> {
 /// A raw inquiry whose own reply deadline is `inquiry`.
 fn raw_inquiry(inquiry: Duration) -> RuntimeRequest {
     RuntimeRequest::Inquiry {
+        payload_shape: crate::PayloadShape::Unknown,
         wire: Arc::new(EncodedMessage::new(&[0x81, 0x09, 0x04, 0x47, 0xff]).unwrap()),
         context: RequestContext {
             requires_extended_pan_tilt_speed: false,

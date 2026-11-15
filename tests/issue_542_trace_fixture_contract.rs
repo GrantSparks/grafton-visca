@@ -10,7 +10,7 @@
 //! What a production replay cannot check is whether the normative record is
 //! still a well-formed normative record: that the trace format stays
 //! explicitly versioned, that every scoped correlation case is still present,
-//! that every expectation still cites a recognized #542 clause or its #860 revision rather than an
+//! that every expectation still cites a recognized #542/#860/#892 clause or its #860/#892 revisions rather than an
 //! invented one, that every frame is answered by exactly one expectation, and
 //! that both envelopes and all three lower-16 sequence cases stay covered.
 //! Those are properties of the fixture, so they are checked here — and only
@@ -22,7 +22,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 const TRACE: &str = include_str!("fixtures/issue_542/protocol/correlation-routing.trace");
-const FORMAT: &str = "issue-542-protocol-correlation/v2";
+const FORMAT: &str = "issue-542-protocol-correlation/v3";
 
 const NORMATIVE_CLAUSES: &[&str] = &[
     "#542 exact Sony sequence matches are authoritative and target-compatible.",
@@ -33,10 +33,12 @@ const NORMATIVE_CLAUSES: &[&str] = &[
     "#542 every target and socket pair has at most one active owner.",
     "#542 malformed, unmatched, duplicate, reordered, or unsolicited input cannot mutate unrelated state.",
     "#542 completion releases all target and socket ownership and emits Applied for the exact request.",
-    "#860 raw inquiry replies carry no inquiry identity and follow per-target write order.",
-    "#542 raw inquiry FIFO fallback is established independently for each target.",
+    "#892 raw inquiry data binds only a live target-compatible declaration that admits its payload.",
+    "#892 shape routing remains independent for each target.",
     "#542 socketless raw errors route a unique unacknowledged command only without an inquiry owner.",
-    "#542 socketless raw errors use per-target inquiry FIFO only without an unacknowledged command.",
+    "#892 a socketless error carries no shape and cannot choose between two disjoint live inquiries.",
+    "#892 structural data resolves the matching declaration.",
+    "#542 a socketless error resolves a unique inquiry only without an unacknowledged command.",
     "#542 ambiguous socketless raw errors leave both live requests authoritative without terminal or retry.",
     "#542 a named raw error on a free, unheld socket routes the unique unacknowledged command; an inquiry is never allocated a socket, so its error is socketless.",
     "#542 a named raw error on a busy socket is ambiguous while another command is unacknowledged.",
@@ -50,7 +52,7 @@ const NORMATIVE_CLAUSES: &[&str] = &[
 const SCENARIOS: &[&str] = &[
     "raw-command-target-and-socket",
     "raw-error-unique-evidence-and-authority",
-    "raw-inquiry-per-target-write-order",
+    "raw-inquiry-per-target-disjoint-shapes",
     "sony-exact-out-of-order-and-target-compatible",
     "sony-stale-duplicate-and-unmatched-never-fallback",
     "sony-unique-lower16-collision-and-truncation",
@@ -186,7 +188,7 @@ fn parse_trace(source: &str) -> TraceFile {
                 assert_eq!(
                     columns.len(),
                     4,
-                    "line {line_number}: expectation requires its #542 normative clause"
+                    "line {line_number}: expectation requires its normative clause"
                 );
                 // The observation columns are the production replay's
                 // expectations; only their presence is a fixture property.
@@ -260,6 +262,12 @@ fn protocol_correlation_trace_stays_a_well_formed_normative_record() {
                         "scenario {:?}: Sony transmissions carry a sequence and raw transmissions do not",
                         scenario.name
                     );
+                    assert_eq!(
+                        fields.contains_key("shape"),
+                        required(fields, "kind") == "inquiry",
+                        "scenario {:?}: each inquiry declares its payload shape and commands carry no shape",
+                        scenario.name
+                    );
                     envelopes.insert(envelope.to_owned());
                     transmissions += 1;
                 }
@@ -281,7 +289,7 @@ fn protocol_correlation_trace_stays_a_well_formed_normative_record() {
                 RecordKind::Expect { normative } => {
                     assert!(
                         NORMATIVE_CLAUSES.contains(&normative.as_str()),
-                        "scenario {:?} expectation does not directly state a recognized normative #542 behavior: {normative:?}",
+                        "scenario {:?} expectation does not directly state a recognized normative correlation behavior: {normative:?}",
                         scenario.name
                     );
                     assert!(

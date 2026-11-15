@@ -104,6 +104,9 @@ pub struct MetricsSnapshot {
     /// counts. A steady trickle is normal on noisy serial/RS-485 links; a rising
     /// count points at a mis-wired or misconfigured device.
     pub ignored_malformed_frames: u64,
+    /// Inquiry replies discarded because no retained inquiry declaration
+    /// admitted their decoded data length and nibble structure.
+    pub ignored_reply_shape_mismatches: u64,
     /// Diagnostic events evicted from pre-admission staging before delivery.
     pub dropped_staged_diagnostics: u64,
     /// Diagnostic events dropped because a subscriber queue was full.
@@ -257,6 +260,8 @@ pub enum DiagnosticIgnoreReason {
     IncompatibleTransmissionResult,
     /// The frame was malformed.
     MalformedFrame,
+    /// No retained inquiry declaration admitted the reply payload's shape.
+    ReplyShapeMismatch,
     /// No active request matched a frame.
     UnmatchedFrame,
     /// No active request matched a sequenced frame.
@@ -521,6 +526,7 @@ impl DiagnosticEvent {
                 DiagnosticIgnoreReason::IncompatibleTransmissionResult
             }
             IgnoreReason::MalformedFrame => DiagnosticIgnoreReason::MalformedFrame,
+            IgnoreReason::ReplyShapeMismatch => DiagnosticIgnoreReason::ReplyShapeMismatch,
             IgnoreReason::UnmatchedFrame => DiagnosticIgnoreReason::UnmatchedFrame,
             IgnoreReason::UnmatchedSequencedFrame => {
                 DiagnosticIgnoreReason::UnmatchedSequencedFrame
@@ -690,6 +696,7 @@ pub(crate) fn metrics_snapshot(
         received_frames: metrics.received_frames,
         ignored_unmatched_sequenced_replies: metrics.ignored_unmatched_sequenced_replies,
         ignored_malformed_frames: metrics.ignored_malformed_frames,
+        ignored_reply_shape_mismatches: metrics.ignored_reply_shape_mismatches,
         dropped_staged_diagnostics: metrics.dropped_staged_diagnostics,
         dropped_diagnostic_events: metrics.dropped_diagnostic_events,
         dropped_observer_events: metrics.dropped_observer_events,

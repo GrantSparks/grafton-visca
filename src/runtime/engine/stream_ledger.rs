@@ -12,8 +12,8 @@
 //!
 //! An entry whose request ends without its answer stays as a *debt*: when the
 //! answer arrives it is discarded instead of reaching a later request. A debt
-//! that outlives its request's ambiguity window *latches* its lane (inquiries,
-//! or ordinary commands) until the answer arrives; it never blocks a STOP and
+//! that outlives its request's ambiguity window *latches* its overlap class
+//! (for inquiries) or ordinary command lane until the answer arrives; it never blocks a STOP and
 //! never poisons the session.
 //!
 //! Write order also heals: a first answer resolved against the entry written
@@ -44,9 +44,10 @@
 //! by [`max_entries_per_target`] however many STOPs a non-answering camera is
 //! sent.
 //!
-//! The model assumes four camera facts (`docs/architecture_2_0.md`, "The raw
+//! The model assumes these camera facts (`docs/architecture_2_0.md`, "The raw
 //! byte-stream correlation ledger"):
 //!
+//! - an inquiry reply has the decoder-declared payload shape;
 //! - a socket-0 error (`z0 60 02 FF`, `z0 60 03 FF`, or any other) is a first
 //!   answer, given before a command is accepted (`docs/visca_reference.md`
 //!   §6.3 lists socket 0 only for the syntax and buffer-full errors; an
@@ -85,41 +86,37 @@ use smallvec::SmallVec;
 
 use crate::{
     target::{PerTarget, TargetSlot},
-    ViscaSocket,
+    PayloadShape, ViscaSocket,
 };
 
-use super::{GenerationTicket, Lane, RequestId};
+use super::{inquiry_shape::InquiryShapes, GenerationTicket, Lane, RequestId};
 
-/// Debts at which a camera's correlation is lost.
-///
-/// One stall leaves only a few debts: ordinary commands wait while one is
-/// owed (so at most one or two command debts), inquiries are single-flight
-/// (one reply debt), and each halt adds at most three STOPs. Thirty-two is
-/// therefore far beyond any stall a camera answers in the end; reaching it
-/// means the camera is not answering at all. No debt is ever dropped — that
-/// would let its late answer reach a later request — so at the cap every
-/// lane of the camera latches until debts are paid, and its `NoReply`
-/// commands (whose possible rejections are owed too) are refused. Only urgent
-/// ACK-bearing commands (STOPs), which are never refused, and cancellations
-/// add debts beyond it; runs absorb them ([`max_entries_per_target`]).
+/// Command debts at which ordinary command correlation latches. Urgent
+/// ACK-bearing STOPs and cancellations continue, and exact inquiry declarations
+/// have their separate bounded reservation policy. No unpaid answer is dropped.
 pub(crate) const MAX_DEBTS_PER_TARGET: usize = 32;
 
-/// The most entries (runs and live requests) one camera's queue can hold,
-/// given `admissible`: the requests it can have admitted at once (the
-/// session's ordinary capacity plus its control reserve).
+/// Bounds one camera's queue of live requests and coalesced debt runs.
 ///
-/// Each admitted request has at most two live entries (its own answer and its
-/// cancellation's). Every non-cancellation entry other than an urgent ACK is
-/// written below the cap, when its debt runs number fewer than
-/// [`MAX_DEBTS_PER_TARGET`]; after the last such write, the urgent ACKs behind
-/// it form one run split only by live entries, and each request that was live
-/// at that write splits at most one more. That bounds the non-cancellation
-/// entries by `MAX_DEBTS_PER_TARGET + 3 * admissible`. Cancellations for one
-/// socket are all alike, so their runs are split only by live ones: at most
-/// `2 * live + 1` per socket, `2 * admissible + 2` over both. A tracked
-/// dispute pins at most `MAX_DISPUTE_HANDOFFS + 2` entries, each of which can
-/// split one more run. The bound is independent of how many STOPs are
-/// written; the engine checks it as an invariant.
+/// Let D=32, A=admitted ordinary+control requests, C=16 exact raw inquiry
+/// declarations, and P=MAX_DISPUTE_HANDOFFS+2=5 pinned dispute entries. Choose
+/// the last non-inquiry/non-cancellation write that was not an urgent ACK
+/// command (or the empty origin). Its prefix held fewer than D debt members
+/// plus at most A live entries: at most D-1+A rows, forever. No later operation
+/// increases that prefix; retiring/coalescing only preserves or removes rows.
+///
+/// The suffix contains at most A live non-cancellation entries, C inquiry debts
+/// (overlap exclusion makes each a single member), P pinned entries, and urgent
+/// ACK debts. Removing those separators leaves at most A+C+P+1 ACK runs, hence
+/// at most 2A+2C+2P+1 suffix rows. Cancellations remain socket-specific and add
+/// at most 2A+2 rows. Total: D+5A+2C+2P+2 = 5A+76. Inquiry declarations never
+/// merge through overlap: every non-cancellation still competes for socketless
+/// errors, so even disjoint inquiry data remains an ACK-run separator.
+///
+/// The engine audits both this bound and its supporting one-overlapping-inquiry
+/// invariant. Admission derives the C reservation union from live entries,
+/// ledger evidence and skew holds, including queued requests; it cannot forget
+/// an unpaid declaration by ending its logical request.
 pub(crate) const fn max_entries_per_target(admissible: usize) -> usize {
     match super::checked_stream_ledger_bound(admissible) {
         Some(bound) => bound,
@@ -132,7 +129,12 @@ pub(super) const fn checked_max_entries_per_target(admissible: usize) -> Option<
     let Some(live) = admissible.checked_mul(5) else {
         return None;
     };
-    live.checked_add(MAX_DEBTS_PER_TARGET + 2 + 2 * (MAX_DISPUTE_HANDOFFS + 2))
+    live.checked_add(
+        MAX_DEBTS_PER_TARGET
+            + 2
+            + 2 * (MAX_DISPUTE_HANDOFFS + 2)
+            + 2 * super::inquiry_shape::MAX_RAW_INQUIRY_SHAPE_CLASSES_PER_TARGET,
+    )
 }
 
 /// The first answer a written request is owed.
@@ -156,7 +158,7 @@ pub(crate) enum Owes {
     /// `CompletionOnly` commands to its camera fail rather than wait.
     Rejection,
     /// An inquiry: its reply, or an error rejecting it.
-    Reply,
+    Reply(PayloadShape),
     /// A socket cancellation packet: `0x04` or `0x05` naming its socket.
     Cancel(ViscaSocket),
 }
@@ -180,7 +182,7 @@ impl Owes {
     pub(crate) const fn lane(self) -> Option<Lane> {
         match self {
             Self::Ack | Self::Completion | Self::AcceptedCompletion => Some(Lane::Command),
-            Self::Reply => Some(Lane::Inquiry),
+            Self::Reply(_) => Some(Lane::Inquiry),
             Self::Rejection | Self::Cancel(_) => None,
         }
     }
@@ -295,11 +297,11 @@ impl Outstanding {
 
 /// Which first-answer frame is being resolved.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Answer {
+pub(crate) enum Answer<'a> {
     /// `z0 4y FF`.
     Ack,
-    /// Unidentified inquiry data.
-    Reply,
+    /// Decoded inquiry data; its structure supplies the only extra evidence.
+    Reply(&'a [u8]),
     /// `z0 6y 04|05 FF` naming `y`: only a cancellation packet's answer.
     CancelReply(ViscaSocket),
     /// A rejection naming a free socket: the socket the camera allocated for
@@ -460,8 +462,8 @@ pub(crate) enum Resolved {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Answered {
     pub(crate) resolved: Resolved,
-    /// Whether an owed inquiry reply was paid or retired.
-    pub(crate) reply_settled: bool,
+    /// Exact declarations of owed inquiry replies paid or retired.
+    pub(crate) replies_settled: InquiryShapes,
     /// Frames a proven dispute assigns to their requests, in arrival order.
     pub(crate) retro: RetroFrames,
     /// Whether a proven dispute retired a `CompletionOnly` entry as rejected.
@@ -641,7 +643,7 @@ impl StreamLedger {
     pub(crate) fn candidates(
         &self,
         target: TargetSlot,
-        answer: Answer,
+        answer: Answer<'_>,
     ) -> [Option<Outstanding>; 2] {
         match resolve_in(self.queue(target), answer) {
             Resolution::Nothing => [None, None],
@@ -653,14 +655,14 @@ impl StreamLedger {
     pub(crate) fn answer(
         &mut self,
         target: TargetSlot,
-        answer: Answer,
+        answer: Answer<'_>,
         evidence: Evidence,
     ) -> Answered {
         let state = &mut self.targets[target];
         let queue = &mut state.queue;
         let mut answered = Answered {
             resolved: Resolved::Nothing,
-            reply_settled: false,
+            replies_settled: InquiryShapes::default(),
             retro: SmallVec::new(),
             completion_only_retired: false,
         };
@@ -673,7 +675,7 @@ impl StreamLedger {
                         .filter(|other| legal(answer, other.owes))
                         .count()
                         == 1;
-                answered.reply_settled = apply_in(queue, entry);
+                answered.replies_settled = apply_in(queue, entry);
                 // A frame that pays a disputed debt may have been the next
                 // request's own answer (past the rest of the paid entry, if
                 // a run: its members are alike).
@@ -812,7 +814,7 @@ impl StreamLedger {
         let queue = &mut state.queue;
         let mut answered = Answered {
             resolved: Resolved::Nothing,
-            reply_settled: settle_in(queue, order),
+            replies_settled: settle_in(queue, order),
             retro: SmallVec::new(),
             completion_only_retired: false,
         };
@@ -917,7 +919,7 @@ impl StreamLedger {
     /// answer was taken for another request's (a rejection naming a socket
     /// that an ended or executing command may still hold, which could be
     /// that command's execution error or this one's rejection).
-    pub(crate) fn dispute(&mut self, target: TargetSlot, answer: Answer) -> bool {
+    pub(crate) fn dispute(&mut self, target: TargetSlot, answer: Answer<'_>) -> bool {
         let queue = self.queue_mut(target);
         // When the frame is already ambiguous between waiting requests (the
         // oldest one disputed), it is theirs as much as the oldest one's:
@@ -1009,10 +1011,59 @@ impl StreamLedger {
         self.queue(target).len()
     }
 
-    pub(crate) fn owes_reply(&self, target: TargetSlot) -> bool {
+    pub(crate) fn owes_reply(&self, target: TargetSlot, shape: PayloadShape) -> bool {
         self.queue(target)
             .iter()
-            .any(|entry| entry.is_debt() && matches!(entry.owes, Owes::Reply))
+            .any(|entry| entry.is_debt() && entry.owes == Owes::Reply(shape))
+    }
+
+    /// Exact declarations currently represented by written or staged inquiries.
+    /// This view contributes to admission's derived reservation union; no shape
+    /// class can disappear merely because its logical request has ended.
+    pub(crate) fn inquiry_shapes(
+        &self,
+        target: TargetSlot,
+    ) -> impl Iterator<Item = PayloadShape> + '_ {
+        self.queue(target)
+            .iter()
+            .filter_map(|entry| match entry.owes {
+                Owes::Reply(shape) => Some(shape),
+                _ => None,
+            })
+    }
+
+    /// Only an overlapping inquiry debt holds an inquiry back. The global
+    /// command-debt cap does not turn an unrelated inquiry debt into a match:
+    /// admission separately bounds exact declarations, preserving memory while
+    /// allowing a disjoint position poll to recover a stalled mode inquiry.
+    /// CompletionOnly debt and unresolved command disputes remain target-wide.
+    pub(crate) fn inquiry_state(&self, target: TargetSlot, shape: PayloadShape) -> LaneState {
+        if self.targets[target]
+            .dispute
+            .as_ref()
+            .is_some_and(|dispute| dispute.dormant && !dispute.rejection_only)
+        {
+            return LaneState::Latched;
+        }
+        self.queue(target)
+            .iter()
+            .filter(|entry| {
+                entry.is_debt()
+                    && match entry.owes {
+                        Owes::Reply(owed) => owed.overlaps(shape),
+                        Owes::Completion => true,
+                        _ => false,
+                    }
+            })
+            .fold(LaneState::Clear, |state, entry| {
+                if entry.latched() {
+                    LaneState::Latched
+                } else if state == LaneState::Clear {
+                    LaneState::Window
+                } else {
+                    state
+                }
+            })
     }
 
     /// Whether `target` owes [`MAX_DEBTS_PER_TARGET`] debts: every lane
@@ -1168,7 +1219,7 @@ fn pin(queue: &mut Queue, dispute: Option<&Dispute>) {
 fn dispute_behind(
     queue: &mut Queue,
     after: u64,
-    answer: Answer,
+    answer: Answer<'_>,
     evidence: Evidence,
 ) -> Option<Step> {
     let mut handed_to = None;
@@ -1234,7 +1285,7 @@ fn reject(queue: &mut Queue, dispute: &Dispute, answered: &mut Answered) {
 /// the answer of a later request (another member of the same run is no
 /// different). A `CompletionOnly` command earns no socket, so a named
 /// rejection is never its.
-fn resolve_in(queue: &Queue, answer: Answer) -> Resolution {
+fn resolve_in(queue: &Queue, answer: Answer<'_>) -> Resolution {
     let mut candidates = queue.iter().filter(|entry| legal(answer, entry.owes));
     let Some(oldest) = candidates.next().copied() else {
         return Resolution::Nothing;
@@ -1256,10 +1307,10 @@ fn resolve_in(queue: &Queue, answer: Answer) -> Resolution {
 }
 
 /// Whether `answer` can be a first answer for an entry owing `owes`.
-fn legal(answer: Answer, owes: Owes) -> bool {
+fn legal(answer: Answer<'_>, owes: Owes) -> bool {
     match (answer, owes) {
         (Answer::Ack, Owes::Ack) => true,
-        (Answer::Reply, Owes::Reply) => true,
+        (Answer::Reply(payload), Owes::Reply(shape)) => shape.admits(payload),
         (Answer::CancelReply(socket), Owes::Cancel(owed)) => socket == owed,
         (Answer::NamedRejection, Owes::Ack) => true,
         (Answer::SocketlessError, owes) => {
@@ -1272,14 +1323,19 @@ fn legal(answer: Answer, owes: Owes) -> bool {
 
 /// Applies an answer resolved against `entry`: settles what was written
 /// before it (a completion too: it follows the request's own first answer,
-/// and so every earlier one), then takes it. Returns whether an owed inquiry
-/// reply was paid or retired.
-fn apply_in(queue: &mut Queue, entry: Outstanding) -> bool {
+/// and so every earlier one), then takes it. Returns the exact declarations of
+/// owed inquiry replies paid or retired.
+fn apply_in(queue: &mut Queue, entry: Outstanding) -> InquiryShapes {
     // Settle first: taking the entry may merge the runs it separated.
-    let retired_reply = settle_in(queue, entry.order);
+    let mut retired = settle_in(queue, entry.order);
     take_in(queue, entry.order);
-    let paid_reply = entry.is_debt() && matches!(entry.owes, Owes::Reply);
-    paid_reply || retired_reply
+    if let (true, Owes::Reply(shape)) = (entry.is_debt(), entry.owes) {
+        assert!(
+            retired.try_insert(shape),
+            "inquiry declaration capacity invariant"
+        );
+    }
+    retired
 }
 
 /// Takes one answer from the entry written at `order` (its answer arrived):
@@ -1301,11 +1357,11 @@ fn take_in(queue: &mut Queue, order: u64) {
 /// write order, so those debts' first answers would have come first. Each is
 /// retired, except a `CompletionOnly` entry (debt or live), whose completion
 /// comes only once it has run: that one now owes only its completion. Returns
-/// whether an owed inquiry reply was retired. A run that also has members
+/// the exact declarations of owed inquiry replies retired. A run that also has members
 /// written after `order` (one that merged past it) is kept whole: keeping a
 /// debt only discards a future answer, never misattributes one.
-fn settle_in(queue: &mut Queue, order: u64) -> bool {
-    let mut reply = false;
+fn settle_in(queue: &mut Queue, order: u64) -> InquiryShapes {
+    let mut replies = InquiryShapes::default();
     queue.retain_mut(|entry| {
         if entry.newest >= order {
             return true;
@@ -1326,15 +1382,18 @@ fn settle_in(queue: &mut Queue, order: u64) -> bool {
                 true
             }
             Owes::AcceptedCompletion => true,
-            Owes::Reply => {
-                reply = true;
+            Owes::Reply(shape) => {
+                assert!(
+                    replies.try_insert(shape),
+                    "inquiry declaration capacity invariant"
+                );
                 false
             }
             Owes::Ack | Owes::Rejection | Owes::Cancel(_) => false,
         }
     });
     coalesce(queue);
-    reply
+    replies
 }
 
 /// Merges every debt into the nearest older entry it competes with, when that
@@ -1392,7 +1451,7 @@ mod tests {
         ledger
     }
 
-    fn evidence(answer: Answer) -> Evidence {
+    fn evidence(answer: Answer<'_>) -> Evidence {
         match answer {
             Answer::Ack => Evidence::Ack(None),
             Answer::SocketlessError | Answer::NamedRejection => Evidence::Error(0x41),
@@ -1413,7 +1472,7 @@ mod tests {
     /// `o`: it settles older `NoReply` and ACK debts, whatever the time.
     #[test]
     fn a_completion_settles_the_debts_written_before_its_request() {
-        let reply = Owes::Reply;
+        let reply = Owes::Reply(PayloadShape::Unknown);
         let mut ledger = owed(&[Owes::Rejection, Owes::Ack, reply]);
         assert_eq!(ledger.debts(TARGET), 3);
         let last = ledger
@@ -1422,7 +1481,7 @@ mod tests {
             .map(|entry| entry.order)
             .unwrap();
         let answered = ledger.settle_before(TARGET, last);
-        assert!(answered.retro.is_empty() && !answered.reply_settled);
+        assert!(answered.retro.is_empty() && answered.replies_settled.is_empty());
         assert_eq!(shape(&ledger), [(reply, 1)]);
     }
 
@@ -1482,7 +1541,7 @@ mod tests {
         let ledger = owed(&[s1, s2, s1, s2, s1, Owes::Ack, s2, Owes::Ack]);
         assert_eq!(shape(&ledger), [(s1, 3), (s2, 3), (Owes::Ack, 2)]);
 
-        let reply = Owes::Reply;
+        let reply = Owes::Reply(PayloadShape::Unknown);
         let ledger = owed(&[Owes::Ack, Owes::Ack, reply, Owes::Ack, Owes::Completion]);
         assert_eq!(
             shape(&ledger),
@@ -1500,12 +1559,15 @@ mod tests {
     /// pay oldest first.
     #[test]
     fn a_first_answer_settles_older_debts_and_runs_pay_in_order() {
-        let reply = Owes::Reply;
+        let reply = Owes::Reply(PayloadShape::Unknown);
         let mut ledger = owed(&[Owes::Ack, reply, Owes::Ack, Owes::Ack]);
         assert_eq!(shape(&ledger), [(Owes::Ack, 1), (reply, 1), (Owes::Ack, 2)]);
-        let answered = ledger.answer(TARGET, Answer::Reply, evidence(Answer::Reply));
+        let answered = ledger.answer(TARGET, Answer::Reply(&[]), evidence(Answer::Reply(&[])));
         assert!(matches!(answered.resolved, Resolved::Debt(entry) if entry.owes == reply));
-        assert!(answered.reply_settled);
+        assert_eq!(
+            answered.replies_settled.iter().collect::<Vec<_>>(),
+            vec![PayloadShape::Unknown]
+        );
         assert_eq!(shape(&ledger), [(Owes::Ack, 2)]);
         for remaining in (0..2).rev() {
             let answered = ledger.answer(TARGET, Answer::Ack, evidence(Answer::Ack));
@@ -1616,5 +1678,85 @@ mod tests {
             answered.retro.last().map(|retro| retro.evidence),
             Some(Evidence::Named(NamedFrame::Completion(ViscaSocket::S1)))
         );
+    }
+
+    #[test]
+    fn disjoint_live_inquiries_keep_their_own_replies_in_either_order() {
+        for reverse in [false, true] {
+            let mut ledger = StreamLedger::new();
+            for (id, shape) in [(1, PayloadShape::Bytes(1)), (2, PayloadShape::Nibbles(4))] {
+                ledger.push(TARGET, request(id), GenerationTicket(1), Owes::Reply(shape));
+                ledger.mark_written(TARGET, request(id), false);
+            }
+            let replies: [(u64, &[u8]); 2] = if reverse {
+                [(2, &[0, 1, 2, 3]), (1, &[0x80])]
+            } else {
+                [(1, &[0x80]), (2, &[0, 1, 2, 3])]
+            };
+            for (id, payload) in replies {
+                let answered = ledger.answer(TARGET, Answer::Reply(payload), Evidence::Other);
+                assert!(
+                    matches!(answered.resolved, Resolved::Live(entry) if entry.request == request(id))
+                );
+                assert!(answered.replies_settled.is_empty());
+            }
+            assert!(ledger.is_empty());
+        }
+    }
+
+    #[test]
+    fn disjoint_reply_retires_older_debt_but_malformed_nibbles_retire_nothing() {
+        let mut ledger = owed(&[Owes::Reply(PayloadShape::Bytes(1))]);
+        ledger.latch_due(Instant::now());
+        assert_eq!(
+            ledger.inquiry_state(TARGET, PayloadShape::Unknown),
+            LaneState::Latched
+        );
+        assert_eq!(
+            ledger.inquiry_state(TARGET, PayloadShape::Nibbles(4)),
+            LaneState::Clear
+        );
+        ledger.push(
+            TARGET,
+            request(2),
+            GenerationTicket(1),
+            Owes::Reply(PayloadShape::Nibbles(4)),
+        );
+        ledger.mark_written(TARGET, request(2), false);
+        let invalid = ledger.answer(TARGET, Answer::Reply(&[0, 0, 0, 0x10]), Evidence::Other);
+        assert_eq!(invalid.resolved, Resolved::Nothing);
+        assert!(invalid.replies_settled.is_empty());
+        assert_eq!(ledger.len(TARGET), 2);
+        let valid = ledger.answer(TARGET, Answer::Reply(&[0, 1, 2, 3]), Evidence::Other);
+        assert!(matches!(valid.resolved, Resolved::Live(entry) if entry.request == request(2)));
+        assert_eq!(
+            valid.replies_settled.iter().collect::<Vec<_>>(),
+            [PayloadShape::Bytes(1)]
+        );
+        assert!(ledger.is_empty());
+    }
+
+    #[test]
+    fn shape_legality_never_weakens_socketless_error_order_or_run_separators() {
+        let byte = Owes::Reply(PayloadShape::Bytes(4));
+        let nibble = Owes::Reply(PayloadShape::Nibbles(4));
+        let mut ledger = owed(&[Owes::Ack, byte, Owes::Ack, nibble, Owes::Ack]);
+        // Even disjoint data classes compete for an unkeyed error, so an
+        // inquiry is always a real separator between command debt runs.
+        assert_eq!(ledger.len(TARGET), 5);
+        assert!(
+            matches!(ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(2)).resolved,
+            Resolved::Debt(entry) if entry.request == request(1))
+        );
+        // Bytes(4) admits this; Nibbles(4) does not. Equality/merging keeps
+        // the actual declarations instead of their overlapping union.
+        let answered = ledger.answer(TARGET, Answer::Reply(&[0x80, 1, 2, 3]), Evidence::Other);
+        assert!(matches!(answered.resolved, Resolved::Debt(entry) if entry.owes == byte));
+        assert_eq!(
+            answered.replies_settled.iter().collect::<Vec<_>>(),
+            [PayloadShape::Bytes(4)]
+        );
+        assert!(ledger.owes_reply(TARGET, PayloadShape::Nibbles(4)));
+        assert!(!ledger.owes_reply(TARGET, PayloadShape::Bytes(4)));
     }
 }

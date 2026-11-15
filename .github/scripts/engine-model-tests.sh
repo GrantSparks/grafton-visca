@@ -10,7 +10,7 @@
 # it uses (`protocol::framer`, `raw`, the error and ID types) are gated at most
 # on that same facade condition. The feature cfgs that do exist there are
 # test-only: four engine tests gated on a facade, and one helper in `types.rs`
-# under `cfg(all(test, any(async, blocking)))`. None of the four tests below is
+# under `cfg(all(test, any(async, blocking)))`. None of the model tests below is
 # among those tests or uses that helper.
 #
 # So the feature matrix runs them in exactly one leg (`ENGINE_MODEL_TEST_LEG`
@@ -23,4 +23,6 @@ readonly ENGINE_MODEL_TESTS=(
     "runtime::engine::tests::generated_invariant_properties::arbitrary_ordered_and_stale_inputs_preserve_invariants_property"
     "runtime::engine::tests::raw_stream_model::randomized_stream_sessions_bind_every_answer_to_its_originator"
     "runtime::engine::tests::raw_evidence::ten_thousand_halts_against_a_silent_camera_keep_the_ledger_bounded"
+    "runtime::engine::tests::inquiry_shapes::randomized_stream_mixed_shapes_never_cross_bind"
+    "runtime::engine::tests::inquiry_shapes::randomized_datagram_mixed_shapes_never_cross_bind"
 )

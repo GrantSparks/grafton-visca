@@ -14,11 +14,11 @@ The following 31 former auditor refusals have no independent state left to recon
 | sending entry transmission owner is incompatible | Write ownership and the framing expectation are carried by the named entry's exact sending lifecycle. There is no transmission index to reconcile. |
 | cancellation sending entry has no transmission owner | Write ownership and the framing expectation are carried by the named entry's exact sending lifecycle. There is no transmission index to reconcile. |
 | cancellation transmission owner is incompatible | Write ownership and the framing expectation are carried by the named entry's exact sending lifecycle. There is no transmission index to reconcile. |
-| raw inquiry FIFO bound exceeded | The current inquiry is derived from live inquiry phases and their required transmission send order. No separate FIFO position exists. |
-| raw inquiry owns more than one FIFO position | The current inquiry is derived from live inquiry phases and their required transmission send order. No separate FIFO position exists. |
-| raw inquiry FIFO refers to missing entry | The current inquiry is derived from live inquiry phases and their required transmission send order. No separate FIFO position exists. |
-| raw inquiry FIFO owner is stale | The current inquiry is derived from live inquiry phases and their required transmission send order. No separate FIFO position exists. |
-| raw inquiry entry does not own exactly one FIFO position | The current inquiry is derived from live inquiry phases and their required transmission send order. No separate FIFO position exists. |
+| raw inquiry FIFO bound exceeded | Inquiry ownership derives from live phases and decoder-declared payload legality. Stream first-answer order remains in the ledger; no duplicate inquiry FIFO exists. |
+| raw inquiry owns more than one FIFO position | Inquiry ownership derives from live phases and decoder-declared payload legality. Stream first-answer order remains in the ledger; no duplicate inquiry FIFO exists. |
+| raw inquiry FIFO refers to missing entry | Inquiry ownership derives from live phases and decoder-declared payload legality. Stream first-answer order remains in the ledger; no duplicate inquiry FIFO exists. |
+| raw inquiry FIFO owner is stale | Inquiry ownership derives from live phases and decoder-declared payload legality. Stream first-answer order remains in the ledger; no duplicate inquiry FIFO exists. |
+| raw inquiry entry does not own exactly one FIFO position | Inquiry ownership derives from live phases and decoder-declared payload legality. Stream first-answer order remains in the ledger; no duplicate inquiry FIFO exists. |
 | retroactive evidence bound exceeded | Deferred evidence is a boundary-local return value. No persistent scratch fields or end-of-input emptiness auditor remain. |
 | displaced socket owner bound exceeded | Deferred evidence is a boundary-local return value. No persistent scratch fields or end-of-input emptiness auditor remain. |
 | dispatch queue refers to missing entry | Admission, phase transition and removal update private queues eagerly. Queues contain only RequestId, with no generations or stale-ticket path. |
@@ -57,7 +57,7 @@ this change (`8bd6c411`, including #861 timing proofs) and after it:
 | `Entry` | 536 | 536 |
 
 The engine shrinks by 504 bytes. Entry size stays constant while its sending
-phases gain the required framing expectation and inquiry send order; queue
+phases retain the required framing expectation; queue
 generation and repeated sequence-target facts disappear. Removed per-write
 transmission-map nodes and ready-queue ticket width are additional heap savings
 not included in these inline sizes. The local decision stores deferred evidence

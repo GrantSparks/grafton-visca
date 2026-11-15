@@ -26,6 +26,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   domains. Clear Image Zoom has a bounded position readback; it adds no
   unsupported direct-positioning command (#894).
 
+- `DiagnosticIgnoreReason::ReplyShapeMismatch` and
+  `MetricsSnapshot::ignored_reply_shape_mismatches` expose discarded raw inquiry
+  payloads whose shape no retained inquiry admits (#892).
+
+- Raw inquiry admission reports `InquiryShapeCapacityExhausted` when a new
+  payload-shape declaration cannot be reserved. It is an unwritten,
+  `PreAdmission` / `NotAccepted` refusal with `Recovery::Abandon`; the target's
+  existing declaration classes and the session remain available (#892).
 - Serial startup has a bounded fuzz target for arbitrary bus input, I/O results
   and timing ticks, with reply/noise/echo seeds also exercised on stable (#887).
 - `PayloadShape` describes an inquiry's decoded data width and nibble
@@ -68,6 +76,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sharpness auto/manual mode has its own source-backed permission and marker;
   level and step control no longer implies the separate mode register. FR7
   retains level/step control and refuses undocumented mode operations (#878).
+- Raw inquiry matching uses decoder-declared payload shape. Disjoint classes
+  can be live together and cross unrelated reply debt or skew holds, while
+  overlapping and `Unknown` inquiries retain conservative exclusion. Raw
+  targets reserve at most 16 exact declarations across admitted requests,
+  unpaid replies and holds; the audited stream ledger bound is `5A + 76` (#892).
 
 - Canonical inquiry generation supports a checked one-byte argument with a
   constructor, accessor and valid test sample. Unit queries retain their

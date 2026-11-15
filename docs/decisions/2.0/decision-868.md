@@ -35,6 +35,11 @@ the current attempt sent no bytes; its context preserves an earlier possible
 effect. A permanent first-attempt validation cause is `Abandon`, while a prior
 `Unconfirmed` attempt remains `Reconcile`.
 
+A new raw inquiry shape can be refused with `InquiryShapeCapacityExhausted`
+before admission when its target's declaration reservations are full. This is
+`PreAdmission` / `NotAccepted`, keeps the session usable and returns `Abandon`;
+the capacity category alone does not authorize a timed resubmission.
+
 The engine wraps every failed inquiry terminal outcome once in
 `InquiryFailed { source: Arc<Error> }`. The factory is idempotent. Its context is
 fixed `Terminal` / `FailedConclusively`; kind and session validity still report

@@ -16,7 +16,7 @@ fn context(stage: FailureStage, certainty: Certainty) -> Option<FailureContext> 
 }
 fn cases() -> Vec<Case> {
     use Certainty::{FailedConclusively, NotAccepted, StillLive, Unconfirmed};
-    use FailureStage::{CancellationAttempt, Observation, Session, Terminal};
+    use FailureStage::{CancellationAttempt, Observation, PreAdmission, Session, Terminal};
     use Recovery::{Abandon, Reconcile, ReopenSession, WaitAgain};
     let capacity = Recovery::Resubmit {
         after: Duration::from_millis(200),
@@ -330,6 +330,17 @@ fn cases() -> Vec<Case> {
             BufferFull,
             None,
             capacity
+        ),
+        case!(
+            InquiryShapeCapacityExhausted,
+            "",
+            Error::InquiryShapeCapacityExhausted {
+                camera: crate::CameraId::CAMERA_1,
+                capacity: 16,
+            },
+            BufferFull,
+            context(PreAdmission, NotAccepted),
+            Abandon
         ),
         case!(
             MaxRetriesExceeded,
@@ -671,6 +682,10 @@ fn caller_deadlines_are_exact_and_query_normalization_preserves_other_failures()
         );
     }
     for error in [
+        Error::InquiryShapeCapacityExhausted {
+            camera: crate::CameraId::CAMERA_1,
+            capacity: 16,
+        },
         Error::settlement_superseded(OperationId::from_raw(1), crate::AffectedAxes::ZOOM),
         Error::settlement_observation_failed(OperationId::from_raw(1), Error::io_timeout()),
         Error::motion_superseded(

@@ -1570,12 +1570,13 @@ fn inquiry_lane(engine: &ProtocolEngine, target: u8) -> LaneState {
     engine.ledger.lane_state(camera(target), Lane::Inquiry)
 }
 
-/// Reaching the cap means the camera answers nothing: every lane of that
-/// camera latches, and no debt is ever dropped. STOPs are still written past
-/// it, no other camera is affected, the session is never poisoned, and paying
-/// debts reopens the lanes.
+/// The command debt cap retains every unpaid answer and refuses ordinary
+/// commands. A raw inquiry may still cross those debts: its independent exact
+/// declaration reservation bounds its row and any ACK-run separator (#892).
+/// STOPs continue, other cameras and the session stay healthy, and paying
+/// debts restores ordinary command work.
 #[test]
-fn reaching_the_debt_cap_latches_every_lane_without_dropping_a_debt() {
+fn reaching_the_debt_cap_keeps_queries_available_without_dropping_command_debt() {
     let mut now = Instant::now();
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
     for ticket in 1..MAX_DEBTS_PER_TARGET as u64 {
@@ -1590,26 +1591,32 @@ fn reaching_the_debt_cap_latches_every_lane_without_dropping_a_debt() {
     assert_eq!(inquiry_lane(&engine, 1), LaneState::Latched);
     assert_eq!(command_lane(&engine, 1), LaneState::Latched);
     assert_eq!(engine.state(), SessionState::Running);
-    for (ticket, request, inquiry_lost) in [
-        (101, inquiry(1), true),
-        (102, command(1, CancellationPolicy::Supported), false),
-    ] {
-        let rejected = engine.handle(
-            Input::Admit {
-                ticket: AdmissionTicket(ticket),
-                request,
-                slot: AdmissionSlot::Ordinary,
-            },
-            now,
-        );
-        assert!(rejected.iter().any(|effect| match effect {
-            Effect::AdmissionRejected { error, .. } if inquiry_lost =>
-                matches!(error, Error::InquiryCorrelationLost { camera: c } if *c == camera(1).camera()),
-            Effect::AdmissionRejected { error, .. } =>
-                matches!(error, Error::CommandCorrelationLost { camera: c } if *c == camera(1).camera()),
-            _ => false,
-        }));
-    }
+    let rejected = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(102),
+            request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
+        },
+        now,
+    );
+    assert!(rejected.iter().any(|effect| matches!(effect,
+        Effect::AdmissionRejected { error: Error::CommandCorrelationLost { camera: c }, .. }
+            if *c == camera(1).camera())));
+    let (query, query_id) = admit(&mut engine, 101, inquiry(1), now);
+    let (transmission, _, _) = request_transmit(&query);
+    // Refuse this staged write so the rest of the old debt-payment script
+    // continues with exactly its original wire history.
+    engine.handle(
+        Input::TransmissionFinished {
+            request: query_id,
+            transmission,
+            result: WriteOutcome::NotSent(Error::InvalidRequest(
+                "test transport refused before bytes".into(),
+            )),
+        },
+        now,
+    );
+    assert_eq!(raw_owed(&engine, 1), MAX_DEBTS_PER_TARGET);
     // STOPs are still written at the cap, and their debts are kept.
     now = unanswered_stop(&mut engine, 103, now);
     assert_eq!(raw_owed(&engine, 1), MAX_DEBTS_PER_TARGET + 1);
@@ -1695,16 +1702,16 @@ fn a_burst_of_answers_pays_runs_in_write_order() {
     // [3 owed ACKs] [owed reply] [40 owed ACKs]
     assert_eq!(engine.ledger.len(camera(1)), 3);
     assert_eq!(raw_owed(&engine, 1), 44);
-    assert!(engine.ledger.owes_reply(camera(1)));
+    assert!(engine.ledger.owes_reply(camera(1), PayloadShape::Unknown));
 
     // Socketless rejections answer any kind, so only write order decides.
     for _ in 0..3 {
         let paid = engine.handle(socketless_error(1, 0x02), now);
         assert!(terminal_id(&paid).is_none());
-        assert!(engine.ledger.owes_reply(camera(1)));
+        assert!(engine.ledger.owes_reply(camera(1), PayloadShape::Unknown));
     }
     engine.handle(socketless_error(1, 0x02), now);
-    assert!(!engine.ledger.owes_reply(camera(1)));
+    assert!(!engine.ledger.owes_reply(camera(1), PayloadShape::Unknown));
     assert_eq!(raw_owed(&engine, 1), 40);
     assert_eq!(engine.ledger.len(camera(1)), 1);
 
@@ -1868,7 +1875,7 @@ fn a_later_first_answer_retires_a_never_answered_inquiry() {
     let command_id = command_awaiting_ack(&mut engine, 2, window_end);
     engine.handle(ack(1, ViscaSocket::S1), window_end);
     assert_eq!(socket_of(&engine, command_id), Some(ViscaSocket::S1));
-    assert!(!engine.ledger.owes_reply(camera(1)));
+    assert!(!engine.ledger.owes_reply(camera(1), PayloadShape::Unknown));
     assert_eq!(inquiry_lane(&engine, 1), LaneState::Clear);
 
     let later = window_end + Duration::from_millis(100);

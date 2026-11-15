@@ -320,6 +320,7 @@ additional rows for context-dependent outcomes.
 | `CancellationObservationFailed / operation still live` | `Timeout` | CancellationAttempt / StillLive | `WaitAgain` |
 | `ObservationTimeout` | `Timeout` | Observation / StillLive | `WaitAgain` |
 | `ControlReserveExhausted` | `BufferFull` | — | `Resubmit after 200ms` |
+| `InquiryShapeCapacityExhausted` | `BufferFull` | PreAdmission / NotAccepted | `Abandon` |
 | `MaxRetriesExceeded` | `Timeout` | — | `Abandon` |
 | `NotSupported` | `Unsupported` | — | `Abandon` |
 | `InvalidState` | `NotExecutable` | — | `Abandon` |

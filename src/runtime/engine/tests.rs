@@ -16,6 +16,8 @@ mod audit_rules;
 mod cancellation_holds;
 mod due_actions;
 mod entry_table;
+mod inquiry_shape_reservations;
+mod inquiry_shapes;
 mod late_evidence;
 mod lifecycle_transition_matrix;
 mod prepared_retry;
@@ -200,8 +202,17 @@ fn inquiry_with_retry(target: u8, retry: RetryPolicy) -> RuntimeRequest {
     let mut inquiry_context = context(target, CancellationPolicy::Supported);
     inquiry_context.retry = retry;
     RuntimeRequest::Inquiry {
+        payload_shape: PayloadShape::Unknown,
         wire: wire(0x80 | target),
         context: inquiry_context,
+    }
+}
+
+fn inquiry_with_shape(target: u8, shape: PayloadShape) -> RuntimeRequest {
+    RuntimeRequest::Inquiry {
+        payload_shape: shape,
+        wire: wire(0x80 | target),
+        context: context(target, CancellationPolicy::Supported),
     }
 }
 
@@ -1349,7 +1360,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
 }
 
 #[test]
-fn raw_inquiry_replies_follow_per_target_write_order() {
+fn raw_overlapping_inquiries_serialize_in_per_target_write_order() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let mut ids = Vec::new();
@@ -1363,7 +1374,15 @@ fn raw_inquiry_replies_follow_per_target_write_order() {
             start,
         );
         ids.push(admitted(&admitted_effects));
-        send_ok(&mut engine, &admitted_effects, None, start);
+        if request_transmit_optional(&admitted_effects).is_some() {
+            send_ok(&mut engine, &admitted_effects, None, start);
+        } else {
+            assert_eq!(target, 1);
+            assert!(matches!(
+                phase_of(&engine, *ids.last().unwrap()),
+                Some(Phase::Ready)
+            ));
+        }
     }
     let first_target_one = engine.handle(
         frame(
@@ -1376,6 +1395,8 @@ fn raw_inquiry_replies_follow_per_target_write_order() {
         start,
     );
     assert_eq!(terminal_id(&first_target_one), Some(ids[0]));
+    assert_eq!(request_transmit(&first_target_one).1, ids[1]);
+    send_ok(&mut engine, &first_target_one, None, start);
     let target_two_fifo = engine.handle(
         frame(
             2,
@@ -1398,6 +1419,8 @@ fn raw_inquiry_replies_follow_per_target_write_order() {
         start,
     );
     assert_eq!(terminal_id(&second_target_one), Some(ids[1]));
+    assert_eq!(request_transmit(&second_target_one).1, ids[2]);
+    send_ok(&mut engine, &second_target_one, None, start);
     let third_target_one = engine.handle(
         frame(
             1,
@@ -1445,14 +1468,14 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
         command_engine.assert_invariants().unwrap();
     }
 
-    // With no command candidate, socketless errors retain the established
-    // per-target inquiry FIFO, including its oldest-first order.
+    // Disjoint declarations may both be live, but a socketless error carries
+    // no payload shape. It cannot choose either inquiry until data settles one.
     {
         let mut inquiry_engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
         let first = inquiry_engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
-                request: inquiry(1),
+                request: inquiry_with_shape(1, PayloadShape::Bytes(1)),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -1462,7 +1485,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
         let second = inquiry_engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(2),
-                request: inquiry(1),
+                request: inquiry_with_shape(1, PayloadShape::Bytes(2)),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -1481,7 +1504,23 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
             ),
             start,
         );
-        assert_eq!(terminal_id(&first_error), Some(first_id));
+        assert_eq!(
+            ignored_reasons(&first_error),
+            [IgnoreReason::UnmatchedFrame]
+        );
+        assert!(terminal_outcome(&first_error, first_id).is_none());
+        assert!(terminal_outcome(&first_error, second_id).is_none());
+        let data = inquiry_engine.handle(
+            frame(
+                1,
+                None,
+                DecodedResponse::InquiryReply {
+                    payload: smallvec![1],
+                },
+            ),
+            start,
+        );
+        assert_eq!(terminal_id(&data), Some(first_id));
         let second_error = inquiry_engine.handle(
             frame(
                 1,
@@ -3910,6 +3949,7 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
         .unwrap();
     let first_wire = wire(0x81);
     let first_request = RuntimeRequest::Inquiry {
+        payload_shape: PayloadShape::Unknown,
         wire: Arc::clone(&first_wire),
         context: context(1, CancellationPolicy::Supported),
     };
@@ -4012,7 +4052,10 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
         },
         start + Duration::from_millis(50),
     );
-    assert_eq!(engine.raw_inquiry_front(camera(1)), Some(first_id));
+    assert_eq!(
+        engine.raw_inquiry_matching(camera(1), &[0x0b]),
+        Some(first_id)
+    );
 
     let legitimate_retry = engine.handle(
         frame(
@@ -4156,6 +4199,7 @@ fn phase_one_protocol_fixture_replays_through_production_engine() {
                         applied_state: None,
                     },
                     "inquiry" => RuntimeRequest::Inquiry {
+                        payload_shape: fixture_shape(&fields),
                         wire: wire(0x80 | target),
                         context: fixture_context,
                     },
@@ -4237,6 +4281,21 @@ fn phase_one_protocol_fixture_replays_through_production_engine() {
                 assert_eq!(pending_observation.take().unwrap(), expected, "{line}");
             }
             other => panic!("unknown fixture record {other}"),
+        }
+    }
+}
+
+fn fixture_shape(fields: &BTreeMap<String, String>) -> PayloadShape {
+    match fixture_required(fields, "shape") {
+        "unknown" => PayloadShape::Unknown,
+        declaration => {
+            let (kind, length) = declaration.split_once(':').expect("declared payload shape");
+            let length = length.parse::<usize>().expect("payload length");
+            match kind {
+                "bytes" => PayloadShape::Bytes(length),
+                "nibbles" => PayloadShape::Nibbles(length),
+                other => panic!("unknown payload shape {other}"),
+            }
         }
     }
 }
@@ -10088,7 +10147,7 @@ fn raw_single_flight_inquiry_success_releases_successor_without_tombstone() {
         "a matched reply releases the same-target successor in the same turn"
     );
     assert_eq!(
-        engine.raw_hold(camera(1), RawHoldScope::InquiryUnkeyed),
+        engine.raw_hold(camera(1), RawHoldScope::Inquiry(PayloadShape::Unknown)),
         None
     );
     let successor_sent = send_ok(&mut engine, &first_reply, None, start);
@@ -10196,7 +10255,7 @@ fn raw_inquiry_hold_preserves_live_preack_ack_and_sole_socketless_completion() {
         Some(Phase::AwaitingAck { .. })
     ));
     assert_eq!(
-        engine.raw_hold(camera(1), RawHoldScope::InquiryUnkeyed),
+        engine.raw_hold(camera(1), RawHoldScope::Inquiry(PayloadShape::Unknown)),
         Some(RawHold {
             until: timeout_at + Duration::from_millis(50),
             owner: Some(inquiry_id),
@@ -10432,7 +10491,7 @@ fn raw_keyed_holds_merge_by_scope_and_expire_independently() {
     );
     engine.extend_raw_hold(
         camera(1),
-        RawHoldScope::InquiryUnkeyed,
+        RawHoldScope::Inquiry(PayloadShape::Unknown),
         start + Duration::from_millis(40),
         Some(first),
     );
@@ -10677,7 +10736,12 @@ fn raw_release_gate_uses_one_time_budget_then_discards_the_orphan() {
     let grace = Duration::from_millis(37);
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
     engine.policy.raw_release_grace = grace;
-    engine.extend_raw_hold(camera(1), RawHoldScope::InquiryUnkeyed, start, None);
+    engine.extend_raw_hold(
+        camera(1),
+        RawHoldScope::Inquiry(PayloadShape::Unknown),
+        start,
+        None,
+    );
     let evidence = RawPrefixEvidence::Incomplete {
         target: camera(1),
         kind: RawIncompletePrefix::SourceOnly,
@@ -10710,7 +10774,12 @@ fn raw_release_gate_uses_one_time_budget_then_discards_the_orphan() {
 fn raw_release_gate_advances_immediately_when_no_input_is_retained() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
-    engine.extend_raw_hold(camera(1), RawHoldScope::InquiryUnkeyed, start, None);
+    engine.extend_raw_hold(
+        camera(1),
+        RawHoldScope::Inquiry(PayloadShape::Unknown),
+        start,
+        None,
+    );
 
     assert_eq!(
         engine.resolve_raw_release_gate(start, None),
@@ -12312,7 +12381,7 @@ fn unkeyed_reply(target: u8, value: u8) -> Input {
 /// The inquiry lane's owed-reply state while the target's inquiry hold exists.
 fn owed_state(engine: &ProtocolEngine, target: u8) -> Option<LaneState> {
     engine
-        .raw_hold(camera(target), RawHoldScope::InquiryUnkeyed)
+        .raw_hold(camera(target), RawHoldScope::Inquiry(PayloadShape::Unknown))
         .map(|_| engine.ledger.lane_state(camera(target), Lane::Inquiry))
 }
 
@@ -12346,7 +12415,7 @@ fn raw_stream_inquiry_timeout_owes_its_reply_and_never_binds_it_to_a_successor()
     let (id, timeout_at) = time_out_stream_inquiry(&mut engine, start);
     let window_end = timeout_at + Duration::from_millis(50);
     assert_eq!(
-        engine.raw_hold(camera(1), RawHoldScope::InquiryUnkeyed),
+        engine.raw_hold(camera(1), RawHoldScope::Inquiry(PayloadShape::Unknown)),
         Some(RawHold {
             until: window_end,
             owner: Some(id),
@@ -12362,7 +12431,7 @@ fn raw_stream_inquiry_timeout_owes_its_reply_and_never_binds_it_to_a_successor()
     assert_eq!(ignored_reasons(&stale), vec![IgnoreReason::UnmatchedFrame]);
     assert!(matches!(phase_of(&engine, successor), Some(Phase::Ready)));
     assert_eq!(
-        engine.raw_hold(camera(1), RawHoldScope::InquiryUnkeyed),
+        engine.raw_hold(camera(1), RawHoldScope::Inquiry(PayloadShape::Unknown)),
         Some(RawHold {
             until: late + Duration::from_millis(50),
             owner: Some(id),
@@ -12596,7 +12665,7 @@ fn stream_inquiry_write_succeeding_after_its_budget_owes_its_reply() {
         Some(Error::Timeout { .. })
     ));
     assert_eq!(
-        engine.raw_hold(camera(1), RawHoldScope::InquiryUnkeyed),
+        engine.raw_hold(camera(1), RawHoldScope::Inquiry(PayloadShape::Unknown)),
         Some(RawHold {
             until: late + Duration::from_millis(50),
             owner: Some(id),
@@ -12618,7 +12687,7 @@ fn raw_datagram_inquiry_timeout_keeps_skew_hold_and_retry() {
     let timed_out = engine.advance(timeout_at);
     assert!(retry_scheduled(&timed_out).is_some_and(|(retried, ..)| retried == id));
     assert_eq!(
-        engine.raw_hold(camera(1), RawHoldScope::InquiryUnkeyed),
+        engine.raw_hold(camera(1), RawHoldScope::Inquiry(PayloadShape::Unknown)),
         Some(RawHold {
             until: timeout_at + Duration::from_millis(50),
             owner: Some(id),

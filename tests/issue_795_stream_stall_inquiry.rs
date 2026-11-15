@@ -245,20 +245,29 @@ fn conclusive_timeout<T>(result: &Result<T, Error>) -> bool {
 
 /// The latched-lane failure: nothing written, not retryable on this
 /// session, and the session itself still live.
-fn latched_inquiry_failure<T: fmt::Debug>(result: &Result<T, Error>) {
+fn latched_inquiry_failure<T: fmt::Debug>(result: &Result<T, Error>, already_admitted: bool) {
     let Err(error) = result else {
         panic!("expected InquiryCorrelationLost, got {result:?}");
     };
-    assert!(
-        matches!(error, Error::InquiryCorrelationLost { camera, .. } if *camera == CameraId::CAMERA_1),
-        "{error:?}"
-    );
+    let certainty = if already_admitted {
+        assert!(
+            matches!(error, Error::InquiryFailed { source, .. }
+            if matches!(source.as_ref(), Error::InquiryCorrelationLost { camera, .. }
+                if *camera == CameraId::CAMERA_1)),
+            "{error:?}"
+        );
+        Certainty::FailedConclusively
+    } else {
+        assert!(
+            matches!(error, Error::InquiryCorrelationLost { camera, .. }
+            if *camera == CameraId::CAMERA_1),
+            "{error:?}"
+        );
+        Certainty::NotAccepted
+    };
     assert_eq!(
         error.failure_context(),
-        Some(FailureContext::new(
-            FailureStage::Terminal,
-            Certainty::NotAccepted
-        ))
+        Some(FailureContext::new(FailureStage::Terminal, certainty))
     );
     assert!(!matches!(
         error.recovery(),
@@ -361,7 +370,7 @@ facade_matrix! {
                 "the queued inquiry fails when the ambiguity window closes"
             );
         }
-        latched_inquiry_failure(&queued);
+        latched_inquiry_failure(&queued, true);
 
         let started = now!();
         let rejected = wait!(first.focus().mode());
@@ -373,7 +382,7 @@ facade_matrix! {
         if virtual_clock!() {
             assert_eq!(elapsed, Duration::ZERO, "a latched lane fails without waiting");
         }
-        latched_inquiry_failure(&rejected);
+        latched_inquiry_failure(&rejected, false);
         assert_eq!(bench.count(1, &FOCUS_MODE_INQUIRY), 0);
         assert_eq!(bench.count(1, &POWER_INQUIRY), 1);
 
@@ -399,7 +408,7 @@ facade_matrix! {
         assert!(conclusive_timeout(&power), "{power:?}");
 
         let queued = wait!(camera.focus().mode());
-        latched_inquiry_failure(&queued);
+        latched_inquiry_failure(&queued, true);
         let started = now!();
         let rejected = wait!(camera.focus().mode());
         let elapsed = now!().duration_since(started);
@@ -410,7 +419,7 @@ facade_matrix! {
         if virtual_clock!() {
             assert_eq!(elapsed, Duration::ZERO, "a latched lane fails without waiting");
         }
-        latched_inquiry_failure(&rejected);
+        latched_inquiry_failure(&rejected, false);
         assert_eq!(bench.count(1, &FOCUS_MODE_INQUIRY), 0);
 
         wait!(wait!(camera.pan_tilt().stop())
@@ -432,7 +441,7 @@ facade_matrix! {
         let power = wait!(camera.power().state());
         assert!(conclusive_timeout(&power), "{power:?}");
         let during = wait!(camera.focus().mode());
-        latched_inquiry_failure(&during);
+        latched_inquiry_failure(&during, true);
 
         after!(RETRANSMIT_AFTER, bench.lift_fault());
         let deadline = now!() + Duration::from_secs(3);

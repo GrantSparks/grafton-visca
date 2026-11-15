@@ -48,6 +48,7 @@
 //! | `CancellationObservationFailed / operation still live` | `Timeout` | CancellationAttempt / StillLive | `WaitAgain` |
 //! | `ObservationTimeout` | `Timeout` | Observation / StillLive | `WaitAgain` |
 //! | `ControlReserveExhausted` | `BufferFull` | — | `Resubmit after 200ms` |
+//! | `InquiryShapeCapacityExhausted` | `BufferFull` | PreAdmission / NotAccepted | `Abandon` |
 //! | `MaxRetriesExceeded` | `Timeout` | — | `Abandon` |
 //! | `NotSupported` | `Unsupported` | — | `Abandon` |
 //! | `InvalidState` | `NotExecutable` | — | `Abandon` |
@@ -717,6 +718,21 @@ pub enum Error {
         reserve: usize,
     },
 
+    /// A new raw inquiry payload-shape declaration could not be admitted.
+    ///
+    /// The target's bounded declaration set is already reserved by admitted
+    /// work or retained correlation evidence. This request was not accepted
+    /// and sent no bytes; the session remains usable. Recovery is
+    /// [`Recovery::Abandon`], rather than an automatic capacity retry.
+    #[error("Raw inquiry payload-shape capacity exhausted for camera {camera} (maximum {capacity} tracked declarations)")]
+    #[non_exhaustive]
+    InquiryShapeCapacityExhausted {
+        /// The individual camera whose declaration set is full.
+        camera: crate::CameraId,
+        /// The maximum number of tracked declarations for that target.
+        capacity: usize,
+    },
+
     /// A stream transport's framing or write position became unknowable.
     ///
     /// This error indicates that a stream-based transport (TCP, Serial) lost
@@ -1155,10 +1171,11 @@ impl Error {
             // Cancelled: explicit cancellation
             Self::CommandCanceled => ErrorKind::Cancelled,
 
-            // BufferFull: transient capacity exhaustion
+            // BufferFull: capacity exhaustion; recovery distinguishes its conditions.
             Self::CommandBufferFull
             | Self::RuntimeQueueFull { .. }
             | Self::ControlReserveExhausted { .. }
+            | Self::InquiryShapeCapacityExhausted { .. }
             | Self::NoSocket => ErrorKind::BufferFull,
 
             // NotExecutable: command invalid in current state
@@ -1371,6 +1388,7 @@ impl Error {
             | Self::DiagnosticSubscriberLimit { .. }
             | Self::RuntimeQueueFull { .. }
             | Self::ControlReserveExhausted { .. }
+            | Self::InquiryShapeCapacityExhausted { .. }
             | Self::InvalidCameraId { .. }
             | Self::ResponseTooLarge { .. }
             | Self::InquiryNotCancelable
@@ -1509,6 +1527,7 @@ impl Error {
             | Self::InvalidState(_)
             | Self::RuntimeShutdown
             | Self::DiagnosticSubscriberLimit { .. }
+            | Self::InquiryShapeCapacityExhausted { .. }
             | Self::InquiryCorrelationLost { .. }
             | Self::CommandCorrelationLost { .. }
             | Self::RuntimeIdentityExhausted
@@ -1542,6 +1561,10 @@ impl Error {
     pub fn failure_context(&self) -> Option<FailureContext> {
         match self {
             Self::Timeout { context } | Self::TransmissionNotSent { context, .. } => Some(*context),
+            Self::InquiryShapeCapacityExhausted { .. } => Some(FailureContext::new(
+                FailureStage::PreAdmission,
+                Certainty::NotAccepted,
+            )),
             Self::InquiryFailed { .. } => Some(FailureContext::new(
                 FailureStage::Terminal,
                 Certainty::FailedConclusively,
@@ -1619,6 +1642,14 @@ impl Error {
 
     /// A pre-I/O refusal carries certainty for the whole logical request,
     /// including possibly effective earlier attempts.
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) fn inquiry_shape_capacity_exhausted(
+        camera: crate::CameraId,
+        capacity: usize,
+    ) -> Self {
+        Self::InquiryShapeCapacityExhausted { camera, capacity }
+    }
+
     #[cfg(any(feature = "blocking", feature = "async"))]
     pub(crate) fn transmission_not_sent(source: Error, certainty: Certainty) -> Self {
         Self::TransmissionNotSent {

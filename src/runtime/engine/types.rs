@@ -457,6 +457,7 @@ pub(crate) enum RuntimeRequest {
     Inquiry {
         wire: Arc<EncodedMessage>,
         context: RequestContext,
+        payload_shape: crate::PayloadShape,
     },
 }
 
@@ -476,6 +477,13 @@ impl RuntimeRequest {
     pub(crate) fn wire(&self) -> &Arc<EncodedMessage> {
         match self {
             Self::Command { wire, .. } | Self::Inquiry { wire, .. } => wire,
+        }
+    }
+
+    pub(crate) const fn payload_shape(&self) -> Option<crate::PayloadShape> {
+        match self {
+            Self::Inquiry { payload_shape, .. } => Some(*payload_shape),
+            Self::Command { .. } => None,
         }
     }
 
@@ -878,6 +886,7 @@ pub(crate) enum IgnoreReason {
     StaleTransmission,
     IncompatibleTransmissionResult,
     MalformedFrame,
+    ReplyShapeMismatch,
     UnmatchedFrame,
     UnmatchedSequencedFrame,
     TargetIncompatibleSequence,

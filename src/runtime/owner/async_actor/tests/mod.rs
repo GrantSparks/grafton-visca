@@ -558,6 +558,7 @@ async fn reject_raw_stream_predecessor<D: AsyncOwnerDriver>(
 
 fn inquiry_for(target: TargetSlot) -> RuntimeRequest {
     RuntimeRequest::Inquiry {
+        payload_shape: crate::PayloadShape::Unknown,
         wire: Arc::new(
             EncodedMessage::new(&[
                 0x80_u8.saturating_add(target.camera().id()),

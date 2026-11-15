@@ -336,6 +336,7 @@ pub(crate) struct OwnerMetrics {
     /// Running (#672). The session continues past these frames; this counter makes
     /// the otherwise lossy-diagnostics-only signal a durable metric.
     pub(crate) ignored_malformed_frames: u64,
+    pub(crate) ignored_reply_shape_mismatches: u64,
     pub(crate) dropped_staged_diagnostics: u64,
     pub(crate) dropped_diagnostic_events: u64,
     pub(crate) dropped_observer_events: u64,
@@ -2441,6 +2442,12 @@ impl OwnerState {
                 if reason == IgnoreReason::MalformedFrame {
                     self.metrics.ignored_malformed_frames =
                         self.metrics.ignored_malformed_frames.saturating_add(1);
+                }
+                if reason == IgnoreReason::ReplyShapeMismatch {
+                    self.metrics.ignored_reply_shape_mismatches = self
+                        .metrics
+                        .ignored_reply_shape_mismatches
+                        .saturating_add(1);
                 }
                 self.record(DiagnosticEvent::Ignored(reason));
                 AppliedEffect::None

@@ -300,11 +300,9 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
         SendSemantics::Stream => TransportKind::Stream,
     };
 
-    let inquiry_capacity = if envelope == EnvelopeKind::Sony {
-        admission_capacity.get()
-    } else {
-        1
-    };
+    // Raw targets exclude only overlapping inquiry declarations. Admission
+    // capacity still bounds total concurrent inquiries, as for Sony sequences.
+    let inquiry_capacity = admission_capacity.get();
     let wire = crate::runtime::engine::WireProtocol::new(envelope, config.addressing);
     let mut policy = OwnerPolicy::with_targets(
         ProtocolPolicy {
@@ -1633,19 +1631,18 @@ mod tests {
         let policy = owner_policy_for_targets(&profiles, &config, SendSemantics::Stream).unwrap();
         assert!(policy.targets[TargetSlot::CAMERA_1].is_some());
         assert!(policy.targets[TargetSlot::CAMERA_2].is_some());
-        assert_eq!(policy.protocol.inquiry_capacity, 1);
+        assert_eq!(policy.protocol.inquiry_capacity, policy.protocol.capacity);
         assert_eq!(
             policy.protocol.command_spacing,
             profile.timing().minimum_command_spacing()
         );
     }
 
-    /// Production raw owners always enter the engine with one inquiry flight,
-    /// even when their admission queue is wider. Raw replies carry no request
-    /// identity, so the engine's bounded released-inquiry quarantine relies on
-    /// this topology; sequenced Sony sessions alone may use the wider capacity.
+    /// Both envelopes retain admission's aggregate bound. Raw dispatch adds
+    /// pairwise overlap exclusion, so disjoint inquiry declarations can share
+    /// that capacity while identical or Unknown declarations remain exclusive.
     #[test]
-    fn production_raw_policy_is_single_flight_while_sony_uses_admission_capacity() {
+    fn production_policies_use_admission_capacity_with_raw_shape_exclusion() {
         let raw = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         let sony = ProfileSpec::from_compile_time::<SonyFR7>().unwrap();
         let raw_profiles = [(TargetSlot::CAMERA_1, &raw)];
@@ -1664,7 +1661,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(raw_policy.protocol.wire.kind(), EnvelopeKind::Raw);
-        assert_eq!(raw_policy.protocol.inquiry_capacity, 1);
+        assert_eq!(raw_policy.protocol.inquiry_capacity, capacity.get());
         assert_eq!(
             raw_policy.protocol.raw_inquiry_release_hold,
             raw.timing().raw_inquiry_reply_skew()

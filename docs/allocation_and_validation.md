@@ -34,6 +34,12 @@ The following boundaries are release gates:
 * Standard TCP receives read directly into the caller's slice, with no extra
   user-space read-ahead buffer. The owner requests at most `recv_buffer_size`
   bytes from the kernel per read.
+* Each raw target retains at most 16 exact inquiry declarations across
+  admitted requests, unpaid stream replies and reply-skew holds. The reservation
+  union and ledger settlement sets stay inline; declarations are never merged
+  through overlap. Stream ledger rows are bounded by `5A + 76` per target,
+  where `A` includes that target's control reserve. New declaration admission
+  fails before allocation when its fixed reservation set is full.
 * Lifecycle storage is bounded by owner admission, completion observers,
   cancellation waiters, and bounded diagnostic staging and subscriber queues.
 * Private request, transmission, and correlation-generation identifiers are

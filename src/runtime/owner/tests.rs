@@ -574,6 +574,7 @@ mod metrics {
         let mut context = request_context(retry);
         context.timeout.inquiry = crate::runtime::engine::NonZeroDuration::new(INQUIRY).unwrap();
         RuntimeRequest::Inquiry {
+            payload_shape: crate::PayloadShape::Unknown,
             wire: wire(),
             context,
         }
@@ -862,7 +863,7 @@ mod metrics {
         const fn assert_copy<T: Copy>() {}
         assert_copy::<OwnerMetrics>();
         assert_copy::<DiagnosticEvent>();
-        assert_eq!(size_of::<OwnerMetrics>(), 22 * size_of::<u64>());
+        assert_eq!(size_of::<OwnerMetrics>(), 23 * size_of::<u64>());
     }
     fn admit_observation(
         state: &mut OwnerState,
@@ -1695,6 +1696,7 @@ mod lifecycle_trace {
         reply: Duration,
     ) -> RuntimeRequest {
         RuntimeRequest::Inquiry {
+            payload_shape: crate::PayloadShape::Unknown,
             wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
             context: RequestContext {
                 requires_extended_pan_tilt_speed: false,
