@@ -7,7 +7,7 @@ use grafton_visca::{
     capabilities::Capabilities,
     command::{
         AntiFlickerMode, AutoFocusSensitivity, AutoWhiteBalanceSensitivity, FocusLock, FocusMode,
-        FocusRange, FocusZone, ImageFlipMode, MenuDirection, MotionSyncMode, MotionSyncPreset,
+        FocusZone, ImageFlipMode, MenuDirection, MotionSyncMode, MotionSyncPreset,
         NdFilterMode, NdFilterValue, PanTiltDirection, PanTiltLimitCorner, PictureEffectMode,
         PresetNumber, SharpnessMode, TallyStatusState, VariableSpeedMode, WhiteBalanceMode,
     },
@@ -119,7 +119,6 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<FocusPosition, Error>> = focus.near_limit();
     let _: DynFuture<'_, Result<FocusZone, Error>> = focus.zone();
     let _: DynFuture<'_, Result<AutoFocusSensitivity, Error>> = focus.sensitivity();
-    let _: DynFuture<'_, Result<FocusRange, Error>> = focus.range();
 
     let presets = camera.presets();
     let preset = PresetNumber::new(1).unwrap();
@@ -149,7 +148,6 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<(), Error>> = exposure.compensation_down();
     let _: DynFuture<'_, Result<(), Error>> =
         exposure.compensation_direct(ExposureCompensationLevel::new(0).unwrap());
-    let _: DynFuture<'_, Result<DynamicRangeLevel, Error>> = exposure.dynamic_range();
     let _: DynFuture<'_, Result<(), Error>> = exposure.set_dynamic_range(DynamicRangeLevel::MIN);
     let _: DynFuture<'_, Result<bool, Error>> = exposure.iris_control();
     let _: DynFuture<'_, Result<IrisLevel, Error>> = exposure.iris();
@@ -269,7 +267,7 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<bool, Error>> = tally.auto_adjust_enabled();
 
     let nd = camera.nd_filter();
-    let _: DynFuture<'_, Result<grafton_visca::command::NdFilterPosition, Error>> = nd.position();
+    let _: DynFuture<'_, Result<grafton_visca::command::NdFilterValue, Error>> = nd.position();
     let _: DynFuture<'_, Result<NdFilterPreset, Error>> = nd.preset();
     let _: DynFuture<'_, Result<(), Error>> = nd.set_mode(NdFilterMode::Preset);
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
@@ -297,16 +295,7 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<(), Error>> = menu.toggle_display();
 
     let advanced = camera.advanced();
-    let _: DynFuture<'_, Result<bool, Error>> = advanced.night_day_mode();
-    let _: DynFuture<'_, Result<bool, Error>> = advanced.standby_enabled();
-    let _: DynFuture<'_, Result<bool, Error>> = advanced.digital_ptz_enabled();
-    let _: DynFuture<'_, Result<bool, Error>> = advanced.auto_trace_enabled();
-    let _: DynFuture<'_, Result<bool, Error>> = advanced.focus_unlock();
-    let _: DynFuture<'_, Result<grafton_visca::types::BroadcastDomain, Error>> =
-        advanced.broadcast_domain();
     let _: DynFuture<'_, Result<bool, Error>> = advanced.usb_audio_enabled();
-    let _: DynFuture<'_, Result<bool, Error>> = advanced.two_tone_mode_enabled();
-    let _: DynFuture<'_, Result<bool, Error>> = advanced.digital_mode_enabled();
     let _: DynFuture<'_, Result<(), Error>> = advanced.multicast_on();
     let _: DynFuture<'_, Result<(), Error>> = advanced.multicast_off();
     let _: DynFuture<'_, Result<(), Error>> =

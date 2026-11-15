@@ -91,26 +91,21 @@ fn all_base_inquiries<P: CompileTimeProfile>(camera: &Camera<P>) {
     let _ = camera.pan_tilt().position();
     let _ = camera.focus().position();
     let _ = camera.focus().mode();
-    let _ = camera.focus().range();
     let _ = camera.exposure().shutter();
     let _ = camera.exposure().gain();
     let _ = camera.exposure().gain_limit();
     let _ = camera.white_balance().mode();
     let _ = camera.menu().status();
-    let _ = camera.advanced().night_day_mode();
-    let _ = camera.advanced().standby_enabled();
-    let _ = camera.advanced().digital_ptz_enabled();
-    let _ = camera.advanced().auto_trace_enabled();
-    let _ = camera.advanced().focus_unlock();
-    let _ = camera.advanced().broadcast_domain();
-    let _ = camera.advanced().two_tone_mode_enabled();
-    let _ = camera.advanced().digital_mode_enabled();
 }
 
 fn noise_2d_gate<P: CompileTimeProfile + HasImageProcessing + HasNoiseReduction2DMode>(
     camera: &Camera<P>,
 ) {
     let _ = camera.image().noise_reduction_2d_mode();
+}
+
+fn combined_flip_inquiry(camera: &Camera<PtzOpticsG2>) {
+    let _ = camera.image().flip_mode();
 }
 
 fn all_optional_inquiries<P>(camera: &Camera<P>)
@@ -152,7 +147,6 @@ where
     let _ = camera.exposure().compensation();
     let _ = camera.exposure().compensation_enabled();
     let _ = camera.exposure().compensation_position();
-    let _ = camera.exposure().dynamic_range();
     let _ = camera.exposure().iris_control();
     let _ = camera.exposure().iris();
     let _ = camera.exposure().brightness();
@@ -169,7 +163,6 @@ where
     let _ = camera.image().noise_reduction_3d();
     let _ = camera.image().flip();
     let _ = camera.image().picture_effect();
-    let _ = camera.image().flip_mode();
     let _ = camera.white_balance().sensitivity();
     let _ = camera.white_balance().color_temperature();
     let _ = camera.white_balance().red_gain();
@@ -281,6 +274,7 @@ fn non_default(camera: &Camera<profile_fixtures::NonDefaultCompileTimeProfile>) 
 #[test]
 fn static_camera_surface_is_profile_typed_and_non_default() {
     let _: fn(&Camera<PtzOpticsG2>) = baseline::<PtzOpticsG2>;
+    let _: fn(&Camera<PtzOpticsG2>) = combined_flip_inquiry;
     let _: fn(&Camera<PtzOpticsG2>) = noise_2d_gate::<PtzOpticsG2>;
     let _: fn(&Camera<profile_fixtures::OptionalSurfacesTypedSupport>) =
         all_optional_inquiries::<profile_fixtures::OptionalSurfacesTypedSupport>;

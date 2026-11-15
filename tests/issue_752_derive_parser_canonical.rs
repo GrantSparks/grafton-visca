@@ -219,7 +219,7 @@ fn every_parser_selector_uses_the_response_kind_decoder() {
     assert_canonical_decode!(SharpnessModeInquiry, &[0x02]);
     assert_canonical_decode!(GammaInquiry, &[0x04]);
     assert_canonical_decode!(AutoWbSensitivityInquiry, &[0x00]);
-    assert_canonical_decode!(NdFilterInquiry, &[0x00]);
+    assert_canonical_decode!(NdFilterInquiry, &[0x00, 0x00, 0x00, 0x00]);
     assert_canonical_decode!(PictureEffectInquiry, &[0x00]);
     assert_canonical_decode!(DefogLevelInquiry, &[0x05]);
     assert_canonical_decode!(FocusRangeInquiry, &[0x00]);

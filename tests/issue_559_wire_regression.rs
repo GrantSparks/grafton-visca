@@ -9,12 +9,11 @@ use grafton_visca::{
     capabilities::TypedSupportSurface,
     command::{
         AutoWhiteBalanceSensitivityInquiry, Brightness, BrightnessInquiry, ColorTemperatureInquiry,
-        DefogLevelInquiry, FocusRangeInquiry, FocusZone, FocusZoneCommand, FocusZoneInquiry,
-        GammaInquiry, InquiryKind, NdFilterInquiry, NoiseReduction2D, NoiseReduction2DInquiry,
-        NoiseReduction2DMode, NoiseReduction2DModeCommand, NoiseReduction2DModeInquiry,
-        NoiseReduction3D, NoiseReduction3DInquiry, PictureEffectInquiry, PictureEffectMode,
-        Response, ResponseParser, SharpnessModeInquiry, UsbAudio, UsbAudioInquiry, VersionInfo,
-        VersionInquiry,
+        DefogLevelInquiry, FocusZone, FocusZoneCommand, FocusZoneInquiry, GammaInquiry,
+        InquiryKind, NoiseReduction2D, NoiseReduction2DInquiry, NoiseReduction2DMode,
+        NoiseReduction2DModeCommand, NoiseReduction2DModeInquiry, NoiseReduction3D,
+        NoiseReduction3DInquiry, PictureEffectInquiry, PictureEffectMode, Response, ResponseParser,
+        SharpnessModeInquiry, UsbAudio, UsbAudioInquiry, VersionInfo, VersionInquiry,
     },
     profiles::{
         GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
@@ -81,8 +80,6 @@ fn rejects_trailing_payload<C: ResponseParser>(kind: InquiryKind, frame: &[u8]) 
 #[derive(Clone, Copy)]
 enum OneByteInquiryParser {
     Sharpness,
-    NdFilter,
-    FocusRange,
     DefogLevel,
     AutoWhiteBalanceSensitivity,
     Gamma,
@@ -92,8 +89,6 @@ impl OneByteInquiryParser {
     fn parse(self, response: Response) -> Result<(), Error> {
         match self {
             Self::Sharpness => SharpnessModeInquiry::from_response(response).map(|_| ()),
-            Self::NdFilter => NdFilterInquiry::from_response(response).map(|_| ()),
-            Self::FocusRange => FocusRangeInquiry::from_response(response).map(|_| ()),
             Self::DefogLevel => DefogLevelInquiry::from_response(response).map(|_| ()),
             Self::AutoWhiteBalanceSensitivity => {
                 AutoWhiteBalanceSensitivityInquiry::from_response(response).map(|_| ())
@@ -122,20 +117,6 @@ fn fixed_one_byte_inquiries_accept_one_byte_and_reject_trailing_payload() {
             parser: OneByteInquiryParser::Sharpness,
             valid: &[0x90, 0x50, 0x02, 0xFF],
             trailing: &[0x90, 0x50, 0x02, 0x00, 0xFF],
-        },
-        OneByteInquiryCase {
-            name: "ND filter",
-            kind: InquiryKind::NdFilter,
-            parser: OneByteInquiryParser::NdFilter,
-            valid: &[0x90, 0x50, 0x00, 0xFF],
-            trailing: &[0x90, 0x50, 0x00, 0x00, 0xFF],
-        },
-        OneByteInquiryCase {
-            name: "focus range",
-            kind: InquiryKind::FocusRange,
-            parser: OneByteInquiryParser::FocusRange,
-            valid: &[0x90, 0x50, 0x00, 0xFF],
-            trailing: &[0x90, 0x50, 0x00, 0x00, 0xFF],
         },
         OneByteInquiryCase {
             name: "defog level",

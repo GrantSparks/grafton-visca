@@ -335,9 +335,7 @@ macro_rules! noun_table {
             inquiry [] sensitivity()
                 -> command::AutoFocusSensitivity where HasAutoFocusSensitivity
                 = [command::AutoFocusSensitivityInquiry];
-            /// Returns the configured focus range.
-            inquiry [] range() -> command::FocusRange
-                = [command::FocusRangeInquiry];
+
 
             @noun Presets {
                 accessor: PresetsAccessor,
@@ -429,10 +427,7 @@ macro_rules! noun_table {
             ) -> command::ExposureCompensation
                 where HasExposureCompensation
                 = [command::ExposureCompensation::SetLevel(level)];
-            /// Returns the wide-dynamic-range level.
-            inquiry [] dynamic_range() -> types::DynamicRangeLevel
-                where HasWideDynamicRange
-                = [command::DynamicRangeInquiry];
+
             /// Sets the wide-dynamic-range level.
             plain [DynamicRange] set_dynamic_range(level: types::DynamicRangeLevel)
                 -> command::DynamicRange where HasWideDynamicRange
@@ -783,11 +778,11 @@ macro_rules! noun_table {
             /// Resumes live image output on profiles with explicitly validated support.
             plain [ImageFreezeOff] freeze_off() -> command::ImageFreeze where HasImageFreeze
                 = [command::ImageFreeze::off()];
-            /// Returns the canonical image-flip state.
+            /// Returns vertical image-flip state (`09 04 66`); horizontal is false.
             inquiry [] flip() -> command::FlipState where HasImageFlip
                 = [command::ImageFlipInquiry];
             /// Returns the combined image-flip mode.
-            inquiry [] flip_mode() -> command::FlipState where HasImageFlip
+            inquiry [] flip_mode() -> command::FlipState where HasCombinedImageFlip
                 = [command::FlipStateInquiry];
             /// Returns picture-effect mode.
             inquiry [] picture_effect()
@@ -851,8 +846,8 @@ macro_rules! noun_table {
                 gate: [typed HasNdFilter],
                 doc: "Neutral-density filter commands and inquiries.",
             };
-            /// Returns the current ND-filter position.
-            inquiry [] position() -> command::NdFilterPosition
+            /// Returns the Sony FR7 variable ND-filter density code (`00..=14`).
+            inquiry [] position() -> command::NdFilterValue
                 = [command::NdFilterInquiry];
             /// Returns the current ND-filter preset.
             inquiry [] preset() -> types::NdFilterPreset
@@ -954,32 +949,17 @@ macro_rules! noun_table {
                 gate: [always],
                 doc: "Streaming, USB-audio, variable-speed, and vendor status commands and inquiries.",
             };
-            /// Returns night/day mode.
-            inquiry [] night_day_mode() -> bool
-                = [command::NightDayModeInquiry];
-            /// Returns standby state.
-            inquiry [] standby_enabled() -> bool = [command::StandbyInquiry];
-            /// Returns digital PTZ state.
-            inquiry [] digital_ptz_enabled() -> bool
-                = [command::DigitalPtzInquiry];
-            /// Returns auto-trace state.
-            inquiry [] auto_trace_enabled() -> bool
-                = [command::AutoTraceInquiry];
-            /// Returns focus-unlock state.
-            inquiry [] focus_unlock() -> bool
-                = [command::FocusUnlockInquiry];
-            /// Returns the broadcast domain.
-            inquiry [] broadcast_domain() -> types::BroadcastDomain
-                = [command::BroadcastDomainInquiry];
+
+
+
+
+
+
             /// Returns USB-audio state.
             inquiry [] usb_audio_enabled() -> bool where HasUsbAudio
                 = [command::UsbAudioInquiry];
-            /// Returns two-tone mode.
-            inquiry [] two_tone_mode_enabled() -> bool
-                = [command::TwoToneModeInquiry];
-            /// Returns digital mode.
-            inquiry [] digital_mode_enabled() -> bool
-                = [command::DigitalInquiry];
+
+
             /// Enables multicast streaming.
             plain [MulticastStreamingOn] multicast_on() -> command::MulticastStreaming
                 where HasPtzOpticsMulticastStreaming

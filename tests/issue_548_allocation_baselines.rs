@@ -80,7 +80,7 @@ macro_rules! assert_generated_inquiry_inventory {
         #[test]
         fn all_queryable_generated_inquiries_encode_without_heap_allocation() {
             const QUERYABLE_GENERATED_INQUIRY_COUNT: usize = [$(stringify!($inquiry)),+].len();
-            assert_eq!(QUERYABLE_GENERATED_INQUIRY_COUNT, 63);
+            assert_eq!(QUERYABLE_GENERATED_INQUIRY_COUNT, 53);
             $(
                 let inquiry = <$inquiry>::default();
                 assert_request_encoding_does_not_allocate($label, &inquiry);
@@ -159,10 +159,6 @@ assert_generated_inquiry_inventory!(
         "NoiseReduction3DInquiry",
         grafton_visca::command::NoiseReduction3DInquiry
     ),
-    (
-        "DynamicRangeInquiry",
-        grafton_visca::command::DynamicRangeInquiry
-    ),
     ("FocusZoneInquiry", grafton_visca::command::FocusZoneInquiry),
     (
         "AutoFocusSensitivityInquiry",
@@ -181,21 +177,12 @@ assert_generated_inquiry_inventory!(
         "TallyStatusInquiry",
         grafton_visca::command::TallyStatusInquiry
     ),
-    (
-        "NightDayModeInquiry",
-        grafton_visca::command::NightDayModeInquiry
-    ),
     ("NdFilterInquiry", grafton_visca::command::NdFilterInquiry),
     (
         "PictureEffectInquiry",
         grafton_visca::command::PictureEffectInquiry
     ),
     ("FlipStateInquiry", grafton_visca::command::FlipStateInquiry),
-    ("StandbyInquiry", grafton_visca::command::StandbyInquiry),
-    (
-        "FocusRangeInquiry",
-        grafton_visca::command::FocusRangeInquiry
-    ),
     (
         "IrisControlInquiry",
         grafton_visca::command::IrisControlInquiry
@@ -204,10 +191,6 @@ assert_generated_inquiry_inventory!(
     (
         "DefogLevelInquiry",
         grafton_visca::command::DefogLevelInquiry
-    ),
-    (
-        "DigitalPtzInquiry",
-        grafton_visca::command::DigitalPtzInquiry
     ),
     (
         "AutoWhiteBalanceSensitivityInquiry",
@@ -223,18 +206,9 @@ assert_generated_inquiry_inventory!(
         grafton_visca::command::BlueTuningInquiry
     ),
     ("GammaInquiry", grafton_visca::command::GammaInquiry),
-    ("AutoTraceInquiry", grafton_visca::command::AutoTraceInquiry),
-    (
-        "FocusUnlockInquiry",
-        grafton_visca::command::FocusUnlockInquiry
-    ),
     (
         "SharpnessPositionInquiry",
         grafton_visca::command::SharpnessPositionInquiry
-    ),
-    (
-        "BroadcastDomainInquiry",
-        grafton_visca::command::BroadcastDomainInquiry
     ),
     (
         "MotionSyncModeInquiry",
@@ -246,14 +220,9 @@ assert_generated_inquiry_inventory!(
     ),
     ("UsbAudioInquiry", grafton_visca::command::UsbAudioInquiry),
     (
-        "TwoToneModeInquiry",
-        grafton_visca::command::TwoToneModeInquiry
-    ),
-    (
         "NdFilterPresetInquiry",
         grafton_visca::command::NdFilterPresetInquiry
     ),
-    ("DigitalInquiry", grafton_visca::command::DigitalInquiry),
     (
         "TallyAutoAdjustInquiry",
         grafton_visca::command::TallyAutoAdjustInquiry

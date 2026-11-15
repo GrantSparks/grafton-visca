@@ -427,8 +427,6 @@ scaled_value_conversions! {
 mod tests {
     use super::*;
 
-    use crate::types::FStop;
-
     #[test]
     #[allow(clippy::unwrap_used)]
     fn test_raw_zoom_conversion_is_checked() {
@@ -436,17 +434,6 @@ mod tests {
         assert_eq!(zoom.value(), 0x4000);
 
         assert!(ZoomPosition::try_from(Raw(0xFFFF_u16)).is_err());
-    }
-
-    #[test]
-    fn test_fstop_iris_conversion() {
-        let fstop = FStop::F2_8;
-        let iris = IrisLevel::from(fstop);
-        assert_eq!(iris.value(), 0x09);
-
-        let fstop = FStop::Closed;
-        let iris = IrisLevel::from(fstop);
-        assert_eq!(iris.value(), 0x00);
     }
 
     #[test]

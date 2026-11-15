@@ -15,7 +15,7 @@ use crate::{
             FocusPositionInquiry, IrisInquiry, NdFilterInquiry, PanTiltPositionInquiry,
             ZoomPositionInquiry,
         },
-        resolution::NdFilterPosition,
+        NdFilterValue,
     },
     completion,
     profile::{RetryBounds, DEFAULT_RETRY_BASE},
@@ -141,7 +141,7 @@ pub(crate) struct PositionQueryPlan {
     pub(crate) zoom: Option<PreparedInquiryTemplate<ZoomPosition>>,
     pub(crate) focus: Option<PreparedInquiryTemplate<FocusPosition>>,
     pub(crate) iris: Option<PreparedInquiryTemplate<IrisLevel>>,
-    pub(crate) nd_filter: Option<PreparedInquiryTemplate<NdFilterPosition>>,
+    pub(crate) nd_filter: Option<PreparedInquiryTemplate<NdFilterValue>>,
 }
 
 impl PositionQueryPlan {
@@ -213,7 +213,7 @@ pub(crate) struct PositionSnapshot {
     pub(crate) zoom: Option<ZoomPosition>,
     pub(crate) focus: Option<FocusPosition>,
     pub(crate) iris: Option<IrisLevel>,
-    pub(crate) nd_filter: Option<NdFilterPosition>,
+    pub(crate) nd_filter: Option<NdFilterValue>,
 }
 
 /// Pure selected-axis movement detector shared by both execution modes.
@@ -509,14 +509,14 @@ fn snapshots_moved(
             .ok_or_else(|| {
                 Error::InvalidState("previous snapshot omitted selected ND filter".into())
             })?
-            .as_byte();
+            .value();
         let current = current
             .nd_filter
             .ok_or_else(|| {
                 Error::InvalidState("current snapshot omitted selected ND filter".into())
             })?
-            .as_byte();
-        if u16::from(previous.abs_diff(current)) > tolerance.nd_filter {
+            .value();
+        if previous.abs_diff(current) > tolerance.nd_filter {
             return Ok(true);
         }
     }
@@ -1257,7 +1257,7 @@ mod tests {
         capabilities::{Capabilities, InquirySupport, TypedSupportSet},
         command::{
             BrightnessInquiry, ExposureModeInquiry, FocusNearLimitInquiry, FocusZoneInquiry,
-            IrisInquiry, NdFilterPosition, PanTilt, PanTiltLimitCorner, PanTiltPositionInquiry,
+            IrisInquiry, NdFilterValue, PanTilt, PanTiltLimitCorner, PanTiltPositionInquiry,
             PictureEffectInquiry, PowerInquiry, UsbAudioInquiry, VersionInquiry,
             ZoomPositionInquiry, VISCA_TERMINATOR,
         },
@@ -2320,8 +2320,9 @@ mod tests {
             &[
                 CameraId::CAMERA_2.to_address_byte(),
                 0x09,
+                0x7E,
                 0x04,
-                0x64,
+                0x42,
                 VISCA_TERMINATOR,
             ]
         );
@@ -2463,20 +2464,20 @@ mod tests {
         let axes = AffectedAxes::IRIS.union(AffectedAxes::ND_FILTER);
         let first = PositionSnapshot {
             iris: Some(IrisLevel::new(4).expect("iris")),
-            nd_filter: Some(NdFilterPosition::OneQuarter),
+            nd_filter: Some(NdFilterValue::new(0).expect("minimum ND density")),
             ..PositionSnapshot::default()
         };
         let mut detector = MotionDetector::from_baseline(axes, MovementTolerance::default(), first)
             .expect("baseline");
         let same = PositionSnapshot {
             iris: Some(IrisLevel::new(4).expect("iris")),
-            nd_filter: Some(NdFilterPosition::OneQuarter),
+            nd_filter: Some(NdFilterValue::new(0).expect("minimum ND density")),
             ..PositionSnapshot::default()
         };
         assert!(!detector.moved(same).expect("stable"));
         let changed = PositionSnapshot {
             iris: Some(IrisLevel::new(5).expect("iris")),
-            nd_filter: Some(NdFilterPosition::OneEighth),
+            nd_filter: Some(NdFilterValue::new(4).expect("one-eighth ND density")),
             ..PositionSnapshot::default()
         };
         assert!(detector.moved(changed).expect("moving"));

@@ -876,15 +876,7 @@ fn selector_decode_body(
                 )
             }
         },
-        PayloadDecoder::NdFilter => quote! {
-            {
-                #single_byte
-                let position = #crate_path::command::NdFilterPosition::from_byte(byte);
-                ::core::result::Result::Ok(
-                    #crate_path::command::InquiryData::#variant { position }
-                )
-            }
-        },
+        PayloadDecoder::NdFilter => return canonical_decode(response, crate_path),
         PayloadDecoder::PictureEffect => quote! {
             {
                 #single_byte

@@ -44,7 +44,7 @@ crate::__grafton_visca_newtype! {
 /// Trait for types that can be converted into VISCA iris level values.
 ///
 /// This trait provides a unified conversion interface for different iris-related types
-/// (F-stop values, percentages, raw levels) into the VISCA iris level format used
+/// (percentages and raw levels) into the VISCA iris level format used
 /// for camera aperture control.
 pub trait IntoIrisLevel {
     /// Converts this value into a VISCA iris level.
@@ -81,18 +81,11 @@ macro_rules! impl_into_iris_level {
 impl_into_iris_level! {
     IrisLevel => Ok,
     u8 => IrisLevel::new,
-    FStop => |x| Ok(IrisLevel::from(x)),
     Percentage<f32> => |x| {
         use std::convert::TryFrom;
 
         IrisLevel::try_from(x)
     },
-}
-
-impl From<FStop> for IrisLevel {
-    fn from(fstop: FStop) -> Self {
-        Self(fstop.to_iris_level())
-    }
 }
 
 /// Shutter speed code for direct shutter control.
@@ -396,7 +389,7 @@ macro_rules! fstop_enum {
         pub enum $name:ident {
             $(
                 $(#[$variant_meta:meta])*
-                $variant:ident $(($display:literal))? => $value:expr
+                $variant:ident $(($display:literal))?
             ),* $(,)?
         }
     ) => {
@@ -407,27 +400,6 @@ macro_rules! fstop_enum {
                 $(#[$variant_meta])*
                 $variant
             ),*
-        }
-
-        impl $name {
-            /// Converts this F-stop value to a VISCA iris level (0x00-0x0C).
-            #[must_use]
-            pub fn to_iris_level(self) -> u8 {
-                match self {
-                    $(Self::$variant => $value),*
-                }
-            }
-
-            /// Creates an F-stop value from a VISCA iris level.
-            ///
-            /// Returns `None` if the level doesn't correspond to a known F-stop.
-            #[must_use]
-            pub fn from_iris_level(level: u8) -> Option<Self> {
-                match level {
-                    $($value => Some(Self::$variant),)*
-                    _ => None,
-                }
-            }
         }
 
         impl fmt::Display for $name {
@@ -449,39 +421,39 @@ macro_rules! fstop_enum {
 fstop_enum! {
     /// F-stop values for iris control.
     ///
-    /// Standard VISCA F-stop values from `Closed` (no light) to `F1_8` (widest opening).
-    /// These correspond to typical camera aperture settings. Lower numbers mean wider
+    /// Descriptive F-stop values from `Closed` (no light) to `F1_8` (widest opening).
+    /// No profile-independent VISCA wire mapping is defined. Lower numbers mean wider
     /// aperture (more light).
     #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
     #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
     pub enum FStop {
         /// Iris completely closed - no light passes through
-        Closed => 0x00,
+        Closed,
         /// F/11 - Smallest aperture opening
-        F11 => 0x01,
+        F11,
         /// F/9.6
-        F9_6("F9.6") => 0x02,
+        F9_6("F9.6"),
         /// F/8
-        F8 => 0x03,
+        F8,
         /// F/6.8
-        F6_8("F6.8") => 0x04,
+        F6_8("F6.8"),
         /// F/5.6
-        F5_6("F5.6") => 0x05,
+        F5_6("F5.6"),
         /// F/4.8
-        F4_8("F4.8") => 0x06,
+        F4_8("F4.8"),
         /// F/4
-        F4 => 0x07,
+        F4,
         /// F/3.4
-        F3_4("F3.4") => 0x08,
+        F3_4("F3.4"),
         /// F/2.8
-        F2_8("F2.8") => 0x09,
+        F2_8("F2.8"),
         /// F/2.4
-        F2_4("F2.4") => 0x0A,
+        F2_4("F2.4"),
         /// F/2
-        F2("F2.0") => 0x0B,
+        F2("F2.0"),
         /// F/1.8 - Widest aperture opening, maximum light
-        F1_8("F1.8") => 0x0C,
+        F1_8("F1.8"),
     }
 }
 
@@ -945,13 +917,9 @@ mod tests {
     }
 
     #[test]
-    fn test_fstop_conversions() {
-        assert_eq!(FStop::Closed.to_iris_level(), 0x00);
-        assert_eq!(FStop::F1_8.to_iris_level(), 0x0C);
-
-        assert_eq!(FStop::from_iris_level(0x00), Some(FStop::Closed));
-        assert_eq!(FStop::from_iris_level(0x0C), Some(FStop::F1_8));
-        assert_eq!(FStop::from_iris_level(0xFF), None);
+    fn fstop_names_are_descriptive_only() {
+        assert_eq!(FStop::F5_6.to_string(), "F5.6");
+        assert_eq!(FStop::Closed.to_string(), "Closed");
     }
 
     #[test]
@@ -1020,7 +988,6 @@ mod tests {
         // ZoomPosition and FocusPosition normalized command conversions are profile-aware.
         // Use the control APIs or profile-aware helpers instead of raw value conversions.
 
-        let iris = IrisLevel::from(FStop::F2_8);
-        assert_eq!(iris.value(), 0x09);
+        assert_eq!(IrisLevel::new(9).unwrap().value(), 9);
     }
 }
