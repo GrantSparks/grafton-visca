@@ -114,10 +114,13 @@ Internally, both shells complete engine input through the same executor-free
 one ordinary dispatch; an input-only turn preserves retained wire evidence
 ahead of deadlines at the same sampled instant. These are
 options on one engine boundary, not feature-gated owner entry points. A
-correlated frame sampled exactly at its response deadline therefore wins; a
-strictly late raw-stream candidate is retired through its due lifecycle
-before any side-effecting ledger resolution. That same frame can then pay its
-debt and retain the socket it names; it cannot erase the evidence first. A
+correlated frame sampled exactly at its response deadline therefore wins.
+Every strictly late correlated frame first retires its owner through the due
+lifecycle, then accounts its evidence against the resulting retained Sony
+identity, raw debt, or socket hold. Stream candidates retire before any
+side-effecting ledger resolution. A late ACK can prove acceptance and cancel
+a pending Sony retry; a late raw completion can release the socket hold that
+retirement just installed. Deadlines never erase that evidence (#858). A
 raced ACK also proves that a staged write left, so its socket remains held even
 when the successful write result outlives the budget (#837). A frame for an
 unrelated live request keeps that request's own response deadline.
@@ -642,6 +645,10 @@ frame binds only to the request that sent it:
   `NoReply`) is socketless.
 - Every written request receives exactly one first answer (only a
   `CompletionOnly` command's completion may never come).
+- An accepted socketed command reports one terminal completion or execution
+  error. In particular it does not duplicate a socketless completion: a
+  complete count of such frames can prove that all retained socket candidates
+  ended, even when it cannot identify each frame separately.
 - A camera whose completions name their sockets (`z0 5y FF`, §6.1) names
   them in every completion of a socketed command. This is learned per camera
   from its completions: a completion naming a socket teaches it; a socketless
@@ -660,6 +667,8 @@ What a violation costs:
   the oldest legal entry: it pays a debt (discarded), or reaches a live
   request as its answer — a false rejection, or an ACK for a command the
   camera has not read.
+- A duplicate socketless completion can falsely exhaust the retained
+  candidates' terminal count and complete a different live candidate.
 - A request the camera never answers stays owed until a later first answer
   settles it; meanwhile it pays itself with the next answer of its class,
   so requests of that class written behind it end unconfirmed, one step
@@ -673,15 +682,20 @@ What a violation costs:
   of a socketed command arriving while a `CompletionOnly` command is
   outstanding completes that command instead.
 
-A camera that omits the socket in its completions keeps the assumptions but
-costs availability: whenever two commands execute at once, or a socket is
-held, its socketless completions cannot be attributed and are dropped, so
-those commands end unconfirmed and a `CompletionOnly` command's completion
-can be lost to its debt (latching the command lane). In the randomized model
-on a hostile link, about half of its STOPs end unconfirmed this way and most
-sessions that send `CompletionOnly` commands end with that lane latched; a
-camera that names its sockets (the PTZOptics G2 sends `90 51 FF` and
-`90 52 FF`) has neither cost.
+A camera that omits the socket in its completions costs availability when
+two commands execute or a predecessor's socket is held. The engine retains
+an ambiguous completion with the identities of both possible owners. When
+the number of retained terminals proves both ended, it retires any overdue
+owners, releases their holds and completes the owners still within their
+deadlines. The buffer is fixed at two socket identities and never applies an
+old frame to a successor. An ACK reusing a held socket proves that predecessor
+ended, but does not prove whose earlier completion arrived; reuse therefore
+discards that ambiguous attribution instead of completing the other owner
+by guess. A missing terminal, an intervening execution error, or socket reuse
+can still leave a socket ambiguity unconfirmed. A
+`CompletionOnly` completion can still be lost to that ambiguity and latch the
+command lane. A camera that names its sockets (the PTZOptics G2 sends
+`90 51 FF` and `90 52 FF`) does not pay these availability costs (#858).
 
 Datagram transports cannot rely on order (a datagram may be lost) and keep
 the time-bounded holds; the Sony envelope correlates by sequence.
@@ -909,17 +923,20 @@ and both halt entry points run the debug invariant hook on every return path
 | Request still `Sending` when its total retry budget expires | Raw active command: immediately fail unconfirmed and install the applicable keyed hold (or strict-poison); raw single-flight inquiry: install its target-only reply-skew hold and fail (nothing is owed even on a stream: no write is in progress during the due pass, so the staged transmission is dropped); Sony: fail without registering late sequence metadata. A write result sampled exactly at the deadline remains input-first. |
 | Request write result sampled strictly after its total retry budget | Retire the expired request before the result can register correlation, consume a deferred frame as a success, report `Written`, or replace a retained retry cause. A successful raw-stream write retains any unanswered first answer as a ledger debt. A deferred ACK proves the write left: retain its socket hold using the attempt's dispatch-time socket capacity, and quarantine any displaced predecessor before holding the new assignment, so this command's completion cannot apply that predecessor. Results at equality remain input-first; an ACK for a still-live `Sending` request can still latch. Cancellation writes use their separate ambiguity lifecycle (#837; `raw_evidence::latched_ack_proves_socket_assignment_when_write_result_outlives_budget`; `raw_evidence::raced_ack_after_budget_does_not_apply_a_displaced_socket_owner`; `raw_evidence::raced_socketless_ack_after_budget_keeps_dispatched_capacity_on_retune`). |
 | ACK in `AwaitingAck` with a free socket | Assign the socket and transition to `Executing`; if cancellation was requested on a supported target, emit one socket cancellation. ACK evidence passes an `AllResponses` hold; a `PreAck` hold without a live predecessor permits the unique live candidate. Neither can resurrect a terminal owner (#723/#744; `urgent_ack_binds_when_its_preack_hold_has_no_live_predecessor`). |
+| Strictly late correlated frame, either envelope | Retire its overdue owner before accounting the frame against retained identity, debt or hold. Input at equality still wins; unrelated requests keep their own deadlines. A raw datagram hold continues to discard the late frame (#858). |
+| Exact-sequence Sony ACK/completion after an ACK deadline or during `Backoff`/`Ready` with a retained written attempt | The due lifecycle runs first if needed. An ACK cancels the pending retry and enters `Executing`, preserving the written attempt's socket capacity; a completion finishes `Applied`. A duplicate camera error cannot spend another retry. Expired total budgets remain terminal (#858). |
 | Raw datagram ACK/error while two positional candidates are open | Ignore it as ambiguous and bind it to neither candidate; never use admission order or recency (#714). |
 | Raw ACK naming a busy or quarantined socket | Treat the camera's named socket as authoritative: immediately fail a stale live owner, or downgrade an inert exact-socket hold, to its original-deadline unkeyed `PreAck` hold; assign the named socket to the uniquely resolved successor (#721/#723/#750). |
 | Raw datagram error naming a free, unheld socket | A rejection code (`0x01`/`0x02`/`0x03`/`0x41`) routes the target's unique unacknowledged ACK-bearing command (the camera's rejection in the socket it allocated, e.g. G2 `90 6y 41 FF`; an inquiry, answered on socket 0, never names one); ignore it while the socket is quarantined or two candidates are open, and ignore `0x04`/`0x05`, which answer only a cancellation (#795). |
 | Raw datagram error naming a socket owned by a live request | `0x04`/`0x05`: route the owner only if its emitted cancellation targets that socket. Otherwise route the exact owner unless another command on the target is unacknowledged: then bind to neither (#714). A live inquiry never competes: its error is socketless (#795). |
 | Unsequenced frame on a raw byte stream | Resolve it through the correlation ledger: the oldest entry that can legally produce it (see "The raw byte-stream correlation ledger"); a live entry's request receives it, a debt discards it. A completion or error naming a live owner's socket is that owner's; one naming a held socket releases the hold (#795). |
+| Raw stream socketless completion for a sole socket holder | Retire a strictly overdue holder first, then release its resulting socket hold. With two possible socket identities, retain the frame until a complete terminal count proves both ended; socket reuse never assigns it to the successor (#858). |
 | Written raw byte-stream request ends without its first answer | Its ledger entry becomes a debt for its ambiguity window (an inquiry's is at least the reply skew); a staged write that never left leaves no entry. An owed inquiry reply retains the `InquiryUnkeyed` hold; a pre-ACK command installs no `PreAck` hold (#795). |
 | Ledger debt paid | Before side-effecting raw-stream ledger resolution, retire candidates whose response deadline is strictly earlier than the sampled frame; input at equality still wins, and an ACK for a still-live `Sending` request can still latch. Resolve the frame against the resulting debt and discard it. An owed ACK displaces a stale owner of its named socket and holds that socket (or the first free eligible one) through its command's completion window; an owed reply leaves the ordinary reply skew from now (#795/#837; `raw_evidence::late_first_answers_are_order_independent`; `raw_evidence::late_ack_preserves_its_socket_against_successor_errors_and_socketless_completion`). |
 | Ordinary command or inquiry dispatch while its lane owes an answer inside its window | Queue; an `Urgent` ACK-bearing STOP may still write when no command is unacknowledged (#795). |
 | Ledger debt unpaid when the due pass reaches its window end | Latch that lane: fail its queued `Ready`/`Backoff` work and reject new work, unwritten, with `InquiryCorrelationLost` (inquiries, `CompletionOnly`) or `CommandCorrelationLost` (ordinary ACK-bearing, `CompletionOnly`, `NoReply`), `Terminal`/`NotAccepted`. The latch neither expires nor wakes the owner; STOPs, other targets, and the session are unaffected; the debt's answer, or a later first answer that settles it, reopens the lane (#795). |
 | Disputed raw stream frame (a socketless error behind a `CompletionOnly` entry that may still be rejected or a `NoReply` command's owed entry, or any frame behind a disputed waiting request, with another candidate behind it) | Bind to neither; keep the union of the debts either explanation leaves: the `CompletionOnly` command owes only its completion, the other candidate keeps owing and is disputed (never crossed; settled by its own answer or by write order) (#795). |
-| Sequenced Sony ACK naming a busy socket | Use the target's other free socket when available for #620/#682 compatibility; otherwise remain inert as `Ignored(SocketConflict)`. |
+| Sequenced Sony ACK naming a busy socket | Use the target's other free socket when available for #620/#682 compatibility; otherwise report `Ignored(SocketConflict)` and finish `CommandFailedAfterAck`. The exact sequence proved acceptance even when local ownership cannot safely track its socket, so replay is forbidden (#858). |
 | ACK while still `Sending` | Latch it once as a deferred ACK, applied when the send result lands. |
 | Completion in `Executing`, including after cancellation ambiguity elapsed | `finish` with `RuntimeOutcome::Applied`; exact socket ownership keeps it attributable through the completion deadline, and a retained cancellation observer maps this to `Completed` (#724). |
 | Exact completion in `AwaitingCancellationResolution` before its phase deadline | `finish` with `RuntimeOutcome::Applied`; the request is still open while its owned socket is retained. |
@@ -1000,8 +1017,8 @@ than claimed as a snapshot-auditor check.
   one-shot terminal and cancellation slots.)
 - Every target/socket pair has at most one active owner. (Enforcement: audit: exact target/socket
   ownership.)
-- No retry path writes a command again after its ACK. (Enforcement: owner: retry transitions reject
-  acknowledged lifecycles.)
+- No retry path writes a command again after its ACK. (Enforcement: type: retry transitions require
+  an eligibility value issued only by unacknowledged lifecycles.)
 - Every live raw byte-stream ledger entry belongs to a request that still awaits that answer; the
   ledger exists only on a raw stream session, a frame resolves only against an entry that can
   legally produce it, and a debt never blocks a STOP or poisons the session. (Enforcement: audit:

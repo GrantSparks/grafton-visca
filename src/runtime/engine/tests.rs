@@ -14,6 +14,7 @@ use crate::FailureContext;
 
 mod audit_rules;
 mod cancellation_holds;
+mod late_evidence;
 mod lifecycle_transition_matrix;
 mod prepared_retry;
 mod raw_evidence;
@@ -2179,7 +2180,10 @@ fn cancellation_terminal_frames_are_inclusive_at_ambiguity_and_stale_afterward()
             |effect| matches!(effect, Effect::Terminal { id, .. } if *id == late_id),
         )
         .expect("ambiguity due transition");
-        assert!(ignored < terminal);
+        assert!(
+            terminal < ignored,
+            "retire the expired owner before accounting its late frame"
+        );
         late_engine.assert_invariants().unwrap();
     }
 }
@@ -6406,12 +6410,12 @@ fn raw_socket_assignment_never_falls_back_from_an_occupied_named_socket() {
     single.assert_invariants().unwrap();
 }
 
-/// A genuine two-live-owner collision retains the sequenced Sony
-/// `SocketConflict` result. Raw named ACKs deliberately have a different rule:
+/// A genuine two-live-owner collision reports sequenced Sony
+/// `SocketConflict`, and acceptance still forbids replay. Raw named ACKs have a different rule:
 /// their camera-provided socket is authoritative, so a locally stale owner or
 /// tombstone is reconciled before assignment (#721/#750).
 #[test]
-fn sequenced_ack_with_two_live_socket_owners_remains_a_socket_conflict() {
+fn sequenced_ack_with_two_live_socket_owners_fails_after_ack_without_retry() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
     for (ticket, sequence, socket) in [(1, 0x1001, ViscaSocket::S1), (2, 0x1002, ViscaSocket::S2)] {
@@ -6448,7 +6452,6 @@ fn sequenced_ack_with_two_live_socket_owners_remains_a_socket_conflict() {
         start,
     );
     let third_id = admitted(&queued);
-    let original_lifecycle = engine.entry(third_id).unwrap().lifecycle;
     engine.entries.get_mut(&third_id).unwrap().lifecycle = Lifecycle::AwaitingAck {
         sent_at: start,
         deadline: start + Duration::from_millis(20),
@@ -6464,7 +6467,11 @@ fn sequenced_ack_with_two_live_socket_owners_remains_a_socket_conflict() {
         ignored_reasons(&effects),
         vec![IgnoreReason::SocketConflict]
     );
-    engine.entries.get_mut(&third_id).unwrap().lifecycle = original_lifecycle;
+    assert!(matches!(
+        terminal_failure(&effects, third_id),
+        Some(Error::CommandFailedAfterAck { .. })
+    ));
+    assert!(engine.entry(third_id).is_none());
     engine.assert_invariants().unwrap();
 }
 
@@ -7261,8 +7268,8 @@ fn assert_correlated_frame_deadline_boundary(
     })
     .expect("normal due transition");
     assert!(
-        ignored < expired,
-        "the late frame precedes its due transition"
+        expired < ignored,
+        "the due transition retires the owner before accounting the late frame"
     );
     late_engine.assert_invariants().unwrap();
 }
@@ -9098,8 +9105,8 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
             &late,
             |effect| matches!(effect, Effect::Terminal { id, .. } if *id == late_id),
         )
-        .expect("budget expiry follows the input");
-        assert!(ignored < terminal);
+        .expect("budget expiry retires the owner");
+        assert!(terminal < ignored);
         late_engine.assert_invariants().unwrap();
     }
 
@@ -13004,11 +13011,22 @@ fn completion_only_refused_cancel_does_not_extend_correlation() {
             ),
             start + Duration::from_millis(40) + Duration::from_nanos(1),
         );
-        assert!(ignored_reasons(&completion).contains(&IgnoreReason::UnmatchedFrame));
-        assert!(!matches!(
-            terminal_outcome(&completion, id),
-            Some(RuntimeOutcome::Applied)
-        ));
+        if envelope == EnvelopeKind::Sony {
+            assert!(matches!(
+                terminal_outcome(&completion, id),
+                Some(RuntimeOutcome::Applied)
+            ));
+            assert_eq!(
+                deadline_expiries(&completion, id),
+                [(DeadlineKind::Completion, true)]
+            );
+        } else {
+            assert!(ignored_reasons(&completion).contains(&IgnoreReason::UnmatchedFrame));
+            assert!(!matches!(
+                terminal_outcome(&completion, id),
+                Some(RuntimeOutcome::Applied)
+            ));
+        }
         engine.assert_invariants().unwrap();
     }
 }

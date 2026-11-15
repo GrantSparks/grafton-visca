@@ -8,11 +8,27 @@ use super::{
 use crate::ViscaSocket;
 use std::time::{Duration, Instant};
 
-/// Facts belonging to one dispatched attempt, never a Ready/Backoff entry.
+/// Facts belonging to one dispatched attempt. Retry waiting retains the last
+/// written attempt separately so a late exact-sequence ACK can adopt it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct AttemptFacts {
     pub(crate) socket_capacity: Option<u8>,
     pub(crate) stream_order: Option<u64>,
+}
+
+/// Proof that the lifecycle has not recorded acceptance of this attempt.
+///
+/// Only the unacknowledged response states below can produce this value; a
+/// retry therefore cannot be scheduled from an executing command.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct RetryEligibility {
+    attempt: AttemptFacts,
+}
+
+impl RetryEligibility {
+    pub(crate) const fn attempt(self) -> AttemptFacts {
+        self.attempt
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -105,6 +121,7 @@ pub(crate) enum ResolvingCancellation {
 pub(crate) enum Lifecycle {
     Ready {
         ticket: QueueTicket,
+        previous_attempt: Option<AttemptFacts>,
     },
     Sending {
         transmission: TransmissionId,
@@ -138,6 +155,7 @@ pub(crate) enum Lifecycle {
     Backoff {
         ready_at: Instant,
         queue_generation: u64,
+        previous_attempt: AttemptFacts,
     },
     AwaitingCancellationResolution {
         socket: ViscaSocket,
@@ -151,7 +169,7 @@ impl Lifecycle {
     /// Stable diagnostic/test projection, never an independently stored phase.
     pub(crate) fn phase(self) -> Phase {
         match self {
-            Self::Ready { ticket } => Phase::Ready { ticket },
+            Self::Ready { ticket, .. } => Phase::Ready { ticket },
             Self::Sending {
                 transmission,
                 started_at,
@@ -183,6 +201,7 @@ impl Lifecycle {
             Self::Backoff {
                 ready_at,
                 queue_generation,
+                ..
             } => Phase::Backoff {
                 ready_at,
                 queue_generation,
@@ -281,6 +300,40 @@ impl Lifecycle {
             | Self::AwaitingReply { attempt, .. }
             | Self::AwaitingCancellationResolution { attempt, .. } => Some(attempt),
         }
+    }
+
+    /// The last written attempt remains identifiable while a retry waits.
+    pub(crate) const fn previous_attempt(self) -> Option<AttemptFacts> {
+        match self {
+            Self::Ready {
+                previous_attempt, ..
+            } => previous_attempt,
+            Self::Backoff {
+                previous_attempt, ..
+            } => Some(previous_attempt),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn retry_eligibility(
+        self,
+        replayable_completion: bool,
+    ) -> Option<RetryEligibility> {
+        let attempt = match self {
+            Self::AwaitingAck { attempt, .. } | Self::AwaitingReply { attempt, .. } => attempt,
+            Self::AwaitingCompletion { attempt, .. } if replayable_completion => attempt,
+            Self::Sending { attempt, reply, .. }
+                if matches!(
+                    reply,
+                    SendingReply::Inquiry | SendingReply::AckThenCompletion { .. }
+                ) || (replayable_completion
+                    && matches!(reply, SendingReply::CompletionOnly { .. })) =>
+            {
+                attempt
+            }
+            _ => return None,
+        };
+        Some(RetryEligibility { attempt })
     }
 
     pub(crate) const fn deferred_ack(self) -> Option<DeferredAck> {

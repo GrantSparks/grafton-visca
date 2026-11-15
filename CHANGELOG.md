@@ -137,9 +137,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   requested during the write is refused when it succeeds. Unconfirmed raw
   cancellation terminals retain a future hold with the correct phase scope,
   preventing late replies from applying a successor (#835).
-- Strictly late raw-stream candidates retire before the ledger consumes their
-  first answer. A raced ACK retains its socket evidence even when the write
-  result outlives the total budget (#837).
+- Strictly late correlated frames retire their owner before accounting the
+  evidence. Late exact-sequence Sony ACKs and completions cancel pending
+  retries, preventing an accepted movement from being written twice; late
+  raw socketless completions release their retired owner's hold instead of
+  stranding subsequent commands. Ambiguous socketless terminals retain bounded
+  candidate evidence and resolve only when their count proves every candidate
+  ended. A raced ACK retains socket evidence when its write result outlives
+  the total budget (#837, #858).
 - Owner receive pacing preserves input already available at a response or
   release deadline. Only eager idle reads gain an extra pause; full-timeout
   reads stay receive-first, and successful writes clear fault pauses and reset

@@ -157,7 +157,7 @@ const fn kind(name: &'static str, seeds: u64, link: Link) -> Kind {
     }
 }
 
-const KINDS: [Kind; 7] = [
+const KINDS: [Kind; 8] = [
     kind("names sockets, hostile link", 96, HOSTILE),
     kind("names sockets, G2-like link", 96, REALISTIC),
     Kind {
@@ -179,6 +179,15 @@ const KINDS: [Kind; 7] = [
     Kind {
         due_interval: 17,
         ..kind("late frames before delayed due turns", 48, HOSTILE)
+    },
+    Kind {
+        named_completions: 0,
+        due_interval: 17,
+        ..kind(
+            "late socketless completions before delayed due turns",
+            48,
+            HOSTILE,
+        )
     },
 ];
 
@@ -502,6 +511,9 @@ struct Session {
     stalled_until: Instant,
     ticket: u64,
     acknowledged: BTreeSet<RequestId>,
+    /// Camera-tagged completions already delivered, including retained frames
+    /// assigned only when a later terminal count resolves their candidates.
+    delivered_socketless_completions: BTreeSet<RequestId>,
     ended: BTreeSet<RequestId>,
     /// STOPs admitted, with their dispatch deadline and first write.
     stops: BTreeMap<RequestId, (Instant, Option<Instant>)>,
@@ -558,6 +570,7 @@ impl Session {
             stalled_until: start,
             ticket: 0,
             acknowledged: BTreeSet::new(),
+            delivered_socketless_completions: BTreeSet::new(),
             ended: BTreeSet::new(),
             stops: BTreeMap::new(),
             stop_admitted: BTreeMap::new(),
@@ -1151,6 +1164,24 @@ impl Session {
     fn deliver_all(&mut self) {
         while let Some((target, response, originator)) = self.outbound.pop_front() {
             let camera_id = camera(target);
+            let buffered_candidates = self.engine.targets[camera_id]
+                .pending_socketless_completions
+                .map(|pending| pending.candidates);
+            let expired_candidates: BTreeSet<_> = self
+                .engine
+                .entries
+                .iter()
+                .filter(|(_, entry)| {
+                    entry.request.context().target == camera_id
+                        && entry
+                            .correlated_response_deadline()
+                            .is_some_and(|deadline| deadline < self.now)
+                })
+                .map(|(id, _)| *id)
+                .collect();
+            if matches!(response, DecodedResponse::Completion { socket: None }) {
+                self.delivered_socketless_completions.insert(originator);
+            }
             let exact = self.certain(target, originator);
             let accepted_before = self.accepted_completions(camera_id);
             let disputes_before = self.engine.ledger.disputes_seen;
@@ -1177,6 +1208,43 @@ impl Session {
                 };
                 if id == originator {
                     bound = true;
+                    continue;
+                }
+                // Retire-before-account applies the ordinary due lifecycle of
+                // each proven candidate, rather than reviving an overdue one.
+                if expired_candidates.contains(&id)
+                    && matches!(
+                        effect,
+                        Effect::Terminal {
+                            outcome: RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
+                            ..
+                        } | Effect::CancellationObservation {
+                            observation: CancellationObservation::Failed(
+                                Error::UnsequencedCommandUnconfirmed
+                            ),
+                            ..
+                        }
+                    )
+                {
+                    continue;
+                }
+                // Several socketless completions can together prove every
+                // snapshotted candidate ended. A foreign terminal is valid
+                // only if this exact request's own camera-tagged completion
+                // was delivered earlier and was among the retained candidates.
+                if matches!(
+                    effect,
+                    Effect::Terminal {
+                        outcome: RuntimeOutcome::Applied,
+                        ..
+                    } | Effect::CancellationObservation {
+                        observation: CancellationObservation::Completed,
+                        ..
+                    }
+                ) && buffered_candidates.is_some_and(|candidates| candidates.contains(&Some(id)))
+                    && self.delivered_socketless_completions.contains(&id)
+                {
+                    self.coverage.assigned += 1;
                     continue;
                 }
                 // A camera ACK naming a socket the engine still indexes to an

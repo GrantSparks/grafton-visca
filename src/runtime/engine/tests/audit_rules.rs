@@ -180,7 +180,7 @@ fn expire_unwritten_halt_runs_the_hook_even_on_an_unknown_transmission() {
 }
 
 #[test]
-fn ready_and_backoff_have_no_attempt_facts_or_raced_latches() {
+fn ready_and_backoff_have_no_active_attempt_or_raced_latches() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
     let (write, id) = admit(
@@ -212,6 +212,7 @@ fn ready_and_backoff_have_no_attempt_facts_or_raced_latches() {
         }
         let entry = engine.entry(id).unwrap();
         assert!(entry.lifecycle.attempt().is_none());
+        assert!(entry.lifecycle.previous_attempt().is_some());
         assert!(entry.dispatched_socket_capacity().is_none());
         assert!(entry.stream_order().is_none());
         assert!(entry.deferred_ack().is_none());
