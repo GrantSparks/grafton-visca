@@ -560,8 +560,7 @@ mod tests {
     #[test]
     fn tuning_proof_requires_successful_validation_for_the_registry() {
         use super::*;
-        let profile =
-            ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2 profile");
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().unwrap();
         assert!(ValidatedTuning::validate(OperationalTuning::new(), []).is_err());
         assert!(ValidatedTuning::validate(
             OperationalTuning::new().ack_timeout(std::time::Duration::ZERO),
@@ -570,9 +569,7 @@ mod tests {
         .is_err());
         let tuning = OperationalTuning::new();
         assert_eq!(
-            ValidatedTuning::validate(tuning, [&profile])
-                .expect("valid proof")
-                .get(),
+            ValidatedTuning::validate(tuning, [&profile]).unwrap().get(),
             tuning
         );
     }
