@@ -19,7 +19,9 @@ observe application, wait for profile-selected settlement, cancel, or detach.
 | Ignore a successful control return | Bind the handle and explicitly call `applied()`, `settled()`, `cancel()`, or `detach()`; `#[must_use]` makes an accidental drop visible. |
 
 This applies across pan/tilt, zoom, focus, presets, iris, and ND-filter
-operations—not only normalized zoom. A completed VISCA command is not always a
+operations and menu navigation—not only normalized zoom. A closed on-screen
+menu makes `menu().navigate()` a continuous pan/tilt drive; observe its handle
+with `applied()` and issue an explicit pan/tilt STOP to end movement (#839). A completed VISCA command is not always a
 physical-rest observation. `settled()` returns `Settlement`: either exact
 profile-declared completion evidence or stable position samples over a reported
 window and tolerance. Stable samples do not prove arrival at the requested endpoint.
@@ -835,7 +837,7 @@ camera operation. They have no name-preserving alias in 2.0:
 | `CachedFlipState` | `StateCache::flip_state()` returns the public `command::FlipState` value. |
 | Aggregate `PanTiltLimits` cache state | `StateCache::pan_tilt_limits()` returns the most recent `PanTiltLimitUpdate` (corner, optional position, and cleared state). An application that needs the full two-corner rectangle must fold those updates into its own state. |
 | `transport::BackoffStrategy` and `RetryAttempt` | Retry scheduling is owner policy, with deterministic equal jitter rather than a caller-selected strategy. Configure conservative bounds with `OperationalTuning::retry_limit` / `retry_timing`; observe attempts through diagnostics/metrics rather than constructing an attempt counter. |
-| `Error::{LockPoisoned, ChannelClosed, SocketManagerUnavailable, SocketManagerChannelClosed, ResponseChannelClosed, TransportMismatch, NoTransport, TransportChannelClosed}` | Delete explicit arms for these never-produced variants. Boundary closure is normalized to `RuntimeShutdown`; actual session death is `ConnectionClosed` or `StreamPoisoned`. Prefer `requires_new_session()` for the recovery decision. |
+| `Error::{LockPoisoned, ChannelClosed, SocketManagerUnavailable, SocketManagerChannelClosed, ResponseChannelClosed, TransportMismatch, NoTransport, TransportChannelClosed}` | Delete explicit arms for these never-produced variants. Boundary closure preserves the published terminal cause; actual session death is `ConnectionClosed`, `StreamPoisoned`, or `OwnerTerminated`. Prefer `requires_new_session()` for the recovery decision. |
 | `Error::{CommandTimeout, CameraBusy, CameraMoving, CameraNotReady, CommandRejected, PresetNotFound, NoResponse, ValidationError, UnknownResponseKind}` | Delete explicit arms for these never-produced variants. Deadlines report `Timeout { context }`, or `ObservationTimeout { operation }` when only your wait expired (see below); VISCA capacity/state failures use `CommandBufferFull`, `NoSocket`, or `CommandNotExecutable`; preset/value validation uses the reachable checked-value errors; capability construction returns `capabilities::ValidationError` directly. Keep a wildcard arm because `Error` remains non-exhaustive. |
 
 For a central application error adapter, prefer `error.kind()` when several
@@ -855,7 +857,10 @@ wildcard because `ErrorKind` is non-exhaustive. Preserve the original `Error`
 as the source when possible. Decide whether to rebuild the
 connection with `error.requires_new_session()` rather than treating every
 `IoClosed` kind as an unexpected disconnect: deliberate `RuntimeShutdown` has
-that kind but does not require a replacement session.
+that kind but does not require a replacement session. `OwnerTerminated` does
+require one. A cached `CancellationObservationFailed { source }` and every
+`StillLive` timeout are nonretryable; observe the existing operation or stop its
+axis instead of resubmitting the cancellation (#841/#851).
 
 Retained public protocol values also changed shape:
 
@@ -877,7 +882,7 @@ Retained public protocol values also changed shape:
 | `Zoom::ZOOM_MAGNIFICATION_TO_UNITS`, `Capabilities::zoom_magnification_to_units`, `{magnification_to_zoom_units, zoom_units_to_magnification, max_optical_zoom, max_combined_zoom}` on `Capabilities` and `ZoomExt` | `Zoom::OPTICAL_ZOOM_RATIO` / `Capabilities::optical_zoom_ratio` (`Option<f32>`) and one `capabilities::ZoomScale` (`units(magnification)`, `magnification(units)`), from `caps.zoom_scale()?` or, for a profile that spans several lenses such as the PTZOptics G2 family, `caps.zoom_scale_for_lens(20.0)?` for the installed 20x lens; `zoom_scale()` on such a profile fails with an error naming `zoom_scale_for_lens`. Only `PtzOptics30X` (30x, R3) fixes its lens; the old scales could not reach the nominal ratio (PT30X: `29 × 565 > 0x4000`). Digital magnification has no sourced scale and is rejected. |
 | `types::{PanPosition, TiltPosition}`, `PanTilt::{AbsolutePositionRaw, RelativePositionRaw, LimitSetRaw}` | `PanTilt::{AbsolutePosition, RelativePosition, LimitSet}` take the raw `i16` wire words directly (an unsigned-centered word `w` is `w as i16`); the value types restated PTZOptics G2 ranges as if they were protocol limits. Profile-aware requests take `Degrees`. |
 | `units::Magnification<T>` | Removed; it had no consumer. `ZoomScale::units(f32)` and `ZoomScale::magnification(u16) -> Option<f32>` name the quantity in the method. |
-| `ExposureExt::fstop_to_iris_units` | Removed (#828): an uncalibrated placeholder that returned the minimum iris for `NaN`. Use `FStop` → `IrisLevel` and the profile's `iris_range`. |
+| `ExposureExt::fstop_to_iris_units` | Removed (#828): an uncalibrated placeholder that returned the minimum iris for `NaN`. Use a wire `IrisLevel` code established by the selected model's iris table; no profile-less `FStop` conversion is supported (#844). |
 | `camera::profiles::{G2Gain, G2PresetId}` | Removed. `G2Gain` offered 24 dB, which the G2 profile rejects; use `GainLevel` and `PresetNumber` with the profile's `gain_range`/preset count. |
 | `Capabilities::{has_gamma, has_luminance, has_color_temp, has_rgb_gain, has_noise_reduction}` and `ImageProcessing::{SUPPORTS_HUE, SUPPORTS_GAMMA, SUPPORTS_LUMINANCE, SUPPORTS_NOISE_REDUCTION}`, `WhiteBalance::{SUPPORTS_COLOR_TEMP, SUPPORTS_RGB_GAIN}` (#818) | Removed. The range is the fact: `hue_range`, `gamma_range`, `luminance_range`, `color_temp_range` `.is_some()`; manual RGB gain is `red_gain_range` and `blue_gain_range` both `Some`; noise reduction is `has_2d_nr \|\| has_3d_nr`. |
 | `Capabilities::{has_iris_control, has_digital_zoom, has_focus_zone, has_exposure_comp}`, `Focus::SUPPORTS_FOCUS_ZONE`, `Exposure::SUPPORTS_EXPOSURE_COMP` | Removed. Use `iris_range.is_some()`, `zoom_range_digital.is_some()`, `!focus_zones.is_empty()` (`Focus::FOCUS_ZONES` defaults to empty) and `exposure_comp_range` (`Exposure::EXPOSURE_COMP_RANGE: Option<CapabilityRange<i8>>`, default `None`). |
@@ -922,7 +927,7 @@ constructor, bounds, accessor and error contract:
 | An out-of-range `visca_range_type!` value (for example `command::FocusSpeed::new(8)` or `PresetRecallSpeed::new(25)`) returned `Error::InvalidParameter` | Every range-checked newtype returns `Error::ParameterOutOfRange { parameter, value, min, max }`. Values outside a sparse `valid_values` set still return `Error::InvalidParameter`. `GainLimit`, `SharpnessLevel`, `LuminanceLevel`, `ContrastLevel` and `DynamicRangeLevel` are now declared as ranges, so they also report `ParameterOutOfRange`. |
 | `types::BrightnessLevel(u16)` with a `0x00..=0x11` domain, `Exposure::BRIGHTNESS_RANGE: Option<CapabilityRange<u16>>`, `Capabilities::exposure_brightness_range: Option<RangeInclusive<u16>>` | `BrightnessLevel(u8)` is the `CAM_Bright` Direct wire byte: `BrightnessLevel::new(u8)` is infallible and `TryFrom<u16>` refuses a value above `0xFF`. The brightness ranges are `u8`, and the selected profile's range is the only admission check (EVI-H100 `0x00..=0x1F` without `0x01..=0x04`, BRC-300 and Nearus BRC-300 `0x00..=0x17`, PTZOptics `0x00..=0x11`). The percentage and `Raw` conversions for brightness are removed: a percentage of the wire byte means nothing for a profile-specific range. |
 | `Exposure::IRIS_RANGE: Option<CapabilityRange<u16>>`, `Capabilities::iris_range: Option<RangeInclusive<u16>>` (and the brightness pair) | `Option<CapabilityDomain<u16>>` (`CapabilityDomain<u8>` for brightness): the source table's bounds plus the positions it does not list. Build one with `CapabilityDomain::new(min, max)` or `CapabilityDomain::with_gaps(min, max, &[..])`; read it with `min()`, `max()`, `gaps()`, `bounds()` and `contains(value)`. It serializes as `{min, max, gaps}`. A gap is refused with `Error::InvalidParameter` (EVI-H100 iris and bright `0x01..=0x04`, Generic VISCA iris `0x01..=0x04`). |
-| `ExposureCompensationLevel::new`, `Sharpness::SetLevel`, `ZoomPosition::normalize_with_max`, the defog, broadcast-domain, exposure-compensation and color-tuning inquiry decoders, and profile admission of pan/tilt speeds and positions, zoom, focus, iris, exposure, gain, brightness, color and preset values returned `InvalidParameter` | `ParameterOutOfRange` with the offending value and the inclusive bounds (the profile's range for admission checks). A shutter code outside the profile's table remains `InvalidParameter`. `ExposureCompensationLevel::MIN`/`MAX` are `Self`, and it implements `Display`. |
+| `ExposureCompensationLevel::new`, `Sharpness::SetLevel`, `ZoomPosition::normalize_with_max`, the defog, broadcast-domain, exposure-compensation and color-tuning inquiry decoders, and profile admission of pan/tilt speeds and positions, zoom, focus, iris, exposure, gain, brightness, color and preset values returned `InvalidParameter` | Caller values report `ParameterOutOfRange` with their inclusive bounds (the profile's range for admission checks); numeric reply-decoder failures report `InvalidResponse`/`Protocol` instead. A shutter code outside the profile's table remains `InvalidParameter` (#845). `ExposureCompensationLevel::MIN`/`MAX` are `Self`, and it implements `Display`. |
 | `Sharpness::SetLevel { value: u8 }` | `Sharpness::SetLevel { value: SharpnessLevel }`; construct the level with `SharpnessLevel::new`. |
 | `ParameterOutOfRange` displayed `(valid range: 2..4)` | `(valid range: 2..=4)`, an inclusive range. |
 | `Error::Unknown` displayed `0x5` | `0x05`. |
@@ -931,11 +936,24 @@ constructor, bounds, accessor and error contract:
 | Range `new` was a plain `fn` | Range `new` is a `const fn`, so a checked value can initialize a `const`. |
 | `display_format = "hex"` printed `0x5` | Hex display pads to two digits: `0x05`. |
 | `ViscaInquiry` and `ViscaEnum` accepted a repeated key, keeping the last value | A repeated key is a compile error naming both occurrences, as for `ViscaValue`. |
-| `ViscaInquiry` `opcode`/`subcode` accepted only decimal or `0x` literals | Any unsuffixed integer literal in `0..=255`, in any radix (`0b0100_0111`, `0o107`). |
+| `ViscaInquiry` `opcode`/`subcode` accepted only decimal or `0x` literals | Any unsuffixed integer literal in `0..=254`, in any radix (`0b0100_0111`, `0o107`); `FF` is the frame terminator and is refused in opcode/subcode (#846). |
 | `ViscaEnum` discriminants accepted suffixed literals and byte literals | Discriminants are unsuffixed integer literals in `0..=255`. |
 | `#[visca_enum(exhaustive = ...)]` was parsed and ignored | Rejected as an unknown key; generated conversions always cover every variant. |
 
 #### Command encoding and inquiry decoding (#809–#812, #828)
+
+Custom 2.0 decoders handle `Option` from indexed `Nibbles::{byte, u16_quad,
+i16_quad}` accessors, including arbitrary or overflowing indices.
+`Nibbles::from_array` and `Payload::assert_nibbles` return `Result` and validate
+in release builds too. A zoom-position reply has exactly four nibbles;
+`Nibbles4Or8` is not a supported leniency path (#845).
+
+`ViscaInquiry` parser attributes must be consumed by their selected strategy.
+Use `field`/`convention` for an explicit boolean override, `value_type` for
+Mode/Nibble families, or `parse_with` for Custom. Mode/Nibble construct their
+named response variant directly; Custom accepts `data_variant` only with a
+typed response. Canonical selectors reject these override keys. The macro
+README gives the complete accepted-key table (#846).
 
 Every built-in command and inquiry writes its frame through one frame writer,
 and every inquiry reply decodes through the generated table, so the same
@@ -943,12 +961,12 @@ malformed reply now fails the same way on every inquiry and profile:
 
 | 1.x | 2.0 |
 | --- | --- |
-| An unknown code byte in an inquiry reply (exposure mode, white-balance mode, focus zone, flip mode, an on/off byte, ...) returned `Error::InvalidParameter` from some inquiries and `Error::InvalidResponse` from others | Always `Error::InvalidResponse { expected, actual }`, with `actual` the offending byte. A camera reply outside its code set is a protocol error, not a caller error. Numeric values outside a value type's range are still `ParameterOutOfRange`. |
+| An unknown code byte in an inquiry reply (exposure mode, white-balance mode, focus zone, flip mode, an on/off byte, ...) returned `Error::InvalidParameter` from some inquiries and `Error::InvalidResponse` from others | Always `Error::InvalidResponse { expected, actual }`, with `actual` the offending byte. A camera reply outside its code set is a protocol error, not a caller error. A numeric value outside the reply type's range is also `InvalidResponse` with `ErrorKind::Protocol`; caller-supplied constructor/admission values retain their parameter-error classification (#845). |
 | A padded reply (`00 00 0p 0q`, `00 00 00 0p`) with nonzero padding decoded after silently dropping the leading nibbles (a sharpness position of `00 01 00 05` read as `5`) | `Error::InvalidResponseFormat`. Contrast and luminance replies now keep both `0p 0q` digits, as the reference documents. |
 | `Nibbles::u8_pair(start)` and `Nibbles::last_nibble()` | `Nibbles::zero_extended_u8()` and `Nibbles::zero_extended_nibble()`, which reject nonzero padding. `#[derive(ViscaInquiry)]` with `parser = LastNibble` or `parser = Nibble` uses them, so a derived inquiry now rejects a reply with nonzero padding as `InvalidResponseFormat`, and `parser = Mode` reports an unknown code as the enum's own `InvalidResponse`. |
 | `InquiryData::FlipState { horizontal, vertical }` | `InquiryData::FlipState { state }`, carrying `FlipState` as `Version` and `TallyStatus` do. `FlipState::from(ImageFlipMode)` converts a combined flip mode. |
 | `InquiryData::SharpnessPosition { position: u16 }` and `InquiryData::Brightness { position: u16 }` | `position: u8`: both replies are `00 00 0p 0q`. `BrightnessLevel` is unchanged; the typed accessor still returns it. |
-| The gain inquiry decoded only the last nibble of `00 00 0p 0q` | Both digits: `InquiryData::Gain::gain` is `pq`, and a value above `GainLevel`'s `0x0F` is the typed accessor's `ParameterOutOfRange` instead of being truncated. |
+| The gain inquiry decoded only the last nibble of `00 00 0p 0q` | Both digits: `InquiryData::Gain::gain` is `pq`, and a value above `GainLevel`'s `0x0F` is the typed accessor's `InvalidResponse` protocol error instead of being truncated (#845). |
 | A pan/tilt position reply of the wrong length returned `Error::DecoderNotFound { inquiry_kind, payload_hex }` | `Error::InvalidResponseLength`, as for every other inquiry and framing; `Error::DecoderNotFound` is removed. A profile that pairs BRC-300 framing with unsigned-centered coordinates is rejected where it is built: `ProfileSpecBuilder::build`, `ProfileSpec` and `PanTiltCoordinateConversion` deserialization reject it with the profile-field error `InvalidRequest` naming `pan_tilt_coordinates`, and a compile-time profile that declares it fails to build at `PanTiltCoordinateConversion::for_profile`. |
 | `AutoWhiteBalanceSensitivity::to_command_byte()` | `u8::from(sensitivity)`; the enum derives `ViscaEnum`, so `TryFrom<u8>` decodes it. `Flip` and `ImageFlipMode` derive `ViscaEnum` too. |
 | Unit commands (`PowerOn`, `TallyRedOn`, `SpotlightOn`, ...) had hand-written `new()`/`Default` | `visca_command!` generates `#[derive(Default)]` and a `const fn new()` for every unit command, including commands a downstream crate declares with it; delete a downstream unit command's own `new`/`Default`. |

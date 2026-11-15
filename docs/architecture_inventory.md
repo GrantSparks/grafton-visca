@@ -62,7 +62,9 @@ The noun inventory is `PowerAccessor`, `ZoomAccessor`, `SystemAccessor`,
 `AdvancedAccessor`, plus the `MotionAccessor`. Blocking and async use the same
 noun names with mode-native return types. The authoritative method inventory is
 the closed semantic ledger and the generated static noun surface; profile-gated
-methods require their corresponding `Has*` marker.
+methods require their corresponding `Has*` marker. Runtime rows require both a
+typed noun-header marker and the row's refining marker, so dynamic tally
+refinements cannot bypass `HasTally` (#855).
 In particular, `ExposureAccessor::mode` and `ExposureAccessor::set_mode` use
 `HasExposureMode` rather than inheriting broad `HasExposure` permission.
 
@@ -112,7 +114,10 @@ documented serial feature combinations remain build-matrix requirements.
 The ecosystem features are `blocking`, `async`, `runtime-tokio`, `runtime-smol`,
 `transport-serial`, `transport-serial-tokio`, `serde`, `schemars`, `ts-rs`,
 `dyn-api`, and `test-utils`. Serialization, JSON Schema, and TypeScript exports
-remain supported for the documented public value/configuration types. Internal
+remain supported for the documented public value/configuration types. A persisted
+current `ProfileSpec` must carry every fact key, including `Option` keys:
+explicit `null` means absent, while a missing key requires regeneration (#855).
+Internal
 implementation-only feature flags are omitted from this public inventory.
 
 The supported downstream derives are `ViscaInquiry`, `ViscaEnum`, and

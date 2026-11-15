@@ -149,8 +149,8 @@ macro_rules! typed_support_registry {
                     wire: "wide-dynamic-range",
                     area: "Exposure",
                     api: "`WideDynamicRangeControl`",
-                    surface_doc: "Wide dynamic range control and inquiry.",
-                    marker_doc: "Marker trait indicating support for wide dynamic range control and inquiry.",
+                    surface_doc: "Wide dynamic range control.",
+                    marker_doc: "Marker trait indicating support for wide dynamic range control.",
                     diagnostic: "profile `{Self}` does not declare wide dynamic range support",
                 },
                 {
@@ -270,8 +270,8 @@ macro_rules! typed_support_registry {
                     wire: "combined-image-flip",
                     area: "Image",
                     api: "combined flip-mode command and inquiry",
-                    surface_doc: "Combined image flip mode command.",
-                    marker_doc: "Marker trait indicating support for the combined image flip mode command.",
+                    surface_doc: "Combined image flip mode command and inquiry.",
+                    marker_doc: "Marker trait indicating support for the combined image flip mode command and inquiry.",
                     diagnostic: "profile `{Self}` does not declare combined image flip mode support",
                 },
                 {

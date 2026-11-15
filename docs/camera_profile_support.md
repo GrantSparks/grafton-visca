@@ -80,7 +80,7 @@ declarative vocabulary rather than this marked region.
 | Focus | `HasAutoFocusSensitivity` | AF sensitivity controls and inquiry |
 | Focus | `HasFocusNearLimitInquiry` | focus near-limit inquiry |
 | Exposure | `HasBacklightCompensation` | `BacklightCompensationControl` and backlight inquiry |
-| Exposure | `HasWideDynamicRange` | `WideDynamicRangeControl` and dynamic-range inquiry |
+| Exposure | `HasWideDynamicRange` | `WideDynamicRangeControl` |
 | Exposure | `HasExposureCompensation` | exposure-compensation controls and inquiries |
 | Exposure | `HasBrightnessControl` | exposure brightness controls and inquiry |
 | White balance | `HasOnePushWhiteBalance` | one-push white balance mode and trigger |
@@ -91,7 +91,7 @@ declarative vocabulary rather than this marked region.
 | Color | `HasRgbTuning` | red/blue tuning controls and inquiries |
 | Image | `HasImageFlip` | vertical image flip control and inquiry |
 | Image | `HasImageMirror` | horizontal mirror control |
-| Image | `HasCombinedImageFlip` | combined flip-mode command |
+| Image | `HasCombinedImageFlip` | combined flip-mode command and inquiry |
 | Image | `HasContrastControl` | contrast control and inquiry |
 | Image | `HasSharpnessControl` | sharpness control and inquiry |
 | Image | `HasSaturationControl` | saturation control and inquiry |
@@ -127,6 +127,39 @@ declarative vocabulary rather than this marked region.
 | Color | `HasColorTemperatureInquiry` | color-temperature inquiry |
 | Image | `HasNoiseReduction2DMode` | 2D noise-reduction auto/manual mode control and inquiry |
 <!-- END GENERATED TYPED SUPPORT VOCABULARY -->
+
+The image inquiry registers are separate evidence boundaries. `image().flip()`
+uses the sourced vertical `09 04 66` register under `HasImageFlip` and returns
+`FlipState { vertical, horizontal: false }`. `image().flip_mode()` queries
+combined `09 04 A4` state under `HasCombinedImageFlip`; only the PTZOptics
+profiles grant that combined family. A flip setter does not establish a
+combined inquiry on another model (#844).
+
+Sony FR7 variable-ND readback uses the sourced `09 7E 04 42` inquiry and
+returns `NdFilterValue` (`00..14` hex), with strict four-nibble zero-padded
+replies. It is a variable-density code, distinct from the `NdFilterPosition`
+clear/preset selector. Motion and settlement use that same density readback;
+R7 v4 pp. 21 and 25 are the packet/value evidence (#844).
+
+Every typed inquiry admitted by a built-in profile must have a source rationale
+in the inquiry inventory. The typed surface excludes unsourced focus-range,
+night/day, standby, digital-PTZ, auto-trace, focus-unlock, broadcast-domain,
+two-tone, digital-mode, and dynamic-range queries. Raw inquiries with explicit
+model evidence remain available; the sourced dynamic-range setter is retained.
+`FStop` is descriptive, with no universal wire conversion to `IrisLevel`: use
+an iris code established by that profile's model source (#844).
+
+Runtime typed noun gates compose with their row refinements. A tally brightness
+or PTZOptics tally row requires `Tally` as well as its refining surface, matching
+the static `HasTally` header. Granting a refinement alone never permits a frame
+through the dynamic API (#855).
+
+Persisted `ProfileSpec` facts require every current key, including optional
+facts nested in capabilities, ranges and transport compatibility. Explicit
+`null` means an absent fact; omitting the key is refused with the regeneration
+instruction. Rebuild built-ins with `ProfileSpec::from_compile_time::<P>()` or
+custom profiles with `ProfileSpec::builder`, then persist the current result
+(#855).
 
 ## Built-In Transport Matrix
 

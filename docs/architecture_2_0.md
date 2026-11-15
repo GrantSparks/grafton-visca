@@ -129,6 +129,15 @@ unrelated live request keeps that request's own response deadline.
 owner starts, and duplicate IDs, an eighth target, an empty registry, and
 profile/configuration conflicts are rejected before transport I/O.
 
+Public `CameraId` values cross individual-camera boundaries through the one
+private `TargetSlot::try_from` rule. A `TargetSlot` indexes `PerTarget<T>`, a
+fixed seven-slot table used by session registration, grouped engine state,
+stream-ledger state, owner registries and caches. Neither controller address 0
+nor broadcast occupies an inert slot. Request removal scrubs only its own
+target; broadcast Address Set and interface-clear maintenance remain explicit
+transport-lifecycle operations outside these tables. The public API continues
+to use `CameraId` (#853).
+
 `camera()` is valid only when exactly one target is registered. A multi-target
 session must use `camera_for(target)`, which also verifies that the requested
 compile-time profile matches every protocol identity fact in the registered
@@ -797,12 +806,14 @@ miss an event without losing an already-applied state update.
 
 ## Engine phases and the transition table
 
-The engine keeps exactly one authoritative entry per admitted request. Each
-entry carries a protocol `Phase` and a cancellation substate (`CancelState`);
-both are `pub(crate)` in `src/runtime/engine/types.rs`, so they never reach
-rustdoc and are documented here instead. The tables below are derived from the
-transition functions in `src/runtime/engine/mod.rs` and describe the settled
-post-#671 behavior, not an aspirational one.
+The engine keeps exactly one authoritative entry per admitted request. Its
+single stored `Lifecycle` value owns the phase-local attempt facts,
+raced-response latch and legal cancellation substate
+(`src/runtime/engine/lifecycle.rs`, #836). `Phase` and `CancelState` are
+flattened read-only diagnostic/test projections, never independently stored
+entry fields. The public diagnostic phase vocabulary is unchanged.
+The tables below follow the exhaustive lifecycle transitions in
+`src/runtime/engine/mod.rs`.
 
 Raw inquiry replies have no wire identity. The production Raw adapter therefore
 uses one live inquiry per target. A matched reply exhausts that inquiry's
@@ -835,32 +846,47 @@ timeout poisons the session.
 
 ### Protocol phases
 
-| `Phase` | Meaning |
-| --- | --- |
-| `Ready` | Admitted and queued; nothing written yet. Holds a lazy-deletion `QueueTicket`. |
-| `Sending` | The request's transport write is in flight; carries its `TransmissionId`. |
-| `AwaitingAck` | A command was written and awaits its ACK (deadline = sent + ack). |
-| `AwaitingCompletion` | A completion-only raw command (`RawReplyShape::CompletionOnly`, issue #700) was written and awaits its completion with no ACK and no socket (deadline = sent + completion). It holds its target's command channel exclusively and has no ACK-timeout path. |
-| `Executing` | The ACK assigned a socket; awaits completion (deadline = ack + completion). |
-| `AwaitingReply` | An inquiry was written and awaits its reply (deadline = sent + inquiry). |
-| `Backoff` | A retryable rejection or timeout scheduled a retry; re-enters `Ready` at `ready_at`. |
-| `AwaitingCancellationResolution` | A socket-owned command with active cancellation state awaits the original completion or protocol-cancel terminal through the later of the retained completion and ambiguity deadlines. This phase is never used with `CancelState::None`; non-cancellation uncertainty lives in the keyed hold table after terminal removal. |
+| `Lifecycle` variant | Phase-local facts | Legal cancellation |
+| --- | --- | --- |
+| `Ready` | Lazy-deletion queue ticket. | None; cancelling removes the entry. |
+| `Sending` | Transmission, start time, attempt facts, and `SendingReply`. ACK-then-completion stores only its raced ACK; completion-only stores only its raced completion. | None or requested for commands; none for inquiries. |
+| `AwaitingAck` | Send time, ACK deadline and attempt facts. | None or requested. |
+| `AwaitingCompletion` | Send time, completion deadline and attempt facts. No socket. | None; cancellation is refused with `NotSupported` (#835). |
+| `Executing` | Socket, start time, original completion deadline and attempt facts. | `ExecutingCancellation`: none, requested, sending, or observation-failed. |
+| `AwaitingReply` | Send time, inquiry deadline and attempt facts. | None; inquiries are not cancellable. |
+| `Backoff` | Ready-at time and queue generation. No stale attempt record or raced-reply latch. | None. |
+| `AwaitingCancellationResolution` | Socket, original deadline and attempt facts. | `ResolvingCancellation`: requested, sending, awaiting-terminal, or observation-failed; never none. |
+
+`AttemptFacts` holds dispatch-time socket capacity and stream write order only
+while an attempt is active. Raced replies belong to the `SendingReply` variant
+that can produce them; retrying cannot carry them into `Backoff` or `Ready`.
+The original completion deadline and cancellation ambiguity deadline each have
+one home; lifecycle methods derive an effective maximum where the protocol
+requires it. A transition accepts one lifecycle value, and named due kinds
+preserve response/cancellation-before-retry ordering (#836).
 
 ### Cancellation substates
 
-| `CancelState` | Meaning |
-| --- | --- |
-| `None` | No cancel intent. It never marks a correlation hold. |
-| `Requested` | Cancel intent recorded before a socket was assigned; suppresses every later retry. |
-| `Sending` | A cancel frame's write is in flight. |
-| `AwaitingTerminal` | A cancel frame was written; awaits the original completion (`Completed`) or the protocol-cancel terminal (`Cancelled`). |
-| `ObservationFailed` | A datagram cancel write failed; the token was resolved with that error while the original request stays live. If it is `Executing`, its exact socket keeps the original completion routable through the command's completion deadline. |
+Cancellation is nested in the lifecycle states that permit it. Requested and
+sending substates carry their ambiguity deadline and observer-open fact; the
+sending substate also carries its transmission. Awaiting-terminal additionally
+carries the cancellation observation deadline. Observation-failed records the
+remaining ambiguity lifecycle after its observer has resolved. None of these
+substates repeats the socket: only the enclosing socketed lifecycle owns it.
+Whether cancellation was attempted is derived from the substate, rather than a
+separate latch (#836).
+
+These types admit 16 flattened `(phase, cancellation)` combinations. The
+transition/property tests independently check that table; the five former
+per-entry auditor rules for impossible cross-field combinations are type
+facts now. Cross-index audits remain, and both halt entry points run the debug
+invariant hook on every return path (#836/#856).
 
 ### Transition table
 
 | Input / state | Transition or result |
 | --- | --- |
-| Admit while `Running`, within capacity, target registered, policy compatible | Allocate a non-colliding `RequestId`, create one `Ready` entry with `CancelState::None`, enqueue it, and emit `Admitted`. No write happens here. |
+| Admit while `Running`, within capacity, target registered, policy compatible | Allocate a non-colliding `RequestId`, create one `Ready` lifecycle with no cancellation substate, enqueue it, and emit `Admitted`. No write happens here. |
 | Admit over ordinary capacity | Reject with `Error::RuntimeQueueFull`; no id, entry, observer, or queue slot is created. |
 | Admit an urgent typed STOP into its target's control reserve | Admit while that target's reserved entries are below its reserve (one per supported typed STOP); otherwise reject with `Error::ControlReserveExhausted`. Only an urgent request may hold a reserved slot (D26, #778). |
 | Admit with the id/generation space exhausted | Reject with `Error::RuntimeIdentityExhausted`. |
@@ -948,46 +974,91 @@ separates a dead session from a recoverable one:
 The engine and its serialized owner uphold the following invariants in every
 supported configuration. They are the properties the deterministic engine, the
 bounded owner boundaries, and the `#![forbid(unsafe_code)]` crate attribute
-exist to guarantee.
+exist to guarantee. Enforcement labels identify the authority: **audit** is
+`ProtocolEngine::assert_invariants` in debug/test builds; **types** is the
+closed representation; **owner** is serialized engine/owner transitions,
+receipt delivery and bounded boundary code; **unsafe** is the crate attribute.
+A historical/temporal property is identified with its owner enforcement rather
+than claimed as a snapshot-auditor check.
 
-- Runtime mutation is serialized per transport.
+- Runtime mutation is serialized per transport. (Enforcement: owner: the one serialized
+  coordinator.)
 - Every admitted request has exactly one authoritative entry until safe terminal removal.
-- Every request and cancellation transmission has one active identity and one result.
-- Every request reaches at most one terminal engine transition.
-- Every retained operation or cancellation observer resolves at most once.
-- Every target/socket pair has at most one active owner.
-- No retry path writes a command again after its ACK.
-- Every live raw byte-stream ledger entry belongs to a request that still
-  awaits that answer; the ledger exists only on a raw stream session, a frame
-  resolves only against an entry that can legally produce it, and a debt never
-  blocks a STOP or poisons the session.
-- Every `AwaitingCompletion` entry is completion-only, and every raw
-  completion-only/no-reply positional candidate owns its target lane
-  exclusively for ordinary work. On a raw byte stream an urgent STOP may
-  cross that exclusion while the ledger keeps its evidence distinct (#795;
-  `raw_evidence::stream_owed_completion_only_answer_holds_back_ordinary_work`).
-- Every keyed raw hold is inert: it can filter late input and gate successors,
-  but it cannot consume a response, accept cancellation, or recreate a request.
-- Every `AwaitingCancellationResolution` entry has non-`None` cancellation
-  state and owns its exact target/socket correlation.
-- Every sequence owner is an active, target-compatible, and phase-compatible entry.
-- Stale queue, retry, deadline, correlation, admission, or transmission tickets cannot send or resolve work.
-- A cancel transmission is emitted at most once for one socket assignment.
-- Observer removal never mutates protocol state or releases protocol capacity early.
-- Malformed, duplicate, stale, reordered, and unsolicited frames cannot panic or mutate unrelated state.
-- No user decoder, callback, subscriber, transport I/O, or sleep runs while mutable engine state is borrowed.
-- The owner copies or moves each effect out of the engine and ends the mutable engine/observer borrow before transport I/O, borrowing the engine again only to apply the identified result.
-- No slow observer or subscriber can block protocol progress.
-- Request-identity wraparound cannot alias active or quarantined work.
-- All boundary, engine, observer, diagnostics, framing, and subscription memory has a documented bound.
+  (Enforcement: audit: entry and index ownership.)
+- Every request and cancellation transmission has one active identity and one result. (Enforcement:
+  audit: bidirectional transmission ownership.)
+- Every request reaches at most one terminal engine transition. (Enforcement: owner: sole-entry
+  terminal removal and non-reused request identity.)
+- Every retained operation or cancellation observer resolves at most once. (Enforcement: owner:
+  one-shot terminal and cancellation slots.)
+- Every target/socket pair has at most one active owner. (Enforcement: audit: exact target/socket
+  ownership.)
+- No retry path writes a command again after its ACK. (Enforcement: owner: retry transitions reject
+  acknowledged lifecycles.)
+- Every live raw byte-stream ledger entry belongs to a request that still awaits that answer; the
+  ledger exists only on a raw stream session, a frame resolves only against an entry that can
+  legally produce it, and a debt never blocks a STOP or poisons the session. (Enforcement: audit:
+  ledger ownership, phase, dispute and capacity rules; owner: STOP dispatch.)
+- Every `AwaitingCompletion` entry is completion-only, and every raw completion-only/no-reply
+  positional candidate owns its target lane exclusively for ordinary work. On a raw byte stream an
+  urgent STOP may cross that exclusion while the ledger keeps its evidence distinct (#795;
+  `raw_evidence::stream_owed_completion_only_answer_holds_back_ordinary_work`). (Enforcement: types:
+  reply-shaped lifecycle; audit: target-local dispatch candidates.)
+- Every keyed raw hold is inert: it can filter late input and gate successors, but it cannot consume
+  a response, accept cancellation, or recreate a request. (Enforcement: types: holds have no request
+  lifecycle; owner: resolver/dispatch gates.)
+- Every `AwaitingCancellationResolution` entry has non-`None` cancellation state and owns its exact
+  target/socket correlation. (Enforcement: types: resolving cancellation has no none state; audit:
+  exact socket index.)
+- Every sequence owner is an active, target-compatible, and phase-compatible entry. (Enforcement:
+  audit: full-width/lower-16 indexes and retained retry history.)
+- Stale queue, retry, deadline, correlation, admission, or transmission tickets cannot send or
+  resolve work. (Enforcement: audit: index ownership; owner: identity/generation revalidation.)
+- A cancel transmission is emitted at most once for one socket assignment. (Enforcement: owner: emit
+  only from the requested substate, then transition to sending.)
+- Observer removal never mutates protocol state or releases protocol capacity early. (Enforcement:
+  owner: receipt wait/detach boundaries.)
+- Malformed, duplicate, stale, reordered, and unsolicited frames cannot panic or mutate unrelated
+  state. (Enforcement: owner: strict decoding and correlation; types: bounded target/socket keys.)
+- No user decoder, callback, subscriber, transport I/O, or sleep runs while mutable engine state is
+  borrowed. (Enforcement: owner: effect/I/O boundary after the engine borrow ends.)
+- The owner copies or moves each effect out of the engine and ends the mutable engine/observer
+  borrow before transport I/O, borrowing the engine again only to apply the identified result.
+  (Enforcement: owner: EngineTurn and copied/moved effects.)
+- No slow observer or subscriber can block protocol progress. (Enforcement: owner: bounded
+  nonblocking observer/subscriber delivery.)
+- Request-identity wraparound cannot alias active or quarantined work. (Enforcement: owner: checked
+  fail-closed allocators; audit: active/index identity consistency.)
+- All boundary, engine, observer, diagnostics, framing, and subscription memory has a documented
+  bound. (Enforcement: audit: engine collection bounds; types/owner: bounded lanes, buffers and
+  registries.)
 - Stream poison, close, and shutdown cannot leave a retained waiter blocked indefinitely.
-- A fresh session contains no state from a poisoned session.
-- The runtime code implementing this architecture contains no `unsafe`.
-- A returned blocking operation handle names an admitted request. Its initial
-  write may still be pending or may fail through its outcome (D24;
-  `blocking::tests::submission_succeeds_at_admission_and_a_failed_write_is_the_outcome`).
-- Target-local state changes occur only from exact `AppliedStateEffect` delivery and never depend on an observer.
-- Built-in encoding and per-transmission framing allocate nothing; lifecycle allocations remain fixed and admission-bounded.
+  (Enforcement: audit: terminated-session emptiness; owner: terminal publication and boundary
+  drain.)
+- A fresh session contains no state from a poisoned session. (Enforcement: owner: new registries and
+  fresh protocol authority.)
+- The runtime code implementing this architecture contains no `unsafe`. (Enforcement: unsafe:
+  #![forbid(unsafe_code)].)
+- A returned blocking operation handle names an admitted request. Its initial write may still be
+  pending or may fail through its outcome (D24;
+  `runtime::owner::blocking::tests::submission_succeeds_at_admission_and_a_failed_write_is_the_outcome`).
+  (Enforcement: owner: admission reply; write failures stay on the operation outcome.)
+- Target-local state changes occur only from exact `AppliedStateEffect` delivery and never depend on
+  an observer. (Enforcement: owner: exact effect applied before observer delivery; types: target
+  key.)
+- Built-in encoding and per-transmission framing allocate nothing; lifecycle allocations remain
+  fixed and admission-bounded. (Enforcement: types: bounded inline frame storage; owner:
+  admission-bounded lifecycle storage.)
+
+Sony sequences may remain owned through `Backoff`, `Ready` and `Sending` only
+with evidence of a retained retry attempt. Full-width and lower-16 indexes are
+checked against target, reply shape, phase and sequence history; merely listing
+all eight phase names would not prove compatibility. Transmission count is at
+most two per entry; raw inquiry FIFOs respect their configured per-target bound
+(one in production raw policy); retro handoffs are at most
+`MAX_DISPUTE_HANDOFFS + 2`, and displaced unseen decisions at most two.
+A terminated engine retains no
+live entry, transmission, sequence, socket, hold, ledger debt or queue (#856).
 
 ## Scheduling and async source arbitration
 
@@ -1170,6 +1241,12 @@ unfinished proof even if the new command is cancelled before writing. Rejected
 admissions do not advance generations. Evidence already cached and exact
 profile completion remain valid. Polling errors retain their source while
 reporting observation uncertainty for the original move.
+
+The owner's cancellation intent is a closed requested/recorded state. A
+refusal is returned synchronously by the same engine cancellation input, rather
+than extracted from a later unrelated turn. Admission claims likewise use
+unbounded/pending/claimed states, so a claim cannot be both missing and pending
+(#854).
 
 Cancellation is one intent per handle. The first `cancel` creates the
 cancellation slot and ships it with the request; a later `cancel` — after a

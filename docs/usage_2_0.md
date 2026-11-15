@@ -329,7 +329,10 @@ no standard kind (`None`) may bypass only that standard profile/transport pair m
 custom path still undergoes target-registry, envelope, addressing/topology,
 pacing, framing, buffer, and bounded-owner validation. A runtime-neutral async
 executor must provide coherent spawn, sleep, timeout, and clock behavior from
-one runtime.
+one runtime. `raw::Inquiry::new` selects its fixed inquiry timeout class and
+accepts no timeout argument; `from_fn`, `with_context`, and explicit inquiry
+policies validate that class. Raw commands and operations reject the inquiry
+class at construction (#854).
 
 ### Sharing a blocking session
 
@@ -452,6 +455,10 @@ it; see the scoped stop-on-exit guard in
 `serde` provides serialization for supported public values and configuration;
 `schemars` adds JSON Schema; `ts-rs` generates TypeScript declarations. These
 features describe data interchange and do not change protocol semantics.
+Persisted runtime profiles include every current fact key; an absent optional
+fact is explicit `null`, and a missing key requires rebuilding and persisting
+the current `ProfileSpec` (#855).
+
 `ViscaInquiry`, `ViscaEnum`, and `ViscaValue` are the supported downstream
 derive entry points. `test-utils` alone exposes `testkit::{Step, helpers}` for
 tests. Add `blocking` for `ScriptedBlockingTransport`; add `async` for

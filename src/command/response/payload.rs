@@ -49,11 +49,11 @@ pub enum BoolConvention {
     OnIs02,
 }
 
-/// Zero-copy view into VISCA nibble payloads.
+/// Zero-copy view of unvalidated VISCA reply payload bytes.
 ///
-/// This wrapper provides a type-safe interface to raw payload bytes,
-/// validating nibble invariants on construction while maintaining zero-copy
-/// abstraction in release builds.
+/// [`Self::new`] retains raw bytes without checking their shape or nibble values.
+/// [`Self::assert_nibbles`] validates the values; conversion to [`Nibbles`]
+/// additionally establishes the fixed length without copying the bytes.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Payload<'a>(pub(crate) &'a [u8]);
@@ -99,9 +99,9 @@ impl<'a> Payload<'a> {
     /// Parse a single-byte boolean response with explicit convention.
     ///
     /// VISCA uses `0x02` and `0x03` for boolean states. The semantic meaning
-    /// depends on the command—most use `0x03=on` (standard), but some legacy
-    /// commands use `0x02=on` (inverted). This method requires the caller to
-    /// specify the convention, making the polarity explicit.
+    /// depends on the register: standard VISCA on/off replies use `0x02=on`.
+    /// Select the opposite convention only when that register's source documents
+    /// it. This method requires the convention explicitly at each call.
     ///
     /// # Arguments
     ///
@@ -118,11 +118,11 @@ impl<'a> Payload<'a> {
     /// # Examples
     ///
     /// ```ignore
-    /// // Standard convention (0x03 = on)
-    /// let enabled = payload.parse_bool("autofocus", BoolConvention::OnIs03)?;
+    /// // Standard convention (0x02 = on)
+    /// let powered = payload.parse_bool("power", BoolConvention::OnIs02)?;
     ///
-    /// // Inverted convention (0x02 = on)
-    /// let is_open = payload.parse_bool("menu_status", BoolConvention::OnIs02)?;
+    /// // Opposite polarity, only for a register that documents it.
+    /// let enabled = payload.parse_bool("vendor_setting", BoolConvention::OnIs03)?;
     /// ```
     pub fn parse_bool(
         &self,
@@ -474,8 +474,8 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn test_parse_bool_standard_convention() {
-        // Standard convention: 0x02 = off, 0x03 = on
+    fn test_parse_bool_register_specific_opposite_convention() {
+        // Register-specific opposite convention: 0x02 = off, 0x03 = on
         let data_off = vec![0x02];
         let payload_off = Payload::new(&data_off);
         assert!(!payload_off
@@ -490,8 +490,8 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_bool_inverted_convention() {
-        // Inverted convention: 0x02 = on, 0x03 = off
+    fn test_parse_bool_standard_convention() {
+        // Standard convention: 0x02 = on, 0x03 = off
         let data_on = vec![0x02];
         let payload_on = Payload::new(&data_on);
         assert!(payload_on

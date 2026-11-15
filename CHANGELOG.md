@@ -38,6 +38,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documented in the macro README. Standard boolean reply polarity is `02` for
   on; the opposite convention is register-specific.
 
+- **BREAKING** (#844): Typed image inquiries separate sourced vertical
+  `image().flip()` (`09 04 66`, with `horizontal: false`) from combined
+  `image().flip_mode()` (`09 04 A4`, requiring `HasCombinedImageFlip`). Ten
+  unsourced typed inquiry families and guessed profile-less `FStop` wire
+  conversions are removed. FR7 ND readback uses `09 7E 04 42` and returns
+  `NdFilterValue` variable density, replacing a discrete preset position.
+- **BREAKING** (#845): Indexed `Nibbles::{byte, u16_quad, i16_quad}` accessors
+  return `Option`; `Nibbles::from_array` and `Payload::assert_nibbles` return
+  `Result` and validate all builds. The unsourced `Nibbles4Or8` zoom leniency
+  helper is removed.
+- **BREAKING** (#854): `raw::Inquiry::new` no longer takes a `TimeoutClass`
+  argument: its class is always `Inquiry`. Explicit-policy and convenience
+  inquiry constructors retain their signatures and check that class; raw
+  commands and operations reject inquiry timeout classes at construction.
+- Engine entries store one closed lifecycle with legal phase-local cancellation
+  and attempt facts. Raced replies and attempt records cannot outlive their
+  phases; duplicated socket/deadline state and manual latch resets are removed.
+  Public API and canonical owner traces are unchanged (#836).
+- Private per-target state uses one validated individual-camera key and fixed
+  seven-slot tables across the engine, ledger, owners and caches. Broadcast
+  maintenance stays outside those tables; public target APIs are unchanged
+  (#853).
+- Settlement plans, owner cancellation intents and admission claims use closed
+  internal types instead of contradictory optional fields. Cancellation
+  refusals return from the same synchronous engine input (#854).
+
 ### Fixed
 
 - Raw completion-only commands refuse cancellation with `NotSupported` after a
@@ -86,6 +112,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   subscriber exhaustion reports `DiagnosticSubscriberLimit`. `pending`
   counts queued and retained admissions, and both facades document that
   `metrics()` returns the terminal error once the owner ends (#851, #852).
+- Reply decoders reject nonzero padding and undocumented eight-nibble zoom
+  payloads, and report camera-side numeric range failures as protocol errors.
+  Focus conversions round through profile ranges, and floating-point input
+  errors retain the exact value (#845).
+- Persisted profiles reject missing optional-fact keys with the regeneration
+  instruction while accepting explicit `null`. Dynamic typed noun refinements
+  retain their header gate, preventing tally refinements from bypassing
+  `HasTally` (#855).
+- Engine invariant auditing checks terminated-session emptiness, both Sony
+  sequence indexes with retained retry evidence, and inquiry/transmission/
+  dispute bounds; intentionally corrupted states prove the new checks (#856).
 
 ## [2.0.0-rc.3] - 2026-10-07
 
