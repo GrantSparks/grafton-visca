@@ -79,7 +79,6 @@ custom integrations.
 | Variable speed mode controls | `SonyFR7` |
 | Tally controls and inquiries | `SonyFR7` |
 | Image-freeze control | No built-in profile currently marks this typed capability |
-| Vendor defog-level inquiry | No built-in profile currently marks this typed capability |
 | Extended tally-brightness commands | No built-in profile currently marks this typed capability |
 | PTZOptics tally extensions | No built-in profile currently marks this typed capability |
 | Direct menu controls | `SonyFR7` |
@@ -93,8 +92,17 @@ custom integrations.
 | Motion Sync controls and inquiries | Custom/evidenced profiles that explicitly implement `HasMotionSync`; no built-in profile is marked from the current specs |
 
 The Sony FR7 tally row refers to the source-backed red/green tally controls and
-inquiries; packed status, mode, auto-adjust, and extended brightness remain
-separate row-specific surfaces and have no built-in profile grant.
+inquiries. Packed status and auto-adjust inquiries are removed; PTZOptics tally
+mode and extended brightness controls require separate markers and have no
+built-in profile grant.
+
+FR7 also has model-specific AE-level adjustments, automatic gain/shutter/iris,
+counted iris movement, preset white and Memory A white balance, ATW offsets,
+black/detail/knee settings, high-resolution zoom, Clear Image Zoom readback,
+and preset speed/duration settings. Each family has its own `HasSonyFr7*`
+marker. Lens availability, exposure mode and camera runtime state can still
+make a documented command temporarily unavailable; see the
+[source and profile guidance](docs/camera_profile_support.md).
 
 ### Profile-Gated Sub-Capabilities
 
@@ -186,8 +194,9 @@ represent an extension once its packet and reply are established for that
 camera. The Sony FR7 command list instead documents a vendor-relative `7E 04 4B`
 iris Up/Down family and `05 34` Auto Iris inquiry, not the shared `04 39`
 AE-mode command/inquiry family, standard absolute Iris Direct command, or `09
-04 4B` position inquiry. Those FR7 protocol families remain available through
-the raw command escape hatch until they receive their own typed APIs.
+04 4B` position inquiry. Use the FR7-specific `iris_up_by`, `iris_down_by`,
+`set_auto_iris` and `auto_iris` methods under `camera.exposure()`; these do not
+provide an absolute iris position or its readback.
 
 `IrisLevel` represents the `0x00..=0x1E` union used by the built-in iris
 profiles, and `GainLevel` represents the union of built-in gain codes `0x00..=0x19`.

@@ -108,6 +108,12 @@ the profile's exact preset axes.  It must not substitute all axes.
 | Serial setup/recovery | `AddressSet`, `InterfaceClear` wire commands | Owner-only transport handshake | — |
 | Cancellation | socket-specific `CommandCancel` wire command | Owner-only operation lifecycle | — |
 | Motion configuration | `MotionSyncMode`, `MotionSyncPreset`, `VariableSpeedMode` | Plain | Set `VariableSpeedMode` for the latter |
+| FR7 iris | `Fr7IrisUp`, `Fr7IrisDown` | AppliedOnly — `Iris` | — |
+| FR7 zoom | `Fr7ZoomHighResolutionTele`, `Fr7ZoomHighResolutionWide`, `Fr7ZoomHighResolutionStop` | AppliedOnly — `Zoom` | — |
+| FR7 exposure | `Fr7AeLevelUp`, `Fr7AeLevelDown`, `Fr7AutoGain`, `Fr7AutoShutter`, `Fr7AutoIris` | Plain | — |
+| FR7 white balance | `Fr7WhiteBalanceSet`, all `Fr7PresetWhite*`, `Fr7Memory*`, `Fr7Atw*` | Plain | — |
+| FR7 image | all `Fr7MasterBlack*`, `Fr7RedBlack*`, `Fr7BlueBlack*`, `Fr7DetailSetting`, `Fr7KneeSetting`, `Fr7SetKnee*` | Plain | — |
+| FR7 presets | `Fr7SetPresetSpeedSelection`, `Fr7SetCommonPresetSpeed`, `Fr7SetSeparatePresetMode`, `Fr7SetSeparatePresetSpeed`, `Fr7SetSeparatePresetDuration` | Plain | — |
 
 The three owner-only rows are deliberately absent from
 `request::builtin`. Address assignment and interface clear require exclusive

@@ -556,8 +556,32 @@
 //! Runtime discovery metadata is available for every profile through
 //! `Capabilities::from_profile::<P>()`. Typed optional vendor controls use
 //! separate support markers, so the public API exposes only documented support:
-//! `SonyFR7` has typed ND filter and variable speed controls. Dyn-api callers
-//! can query the same permission model with `Capabilities::supports_typed(...)`;
+//! `SonyFR7` has typed ND filter and variable speed controls, plus separate
+//! exposure, white-balance, image, zoom and preset-setting families.
+//! For example, these settings configure white balance and a later preset
+//! recall without starting a recall:
+//!
+//! ```rust
+//! # #[cfg(feature = "blocking")]
+//! fn configure_fr7(
+//!     camera: &grafton_visca::blocking::Camera<grafton_visca::profiles::SonyFR7>,
+//! ) -> Result<(), grafton_visca::Error> {
+//!     use grafton_visca::{
+//!         command::{Fr7PresetSeparateMode, Fr7PresetSpeedSelection},
+//!         types::{Fr7PresetNumber, PresetDuration, WhiteKelvin},
+//!     };
+//!     camera.white_balance().preset()?;
+//!     camera.white_balance().set_preset_white(WhiteKelvin::new(5600)?)?;
+//!     let preset = Fr7PresetNumber::new(0)?;
+//!     camera.presets().select_speed(Fr7PresetSpeedSelection::Separate)?;
+//!     camera.presets().set_separate_mode(preset, Fr7PresetSeparateMode::Duration)?;
+//!     camera.presets().set_separate_duration(preset, PresetDuration::from_seconds(2.5)?)?;
+//!     Ok(())
+//! }
+//! ```
+//!
+//! Dyn-api callers can query the same permission model with
+//! `Capabilities::supports_typed(...)`;
 //! overlapping metadata fields remain discovery facts, not typed permission
 //! checks. Built-in PTZOptics profiles are not marked for typed Motion Sync from
 //! the current model capability specs.

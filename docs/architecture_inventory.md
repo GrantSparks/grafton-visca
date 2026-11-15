@@ -54,7 +54,13 @@ The optional typed gates are exactly the following closed list:
 `PtzOpticsMulticastStreaming`, `PtzOpticsNdiQuality`, `ExposureMode`,
 `NoiseReduction2DControl`,
 `NoiseReduction3DControl`, `ImageFreeze`, `TallyBrightness`,
-`PtzOpticsTally`, `VersionInquiry`, `ColorTemperatureInquiry`, and `NoiseReduction2DMode`.
+`PtzOpticsTally`, `VersionInquiry`, `ColorTemperatureInquiry`, `NoiseReduction2DMode`,
+`SonyFr7AeLevel`, `SonyFr7AutoGain`, `SonyFr7AutoShutter`, `SonyFr7Iris`,
+`SonyFr7WhiteBalance`, `SonyFr7PresetWhite`, `SonyFr7MemoryColorTemperature`,
+`SonyFr7MemoryGain`, `SonyFr7MemoryTint`, `SonyFr7AtwOffsets`, `SonyFr7Black`,
+`SonyFr7Detail`, `SonyFr7Knee`, `SonyFr7HighResolutionZoom`,
+`SonyFr7ClearImageZoom`, `SonyFr7PresetSpeed`, `SonyFr7PresetDuration`, and
+`SharpnessMode`.
 <!-- END OPTIONAL TYPED GATES -->
 
 The generated profile registry remains
@@ -80,6 +86,11 @@ typed noun-header marker and the row's refining marker, so dynamic tally
 refinements cannot bypass `HasTally` (#855).
 In particular, `ExposureAccessor::mode` and `ExposureAccessor::set_mode` use
 `HasExposureMode` rather than inheriting broad `HasExposure` permission.
+Sony FR7 has separate sourced families for relative iris movement, white
+balance, image settings, high-resolution zoom and preset speed/duration;
+their `HasSonyFr7*` markers do not grant the shared VISCA counterparts.
+`HasSharpnessControl` covers level/step operations; the independent
+`HasSharpnessMode` covers auto/manual mode and its inquiry.
 
 ## Dynamic controls
 
@@ -162,8 +173,8 @@ The preserved extension semantics are custom command encoding, typed and raw
 inquiry decoding, caller-owned blocking/async transports, raw/protocol command
 and inquiry escape hatches, custom profiles with typed capability gates, and
 runtime-neutral executor integration. The final 2.0 generic request surface is
-on the profile-bound `Camera` view (async `Camera<P>` or blocking
-`Camera<'_, P>`): `execute` for plain commands, `inquire` for inquiries, and
+on the profile-bound `Camera<P>` view in either facade: `execute` for plain
+commands, `inquire` for inquiries, and
 `submit` for typed operations. `with_submission_class` derives one camera view
 whose complete request/noun surface uses the selected ordinary-work
 `SubmissionClass`. A `CameraSession<P>` is the

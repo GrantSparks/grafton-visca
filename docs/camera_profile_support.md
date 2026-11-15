@@ -508,11 +508,13 @@ Sony EVI-H100 (R8) also documents `CAM_ColorGain` `8x 01 04 49 00 00 00 0p FF`
 and `CAM_ColorHue` `8x 01 04 4F 00 00 00 0p FF` (`0h`..`Eh`) with their
 `09 04 49`/`09 04 4F` inquiries, byte for byte the typed saturation and hue
 controls, so it carries `HasSaturationControl` and `HasHueControl`. R8's
-`CAM_Aperture` (`04 02`/`04 42`, level `00`..`0F`) and `CAM_PictureEffect`
-(`04 63`) are reported as discovery metadata but their typed surfaces are
-withheld: the sharpness surface also sends the `04 05` mode R8 does not list,
-and R8's picture-effect inquiry reports Off as `00` and Neg.Art as `02`, which
-the typed inquiry would decode as Off.
+`CAM_Aperture` (`04 02`/`04 42`, level `00`..`0F`, and `09 04 42` inquiry)
+supports `HasSharpnessControl`. Sharpness auto/manual mode uses the separate
+`HasSharpnessMode` marker, granted only to the PTZOptics profiles: R8 and FR7's
+R7 do not list the shared `04 05`/`09 04 05` mode family. FR7 detail enablement
+uses its own `HasSonyFr7Detail` family. EVI-H100 picture-effect metadata remains
+available, but its typed surface is withheld: R8's inquiry reports Off as `00`
+and Neg.Art as `02`, which the shared typed inquiry would decode as Off.
 
 Sony BRC-300 (R12) and Nearus BRC-300 (R21) document an x12 lens with optical
 zoom positions `0000`..`4000` and digital positions `4000`..`7F00` (x4) reached
