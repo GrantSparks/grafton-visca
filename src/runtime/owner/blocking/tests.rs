@@ -410,11 +410,14 @@ fn raw_inquiry(inquiry: Duration) -> RuntimeRequest {
             dispatch_deadline: None,
             target: crate::target::TargetSlot::CAMERA_1,
             timeout: TimeoutPolicy {
-                ack: Duration::from_secs(1),
-                completion: Duration::from_secs(1),
-                inquiry,
-                cancellation: Duration::from_secs(1),
-                ambiguity: Duration::from_secs(1),
+                ack: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(1)).unwrap(),
+                completion: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(1))
+                    .unwrap(),
+                inquiry: crate::runtime::engine::NonZeroDuration::new(inquiry).unwrap(),
+                cancellation: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(1))
+                    .unwrap(),
+                ambiguity: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(1))
+                    .unwrap(),
             },
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
@@ -1161,7 +1164,8 @@ fn a_stream_completion_after_a_long_idle_read_wins_before_its_deadline() {
     )
     .unwrap();
     let mut context = *raw_inquiry(Duration::from_secs(1)).context();
-    context.timeout.completion = Duration::from_secs(6);
+    context.timeout.completion =
+        crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(6)).unwrap();
     let request = RuntimeRequest::Command {
         reply_shape: ReplyShape::AckThenCompletion,
         wire: Arc::new(EncodedMessage::new(ZOOM_STOP).unwrap()),

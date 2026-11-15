@@ -238,7 +238,7 @@ impl PositionQueryPlan {
         .flatten()
         .try_fold(Duration::ZERO, |budget, context| {
             budget
-                .checked_add(observation_timeout(context, context.timeout.inquiry))?
+                .checked_add(observation_timeout(context, context.timeout.inquiry.get()))?
                 .checked_add(context.control.minimum_spacing)
         })
     }
@@ -835,15 +835,15 @@ where
     let inquiry_timeout = tuning
         .inquiry_timeout_override()
         .unwrap_or(timing.inquiry_timeout());
-    let timeout = TimeoutPolicy {
-        ack: tuning
+    let timeout = TimeoutPolicy::new(
+        tuning
             .ack_timeout_override()
             .unwrap_or(timing.ack_timeout()),
         completion,
-        inquiry: inquiry_timeout,
-        cancellation: timing.cancellation_timeout(),
-        ambiguity: timing.ambiguity_timeout(),
-    };
+        inquiry_timeout,
+        timing.cancellation_timeout(),
+        timing.ambiguity_timeout(),
+    )?;
     let spacing = if inquiry {
         tuning
             .inquiry_spacing_override()
@@ -855,7 +855,7 @@ where
     };
     let reply_shape = lower_reply_shape(request.reply_shape());
     let governing_deadline = if inquiry {
-        timeout.inquiry
+        timeout.inquiry.get()
     } else {
         command_attempt_timeout(&timeout, reply_shape)
     };
@@ -875,12 +875,12 @@ where
             tuning,
             timing.busy_timeout(),
             if inquiry {
-                timeout.inquiry
+                timeout.inquiry.get()
             } else {
-                timeout.completion
+                timeout.completion.get()
             },
             governing_deadline,
-        ),
+        )?,
         control: ControlPolicy {
             class: lower_control(class.resolve(crate::requests::admission_control_class(request)?)),
             minimum_spacing: spacing,
@@ -954,7 +954,7 @@ fn retry_policy(
     busy_timeout: Duration,
     deadline: Duration,
     attempt: Duration,
-) -> RetryPolicy {
+) -> Result<RetryPolicy> {
     let bounds =
         tuning.lengthen_retry_bounds(RetryBounds::for_request(busy_timeout, deadline, attempt));
     let base = tuning.reduce_retry_base(DEFAULT_RETRY_BASE);
@@ -972,18 +972,20 @@ fn retry_policy(
     // envelope (#795): `completion_timeout` only governs a command that has no
     // ACK phase.
     let replayable = !matches!(retry_class, RetryClass::Never);
-    RetryPolicy {
+    Ok(RetryPolicy {
         max_retries,
         initial_backoff: bounds.initial_backoff,
         maximum_backoff: bounds.maximum_backoff,
-        total_budget: bounds.total_budget,
+        total_budget: Some(crate::runtime::engine::NonZeroDuration::new(
+            bounds.total_budget,
+        )?),
         ack_timeout: replayable,
         completion_timeout: replayable,
         inquiry_timeout: matches!(retry_class, RetryClass::Inquiry),
         buffer_full: replayable,
         movement_not_executable: matches!(retry_class, RetryClass::Movement | RetryClass::Preset),
         builtin_inquiry_syntax: false,
-    }
+    })
 }
 
 const fn lower_control(class: ControlClass) -> crate::runtime::engine::ControlClass {
@@ -1033,18 +1035,22 @@ pub(crate) struct OperationTimeouts {
 /// An observer that expires while its request can still be retried would turn
 /// detach into an unintentional physical fire-and-forget operation. Keep the
 /// command, operation, and inquiry paths on this one rule: an automatic retry
-/// can never outlive the default observer. A zero total budget remains the
-/// engine's explicit no-total-budget mode and therefore leaves the governing
-/// deadline unchanged.
+/// can never outlive the default observer. A policy without a total budget
+/// leaves the governing deadline unchanged.
 fn command_attempt_timeout(timeout: &TimeoutPolicy, shape: ReplyShape) -> Duration {
     match shape {
-        ReplyShape::AckThenCompletion => timeout.ack.saturating_add(timeout.completion),
-        ReplyShape::CompletionOnly | ReplyShape::NoReply => timeout.completion,
+        ReplyShape::AckThenCompletion => timeout.ack.get().saturating_add(timeout.completion.get()),
+        ReplyShape::CompletionOnly | ReplyShape::NoReply => timeout.completion.get(),
     }
 }
 
 fn observation_timeout(context: &RequestContext, governing_deadline: Duration) -> Duration {
-    governing_deadline.max(context.retry.total_budget)
+    context
+        .retry
+        .total_budget
+        .map_or(governing_deadline, |budget| {
+            governing_deadline.max(budget.get())
+        })
 }
 
 impl<R> PreparedInquiry<R> {
@@ -1060,7 +1066,7 @@ impl<R> PreparedInquiry<R> {
         self,
         admit: impl FnOnce(RuntimeRequest, ResponseDecoder<R>, Duration) -> T,
     ) -> T {
-        let timeout = observation_timeout(&self.context, self.context.timeout.inquiry);
+        let timeout = observation_timeout(&self.context, self.context.timeout.inquiry.get());
         let request = RuntimeRequest::Inquiry {
             wire: self.wire.into_shared(),
             context: self.context,
@@ -1094,7 +1100,8 @@ where
             self.context
                 .timeout
                 .ambiguity
-                .saturating_add(self.context.timeout.cancellation),
+                .get()
+                .saturating_add(self.context.timeout.cancellation.get()),
         );
         let request = RuntimeRequest::Command {
             reply_shape: self.reply_shape,
@@ -2135,7 +2142,10 @@ mod tests {
         )
         .expect("targeted poll preparation");
 
-        assert_eq!(prepared.context.timeout.completion, Duration::from_secs(31));
+        assert_eq!(
+            prepared.context.timeout.completion.get(),
+            Duration::from_secs(31)
+        );
         let SettlementPlan::Poll {
             queries,
             tolerance,
@@ -2158,7 +2168,7 @@ mod tests {
         assert!(queries.focus.is_none());
         let zoom = queries.zoom.expect("selected zoom query").instantiate();
         assert_eq!(zoom.context.target.camera(), CameraId::CAMERA_2);
-        assert_eq!(zoom.context.timeout.inquiry, Duration::from_secs(1));
+        assert_eq!(zoom.context.timeout.inquiry.get(), Duration::from_secs(1));
         assert_eq!(
             zoom.wire.as_bytes(),
             &[
@@ -2333,7 +2343,7 @@ mod tests {
             )
             .expect("prepared inquiry");
             let context = prepared.context;
-            let per_axis = observation_timeout(&context, context.timeout.inquiry)
+            let per_axis = observation_timeout(&context, context.timeout.inquiry.get())
                 + context.control.minimum_spacing;
             fn template<R>(context: RequestContext) -> PositionQuery<R> {
                 PositionQuery::new(PreparedInquiryTemplate {
@@ -2392,7 +2402,14 @@ mod tests {
             .expect("accepted settlement override");
             assert_eq!(
                 prepared.settlement.default_budget(),
-                Duration::from_secs(seconds).max(prepared.context.retry.total_budget)
+                Duration::from_secs(seconds).max(
+                    prepared
+                        .context
+                        .retry
+                        .total_budget
+                        .expect("prepared budget")
+                        .get()
+                )
             );
         }
         let preset = crate::request::builtin::PresetRecall::for_profile(
@@ -2758,7 +2775,8 @@ mod tests {
                 .expect("quick preparation")
                 .context
                 .timeout
-                .completion,
+                .completion
+                .get(),
                 Duration::from_secs(11),
             ),
             (
@@ -2775,7 +2793,8 @@ mod tests {
                 .expect("movement preparation")
                 .context
                 .timeout
-                .completion,
+                .completion
+                .get(),
                 Duration::from_secs(32),
             ),
             (
@@ -2792,7 +2811,8 @@ mod tests {
                 .expect("preset preparation")
                 .context
                 .timeout
-                .completion,
+                .completion
+                .get(),
                 Duration::from_secs(62),
             ),
             (
@@ -2809,7 +2829,8 @@ mod tests {
                 .expect("long-running preparation")
                 .context
                 .timeout
-                .completion,
+                .completion
+                .get(),
                 Duration::from_secs(302),
             ),
             (
@@ -2826,7 +2847,8 @@ mod tests {
                 .expect("network preparation")
                 .context
                 .timeout
-                .completion,
+                .completion
+                .get(),
                 Duration::from_secs(15),
             ),
         ];
@@ -2843,7 +2865,10 @@ mod tests {
             ClassSelection::Request,
         )
         .expect("default quick preparation");
-        assert_eq!(quick.context.timeout.completion, Duration::from_secs(5));
+        assert_eq!(
+            quick.context.timeout.completion.get(),
+            Duration::from_secs(5)
+        );
     }
 
     #[test]
@@ -2861,12 +2886,15 @@ mod tests {
             ClassSelection::Request,
         )
         .expect("inquiry preparation");
-        assert_eq!(prepared.context.timeout.inquiry, Duration::from_secs(17));
+        assert_eq!(
+            prepared.context.timeout.inquiry.get(),
+            Duration::from_secs(17)
+        );
     }
 
     #[test]
     fn default_observers_cover_the_total_retry_budget_for_every_request_class() {
-        fn prepared_with_budget(total_budget: Duration) -> PreparedInquiry<Vec<u8>> {
+        fn prepared_with_budget(total_budget: Option<Duration>) -> PreparedInquiry<Vec<u8>> {
             let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
                 .expect("built-in profile");
             let mut prepared = prepare_inquiry(
@@ -2877,15 +2905,19 @@ mod tests {
                 ClassSelection::Request,
             )
             .expect("inquiry preparation");
-            prepared.context.timeout.inquiry = Duration::from_secs(1);
-            prepared.context.retry.total_budget = total_budget;
+            prepared.context.timeout.inquiry =
+                crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(1))
+                    .expect("positive fixture timeout");
+            prepared.context.retry.total_budget = total_budget.map(|budget| {
+                crate::runtime::engine::NonZeroDuration::new(budget).expect("positive budget")
+            });
             prepared
         }
 
         for (budget, expected) in [
-            (Duration::from_millis(500), Duration::from_secs(1)),
-            (Duration::from_secs(3), Duration::from_secs(3)),
-            (Duration::ZERO, Duration::from_secs(1)),
+            (Some(Duration::from_millis(500)), Duration::from_secs(1)),
+            (Some(Duration::from_secs(3)), Duration::from_secs(3)),
+            (None, Duration::from_secs(1)),
         ] {
             let admitted =
                 prepared_with_budget(budget).admit_with(|_request, _decoder, timeout| timeout);
@@ -2993,7 +3025,12 @@ mod tests {
             ClassSelection::Request,
         )
         .expect("targeted operation preparation");
-        let operation_budget = operation.context.retry.total_budget;
+        let operation_budget = operation
+            .context
+            .retry
+            .total_budget
+            .expect("prepared budget")
+            .get();
         assert!(
             operation.settlement.default_budget() >= operation_budget,
             "targeted settlement observer must cover retry budget"
@@ -3008,7 +3045,8 @@ mod tests {
         // engine's cancellation ambiguity plus observation windows (#777).
         assert!(timeouts.cancellation >= timeouts.applied);
         assert!(
-            timeouts.cancellation >= request_timeouts.ambiguity + request_timeouts.cancellation
+            timeouts.cancellation
+                >= request_timeouts.ambiguity.get() + request_timeouts.cancellation.get()
         );
 
         let applied_only = prepare_builtin_operation::<completion::AppliedOnly, _>(
@@ -3018,7 +3056,12 @@ mod tests {
             OperationalTuning::new(),
         )
         .expect("applied-only operation preparation");
-        let applied_only_budget = applied_only.context.retry.total_budget;
+        let applied_only_budget = applied_only
+            .context
+            .retry
+            .total_budget
+            .expect("prepared budget")
+            .get();
         let observer =
             applied_only.admit_with(|_request, _axes, _settlement, timeouts| timeouts.applied);
         assert!(
@@ -3047,7 +3090,12 @@ mod tests {
             ClassSelection::Request,
         )
         .expect("movement preparation");
-        let movement_budget = movement.context.retry.total_budget;
+        let movement_budget = movement
+            .context
+            .retry
+            .total_budget
+            .expect("prepared budget")
+            .get();
         let movement_observer = movement.admit_with(|_request, timeout| timeout);
         assert_eq!(movement_budget, Duration::from_secs(60));
         assert!(
@@ -3070,7 +3118,12 @@ mod tests {
             ClassSelection::Request,
         )
         .expect("busy-command preparation");
-        let busy_budget = busy.context.retry.total_budget;
+        let busy_budget = busy
+            .context
+            .retry
+            .total_budget
+            .expect("prepared budget")
+            .get();
         let busy_observer = busy.admit_with(|_request, timeout| timeout);
         // A shorter budget override never shortens the request's own budget:
         // twice Generic VISCA's 10 s quick deadline (#828 M3).
@@ -3096,7 +3149,12 @@ mod tests {
             ClassSelection::Request,
         )
         .expect("Sony operation preparation");
-        let sony_budget = sony_operation.context.retry.total_budget;
+        let sony_budget = sony_operation
+            .context
+            .retry
+            .total_budget
+            .expect("prepared budget")
+            .get();
         let sony_observer =
             sony_operation.admit_with(|_request, _axes, _settlement, timeouts| timeouts.applied);
         assert_eq!(sony_budget, Duration::from_secs(60));
@@ -3151,7 +3209,8 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(5),
             Duration::ZERO,
-        );
+        )
+        .expect("valid retry policy");
         let standard = retry_policy(
             RetryClass::Standard,
             TimeoutClass::Movement,
@@ -3159,7 +3218,8 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(5),
             Duration::ZERO,
-        );
+        )
+        .expect("valid retry policy");
 
         assert_eq!(never.max_retries, 0);
         // `retry_limit` sets the base; a movement budget is the base itself.
@@ -3180,6 +3240,7 @@ mod tests {
                 Duration::from_secs(5),
                 Duration::ZERO,
             )
+            .expect("valid retry policy")
             .max_retries
         };
 
@@ -3236,13 +3297,18 @@ mod tests {
                             ClassSelection::Request,
                         )
                         .expect("valid preparation");
-                        let completion = prepared.context.timeout.completion;
+                        let completion = prepared.context.timeout.completion.get();
                         let attempt = if shape == crate::raw::RawReplyShape::AckThenCompletion {
                             ack + completion
                         } else {
                             completion
                         };
-                        let budget = prepared.context.retry.total_budget;
+                        let budget = prepared
+                            .context
+                            .retry
+                            .total_budget
+                            .expect("prepared budget")
+                            .get();
                         let legacy = MINIMUM_RETRY_BUDGET
                             .max(completion * 2)
                             .max(profile.timing().busy_timeout());
@@ -3284,9 +3350,14 @@ mod tests {
                     ClassSelection::Request,
                 )
                 .expect("inquiries keep their single reply deadline");
-                let budget = prepared.context.retry.total_budget;
+                let budget = prepared
+                    .context
+                    .retry
+                    .total_budget
+                    .expect("prepared budget")
+                    .get();
                 let expected = MINIMUM_RETRY_BUDGET
-                    .max(prepared.context.timeout.inquiry * 2)
+                    .max(prepared.context.timeout.inquiry.get() * 2)
                     .max(profile.timing().busy_timeout());
                 assert_eq!(budget, expected, "ACK tuning changed an inquiry budget");
                 prepared.admit_with(|_, _, observer| assert!(observer >= budget));
@@ -3318,8 +3389,8 @@ mod tests {
             let prepared = prepare_command(&command,
         &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone()).expect("valid target registration"),
                 tuning, ClassSelection::Request).expect("valid tuning");
-            let attempt = prepared.context.timeout.ack + prepared.context.timeout.completion;
-            let budget = prepared.context.retry.total_budget;
+            let attempt = prepared.context.timeout.ack.get() + prepared.context.timeout.completion.get();
+            let budget = prepared.context.retry.total_budget.expect("prepared budget").get();
             proptest::prop_assert!(budget >= attempt);
             prepared.admit_with(|_, observer| assert!(observer >= budget));
         }
@@ -3343,7 +3414,8 @@ mod tests {
                 Duration::ZERO,
                 deadline,
                 Duration::ZERO,
-            );
+            )
+            .expect("valid retry policy");
             assert_eq!(policy.initial_backoff, Duration::from_millis(50));
             assert_eq!(
                 policy.maximum_backoff,
@@ -3351,7 +3423,11 @@ mod tests {
                 "{class:?}"
             );
             let expected_budget = Duration::from_secs(10).max(deadline.saturating_mul(2));
-            assert_eq!(policy.total_budget, expected_budget, "{class:?}");
+            assert_eq!(
+                policy.total_budget.expect("prepared budget").get(),
+                expected_budget,
+                "{class:?}"
+            );
             assert_eq!(policy.max_retries, retries, "{class:?}");
         }
 
@@ -3366,10 +3442,14 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(1),
             Duration::ZERO,
-        );
+        )
+        .expect("valid retry policy");
         assert_eq!(tuned.initial_backoff, Duration::from_millis(100));
         assert_eq!(tuned.maximum_backoff, Duration::from_millis(750));
-        assert_eq!(tuned.total_budget, Duration::from_secs(30));
+        assert_eq!(
+            tuned.total_budget.expect("prepared budget").get(),
+            Duration::from_secs(30)
+        );
     }
 
     /// #828 M3: retry timing is a profile bound that tuning may only
@@ -3391,10 +3471,14 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(1),
             Duration::ZERO,
-        );
+        )
+        .expect("valid retry policy");
         assert_eq!(quick.initial_backoff, Duration::from_millis(50));
         assert_eq!(quick.maximum_backoff, Duration::from_millis(500));
-        assert_eq!(quick.total_budget, MINIMUM_RETRY_BUDGET);
+        assert_eq!(
+            quick.total_budget.expect("prepared budget").get(),
+            MINIMUM_RETRY_BUDGET
+        );
 
         let raised_budget = OperationalTuning::new().retry_timing(
             Duration::from_millis(50),
@@ -3408,8 +3492,12 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(300),
             Duration::ZERO,
+        )
+        .expect("valid retry policy");
+        assert_eq!(
+            long.total_budget.expect("prepared budget").get(),
+            Duration::from_secs(600)
         );
-        assert_eq!(long.total_budget, Duration::from_secs(600));
         let short = retry_policy(
             RetryClass::Standard,
             TimeoutClass::Quick,
@@ -3417,8 +3505,12 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(1),
             Duration::ZERO,
+        )
+        .expect("valid retry policy");
+        assert_eq!(
+            short.total_budget.expect("prepared budget").get(),
+            Duration::from_secs(20)
         );
-        assert_eq!(short.total_budget, Duration::from_secs(20));
     }
 
     /// A network budget never reaches zero: the clamp keeps one attempt.
@@ -3432,7 +3524,8 @@ mod tests {
                 Duration::ZERO,
                 Duration::from_secs(5),
                 Duration::ZERO,
-            );
+            )
+            .expect("valid retry policy");
             assert_eq!(policy.max_retries, 1, "base {base}");
         }
     }
@@ -3456,7 +3549,8 @@ mod tests {
                 Duration::ZERO,
                 Duration::from_secs(5),
                 Duration::ZERO,
-            );
+            )
+            .expect("valid retry policy");
             assert!(policy.ack_timeout, "{class:?} must retry a lost ACK");
             assert!(
                 policy.completion_timeout,
@@ -3473,7 +3567,8 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(5),
             Duration::ZERO,
-        );
+        )
+        .expect("valid retry policy");
         assert!(!never.ack_timeout);
         assert!(!never.completion_timeout);
         assert!(!never.buffer_full);
@@ -3496,6 +3591,7 @@ mod tests {
                 Duration::from_secs(5),
                 Duration::ZERO,
             )
+            .expect("valid retry policy")
             .movement_not_executable
         };
 
@@ -3561,9 +3657,17 @@ mod tests {
         )
         .expect("preparation");
 
-        let completion_deadline = prepared.context.timeout.completion;
+        let completion_deadline = prepared.context.timeout.completion.get();
         let expected_budget = Duration::from_secs(10).max(completion_deadline.saturating_mul(2));
-        assert_eq!(prepared.context.retry.total_budget, expected_budget);
+        assert_eq!(
+            prepared
+                .context
+                .retry
+                .total_budget
+                .expect("prepared budget")
+                .get(),
+            expected_budget
+        );
 
         // A short deadline still gets the ten-second floor, while a longer
         // deadline and a profile busy timeout can raise the total budget.
@@ -3575,9 +3679,10 @@ mod tests {
             Duration::ZERO,
             quick_deadline,
             Duration::ZERO,
-        );
+        )
+        .expect("valid retry policy");
         assert_eq!(
-            quick.total_budget,
+            quick.total_budget.expect("prepared budget").get(),
             MINIMUM_RETRY_BUDGET.max(quick_deadline.saturating_mul(2))
         );
         let busy_timeout = Duration::from_secs(17);
@@ -3589,9 +3694,10 @@ mod tests {
             busy_timeout,
             long_deadline,
             Duration::ZERO,
-        );
+        )
+        .expect("valid retry policy");
         assert_eq!(
-            long.total_budget,
+            long.total_budget.expect("prepared budget").get(),
             MINIMUM_RETRY_BUDGET
                 .max(long_deadline.saturating_mul(2))
                 .max(busy_timeout)

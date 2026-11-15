@@ -148,6 +148,7 @@ fn sony_lower16_ack_keeps_the_written_attempt_socket_capacity() {
             Duration::ZERO,
             Duration::ZERO,
             PerTarget::from_fn(|_| Some(1)),
+            Instant::now(),
         )
         .unwrap();
     let accepted = engine.handle(
@@ -234,7 +235,7 @@ fn late_sony_completion_does_not_outlive_the_total_budget_in_backoff() {
         .request
         .context_mut()
         .retry
-        .total_budget = Duration::from_millis(22);
+        .total_budget = Some(NonZeroDuration::new(Duration::from_millis(22)).unwrap());
     let late = engine.handle(
         complete(EnvelopeKind::Sony, Some(ViscaSocket::S1)),
         start + Duration::from_millis(23),

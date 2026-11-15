@@ -613,7 +613,7 @@ async fn raw_stream_more_than_sixty_four_retained_turns_release_by_progress() {
     let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
     let mut harness = boundary_stream_harness(false);
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+    let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
     while harness.reads_observed.try_recv().is_ok() {}
 
     for _ in 0..RETAINED_TURNS {
@@ -662,7 +662,7 @@ async fn raw_stream_split_tail_at_tombstone_boundary_precedes_release() {
     let mut harness = boundary_stream_harness(false);
     let reads = harness.reads.clone();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+    let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
 
     reads.send_async(ScriptedRawRead::Prefix).await.unwrap();
     while !harness.buffered.load(Ordering::Acquire) {
@@ -700,7 +700,7 @@ async fn raw_stream_prefix_fault_tail_keeps_boundary_input_precedence() {
     let mut harness = boundary_stream_harness(false);
     let reads = harness.reads.clone();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+    let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
 
     reads.send_async(ScriptedRawRead::Prefix).await.unwrap();
     while !harness.buffered.load(Ordering::Acquire) {
@@ -742,7 +742,7 @@ async fn raw_stream_prefix_idle_tail_keeps_boundary_input_precedence() {
     let mut harness = boundary_stream_harness(false);
     let reads = harness.reads.clone();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+    let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
 
     reads.send_async(ScriptedRawRead::Prefix).await.unwrap();
     while !harness.buffered.load(Ordering::Acquire) {
@@ -780,7 +780,7 @@ async fn raw_stream_orphan_prefix_is_reset_before_successor_dispatch() {
     let mut harness = boundary_stream_harness(false);
     let reads = harness.reads.clone();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+    let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
 
     reads.send_async(ScriptedRawRead::Prefix).await.unwrap();
     while !harness.buffered.load(Ordering::Acquire) {
@@ -823,7 +823,7 @@ async fn raw_stream_nonclearing_decoder_poisons_at_release() {
     let mut harness = boundary_stream_harness(true);
     let reads = harness.reads.clone();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+    let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
 
     reads.send_async(ScriptedRawRead::Prefix).await.unwrap();
     while !harness.buffered.load(Ordering::Acquire) {
@@ -861,7 +861,7 @@ async fn raw_stream_ambiguous_prefix_expires_without_poisoning_successor() {
         crate::protocol::framer::RawIncompletePrefix::SourceOnly;
     let reads = harness.reads.clone();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+    let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
 
     reads.send_async(ScriptedRawRead::Prefix).await.unwrap();
     while !harness.buffered.load(Ordering::Acquire) {
@@ -1798,6 +1798,8 @@ async fn owed_stream_inquiry_fixture() -> (
             .unwrap(),
         predecessor.id
     );
+    handle.metrics().await.unwrap();
+    runtime.advance(MINIMUM_FIXTURE_INQUIRY_TIMEOUT);
     assert!(matches!(
         terminal_within_test_deadline(&predecessor, "A times out at its reply deadline").await,
         RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::Timeout { .. })
@@ -2062,6 +2064,8 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
     let _ = within(sent_rx.recv_async(), "the inquiry is written")
         .await
         .unwrap();
+    handle.metrics().await.unwrap();
+    runtime.advance(MINIMUM_FIXTURE_INQUIRY_TIMEOUT);
     assert!(matches!(
         terminal_within_test_deadline(&predecessor, "A times out at its reply deadline").await,
         RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::Timeout { .. })

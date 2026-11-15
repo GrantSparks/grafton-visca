@@ -922,8 +922,20 @@ honors that attempt's capacity. `SendingReply` carries only its response
 family: it contains no reply latch or cancellation intent (#858, #860).
 The original completion deadline and cancellation ambiguity deadline each have
 one home; lifecycle methods derive an effective maximum where the protocol
-requires it. A transition accepts one lifecycle value, and named due kinds
+requires it. A transition accepts one lifecycle value, and closed due actions
 preserve response/cancellation-before-retry ordering (#836).
+
+The lifecycle selects one closed due action from its phase and the entry's
+retry budget. Each action removes its request or moves its next due instant
+strictly past the sampled clock; zero-delay retries become ready in that same
+action. A late cancellation observer and its already elapsed terminal window
+finish together. Due work carries no generation ticket, and a debug iteration
+bound and per-action progress check turn a future regression into a test
+failure. Context timeout intervals are nonzero proofs, retry budgets are
+optional positive intervals, and admission validates completed timing windows
+against its already sampled owner clock. Overflow saturates at the latest
+representable instant; an extension with no future instant retires instead of
+reinstalling an immediate deadline (#861).
 
 ### Cancellation substates
 

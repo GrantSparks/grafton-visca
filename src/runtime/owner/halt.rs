@@ -59,7 +59,17 @@ impl OwnerState {
                 request.context_mut().dispatch_deadline = Some(deadline);
                 // The engine budget expires queued STOPs at the SAME absolute
                 // deadline; a stale STOP must not follow newer post-halt motion.
-                request.context_mut().retry.total_budget = remaining;
+                request.context_mut().retry.total_budget = Some(
+                    crate::runtime::engine::NonZeroDuration::new(remaining)
+                        .map_err(|_| Error::admission_timeout())
+                        .inspect_err(|error| {
+                            self.record_admission_rejection(
+                                prepared.target,
+                                super::Lane::Command,
+                                error,
+                            )
+                        })?,
+                );
                 let permit = self
                     .permits
                     .try_acquire(request.context())

@@ -48,7 +48,7 @@ fn queued_mode_refusal(invalidate: bool) {
         .as_mut()
         .unwrap()
         .command_sockets = 1;
-    let mut state = OwnerState::new(policy).unwrap();
+    let mut state = OwnerState::new(policy, Instant::now()).unwrap();
     let initial = Instant::now();
     let _enabled = sent(
         &mut state,
@@ -181,7 +181,7 @@ fn a_retry_refused_after_mode_invalidation_preserves_the_first_attempts_uncertai
     let ack_timeout = profile.timing().ack_timeout();
     assert!(spacing < ack_timeout);
     let registration = TargetRegistration::new(crate::CameraId::CAMERA_1, profile).unwrap();
-    let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony)).unwrap();
+    let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony), Instant::now()).unwrap();
     let initial = Instant::now();
     let _enabled = sent(
         &mut state,

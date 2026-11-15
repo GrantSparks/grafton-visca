@@ -64,6 +64,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   existing zero-sized API, and Source evidence keeps the fixed request prefix
   separate from the argument (#894).
 
+- Engine deadlines use closed lifecycle-derived actions with checked progress.
+  Context timeouts cannot be zero, retry budgets use an optional positive
+  interval, and completed timing windows validate at the sampled owner clock.
+  Overflow retains the latest representable deadline; saturated extensions
+  terminate and ambiguous completion counters saturate. Long profile-derived
+  timing remains valid; the one-hour cap stays on configured retry overrides
+  (#861).
+
 - Serial startup stores operation-specific phases and retries an entire Address
   Set attempt after framing overflow instead of accepting a salvaged suffix (#891).
 - Async and blocking camera cores share one preparation and forwarding
@@ -327,6 +335,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Parameterized FR7 preset queries and setting commands share the target
   profile’s highest-preset check before encoding, including custom profiles
   with a narrower preset inventory (#894).
+- Engine deadlines use positive timeout intervals and optional retry budgets,
+  validated at construction, retuning and admission against the owner's clock.
+  Composed intervals cannot silently overflow into immediate expiry; long
+  profile-derived timing remains valid, with the one-hour cap confined to
+  explicit retry overrides (#861).
 
 - A write-only cache key becomes `Unknown` before its terminal observation when
   a written attempt may have changed the camera without confirmation. Prior

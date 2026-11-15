@@ -116,7 +116,7 @@ impl RetainedRelease {
         let mut live_receipts = Vec::with_capacity(live_commands);
         for _ in 0..live_commands {
             let request = command();
-            let timeout = request.context().timeout.completion;
+            let timeout = request.context().timeout.completion.get();
             let (completion, admitted) = handle.core.enqueue_admission(request, None).unwrap();
             let boundary = actor.core.receivers.admissions.try_recv().unwrap();
             actor

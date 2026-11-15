@@ -2,9 +2,11 @@
 
 #[cfg(test)]
 use super::CancelState;
-use super::{add_duration, Phase, QueueTicket, ReplyShape, RuntimeRequest, TransmissionId};
+use super::{
+    add_duration, NonZeroDuration, Phase, QueueTicket, ReplyShape, RuntimeRequest, TransmissionId,
+};
 use crate::ViscaSocket;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 /// Facts belonging to one dispatched attempt. Retry waiting retains the last
 /// written attempt separately so a late exact-sequence ACK can adopt it.
@@ -27,6 +29,76 @@ impl RetryEligibility {
     pub(crate) const fn attempt(self) -> AttemptFacts {
         self.attempt
     }
+}
+
+/// One expiry selected from the closed lifecycle. Its payload proves the
+/// response family and retains the facts its handler needs without re-reading
+/// a flattened phase.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum DueAction {
+    Ack {
+        sent_at: Instant,
+        deadline: Instant,
+        budget_at: Option<Instant>,
+        retry: RetryEligibility,
+        cancellation: Option<RequestedCancellation>,
+    },
+    Completion(CompletionDeadline),
+    InquiryReply {
+        retry: RetryEligibility,
+    },
+    CancellationResolution {
+        observation_deadline: Option<Instant>,
+    },
+    CancellationAmbiguity,
+    CancellationObservation {
+        terminal_at: Instant,
+    },
+    RetryBudget {
+        retirement: BudgetRetirement,
+        certainty: crate::Certainty,
+    },
+    RetryReady {
+        previous_attempt: AttemptFacts,
+        budget_at: Option<Instant>,
+        certainty: crate::Certainty,
+    },
+}
+
+impl DueAction {
+    pub(crate) const fn priority(self) -> u8 {
+        match self {
+            Self::CancellationAmbiguity => 0,
+            Self::Ack { .. }
+            | Self::Completion(_)
+            | Self::InquiryReply { .. }
+            | Self::CancellationResolution { .. }
+            | Self::CancellationObservation { .. }
+            | Self::RetryBudget { .. } => 1,
+            Self::RetryReady { .. } => 2,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum CompletionDeadline {
+    Unacknowledged {
+        retry: RetryEligibility,
+    },
+    Accepted,
+    Cancelling {
+        socket: ViscaSocket,
+        original_deadline: Instant,
+        attempt: AttemptFacts,
+        cancellation: ResolvingCancellation,
+    },
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum BudgetRetirement {
+    Queued,
+    Command,
+    Inquiry,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,6 +275,141 @@ impl Lifecycle {
             | Self::Executing { .. }
             | Self::AwaitingCancellationResolution { .. } => SendingReply::AckThenCompletion,
         })
+    }
+
+    /// The earliest expiry selected from this lifecycle and the enclosing
+    /// entry's retry budget and prior-attempt certainty.
+    pub(crate) fn due_action(
+        self,
+        budget_at: Option<Instant>,
+        certainty: crate::Certainty,
+    ) -> Option<(Instant, DueAction)> {
+        let mut due = match self {
+            Self::Ready { .. } | Self::Sending { .. } => None,
+            Self::Backoff {
+                ready_at,
+                previous_attempt,
+                ..
+            } => Some((
+                ready_at,
+                DueAction::RetryReady {
+                    previous_attempt,
+                    budget_at,
+                    certainty,
+                },
+            )),
+            Self::AwaitingAck {
+                sent_at,
+                deadline,
+                attempt,
+                cancellation,
+            } => Some((
+                deadline,
+                DueAction::Ack {
+                    sent_at,
+                    deadline,
+                    budget_at,
+                    retry: RetryEligibility { attempt },
+                    cancellation,
+                },
+            )),
+            Self::AwaitingCompletion {
+                deadline, attempt, ..
+            } => Some((
+                deadline,
+                DueAction::Completion(CompletionDeadline::Unacknowledged {
+                    retry: RetryEligibility { attempt },
+                }),
+            )),
+            Self::Executing {
+                socket,
+                deadline,
+                attempt,
+                cancellation,
+                ..
+            } => {
+                let action = match cancellation.into_resolution() {
+                    Some(cancellation) => CompletionDeadline::Cancelling {
+                        socket,
+                        original_deadline: deadline,
+                        attempt,
+                        cancellation,
+                    },
+                    None => CompletionDeadline::Accepted,
+                };
+                Some((
+                    cancellation.response_deadline(deadline),
+                    DueAction::Completion(action),
+                ))
+            }
+            Self::AwaitingReply {
+                deadline, attempt, ..
+            } => Some((
+                deadline,
+                DueAction::InquiryReply {
+                    retry: RetryEligibility { attempt },
+                },
+            )),
+            Self::AwaitingCancellationResolution {
+                deadline,
+                cancellation,
+                ..
+            } => {
+                let terminal_at = deadline.max(cancellation.ambiguity_deadline());
+                let observation_deadline = self.cancellation_observation_deadline();
+                Some(match observation_deadline {
+                    Some(observation) if observation <= terminal_at => (
+                        observation,
+                        DueAction::CancellationObservation { terminal_at },
+                    ),
+                    Some(_) | None => (
+                        terminal_at,
+                        DueAction::CancellationResolution {
+                            observation_deadline,
+                        },
+                    ),
+                })
+            }
+        };
+        if let Some(budget) = budget_at {
+            if due.is_none_or(|(at, _)| budget <= at) {
+                due = Some((
+                    budget,
+                    DueAction::RetryBudget {
+                        retirement: self.budget_retirement(),
+                        certainty,
+                    },
+                ));
+            }
+        }
+        if let Some(ambiguity) = self.active_cancellation_ambiguity() {
+            if due.is_none_or(|(at, _)| ambiguity <= at) {
+                due = Some((ambiguity, DueAction::CancellationAmbiguity));
+            }
+        }
+        due
+    }
+
+    const fn budget_retirement(self) -> BudgetRetirement {
+        match self {
+            Self::Ready { .. } | Self::Backoff { .. } => BudgetRetirement::Queued,
+            Self::Sending {
+                reply: SendingReply::Inquiry,
+                ..
+            }
+            | Self::AwaitingReply { .. } => BudgetRetirement::Inquiry,
+            Self::Sending {
+                reply:
+                    SendingReply::AckThenCompletion
+                    | SendingReply::CompletionOnly
+                    | SendingReply::NoReply,
+                ..
+            }
+            | Self::AwaitingAck { .. }
+            | Self::AwaitingCompletion { .. }
+            | Self::Executing { .. }
+            | Self::AwaitingCancellationResolution { .. } => BudgetRetirement::Command,
+        }
     }
 
     /// The old flattened view is useful to independent transition oracles.
@@ -453,10 +660,11 @@ impl Lifecycle {
     pub(crate) fn retry_budget_deadline(
         self,
         submitted_at: Instant,
-        budget: Duration,
+        budget: Option<NonZeroDuration>,
     ) -> Option<Instant> {
-        (budget != Duration::ZERO && self.cancellation_ambiguity().is_none())
-            .then(|| add_duration(submitted_at, budget))
+        budget
+            .filter(|_| self.cancellation_ambiguity().is_none())
+            .map(|budget| add_duration(submitted_at, budget.get()))
     }
 
     pub(crate) fn correlated_response_deadline(self, budget: Option<Instant>) -> Option<Instant> {
@@ -514,6 +722,17 @@ pub(crate) enum CancellationDecision {
 }
 
 impl ExecutingCancellation {
+    const fn into_resolution(self) -> Option<ResolvingCancellation> {
+        match self {
+            Self::None => None,
+            Self::Requested(request) => Some(ResolvingCancellation::Requested(request)),
+            Self::Sending(send) => Some(ResolvingCancellation::Sending(send)),
+            Self::ObservationFailed { ambiguity_deadline } => {
+                Some(ResolvingCancellation::ObservationFailed { ambiguity_deadline })
+            }
+        }
+    }
+
     fn response_deadline(self, completion: Instant) -> Instant {
         match self {
             Self::None | Self::Requested(_) => completion,
@@ -524,7 +743,7 @@ impl ExecutingCancellation {
 }
 
 impl ResolvingCancellation {
-    const fn ambiguity_deadline(self) -> Instant {
+    pub(crate) const fn ambiguity_deadline(self) -> Instant {
         match self {
             Self::Requested(request) => request.ambiguity_deadline,
             Self::Sending(send) => send.ambiguity_deadline,

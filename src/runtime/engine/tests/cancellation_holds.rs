@@ -4,7 +4,8 @@ use super::*;
 fn completion_only() -> RuntimeRequest {
     let mut request =
         command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly);
-    request.context_mut().timeout.completion = Duration::from_secs(5);
+    request.context_mut().timeout.completion =
+        NonZeroDuration::new(Duration::from_secs(5)).unwrap();
     request
 }
 

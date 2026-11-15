@@ -361,7 +361,7 @@ fn no_reply_command_for(target: TargetSlot, ambiguity: Duration) -> RuntimeReque
         unreachable!("command helper always builds a command request");
     };
     *reply_shape = ReplyShape::NoReply;
-    context.timeout.ambiguity = ambiguity;
+    context.timeout.ambiguity = crate::runtime::engine::NonZeroDuration::new(ambiguity).unwrap();
     request
 }
 
@@ -371,7 +371,7 @@ fn command_with_ack_timeout(timeout: Duration) -> RuntimeRequest {
     let RuntimeRequest::Command { context, .. } = &mut request else {
         unreachable!("command helper always constructs a command");
     };
-    context.timeout.ack = timeout;
+    context.timeout.ack = crate::runtime::engine::NonZeroDuration::new(timeout).unwrap();
     request
 }
 
@@ -395,11 +395,15 @@ fn command_for(target: TargetSlot) -> RuntimeRequest {
             dispatch_deadline: None,
             target,
             timeout: TimeoutPolicy {
-                ack: Duration::from_secs(5),
-                completion: Duration::from_secs(5),
-                inquiry: Duration::from_secs(5),
-                cancellation: Duration::from_secs(1),
-                ambiguity: Duration::from_secs(1),
+                ack: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(5)).unwrap(),
+                completion: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(5))
+                    .unwrap(),
+                inquiry: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(5))
+                    .unwrap(),
+                cancellation: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(1))
+                    .unwrap(),
+                ambiguity: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(1))
+                    .unwrap(),
             },
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
@@ -422,11 +426,20 @@ fn command_with_short_deadlines() -> RuntimeRequest {
             dispatch_deadline: None,
             target: TargetSlot::CAMERA_1,
             timeout: TimeoutPolicy {
-                ack: Duration::from_millis(100),
-                completion: Duration::from_millis(100),
-                inquiry: Duration::from_millis(100),
-                cancellation: Duration::from_millis(100),
-                ambiguity: Duration::from_millis(100),
+                ack: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(100))
+                    .unwrap(),
+                completion: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(
+                    100,
+                ))
+                .unwrap(),
+                inquiry: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(100))
+                    .unwrap(),
+                cancellation: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(
+                    100,
+                ))
+                .unwrap(),
+                ambiguity: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(100))
+                    .unwrap(),
             },
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
@@ -452,11 +465,14 @@ fn raw_command_with_completion_deadline(marker: u8, completion: Duration) -> Run
             dispatch_deadline: None,
             target: TargetSlot::CAMERA_1,
             timeout: TimeoutPolicy {
-                ack: Duration::from_secs(5),
-                completion,
-                inquiry: Duration::from_secs(5),
-                cancellation: Duration::from_secs(1),
-                ambiguity: Duration::from_secs(1),
+                ack: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(5)).unwrap(),
+                completion: crate::runtime::engine::NonZeroDuration::new(completion).unwrap(),
+                inquiry: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(5))
+                    .unwrap(),
+                cancellation: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(1))
+                    .unwrap(),
+                ambiguity: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(1))
+                    .unwrap(),
             },
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
@@ -470,19 +486,23 @@ fn inquiry() -> RuntimeRequest {
     inquiry_for(TargetSlot::CAMERA_1)
 }
 
-/// An inquiry whose successful write immediately reaches its response
-/// deadline. On a datagram policy this leaves the releasable late-reply hold
+/// An inquiry with the smallest positive reply interval. The frozen manual
+/// clock must advance explicitly after its write result is processed. On a datagram policy this leaves the releasable late-reply hold
 /// that remains after timeout (#712). On a single-flight raw *stream* policy
 /// it instead leaves an owed reply (#795) that never releases by time, so
 /// stream boundary fixtures use [`raw_inquiry_rejection`] for a releasable
 /// hold and use this only to exercise the owed-reply rules.
+#[cfg(feature = "runtime-tokio")]
+const MINIMUM_FIXTURE_INQUIRY_TIMEOUT: Duration = Duration::from_nanos(1);
+
 #[cfg(feature = "runtime-tokio")]
 fn timed_out_inquiry() -> RuntimeRequest {
     let mut request = inquiry();
     let RuntimeRequest::Inquiry { context, .. } = &mut request else {
         unreachable!("inquiry helper always constructs an inquiry");
     };
-    context.timeout.inquiry = Duration::ZERO;
+    context.timeout.inquiry =
+        crate::runtime::engine::NonZeroDuration::new(MINIMUM_FIXTURE_INQUIRY_TIMEOUT).unwrap();
     request
 }
 
@@ -555,11 +575,15 @@ fn inquiry_for(target: TargetSlot) -> RuntimeRequest {
             dispatch_deadline: None,
             target,
             timeout: TimeoutPolicy {
-                ack: Duration::from_secs(5),
-                completion: Duration::from_secs(5),
-                inquiry: Duration::from_secs(5),
-                cancellation: Duration::from_secs(1),
-                ambiguity: Duration::from_secs(1),
+                ack: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(5)).unwrap(),
+                completion: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(5))
+                    .unwrap(),
+                inquiry: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(5))
+                    .unwrap(),
+                cancellation: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(1))
+                    .unwrap(),
+                ambiguity: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(1))
+                    .unwrap(),
             },
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
@@ -1271,6 +1295,7 @@ async fn terminalize_raw_inquiry_predecessor(
     handle: &AsyncOwnerHandle,
     harness: &ScriptedRawHarness,
     transport: TransportKind,
+    runtime: &ManualRuntime,
 ) {
     let stream = transport == TransportKind::Stream;
     let request = if stream {
@@ -1289,6 +1314,11 @@ async fn terminalize_raw_inquiry_predecessor(
         // Consume the rejection's read barrier so a test's own barriers see
         // only the reads it scripts.
         harness.reads_observed.recv_async().await.unwrap();
+    } else {
+        // Write-first processing completes the write result before this
+        // control round trip, so the positive reply deadline is installed.
+        handle.metrics().await.unwrap();
+        runtime.advance(MINIMUM_FIXTURE_INQUIRY_TIMEOUT);
     }
     let outcome = terminal_within_test_deadline(
         &predecessor,
@@ -1313,8 +1343,9 @@ async fn establish_raw_inquiry_tombstone_with_probe_driver(
     handle: &AsyncOwnerHandle,
     harness: &ScriptedRawHarness,
     transport: TransportKind,
+    runtime: &ManualRuntime,
 ) -> ReceiptCore {
-    terminalize_raw_inquiry_predecessor(handle, harness, transport).await;
+    terminalize_raw_inquiry_predecessor(handle, harness, transport, runtime).await;
 
     let successor = handle.submit(inquiry()).await.unwrap();
     assert!(
@@ -1339,10 +1370,11 @@ async fn assert_raw_release_probe_precedes_stale_frame_after_idle_sleep(policy: 
     let mut harness = raw_release_probe_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
     let successor =
-        establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness, transport).await;
+        establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness, transport, &runtime)
+            .await;
 
-    // The predecessor installed its one-second raw inquiry tombstone at
-    // `initial`.  At H−1ms, consume an idle read; its escalating pause is
+    // The predecessor installed its one-second raw inquiry tombstone at the
+    // current manual instant. At H−1ms, consume an idle read; its escalating pause is
     // clamped to exactly the release boundary.
     runtime.advance(Duration::from_millis(999));
     harness
@@ -1430,7 +1462,8 @@ async fn assert_pre_h_idle_read_resumed_at_h_requires_fresh_probe(policy: OwnerP
     let mut harness = raw_release_probe_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
     let successor =
-        establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness, transport).await;
+        establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness, transport, &runtime)
+            .await;
 
     // Put the actor in an ordinary H-δ boundary selection with a receive
     // already pending.  This avoids any scheduler sleep assumption: the
@@ -1515,7 +1548,8 @@ async fn assert_raw_release_idle_fault_fences_once(policy: OwnerPolicy) {
     let mut harness = raw_release_probe_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
     let successor =
-        establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness, transport).await;
+        establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness, transport, &runtime)
+            .await;
 
     runtime.advance(Duration::from_millis(999));
     harness
@@ -1577,7 +1611,7 @@ async fn assert_parked_cross_target_write_returns_to_raw_coordinator(policy: Own
     let mut harness = parked_write_raw_release_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
 
-    terminalize_raw_inquiry_predecessor(&handle, &harness, transport).await;
+    terminalize_raw_inquiry_predecessor(&handle, &harness, transport, &runtime).await;
 
     let successor = handle.submit(inquiry()).await.unwrap();
     assert!(
@@ -1663,7 +1697,8 @@ async fn assert_raw_release_fault_then_stale_frame_stays_input_first(policy: Own
     let mut harness = raw_release_probe_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
     let successor =
-        establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness, transport).await;
+        establish_raw_inquiry_tombstone_with_probe_driver(&handle, &harness, transport, &runtime)
+            .await;
 
     // The actor is normally already blocked in receive after B's admission.
     // Drain its old poll notification, then use an empty nonzero receive to
@@ -1752,8 +1787,9 @@ async fn terminal_within_test_deadline(
 async fn establish_raw_inquiry_tombstone(
     handle: &AsyncOwnerHandle,
     harness: &ScriptedRawHarness,
+    runtime: &ManualRuntime,
 ) -> ReceiptCore {
-    terminalize_raw_inquiry_predecessor(handle, harness, TransportKind::Stream).await;
+    terminalize_raw_inquiry_predecessor(handle, harness, TransportKind::Stream, runtime).await;
 
     let successor = handle.submit(inquiry()).await.unwrap();
     assert!(
@@ -1841,7 +1877,7 @@ fn retrying_command() -> RuntimeRequest {
             max_retries: 2,
             initial_backoff: Duration::ZERO,
             maximum_backoff: Duration::ZERO,
-            total_budget: Duration::ZERO,
+            total_budget: None,
             ack_timeout: true,
             completion_timeout: true,
             inquiry_timeout: true,

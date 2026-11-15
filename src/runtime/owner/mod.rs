@@ -1564,7 +1564,7 @@ pub(crate) struct OwnerState {
 }
 
 impl OwnerState {
-    pub(crate) fn new(policy: OwnerPolicy) -> Result<Self, Error> {
+    pub(crate) fn new(policy: OwnerPolicy, now: Instant) -> Result<Self, Error> {
         if policy.limits.staged_diagnostics == 0
             || policy.limits.diagnostic_subscribers == 0
             || policy.limits.diagnostic_events_per_subscription == 0
@@ -1575,7 +1575,7 @@ impl OwnerState {
                 "owner collection bounds must be non-zero".into(),
             ));
         }
-        let mut engine = ProtocolEngine::new(policy.protocol.clone())?;
+        let mut engine = ProtocolEngine::new(policy.protocol.clone(), now)?;
         for (target, target_policy) in policy.targets.iter() {
             if let Some(target_policy) = target_policy {
                 engine.register_target(target, *target_policy)?;
@@ -1591,7 +1591,7 @@ impl OwnerState {
         let tuning = LiveTuning::new(policy.tuning);
         Ok(Self {
             engine,
-            observed_at: Instant::now(),
+            observed_at: now,
             policy,
             tuning,
             permits,
@@ -1647,6 +1647,7 @@ impl OwnerState {
     pub(crate) fn retune(
         &mut self,
         validated: crate::session_config::ValidatedTuning,
+        now: Instant,
     ) -> Result<(), Error> {
         let tuning = validated.get();
         let baseline = self.policy.baseline;
@@ -1664,7 +1665,7 @@ impl OwnerState {
             })
         });
         self.engine
-            .retune(command_spacing, inquiry_spacing, command_sockets)?;
+            .retune(command_spacing, inquiry_spacing, command_sockets, now)?;
         self.tuning.set(validated);
         Ok(())
     }

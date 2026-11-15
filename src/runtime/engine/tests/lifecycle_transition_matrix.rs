@@ -373,7 +373,8 @@ impl Fixture {
                 let entry = self.engine.entry(self.id).unwrap();
                 let due = match entry.phase() {
                     Phase::Ready { .. } | Phase::Sending { .. } => {
-                        entry.submitted_at + entry.request.context().retry.total_budget
+                        entry.submitted_at
+                            + entry.request.context().retry.total_budget.unwrap().get()
                     }
                     Phase::Backoff { ready_at, .. } => ready_at,
                     Phase::AwaitingAck { deadline, .. }

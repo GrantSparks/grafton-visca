@@ -348,7 +348,7 @@ impl BlockingOwnerHandle {
     where
         D: BlockingOwnerDriver + 'static,
     {
-        let state = OwnerState::new(policy)?;
+        let state = OwnerState::new(policy, clock.now())?;
         let (core, ends) = OwnerHandleCore::new(&state);
         let worker = BlockingOwnerWorker {
             core: OwnerShellCore::new(state, ends),

@@ -437,9 +437,9 @@ impl AsyncOwnerHandle {
 #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
 fn test_observer_timeout(request: &RuntimeRequest) -> Duration {
     if request.is_inquiry() {
-        request.context().timeout.inquiry
+        request.context().timeout.inquiry.get()
     } else {
-        request.context().timeout.completion
+        request.context().timeout.completion.get()
     }
 }
 
@@ -498,7 +498,7 @@ where
     R: Executor,
 {
     pub(crate) fn new(policy: OwnerPolicy, runtime: R) -> Result<(AsyncOwnerHandle, Self), Error> {
-        let state = OwnerState::new(policy)?;
+        let state = OwnerState::new(policy, Executor::now(&runtime))?;
         let runtime = Arc::new(runtime);
         let timers = ActorTimers::new(runtime.as_ref());
         let (core, ends) = OwnerHandleCore::new(&state);

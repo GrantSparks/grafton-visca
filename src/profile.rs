@@ -24,29 +24,23 @@ pub(crate) fn invalid_profile_fields(fields: &[&str], reason: impl fmt::Display)
     Error::InvalidRequest(format!("profile {label} {names}: {reason}").into())
 }
 
-/// Largest retry backoff ceiling or total retry budget an override may set.
+/// Largest retry backoff ceiling or total budget an explicit override may set.
 ///
-/// Issue #636: the engine turns a request's total retry budget into a deadline
-/// with `submitted_at.checked_add(budget)` and falls back to `submitted_at`
-/// itself when that addition overflows. A budget near [`Duration::MAX`] would
-/// therefore *invert* into its own opposite — the deadline meant to mean
-/// "keep retrying for practically ever" lands in the past, the budget reads as
-/// already spent, and the request gets zero retries instead of unbounded ones.
-/// The same saturation turns an absurd backoff ceiling into no backoff at all.
-///
-/// One hour is orders of magnitude beyond any real VISCA retry window (the
-/// built-in LongRunning command deadline is 300 seconds) and cannot overflow
-/// an `Instant` on any supported platform, so the inversion is unreachable
-/// without silently rewriting a caller's value.
+/// The one-hour override limit keeps caller-selected replay policy bounded.
+/// It is not a limit on valid profile response deadlines or retry windows
+/// derived from them: a two-hour completion deadline may legitimately require
+/// a four-hour total budget. Profile validation checks representability;
+/// engine admission checks the final contextual intervals against the owner's
+/// sampled clock. Deadline overflow saturates toward the latest instant,
+/// never back to the start of the wait (#636, #861).
 const MAXIMUM_RETRY_TIMING: Duration = Duration::from_secs(60 * 60);
 
 /// Returns whether adding a duration to the monotonic clock can be represented.
 ///
-/// Runtime deadline construction must not use the engine's saturating fallback
-/// for an unrepresentable duration: that fallback turns a future deadline into
-/// the current instant and can make a request expire immediately. Profile and
-/// operational-tuning validation therefore performs this check before any
-/// request can be admitted or any protocol I/O can occur.
+/// Profile and operational-tuning validation give callers early errors for
+/// impossible intervals. The engine checks the completed request again at its
+/// actual admission instant; its defensive saturation never rewinds a future
+/// deadline to the start of the wait.
 fn monotonic_duration_is_representable(now: Instant, duration: Duration) -> bool {
     now.checked_add(duration).is_some()
 }

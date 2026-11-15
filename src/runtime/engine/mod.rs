@@ -247,48 +247,14 @@ impl Entry {
     }
 
     fn due(&self, id: RequestId) -> Option<DueWork> {
-        let entry = self;
-        let phase_due = match entry.lifecycle.phase() {
-            Phase::AwaitingAck { deadline, .. } => Some((deadline, DueKind::Deadline, 0)),
-            Phase::AwaitingCompletion { deadline, .. } => Some((deadline, DueKind::Deadline, 0)),
-            Phase::Executing { deadline, .. } => Some((deadline, DueKind::Deadline, 0)),
-            Phase::AwaitingCancellationResolution { deadline, .. } => {
-                Some((deadline, DueKind::Deadline, 0))
-            }
-            Phase::AwaitingReply { deadline, .. } => Some((deadline, DueKind::Deadline, 0)),
-            Phase::Backoff {
-                ready_at,
-                queue_generation,
-            } => Some((ready_at, DueKind::RetryReady, queue_generation)),
-            Phase::Ready { .. } | Phase::Sending { .. } => None,
-        };
-        let retry_budget_due = entry.retry_budget_deadline();
-        let mut selected = phase_due;
-        if let Some(budget) = retry_budget_due {
-            if selected.is_none_or(|(at, _, _)| budget <= at) {
-                selected = Some((budget, DueKind::Deadline, 0));
-            }
-        }
-        if let Some(ambiguity) = entry.lifecycle.active_cancellation_ambiguity() {
-            if selected.is_none_or(|(at, _, _)| ambiguity <= at) {
-                selected = Some((ambiguity, DueKind::CancellationAmbiguity, 0));
-            }
-        }
-        let (mut at, mut kind, mut queue_generation) = selected?;
-        if let Some(observation_deadline) = entry.lifecycle.cancellation_observation_deadline() {
-            if observation_deadline < at {
-                at = observation_deadline;
-                kind = DueKind::Deadline;
-                queue_generation = 0;
-            }
-        }
+        let (at, action) = self
+            .lifecycle
+            .due_action(self.retry_budget_deadline(), terminal_certainty(self))?;
         Some(DueWork {
             at,
-            admission_order: entry.admission_order,
-            kind,
+            admission_order: self.admission_order,
+            action,
             request: id,
-            generation: entry.generation,
-            queue_generation,
         })
     }
 
@@ -343,21 +309,12 @@ struct DispatchSelection {
     ticket: QueueTicket,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum DueKind {
-    CancellationAmbiguity,
-    Deadline,
-    RetryReady,
-}
-
 #[derive(Debug, Clone, Copy)]
 struct DueWork {
     at: Instant,
     admission_order: u64,
-    kind: DueKind,
+    action: DueAction,
     request: RequestId,
-    generation: GenerationTicket,
-    queue_generation: u64,
 }
 
 /// One owner-sampled instant shared by an ordered external-input turn.
@@ -373,8 +330,8 @@ pub(crate) struct InputTurn {
 }
 
 impl DueWork {
-    fn key(self) -> (Instant, u64, DueKind) {
-        (self.at, self.admission_order, self.kind)
+    fn key(self) -> (Instant, u64, u8) {
+        (self.at, self.admission_order, self.action.priority())
     }
 }
 
@@ -450,12 +407,13 @@ pub(crate) struct ProtocolEngine {
 
 impl ProtocolEngine {
     /// Constructs an empty session engine. Targets are registered separately.
-    pub(crate) fn new(policy: ProtocolPolicy) -> Result<Self, Error> {
+    pub(crate) fn new(policy: ProtocolPolicy, now: Instant) -> Result<Self, Error> {
         if policy.capacity == 0 || policy.inquiry_capacity == 0 {
             return Err(Error::InvalidRequest(
                 "engine and inquiry capacity must be non-zero".into(),
             ));
         }
+        policy.validate_at(now)?;
         Ok(Self {
             policy,
             targets: PerTarget::default(),
@@ -525,6 +483,7 @@ impl ProtocolEngine {
         command_spacing: Duration,
         inquiry_spacing: Duration,
         command_sockets: PerTarget<Option<u8>>,
+        now: Instant,
     ) -> Result<(), Error> {
         for (target, slot) in self.targets.iter() {
             if let (Some(_), Some(sockets)) = (slot.policy, command_sockets[target]) {
@@ -535,6 +494,10 @@ impl ProtocolEngine {
                 }
             }
         }
+        let mut policy = self.policy.clone();
+        policy.command_spacing = command_spacing;
+        policy.inquiry_spacing = inquiry_spacing;
+        policy.validate_at(now)?;
         self.policy.command_spacing = command_spacing;
         self.policy.inquiry_spacing = inquiry_spacing;
         for (target, slot) in self.targets.iter_mut() {
@@ -971,6 +934,10 @@ impl ProtocolEngine {
             return;
         }
         let context = *request.context();
+        if let Err(error) = context.validate_at(now) {
+            effects.push(Effect::AdmissionRejected { ticket, error });
+            return;
+        }
         if let Some(axes) = self.motion_superseded(&context) {
             effects.push(Effect::AdmissionRejected {
                 ticket,
@@ -1493,7 +1460,8 @@ impl ProtocolEngine {
             context
                 .timeout
                 .ack
-                .saturating_add(context.timeout.ambiguity),
+                .get()
+                .saturating_add(context.timeout.ambiguity.get()),
         );
         Some(context.dispatch_deadline.map_or(bound, |deadline| {
             bound.min(add_duration(
@@ -2048,7 +2016,7 @@ impl ProtocolEngine {
                             owner.request,
                             Lifecycle::AwaitingReply {
                                 sent_at: now,
-                                deadline: add_duration(now, context.timeout.inquiry),
+                                deadline: add_duration(now, context.timeout.inquiry.get()),
                                 attempt,
                             },
                             effects,
@@ -2068,7 +2036,7 @@ impl ProtocolEngine {
                             owner.request,
                             Lifecycle::AwaitingAck {
                                 sent_at: now,
-                                deadline: add_duration(now, context.timeout.ack),
+                                deadline: add_duration(now, context.timeout.ack.get()),
                                 attempt,
                                 cancellation: None,
                             },
@@ -2080,7 +2048,7 @@ impl ProtocolEngine {
                             owner.request,
                             Lifecycle::AwaitingCompletion {
                                 sent_at: now,
-                                deadline: add_duration(now, context.timeout.completion),
+                                deadline: add_duration(now, context.timeout.completion.get()),
                                 attempt,
                             },
                             effects,
@@ -2135,7 +2103,7 @@ impl ProtocolEngine {
                     }
                 };
                 let observation_deadline =
-                    add_duration(now, entry.request.context().timeout.cancellation);
+                    add_duration(now, entry.request.context().timeout.cancellation.get());
                 self.transition(
                     owner.request,
                     Lifecycle::AwaitingCancellationResolution {
@@ -3028,7 +2996,7 @@ impl ProtocolEngine {
             debug_assert_eq!(self.policy.wire.kind(), EnvelopeKind::Raw);
             (
                 entry.request.context().target,
-                entry.request.context().timeout.ambiguity,
+                entry.request.context().timeout.ambiguity.get(),
             )
         }) else {
             return;
@@ -3089,7 +3057,7 @@ impl ProtocolEngine {
         };
         let target = entry.request.context().target;
         let generation = entry.generation;
-        let deadline = add_duration(now, entry.request.context().timeout.completion);
+        let deadline = add_duration(now, entry.request.context().timeout.completion.get());
         let retry_ticket = match entry.lifecycle {
             Lifecycle::Ready { ticket, .. } => Some((
                 ticket,
@@ -3197,7 +3165,7 @@ impl ProtocolEngine {
             };
             (self.policy.wire.kind() == EnvelopeKind::Raw && uncorrelatable_command).then_some((
                 entry.request.context().target,
-                entry.request.context().timeout.ambiguity,
+                entry.request.context().timeout.ambiguity.get(),
             ))
         }) else {
             return;
@@ -3297,7 +3265,10 @@ impl ProtocolEngine {
         }
         let mut reply_window_end = add_duration(
             now,
-            timeout.ambiguity.max(self.policy.raw_inquiry_release_hold),
+            timeout
+                .ambiguity
+                .get()
+                .max(self.policy.raw_inquiry_release_hold),
         );
         let reply_written = self
             .ledger
@@ -3314,14 +3285,14 @@ impl ProtocolEngine {
                 reply_window_end = hold.until;
             }
         }
-        let command_window_end = add_duration(now, timeout.ambiguity);
+        let command_window_end = add_duration(now, timeout.ambiguity.get());
         let answered = self.ledger.retire(target, id, |owes| match owes {
             Owes::Reply => (reply_window_end, Duration::ZERO),
             Owes::Ack
             | Owes::Completion
             | Owes::AcceptedCompletion
             | Owes::Rejection
-            | Owes::Cancel(_) => (command_window_end, timeout.completion),
+            | Owes::Cancel(_) => (command_window_end, timeout.completion.get()),
         });
         self.absorb_answered(target, &answered, now);
     }
@@ -3617,7 +3588,8 @@ impl ProtocolEngine {
                     if holders != 0 || !held.is_empty() {
                         let index = target;
                         if self.targets[index].completion_sockets == CompletionSockets::Unknown {
-                            self.targets[index].unlearned_completions += 1;
+                            self.targets[index].unlearned_completions =
+                                self.targets[index].unlearned_completions.saturating_add(1);
                         }
                         return None;
                     }
@@ -4008,7 +3980,7 @@ impl ProtocolEngine {
                 Standing::Live => self
                     .entries
                     .get(&candidate.request)
-                    .map(|entry| entry.request.context().timeout.completion),
+                    .map(|entry| entry.request.context().timeout.completion.get()),
             })
             .max();
         if let Some(completion) = completion {
@@ -4301,7 +4273,7 @@ impl ProtocolEngine {
         } else {
             entry.lifecycle.cancellation_decision(
                 entry.request.context().cancellation == CancellationPolicy::Supported,
-                add_duration(now, entry.request.context().timeout.ambiguity),
+                add_duration(now, entry.request.context().timeout.ambiguity.get()),
             )
         };
         match decision {
@@ -4351,9 +4323,10 @@ impl ProtocolEngine {
         if self.cancellation_send_at(entry) > now {
             return;
         }
-        let ambiguity_deadline = pending
-            .ambiguity_deadline()
-            .max(add_duration(now, entry.request.context().timeout.ambiguity));
+        let ambiguity_deadline = pending.ambiguity_deadline().max(add_duration(
+            now,
+            entry.request.context().timeout.ambiguity.get(),
+        ));
         let target = entry.request.context().target;
         let generation = entry.generation;
         let attempt = entry.attempt;
@@ -4458,8 +4431,9 @@ impl ProtocolEngine {
         self.quarantine_raw_inquiry_correlation(id, now);
         let next_attempt = attempt.saturating_add(1);
         let elapsed = now.saturating_duration_since(submitted_at);
-        let within_duration =
-            policy.total_budget == Duration::ZERO || elapsed < policy.total_budget;
+        let within_duration = policy
+            .total_budget
+            .is_none_or(|budget| elapsed < budget.get());
         if next_attempt > policy.max_retries || !within_duration {
             self.finish(id, RuntimeOutcome::Failed(error), effects);
             return;
@@ -4471,8 +4445,9 @@ impl ProtocolEngine {
             self.jitter.fraction(id, next_attempt),
         );
         let ready_at = add_duration(now, delay);
-        if policy.total_budget != Duration::ZERO
-            && ready_at >= add_duration(submitted_at, policy.total_budget)
+        if policy
+            .total_budget
+            .is_some_and(|budget| ready_at >= add_duration(submitted_at, budget.get()))
         {
             self.finish(id, RuntimeOutcome::Failed(error), effects);
             return;
@@ -4511,6 +4486,9 @@ impl ProtocolEngine {
                     .map_or(cooldown, |existing| existing.max(cooldown)),
             );
         }
+        if ready_at <= now {
+            self.promote_retry(id, retry.attempt(), effects);
+        }
     }
 
     fn release_attempt_ownership(&mut self, id: RequestId) {
@@ -4544,14 +4522,18 @@ impl ProtocolEngine {
         self.ledger.latch_due(now);
         self.pay_unlearned_completions(now, effects);
         self.expire_raw_holds(now);
+        #[cfg(debug_assertions)]
+        let iteration_bound = self.entries.len().saturating_add(1);
+        #[cfg(debug_assertions)]
+        let mut iterations = 0;
         while let Some(due) = self.next_due().filter(|due| due.at <= now) {
-            let valid = self.entries.get(&due.request).is_some_and(|entry| {
-                entry.generation == due.generation
-                    && (due.queue_generation == 0 || entry.queue_generation == due.queue_generation)
-            });
-            if !valid {
-                effects.push(Effect::Ignored(IgnoreReason::StaleQueueTicket));
-                continue;
+            #[cfg(debug_assertions)]
+            {
+                iterations += 1;
+                debug_assert!(
+                    iterations <= iteration_bound,
+                    "due work exceeded its entry progress bound"
+                );
             }
             self.apply_due(due, now, effects);
         }
@@ -4632,7 +4614,8 @@ impl ProtocolEngine {
         } else {
             now
         };
-        let ambiguity_deadline = add_duration(hold_base, entry.request.context().timeout.ambiguity);
+        let ambiguity_deadline =
+            add_duration(hold_base, entry.request.context().timeout.ambiguity.get());
         let scope = match entry.lifecycle.phase() {
             // Exact socket identity remains unusable until its bounded stale
             // completion window closes.
@@ -4708,323 +4691,263 @@ impl ProtocolEngine {
         );
     }
 
+    fn finish_cancellation_unconfirmed(
+        &mut self,
+        id: RequestId,
+        now: Instant,
+        effects: &mut Vec<Effect>,
+    ) {
+        match self.policy.wire.kind() {
+            EnvelopeKind::Raw => self.terminate_unconfirmed_raw(id, now, effects),
+            EnvelopeKind::Sony => self.finish(
+                id,
+                RuntimeOutcome::Failed(Error::CancellationUnconfirmed),
+                effects,
+            ),
+        }
+    }
+
+    fn close_cancellation_observer(&mut self, id: RequestId, effects: &mut Vec<Effect>) {
+        if let Some(entry) = self.entries.get_mut(&id) {
+            entry.lifecycle.close_observer();
+        }
+        effects.push(Effect::CancellationObservation {
+            id,
+            observation: CancellationObservation::Failed(Error::timeout(
+                FailureStage::CancellationAttempt,
+                Certainty::StillLive,
+            )),
+        });
+    }
+
     fn apply_due(&mut self, due: DueWork, now: Instant, effects: &mut Vec<Effect>) {
-        let Some(entry) = self.entries.get(&due.request) else {
+        let id = due.request;
+        let Some(entry) = self.entries.get(&id) else {
             return;
         };
-        let phase = entry.lifecycle.phase();
-        let ambiguity_due = entry
-            .lifecycle
-            .active_cancellation_ambiguity()
-            .is_some_and(|deadline| deadline <= now);
-        if due.kind == DueKind::CancellationAmbiguity && ambiguity_due {
-            // Unconfirmed cancellation has the same late-response debt as an
-            // uncancelled command. Its terminal must retain the phase's scope.
-            if self.policy.wire.kind() == EnvelopeKind::Raw {
-                self.terminate_unconfirmed_raw(due.request, now, effects);
-                return;
+        let context = *entry.request.context();
+        match due.action {
+            DueAction::CancellationAmbiguity => {
+                self.finish_cancellation_unconfirmed(id, now, effects)
             }
-            let error = if self.policy.wire.kind() == EnvelopeKind::Raw {
-                Error::UnsequencedCommandUnconfirmed
-            } else {
-                Error::CancellationUnconfirmed
-            };
-            if self.raw_unconfirmed_poison() {
-                self.poison_strict_unconfirmed(effects);
-            } else {
-                self.finish(due.request, RuntimeOutcome::Failed(error), effects);
+            DueAction::CancellationObservation { terminal_at } => {
+                self.close_cancellation_observer(id, effects);
+                if terminal_at <= now {
+                    self.finish_cancellation_unconfirmed(id, now, effects);
+                }
             }
-            return;
-        }
-        let cancellation_observation_due = entry
-            .lifecycle
-            .cancellation_observation_deadline()
-            .is_some_and(|deadline| deadline <= now);
-        if due.kind == DueKind::Deadline && cancellation_observation_due {
-            if let Some(entry) = self.entries.get_mut(&due.request) {
-                entry.lifecycle.close_observer();
+            DueAction::CancellationResolution {
+                observation_deadline,
+            } => {
+                if observation_deadline.is_some_and(|deadline| deadline <= now) {
+                    self.close_cancellation_observer(id, effects);
+                }
+                self.finish_cancellation_unconfirmed(id, now, effects);
             }
-            effects.push(Effect::CancellationObservation {
-                id: due.request,
-                // The cancellation could not be resolved in time; the
-                // original request keeps running under its own deadlines.
-                observation: CancellationObservation::Failed(Error::timeout(
-                    FailureStage::CancellationAttempt,
-                    Certainty::StillLive,
-                )),
-            });
-            return;
-        }
-        let retry_budget_at = entry.retry_budget_deadline();
-        let retry_budget_due = retry_budget_at.is_some_and(|deadline| deadline <= now);
-        if due.kind == DueKind::Deadline
-            && retry_budget_due
-            && retry_budget_at.is_some_and(|deadline| deadline == due.at)
-        {
-            let error = entry
-                .last_error
-                .clone()
-                .unwrap_or_else(|| terminal_timeout(entry));
-            let raw_active_command = self.policy.wire.kind() == EnvelopeKind::Raw
-                && entry.reply_family() != SendingReply::Inquiry
-                && matches!(
-                    phase,
-                    Phase::Sending { .. }
-                        | Phase::AwaitingAck { .. }
-                        | Phase::AwaitingCompletion { .. }
-                        | Phase::Executing { .. }
-                );
-            if raw_active_command {
-                // The active attempt still owns correlation (socket or the
-                // unacknowledged-command slot); quarantine it and fail this one
-                // request, or poison in strict mode. Issue #671.
-                self.terminate_unconfirmed_raw(due.request, now, effects);
-            } else if matches!(phase, Phase::AwaitingReply { .. }) {
-                // A written inquiry ends unanswered: on a stream its reply
-                // remains owed (`retire_stream_answers`).
-                self.retain_unanswered_inquiry(due.request, now);
-                self.finish(due.request, RuntimeOutcome::Failed(error), effects);
-            } else {
-                // A `Sending` request here has no write in progress (neither
-                // owner runs the due pass during a write), so its staged
-                // transmission is dropped as stale and nothing reached the
-                // stream: the ordinary skew hold suffices.
-                self.quarantine_raw_inquiry_correlation(due.request, now);
-                self.finish(due.request, RuntimeOutcome::Failed(error), effects);
+            DueAction::RetryBudget {
+                retirement,
+                certainty,
+            } => {
+                let error = entry
+                    .last_error
+                    .clone()
+                    .unwrap_or_else(|| Error::timeout(FailureStage::Terminal, certainty));
+                match retirement {
+                    BudgetRetirement::Command if self.policy.wire.kind() == EnvelopeKind::Raw => {
+                        self.terminate_unconfirmed_raw(id, now, effects)
+                    }
+                    BudgetRetirement::Inquiry => {
+                        self.retain_unanswered_inquiry(id, now);
+                        self.finish(id, RuntimeOutcome::Failed(error), effects);
+                    }
+                    BudgetRetirement::Queued | BudgetRetirement::Command => {
+                        self.finish(id, RuntimeOutcome::Failed(error), effects)
+                    }
+                }
             }
-            return;
-        }
-        match phase {
-            Phase::AwaitingAck { sent_at, deadline } if deadline <= now => {
-                let Lifecycle::AwaitingAck {
-                    attempt,
-                    cancellation,
-                    ..
-                } = entry.lifecycle
-                else {
-                    return;
-                };
+            DueAction::Ack {
+                sent_at,
+                deadline,
+                budget_at,
+                retry,
+                cancellation,
+            } => {
                 let mark = effects.len();
                 if let Some(request) = cancellation {
-                    let ambiguity_deadline = request.ambiguity_deadline;
-                    self.transition(
-                        due.request,
-                        Lifecycle::AwaitingAck {
-                            sent_at,
-                            deadline: ambiguity_deadline,
-                            attempt,
-                            cancellation,
-                        },
-                        effects,
-                    );
-                } else if self.raw_stream()
-                    && self
-                        .ledger
-                        .awaits_dispute(entry.request.context().target, due.request)
-                    && deadline.saturating_duration_since(sent_at)
-                        <= entry.request.context().timeout.ack
-                {
-                    // A dispute may already hold this command's answer: wait
-                    // one ambiguity interval for it to be proven (#795).
-                    let extended = add_duration(now, entry.request.context().timeout.ambiguity);
-                    self.transition(
-                        due.request,
-                        Lifecycle::AwaitingAck {
-                            sent_at,
-                            deadline: extended,
-                            attempt,
-                            cancellation,
-                        },
-                        effects,
-                    );
-                } else if self.policy.wire.kind() == EnvelopeKind::Raw {
-                    // Default: fail the sole unacknowledged raw command now and
-                    // leave its positional slot as an inert keyed hold through
-                    // the ambiguity interval; strict: poison. Issues #671/#723.
-                    self.terminate_unconfirmed_raw(due.request, now, effects);
-                } else if let Some(retry) = entry
-                    .lifecycle
-                    .retry_eligibility(false)
-                    .filter(|_| entry.request.context().retry.ack_timeout)
-                {
-                    self.schedule_retry(
-                        due.request,
-                        retry,
-                        now,
-                        terminal_timeout(entry),
-                        Backoff::AckCapped,
-                        effects,
-                    );
-                } else {
-                    self.finish(
-                        due.request,
-                        RuntimeOutcome::Failed(terminal_timeout(entry)),
-                        effects,
-                    );
-                }
-                record_deadline_expiry(due.request, DeadlineKind::Ack, mark, effects);
-            }
-            Phase::AwaitingCompletion { deadline, .. } if deadline <= now => {
-                let mark = effects.len();
-                if self.policy.wire.kind() == EnvelopeKind::Raw {
-                    // Issue #700: the completion never arrived. This shape has no
-                    // ACK-timeout path; the completion deadline governs. Fail
-                    // this request now and leave the sole-command slot as an
-                    // inert keyed hold through the ambiguity interval (default),
-                    // or poison (strict) — the #671/#723 per-request model.
-                    self.terminate_unconfirmed_raw(due.request, now, effects);
-                } else if let Some(retry) = entry
-                    .lifecycle
-                    .retry_eligibility(entry.request.context().retry.completion_timeout)
-                {
-                    self.schedule_retry(
-                        due.request,
-                        retry,
-                        now,
-                        terminal_timeout(entry),
-                        Backoff::Uncapped,
-                        effects,
-                    );
-                } else {
-                    self.finish(
-                        due.request,
-                        RuntimeOutcome::Failed(terminal_timeout(entry)),
-                        effects,
-                    );
-                }
-                record_deadline_expiry(due.request, DeadlineKind::Completion, mark, effects);
-            }
-            Phase::Executing {
-                socket, deadline, ..
-            } if deadline <= now => {
-                let mark = effects.len();
-                if entry.lifecycle.cancellation_ambiguity().is_some() {
-                    if entry
-                        .lifecycle
-                        .cancellation_ambiguity()
-                        .is_some_and(|deadline| deadline > now)
-                    {
-                        let Lifecycle::Executing {
-                            attempt,
-                            cancellation,
-                            ..
-                        } = entry.lifecycle
-                        else {
-                            return;
-                        };
-                        let cancellation = match cancellation {
-                            ExecutingCancellation::Requested(request) => {
-                                ResolvingCancellation::Requested(request)
-                            }
-                            ExecutingCancellation::Sending(send) => {
-                                ResolvingCancellation::Sending(send)
-                            }
-                            ExecutingCancellation::ObservationFailed { ambiguity_deadline } => {
-                                ResolvingCancellation::ObservationFailed { ambiguity_deadline }
-                            }
-                            ExecutingCancellation::None => return,
-                        };
+                    if request.ambiguity_deadline > now {
                         self.transition(
-                            due.request,
-                            Lifecycle::AwaitingCancellationResolution {
-                                socket,
-                                deadline,
-                                attempt,
+                            id,
+                            Lifecycle::AwaitingAck {
+                                sent_at,
+                                deadline: request.ambiguity_deadline,
+                                attempt: retry.attempt(),
                                 cancellation,
                             },
                             effects,
                         );
                     } else {
-                        let error = if self.policy.wire.kind() == EnvelopeKind::Raw {
-                            Error::UnsequencedCommandUnconfirmed
-                        } else {
-                            Error::CancellationUnconfirmed
-                        };
-                        if self.policy.wire.kind() == EnvelopeKind::Raw {
-                            self.terminate_unconfirmed_raw(due.request, now, effects);
-                        } else {
-                            self.finish(due.request, RuntimeOutcome::Failed(error), effects);
-                        }
+                        self.finish_cancellation_unconfirmed(id, now, effects);
+                    }
+                } else if self.raw_stream()
+                    && self.ledger.awaits_dispute(context.target, id)
+                    && deadline.saturating_duration_since(sent_at) <= context.timeout.ack.get()
+                    && budget_at.is_none_or(|at| at > now)
+                {
+                    // A tracked first answer may still be proven. A positive
+                    // ambiguity interval buys one later deadline; a saturated
+                    // clock with no later instant terminalizes instead.
+                    let extended = add_duration(now, context.timeout.ambiguity.get());
+                    if extended > now {
+                        self.transition(
+                            id,
+                            Lifecycle::AwaitingAck {
+                                sent_at,
+                                deadline: extended,
+                                attempt: retry.attempt(),
+                                cancellation: None,
+                            },
+                            effects,
+                        );
+                    } else {
+                        self.terminate_unconfirmed_raw(id, now, effects);
                     }
                 } else if self.policy.wire.kind() == EnvelopeKind::Raw {
-                    // Default: correlation is exact (this request owns the
-                    // socket); hold the socket quarantined and fail this one
-                    // request UnsequencedCommandUnconfirmed at the ambiguity
-                    // deadline; strict: poison. Issue #671.
-                    self.terminate_unconfirmed_raw(due.request, now, effects);
+                    self.terminate_unconfirmed_raw(id, now, effects);
+                } else if context.retry.ack_timeout {
+                    self.schedule_retry(
+                        id,
+                        retry,
+                        now,
+                        Error::timeout(FailureStage::Terminal, Certainty::Unconfirmed),
+                        Backoff::AckCapped,
+                        effects,
+                    );
                 } else {
-                    // A Sony command that was ACKed is never written again,
-                    // even with its original sequence (#795). The register's
-                    // same-sequence retransmission (docs/visca_reference.md
-                    // §5.3 and the §11.5 "Sony encapsulated UDP" row) recovers
-                    // a *lost message* and lets the controller infer whether
-                    // the camera accepted it; an ACK already proved
-                    // acceptance, and no cited source says the camera ignores
-                    // a repeated sequence once it is executing.
                     self.finish(
-                        due.request,
-                        RuntimeOutcome::Failed(terminal_timeout(entry)),
+                        id,
+                        RuntimeOutcome::Failed(Error::timeout(
+                            FailureStage::Terminal,
+                            Certainty::Unconfirmed,
+                        )),
                         effects,
                     );
                 }
-                record_deadline_expiry(due.request, DeadlineKind::Completion, mark, effects);
+                record_deadline_expiry(id, DeadlineKind::Ack, mark, effects);
             }
-            Phase::AwaitingCancellationResolution { deadline, .. } if deadline <= now => {
-                let error = if self.policy.wire.kind() == EnvelopeKind::Raw {
-                    Error::UnsequencedCommandUnconfirmed
-                } else {
-                    Error::CancellationUnconfirmed
-                };
-                if self.policy.wire.kind() == EnvelopeKind::Raw {
-                    self.terminate_unconfirmed_raw(due.request, now, effects);
-                } else {
-                    self.finish(due.request, RuntimeOutcome::Failed(error), effects);
-                }
-            }
-            Phase::AwaitingReply { deadline, .. } if deadline <= now => {
+            DueAction::Completion(completion) => {
                 let mark = effects.len();
-                // A raw stream inquiry is never resent after a reply timeout:
-                // the stream has not lost the first copy, so a resend could
-                // only be written after that copy's owed reply is absorbed and
-                // would add latency and late replies, never an answer.
-                let retry_inquiry_timeout = entry.request.context().retry.inquiry_timeout
-                    && !self.raw_stream_single_flight_inquiry(entry);
-                let error = terminal_timeout(entry);
-                let retry = entry
-                    .lifecycle
-                    .retry_eligibility(false)
-                    .filter(|_| retry_inquiry_timeout);
-                self.retain_unanswered_inquiry(due.request, now);
-                if let Some(retry) = retry {
-                    self.schedule_retry(due.request, retry, now, error, Backoff::Uncapped, effects);
-                } else {
-                    self.finish(due.request, RuntimeOutcome::Failed(error), effects);
+                match completion {
+                    CompletionDeadline::Unacknowledged { retry } => {
+                        if self.policy.wire.kind() == EnvelopeKind::Raw {
+                            self.terminate_unconfirmed_raw(id, now, effects);
+                        } else if context.retry.completion_timeout {
+                            self.schedule_retry(
+                                id,
+                                retry,
+                                now,
+                                Error::timeout(FailureStage::Terminal, Certainty::Unconfirmed),
+                                Backoff::Uncapped,
+                                effects,
+                            );
+                        } else {
+                            self.finish(
+                                id,
+                                RuntimeOutcome::Failed(Error::timeout(
+                                    FailureStage::Terminal,
+                                    Certainty::Unconfirmed,
+                                )),
+                                effects,
+                            );
+                        }
+                    }
+                    CompletionDeadline::Accepted => {
+                        if self.policy.wire.kind() == EnvelopeKind::Raw {
+                            self.terminate_unconfirmed_raw(id, now, effects);
+                        } else {
+                            // Acceptance permanently forbids replay, including
+                            // same-sequence Sony retransmission.
+                            self.finish(
+                                id,
+                                RuntimeOutcome::Failed(Error::timeout(
+                                    FailureStage::Terminal,
+                                    Certainty::Unconfirmed,
+                                )),
+                                effects,
+                            );
+                        }
+                    }
+                    CompletionDeadline::Cancelling {
+                        socket,
+                        original_deadline,
+                        attempt,
+                        cancellation,
+                    } => {
+                        if cancellation.ambiguity_deadline() > now {
+                            self.transition(
+                                id,
+                                Lifecycle::AwaitingCancellationResolution {
+                                    socket,
+                                    deadline: original_deadline,
+                                    attempt,
+                                    cancellation,
+                                },
+                                effects,
+                            );
+                        } else {
+                            self.finish_cancellation_unconfirmed(id, now, effects);
+                        }
+                    }
                 }
-                record_deadline_expiry(due.request, DeadlineKind::InquiryReply, mark, effects);
+                record_deadline_expiry(id, DeadlineKind::Completion, mark, effects);
             }
-            Phase::Backoff {
-                ready_at,
-                queue_generation,
-            } if ready_at <= now && queue_generation == due.queue_generation => {
-                self.promote_retry(due.request, effects);
+            DueAction::InquiryReply { retry } => {
+                let mark = effects.len();
+                let retry_timeout =
+                    context.retry.inquiry_timeout && !self.raw_stream_single_flight_inquiry(entry);
+                let error = Error::timeout(FailureStage::Terminal, Certainty::FailedConclusively);
+                self.retain_unanswered_inquiry(id, now);
+                if retry_timeout {
+                    self.schedule_retry(id, retry, now, error, Backoff::Uncapped, effects);
+                } else {
+                    self.finish(id, RuntimeOutcome::Failed(error), effects);
+                }
+                record_deadline_expiry(id, DeadlineKind::InquiryReply, mark, effects);
             }
-            _ => effects.push(Effect::Ignored(IgnoreReason::StaleQueueTicket)),
+            DueAction::RetryReady {
+                previous_attempt,
+                budget_at,
+                certainty,
+            } => {
+                if budget_at.is_some_and(|at| at <= now) {
+                    let error = entry
+                        .last_error
+                        .clone()
+                        .unwrap_or_else(|| Error::timeout(FailureStage::Terminal, certainty));
+                    self.finish(id, RuntimeOutcome::Failed(error), effects);
+                } else {
+                    self.promote_retry(id, previous_attempt, effects);
+                }
+            }
         }
+        debug_assert!(
+            self.entries
+                .get(&id)
+                .and_then(|entry| entry.due(id))
+                .is_none_or(|next| next.at > now),
+            "due action left its request due at the sampled instant"
+        );
     }
 
-    fn promote_retry(&mut self, id: RequestId, effects: &mut Vec<Effect>) {
+    fn promote_retry(
+        &mut self,
+        id: RequestId,
+        previous_attempt: AttemptFacts,
+        effects: &mut Vec<Effect>,
+    ) {
         let Some(entry) = self.entries.get(&id) else {
             return;
         };
-        let Lifecycle::Backoff {
-            queue_generation,
-            previous_attempt,
-            ..
-        } = entry.lifecycle
-        else {
-            effects.push(Effect::Ignored(IgnoreReason::StaleQueueTicket));
-            return;
-        };
+        let queue_generation = entry.queue_generation;
         let ticket = QueueTicket {
             request: id,
             generation: entry.generation,
@@ -5864,7 +5787,7 @@ impl ProtocolEngine {
 }
 
 fn add_duration(at: Instant, duration: Duration) -> Instant {
-    at.checked_add(duration).unwrap_or(at)
+    crate::timeout::saturating_deadline(at, duration)
 }
 
 /// A raw command which has no socket identity and therefore occupies the
@@ -5897,15 +5820,18 @@ fn raw_unacknowledged_command_candidate(entry: &Entry) -> bool {
 /// on the wire, or was, may have reached the camera, so its outcome is
 /// unconfirmed. A command still waiting for its first write was never
 /// accepted.
-fn terminal_timeout(entry: &Entry) -> Error {
-    let certainty = if entry.reply_family() == SendingReply::Inquiry {
+fn terminal_certainty(entry: &Entry) -> Certainty {
+    if entry.reply_family() == SendingReply::Inquiry {
         Certainty::FailedConclusively
-    } else if matches!(entry.lifecycle.phase(), Phase::Ready { .. }) && entry.last_error.is_none() {
+    } else if matches!(entry.lifecycle, Lifecycle::Ready { .. }) && entry.last_error.is_none() {
         Certainty::NotAccepted
     } else {
         Certainty::Unconfirmed
-    };
-    Error::timeout(FailureStage::Terminal, certainty)
+    }
+}
+
+fn terminal_timeout(entry: &Entry) -> Error {
+    Error::timeout(FailureStage::Terminal, terminal_certainty(entry))
 }
 
 /// Whether a VISCA error code answers a socket cancellation packet (`0x04`
@@ -6228,13 +6154,14 @@ mod cancellation_regression_tests {
             submission_order: 0,
             dispatch_deadline: None,
             target: camera(),
-            timeout: TimeoutPolicy {
-                ack: Duration::from_secs(1),
-                completion: Duration::from_millis(5),
-                inquiry: Duration::from_secs(1),
-                cancellation: Duration::from_secs(1),
-                ambiguity: Duration::from_millis(50),
-            },
+            timeout: TimeoutPolicy::new(
+                Duration::from_secs(1),
+                Duration::from_millis(5),
+                Duration::from_secs(1),
+                Duration::from_secs(1),
+                Duration::from_millis(50),
+            )
+            .expect("valid fixture timing"),
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
             cancellation: CancellationPolicy::Supported,
@@ -6246,7 +6173,9 @@ mod cancellation_regression_tests {
             max_retries: 1,
             initial_backoff: Duration::from_millis(1),
             maximum_backoff: Duration::from_millis(1),
-            total_budget: Duration::from_secs(1),
+            total_budget: Some(
+                NonZeroDuration::new(Duration::from_secs(1)).expect("valid fixture timing"),
+            ),
             buffer_full: true,
             ..RetryPolicy::NEVER
         }
@@ -6269,7 +6198,8 @@ mod cancellation_regression_tests {
     }
 
     fn engine(envelope: EnvelopeKind, command_spacing: Duration) -> ProtocolEngine {
-        let mut engine = ProtocolEngine::new(policy(envelope, command_spacing)).expect("engine");
+        let mut engine =
+            ProtocolEngine::new(policy(envelope, command_spacing), Instant::now()).expect("engine");
         engine
             .register_target(camera(), TargetPolicy::test_default())
             .expect("target");

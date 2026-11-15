@@ -76,6 +76,20 @@ release check into zero executed tests.
 
 ## Runtime validation and retry matrix
 
+Engine timeout fields carry positive intervals; an absent retry budget is
+`None`, never a zero-duration sentinel. Construction, retuning and request
+admission validate absolute representability using the native owner's sampled
+clock. Preparation reads no clock and does not repeat full tuning validation.
+The admission check includes composed ACK/completion, cancellation/ambiguity,
+and queued-attempt windows. Overflow during defensive deadline construction
+saturates toward the latest representable instant, preserving monotonic order.
+
+The one-hour bound applies to explicit retry-timing overrides. It does not cap
+profile deadlines or their derived budgets and backoff: a valid two-hour
+completion deadline may produce a four-hour retry budget. Engine validation
+preserves that domain while rejecting zero timeouts, unordered backoffs and
+intervals that cannot fit the sampled clock (#861).
+
 This compact matrix ties the safety-critical runtime rules to their source
 seams and characterization tests. The larger profile, noun, and feature
 inventories remain in their dedicated gates.

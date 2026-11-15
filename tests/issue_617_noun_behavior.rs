@@ -377,7 +377,7 @@ mod async_surface {
     use grafton_visca::{
         command::{ExposureCommand, ExposureMode, ExposureModeInquiry, PanTiltDirection},
         profile::ProfileSpec,
-        profiles::{PtzOpticsG3, SonyBRC300, SonyFR7},
+        profiles::{SonyBRC300, SonyFR7},
         transport::AddressingMode,
         types::{PanSpeed, SpeedLevel, TiltSpeed},
         units::{Degrees, UnitInterval},
@@ -385,7 +385,7 @@ mod async_surface {
     };
 
     #[cfg(feature = "dyn-api")]
-    use grafton_visca::profiles::{GenericVisca, PtzOpticsG2};
+    use grafton_visca::profiles::{GenericVisca, PtzOpticsG2, PtzOpticsG3};
 
     use super::{
         probe_camera, FakeCamera, BRC300_ABSOLUTE_FASTEST, BRC300_RELATIVE_FASTEST, FOCUS_FAR,

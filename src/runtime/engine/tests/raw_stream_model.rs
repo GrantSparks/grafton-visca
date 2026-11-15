@@ -77,11 +77,17 @@ const HOSTILE: Link = Link {
     long_stall_ppm: 0,
     long_stall_max: 0,
     timeout: TimeoutPolicy {
-        ack: Duration::from_millis(20),
-        completion: Duration::from_millis(40),
-        inquiry: Duration::from_millis(30),
-        cancellation: Duration::from_millis(10),
-        ambiguity: Duration::from_millis(50),
+        ack: NonZeroDuration::from_millis(NonZeroU64::new(20).expect("positive model timeout")),
+        completion: NonZeroDuration::from_millis(
+            NonZeroU64::new(40).expect("positive model timeout"),
+        ),
+        inquiry: NonZeroDuration::from_millis(NonZeroU64::new(30).expect("positive model timeout")),
+        cancellation: NonZeroDuration::from_millis(
+            NonZeroU64::new(10).expect("positive model timeout"),
+        ),
+        ambiguity: NonZeroDuration::from_millis(
+            NonZeroU64::new(50).expect("positive model timeout"),
+        ),
     },
     stop_budget: Duration::from_millis(250),
     hostile: true,
@@ -100,11 +106,19 @@ const REALISTIC: Link = Link {
     long_stall_ppm: 150,
     long_stall_max: 3_000,
     timeout: TimeoutPolicy {
-        ack: Duration::from_millis(500),
-        completion: Duration::from_millis(2_000),
-        inquiry: Duration::from_millis(1_000),
-        cancellation: Duration::from_millis(500),
-        ambiguity: Duration::from_millis(1_000),
+        ack: NonZeroDuration::from_millis(NonZeroU64::new(500).expect("positive model timeout")),
+        completion: NonZeroDuration::from_millis(
+            NonZeroU64::new(2_000).expect("positive model timeout"),
+        ),
+        inquiry: NonZeroDuration::from_millis(
+            NonZeroU64::new(1_000).expect("positive model timeout"),
+        ),
+        cancellation: NonZeroDuration::from_millis(
+            NonZeroU64::new(500).expect("positive model timeout"),
+        ),
+        ambiguity: NonZeroDuration::from_millis(
+            NonZeroU64::new(1_000).expect("positive model timeout"),
+        ),
     },
     // Production: a halt's budget is at least the movement completion
     // timeout, 30 s in every built-in profile.
@@ -544,7 +558,7 @@ impl Session {
         let start = Instant::now();
         let mut configured = policy(EnvelopeKind::Raw, TransportKind::Stream);
         configured.inquiry_capacity = 1;
-        let mut engine = ProtocolEngine::new(configured).unwrap();
+        let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
         for target in [camera(1), camera(2)] {
             engine
                 .register_target(
@@ -661,7 +675,7 @@ impl Session {
             }
             if self.roll(1_000_000) < self.kind.link.long_stall_ppm {
                 let ambiguity =
-                    u64::try_from(self.kind.link.timeout.ambiguity.as_millis()).unwrap();
+                    u64::try_from(self.kind.link.timeout.ambiguity.get().as_millis()).unwrap();
                 let stall = ambiguity + self.roll(self.kind.link.long_stall_max - ambiguity);
                 self.stalled_until = self
                     .stalled_until
@@ -871,7 +885,7 @@ impl Session {
                                 // one ambiguity interval, at most half its
                                 // budget (the step is one millisecond).
                                 let timeout = self.kind.link.timeout;
-                                let bound = (timeout.ack + timeout.ambiguity)
+                                let bound = (timeout.ack.get() + timeout.ambiguity.get())
                                     .min((*deadline - admitted) / 2);
                                 assert!(
                                     wait <= bound + Duration::from_millis(u64::try_from(self.kind.due_interval).unwrap()),
@@ -1470,7 +1484,7 @@ fn stop(target: u8, now: Instant, budget: Duration, order: u64) -> RuntimeReques
     context.submission_order = order;
     context.retry = RetryPolicy {
         movement_not_executable: false,
-        total_budget: budget,
+        total_budget: Some(NonZeroDuration::new(budget).unwrap()),
         ..retrying()
     };
     context.dispatch_deadline = Some(now + budget);

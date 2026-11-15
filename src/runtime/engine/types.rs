@@ -1,7 +1,11 @@
 //! Inert values crossing the deterministic protocol-engine boundary.
 use crate::target::{PerTarget, TargetSlot};
 
-use std::{num::NonZeroU64, sync::Arc, time::Duration};
+use std::{
+    num::NonZeroU64,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use smallvec::SmallVec;
 
@@ -236,26 +240,95 @@ pub(crate) enum ReplyShape {
     NoReply,
 }
 
-/// All scheduler deadlines for one request class.
+/// A strictly positive interval. Absolute representability is checked against
+/// the owner's sampled clock when a policy or request crosses the engine boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct NonZeroDuration(Duration);
+
+impl NonZeroDuration {
+    pub(crate) fn new(duration: Duration) -> Result<Self, Error> {
+        if duration.is_zero() {
+            return Err(Error::InvalidRequest(
+                "engine timeout durations must be non-zero".into(),
+            ));
+        }
+        Ok(Self(duration))
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn from_millis(milliseconds: NonZeroU64) -> Self {
+        Self(Duration::from_millis(milliseconds.get()))
+    }
+
+    pub(crate) const fn get(self) -> Duration {
+        self.0
+    }
+}
+
+/// All scheduler deadlines for one request class. Zero ambiguity, including
+/// when a virtual clock lands exactly on the ACK deadline, is unrepresentable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TimeoutPolicy {
-    pub(crate) ack: Duration,
-    pub(crate) completion: Duration,
-    pub(crate) inquiry: Duration,
-    pub(crate) cancellation: Duration,
-    pub(crate) ambiguity: Duration,
+    pub(crate) ack: NonZeroDuration,
+    pub(crate) completion: NonZeroDuration,
+    pub(crate) inquiry: NonZeroDuration,
+    pub(crate) cancellation: NonZeroDuration,
+    pub(crate) ambiguity: NonZeroDuration,
+}
+
+impl TimeoutPolicy {
+    pub(crate) fn new(
+        ack: Duration,
+        completion: Duration,
+        inquiry: Duration,
+        cancellation: Duration,
+        ambiguity: Duration,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            ack: NonZeroDuration::new(ack)?,
+            completion: NonZeroDuration::new(completion)?,
+            inquiry: NonZeroDuration::new(inquiry)?,
+            cancellation: NonZeroDuration::new(cancellation)?,
+            ambiguity: NonZeroDuration::new(ambiguity)?,
+        })
+    }
+
+    pub(crate) fn validate_at(self, now: Instant) -> Result<(), Error> {
+        for duration in [
+            self.ack,
+            self.completion,
+            self.inquiry,
+            self.cancellation,
+            self.ambiguity,
+        ] {
+            crate::timeout::validate_duration_at(now, duration.get())?;
+        }
+        for duration in [
+            duration_sum(self.ack.get(), self.completion.get())?,
+            duration_sum(self.cancellation.get(), self.ambiguity.get())?,
+        ] {
+            crate::timeout::validate_duration_at(now, duration)?;
+        }
+        Ok(())
+    }
 }
 
 impl Default for TimeoutPolicy {
     fn default() -> Self {
         Self {
-            ack: Duration::from_millis(500),
-            completion: Duration::from_secs(5),
-            inquiry: Duration::from_secs(1),
-            cancellation: Duration::from_secs(1),
-            ambiguity: Duration::from_secs(1),
+            ack: NonZeroDuration(Duration::from_millis(500)),
+            completion: NonZeroDuration(Duration::from_secs(5)),
+            inquiry: NonZeroDuration(Duration::from_secs(1)),
+            cancellation: NonZeroDuration(Duration::from_secs(1)),
+            ambiguity: NonZeroDuration(Duration::from_secs(1)),
         }
     }
+}
+
+fn duration_sum(left: Duration, right: Duration) -> Result<Duration, Error> {
+    left.checked_add(right).ok_or_else(|| {
+        Error::InvalidRequest("engine deadline interval sum is unrepresentable".into())
+    })
 }
 
 /// Context-sensitive bounded retry rules, completely decided before admission.
@@ -264,7 +337,7 @@ pub(crate) struct RetryPolicy {
     pub(crate) max_retries: u32,
     pub(crate) initial_backoff: Duration,
     pub(crate) maximum_backoff: Duration,
-    pub(crate) total_budget: Duration,
+    pub(crate) total_budget: Option<NonZeroDuration>,
     pub(crate) ack_timeout: bool,
     pub(crate) completion_timeout: bool,
     pub(crate) inquiry_timeout: bool,
@@ -274,6 +347,21 @@ pub(crate) struct RetryPolicy {
 }
 
 impl RetryPolicy {
+    pub(crate) fn validate_at(self, now: Instant) -> Result<(), Error> {
+        if self.initial_backoff > self.maximum_backoff {
+            return Err(Error::InvalidRequest(
+                "engine retry backoffs must be ordered".into(),
+            ));
+        }
+        for duration in [self.initial_backoff, self.maximum_backoff] {
+            crate::timeout::validate_duration_at(now, duration)?;
+        }
+        if let Some(budget) = self.total_budget {
+            crate::timeout::validate_duration_at(now, budget.get())?;
+        }
+        Ok(())
+    }
+
     // A fixed no-retry policy for the engine and owner test fixtures;
     // production requests always carry a prepared retry policy (#636).
     #[cfg(test)]
@@ -281,7 +369,7 @@ impl RetryPolicy {
         max_retries: 0,
         initial_backoff: Duration::ZERO,
         maximum_backoff: Duration::ZERO,
-        total_budget: Duration::ZERO,
+        total_budget: None,
         ack_timeout: false,
         completion_timeout: false,
         inquiry_timeout: false,
@@ -307,12 +395,35 @@ pub(crate) struct RequestContext {
     /// Assigned under the owner ingress lock, independently of engine admission.
     pub(crate) submission_order: u64,
     /// Absolute last instant before which an owner-halt STOP may begin a write.
-    pub(crate) dispatch_deadline: Option<std::time::Instant>,
+    pub(crate) dispatch_deadline: Option<Instant>,
     pub(crate) target: TargetSlot,
     pub(crate) timeout: TimeoutPolicy,
     pub(crate) retry: RetryPolicy,
     pub(crate) control: ControlPolicy,
     pub(crate) cancellation: CancellationPolicy,
+}
+
+impl RequestContext {
+    /// Checks the completed per-request policy at its actual admission instant,
+    /// without reading another clock or revalidating the session's tuning.
+    pub(crate) fn validate_at(self, now: Instant) -> Result<(), Error> {
+        self.timeout.validate_at(now)?;
+        self.retry.validate_at(now)?;
+        crate::timeout::validate_duration_at(now, self.control.minimum_spacing)?;
+        let attempt = duration_sum(self.timeout.ack.get(), self.timeout.completion.get())?;
+        let cancellation = duration_sum(
+            self.timeout.cancellation.get(),
+            self.timeout.ambiguity.get(),
+        )?;
+        let window = attempt
+            .max(cancellation)
+            .max(self.timeout.inquiry.get())
+            .max(self.retry.maximum_backoff);
+        if let Some(budget) = self.retry.total_budget {
+            crate::timeout::validate_duration_at(now, duration_sum(budget.get(), window)?)?;
+        }
+        Ok(())
+    }
 }
 
 /// Closed, inline effect on one write-only key.
@@ -489,6 +600,24 @@ pub(crate) struct ProtocolPolicy {
     /// hard-fail than risk a subtle correlation error. This flag is meaningless
     /// for the Sony envelope, whose sequence correlation needs no raw hold.
     pub(crate) strict_unconfirmed_poison: bool,
+}
+
+impl ProtocolPolicy {
+    pub(crate) fn validate_at(&self, now: Instant) -> Result<(), Error> {
+        for duration in [
+            self.command_spacing,
+            self.inquiry_spacing,
+            self.inquiry_cooldown,
+            self.raw_inquiry_release_hold,
+            self.raw_release_grace,
+        ] {
+            crate::timeout::validate_duration_at(now, duration)?;
+        }
+        crate::timeout::validate_duration_at(
+            now,
+            duration_sum(self.raw_inquiry_release_hold, self.raw_release_grace)?,
+        )
+    }
 }
 
 #[cfg(test)]
@@ -692,7 +821,7 @@ pub(crate) enum RawReleaseGateAction {
     /// The release may advance and ordinary scheduling may resume.
     Advance,
     /// Keep the old correlation scope alive and await input until this instant.
-    AwaitInputUntil(std::time::Instant),
+    AwaitInputUntil(Instant),
     /// Discard the first retained raw fragment, record it, and classify again.
     DiscardFirst,
 }
@@ -892,37 +1021,37 @@ pub(crate) enum Phase {
     },
     Sending {
         transmission: TransmissionId,
-        started_at: std::time::Instant,
+        started_at: Instant,
     },
     AwaitingAck {
-        sent_at: std::time::Instant,
-        deadline: std::time::Instant,
+        sent_at: Instant,
+        deadline: Instant,
     },
     /// A completion-only raw command that was sent but never acknowledged, so it
     /// owns no socket. It awaits its completion frame under the completion
     /// deadline and, unlike [`Self::AwaitingAck`], has no ACK-timeout path.
     AwaitingCompletion {
-        sent_at: std::time::Instant,
-        deadline: std::time::Instant,
+        sent_at: Instant,
+        deadline: Instant,
     },
     Executing {
         socket: ViscaSocket,
-        started_at: std::time::Instant,
-        deadline: std::time::Instant,
+        started_at: Instant,
+        deadline: Instant,
     },
     AwaitingReply {
-        sent_at: std::time::Instant,
-        deadline: std::time::Instant,
+        sent_at: Instant,
+        deadline: Instant,
     },
     Backoff {
-        ready_at: std::time::Instant,
+        ready_at: Instant,
         queue_generation: u64,
     },
     /// A socket-owned command whose emitted cancellation is awaiting a
     /// conclusive terminal response.
     AwaitingCancellationResolution {
         socket: ViscaSocket,
-        deadline: std::time::Instant,
+        deadline: Instant,
     },
 }
 
@@ -933,20 +1062,20 @@ pub(crate) enum Phase {
 pub(crate) enum CancelState {
     None,
     Requested {
-        ambiguity_deadline: std::time::Instant,
+        ambiguity_deadline: Instant,
     },
     Sending {
         transmission: TransmissionId,
         socket: ViscaSocket,
-        ambiguity_deadline: std::time::Instant,
+        ambiguity_deadline: Instant,
     },
     AwaitingTerminal {
-        ambiguity_deadline: std::time::Instant,
-        observation_deadline: std::time::Instant,
+        ambiguity_deadline: Instant,
+        observation_deadline: Instant,
     },
     ObservationFailed {
         socket: ViscaSocket,
-        ambiguity_deadline: std::time::Instant,
+        ambiguity_deadline: Instant,
     },
 }
 
@@ -974,7 +1103,7 @@ pub(crate) enum Effect {
     RetryScheduled {
         id: RequestId,
         attempt: u32,
-        ready_at: std::time::Instant,
+        ready_at: Instant,
     },
     /// One of a request's own protocol deadlines expired.
     ///
@@ -1020,4 +1149,119 @@ pub(crate) struct AppliedStateEffect {
 /// Returns the stream ledger's fixed memory bound, or refuses arithmetic overflow.
 pub(crate) const fn checked_stream_ledger_bound(admissible: usize) -> Option<usize> {
     super::stream_ledger::checked_max_entries_per_target(admissible)
+}
+
+#[cfg(test)]
+mod duration_proof_tests {
+    use super::*;
+
+    fn context(timeout: TimeoutPolicy, retry: RetryPolicy) -> RequestContext {
+        RequestContext {
+            requires_extended_pan_tilt_speed: false,
+            motion: None,
+            submission_order: 0,
+            dispatch_deadline: None,
+            target: TargetSlot::CAMERA_1,
+            timeout,
+            retry,
+            control: ControlPolicy::default(),
+            cancellation: CancellationPolicy::Supported,
+        }
+    }
+
+    #[test]
+    fn every_protocol_timeout_is_nonzero_by_construction() {
+        assert!(NonZeroDuration::new(Duration::ZERO).is_err());
+        for index in 0..5 {
+            let mut values = [Duration::from_secs(1); 5];
+            values[index] = Duration::ZERO;
+            assert!(
+                TimeoutPolicy::new(values[0], values[1], values[2], values[3], values[4]).is_err()
+            );
+        }
+        assert!(RetryPolicy::NEVER.total_budget.is_none());
+    }
+
+    #[test]
+    fn derived_long_profile_timings_are_not_capped_like_configured_overrides() -> Result<(), Error>
+    {
+        let now = Instant::now();
+        let hours = |value: u64| Duration::from_secs(value * 60 * 60);
+        let timeout = TimeoutPolicy::new(
+            Duration::from_secs(1),
+            hours(2),
+            hours(2),
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+        )?;
+        let retry = RetryPolicy {
+            initial_backoff: hours(2),
+            maximum_backoff: hours(4),
+            total_budget: Some(NonZeroDuration::new(hours(4))?),
+            ..RetryPolicy::NEVER
+        };
+        context(timeout, retry).validate_at(now)?;
+        Ok(())
+    }
+
+    #[test]
+    fn context_refuses_unrepresentable_individual_and_composed_windows() -> Result<(), Error> {
+        let now = Instant::now();
+        let timeout = TimeoutPolicy {
+            ambiguity: NonZeroDuration::new(Duration::MAX)?,
+            ..TimeoutPolicy::default()
+        };
+        assert!(timeout.validate_at(now).is_err());
+        let mut request = context(TimeoutPolicy::default(), RetryPolicy::NEVER);
+        request.control.minimum_spacing = Duration::MAX;
+        assert!(request.validate_at(now).is_err());
+        request.control.minimum_spacing = Duration::ZERO;
+        request.retry.maximum_backoff = Duration::MAX;
+        assert!(request.validate_at(now).is_err());
+        request.retry.maximum_backoff = Duration::ZERO;
+        request.retry.total_budget = Some(NonZeroDuration::new(Duration::MAX)?);
+        assert!(request.validate_at(now).is_err());
+
+        let span = crate::timeout::saturating_deadline(now, Duration::MAX).duration_since(now);
+        let half = span / 2 + Duration::from_nanos(1);
+        assert!(now.checked_add(half).is_some());
+        let nanos = Duration::from_nanos(1);
+        let timeout = TimeoutPolicy::new(half, half, nanos, nanos, nanos)?;
+        assert!(
+            timeout.validate_at(now).is_err(),
+            "representable components can overflow as an attempt"
+        );
+        let timeout = TimeoutPolicy::new(nanos, nanos, nanos, nanos, nanos)?;
+        timeout.validate_at(now)?;
+        let retry = RetryPolicy {
+            total_budget: Some(NonZeroDuration::new(span - nanos)?),
+            ..RetryPolicy::NEVER
+        };
+        retry.validate_at(now)?;
+        assert!(
+            context(timeout, retry).validate_at(now).is_err(),
+            "the complete queued-attempt window must fit"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn session_intervals_are_validated_without_forbidding_zero_pacing() -> Result<(), Error> {
+        let now = Instant::now();
+        let setters: [fn(&mut ProtocolPolicy, Duration); 5] = [
+            |policy, value| policy.command_spacing = value,
+            |policy, value| policy.inquiry_spacing = value,
+            |policy, value| policy.inquiry_cooldown = value,
+            |policy, value| policy.raw_inquiry_release_hold = value,
+            |policy, value| policy.raw_release_grace = value,
+        ];
+        for set in setters {
+            let mut policy = ProtocolPolicy::test_default();
+            set(&mut policy, Duration::MAX);
+            assert!(policy.validate_at(now).is_err());
+            set(&mut policy, Duration::ZERO);
+            policy.validate_at(now)?;
+        }
+        Ok(())
+    }
 }

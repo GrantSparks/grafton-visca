@@ -14,6 +14,7 @@ use crate::FailureContext;
 
 mod audit_rules;
 mod cancellation_holds;
+mod due_actions;
 mod late_evidence;
 mod lifecycle_transition_matrix;
 mod prepared_retry;
@@ -45,7 +46,7 @@ fn strict_poison_policy() -> ProtocolPolicy {
 /// A two-target raw datagram engine in the strict `strict_unconfirmed_poison`
 /// opt-in mode, mirroring [`engine`] for the whole-session poison tests.
 fn strict_poison_engine() -> ProtocolEngine {
-    let mut engine = ProtocolEngine::new(strict_poison_policy()).unwrap();
+    let mut engine = ProtocolEngine::new(strict_poison_policy(), Instant::now()).unwrap();
     for target in [camera(1), camera(2)] {
         engine
             .register_target(target, TargetPolicy::test_default())
@@ -59,7 +60,7 @@ fn retrying() -> RetryPolicy {
         max_retries: 3,
         initial_backoff: Duration::from_millis(10),
         maximum_backoff: Duration::from_millis(100),
-        total_budget: Duration::from_secs(10),
+        total_budget: Some(NonZeroDuration::new(Duration::from_secs(10)).unwrap()),
         ack_timeout: true,
         completion_timeout: true,
         inquiry_timeout: true,
@@ -77,11 +78,11 @@ fn context(target: u8, cancellation: CancellationPolicy) -> RequestContext {
         dispatch_deadline: None,
         target: camera(target),
         timeout: TimeoutPolicy {
-            ack: Duration::from_millis(20),
-            completion: Duration::from_millis(40),
-            inquiry: Duration::from_millis(30),
-            cancellation: Duration::from_millis(10),
-            ambiguity: Duration::from_millis(50),
+            ack: NonZeroDuration::new(Duration::from_millis(20)).unwrap(),
+            completion: NonZeroDuration::new(Duration::from_millis(40)).unwrap(),
+            inquiry: NonZeroDuration::new(Duration::from_millis(30)).unwrap(),
+            cancellation: NonZeroDuration::new(Duration::from_millis(10)).unwrap(),
+            ambiguity: NonZeroDuration::new(Duration::from_millis(50)).unwrap(),
         },
         retry: retrying(),
         control: ControlPolicy::default(),
@@ -204,7 +205,7 @@ fn inquiry_with_retry(target: u8, retry: RetryPolicy) -> RuntimeRequest {
 }
 
 fn engine(envelope: EnvelopeKind, transport: TransportKind) -> ProtocolEngine {
-    let mut engine = ProtocolEngine::new(policy(envelope, transport)).unwrap();
+    let mut engine = ProtocolEngine::new(policy(envelope, transport), Instant::now()).unwrap();
     engine
         .register_target(camera(1), TargetPolicy::test_default())
         .unwrap();
@@ -220,7 +221,7 @@ fn engine(envelope: EnvelopeKind, transport: TransportKind) -> ProtocolEngine {
 fn single_flight_raw_engine() -> ProtocolEngine {
     let mut configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
     configured.inquiry_capacity = 1;
-    let mut engine = ProtocolEngine::new(configured).unwrap();
+    let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
     for target in [camera(1), camera(2)] {
         engine
             .register_target(target, TargetPolicy::test_default())
@@ -1178,7 +1179,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
     let mut configured = policy(EnvelopeKind::Sony, TransportKind::Datagram);
     configured.inquiry_capacity = 1;
     configured.inquiry_cooldown = Duration::ZERO;
-    let mut engine = ProtocolEngine::new(configured).unwrap();
+    let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
     engine
         .register_target(camera(1), TargetPolicy::test_default())
         .unwrap();
@@ -2163,7 +2164,7 @@ fn executing_response_outlives_cancellation_ambiguity_until_its_completion_deadl
     let RuntimeRequest::Command { context, .. } = &mut request else {
         unreachable!("test constructs a command");
     };
-    context.timeout.completion = Duration::from_secs(1);
+    context.timeout.completion = NonZeroDuration::new(Duration::from_secs(1)).unwrap();
     let (admission, id) = admit(&mut engine, 1, request, start);
     send_ok(&mut engine, &admission, None, start);
     engine.handle(
@@ -2405,7 +2406,7 @@ fn engine_with_target(
     sockets: u8,
     cancellation: CancellationPolicy,
 ) -> ProtocolEngine {
-    let mut engine = ProtocolEngine::new(policy(envelope, transport)).unwrap();
+    let mut engine = ProtocolEngine::new(policy(envelope, transport), Instant::now()).unwrap();
     engine
         .register_target(
             camera(1),
@@ -2855,7 +2856,7 @@ fn executing_cancel_waits_for_pacing_without_expiring_at_ambiguity() {
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     engine.policy.command_spacing = Duration::from_millis(100);
     let mut request_context = context(1, CancellationPolicy::Supported);
-    request_context.timeout.completion = Duration::from_secs(1);
+    request_context.timeout.completion = NonZeroDuration::new(Duration::from_secs(1)).unwrap();
     let effects = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
@@ -3552,7 +3553,7 @@ fn dispatch_is_priority_fifo_in_admission_order_across_lanes() {
     let start = Instant::now();
     let mut configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
     configured.command_spacing = Duration::from_millis(10);
-    let mut engine = ProtocolEngine::new(configured).unwrap();
+    let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
     for target in [camera(1), camera(2)] {
         engine
             .register_target(target, TargetPolicy::test_default())
@@ -3673,7 +3674,7 @@ fn newer_same_class_inquiries_cannot_starve_an_older_command() {
     let start = Instant::now();
     let mut configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
     configured.command_spacing = Duration::from_millis(10);
-    let mut engine = ProtocolEngine::new(configured).unwrap();
+    let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
     for target in [camera(1), camera(2)] {
         engine
             .register_target(target, TargetPolicy::test_default())
@@ -3780,7 +3781,12 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_named_reu
     let mut retuned_sockets = PerTarget::default();
     retuned_sockets[camera(1)] = Some(1);
     engine
-        .retune(Duration::ZERO, Duration::ZERO, retuned_sockets)
+        .retune(
+            Duration::ZERO,
+            Duration::ZERO,
+            retuned_sockets,
+            Instant::now(),
+        )
         .unwrap();
     assert_eq!(engine.command_sockets(camera(1)), 1);
 
@@ -3890,7 +3896,12 @@ fn retune_runs_the_production_debug_invariant_hook() {
     engine.inject_queue_ticket(Lane::Command, 0, ticket);
 
     engine
-        .retune(Duration::ZERO, Duration::ZERO, PerTarget::default())
+        .retune(
+            Duration::ZERO,
+            Duration::ZERO,
+            PerTarget::default(),
+            Instant::now(),
+        )
         .unwrap();
 }
 
@@ -3899,7 +3910,7 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
     let start = Instant::now();
     let mut configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
     configured.inquiry_capacity = 1;
-    let mut engine = ProtocolEngine::new(configured).unwrap();
+    let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
     engine
         .register_target(camera(1), TargetPolicy::test_default())
         .unwrap();
@@ -4125,9 +4136,11 @@ fn phase_one_protocol_fixture_replays_through_production_engine() {
                     other => panic!("unknown fixture envelope {other}"),
                 };
                 if engine.is_none() {
-                    let mut created =
-                        ProtocolEngine::new(policy(record_envelope, TransportKind::Datagram))
-                            .unwrap();
+                    let mut created = ProtocolEngine::new(
+                        policy(record_envelope, TransportKind::Datagram),
+                        Instant::now(),
+                    )
+                    .unwrap();
                     for target in 1..=3 {
                         created
                             .register_target(camera(target), TargetPolicy::test_default())
@@ -4413,7 +4426,7 @@ fn fuzz_engine(configuration: FuzzConfiguration) -> ProtocolEngine {
     let mut configured = policy(configuration.envelope, configuration.transport);
     configured.inquiry_capacity = configuration.inquiry_capacity;
     configured.strict_unconfirmed_poison = configuration.strict_unconfirmed_poison;
-    let mut engine = ProtocolEngine::new(configured).unwrap();
+    let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
     for target in [camera(1), camera(2)] {
         engine
             .register_target(target, TargetPolicy::test_default())
@@ -5604,8 +5617,8 @@ fn datagram_cancel_failure_keeps_ownership_until_ambiguity_deadline() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let mut request_context = context(1, CancellationPolicy::Supported);
-    request_context.timeout.completion = Duration::from_millis(5);
-    request_context.timeout.ambiguity = Duration::from_millis(50);
+    request_context.timeout.completion = NonZeroDuration::new(Duration::from_millis(5)).unwrap();
+    request_context.timeout.ambiguity = NonZeroDuration::new(Duration::from_millis(50)).unwrap();
     let effects = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
@@ -5658,8 +5671,8 @@ fn failed_cancel_write_does_not_shorten_an_executing_commands_completion_window(
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let mut request_context = context(1, CancellationPolicy::Supported);
-    request_context.timeout.completion = Duration::from_millis(100);
-    request_context.timeout.ambiguity = Duration::from_millis(50);
+    request_context.timeout.completion = NonZeroDuration::new(Duration::from_millis(100)).unwrap();
+    request_context.timeout.ambiguity = NonZeroDuration::new(Duration::from_millis(50)).unwrap();
     let (admission, id) = admit(
         &mut engine,
         1,
@@ -5853,7 +5866,7 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
     let start = Instant::now();
     let mut configured = policy(EnvelopeKind::Raw, TransportKind::Datagram);
     configured.capacity = 4;
-    let mut engine = ProtocolEngine::new(configured).unwrap();
+    let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
     for target in [camera(1), camera(2)] {
         engine
             .register_target(
@@ -5929,7 +5942,7 @@ fn blocked_target_does_not_block_other_targets_or_accumulate_stale_tickets() {
 fn retry_backoff_must_fit_inside_total_budget() {
     let start = Instant::now();
     let mut retry = retrying();
-    retry.total_budget = Duration::from_millis(15);
+    retry.total_budget = Some(NonZeroDuration::new(Duration::from_millis(15)).unwrap());
     // Backoff is jittered into `[ceiling / 2, ceiling)`, so the *floor* of the
     // first attempt's band has to overshoot the budget for this test to be
     // about the budget rather than about the draw: 30ms/2 = 15ms, and the
@@ -7197,7 +7210,7 @@ fn ack_capped_retry() -> RetryPolicy {
         max_retries: 12,
         initial_backoff: Duration::from_millis(1),
         maximum_backoff: Duration::from_secs(10),
-        total_budget: Duration::from_secs(600),
+        total_budget: Some(NonZeroDuration::new(Duration::from_secs(600)).unwrap()),
         ..retrying()
     }
 }
@@ -7606,7 +7619,7 @@ fn a_retry_waiting_in_backoff_fails_when_the_total_budget_expires() {
     let mut retry = retrying();
     retry.initial_backoff = Duration::from_millis(10);
     retry.maximum_backoff = Duration::from_millis(10);
-    retry.total_budget = Duration::from_millis(12);
+    retry.total_budget = Some(NonZeroDuration::new(Duration::from_millis(12)).unwrap());
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
@@ -7652,7 +7665,7 @@ fn immediate_retry_budget(total_budget: Duration) -> RetryPolicy {
     RetryPolicy {
         initial_backoff: Duration::ZERO,
         maximum_backoff: Duration::ZERO,
-        total_budget,
+        total_budget: Some(NonZeroDuration::new(total_budget).unwrap()),
         ..retrying()
     }
 }
@@ -8388,7 +8401,7 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
     {
         let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
         let mut retry = retrying();
-        retry.total_budget = Duration::from_millis(20);
+        retry.total_budget = Some(NonZeroDuration::new(Duration::from_millis(20)).unwrap());
         let admission = engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
@@ -8430,7 +8443,7 @@ fn initial_budget_and_cancel_ambiguity_do_not_shorten_executing_completion() {
     let RuntimeRequest::Command { context, .. } = &mut request else {
         unreachable!("test constructs a command");
     };
-    context.timeout.completion = Duration::from_secs(1);
+    context.timeout.completion = NonZeroDuration::new(Duration::from_secs(1)).unwrap();
 
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
     let admission = engine.handle(
@@ -11915,7 +11928,7 @@ fn raw_inquiry_capacity_is_per_target() {
 fn reserved_engine() -> ProtocolEngine {
     let mut configured = policy(EnvelopeKind::Sony, TransportKind::Datagram);
     configured.capacity = 1;
-    let mut engine = ProtocolEngine::new(configured).unwrap();
+    let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
     for target in [1, 2] {
         engine
             .register_target(
@@ -12201,7 +12214,8 @@ fn halt_stop_write_cutoff_is_strict_and_stale_staged_effect_cannot_write() {
         let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
         let mut stop = urgent_command(1, CancellationPolicy::Supported);
         stop.context_mut().dispatch_deadline = Some(deadline);
-        stop.context_mut().retry.total_budget = Duration::from_millis(10);
+        stop.context_mut().retry.total_budget =
+            Some(NonZeroDuration::new(Duration::from_millis(10)).unwrap());
         let (effects, id) = admit(&mut engine, 1, stop, now);
         let (transmission, _, _) = request_transmit(&effects);
         let observed_at = if offset < 0 {
@@ -12281,7 +12295,7 @@ fn halt_raw_siblings_wait_for_ack_not_completion_and_still_bypass_ordinary_motio
 fn single_flight_raw_stream_engine() -> ProtocolEngine {
     let mut configured = policy(EnvelopeKind::Raw, TransportKind::Stream);
     configured.inquiry_capacity = 1;
-    let mut engine = ProtocolEngine::new(configured).unwrap();
+    let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
     for target in [camera(1), camera(2)] {
         engine
             .register_target(target, TargetPolicy::test_default())
@@ -12570,7 +12584,7 @@ fn unsettled_owed_reply_latches_only_that_targets_inquiries_until_it_arrives() {
 
 fn short_budget() -> RetryPolicy {
     RetryPolicy {
-        total_budget: Duration::from_millis(20),
+        total_budget: Some(NonZeroDuration::new(Duration::from_millis(20)).unwrap()),
         ..retrying()
     }
 }
@@ -12692,7 +12706,7 @@ fn latched_target_fails_completion_only_commands_promptly() {
     let mut engine = single_flight_raw_stream_engine();
     let (_, timeout_at) = time_out_stream_inquiry(&mut engine, start);
     let unbounded = RetryPolicy {
-        total_budget: Duration::ZERO,
+        total_budget: None,
         ..RetryPolicy::NEVER
     };
     let completion_only = || {

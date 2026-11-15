@@ -197,7 +197,13 @@ fn ready_and_backoff_have_no_active_attempt() {
     ));
     for ready in [false, true] {
         if ready {
-            engine.promote_retry(id, &mut Vec::new());
+            let previous = engine
+                .entry(id)
+                .unwrap()
+                .lifecycle
+                .previous_attempt()
+                .unwrap();
+            engine.promote_retry(id, previous, &mut Vec::new());
         }
         let entry = engine.entry(id).unwrap();
         assert!(entry.lifecycle.attempt().is_none());

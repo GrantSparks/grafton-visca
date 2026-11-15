@@ -90,12 +90,12 @@ fn control_lane_uses_its_own_named_nonzero_bound() {
     .unwrap();
     policy.limits.control_requests = 3;
     policy.limits.staged_diagnostics = 7;
-    let state = OwnerState::new(policy.clone()).unwrap();
+    let state = OwnerState::new(policy.clone(), Instant::now()).unwrap();
     let (handle, _) = boundary::OwnerHandleCore::new(&state);
     assert_eq!(handle.control.capacity(), Some(3));
     policy.limits.control_requests = 0;
     assert!(matches!(
-        OwnerState::new(policy),
+        OwnerState::new(policy, Instant::now()),
         Err(Error::InvalidRequest(_))
     ));
 }
@@ -104,14 +104,14 @@ fn control_lane_uses_its_own_named_nonzero_bound() {
 ///
 /// The profile baseline is deliberately non-zero on both axes so a
 /// re-derivation that quietly kept a previous override would be visible.
-fn reconfigurable_owner_state() -> OwnerState {
+fn reconfigurable_owner_state_at(now: Instant) -> OwnerState {
     let mut protocol = policy_for_target_validation();
     protocol.command_spacing = Duration::from_millis(10);
     protocol.inquiry_spacing = Duration::from_millis(20);
     let policy =
         OwnerPolicy::single_target(protocol, TargetSlot::CAMERA_1, TargetPolicy::test_default())
             .expect("single-target owner policy");
-    OwnerState::new(policy).expect("owner state")
+    OwnerState::new(policy, now).expect("owner state")
 }
 
 fn command_sockets(state: &OwnerState) -> u8 {
@@ -124,14 +124,17 @@ fn command_sockets(state: &OwnerState) -> u8 {
 /// the complete live proof value. Public #631 scenarios verify engine pacing.
 #[test]
 fn retuning_preserves_the_profile_baseline_and_updates_the_live_proof() {
-    let mut state = reconfigurable_owner_state();
+    let mut state = reconfigurable_owner_state_at(Instant::now());
     let live = state.live_tuning();
     let tuning = crate::OperationalTuning::new()
         .command_spacing(Duration::from_millis(200))
         .inquiry_spacing(Duration::from_millis(300))
         .maximum_command_sockets(1);
     state
-        .retune(crate::session_config::ValidatedTuning::for_test(tuning).expect("validated tuning"))
+        .retune(
+            crate::session_config::ValidatedTuning::for_test(tuning).expect("validated tuning"),
+            Instant::now(),
+        )
         .expect("accepted retune");
     assert_eq!(live.get().get(), tuning);
     assert_eq!(
@@ -151,6 +154,7 @@ fn retuning_preserves_the_profile_baseline_and_updates_the_live_proof() {
         .retune(
             crate::session_config::ValidatedTuning::for_test(crate::OperationalTuning::new())
                 .expect("default tuning"),
+            Instant::now(),
         )
         .expect("clear overrides");
     assert_eq!(live.get().get(), crate::OperationalTuning::new());
@@ -164,14 +168,38 @@ fn retuning_preserves_the_profile_baseline_and_updates_the_live_proof() {
     );
 }
 
+#[test]
+fn owner_construction_retains_the_selected_clock_anchor() {
+    let selected = Instant::now() + Duration::from_secs(123);
+    let state = reconfigurable_owner_state_at(selected);
+    assert_eq!(state.observed_at, selected);
+}
+
+#[test]
+fn retune_checks_the_selected_clock_before_replacing_live_tuning() {
+    let mut state = reconfigurable_owner_state_at(Instant::now());
+    let live = state.live_tuning();
+    let previous = live.get();
+    let latest = crate::timeout::saturating_deadline(Instant::now(), Duration::MAX);
+    let selected = latest - Duration::from_millis(100);
+    let update = crate::OperationalTuning::new().command_spacing(Duration::from_secs(1));
+    let update =
+        crate::session_config::ValidatedTuning::for_test(update).expect("profile-valid tuning");
+    assert!(state.retune(update, selected).is_err());
+    assert_eq!(live.get(), previous);
+}
+
 /// Invalid overrides cannot produce the proof consumed by owner retuning.
 #[test]
 fn a_rejected_retune_changes_neither_the_live_tuning_nor_the_policy() {
-    let mut state = reconfigurable_owner_state();
+    let mut state = reconfigurable_owner_state_at(Instant::now());
     let live = state.live_tuning();
     let accepted = crate::OperationalTuning::new().command_spacing(Duration::from_millis(200));
     state
-        .retune(crate::session_config::ValidatedTuning::for_test(accepted).expect("validated"))
+        .retune(
+            crate::session_config::ValidatedTuning::for_test(accepted).expect("validated"),
+            Instant::now(),
+        )
         .expect("accepted");
     let error = crate::session_config::ValidatedTuning::for_test(
         crate::OperationalTuning::new().maximum_command_sockets(3),
@@ -245,11 +273,18 @@ mod control_reserve {
             dispatch_deadline: None,
             target: TargetSlot::try_from(CameraId::new(target).unwrap()).unwrap(),
             timeout: TimeoutPolicy {
-                ack: Duration::from_millis(10),
-                completion: Duration::from_millis(20),
-                inquiry: Duration::from_millis(20),
-                cancellation: Duration::from_millis(10),
-                ambiguity: Duration::from_millis(10),
+                ack: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(10))
+                    .unwrap(),
+                completion: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(20))
+                    .unwrap(),
+                inquiry: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(20))
+                    .unwrap(),
+                cancellation: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(
+                    10,
+                ))
+                .unwrap(),
+                ambiguity: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(10))
+                    .unwrap(),
             },
             retry: RetryPolicy::NEVER,
             control: ControlPolicy {
@@ -470,7 +505,9 @@ mod metrics {
             max_retries: 3,
             initial_backoff: Duration::from_millis(5),
             maximum_backoff: Duration::from_millis(50),
-            total_budget: Duration::from_secs(10),
+            total_budget: Some(
+                crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(10)).unwrap(),
+            ),
             ack_timeout: true,
             completion_timeout: true,
             inquiry_timeout: true,
@@ -504,11 +541,15 @@ mod metrics {
             dispatch_deadline: None,
             target: TargetSlot::CAMERA_1,
             timeout: TimeoutPolicy {
-                ack: ACK,
-                completion: COMPLETION,
-                inquiry: INQUIRY,
-                cancellation: Duration::from_millis(10),
-                ambiguity: Duration::from_millis(10),
+                ack: crate::runtime::engine::NonZeroDuration::new(ACK).unwrap(),
+                completion: crate::runtime::engine::NonZeroDuration::new(COMPLETION).unwrap(),
+                inquiry: crate::runtime::engine::NonZeroDuration::new(INQUIRY).unwrap(),
+                cancellation: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(
+                    10,
+                ))
+                .unwrap(),
+                ambiguity: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(10))
+                    .unwrap(),
             },
             retry,
             control: ControlPolicy::default(),
@@ -531,7 +572,7 @@ mod metrics {
 
     fn inquiry(retry: RetryPolicy) -> RuntimeRequest {
         let mut context = request_context(retry);
-        context.timeout.inquiry = INQUIRY;
+        context.timeout.inquiry = crate::runtime::engine::NonZeroDuration::new(INQUIRY).unwrap();
         RuntimeRequest::Inquiry {
             wire: wire(),
             context,
@@ -614,7 +655,7 @@ mod metrics {
     #[test]
     fn expired_ack_deadline_counts_a_timeout_and_the_retry_it_scheduled_for_sony() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony), Instant::now()).unwrap();
         let diagnostics = DiagnosticRecorder::new(&mut state);
         let _observer = sent(&mut state, command(retrying()), Some(1), start);
         assert_eq!(state.metrics().ack_timeouts, 0);
@@ -630,7 +671,7 @@ mod metrics {
     #[test]
     fn expired_ack_deadline_without_a_retry_reports_the_decision_directly() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
         let diagnostics = DiagnosticRecorder::new(&mut state);
         let _observer = sent(&mut state, command(RetryPolicy::NEVER), None, start);
         advance(&mut state, start + ACK);
@@ -643,7 +684,7 @@ mod metrics {
     #[test]
     fn expired_completion_deadline_counts_separately_from_the_ack_deadline_for_sony() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony), Instant::now()).unwrap();
         let diagnostics = DiagnosticRecorder::new(&mut state);
         let _observer = sent(&mut state, command(retrying()), Some(1), start);
         apply(
@@ -669,7 +710,7 @@ mod metrics {
     #[test]
     fn expired_inquiry_deadline_counts_as_an_inquiry_timeout() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
         let diagnostics = DiagnosticRecorder::new(&mut state);
         let _observer = sent(&mut state, inquiry(retrying()), None, start);
         advance(&mut state, start + INQUIRY);
@@ -684,7 +725,8 @@ mod metrics {
     fn camera_backpressure_codes_count_as_busy_errors() {
         for code in [0x03_u8, 0x05, 0x41] {
             let start = Instant::now();
-            let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+            let mut state =
+                OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
             let _observer = sent(&mut state, command(retrying()), None, start);
             apply(
                 &mut state,
@@ -701,7 +743,7 @@ mod metrics {
     #[test]
     fn other_error_codes_count_as_protocol_errors() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
         let _observer = sent(&mut state, command(retrying()), None, start);
         apply(
             &mut state,
@@ -725,7 +767,7 @@ mod metrics {
     #[test]
     fn the_cancellation_reply_code_is_neither_busy_nor_protocol() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
         let _observer = sent(&mut state, command(retrying()), None, start);
         apply(
             &mut state,
@@ -746,7 +788,7 @@ mod metrics {
     #[test]
     fn a_sequenced_reply_matching_no_request_is_counted_as_ignored() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony), Instant::now()).unwrap();
         let _observer = sent(&mut state, command(retrying()), Some(1), start);
         apply(
             &mut state,
@@ -765,7 +807,7 @@ mod metrics {
     #[test]
     fn sony_control_reply_is_observable_without_affecting_request_state() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony), Instant::now()).unwrap();
         let diagnostics = DiagnosticRecorder::new(&mut state);
 
         apply(
@@ -797,7 +839,7 @@ mod metrics {
     #[test]
     fn a_transient_receive_fault_retry_counts_as_a_retry_for_sony() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony), Instant::now()).unwrap();
         let _observer = sent(&mut state, command(retrying()), Some(1), start);
         apply(
             &mut state,
@@ -841,7 +883,7 @@ mod metrics {
     }
 
     fn observation_fixture() -> (OperationObservation, Arc<ObserverCell<RuntimeOutcome>>) {
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
         admit_observation(&mut state, command(retrying()), Instant::now())
     }
 
@@ -850,7 +892,7 @@ mod metrics {
     fn admission_supersedes_even_if_cancelled_before_write_but_rejection_does_not() {
         use crate::AffectedAxes;
         let now = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
         let mut request = command(retrying());
         request.context_mut().motion = Some(crate::runtime::engine::MotionEffect {
             axes: AffectedAxes::PAN_TILT,
@@ -913,7 +955,7 @@ mod metrics {
     #[test]
     fn halt_owner_acceptance_orders_concurrent_ingress_and_settlement_generation() {
         use crate::AffectedAxes;
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
         let (handle, ends) = boundary::OwnerHandleCore::new(&state);
         let stamp = state
             .motion
@@ -1176,7 +1218,7 @@ mod metrics {
             .as_mut()
             .unwrap()
             .control_reserve = 2;
-        let mut state = OwnerState::new(policy).unwrap();
+        let mut state = OwnerState::new(policy, Instant::now()).unwrap();
         let held: Vec<_> = (0..4)
             .map(|_| state.permits.try_acquire_ordinary().unwrap())
             .collect();
@@ -1293,7 +1335,7 @@ fn transport_close_normalization_keeps_one_connection_closed_prefix() {
     let reason = transport_close_reason(&contextual).expect("contextual close reason");
     assert_eq!(&*reason, "control socket receive: peer closed connection");
 
-    let mut state = reconfigurable_owner_state();
+    let mut state = reconfigurable_owner_state_at(Instant::now());
     state.input(
         Input::Shutdown(ShutdownReason::TransportClosed {
             reason: Some(reason),
@@ -1311,7 +1353,7 @@ fn transport_close_normalization_keeps_one_connection_closed_prefix() {
 /// effect is still waiting to be applied by the owner.
 #[test]
 fn engine_terminal_cause_is_authoritative_before_effect_delivery() {
-    let mut state = reconfigurable_owner_state();
+    let mut state = reconfigurable_owner_state_at(Instant::now());
     let now = Instant::now();
     let effects = state.engine.handle(
         Input::Shutdown(ShutdownReason::FramingFailure {
@@ -1628,11 +1670,12 @@ mod lifecycle_trace {
                 dispatch_deadline: None,
                 target,
                 timeout: TimeoutPolicy {
-                    ack,
-                    completion: UNREACHABLE,
-                    inquiry: UNREACHABLE,
-                    cancellation: UNREACHABLE,
-                    ambiguity: UNREACHABLE,
+                    ack: crate::runtime::engine::NonZeroDuration::new(ack).unwrap(),
+                    completion: crate::runtime::engine::NonZeroDuration::new(UNREACHABLE).unwrap(),
+                    inquiry: crate::runtime::engine::NonZeroDuration::new(UNREACHABLE).unwrap(),
+                    cancellation: crate::runtime::engine::NonZeroDuration::new(UNREACHABLE)
+                        .unwrap(),
+                    ambiguity: crate::runtime::engine::NonZeroDuration::new(UNREACHABLE).unwrap(),
                 },
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
@@ -1660,11 +1703,12 @@ mod lifecycle_trace {
                 dispatch_deadline: None,
                 target,
                 timeout: TimeoutPolicy {
-                    ack: UNREACHABLE,
-                    completion: UNREACHABLE,
-                    inquiry: reply,
-                    cancellation: UNREACHABLE,
-                    ambiguity: UNREACHABLE,
+                    ack: crate::runtime::engine::NonZeroDuration::new(UNREACHABLE).unwrap(),
+                    completion: crate::runtime::engine::NonZeroDuration::new(UNREACHABLE).unwrap(),
+                    inquiry: crate::runtime::engine::NonZeroDuration::new(reply).unwrap(),
+                    cancellation: crate::runtime::engine::NonZeroDuration::new(UNREACHABLE)
+                        .unwrap(),
+                    ambiguity: crate::runtime::engine::NonZeroDuration::new(UNREACHABLE).unwrap(),
                 },
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
@@ -1772,8 +1816,11 @@ mod lifecycle_trace {
             self.pending = None;
             self.next_transmission = 0;
             self.cancel_transmissions = 0;
-            let mut state =
-                OwnerState::new(owner_policy(transport, capacity, cancellation)).unwrap();
+            let mut state = OwnerState::new(
+                owner_policy(transport, capacity, cancellation),
+                Instant::now(),
+            )
+            .unwrap();
             self.diagnostics = Some(super::DiagnosticRecorder::new(&mut state));
             let registered =
                 state.policy().targets[TargetSlot::CAMERA_1].expect("camera one is registered");

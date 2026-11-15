@@ -398,7 +398,7 @@ impl OwnerShellCore {
                 }
             }
             OwnerEvent::Control(control) => {
-                self.handle_control(control);
+                self.handle_control(control, selected_at);
                 TurnStep::Done(TurnOutcome::Continue)
             }
             OwnerEvent::Admission(Ok(admission)) => self.admit(admission, selected_at),
@@ -973,7 +973,7 @@ impl OwnerShellCore {
         }
     }
 
-    fn handle_control(&mut self, control: ControlBoundary) {
+    fn handle_control(&mut self, control: ControlBoundary, now: Instant) {
         self.flush_pre_admission_rejections(true);
         match control {
             ControlBoundary::FlushAdmissionRejections => {}
@@ -1004,7 +1004,7 @@ impl OwnerShellCore {
             } => {
                 let result = match self.state.boundary_error() {
                     Some(error) => Err(error),
-                    None => (*validated_tuning).and_then(|tuning| self.state.retune(tuning)),
+                    None => (*validated_tuning).and_then(|tuning| self.state.retune(tuning, now)),
                 };
                 let _ = reply.try_send(result);
             }
@@ -1168,7 +1168,7 @@ mod tests {
             },
         )
         .unwrap();
-        let state = OwnerState::new(policy).unwrap();
+        let state = OwnerState::new(policy, Instant::now()).unwrap();
         let (handle, ends) = OwnerHandleCore::new(&state);
         (handle, OwnerShellCore::new(state, ends))
     }
@@ -1205,11 +1205,11 @@ mod tests {
                 dispatch_deadline: None,
                 target: TargetSlot::CAMERA_1,
                 timeout: TimeoutPolicy {
-                    ack: Duration::from_secs(1),
-                    completion: Duration::from_secs(1),
-                    inquiry: Duration::from_secs(1),
-                    cancellation: Duration::from_secs(1),
-                    ambiguity: Duration::from_secs(1),
+                    ack: NonZeroDuration::new(Duration::from_secs(1)).unwrap(),
+                    completion: NonZeroDuration::new(Duration::from_secs(1)).unwrap(),
+                    inquiry: NonZeroDuration::new(Duration::from_secs(1)).unwrap(),
+                    cancellation: NonZeroDuration::new(Duration::from_secs(1)).unwrap(),
+                    ambiguity: NonZeroDuration::new(Duration::from_secs(1)).unwrap(),
                 },
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy {
@@ -1233,7 +1233,8 @@ mod tests {
         let (handle, mut core) = owner();
         let mut request = declared_request(true);
         request.context_mut().dispatch_deadline = Some(deadline);
-        request.context_mut().retry.total_budget = Duration::from_millis(10);
+        request.context_mut().retry.total_budget =
+            Some(crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(10)).unwrap());
         let (completion, admission) = handle.enqueue_admission(request, None).unwrap();
         let boundary = core.receivers.admissions.recv().unwrap();
         let TurnStep::Drive { mut effects, .. } = core.handle(

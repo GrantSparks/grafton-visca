@@ -7,6 +7,49 @@ use std::time::Instant;
 use crate::TimeoutClass;
 use crate::{Error, Result};
 
+/// Validates an interval against an already sampled owner clock. Zero remains
+/// valid for pacing and immediate retry delays; positive timeouts use the
+/// engine's separate nonzero proof.
+#[cfg(any(feature = "async", feature = "blocking", test))]
+pub(crate) fn validate_duration_at(at: Instant, duration: Duration) -> Result<()> {
+    if at.checked_add(duration).is_none() {
+        return Err(Error::InvalidRequest(
+            "engine deadline interval is not representable by the owner clock".into(),
+        ));
+    }
+    Ok(())
+}
+
+/// Adds an interval without inverting overflow into an immediate deadline.
+/// The common path is exact. On overflow, retain the latest representable
+/// instant; the search reads no clock and cannot wrap duration arithmetic.
+#[cfg(any(feature = "async", feature = "blocking", test))]
+pub(crate) fn saturating_deadline(at: Instant, duration: Duration) -> Instant {
+    if let Some(deadline) = at.checked_add(duration) {
+        return deadline;
+    }
+    const NANOS_PER_SECOND: u128 = 1_000_000_000;
+    let mut lower = 0;
+    let mut upper = duration.as_nanos();
+    let mut latest = at;
+    while upper - lower > 1 {
+        let middle = lower + (upper - lower) / 2;
+        // middle never exceeds a Duration's own total nanoseconds, so the
+        // quotient fits u64 and the remainder is strictly below one billion.
+        let candidate = Duration::new(
+            (middle / NANOS_PER_SECOND) as u64,
+            (middle % NANOS_PER_SECOND) as u32,
+        );
+        if let Some(deadline) = at.checked_add(candidate) {
+            lower = middle;
+            latest = deadline;
+        } else {
+            upper = middle;
+        }
+    }
+    latest
+}
+
 /// Declares [`CommandCategory`] and its [`CommandCategory::ALL`] inventory
 /// from one variant list, so a category added to the enum is always visited by
 /// every walk over `ALL` (validation, override checks and table projection).
@@ -242,6 +285,27 @@ impl Deadline {
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn overflowing_deadlines_saturate_at_the_latest_representable_instant() {
+        let at = Instant::now();
+        for duration in [
+            Duration::ZERO,
+            Duration::from_nanos(1),
+            Duration::from_secs(2 * 60 * 60),
+        ] {
+            assert_eq!(
+                Some(saturating_deadline(at, duration)),
+                at.checked_add(duration)
+            );
+        }
+        let latest = saturating_deadline(at, Duration::MAX);
+        assert!(latest > at);
+        assert!(latest.checked_add(Duration::from_nanos(1)).is_none());
+        assert_eq!(saturating_deadline(latest, Duration::from_secs(1)), latest);
+        assert!(validate_duration_at(at, Duration::MAX).is_err());
+        assert!(validate_duration_at(at, Duration::ZERO).is_ok());
+    }
 
     #[test]
     fn command_defaults_are_the_documented_category_deadlines() {
