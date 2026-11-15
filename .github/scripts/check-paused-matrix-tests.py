@@ -24,6 +24,7 @@ SUITES = {
     "issue_839_menu_navigation": "",
     # The #872 observer-budget body has no feature-selected behavior either.
     "issue_872_observer_budgets": "settlement_budget",
+    "issue_894_fr7_families": "paused",
 }
 
 
