@@ -76,13 +76,13 @@ fn assert_request_encoding_does_not_allocate<R: Request>(label: &str, request: &
 }
 
 macro_rules! assert_generated_inquiry_inventory {
-    ($(($label:literal, $inquiry:ty)),+ $(,)?) => {
+    ($(($label:literal, $inquiry:expr)),+ $(,)?) => {
         #[test]
         fn all_queryable_generated_inquiries_encode_without_heap_allocation() {
             const QUERYABLE_GENERATED_INQUIRY_COUNT: usize = [$(stringify!($inquiry)),+].len();
             assert_eq!(QUERYABLE_GENERATED_INQUIRY_COUNT, 48);
             $(
-                let inquiry = <$inquiry>::default();
+                let inquiry = $inquiry;
                 assert_request_encoding_does_not_allocate($label, &inquiry);
             )+
         }

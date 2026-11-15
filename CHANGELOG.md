@@ -36,6 +36,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Canonical inquiry generation supports a checked one-byte argument with a
+  constructor, accessor and valid test sample. Unit queries retain their
+  existing zero-sized API, and Source evidence keeps the fixed request prefix
+  separate from the argument (#894).
+
 - Serial startup stores operation-specific phases and retries an entire Address
   Set attempt after framing overflow instead of accepting a salvaged suffix (#891).
 - Async and blocking camera cores share one preparation and forwarding

@@ -10,6 +10,13 @@
 //! one or more commands that query it. Unsupported packets use custom requests
 //! and custom decoders instead of compatibility-only built-in response kinds.
 //!
+//! A command may declare one `parameter: { name: Type = sample, byte: getter }`
+//! after its fixed `bytes` prefix. The generated query owns that checked type,
+//! appends the getter's byte in both encoding paths, and exposes `new` and an
+//! argument accessor. Unit queries retain their zero-sized `Default` form.
+//! Source metadata describes the fixed prefix; framing tests use the typed
+//! sample to exercise the full request.
+//!
 //! The profile gate of each typed inquiry is not part of this table: it is the
 //! gate of the inquiry's noun-table row, which `crate::command::surface`
 //! projects into [`BuiltinInquiryGate`].
@@ -87,7 +94,7 @@ pub(crate) trait BuiltinInquiryCommandMarker {
 #[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BuiltinInquiryQuery {
-    /// Generates a public zero-sized query command with unique request bytes.
+    /// Generates a public query command with a unique fixed request prefix.
     Queryable,
     /// Generates a query command with shared bytes but a different typed
     /// interpretation of the same wire response.
@@ -109,7 +116,7 @@ pub(crate) struct BuiltinInquiryMetadata {
     pub(crate) command: BuiltinInquiryCommand,
     /// Response discriminator used by routing and parsing.
     pub(crate) kind: InquiryKind,
-    /// Address-free request body, without the terminator.
+    /// Address-free fixed prefix, without the argument or terminator.
     pub(crate) bytes: &'static [u8],
     /// Command-generation classification.
     pub(crate) query: BuiltinInquiryQuery,
@@ -119,6 +126,51 @@ pub(crate) struct BuiltinInquiryMetadata {
     pub(crate) rationale: Option<&'static str>,
     /// The actual request validator.
     pub(crate) validate: fn(&crate::ProfileSpec) -> crate::Result<()>,
+}
+
+/// Declare either a zero-sized query or a query owning one checked argument.
+macro_rules! builtin_inquiry_type {
+    ($(#[$meta:meta])* $name:ident) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone, Default)]
+        pub struct $name;
+    };
+    ($(#[$meta:meta])* $name:ident, $argument:ident: $ty:ty) => {
+        $(#[$meta])*
+        #[derive(Debug, Copy, Clone)]
+        pub struct $name {
+            $argument: $ty,
+        }
+
+        impl $name {
+            /// Constructs the inquiry with its validated argument.
+            #[must_use]
+            pub const fn new($argument: $ty) -> Self { Self { $argument } }
+
+            /// Returns the validated argument this inquiry addresses.
+            #[must_use]
+            pub const fn $argument(self) -> $ty { self.$argument }
+        }
+    };
+}
+
+macro_rules! builtin_inquiry_argument_len {
+    () => {
+        0
+    };
+    ($argument:ident) => {
+        1
+    };
+}
+
+#[cfg(test)]
+macro_rules! builtin_inquiry_sample {
+    ($name:ident) => {
+        $name
+    };
+    ($name:ident, $sample:expr) => {
+        $name::new($sample)
+    };
 }
 
 /// The typed response of a generated inquiry.
@@ -174,15 +226,41 @@ fn validate_builtin_inquiry_gate(
     gate.validate(profile, feature)
 }
 
+/// Frame the canonical fixed prefix and its optional checked argument.
+fn write_query_frame(
+    camera_id: CameraId,
+    body: &[u8],
+    argument: Option<u8>,
+    buffer: &mut [u8],
+) -> Result<usize, Error> {
+    let frame = FrameWriter::new(camera_id, buffer).bytes(body);
+    match argument {
+        Some(argument) => frame.byte(argument),
+        None => frame,
+    }
+    .finish()
+}
+
 /// The facts every generated inquiry command shares with the generic decode
 /// path below.
 trait GeneratedInquiry: crate::Inquiry {
     /// The response kind the command queries.
     const KIND: InquiryKind;
-    /// The address-free request body, without the terminator.
+    /// The address-free fixed prefix, without the argument or terminator.
     const BODY: &'static [u8];
     const SOURCE: Source;
     const BOOLEAN: Option<BoolConvention>;
+
+    /// The optional argument, already validated by its public value type.
+    fn query_argument(&self) -> Option<u8> {
+        None
+    }
+
+    /// A valid representative used by generated metadata and framing tests.
+    #[cfg(test)]
+    fn sample() -> Self
+    where
+        Self: Sized;
 
     /// Lifts the decoded response into the typed response.
     fn lift(response: Response) -> Result<Self::Response, Error>;
@@ -284,6 +362,7 @@ macro_rules! define_builtin_inquiries {
                         $(#[$meta:meta])*
                         $struct:ident {
                             bytes: $bytes:expr,
+                            $(parameter: { $argument:ident: $argument_ty:ty = $sample:expr, byte: $argument_byte:ident },)?
                             source: $source:expr,
                             boolean: $boolean:expr,
                             typed: $typed:tt,
@@ -425,7 +504,7 @@ macro_rules! define_builtin_inquiries {
                 #[visca(opcode = 0, response = $kind)]
                 struct Derived;
                 check(Derived, InquiryKind::$kind, &profiles, &payloads);
-                $(check_builtin($struct, InquiryKind::$kind, &profiles, &payloads);)+
+                $(check_builtin(<$struct as GeneratedInquiry>::sample(), InquiryKind::$kind, &profiles, &payloads);)+
             })*
         }
 
@@ -467,15 +546,20 @@ macro_rules! define_builtin_inquiries {
         }
 
         $($(
-            $(#[$meta])*
-            #[derive(Debug, Copy, Clone, Default)]
-            pub struct $struct;
+            builtin_inquiry_type!($(#[$meta])* $struct $(, $argument: $argument_ty)?);
 
             impl GeneratedInquiry for $struct {
                 const KIND: InquiryKind = InquiryKind::$kind;
                 const BODY: &'static [u8] = &$bytes;
                 const SOURCE: Source = $source;
                 const BOOLEAN: Option<BoolConvention> = $boolean;
+
+                $(fn query_argument(&self) -> Option<u8> {
+                    Some(self.$argument.$argument_byte())
+                })?
+
+                #[cfg(test)]
+                fn sample() -> Self { builtin_inquiry_sample!($struct $(, $sample)?) }
 
                 fn lift(response: Response) -> Result<Self::Response, Error> {
                     builtin_inquiry_lift!($typed, $struct, response)
@@ -489,7 +573,7 @@ macro_rules! define_builtin_inquiries {
 
             impl WireEncode for $struct {
                 fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-                    FrameWriter::new(camera_id, buffer).bytes(Self::BODY).finish()
+                    write_query_frame(camera_id, Self::BODY, <Self as GeneratedInquiry>::query_argument(self), buffer)
                 }
             }
 
@@ -498,7 +582,9 @@ macro_rules! define_builtin_inquiries {
             impl crate::Request for $struct {
                 type Class = crate::request::Inquiry;
 
-                const MAX_SIZE: usize = crate::command::bytes::frame_len(Self::BODY) + if matches!(Self::KIND, InquiryKind::Power) { 1 } else { 0 };
+                const MAX_SIZE: usize = crate::command::bytes::frame_len(Self::BODY)
+                    + if matches!(Self::KIND, InquiryKind::Power) { 1 } else { 0 }
+                    + builtin_inquiry_argument_len!($($argument)?);
                 const TIMEOUT_CLASS: crate::TimeoutClass = crate::TimeoutClass::Inquiry;
                 const RETRY_CLASS: crate::RetryClass = crate::RetryClass::Inquiry;
                 const CONTROL_CLASS: crate::ControlClass = crate::ControlClass::Normal;
@@ -514,7 +600,7 @@ macro_rules! define_builtin_inquiries {
                 fn write_for_target(&self, target: &crate::TargetRegistration, buffer: &mut [u8], _authority: crate::requests::RequestContractAuthority) -> crate::Result<usize> {
                     #[cfg(test)]
                     increment_generated_inquiry_write_count();
-                    FrameWriter::new(target.target(), buffer).bytes(body_for_profile(Self::KIND, Self::BODY, target.profile())).finish()
+                    write_query_frame(target.target(), body_for_profile(Self::KIND, Self::BODY, target.profile()), <Self as GeneratedInquiry>::query_argument(self), buffer)
                 }
 
                 fn validate_for_target(&self, target: &crate::TargetRegistration) -> crate::Result<()> {
@@ -575,7 +661,7 @@ macro_rules! define_builtin_inquiries {
         #[cfg(test)]
         fn encode_each_generated_inquiry(
             camera_id: CameraId,
-        ) -> Vec<(&'static str, &'static [u8], Result<Vec<u8>, Error>)> {
+        ) -> Vec<(&'static str, Vec<u8>, Result<Vec<u8>, Error>)> {
             let encode = |command: &dyn WireEncode| {
                 let mut buffer = [0u8; 32];
                 command
@@ -584,11 +670,12 @@ macro_rules! define_builtin_inquiries {
             };
             vec![
                 $($(
-                    (
-                        stringify!($struct),
-                        <$struct as GeneratedInquiry>::BODY,
-                        encode(&$struct),
-                    ),
+                    {
+                        let command = <$struct as GeneratedInquiry>::sample();
+                        let mut body = <$struct as GeneratedInquiry>::BODY.to_vec();
+                        body.extend(<$struct as GeneratedInquiry>::query_argument(&command));
+                        (stringify!($struct), body, encode(&command))
+                    },
                 )+)*
             ]
         }
@@ -608,7 +695,7 @@ macro_rules! define_builtin_inquiries {
                     query: $query,
                     vendor_specific: $vendor_specific,
                     rationale: $rationale,
-                    validate: |profile| <$struct as crate::Request>::validate_for_target(&$struct, &crate::TargetRegistration::from_profile(crate::target::TargetSlot::CAMERA_1, profile.clone())),
+                    validate: |profile| <$struct as crate::Request>::validate_for_target(&<$struct as GeneratedInquiry>::sample(), &crate::TargetRegistration::from_profile(crate::target::TargetSlot::CAMERA_1, profile.clone())),
                 },
             )+)*
         ];
@@ -1838,6 +1925,48 @@ mod generated_invariant_tests {
     use super::*;
     use crate::command::VISCA_TERMINATOR;
 
+    builtin_inquiry_type!(
+        /// Test the generated argument type without registering a production query.
+        ParameterTypeProof, preset: crate::PresetNumber
+    );
+
+    #[test]
+    fn parameterized_query_type_preserves_its_checked_argument_and_frame_capacity() {
+        const QUERY: ParameterTypeProof = ParameterTypeProof::new(crate::PresetNumber::MIN);
+        assert_eq!(QUERY.preset(), crate::PresetNumber::MIN);
+        assert_eq!(builtin_inquiry_argument_len!(preset), 1);
+        let mut buffer = [0; 7];
+        let len = write_query_frame(
+            CameraId::CAMERA_2,
+            &[0x09, 0x7e, 0x04, 0x32],
+            Some(QUERY.preset().value()),
+            &mut buffer,
+        )
+        .unwrap();
+        assert_eq!(len, buffer.len());
+        assert_eq!(
+            buffer,
+            [
+                0x82,
+                0x09,
+                0x7e,
+                0x04,
+                0x32,
+                crate::PresetNumber::MIN.value(),
+                0xff
+            ]
+        );
+        assert!(matches!(
+            write_query_frame(
+                CameraId::CAMERA_2,
+                &[0x09, 0x7e, 0x04, 0x32],
+                Some(QUERY.preset().value()),
+                &mut [0; 6]
+            ),
+            Err(Error::BufferTooSmall { .. })
+        ));
+    }
+
     #[test]
     fn every_admitted_typed_inquiry_has_source_evidence() {
         let index = crate::source_evidence::checked::Index::parse(include_str!(
@@ -2003,7 +2132,7 @@ mod generated_invariant_tests {
             for (name, body, frame) in frames {
                 let frame = frame.unwrap_or_else(|error| panic!("{name} must encode: {error:?}"));
                 let mut expected = vec![camera_id.to_address_byte()];
-                expected.extend_from_slice(body);
+                expected.extend_from_slice(&body);
                 expected.push(VISCA_TERMINATOR);
                 assert_eq!(
                     frame, expected,

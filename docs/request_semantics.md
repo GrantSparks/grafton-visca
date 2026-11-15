@@ -54,6 +54,11 @@ bytes for standard VISCA, nine for BRC-300 and ten for FR7. Explicit custom
 parsers and raw derives keep `Unknown`, since their payload structure belongs
 to the caller.
 
+A built-in query with a parameter owns its validated argument and is constructed
+with `new(argument)`. Both encoding paths append its one-byte protocol value to
+the canonical fixed prefix. Generated Source metadata retains that prefix;
+framing and decoder inventories construct the table's valid typed sample.
+
 Every operation row contains a non-empty `BuiltinAxisSelection`.  Preset
 recall is the one profile-dependent case: preparation must validate and carry
 the profile's exact preset axes.  It must not substitute all axes.
