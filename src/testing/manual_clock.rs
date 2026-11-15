@@ -99,6 +99,16 @@ struct Wakes {
     wakers: Vec<Waker>,
 }
 
+/// One owned timer's stable registration. Completion disarms its deadline;
+/// the map slot remains owned by the future until it is dropped, so reset
+/// replaces values without allocating another tree node.
+#[cfg(all(feature = "async", feature = "test-utils"))]
+#[derive(Debug)]
+struct TimerSlot {
+    deadline: Option<Instant>,
+    waker: Waker,
+}
+
 #[derive(Debug)]
 struct State {
     now: Instant,
@@ -122,7 +132,7 @@ struct State {
     #[cfg(all(feature = "async", feature = "test-utils"))]
     runnable: usize,
     #[cfg(all(feature = "async", feature = "test-utils"))]
-    timers: BTreeMap<(Instant, u64), Waker>,
+    timers: BTreeMap<u64, TimerSlot>,
     /// Timer wakes taken from `timers` but not yet delivered. Until they are,
     /// the tasks they wake are not yet marked runnable.
     #[cfg(all(feature = "async", feature = "test-utils"))]
@@ -214,7 +224,7 @@ impl State {
             .filter(|waiter| !waiter.expired)
             .filter_map(|waiter| waiter.deadline);
         #[cfg(all(feature = "async", feature = "test-utils"))]
-        let waits = waits.chain(self.timers.keys().map(|(deadline, _)| *deadline));
+        let waits = waits.chain(self.timers.values().filter_map(|timer| timer.deadline));
         if let Some(next) = waits.min() {
             self.advance_to(next, wakes);
         }
@@ -236,10 +246,13 @@ impl State {
         self.add_running(resumed);
         #[cfg(all(feature = "async", feature = "test-utils"))]
         {
-            let later = self.timers.split_off(&(now, u64::MAX));
-            let due = std::mem::replace(&mut self.timers, later);
-            self.undelivered += due.len();
-            wakes.wakers.extend(due.into_values());
+            for timer in self.timers.values_mut() {
+                if timer.deadline.is_some_and(|deadline| deadline <= now) {
+                    timer.deadline = None;
+                    self.undelivered += 1;
+                    wakes.wakers.push(timer.waker.clone());
+                }
+            }
         }
     }
 
@@ -414,7 +427,8 @@ impl ManualClock {
             let target = state.now.checked_add(duration).unwrap_or_else(|| {
                 let deadlines = state.waiters.values().filter_map(|waiter| waiter.deadline);
                 #[cfg(all(feature = "async", feature = "test-utils"))]
-                let deadlines = deadlines.chain(state.timers.keys().map(|(deadline, _)| *deadline));
+                let deadlines =
+                    deadlines.chain(state.timers.values().filter_map(|timer| timer.deadline));
                 deadlines.max().unwrap_or(state.now)
             });
             state.advance_to(target, wakes);
@@ -736,8 +750,7 @@ impl ManualClock {
         ManualClockTimer {
             clock: self.clone(),
             deadline: self.now().checked_add(duration),
-            key: None,
-            waker: None,
+            registration: None,
         }
     }
 
@@ -745,8 +758,7 @@ impl ManualClock {
         ManualClockTimer {
             clock: self.clone(),
             deadline: Some(deadline),
-            key: None,
-            waker: None,
+            registration: None,
         }
     }
 
@@ -923,16 +935,23 @@ impl<F> Drop for Tracked<F> {
 /// An owned, resettable deadline measured on a [`ManualClock`].
 ///
 /// Created by [`Executor::timer`] on a [`ManualClockExecutor`]. Resetting
-/// replaces the pending registration and can rearm a timer after completion.
+/// updates its owned registration in place and can rearm a timer after
+/// completion. The registration is released when the future is dropped.
 #[cfg(all(feature = "async", feature = "test-utils"))]
 #[derive(Debug)]
 pub struct ManualClockTimer {
     clock: ManualClock,
     /// `None` for a sleep too long to represent: it never completes.
     deadline: Option<Instant>,
-    key: Option<(Instant, u64)>,
+    registration: Option<TimerRegistration>,
+}
+
+#[cfg(all(feature = "async", feature = "test-utils"))]
+#[derive(Debug)]
+struct TimerRegistration {
+    key: u64,
     /// Retained after completion so reset can wake the waiting task immediately.
-    waker: Option<Waker>,
+    waker: Waker,
 }
 
 #[cfg(all(feature = "async", feature = "test-utils"))]
@@ -941,23 +960,27 @@ impl Future for ManualClockTimer {
 
     fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<()> {
         let this = self.get_mut();
-        this.waker = Some(context.waker().clone());
-        let Some(deadline) = this.deadline else {
-            return Poll::Pending;
-        };
-        let key = &mut this.key;
         this.clock.update(|state, wakes| {
-            if state.now >= deadline {
-                if let Some(key) = key.take() {
-                    state.timers.remove(&key);
-                }
-                return Poll::Ready(());
-            }
-            let key = *key.get_or_insert_with(|| (deadline, state.next_id()));
-            state.timers.insert(key, context.waker().clone());
+            let registration = this.registration.get_or_insert_with(|| TimerRegistration {
+                key: state.next_id(),
+                waker: context.waker().clone(),
+            });
+            registration.waker.clone_from(context.waker());
+            let ready = this.deadline.is_some_and(|deadline| state.now >= deadline);
+            state.timers.insert(
+                registration.key,
+                TimerSlot {
+                    deadline: this.deadline.filter(|deadline| *deadline > state.now),
+                    waker: registration.waker.clone(),
+                },
+            );
             state.changed();
             state.settle(wakes);
-            Poll::Pending
+            if ready {
+                Poll::Ready(())
+            } else {
+                Poll::Pending
+            }
         })
     }
 }
@@ -965,11 +988,11 @@ impl Future for ManualClockTimer {
 #[cfg(all(feature = "async", feature = "test-utils"))]
 impl Drop for ManualClockTimer {
     fn drop(&mut self) {
-        if let Some(key) = self.key.take() {
+        if let Some(registration) = self.registration.take() {
             // Removing a deadline wakes nothing, so a verification round in
             // flight stays valid.
             self.clock.update_drop(|state, _| {
-                state.timers.remove(&key);
+                state.timers.remove(&registration.key);
             });
         }
     }
@@ -981,17 +1004,17 @@ impl ResettableTimer for ManualClockTimer {
         let this = self.get_mut();
         this.deadline = Some(deadline);
         this.clock.update(|state, wakes| {
-            if let Some(key) = this.key.take() {
-                state.timers.remove(&key);
-            }
-            if let Some(waker) = &this.waker {
+            if let Some(registration) = &this.registration {
+                state.timers.insert(
+                    registration.key,
+                    TimerSlot {
+                        deadline: (deadline > state.now).then_some(deadline),
+                        waker: registration.waker.clone(),
+                    },
+                );
                 if deadline <= state.now {
                     state.undelivered += 1;
-                    wakes.wakers.push(waker.clone());
-                } else {
-                    let key = (deadline, state.next_id());
-                    state.timers.insert(key, waker.clone());
-                    this.key = Some(key);
+                    wakes.wakers.push(registration.waker.clone());
                 }
             }
             state.changed();
@@ -1141,7 +1164,11 @@ mod tests {
         clock.advance(Duration::from_secs(1));
         assert_eq!(counter.0.load(Ordering::SeqCst), 1);
         assert!(timer.as_mut().poll(&mut context).is_ready());
-        assert!(clock.lock().timers.is_empty());
+        assert!(clock
+            .lock()
+            .timers
+            .values()
+            .all(|timer| timer.deadline.is_none()));
 
         timer.as_mut().reset(start + Duration::from_secs(20));
         clock.advance(Duration::from_secs(5));
@@ -1163,6 +1190,38 @@ mod tests {
         timer.as_mut().reset(clock.now() + HOUR);
         assert_eq!(clock.lock().timers.len(), 1);
         drop(timer);
+        assert!(clock.lock().timers.is_empty());
+        assert_balanced(&clock);
+    }
+
+    #[cfg(all(feature = "async", feature = "test-utils"))]
+    #[test]
+    fn overflowing_advances_ignore_dormant_slots_and_finish_every_finite_timer() {
+        let clock = ManualClock::new();
+        let _participant = clock.enter();
+        let start = clock.now();
+        let mut finite = Box::pin(clock.timer_at(start + HOUR));
+        let mut infinite = Box::pin(clock.sleep_async(Duration::MAX));
+        let mut context = Context::from_waker(Waker::noop());
+        assert!(finite.as_mut().poll(&mut context).is_pending());
+        assert!(infinite.as_mut().poll(&mut context).is_pending());
+        clock.advance(Duration::MAX);
+        assert_eq!(clock.now(), start + HOUR);
+        assert!(finite.as_mut().poll(&mut context).is_ready());
+        assert!(infinite.as_mut().poll(&mut context).is_pending());
+        assert!(clock
+            .lock()
+            .timers
+            .values()
+            .all(|timer| timer.deadline.is_none()));
+        let restart = clock.now();
+        infinite.as_mut().reset(restart + Duration::from_secs(1));
+        finite.as_mut().reset(restart + Duration::from_secs(2));
+        clock.advance(Duration::MAX);
+        assert_eq!(clock.now(), restart + Duration::from_secs(2));
+        assert!(infinite.as_mut().poll(&mut context).is_ready());
+        assert!(finite.as_mut().poll(&mut context).is_ready());
+        drop((finite, infinite));
         assert!(clock.lock().timers.is_empty());
         assert_balanced(&clock);
     }

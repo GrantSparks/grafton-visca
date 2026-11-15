@@ -155,7 +155,7 @@ pub(crate) trait Framer: private::Sealed {
         !self.buffer().buf.is_empty()
     }
 
-    #[cfg(any(test, feature = "test-utils"))]
+    #[cfg(test)]
     fn max_buffer_size(&self) -> usize {
         self.buffer().max_buffer_size
     }

@@ -387,7 +387,11 @@ fn profiled_position_inquiry_preparation_and_decoder_clones_stay_inline() {
     }
 }
 
-#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
+#[cfg(any(
+    feature = "runtime-tokio",
+    feature = "runtime-smol",
+    all(feature = "async", feature = "test-utils")
+))]
 // Counts allocations on the owner thread. External reactor bookkeeping is
 // outside this boundary; the actor regression separately pins timer factories.
 fn assert_timer_reset_does_not_allocate(runtime: &impl grafton_visca::Executor) {
@@ -421,6 +425,32 @@ fn warmed_tokio_timer_resets_do_not_allocate() {
 #[test]
 fn warmed_smol_timer_resets_do_not_allocate() {
     assert_timer_reset_does_not_allocate(&grafton_visca::SmolExecutor::new());
+}
+
+#[cfg(all(feature = "async", feature = "test-utils"))]
+#[test]
+fn warmed_manual_clock_timer_resets_do_not_allocate() {
+    use grafton_visca::testing::testkit::{ManualClock, ManualClockExecutor};
+    use grafton_visca::{Executor, ResettableTimer};
+    use std::{future::Future, task::Context, time::Duration};
+    let clock = ManualClock::new();
+    // A noop waker cannot participate in quiescence. Keep this thread runnable
+    // so the baseline measures pending resets, not automatic clock advances.
+    let _participant = clock.enter();
+    let executor = ManualClockExecutor::local(&clock);
+    assert_timer_reset_does_not_allocate(&executor);
+
+    let mut timer = Box::pin(executor.timer(clock.now() + Duration::from_secs(1)));
+    let mut context = Context::from_waker(std::task::Waker::noop());
+    assert!(timer.as_mut().poll(&mut context).is_pending());
+    clock.advance(Duration::from_secs(1));
+    assert!(timer.as_mut().poll(&mut context).is_ready());
+    let next = clock.now() + Duration::from_secs(1);
+    let allocations = allocations_during(|| {
+        timer.as_mut().reset(next);
+        assert!(timer.as_mut().poll(&mut context).is_pending());
+    });
+    assert_eq!(allocations, 0, "rearming a completed owned timer allocated");
 }
 
 #[cfg(all(feature = "test-utils", any(feature = "blocking", feature = "async")))]

@@ -124,7 +124,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resettable `Timer` and an absolute-deadline `timer` factory. Tokio and smol
   timers retain their allocation across resets and use the executor clock.
   `ManualClockExecutor` uses an owned `ManualClockTimer` that replaces its
-  virtual registration on reset and can be rearmed after completion. Async
+  virtual registration in place on reset and retains its slot after completion
+  until the timer is dropped. Warmed resets allocate nothing, including on
+  `ManualClockExecutor::local`; an actual local actor keeps its four factories
+  across command, control and idle turns. Async
   owners retain four pinned timers for read bounds, engine/release wakes,
   receive pacing and write bounds; turns reset them without constructing
   another timer future.

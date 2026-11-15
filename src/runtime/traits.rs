@@ -5,7 +5,7 @@
 //! cross-runtime mismatches at compile time.
 
 #[cfg(feature = "async")]
-use std::{future::Future, time::Instant};
+use std::future::Future;
 
 #[cfg(feature = "async")]
 use crate::{
@@ -269,7 +269,7 @@ macro_rules! delegate_executor {
 
             type Timer = <$executor as Executor>::Timer;
 
-            fn timer(&self, deadline: Instant) -> Self::Timer {
+            fn timer(&self, deadline: std::time::Instant) -> Self::Timer {
                 self.executor.timer(deadline)
             }
 
@@ -301,7 +301,7 @@ macro_rules! delegate_executor {
                 self.executor.timeout(duration, fut)
             }
 
-            fn now(&self) -> Instant {
+            fn now(&self) -> std::time::Instant {
                 self.executor.now()
             }
         }
