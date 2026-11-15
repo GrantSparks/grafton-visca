@@ -15,6 +15,7 @@ use crate::FailureContext;
 mod audit_rules;
 mod cancellation_holds;
 mod lifecycle_transition_matrix;
+mod prepared_retry;
 mod raw_evidence;
 mod raw_stream_model;
 
