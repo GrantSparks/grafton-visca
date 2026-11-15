@@ -7,7 +7,7 @@
 
 use crate::{
     command::{
-        bytes::FrameWriter,
+        bytes::{constants::sony_fr7_zoom, FrameWriter, Step},
         encode::WireEncode,
         response::{Nibbles, Payload},
     },
@@ -49,7 +49,7 @@ impl WireEncode for Fr7ZoomHighResolution {
             Self::Wide(speed) => (3, speed),
         };
         FrameWriter::new(camera_id, buffer)
-            .bytes(&[0x01, 0x7e, 0x04, 0x17])
+            .bytes(&sony_fr7_zoom::HIGH_RESOLUTION_DRIVE)
             .byte(direction)
             .nibbles::<4>(speed.value())
             .finish()
@@ -69,7 +69,8 @@ pub struct Fr7ZoomHighResolutionStop;
 impl WireEncode for Fr7ZoomHighResolutionStop {
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
-            .bytes(&[0x01, 0x7e, 0x04, 0x17, 0x00])
+            .bytes(&sony_fr7_zoom::HIGH_RESOLUTION_DRIVE)
+            .byte(Step::Reset.byte())
             .nibbles::<4>(0_u16)
             .finish()
     }

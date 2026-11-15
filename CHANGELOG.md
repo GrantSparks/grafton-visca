@@ -59,6 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Built-in source evidence uses typed catalogue packet patterns. Admission
+  performs bounded byte checks, and the wire golden inventory verifies every
+  encoder case and selector arm against its exact evidence row (#910).
+
 - Owners sanitize diagnostics where events are produced. Subscriber queues
   carry the public event type directly, request summaries retain only target
   and lane, and the complete per-command event order/count is preserved (#913).

@@ -204,10 +204,16 @@ generated from them:
 1. **Ledger row** (`src/command/semantics.rs`): one `builtin_command_ledger!`
    row gives the command its `BuiltinCommand` identity and its class
    (`plain`, `applied(<AXES>)` or `targeted(<AXES>)`), plus any write-only
-   state effect.
+   state effect. Its `packet:` column owns one `PacketPattern` built from
+   `command::bytes::constants`, with explicit selector bytes or nibble masks
+   where needed. Sourced rows require a nonempty `Some(pattern)`; use `None`
+   only for unsourced rows. `source!` references contain the source ID, model
+   list and checked evidence key, without packet copies.
 2. **Wire encoder** (`src/command/<domain>.rs`): fixed-body and single-parameter
    encoders use the crate-internal `visca_command!` generator. Other
-   `WireEncode` implementations write through `FrameWriter`.
+   `WireEncode` implementations write through `FrameWriter`. Add or reuse
+   catalogue constants for fixed bytes, so the encoder and its ledger pattern
+   share their register definition.
 3. **Request entry** (`src/request/builtin.rs`): one `builtin_request!` entry
    names the request type's ledger row and its policy. Each entry still gives
    an explicit `size:`, the `MAX_SIZE` allocation bound for the request's
@@ -233,12 +239,23 @@ sends it must use `[by_value <const expr>]`, or
 The constant must select the noun row's ledger row; generated preparation tests
 also check the ledger row selected by the evaluated runtime request. A typed built-in inquiry is added to
 `define_builtin_inquiries!` in `src/command/inquiry_structs.rs` and gets its
-runtime gate from its noun row in the same way.
+runtime gate from its noun row in the same way. Its `bytes:` references a
+catalogue-owned body, including for inquiry-only registers. Model-specific
+bodies are selected by `body_for_profile` from named catalogue constants;
+keep those alternatives out of reference tuples and inline byte arrays.
 
 Then:
 
 - extend the wire golden (`src/issue_715_wire_golden.rs` and
-  `tests/fixtures/issue_715_wire_golden.txt`);
+  `tests/fixtures/issue_715_wire_golden.txt`). Every successful case checks its
+  exact selected command row or inquiry body. Every `rows:` arm must have an
+  encoded witness for its own request type; duplicate arm-to-row identities
+  require explicit branch witnesses before coverage can be claimed;
+- add the checked evidence rows in `docs/visca_reference.md` and run the
+  command, inquiry and grant evidence tests plus the orphan-row completeness
+  check in `source_evidence`. Grant packet sets come from the noun-gated rows.
+  Historical summary exceptions must name the exact reference key and check
+  its complete expected packet set; they do not grant extra methods or packets;
 - update the semantic class tripwire in `src/command/surface.rs`
   (`surface_ledger_is_exhaustive_unique_and_class_balanced`) and name the class
   the row landed in in the commit message;

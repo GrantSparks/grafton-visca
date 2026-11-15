@@ -10,7 +10,9 @@
 //! (`81 01 04 AA 03 FF`, PTZOptics G2 bench, 2026-10-04, #795). The
 //! semantic-ledger assertion below makes a newly added built-in command fail
 //! until it is deliberately represented by this generator and reviewed in the
-//! fixture; generated inquiry metadata is checked the same way.
+//! fixture. Each successful case checks its exact row's catalogue pattern;
+//! generated selectors require an encoded witness for every arm of each
+//! request type. Generated inquiry metadata is checked the same way.
 //!
 //! The fixture is literal text and every change to it is reviewed as a diff.
 //! After a deliberate encoder change, regenerate it from [`rows`] with
@@ -21,13 +23,15 @@
 
 #![allow(clippy::redundant_closure_call)]
 
-use std::collections::HashSet;
+use std::{any::TypeId, collections::HashSet};
 
-use crate::command::inquiry_structs::BUILTIN_INQUIRIES;
+use crate::command::inquiry_structs::{GeneratedInquiry, BUILTIN_INQUIRIES};
 use crate::command::preset::{PresetCommand, PresetRecallSpeedCommand};
-use crate::command::semantics::BuiltinCommand;
+use crate::command::semantics::{BuiltinCommand, BuiltinRequestContract};
 use crate::command::system::{AddressSetCommand, CommandCancelCommand, InterfaceClearCommand};
 use crate::command::*;
+use crate::request::builtin;
+use crate::source_evidence::PacketPattern;
 use crate::types::*;
 use crate::{CameraId, Error, ViscaSocket};
 
@@ -39,44 +43,279 @@ fn hex(bytes: &[u8]) -> String {
         .join(" ")
 }
 
-fn encode<C: Enc>(c: &C, id: CameraId) -> String {
-    let mut buf = [0u8; 64];
-    match c.write_into(id, &mut buf) {
-        Ok(n) => hex(&buf[..n]),
-        Err(e) => format!("ERR({e:?})"),
+/// Every successful case carries its own semantic identity. The registry's
+/// selector chooses built-in request rows; heterogeneous wire enums below
+/// explicitly select their corresponding homogeneous request row.
+trait GoldenCase: Enc {
+    fn golden_case(&self) -> GoldenCaseIdentity;
+}
+
+enum GoldenCaseIdentity {
+    Command {
+        row: BuiltinCommand,
+        request_type: Option<TypeId>,
+    },
+    Inquiry(PacketPattern),
+}
+
+impl<T: BuiltinRequestContract + Enc + 'static> GoldenCase for T {
+    fn golden_case(&self) -> GoldenCaseIdentity {
+        request_identity(self)
+    }
+}
+
+fn request_identity<C: BuiltinRequestContract + 'static>(request: &C) -> GoldenCaseIdentity {
+    GoldenCaseIdentity::Command {
+        row: request.selected_ledger_row(),
+        request_type: Some(TypeId::of::<C>()),
+    }
+}
+
+// A legacy wire variant with one homogeneous request class needs no selector.
+// If that class gains a selector, require an actual request-value witness.
+fn static_request_identity<C: BuiltinRequestContract + 'static>() -> GoldenCaseIdentity {
+    assert_eq!(
+        C::LEDGER_ROWS,
+        &[C::LEDGER_ROW],
+        "{} now needs a value-selected golden witness",
+        std::any::type_name::<C>()
+    );
+    GoldenCaseIdentity::Command {
+        row: C::LEDGER_ROW,
+        request_type: Some(TypeId::of::<C>()),
+    }
+}
+
+// Inquiry identity and bytes come from the generated inquiry table, never
+// from matching a frame against a collection of candidate patterns.
+macro_rules! inquiry_cases {
+    ($($query:ty),+ $(,)?) => { $(
+        impl GoldenCase for $query {
+            fn golden_case(&self) -> GoldenCaseIdentity {
+                GoldenCaseIdentity::Inquiry(PacketPattern::exact(
+                    <Self as GeneratedInquiry>::BODY,
+                ))
+            }
+        }
+    )+ };
+}
+inquiry_cases! {
+    AutoFocusSensitivityInquiry,
+    AutoWhiteBalanceSensitivityInquiry,
+    BacklightInquiry,
+    BlueGainInquiry,
+    BlueTuningInquiry,
+    BrightnessInquiry,
+    ColorTemperatureInquiry,
+    ContrastInquiry,
+    ExposureCompensationInquiry,
+    ExposureCompensationModeInquiry,
+    ExposureCompensationPositionInquiry,
+    ExposureModeInquiry,
+    FlickerModeInquiry,
+    FlipStateInquiry,
+    FocusModeInquiry,
+    FocusNearLimitInquiry,
+    FocusPositionInquiry,
+    FocusZoneInquiry,
+    Fr7AeLevelInquiry,
+    Fr7AtwColorTemperatureOffsetInquiry,
+    Fr7AtwTintOffsetInquiry,
+    Fr7AutoGainInquiry,
+    Fr7AutoIrisInquiry,
+    Fr7AutoShutterInquiry,
+    Fr7BlueBlackInquiry,
+    Fr7ClearImageZoomPositionInquiry,
+    Fr7CommonPresetSpeedInquiry,
+    Fr7DetailInquiry,
+    Fr7KneeInquiry,
+    Fr7KneeModeInquiry,
+    Fr7KneePermissionInquiry,
+    Fr7KneePointInquiry,
+    Fr7KneeSlopeInquiry,
+    Fr7MasterBlackInquiry,
+    Fr7MemoryBlueGainInquiry,
+    Fr7MemoryColorTemperatureInquiry,
+    Fr7MemoryRedGainInquiry,
+    Fr7MemoryTintInquiry,
+    Fr7PresetSpeedSelectionInquiry,
+    Fr7PresetWhiteInquiry,
+    Fr7RedBlackInquiry,
+    Fr7SeparatePresetDurationInquiry,
+    Fr7SeparatePresetModeInquiry,
+    Fr7SeparatePresetSpeedInquiry,
+    GainInquiry,
+    GainLimitInquiry,
+    GammaInquiry,
+    HueInquiry,
+    ImageFlipInquiry,
+    IrisInquiry,
+    LuminanceInquiry,
+    MenuOpenCloseInquiry,
+    MotionSyncModeInquiry,
+    MotionSyncPresetInquiry,
+    NdFilterInquiry,
+    NdFilterPresetInquiry,
+    NoiseReduction2DInquiry,
+    NoiseReduction2DModeInquiry,
+    NoiseReduction3DInquiry,
+    PanTiltPositionInquiry,
+    PictureEffectInquiry,
+    PowerInquiry,
+    RedGainInquiry,
+    RedTuningInquiry,
+    SaturationInquiry,
+    SharpnessModeInquiry,
+    SharpnessPositionInquiry,
+    ShutterInquiry,
+    TallyGreenInquiry,
+    TallyRedInquiry,
+    UsbAudioInquiry,
+    VersionInquiry,
+    WhiteBalanceModeInquiry,
+    ZoomPositionInquiry,
+}
+
+// These old wire enums span several homogeneous request classes. Exhaustive
+// value matches identify their exact semantic rows before bytes are checked.
+macro_rules! wire_cases {
+    ($($ty:ty => |$value:ident| $row:expr;)+) => { $(
+        impl GoldenCase for $ty {
+            fn golden_case(&self) -> GoldenCaseIdentity {
+                let $value = self;
+                $row
+            }
+        }
+    )+ };
+}
+wire_cases! {
+    PanTilt => |value| match value {
+        PanTilt::Home => static_request_identity::<builtin::PanTiltHome>(),
+        PanTilt::Reset => static_request_identity::<builtin::PanTiltReset>(),
+        PanTilt::Move { direction: PanTiltDirection::Stop, .. } => static_request_identity::<builtin::PanTiltStop>(),
+        PanTilt::Move { .. } => static_request_identity::<builtin::PanTiltDrive>(),
+        PanTilt::AbsolutePosition { .. } => static_request_identity::<builtin::PanTiltAbsolute>(),
+        PanTilt::RelativePosition { .. } => static_request_identity::<builtin::PanTiltRelative>(),
+        PanTilt::LimitSet { .. } => static_request_identity::<builtin::PanTiltLimitSet>(),
+        PanTilt::LimitClear { .. } => static_request_identity::<builtin::PanTiltLimitClear>(),
+    };
+    Zoom => |value| match value {
+        Zoom::Stop => static_request_identity::<builtin::ZoomStop>(),
+        Zoom::TeleStd => request_identity(&builtin::ZoomDrive::Tele),
+        Zoom::WideStd => request_identity(&builtin::ZoomDrive::Wide),
+        Zoom::TeleVariable(speed) => request_identity(&builtin::ZoomDrive::TeleVariable(*speed)),
+        Zoom::WideVariable(speed) => request_identity(&builtin::ZoomDrive::WideVariable(*speed)),
+        Zoom::Position(_) => static_request_identity::<builtin::ZoomTarget>(),
+    };
+    Focus => |value| match value {
+        Focus::Stop => static_request_identity::<builtin::FocusStop>(),
+        Focus::Far => request_identity(&builtin::FocusDrive::Far),
+        Focus::Near => request_identity(&builtin::FocusDrive::Near),
+        Focus::FarWithSpeed(speed) => request_identity(&builtin::FocusDrive::FarVariable(*speed)),
+        Focus::NearWithSpeed(speed) => request_identity(&builtin::FocusDrive::NearVariable(*speed)),
+        Focus::Position(_) => static_request_identity::<builtin::FocusTarget>(),
+        Focus::Auto => request_identity(&builtin::FocusModeCommand::Auto),
+        Focus::Manual => request_identity(&builtin::FocusModeCommand::Manual),
+        Focus::OnePushTrigger => request_identity(&builtin::FocusTrigger::OnePush),
+        Focus::Infinity => static_request_identity::<builtin::FocusInfinity>(),
+        Focus::Toggle => request_identity(&builtin::FocusModeCommand::Toggle),
+        Focus::Snap => request_identity(&builtin::FocusTrigger::Snap),
+    };
+    Iris => |value| match value {
+        Iris::Reset => static_request_identity::<builtin::IrisReset>(),
+        Iris::Up => static_request_identity::<builtin::IrisUp>(),
+        Iris::Down => static_request_identity::<builtin::IrisDown>(),
+        Iris::SetAperture(_) => static_request_identity::<builtin::IrisDirect>(),
+    };
+    PushAF => |value| match value {
+        PushAF::Press => static_request_identity::<builtin::PushAfPress>(),
+        PushAF::Release => static_request_identity::<builtin::PushAfRelease>(),
+    };
+    PresetCommand => |value| match value.action {
+        PresetAction::Set => static_request_identity::<builtin::PresetSet>(),
+        PresetAction::Reset => static_request_identity::<builtin::PresetReset>(),
+        PresetAction::Recall => static_request_identity::<builtin::PresetRecall>(),
+    };
+    NdFilterValue => |_value| static_request_identity::<builtin::NdFilterDirect>();
+    flip::ImageFlip => |value| request_identity(&builtin::ImageFlipCommand::new(value.flip));
+    flip::HorizontalFlip => |value| request_identity(&builtin::ImageMirrorCommand::new(value.on));
+}
+
+#[derive(Default)]
+struct WireInventory {
+    lines: Vec<String>,
+    commands: HashSet<BuiltinCommand>,
+    selector_arms: HashSet<(TypeId, BuiltinCommand)>,
+}
+
+impl WireInventory {
+    fn record<C: GoldenCase>(&mut self, name: impl std::fmt::Display, command: &C, id: CameraId) {
+        self.record_identity(name, command, id, command.golden_case());
+    }
+
+    fn record_identity<C: Enc>(
+        &mut self,
+        name: impl std::fmt::Display,
+        command: &C,
+        id: CameraId,
+        identity: GoldenCaseIdentity,
+    ) {
+        let mut buffer = [0_u8; 64];
+        let encoded = match command.write_into(id, &mut buffer) {
+            Ok(length) => {
+                let frame = &buffer[..length];
+                let pattern = match identity {
+                    GoldenCaseIdentity::Command { row, request_type } => {
+                        self.commands.insert(row);
+                        if let Some(request_type) = request_type {
+                            self.selector_arms.insert((request_type, row));
+                        }
+                        row.packet()
+                    }
+                    GoldenCaseIdentity::Inquiry(pattern) => Some(pattern),
+                };
+                if let Some(pattern) = pattern {
+                    assert!(
+                        pattern.matches_bytes(&frame[1..]),
+                        "wire case {name} does not match its exact ledger/inquiry packet: {}",
+                        hex(frame)
+                    );
+                }
+                hex(frame)
+            }
+            Err(error) => format!("ERR({error:?})"),
+        };
+        self.lines.push(format!("{name}\t{encoded}"));
     }
 }
 
 macro_rules! row {
+    ($out:ident, [$row:ident], $name:expr, $cmd:expr) => {{
+        let command = $cmd;
+        $out.record_identity(
+            $name,
+            &command,
+            CameraId::CAMERA_1,
+            static_request_identity::<builtin::$row>(),
+        );
+    }};
     ($out:ident, $name:expr, $cmd:expr) => {{
-        let c = $cmd;
-        $out.push(format!("{}\t{}", $name, encode(&c, CameraId::CAMERA_1)));
+        let command = $cmd;
+        $out.record($name, &command, CameraId::CAMERA_1);
     }};
     ($out:ident, $name:expr, $cmd:expr, $id:expr) => {{
-        let c = $cmd;
-        $out.push(format!("{}\t{}", $name, encode(&c, $id)));
+        let command = $cmd;
+        $out.record($name, &command, $id);
     }};
 }
 
 macro_rules! rowr {
     ($out:ident, $name:expr, $cmd:expr) => {{
-        let r: Result<_, Error> = (|| $cmd)();
-        match r {
-            Ok(c) => $out.push(format!("{}\t{}", $name, encode(&c, CameraId::CAMERA_1))),
-            Err(e) => $out.push(format!("{}\tCTOR_ERR({e:?})", $name)),
+        let result: Result<_, Error> = (|| $cmd)();
+        match result {
+            Ok(command) => $out.record($name, &command, CameraId::CAMERA_1),
+            Err(error) => $out.lines.push(format!("{}\tCTOR_ERR({error:?})", $name)),
         }
-    }};
-}
-
-macro_rules! cover {
-    ($covered:ident, $($command:ident),+ $(,)?) => {{
-        $(
-            assert!(
-                $covered.insert(BuiltinCommand::$command),
-                "duplicate wire-inventory coverage for {:?}",
-                BuiltinCommand::$command,
-            );
-        )+
     }};
 }
 
@@ -87,26 +326,56 @@ fn ts(v: u8) -> Result<TiltSpeed, Error> {
     TiltSpeed::new(v)
 }
 
+fn assert_request_selector_arms<C: BuiltinRequestContract + 'static>(
+    seen: &HashSet<(TypeId, BuiltinCommand)>,
+) {
+    let arms = C::LEDGER_ROWS;
+    let distinct = arms.iter().copied().collect::<HashSet<_>>();
+    assert_eq!(arms.len(), distinct.len(),
+        "{} has selector arms sharing a row; add explicit branch witnesses before claiming fixture coverage", std::any::type_name::<C>());
+    for row in arms {
+        assert!(
+            seen.contains(&(TypeId::of::<C>(), *row)),
+            "{} selector arm {row:?} has no encoded golden case",
+            std::any::type_name::<C>()
+        );
+    }
+}
+
+macro_rules! selector_arm_coverage {
+    (
+        [$seen:ident]
+        $(
+            @noun $noun:ident { $($header:tt)* };
+            $(
+                $(#[$doc:meta])*
+                $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
+                    $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
+            )*
+        )*
+        @exceptions;
+        $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
+    ) => {
+        $( $( $(
+            let _ = BuiltinCommand::$command;
+            assert_request_selector_arms::<$ret>($seen);
+        )? )* )*
+        $(assert_request_selector_arms::<$exty>($seen);)*
+    };
+}
+
+fn assert_selector_arm_coverage(seen: &HashSet<(TypeId, BuiltinCommand)>) {
+    use crate::command;
+    crate::noun_table::noun_table!(selector_arm_coverage, [seen]);
+}
+
 pub(crate) fn rows() -> Vec<String> {
-    let mut o: Vec<String> = Vec::new();
-    let mut covered = HashSet::new();
+    let mut o = WireInventory::default();
     // power
-    cover!(covered, PowerOn, PowerStandby);
     row!(o, "PowerOn", PowerOn::new());
     row!(o, "PowerStandby", PowerStandby::new());
     row!(o, "PowerOn@cam7", PowerOn::new(), CameraId::CAMERA_7);
     // pan/tilt
-    cover!(
-        covered,
-        PanTiltHome,
-        PanTiltReset,
-        PanTiltDrive,
-        PanTiltStop,
-        PanTiltAbsolute,
-        PanTiltRelative,
-        PanTiltLimitSet,
-        PanTiltLimitClear,
-    );
     row!(o, "PanTilt::Home", PanTilt::Home);
     row!(o, "PanTilt::Reset", PanTilt::Reset);
     for (dn, d) in [
@@ -207,16 +476,6 @@ pub(crate) fn rows() -> Vec<String> {
         }
     );
     // zoom
-    cover!(
-        covered,
-        ZoomStop,
-        ZoomTele,
-        ZoomWide,
-        ZoomTeleVariable,
-        ZoomWideVariable,
-        ZoomPosition,
-        DigitalZoom,
-    );
     row!(o, "Zoom::Stop", Zoom::Stop);
     row!(o, "Zoom::TeleStd", Zoom::TeleStd);
     row!(o, "Zoom::WideStd", Zoom::WideStd);
@@ -242,27 +501,6 @@ pub(crate) fn rows() -> Vec<String> {
     row!(o, "DigitalZoom[on]", DigitalZoom::new(true));
     row!(o, "DigitalZoom[off]", DigitalZoom::new(false));
     // focus
-    cover!(
-        covered,
-        FocusStop,
-        FocusFar,
-        FocusNear,
-        FocusFarVariable,
-        FocusNearVariable,
-        FocusPosition,
-        FocusAuto,
-        FocusManual,
-        FocusOnePush,
-        FocusInfinity,
-        FocusToggle,
-        FocusSnap,
-        FocusZone,
-        FocusAutoSensitivity,
-        FocusNearLimit,
-        FocusLock,
-        PushAfPress,
-        PushAfRelease,
-    );
     row!(o, "Focus::Stop", Focus::Stop);
     row!(o, "Focus::Far", Focus::Far);
     row!(o, "Focus::Near", Focus::Near);
@@ -332,13 +570,6 @@ pub(crate) fn rows() -> Vec<String> {
     row!(o, "PushAF::Press", PushAF::Press);
     row!(o, "PushAF::Release", PushAF::Release);
     // presets
-    cover!(
-        covered,
-        PresetRecall,
-        PresetRecallSpeed,
-        PresetSet,
-        PresetReset,
-    );
     for (an, a) in [
         ("Reset", PresetAction::Reset),
         ("Set", PresetAction::Set),
@@ -365,34 +596,6 @@ pub(crate) fn rows() -> Vec<String> {
         );
     }
     // exposure
-    cover!(
-        covered,
-        ExposureMode,
-        ExposureCompensationOn,
-        ExposureCompensationOff,
-        ExposureCompensationReset,
-        ExposureCompensationUp,
-        ExposureCompensationDown,
-        ExposureCompensationDirect,
-        DynamicRange,
-        IrisReset,
-        IrisUp,
-        IrisDown,
-        IrisDirect,
-        ShutterReset,
-        ShutterUp,
-        ShutterDown,
-        ShutterDirect,
-        BrightnessReset,
-        BrightnessUp,
-        BrightnessDown,
-        BrightnessSet,
-        AntiFlicker,
-        SpotlightOn,
-        SpotlightOff,
-        AutoSlowShutterOn,
-        AutoSlowShutterOff,
-    );
     for (mn, m) in [
         ("Auto", ExposureMode::Auto),
         ("Manual", ExposureMode::Manual),
@@ -473,7 +676,6 @@ pub(crate) fn rows() -> Vec<String> {
     row!(o, "AutoSlowShutterOn", AutoSlowShutterOn::new());
     row!(o, "AutoSlowShutterOff", AutoSlowShutterOff::new());
     // gain
-    cover!(covered, GainReset, GainUp, GainDown, GainDirect, GainLimit);
     row!(o, "Gain::Reset", Gain::Reset);
     row!(o, "Gain::Up", Gain::Up);
     row!(o, "Gain::Down", Gain::Down);
@@ -490,18 +692,6 @@ pub(crate) fn rows() -> Vec<String> {
         );
     }
     // white balance
-    cover!(
-        covered,
-        WhiteBalanceAuto,
-        WhiteBalanceIndoor,
-        WhiteBalanceOutdoor,
-        WhiteBalanceOnePush,
-        WhiteBalanceAutoTracking,
-        WhiteBalanceManual,
-        WhiteBalanceColorTemperature,
-        AutoWhiteBalanceSensitivity,
-        OnePushWhiteBalanceTrigger,
-    );
     for (mn, m) in [
         ("Auto", WhiteBalanceMode::Auto),
         ("Indoor", WhiteBalanceMode::Indoor),
@@ -533,25 +723,6 @@ pub(crate) fn rows() -> Vec<String> {
         AWBSensitivityCommand::new(AutoWhiteBalanceSensitivity::Low)
     );
     // color
-    cover!(
-        covered,
-        RedTuning,
-        BlueTuning,
-        Saturation,
-        Hue,
-        ColorTemperatureReset,
-        ColorTemperatureUp,
-        ColorTemperatureDown,
-        ColorTemperatureDirect,
-        RedGainReset,
-        RedGainUp,
-        RedGainDown,
-        RedGainDirect,
-        BlueGainReset,
-        BlueGainUp,
-        BlueGainDown,
-        BlueGainDirect,
-    );
     row!(o, "OnePushTrigger", OnePushTriggerCommand::new());
     for l in [-11i8, -10, -5, -1, 0, 1, 5, 10, 11] {
         rowr!(
@@ -621,32 +792,6 @@ pub(crate) fn rows() -> Vec<String> {
         );
     }
     // image
-    cover!(
-        covered,
-        SharpnessMode,
-        SharpnessReset,
-        SharpnessUp,
-        SharpnessDown,
-        SharpnessDirect,
-        Luminance,
-        Contrast,
-        Gamma,
-        Backlight,
-        NoiseReduction2dMode,
-        NoiseReduction2d,
-        NoiseReduction2dOff,
-        NoiseReduction3d,
-        NoiseReduction3dOff,
-        ImageFlipOff,
-        ImageFlipHorizontal,
-        ImageFlipHorizontalOff,
-        ImageFlipVertical,
-        ImageFlipBoth,
-        ImageFlipCombined,
-        ImageFreezeOn,
-        ImageFreezeOff,
-        PictureEffect,
-    );
     row!(
         o,
         "Sharpness::Mode[Auto]",
@@ -693,10 +838,22 @@ pub(crate) fn rows() -> Vec<String> {
         ("Vertical", ImageFlipMode::Vertical),
         ("Both", ImageFlipMode::Both),
     ] {
-        row!(
-            o,
+        let command = ImageFlipCombinedCommand::new(m);
+        let identity = if m == ImageFlipMode::Both {
+            command.golden_case()
+        } else {
+            // set_flip_mode and set_flip_both are noun aliases for this
+            // command type. Witness the general alias with its other modes.
+            GoldenCaseIdentity::Command {
+                row: BuiltinCommand::ImageFlipCombined,
+                request_type: None,
+            }
+        };
+        o.record_identity(
             format!("ImageFlipCombined[{mn}]"),
-            ImageFlipCombinedCommand::new(m)
+            &command,
+            CameraId::CAMERA_1,
+            identity,
         );
     }
     row!(
@@ -727,15 +884,6 @@ pub(crate) fn rows() -> Vec<String> {
     row!(o, "ImageFreeze[on]", ImageFreeze { on: true });
     row!(o, "ImageFreeze[off]", ImageFreeze { on: false });
     // nd
-    cover!(
-        covered,
-        NdFilterMode,
-        NdFilterDirect,
-        NdFilterStepUp,
-        NdFilterStepDown,
-        NdFilterAutoOn,
-        NdFilterAutoOff,
-    );
     row!(
         o,
         "NdFilterMode[Preset]",
@@ -751,29 +899,19 @@ pub(crate) fn rows() -> Vec<String> {
     }
     row!(
         o,
+        [NdFilterStepUp],
         "NdFilterStep[Up]",
         NdFilterStepCommand::new(NdFilterStep::Up)
     );
     row!(
         o,
+        [NdFilterStepDown],
         "NdFilterStep[Down]",
         NdFilterStepCommand::new(NdFilterStep::Down)
     );
     row!(o, "AutoNd[on]", AutoNdCommand::new(true));
     row!(o, "AutoNd[off]", AutoNdCommand::new(false));
     // tally
-    cover!(
-        covered,
-        TallyRedOn,
-        TallyRedOff,
-        TallyBrightLow,
-        TallyBrightHigh,
-        TallyGreenOn,
-        TallyGreenOff,
-        TallyFlash,
-        TallyOn,
-        TallyOff,
-    );
     row!(o, "TallyRedOn", TallyRedOn);
     row!(o, "TallyRedOff", TallyRedOff);
     row!(o, "TallyBrightLo", TallyBrightLo);
@@ -784,14 +922,6 @@ pub(crate) fn rows() -> Vec<String> {
     row!(o, "TallyOn", TallyOn);
     row!(o, "TallyOff", TallyOff);
     // menu
-    cover!(
-        covered,
-        MenuDisplay,
-        MenuNavigate,
-        MenuSelect,
-        MenuCancel,
-        DirectMenu,
-    );
     row!(o, "MenuDisplay[on]", SetMenuDisplay::new(true));
     row!(o, "MenuDisplay[off]", SetMenuDisplay::new(false));
     for (dn, d) in [
@@ -823,14 +953,6 @@ pub(crate) fn rows() -> Vec<String> {
         rowr!(o, format!("DirectMenu[{a:02X},{b:02X}]"), dmc(a, b));
     }
     // streaming
-    cover!(
-        covered,
-        MulticastStreamingOn,
-        MulticastStreamingOff,
-        NdiQuality,
-        UsbAudioOn,
-        UsbAudioOff,
-    );
     row!(o, "Multicast::On", MulticastStreaming::On);
     row!(o, "Multicast::Off", MulticastStreaming::Off);
     for (qn, q) in [
@@ -844,13 +966,6 @@ pub(crate) fn rows() -> Vec<String> {
     row!(o, "UsbAudio::On", UsbAudio::On);
     row!(o, "UsbAudio::Off", UsbAudio::Off);
     // system
-    cover!(
-        covered,
-        AddressSet,
-        InterfaceClear,
-        CommandCancel,
-        SettingsSave,
-    );
     row!(o, "AddressSet", AddressSetCommand::new());
     row!(
         o,
@@ -895,7 +1010,6 @@ pub(crate) fn rows() -> Vec<String> {
     );
     row!(o, "SettingsSave", SettingsSaveCommand::new());
     // motion sync / variable speed
-    cover!(covered, MotionSyncMode, MotionSyncPreset, VariableSpeedMode);
     row!(
         o,
         "MotionSyncMode[On]",
@@ -924,61 +1038,6 @@ pub(crate) fn rows() -> Vec<String> {
         SetVariableSpeedMode::new(VariableSpeedMode::Fine50)
     );
     // Sony FR7 R7 v4 controls and boundary values.
-    cover!(
-        covered,
-        Fr7AeLevelUp,
-        Fr7AeLevelDown,
-        Fr7AutoGain,
-        Fr7AutoShutter,
-        Fr7AutoIris,
-        Fr7IrisUp,
-        Fr7IrisDown,
-        Fr7WhiteBalanceSet,
-        Fr7PresetWhiteUp,
-        Fr7PresetWhiteDown,
-        Fr7PresetWhiteDirect,
-        Fr7MemoryColorTemperatureUp,
-        Fr7MemoryColorTemperatureDown,
-        Fr7MemoryColorTemperatureDirect,
-        Fr7MemoryRedGainUp,
-        Fr7MemoryRedGainDown,
-        Fr7MemoryRedGainDirect,
-        Fr7MemoryBlueGainUp,
-        Fr7MemoryBlueGainDown,
-        Fr7MemoryBlueGainDirect,
-        Fr7MemoryTintUp,
-        Fr7MemoryTintDown,
-        Fr7MemoryTintDirect,
-        Fr7AtwColorTemperatureOffsetUp,
-        Fr7AtwColorTemperatureOffsetDown,
-        Fr7AtwColorTemperatureOffsetDirect,
-        Fr7AtwTintOffsetUp,
-        Fr7AtwTintOffsetDown,
-        Fr7AtwTintOffsetDirect,
-        Fr7MasterBlackUp,
-        Fr7MasterBlackDown,
-        Fr7MasterBlackDirect,
-        Fr7RedBlackUp,
-        Fr7RedBlackDown,
-        Fr7RedBlackDirect,
-        Fr7BlueBlackUp,
-        Fr7BlueBlackDown,
-        Fr7BlueBlackDirect,
-        Fr7DetailSetting,
-        Fr7KneeSetting,
-        Fr7SetKneeMode,
-        Fr7SetKneeSlope,
-        Fr7SetKneePoint,
-        Fr7ZoomHighResolutionTele,
-        Fr7ZoomHighResolutionWide,
-        Fr7ZoomHighResolutionStop,
-        Fr7SetPresetSpeedSelection,
-        Fr7SetCommonPresetSpeed,
-        Fr7SetSeparatePresetMode,
-        Fr7SetSeparatePresetSpeed,
-        Fr7SetSeparatePresetDuration,
-        WhiteBalancePreset
-    );
     row!(o, "Fr7AeLevelUp[R7]", Fr7AeLevel::Up);
     row!(o, "Fr7AeLevelDown[R7]", Fr7AeLevel::Down);
     row!(o, "Fr7AutoGain[R7]", Fr7AutoGain::new(true));
@@ -1302,21 +1361,56 @@ pub(crate) fn rows() -> Vec<String> {
     );
     row!(o, "PowerInquiry@cam7", PowerInquiry, CameraId::CAMERA_7);
     extra_rows(&mut o);
-    o.extend(registered_profile_rows());
+    o.lines.extend(registered_profile_rows());
 
     let expected = BuiltinCommand::ALL.iter().copied().collect::<HashSet<_>>();
     assert_eq!(
-        covered, expected,
+        o.commands, expected,
         "every semantic-ledger command must be tied to the literal wire inventory",
     );
-    assert_inquiry_coverage(&o);
-    o
+    assert_selector_arm_coverage(&o.selector_arms);
+    assert_inquiry_coverage(&o.lines);
+    o.lines
 }
 
 #[test]
 fn wire_ledger_matches_literal_golden_inventory() {
     let actual = rows().join("\n") + "\n";
     assert_golden(&actual);
+}
+
+// A frame valid for a different catalogue row must still fail. These guards
+// would catch accidentally replacing the exact-row check with an any-row scan.
+#[test]
+#[should_panic(
+    expected = "wire case wrong zoom row does not match its exact ledger/inquiry packet"
+)]
+fn golden_inventory_rejects_a_valid_frame_under_the_wrong_zoom_row() {
+    WireInventory::default().record_identity(
+        "wrong zoom row",
+        &Zoom::TeleStd,
+        CameraId::CAMERA_1,
+        GoldenCaseIdentity::Command {
+            row: BuiltinCommand::ZoomWide,
+            request_type: None,
+        },
+    );
+}
+
+#[test]
+#[should_panic(
+    expected = "wire case wrong focus row does not match its exact ledger/inquiry packet"
+)]
+fn golden_inventory_rejects_a_valid_frame_under_the_wrong_focus_row() {
+    WireInventory::default().record_identity(
+        "wrong focus row",
+        &Focus::Far,
+        CameraId::CAMERA_1,
+        GoldenCaseIdentity::Command {
+            row: BuiltinCommand::FocusNear,
+            request_type: None,
+        },
+    );
 }
 
 // A bless run must never report green, so it ends in a deliberate panic.
@@ -1379,7 +1473,7 @@ fn dmc(a: u8, b: u8) -> Result<DirectMenuControl, Error> {
         MenuButton::try_from(b)?,
     ))
 }
-fn extra_rows(o: &mut Vec<String>) {
+fn extra_rows(o: &mut WireInventory) {
     row!(
         o,
         "NR2DMode[Auto]",
@@ -1416,58 +1510,86 @@ fn registered_wire<R: crate::Request>(
     Ok(buffer[..written].to_vec())
 }
 
-fn prepared_position<O: crate::OperationCommand<crate::completion::Targeted>>(
+fn assert_request_packet<C: BuiltinRequestContract>(request: &C, frame: &[u8]) {
+    let row = request.selected_ledger_row();
+    if let Some(pattern) = row.packet() {
+        assert!(
+            pattern.matches_bytes(&frame[1..]),
+            "prepared {} frame does not match row {row:?}: {}",
+            std::any::type_name::<C>(),
+            hex(frame)
+        );
+    }
+}
+
+fn prepared_position<
+    O: crate::OperationCommand<crate::completion::Targeted> + BuiltinRequestContract,
+>(
     request: &O,
     target: &crate::TargetRegistration,
 ) -> Result<Vec<u8>, Error> {
     #[cfg(any(feature = "blocking", feature = "async"))]
-    {
-        crate::prepared::test_support::prepare_operation::<crate::completion::Targeted, _>(
-            request,
-            target,
-            crate::OperationalTuning::new(),
-            crate::prepared::ClassSelection::Request,
-        )
-        .map(|prepared| prepared.admit_with(|request, _, _, _| request.wire().as_bytes().to_vec()))
-    }
+    let frame = crate::prepared::test_support::prepare_operation::<crate::completion::Targeted, _>(
+        request,
+        target,
+        crate::OperationalTuning::new(),
+        crate::prepared::ClassSelection::Request,
+    )
+    .map(|prepared| prepared.admit_with(|request, _, _, _| request.wire().as_bytes().to_vec()))?;
     #[cfg(not(any(feature = "blocking", feature = "async")))]
-    registered_wire(request, target)
+    let frame = registered_wire(request, target)?;
+    assert_request_packet(request, &frame);
+    Ok(frame)
 }
 
-fn prepared_limit<C: crate::PlainCommand>(
+fn prepared_limit<C: crate::PlainCommand + BuiltinRequestContract>(
     request: &C,
     target: &crate::TargetRegistration,
 ) -> Result<Vec<u8>, Error> {
     #[cfg(any(feature = "blocking", feature = "async"))]
-    {
-        crate::prepared::test_support::prepare_command(
-            request,
-            target,
-            crate::OperationalTuning::new(),
-            crate::prepared::ClassSelection::Request,
-        )
-        .map(|prepared| prepared.admit_with(|request, _| request.wire().as_bytes().to_vec()))
-    }
+    let frame = crate::prepared::test_support::prepare_command(
+        request,
+        target,
+        crate::OperationalTuning::new(),
+        crate::prepared::ClassSelection::Request,
+    )
+    .map(|prepared| prepared.admit_with(|request, _| request.wire().as_bytes().to_vec()))?;
     #[cfg(not(any(feature = "blocking", feature = "async")))]
-    registered_wire(request, target)
+    let frame = registered_wire(request, target)?;
+    assert_request_packet(request, &frame);
+    Ok(frame)
 }
 
-fn prepared_query<Q: crate::Inquiry>(
+fn prepared_query<Q: crate::Inquiry + GeneratedInquiry>(
     request: &Q,
     target: &crate::TargetRegistration,
 ) -> Result<Vec<u8>, Error> {
     #[cfg(any(feature = "blocking", feature = "async"))]
-    {
-        crate::prepared::test_support::prepare_inquiry(
-            request,
-            target,
-            crate::OperationalTuning::new(),
-            crate::prepared::ClassSelection::Request,
-        )
-        .map(|prepared| prepared.admit_with(|request, _, _| request.wire().as_bytes().to_vec()))
-    }
+    let frame = crate::prepared::test_support::prepare_inquiry(
+        request,
+        target,
+        crate::OperationalTuning::new(),
+        crate::prepared::ClassSelection::Request,
+    )
+    .map(|prepared| prepared.admit_with(|request, _, _| request.wire().as_bytes().to_vec()))?;
     #[cfg(not(any(feature = "blocking", feature = "async")))]
-    registered_wire(request, target)
+    let frame = registered_wire(request, target)?;
+    // The inquiry table has one explicitly profile-selected catalogue body.
+    let body = if Q::KIND == InquiryKind::Power
+        && target.profile().capabilities().profile_id
+            == Some(crate::profiles::ProfileId::SonyBrcH900)
+    {
+        &bytes::constants::power::BRC_H900_STATE_INQUIRY[..]
+    } else {
+        Q::BODY
+    };
+    assert!(
+        PacketPattern::exact(body).matches_bytes(&frame[1..]),
+        "prepared {} inquiry differs from its profile-selected packet: {}",
+        std::any::type_name::<Q>(),
+        hex(&frame)
+    );
+    Ok(frame)
 }
 
 #[allow(clippy::expect_used)]

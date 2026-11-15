@@ -6,7 +6,10 @@
 
 use crate::{
     command::{
-        bytes::FrameWriter,
+        bytes::{
+            constants::{exposure, sony_fr7_exposure},
+            FrameWriter,
+        },
         encode::WireEncode,
         response::{Nibbles, Payload},
     },
@@ -86,7 +89,7 @@ pub enum Fr7AeLevel {
 impl WireEncode for Fr7AeLevel {
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
-            .bytes(&[0x01, 0x04, 0x0e])
+            .bytes(&exposure::COMPENSATION_STEP)
             .byte(match self {
                 Self::Up => 2,
                 Self::Down => 3,
@@ -133,15 +136,15 @@ macro_rules! automatic_control {
 
 automatic_control! {
     /// Enables or disables FR7 automatic gain control (R7 p. 14).
-    Fr7AutoGain, [0x01, 0x7e, 0x01, 0x75]
+    Fr7AutoGain, sony_fr7_exposure::AUTO_GAIN
 }
 automatic_control! {
     /// Enables or disables the FR7 automatic shutter (R7 p. 14).
-    Fr7AutoShutter, [0x01, 0x05, 0x35]
+    Fr7AutoShutter, sony_fr7_exposure::AUTO_SHUTTER
 }
 automatic_control! {
     /// Enables or disables FR7 automatic iris control (R7 p. 14).
-    Fr7AutoIris, [0x01, 0x05, 0x34]
+    Fr7AutoIris, sony_fr7_exposure::AUTO_IRIS
 }
 
 crate::__grafton_visca_newtype! {
@@ -182,7 +185,8 @@ macro_rules! iris_adjustment {
         impl WireEncode for $name {
             fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 FrameWriter::new(camera_id, buffer)
-                    .bytes(&[0x01, 0x7e, 0x04, 0x4b, $direction])
+                    .bytes(&sony_fr7_exposure::IRIS_STEP)
+                    .byte($direction)
                     .nibbles::<2>(self.steps.value())
                     .finish()
             }

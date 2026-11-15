@@ -7,7 +7,7 @@
 
 use crate::{
     command::{
-        bytes::FrameWriter,
+        bytes::{constants::sony_fr7_image, FrameWriter},
         encode::WireEncode,
         response::{Nibbles, Payload},
     },
@@ -161,15 +161,15 @@ macro_rules! black_control {
 
 black_control! {
     /// FR7 master-black adjustment (R7 p. 16).
-    Fr7MasterBlack, step = [0x01, 0x05, 0x18], direct = [0x01, 0x05, 0x48]
+    Fr7MasterBlack, step = sony_fr7_image::MASTER_BLACK_STEP, direct = sony_fr7_image::MASTER_BLACK_DIRECT
 }
 black_control! {
     /// FR7 red-black adjustment (R7 p. 16).
-    Fr7RedBlack, step = [0x01, 0x7e, 0x01, 0x65], direct = [0x01, 0x7e, 0x04, 0x43]
+    Fr7RedBlack, step = sony_fr7_image::RED_BLACK_STEP, direct = sony_fr7_image::RED_BLACK_DIRECT
 }
 black_control! {
     /// FR7 blue-black adjustment (R7 p. 16).
-    Fr7BlueBlack, step = [0x01, 0x7e, 0x01, 0x66], direct = [0x01, 0x7e, 0x04, 0x44]
+    Fr7BlueBlack, step = sony_fr7_image::BLUE_BLACK_STEP, direct = sony_fr7_image::BLUE_BLACK_DIRECT
 }
 
 macro_rules! boolean_setting {
@@ -210,11 +210,11 @@ macro_rules! boolean_setting {
 
 boolean_setting! {
     /// Enables or disables FR7 detail processing (R7 p. 16).
-    Fr7DetailSetting, [0x01, 0x7e, 0x01, 0x60]
+    Fr7DetailSetting, sony_fr7_image::DETAIL_SETTING
 }
 boolean_setting! {
     /// Enables or disables the FR7 knee (R7 p. 16).
-    Fr7KneeSetting, [0x01, 0x7e, 0x01, 0x6d]
+    Fr7KneeSetting, sony_fr7_image::KNEE_SETTING
 }
 
 macro_rules! protocol_choice {
@@ -324,15 +324,15 @@ macro_rules! knee_setting {
 
 knee_setting! {
     /// Selects FR7 automatic or manual knee mode (R7 p. 16).
-    Fr7SetKneeMode, mode: Fr7KneeMode, [0x01, 0x7e, 0x01, 0x54], 1
+    Fr7SetKneeMode, mode: Fr7KneeMode, sony_fr7_image::KNEE_MODE, 1
 }
 knee_setting! {
     /// Sets the FR7 knee slope from -99 through +99 (R7 p. 16).
-    Fr7SetKneeSlope, slope: KneeSlope, [0x01, 0x7e, 0x01, 0x6f], 2
+    Fr7SetKneeSlope, slope: KneeSlope, sony_fr7_image::KNEE_SLOPE, 2
 }
 knee_setting! {
     /// Sets the FR7 knee point from 75% through 109% (R7 p. 16).
-    Fr7SetKneePoint, point: KneePoint, [0x01, 0x7e, 0x01, 0x6e], 2
+    Fr7SetKneePoint, point: KneePoint, sony_fr7_image::KNEE_POINT, 2
 }
 
 pub(crate) fn decode_black_level(payload: Payload<'_>) -> Result<BlackLevel, Error> {
