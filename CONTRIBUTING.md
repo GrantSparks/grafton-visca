@@ -210,7 +210,6 @@ impl Request for MyInquiry {
 impl Inquiry for MyInquiry {
     type Response = MyResponse;
 
-    fn route(&self) -> InquiryRoute { /* select the response route */ }
     fn decoder(&self) -> ResponseDecoder<Self::Response> { /* decode response */ }
 }
 ```

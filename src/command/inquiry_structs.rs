@@ -415,9 +415,6 @@ macro_rules! define_builtin_inquiries {
             impl crate::Inquiry for $struct {
                 type Response = builtin_inquiry_response!($typed);
 
-                fn route(&self) -> crate::InquiryRoute {
-                    crate::InquiryRoute::custom(InquiryKind::$kind as u16 + 1)
-                }
 
                 fn decoder(&self) -> crate::ResponseDecoder<Self::Response> {
                     crate::ResponseDecoder::from_fn(decode_payload::<Self>)

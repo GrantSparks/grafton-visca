@@ -11,9 +11,9 @@ use std::sync::{atomic::Ordering, Mutex};
 use crate::runtime::Runtime;
 use crate::{
     runtime::engine::{
-        CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, InquiryRoute,
-        ProtocolPolicy, ReplyShape, RequestContext, RequestId, RetryPolicy, RuntimeRequest,
-        TargetPolicy, TimeoutPolicy,
+        CancellationPolicy, ControlPolicy, DecodedResponse, EncodedMessage, ProtocolPolicy,
+        ReplyShape, RequestContext, RequestId, RetryPolicy, RuntimeRequest, TargetPolicy,
+        TimeoutPolicy,
     },
     ViscaSocket,
 };
@@ -553,7 +553,6 @@ fn inquiry_for(target: TargetSlot) -> RuntimeRequest {
             cancellation: CancellationPolicy::Supported,
             reply_shape: ReplyShape::AckThenCompletion,
         },
-        route: InquiryRoute::UNKNOWN,
     }
 }
 
@@ -964,7 +963,6 @@ where
                         target: TargetSlot::CAMERA_1,
                         sequence: None,
                         response: DecodedResponse::InquiryReply {
-                            route: None,
                             payload: smallvec::smallvec![0x0, 0x1, 0x0, 0x0],
                         },
                     }]))
@@ -1193,7 +1191,6 @@ fn raw_inquiry_reply(payload: u8) -> DecodedFrame {
         target: TargetSlot::CAMERA_1,
         sequence: None,
         response: DecodedResponse::InquiryReply {
-            route: None,
             payload: smallvec::smallvec![payload],
         },
     }

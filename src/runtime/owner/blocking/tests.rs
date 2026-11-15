@@ -33,8 +33,8 @@ use crate::{
     protocol::sony::SonyHeader,
     request::builtin::{FocusModeCommand, PanTiltLimitClear, ZoomStop},
     runtime::engine::{
-        CancellationPolicy, ControlPolicy, EncodedMessage, InquiryRoute, ReplyShape,
-        RequestContext, RetryPolicy, TimeoutPolicy,
+        CancellationPolicy, ControlPolicy, EncodedMessage, ReplyShape, RequestContext, RetryPolicy,
+        TimeoutPolicy,
     },
     transport::{
         AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
@@ -418,7 +418,6 @@ fn raw_inquiry(inquiry: Duration) -> RuntimeRequest {
             cancellation: CancellationPolicy::Supported,
             reply_shape: ReplyShape::AckThenCompletion,
         },
-        route: InquiryRoute::UNKNOWN,
     }
 }
 

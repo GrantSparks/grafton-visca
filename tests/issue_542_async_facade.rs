@@ -32,8 +32,8 @@ use grafton_visca::{
     profiles::{ProfileId, PtzOpticsG2, SonyFR7},
     request,
     transport::{AddressingMode, TransportConfig},
-    Camera, CameraId, ControlClass, Error, Executor, Inquiry, InquiryRoute, Operation,
-    OperationCommand, Request, ResponseDecoder, RetryClass, Session, SessionConfig, TimeoutClass,
+    Camera, CameraId, ControlClass, Error, Executor, Inquiry, Operation, OperationCommand, Request,
+    ResponseDecoder, RetryClass, Session, SessionConfig, TimeoutClass,
 };
 
 use fake_camera::{frames, AsyncWire, FakeCamera};
@@ -85,10 +85,6 @@ impl Request for RawInquiry {
 
 impl Inquiry for RawInquiry {
     type Response = Vec<u8>;
-
-    fn route(&self) -> InquiryRoute {
-        InquiryRoute::RAW
-    }
 
     fn decoder(&self) -> ResponseDecoder<Self::Response> {
         ResponseDecoder::from_fn(|payload| Ok(payload.to_vec()))

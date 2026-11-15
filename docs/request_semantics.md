@@ -23,8 +23,9 @@ classes are `raw::Plain`, `raw::Inquiry`, `raw::Targeted`, and
 `raw::AppliedOnly`; their explicit policy values use `raw::Policy`. Each class
 has one primary `new` constructor and one
 `with_policy` constructor where a prebuilt policy is useful. Inquiry decoders
-use `from_fn` or `with_context`, and request values expose `bytes()` and their
-semantic accessors (`route()` or `affected_axes()`).
+use `from_fn` or `with_context`, and operation values expose `bytes()` and
+`affected_axes()`. All inquiry convenience constructors select the `Inquiry`
+timeout category; `with_policy` validates an explicit policy's category.
 
 The raw namespace is the explicit escape hatch for callers that need to supply
 wire bytes or a custom response decoder. The low-level `command` module remains
@@ -33,9 +34,9 @@ not choose a completion class; owner submission uses the typed
 `Request`/`Inquiry`/`OperationCommand` contracts.
 
 Raw frames are bounded by the single public `raw::MAX_BYTES` constant; the
-inline storage capacity is an implementation detail. Custom inquiry routes
-use `InquiryRoute::try_custom`, and affected-axis cardinality is reported by
-`AffectedAxes::axis_count`.
+inline storage capacity is an implementation detail. Inquiry decoders own the
+payload interpretation; a raw reply carries no caller-chosen route identifier.
+Affected-axis cardinality is reported by `AffectedAxes::axis_count`.
 
 Every operation row contains a non-empty `BuiltinAxisSelection`.  Preset
 recall is the one profile-dependent case: preparation must validate and carry

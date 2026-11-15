@@ -632,10 +632,9 @@ fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -
         kind,
     } = spec;
 
-    let (response_type, route, decoder, inherent, typed_impl) = match kind {
+    let (response_type, decoder, inherent, typed_impl) = match kind {
         ResponseKind::Raw => (
             quote! { #crate_path::command::RawInquiryPayload },
-            quote! { #crate_path::InquiryRoute::RAW },
             quote! {
                 fn decode(
                     payload: &[u8],
@@ -699,17 +698,11 @@ fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -
                     #parse_response
                 }
             };
-            let route = quote! {
-                #crate_path::InquiryRoute::custom(
-                    #crate_path::command::InquiryKind::#response as u16 + 1,
-                )
-            };
             match typed {
                 Some(typed) => {
                     let response_type = type_tokens(&typed.ty, crate_path);
                     (
                         response_type.clone(),
-                        route,
                         quote! {
                             fn decode(
                                 payload: &[u8],
@@ -734,7 +727,6 @@ fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -
                 }
                 None => (
                     quote! { #crate_path::command::Response },
-                    route,
                     quote! {
                         #crate_path::ResponseDecoder::from_fn(
                             #struct_name::__grafton_visca_decode_payload
@@ -783,9 +775,6 @@ fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -
         impl #crate_path::Inquiry for #struct_name {
             type Response = #response_type;
 
-            fn route(&self) -> #crate_path::InquiryRoute {
-                #route
-            }
 
             fn decoder(&self) -> #crate_path::ResponseDecoder<Self::Response> {
                 #decoder
@@ -1182,7 +1171,7 @@ mod tests {
     }
 
     #[test]
-    fn request_and_route_are_emitted_once_for_every_response_kind() {
+    fn request_and_inquiry_are_emitted_once_for_every_response_kind() {
         for input in [
             syn::parse_quote! {
                 #[visca(opcode = 0x7E, response = Raw)]
@@ -1200,7 +1189,7 @@ mod tests {
             let tokens = expanded(input);
             assert_eq!(tokens.matches(":: Request for").count(), 1, "{tokens}");
             assert_eq!(tokens.matches(":: Inquiry for").count(), 1, "{tokens}");
-            assert_eq!(tokens.matches("fn route").count(), 1, "{tokens}");
+            assert!(!tokens.contains("fn route"), "{tokens}");
             assert!(
                 tokens.matches("parse_inquiry_payload").count() <= 1,
                 "the canonical decoder is written at most once: {tokens}"

@@ -379,7 +379,7 @@ produce it:
 | Frame | Resolves against |
 | --- | --- |
 | ACK | the oldest ACK-bearing command |
-| Inquiry data | the oldest inquiry whose route the content allows |
+| Inquiry data | the oldest inquiry (the wire carries no inquiry identity) |
 | `0x04`/`0x05` naming socket `y` | the oldest cancellation for `y` |
 | Rejection code naming a free, unheld socket | the oldest command (a rejection names the socket the camera allocated; an inquiry is never allocated one) |
 | Socketless error | the oldest entry of any kind but cancellation (an execution error names its socket) |

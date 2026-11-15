@@ -131,7 +131,7 @@ fn named_error_on_a_free_socket_rejects_the_command_while_an_inquiry_is_live() {
     for transport in [TransportKind::Datagram, TransportKind::Stream] {
         let now = Instant::now();
         let mut engine = fresh(EnvelopeKind::Raw, transport);
-        let (inquiry_effects, inquiry_id) = admit(&mut engine, 1, inquiry(1, POWER), now);
+        let (inquiry_effects, inquiry_id) = admit(&mut engine, 1, inquiry(1), now);
         send_ok(&mut engine, &inquiry_effects, None, now);
         let (command_effects, command_id) = admit(
             &mut engine,
@@ -807,7 +807,7 @@ fn stream_owed_completion_only_answer_holds_back_ordinary_work() {
             command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
             true,
         ),
-        (6, inquiry(1, POWER), true),
+        (6, inquiry(1), true),
     ] {
         let rejected = engine.handle(
             Input::Admit {
@@ -909,7 +909,7 @@ fn an_error_naming_a_busy_socket_is_its_commands_while_an_inquiry_is_live() {
         let now = Instant::now();
         let mut engine = fresh(EnvelopeKind::Raw, transport);
         let executing = executing_on(&mut engine, 1, ViscaSocket::S1, now);
-        let (inquiry_effects, inquiry_id) = admit(&mut engine, 2, inquiry(1, POWER), now);
+        let (inquiry_effects, inquiry_id) = admit(&mut engine, 2, inquiry(1), now);
         send_ok(&mut engine, &inquiry_effects, None, now);
         let failed = engine.handle(named_error(1, ViscaSocket::S1, 0x41), now);
         assert!(
@@ -1215,7 +1215,7 @@ fn a_socketless_error_pays_the_oldest_debt_while_a_command_executes() {
 fn inquiry_replies_answer_only_inquiry_entries() {
     let start = Instant::now();
     let mut engine = single_flight_raw_stream_engine();
-    let (send, inquiry_id) = admit(&mut engine, 1, inquiry(1, POWER), start);
+    let (send, inquiry_id) = admit(&mut engine, 1, inquiry(1), start);
     send_ok(&mut engine, &send, None, start);
     command_awaiting_ack(&mut engine, 2, start);
     engine.advance(start + Duration::from_millis(20));
@@ -1323,7 +1323,7 @@ fn disputed(engine: &mut ProtocolEngine, now: Instant) -> (RequestId, RequestId,
     );
     send_ok(engine, &effects, None, now);
     // A STOP is never held back by it; ordinary work is.
-    let (queued, inquiry_id) = admit(engine, 2, inquiry(1, POWER), now);
+    let (queued, inquiry_id) = admit(engine, 2, inquiry(1), now);
     assert!(request_transmit_optional(&queued).is_none());
     let (stop_effects, stop) = admit(engine, 3, stop_command(1), now);
     assert_eq!(request_transmit(&stop_effects).1, stop);
@@ -1563,7 +1563,7 @@ fn reaching_the_debt_cap_latches_every_lane_without_dropping_a_debt() {
     assert_eq!(command_lane(&engine, 1), LaneState::Latched);
     assert_eq!(engine.state(), SessionState::Running);
     for (ticket, request, inquiry_lost) in [
-        (101, inquiry(1, POWER), true),
+        (101, inquiry(1), true),
         (102, command(1, CancellationPolicy::Supported), false),
     ] {
         let rejected = engine.handle(
@@ -1586,7 +1586,7 @@ fn reaching_the_debt_cap_latches_every_lane_without_dropping_a_debt() {
     now = unanswered_stop(&mut engine, 103, now);
     assert_eq!(raw_owed(&engine, 1), MAX_DEBTS_PER_TARGET + 1);
     // Another camera is unaffected.
-    let (other, other_id) = admit(&mut engine, 104, inquiry(2, POWER), now);
+    let (other, other_id) = admit(&mut engine, 104, inquiry(2), now);
     assert_eq!(request_transmit(&other).1, other_id);
 
     // The camera recovers: its late ACKs pay the oldest debts first. Back
@@ -1843,14 +1843,13 @@ fn a_later_first_answer_retires_a_never_answered_inquiry() {
 
     let later = window_end + Duration::from_millis(100);
     engine.advance(later);
-    let (effects, inquiry_id) = admit(&mut engine, 3, inquiry(1, POWER), later);
+    let (effects, inquiry_id) = admit(&mut engine, 3, inquiry(1), later);
     send_ok(&mut engine, &effects, None, later);
     let reply = engine.handle(
         frame(
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: None,
                 payload: SmallVec::from_slice(&[2]),
             },
         ),
@@ -1880,14 +1879,13 @@ fn an_inquiry_reply_ends_a_stop_debt_cascade() {
     now = ended;
     assert_eq!(raw_owed(&engine, 1), 1);
 
-    let (effects, inquiry_id) = admit(&mut engine, 3, inquiry(1, POWER), now);
+    let (effects, inquiry_id) = admit(&mut engine, 3, inquiry(1), now);
     send_ok(&mut engine, &effects, None, now);
     let reply = engine.handle(
         frame(
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: None,
                 payload: SmallVec::from_slice(&[2]),
             },
         ),
@@ -1991,7 +1989,7 @@ fn stop_inside_no_reply_hold(
         terminal_outcome(&written, no_reply),
         Some(RuntimeOutcome::Written)
     ));
-    let (queued, inquiry_id) = admit(engine, 2, inquiry(1, POWER), now);
+    let (queued, inquiry_id) = admit(engine, 2, inquiry(1), now);
     assert!(request_transmit_optional(&queued).is_none());
     let (queued, command_id) = admit(engine, 3, command(1, CancellationPolicy::Supported), now);
     assert!(request_transmit_optional(&queued).is_none());
@@ -2218,7 +2216,7 @@ fn an_unanswered_tracked_dispute_falls_to_the_latch() {
         let at = now + Duration::from_millis(step);
         // An inquiry queued just before the dispute ends.
         let effects = if step == 115 {
-            let (effects, _) = admit(&mut engine, 8, inquiry(1, POWER), at);
+            let (effects, _) = admit(&mut engine, 8, inquiry(1), at);
             assert!(request_transmit_optional(&effects).is_none());
             effects
         } else {
@@ -2250,7 +2248,7 @@ fn an_unanswered_tracked_dispute_falls_to_the_latch() {
     let rejected = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(9),
-            request: inquiry(1, POWER),
+            request: inquiry(1),
             slot: AdmissionSlot::Ordinary,
         },
         at,
@@ -2385,7 +2383,7 @@ fn completion_only_work_behind_an_unsettled_no_reply_fails_fast() {
         }
     )));
     // An inquiry's reply settles the `NoReply` command's possible rejection.
-    let (effects, inquiry_id) = admit(&mut engine, 4, inquiry(1, POWER), window_end);
+    let (effects, inquiry_id) = admit(&mut engine, 4, inquiry(1), window_end);
     assert_eq!(request_transmit(&effects).1, inquiry_id);
     send_ok(&mut engine, &effects, None, window_end);
     let replied = engine.handle(
@@ -2393,7 +2391,6 @@ fn completion_only_work_behind_an_unsettled_no_reply_fails_fast() {
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: None,
                 payload: SmallVec::from_slice(&[0x02]),
             },
         ),
@@ -2821,7 +2818,7 @@ fn late_first_answers_are_order_independent() {
             // oracle rather than comparing two empty retry-only effect sets.
             engine.policy.inquiry_capacity = 1;
             let request = if class == 2 {
-                inquiry(1, POWER)
+                inquiry(1)
             } else {
                 command(1, CancellationPolicy::Supported)
             };
@@ -2858,7 +2855,6 @@ fn late_first_answers_are_order_independent() {
                 1,
                 None,
                 DecodedResponse::InquiryReply {
-                    route: Some(POWER),
                     payload: smallvec![0x02],
                 },
             ),

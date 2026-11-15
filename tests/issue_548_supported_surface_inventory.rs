@@ -434,7 +434,6 @@ fn downstream_derive_inventory_compiles_and_preserves_behavior() {
         .write_into(CameraId::CAMERA_1, &mut wire)
         .expect("inventory inquiry must encode");
     assert_eq!(&wire[..len], &[0x81, 0x09, 0x04, 0x00, 0xFF]);
-    let _route = Inquiry::route(&InventoryInquiry);
     let _decoder = Inquiry::decoder(&InventoryInquiry);
 
     assert_eq!(

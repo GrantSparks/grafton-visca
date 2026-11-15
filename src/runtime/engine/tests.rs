@@ -20,10 +20,6 @@ mod prepared_retry;
 mod raw_evidence;
 mod raw_stream_model;
 
-const POWER: InquiryRoute = InquiryRoute(1);
-const ZOOM: InquiryRoute = InquiryRoute(2);
-const FOCUS: InquiryRoute = InquiryRoute(3);
-
 fn camera(value: u8) -> TargetSlot {
     TargetSlot::try_from(crate::CameraId::new(value).unwrap()).unwrap()
 }
@@ -183,17 +179,16 @@ fn phase_of(engine: &ProtocolEngine, id: RequestId) -> Option<Phase> {
     engine.entries.get(&id).map(Entry::phase)
 }
 
-fn inquiry(target: u8, route: InquiryRoute) -> RuntimeRequest {
-    inquiry_with_retry(target, route, retrying())
+fn inquiry(target: u8) -> RuntimeRequest {
+    inquiry_with_retry(target, retrying())
 }
 
-fn inquiry_with_retry(target: u8, route: InquiryRoute, retry: RetryPolicy) -> RuntimeRequest {
+fn inquiry_with_retry(target: u8, retry: RetryPolicy) -> RuntimeRequest {
     let mut inquiry_context = context(target, CancellationPolicy::Supported);
     inquiry_context.retry = retry;
     RuntimeRequest::Inquiry {
         wire: wire(0x80 | target),
         context: inquiry_context,
-        route,
     }
 }
 
@@ -567,7 +562,7 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
     let a = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
+            request: inquiry_with_retry(1, RetryPolicy::NEVER),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -582,7 +577,6 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
             1,
             Some((0xbeef, SequenceWidth::Lower16)),
             DecodedResponse::InquiryReply {
-                route: Some(POWER),
                 payload: smallvec![1],
             },
         ),
@@ -593,7 +587,7 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
     let b = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: inquiry(1, ZOOM),
+            request: inquiry(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -603,7 +597,7 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
     let c = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(3),
-            request: inquiry(1, FOCUS),
+            request: inquiry(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -615,7 +609,6 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
             1,
             Some((0xbeef, SequenceWidth::Lower16)),
             DecodedResponse::InquiryReply {
-                route: Some(ZOOM),
                 payload: smallvec![2],
             },
         ),
@@ -630,7 +623,6 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
             1,
             Some((0x3333_beef, SequenceWidth::Full32)),
             DecodedResponse::InquiryReply {
-                route: Some(FOCUS),
                 payload: smallvec![3],
             },
         ),
@@ -642,7 +634,6 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
             1,
             Some((0xbeef, SequenceWidth::Lower16)),
             DecodedResponse::InquiryReply {
-                route: Some(ZOOM),
                 payload: smallvec![2],
             },
         ),
@@ -653,7 +644,7 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
     let wrong_target = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(4),
-            request: inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
+            request: inquiry_with_retry(1, RetryPolicy::NEVER),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -664,7 +655,6 @@ fn sony_exact_and_unique_lower16_are_target_safe_and_owner_deduplicated() {
             2,
             Some((0x1234_5678, SequenceWidth::Full32)),
             DecodedResponse::InquiryReply {
-                route: Some(POWER),
                 payload: smallvec![0],
             },
         ),
@@ -1148,7 +1138,7 @@ fn an_inquiry_is_not_dispatched_before_the_inquiry_cooldown_ends() {
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
     let cooldown_end = start + Duration::from_millis(25);
     engine.inquiry_cooldown_until = Some(cooldown_end);
-    let (queued, id) = admit(&mut engine, 1, inquiry(1, POWER), start);
+    let (queued, id) = admit(&mut engine, 1, inquiry(1), start);
     assert!(request_transmit_optional(&queued).is_none());
     assert_eq!(engine.next_wake(), Some(cooldown_end));
     let early = engine.advance(cooldown_end - Duration::from_millis(1));
@@ -1172,7 +1162,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
     let first = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: inquiry(1, POWER),
+            request: inquiry(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -1186,7 +1176,7 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
     let queued = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: inquiry(1, ZOOM),
+            request: inquiry(1),
             slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(1),
@@ -1282,7 +1272,6 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
             1,
             Some((0x4050_6070, SequenceWidth::Full32)),
             DecodedResponse::InquiryReply {
-                route: Some(ZOOM),
                 payload: smallvec![1],
             },
         ),
@@ -1331,15 +1320,15 @@ fn sony_stale_inquiry_errors_do_not_spend_retry_during_backoff_or_ready() {
 }
 
 #[test]
-fn raw_inquiries_route_by_unique_content_then_per_target_fifo() {
+fn raw_inquiry_replies_follow_per_target_write_order() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let mut ids = Vec::new();
-    for (ticket, target, route) in [(1, 1, POWER), (2, 1, ZOOM), (3, 1, POWER), (4, 2, POWER)] {
+    for (ticket, target) in [(1, 1), (2, 1), (3, 1), (4, 2)] {
         let admitted_effects = engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(ticket),
-                request: inquiry(target, route),
+                request: inquiry(target),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -1347,54 +1336,50 @@ fn raw_inquiries_route_by_unique_content_then_per_target_fifo() {
         ids.push(admitted(&admitted_effects));
         send_ok(&mut engine, &admitted_effects, None, start);
     }
-    let zoom = engine.handle(
+    let first_target_one = engine.handle(
         frame(
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(ZOOM),
                 payload: smallvec![9],
             },
         ),
         start,
     );
-    assert_eq!(terminal_id(&zoom), Some(ids[1]));
+    assert_eq!(terminal_id(&first_target_one), Some(ids[0]));
     let target_two_fifo = engine.handle(
         frame(
             2,
             None,
             DecodedResponse::InquiryReply {
-                route: None,
                 payload: smallvec![0],
             },
         ),
         start,
     );
     assert_eq!(terminal_id(&target_two_fifo), Some(ids[3]));
-    let ambiguous_power_fifo = engine.handle(
+    let second_target_one = engine.handle(
         frame(
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(POWER),
                 payload: smallvec![1],
             },
         ),
         start,
     );
-    assert_eq!(terminal_id(&ambiguous_power_fifo), Some(ids[0]));
-    let unknown_fifo = engine.handle(
+    assert_eq!(terminal_id(&second_target_one), Some(ids[1]));
+    let third_target_one = engine.handle(
         frame(
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: None,
                 payload: smallvec![2],
             },
         ),
         start,
     );
-    assert_eq!(terminal_id(&unknown_fifo), Some(ids[2]));
+    assert_eq!(terminal_id(&third_target_one), Some(ids[2]));
     engine.assert_invariants().unwrap();
 }
 
@@ -1438,7 +1423,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
         let first = inquiry_engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
-                request: inquiry(1, POWER),
+                request: inquiry(1),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -1448,7 +1433,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
         let second = inquiry_engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(2),
-                request: inquiry(1, ZOOM),
+                request: inquiry(1),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -1490,7 +1475,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
         let inquiry_admission = collision_engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
-                request: inquiry(1, POWER),
+                request: inquiry(1),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -1542,7 +1527,6 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
                 1,
                 None,
                 DecodedResponse::InquiryReply {
-                    route: Some(POWER),
                     payload: smallvec![1],
                 },
             ),
@@ -1589,7 +1573,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
         let inquiry_admission = sending_collision_engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
-                request: inquiry(1, POWER),
+                request: inquiry(1),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -1766,7 +1750,7 @@ fn response_at_exact_deadline_wins_and_equal_deadlines_use_admission_order() {
     let a = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
+            request: inquiry_with_retry(1, RetryPolicy::NEVER),
             slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(20),
@@ -1776,7 +1760,7 @@ fn response_at_exact_deadline_wins_and_equal_deadlines_use_admission_order() {
     let b = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(3),
-            request: inquiry_with_retry(2, POWER, RetryPolicy::NEVER),
+            request: inquiry_with_retry(2, RetryPolicy::NEVER),
             slot: AdmissionSlot::Ordinary,
         },
         start + Duration::from_millis(20),
@@ -1852,7 +1836,7 @@ fn correlated_frames_win_at_equality_and_are_stale_one_nanosecond_later() {
                 let (admission, id) = admit(
                     &mut engine,
                     2,
-                    inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
+                    inquiry_with_retry(1, RetryPolicy::NEVER),
                     start,
                 );
                 send_ok(&mut engine, &admission, transmission_sequence, start);
@@ -1868,7 +1852,6 @@ fn correlated_frames_win_at_equality_and_are_stale_one_nanosecond_later() {
                         1,
                         sequence,
                         DecodedResponse::InquiryReply {
-                            route: Some(POWER),
                             payload: smallvec![1],
                         },
                     ),
@@ -2042,7 +2025,7 @@ fn an_overdue_request_does_not_make_an_unrelated_correlated_frame_stale() {
     let (reply_admission, reply_id) = admit(
         &mut engine,
         2,
-        inquiry_with_retry(2, POWER, RetryPolicy::NEVER),
+        inquiry_with_retry(2, RetryPolicy::NEVER),
         start,
     );
     send_ok(&mut engine, &reply_admission, None, start);
@@ -2055,7 +2038,6 @@ fn an_overdue_request_does_not_make_an_unrelated_correlated_frame_stale() {
             2,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(POWER),
                 payload: smallvec![1],
             },
         ),
@@ -3337,7 +3319,7 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
     let second = datagram_engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: inquiry(2, POWER),
+            request: inquiry(2),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -3374,7 +3356,7 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
     let pending = fresh.handle(
         Input::Admit {
             ticket: AdmissionTicket(3),
-            request: inquiry(1, POWER),
+            request: inquiry(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -3602,7 +3584,7 @@ fn dispatch_is_priority_fifo_in_admission_order_across_lanes() {
         start,
     );
     let command_id = admitted(&queued_command);
-    let mut user_inquiry = inquiry(2, POWER);
+    let mut user_inquiry = inquiry(2);
     let RuntimeRequest::Inquiry {
         context: inquiry_context,
         ..
@@ -3724,7 +3706,7 @@ fn newer_same_class_inquiries_cannot_starve_an_older_command() {
         let inquiry = engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(ticket),
-                request: inquiry(2, POWER),
+                request: inquiry(2),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -3924,7 +3906,6 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
     let first_request = RuntimeRequest::Inquiry {
         wire: Arc::clone(&first_wire),
         context: context(1, CancellationPolicy::Supported),
-        route: POWER,
     };
     let first = engine.handle(
         Input::Admit {
@@ -3939,7 +3920,7 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
     let second = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: inquiry(1, ZOOM),
+            request: inquiry(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -3971,7 +3952,6 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(POWER),
                 payload: smallvec![0x0a],
             },
         ),
@@ -4004,7 +3984,6 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(ZOOM),
                 payload: smallvec![1],
             },
         ),
@@ -4033,7 +4012,6 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(POWER),
                 payload: smallvec![0x0b],
             },
         ),
@@ -4171,7 +4149,6 @@ fn phase_one_protocol_fixture_replays_through_production_engine() {
                     "inquiry" => RuntimeRequest::Inquiry {
                         wire: wire(0x80 | target),
                         context: fixture_context,
-                        route: fixture_route(fields.get("route").map(String::as_str)),
                     },
                     other => panic!("unknown fixture request kind {other}"),
                 };
@@ -4220,10 +4197,6 @@ fn phase_one_protocol_fixture_replays_through_production_engine() {
                         socket: Some(fixture_socket(&fields)),
                     },
                     "reply" => DecodedResponse::InquiryReply {
-                        route: fields
-                            .get("route")
-                            .filter(|route| route.as_str() != "unknown")
-                            .map(|route| fixture_route(Some(route))),
                         payload: SmallVec::from_slice(
                             fixture_required(&fields, "payload").as_bytes(),
                         ),
@@ -4284,28 +4257,6 @@ fn fixture_socket(fields: &BTreeMap<String, String>) -> ViscaSocket {
         .unwrap()
 }
 
-fn fixture_route(route: Option<&str>) -> InquiryRoute {
-    match route {
-        Some("power") => POWER,
-        Some("zoom") => ZOOM,
-        Some("focus") => FOCUS,
-        None | Some("unknown") => InquiryRoute::UNKNOWN,
-        Some(other) => panic!("unknown fixture route {other}"),
-    }
-}
-
-/// Names the inquiry route the engine actually attributed to a reply.
-fn fixture_route_name(route: Option<InquiryRoute>) -> &'static str {
-    match route {
-        None => "unknown",
-        Some(route) if route == POWER => "power",
-        Some(route) if route == ZOOM => "zoom",
-        Some(route) if route == FOCUS => "focus",
-        Some(route) if route == InquiryRoute::UNKNOWN => "unknown",
-        Some(other) => panic!("engine reported an unknown inquiry route {other:?}"),
-    }
-}
-
 /// Recovers the VISCA error code the engine's terminal error stands for.
 ///
 /// This is the inverse of [`Error::from_code`], so an engine that collapses
@@ -4326,8 +4277,8 @@ fn fixture_error_code(error: &Error) -> String {
 }
 
 /// Every column below is read out of the engine's own effects. Nothing is
-/// rebuilt from the fixture's input record, so corrupting a reply payload, a
-/// reply route, an attributed socket or an error code fails the expectation.
+/// rebuilt from the fixture's input record, so corrupting a reply payload,
+/// an attributed socket or an error code fails the expectation.
 fn fixture_observation(
     engine: &ProtocolEngine,
     effects: &[Effect],
@@ -4363,11 +4314,9 @@ fn fixture_observation(
         let outcome = match outcome {
             RuntimeOutcome::Written => "written".to_owned(),
             RuntimeOutcome::Applied => "applied".to_owned(),
-            RuntimeOutcome::Reply { route, payload } => format!(
-                "reply:{}:{}",
-                fixture_route_name(*route),
-                String::from_utf8_lossy(payload)
-            ),
+            RuntimeOutcome::Reply { payload } => {
+                format!("reply:{}", String::from_utf8_lossy(payload))
+            }
             // #795: an error after the request's ACK keeps the camera's
             // exact code but is reported as unconfirmed.
             RuntimeOutcome::Failed(Error::CommandFailedAfterAck { source, .. }) => {
@@ -4528,7 +4477,6 @@ fn fuzz_directed_frame(engine: &ProtocolEngine, action: u64) -> Option<Input> {
         }
         Phase::AwaitingCompletion { .. } => DecodedResponse::Completion { socket: None },
         Phase::AwaitingReply { .. } => DecodedResponse::InquiryReply {
-            route: entry.request.inquiry_route(),
             payload: smallvec![action as u8],
         },
         Phase::Ready { .. } | Phase::Backoff { .. } => return None,
@@ -4576,7 +4524,6 @@ fn fuzz_step(
     // The socket nibble is genuinely optional on the wire: a camera may answer
     // `90 40 FF` / `90 50 FF` with no socket at all.
     let named_socket = (action & 0x200 == 0).then_some(socket);
-    let route = InquiryRoute(((action >> 20) as u16 % 3) + 1);
     let sequence_value = ((action >> 24) & 0xffff) as u32;
     // Sony correlation runs on the envelope sequence; raw framing carries none,
     // and each width is a different index (exact and lower-16).
@@ -4597,7 +4544,7 @@ fn fuzz_step(
                     urgent_command(target, CancellationPolicy::Supported)
                 }
                 0 => command(target, CancellationPolicy::Supported),
-                1 => inquiry(target, route),
+                1 => inquiry(target),
                 2 => command_with_reply_shape(
                     target,
                     CancellationPolicy::Supported,
@@ -4658,7 +4605,6 @@ fn fuzz_step(
                     code: [0x01, 0x02, 0x03, 0x04, 0x41][(action as usize) % 5],
                 },
                 _ => DecodedResponse::InquiryReply {
-                    route: (action & 0x4000 != 0).then_some(route),
                     payload: smallvec![action as u8],
                 },
             };
@@ -4907,7 +4853,7 @@ fn seed_fuzz_coverage(
         engine,
         ticket,
         coverage,
-        inquiry(1, POWER),
+        inquiry(1),
         *now + Duration::from_micros(1),
     );
     let (transmission, id, _) = request_transmit(&admitted_effects);
@@ -4926,7 +4872,6 @@ fn seed_fuzz_coverage(
             1,
             sequence(0x5102),
             DecodedResponse::InquiryReply {
-                route: Some(POWER),
                 payload: smallvec![1],
             },
         ),
@@ -5180,7 +5125,7 @@ fn seed_fuzz_coverage(
             engine,
             ticket,
             coverage,
-            inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
+            inquiry_with_retry(1, RetryPolicy::NEVER),
             *now,
         );
         let (first_transmission, first_id, _) = request_transmit(&first);
@@ -5196,7 +5141,7 @@ fn seed_fuzz_coverage(
             engine,
             ticket,
             coverage,
-            inquiry_with_retry(1, ZOOM, RetryPolicy::NEVER),
+            inquiry_with_retry(1, RetryPolicy::NEVER),
             *now,
         );
         let second_id = admitted(&second);
@@ -5220,7 +5165,6 @@ fn seed_fuzz_coverage(
                     1,
                     None,
                     DecodedResponse::InquiryReply {
-                        route: None,
                         payload: smallvec![1],
                     },
                 ),
@@ -5251,7 +5195,6 @@ fn seed_fuzz_coverage(
                 1,
                 None,
                 DecodedResponse::InquiryReply {
-                    route: Some(ZOOM),
                     payload: smallvec![2],
                 },
             ),
@@ -5529,7 +5472,7 @@ fn full_width_sony_miss_never_uses_lower16_fallback() {
     let effects = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
+            request: inquiry_with_retry(1, RetryPolicy::NEVER),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -5541,7 +5484,6 @@ fn full_width_sony_miss_never_uses_lower16_fallback() {
             1,
             Some((0x2222_beef, SequenceWidth::Full32)),
             DecodedResponse::InquiryReply {
-                route: Some(POWER),
                 payload: smallvec![1],
             },
         ),
@@ -5794,7 +5736,7 @@ fn inquiry_syntax_retry_requires_explicit_builtin_policy() {
     let custom_admission = custom_engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: inquiry_with_retry(1, POWER, custom_retry),
+            request: inquiry_with_retry(1, custom_retry),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -5827,7 +5769,7 @@ fn inquiry_syntax_retry_requires_explicit_builtin_policy() {
     let builtin_admission = builtin_engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: inquiry_with_retry(1, POWER, retrying()),
+            request: inquiry_with_retry(1, retrying()),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -6086,7 +6028,7 @@ fn receive_fault_fails_only_unretryable_work_and_never_the_session() {
     let inquiry_admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(2),
-            request: inquiry(2, POWER),
+            request: inquiry(2),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -7428,7 +7370,7 @@ fn inquiry_reply_deadline_expiry_is_reported_as_an_inquiry_deadline() {
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: inquiry(1, POWER),
+            request: inquiry(1),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -8163,11 +8105,7 @@ fn initial_active_phases_expire_at_admission_budget() {
         let admission = engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
-                request: inquiry_with_retry(
-                    1,
-                    POWER,
-                    immediate_retry_budget(Duration::from_millis(10)),
-                ),
+                request: inquiry_with_retry(1, immediate_retry_budget(Duration::from_millis(10))),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -9042,11 +8980,7 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
         let admission = equal_engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
-                request: inquiry_with_retry(
-                    1,
-                    POWER,
-                    immediate_retry_budget(Duration::from_millis(10)),
-                ),
+                request: inquiry_with_retry(1, immediate_retry_budget(Duration::from_millis(10))),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -9062,7 +8996,6 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
                 1,
                 Some((sequence, SequenceWidth::Full32)),
                 DecodedResponse::InquiryReply {
-                    route: Some(POWER),
                     payload: smallvec![1],
                 },
             ),
@@ -9081,11 +9014,7 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
         let late_admission = late_engine.handle(
             Input::Admit {
                 ticket: AdmissionTicket(1),
-                request: inquiry_with_retry(
-                    1,
-                    POWER,
-                    immediate_retry_budget(Duration::from_millis(10)),
-                ),
+                request: inquiry_with_retry(1, immediate_retry_budget(Duration::from_millis(10))),
                 slot: AdmissionSlot::Ordinary,
             },
             start,
@@ -9103,7 +9032,6 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
                 1,
                 Some((late_sequence, SequenceWidth::Full32)),
                 DecodedResponse::InquiryReply {
-                    route: Some(POWER),
                     payload: smallvec![1],
                 },
             ),
@@ -9411,7 +9339,7 @@ fn retry_budget_expires_while_awaiting_inquiry_reply() {
     let admission = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(1),
-            request: inquiry_with_retry(1, POWER, retry),
+            request: inquiry_with_retry(1, retry),
             slot: AdmissionSlot::Ordinary,
         },
         start,
@@ -10851,9 +10779,9 @@ fn raw_single_flight_inquiry_success_releases_successor_without_tombstone() {
     let start = Instant::now();
     let mut engine = single_flight_raw_engine();
 
-    let (first, first_id) = admit(&mut engine, 1, inquiry(1, POWER), start);
+    let (first, first_id) = admit(&mut engine, 1, inquiry(1), start);
     send_ok(&mut engine, &first, None, start);
-    let (successor, successor_id) = admit(&mut engine, 2, inquiry(1, ZOOM), start);
+    let (successor, successor_id) = admit(&mut engine, 2, inquiry(1), start);
     assert!(request_transmit_optional(&successor).is_none());
 
     let first_reply = engine.handle(
@@ -10861,7 +10789,6 @@ fn raw_single_flight_inquiry_success_releases_successor_without_tombstone() {
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(POWER),
                 payload: smallvec![0x0a],
             },
         ),
@@ -10887,7 +10814,6 @@ fn raw_single_flight_inquiry_success_releases_successor_without_tombstone() {
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(ZOOM),
                 payload: smallvec![0x0b],
             },
         ),
@@ -10910,14 +10836,13 @@ fn successful_inquiry_does_not_pace_urgent_but_urgent_commands_pace_each_other()
     let mut engine = single_flight_raw_engine();
     engine.policy.command_spacing = spacing;
 
-    let (inquiry_send, inquiry_id) = admit(&mut engine, 1, inquiry(1, POWER), start);
+    let (inquiry_send, inquiry_id) = admit(&mut engine, 1, inquiry(1), start);
     send_ok(&mut engine, &inquiry_send, None, start);
     let reply = engine.handle(
         frame(
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(POWER),
                 payload: smallvec![0x0a],
             },
         ),
@@ -10964,7 +10889,7 @@ fn raw_inquiry_hold_preserves_live_preack_ack_and_sole_socketless_completion() {
     let (inquiry_send, inquiry_id) = admit(
         &mut engine,
         1,
-        inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
+        inquiry_with_retry(1, RetryPolicy::NEVER),
         start,
     );
     send_ok(&mut engine, &inquiry_send, None, start);
@@ -10998,7 +10923,6 @@ fn raw_inquiry_hold_preserves_live_preack_ack_and_sole_socketless_completion() {
     // retains. They must leave the pre-ACK command live.
     for stale in [
         DecodedResponse::InquiryReply {
-            route: Some(POWER),
             payload: smallvec![0x0a],
         },
         DecodedResponse::Error {
@@ -11084,7 +11008,7 @@ fn raw_inquiry_hold_preserves_live_named_socket_terminals() {
         let (inquiry_send, inquiry_id) = admit(
             &mut engine,
             1,
-            inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
+            inquiry_with_retry(1, RetryPolicy::NEVER),
             start,
         );
         send_ok(&mut engine, &inquiry_send, None, start);
@@ -11174,7 +11098,6 @@ fn raw_uncorrelatable_terminal_hold_still_filters_all_response_shapes() {
         },
         DecodedResponse::Completion { socket: None },
         DecodedResponse::InquiryReply {
-            route: Some(POWER),
             payload: smallvec![0x0a],
         },
         DecodedResponse::Error {
@@ -11573,7 +11496,7 @@ fn raw_release_projection_excludes_ordinary_response_deadlines() {
         .pre_ack_unkeyed());
 
     let mut inquiry_engine = single_flight_raw_engine();
-    let (inquiry_send, inquiry_id) = admit(&mut inquiry_engine, 1, inquiry(1, POWER), start);
+    let (inquiry_send, inquiry_id) = admit(&mut inquiry_engine, 1, inquiry(1), start);
     send_ok(&mut inquiry_engine, &inquiry_send, None, start);
     let inquiry_deadline = match phase_of(&inquiry_engine, inquiry_id) {
         Some(Phase::AwaitingReply { deadline, .. }) => deadline,
@@ -11597,11 +11520,11 @@ fn raw_single_flight_inquiry_timeout_quarantines_late_reply_until_successor_rele
     let (first, first_id) = admit(
         &mut engine,
         1,
-        inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
+        inquiry_with_retry(1, RetryPolicy::NEVER),
         start,
     );
     send_ok(&mut engine, &first, None, start);
-    let (successor, successor_id) = admit(&mut engine, 2, inquiry(1, ZOOM), start);
+    let (successor, successor_id) = admit(&mut engine, 2, inquiry(1), start);
     assert!(request_transmit_optional(&successor).is_none());
 
     let timed_out = engine.advance(timeout_at);
@@ -11626,7 +11549,6 @@ fn raw_single_flight_inquiry_timeout_quarantines_late_reply_until_successor_rele
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(POWER),
                 payload: smallvec![0x0a],
             },
         ),
@@ -11644,7 +11566,6 @@ fn raw_single_flight_inquiry_timeout_quarantines_late_reply_until_successor_rele
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(ZOOM),
                 payload: smallvec![0x0b],
             },
         ),
@@ -11670,7 +11591,7 @@ fn raw_inquiry_timeout_hold_blocks_only_inquiries_and_never_urgent_commands() {
     let (first, first_id) = admit(
         &mut engine,
         1,
-        inquiry_with_retry(1, POWER, RetryPolicy::NEVER),
+        inquiry_with_retry(1, RetryPolicy::NEVER),
         start,
     );
     send_ok(&mut engine, &first, None, start);
@@ -11680,7 +11601,7 @@ fn raw_inquiry_timeout_hold_blocks_only_inquiries_and_never_urgent_commands() {
         Some(Error::Timeout { .. })
     ));
 
-    let (inquiry_effects, successor_id) = admit(&mut engine, 2, inquiry(1, ZOOM), timeout_at);
+    let (inquiry_effects, successor_id) = admit(&mut engine, 2, inquiry(1), timeout_at);
     assert!(request_transmit_optional(&inquiry_effects).is_none());
     assert!(matches!(
         phase_of(&engine, successor_id),
@@ -11827,7 +11748,7 @@ fn raw_single_flight_sending_inquiry_budget_expiry_quarantines_before_successor_
     let (first, first_id) = admit(
         &mut engine,
         1,
-        inquiry_with_retry(1, POWER, immediate_retry_budget(Duration::from_millis(10))),
+        inquiry_with_retry(1, immediate_retry_budget(Duration::from_millis(10))),
         start,
     );
     let (first_transmission, transmitted_id, _) = request_transmit(&first);
@@ -11837,7 +11758,7 @@ fn raw_single_flight_sending_inquiry_budget_expiry_quarantines_before_successor_
         Some(Phase::Sending { .. })
     ));
 
-    let (successor, successor_id) = admit(&mut engine, 2, inquiry(1, ZOOM), start);
+    let (successor, successor_id) = admit(&mut engine, 2, inquiry(1), start);
     assert!(request_transmit_optional(&successor).is_none());
     assert_eq!(engine.next_wake(), Some(budget_at));
 
@@ -11871,7 +11792,7 @@ fn raw_single_flight_sending_inquiry_budget_expiry_quarantines_before_successor_
 
     // The hold is target-local: a different camera becomes eligible as soon
     // as the expired inquiry's normal finish releases global inquiry capacity.
-    let (other_target, other_target_id) = admit(&mut engine, 3, inquiry(2, FOCUS), budget_at);
+    let (other_target, other_target_id) = admit(&mut engine, 3, inquiry(2), budget_at);
     assert_eq!(request_transmit(&other_target).1, other_target_id);
     let other_sent = send_ok(&mut engine, &other_target, None, budget_at);
     assert!(request_transmit_optional(&other_sent).is_none());
@@ -11880,7 +11801,6 @@ fn raw_single_flight_sending_inquiry_budget_expiry_quarantines_before_successor_
             2,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(FOCUS),
                 payload: smallvec![0x0c],
             },
         ),
@@ -11896,7 +11816,6 @@ fn raw_single_flight_sending_inquiry_budget_expiry_quarantines_before_successor_
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(POWER),
                 payload: smallvec![0x0a],
             },
         ),
@@ -11917,7 +11836,6 @@ fn raw_single_flight_sending_inquiry_budget_expiry_quarantines_before_successor_
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(POWER),
                 payload: smallvec![0x0a],
             },
         ),
@@ -11951,7 +11869,6 @@ fn raw_single_flight_sending_inquiry_budget_expiry_quarantines_before_successor_
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(ZOOM),
                 payload: smallvec![0x0b],
             },
         ),
@@ -11979,10 +11896,10 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
     // the same single-flight hold.
     {
         let mut engine = single_flight_raw_engine();
-        let (first, first_id) = admit(&mut engine, 1, inquiry_with_retry(1, POWER, retry), start);
+        let (first, first_id) = admit(&mut engine, 1, inquiry_with_retry(1, retry), start);
         let (transmission, transmitted_id, _) = request_transmit(&first);
         assert_eq!(transmitted_id, first_id);
-        let (successor, successor_id) = admit(&mut engine, 2, inquiry(1, ZOOM), start);
+        let (successor, successor_id) = admit(&mut engine, 2, inquiry(1), start);
         assert!(request_transmit_optional(&successor).is_none());
 
         let equal = engine.handle(
@@ -12030,10 +11947,10 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
     let late_at = budget_at + Duration::from_nanos(1);
     let release_at = late_at + Duration::from_millis(50);
     let mut engine = single_flight_raw_engine();
-    let (first, first_id) = admit(&mut engine, 1, inquiry_with_retry(1, POWER, retry), start);
+    let (first, first_id) = admit(&mut engine, 1, inquiry_with_retry(1, retry), start);
     let (first_transmission, transmitted_id, _) = request_transmit(&first);
     assert_eq!(transmitted_id, first_id);
-    let (successor, successor_id) = admit(&mut engine, 2, inquiry(1, ZOOM), start);
+    let (successor, successor_id) = admit(&mut engine, 2, inquiry(1), start);
     assert!(request_transmit_optional(&successor).is_none());
 
     let late = engine.handle(
@@ -12075,7 +11992,7 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
 
     // The same tombstone isolates the successor while a different target can
     // use the freed global single-flight capacity.
-    let (other_target, other_target_id) = admit(&mut engine, 3, inquiry(2, FOCUS), late_at);
+    let (other_target, other_target_id) = admit(&mut engine, 3, inquiry(2), late_at);
     assert_eq!(request_transmit(&other_target).1, other_target_id);
     let other_sent = send_ok(&mut engine, &other_target, None, late_at);
     assert!(request_transmit_optional(&other_sent).is_none());
@@ -12084,7 +12001,6 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
             2,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(FOCUS),
                 payload: smallvec![0x0c],
             },
         ),
@@ -12100,7 +12016,6 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(POWER),
                 payload: smallvec![0x0a],
             },
         ),
@@ -12118,7 +12033,6 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(POWER),
                 payload: smallvec![0x0a],
             },
         ),
@@ -12152,7 +12066,6 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(ZOOM),
                 payload: smallvec![0x0b],
             },
         ),
@@ -12252,7 +12165,7 @@ fn no_reply_terminal_quarantine_holds_same_target_inquiry_until_expiry() {
         Some(RuntimeOutcome::Written)
     ));
 
-    let (inquiry, inquiry_id) = admit(&mut engine, 2, inquiry(1, POWER), start);
+    let (inquiry, inquiry_id) = admit(&mut engine, 2, inquiry(1), start);
     assert!(request_transmit_optional(&inquiry).is_none());
     assert!(matches!(
         phase_of(&engine, inquiry_id),
@@ -12344,7 +12257,7 @@ fn no_reply_raw_exclusivity_is_bidirectional_during_its_write() {
     // An inquiry is equally unsafe: a socketless raw error has no
     // command/inquiry discriminator.
     let mut inquiry_engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let (inquiry_effects, inquiry_id) = admit(&mut inquiry_engine, 1, inquiry(1, POWER), start);
+    let (inquiry_effects, inquiry_id) = admit(&mut inquiry_engine, 1, inquiry(1), start);
     send_ok(&mut inquiry_engine, &inquiry_effects, None, start);
     assert!(matches!(
         phase_of(&inquiry_engine, inquiry_id),
@@ -12372,7 +12285,7 @@ fn no_reply_raw_exclusivity_is_bidirectional_during_its_write() {
         phase_of(&sending_engine, no_reply_id),
         Some(Phase::Sending { .. })
     ));
-    let (raced_inquiry, raced_inquiry_id) = admit(&mut sending_engine, 2, inquiry(1, POWER), start);
+    let (raced_inquiry, raced_inquiry_id) = admit(&mut sending_engine, 2, inquiry(1), start);
     assert!(request_transmit_optional(&raced_inquiry).is_none());
     assert!(matches!(
         phase_of(&sending_engine, raced_inquiry_id),
@@ -12620,7 +12533,7 @@ fn raw_completion_only_blocks_same_target_inquiry_and_routes_socketless_error() 
         Some(Phase::AwaitingCompletion { .. })
     ));
 
-    let (same_target_inquiry, inquiry_id) = admit(&mut runtime, 2, inquiry(1, POWER), start);
+    let (same_target_inquiry, inquiry_id) = admit(&mut runtime, 2, inquiry(1), start);
     assert!(
         request_transmit_optional(&same_target_inquiry).is_none(),
         "a same-target inquiry must wait for the completion-only command",
@@ -12630,7 +12543,7 @@ fn raw_completion_only_blocks_same_target_inquiry_and_routes_socketless_error() 
         Some(Phase::Ready { .. })
     ));
 
-    let (other_target_inquiry, other_target_id) = admit(&mut runtime, 3, inquiry(2, ZOOM), start);
+    let (other_target_inquiry, other_target_id) = admit(&mut runtime, 3, inquiry(2), start);
     assert_eq!(
         request_transmit(&other_target_inquiry).1,
         other_target_id,
@@ -12666,7 +12579,7 @@ fn raw_completion_only_blocks_same_target_inquiry_and_routes_socketless_error() 
 fn raw_inquiry_blocks_same_target_completion_only_until_reply() {
     let start = Instant::now();
     let mut runtime = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let (inquiry_effects, inquiry_id) = admit(&mut runtime, 1, inquiry(1, POWER), start);
+    let (inquiry_effects, inquiry_id) = admit(&mut runtime, 1, inquiry(1), start);
     send_ok(&mut runtime, &inquiry_effects, None, start);
     assert!(matches!(
         phase_of(&runtime, inquiry_id),
@@ -12693,7 +12606,6 @@ fn raw_inquiry_blocks_same_target_completion_only_until_reply() {
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(POWER),
                 payload: smallvec![1],
             },
         ),
@@ -12760,7 +12672,7 @@ fn sony_completion_only_does_not_block_same_target_inquiry() {
     ));
     runtime.assert_invariants().unwrap();
 
-    let (inquiry_effects, inquiry_id) = admit(&mut runtime, 2, inquiry(1, POWER), start);
+    let (inquiry_effects, inquiry_id) = admit(&mut runtime, 2, inquiry(1), start);
     assert_eq!(
         request_transmit(&inquiry_effects).1,
         inquiry_id,
@@ -12785,7 +12697,6 @@ fn sony_completion_only_does_not_block_same_target_inquiry() {
             1,
             Some((0x1002, SequenceWidth::Full32)),
             DecodedResponse::InquiryReply {
-                route: Some(POWER),
                 payload: smallvec![1],
             },
         ),
@@ -13057,11 +12968,11 @@ fn raw_inquiry_capacity_is_per_target() {
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
     engine.policy.inquiry_capacity = 1;
 
-    let (first, first_id) = admit(&mut engine, 1, inquiry(1, POWER), start);
+    let (first, first_id) = admit(&mut engine, 1, inquiry(1), start);
     assert_eq!(request_transmit(&first).1, first_id);
-    let (second, second_id) = admit(&mut engine, 2, inquiry(2, POWER), start);
+    let (second, second_id) = admit(&mut engine, 2, inquiry(2), start);
     assert_eq!(request_transmit(&second).1, second_id);
-    let (third, third_id) = admit(&mut engine, 3, inquiry(1, ZOOM), start);
+    let (third, third_id) = admit(&mut engine, 3, inquiry(1), start);
     assert!(request_transmit_optional(&third).is_none());
 
     send_ok(&mut engine, &first, None, start);
@@ -13071,7 +12982,6 @@ fn raw_inquiry_capacity_is_per_target() {
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: Some(POWER),
                 payload: smallvec![1],
             },
         ),
@@ -13486,7 +13396,6 @@ fn unkeyed_reply(target: u8, value: u8) -> Input {
         target,
         None,
         DecodedResponse::InquiryReply {
-            route: None,
             payload: smallvec![value],
         },
     )
@@ -13502,7 +13411,7 @@ fn owed_state(engine: &ProtocolEngine, target: u8) -> Option<LaneState> {
 /// Times out one written raw stream inquiry at `start`'s reply deadline and
 /// returns its id and the deadline.
 fn time_out_stream_inquiry(engine: &mut ProtocolEngine, start: Instant) -> (RequestId, Instant) {
-    let (send, id) = admit(engine, 1, inquiry(1, POWER), start);
+    let (send, id) = admit(engine, 1, inquiry(1), start);
     send_ok(engine, &send, None, start);
     let timeout_at = start + Duration::from_millis(30);
     let timed_out = engine.advance(timeout_at);
@@ -13537,7 +13446,7 @@ fn raw_stream_inquiry_timeout_owes_its_reply_and_never_binds_it_to_a_successor()
     );
     assert_eq!(owed_state(&engine, 1), Some(LaneState::Window));
 
-    let (_, successor) = admit(&mut engine, 2, inquiry(1, POWER), timeout_at);
+    let (_, successor) = admit(&mut engine, 2, inquiry(1), timeout_at);
     assert!(matches!(
         phase_of(&engine, successor),
         Some(Phase::Ready { .. })
@@ -13672,7 +13581,7 @@ fn unsettled_owed_reply_latches_only_that_targets_inquiries_until_it_arrives() {
     let mut engine = single_flight_raw_stream_engine();
     let (_, timeout_at) = time_out_stream_inquiry(&mut engine, start);
     let window_end = timeout_at + Duration::from_millis(50);
-    let (_, queued) = admit(&mut engine, 2, inquiry(1, POWER), timeout_at);
+    let (_, queued) = admit(&mut engine, 2, inquiry(1), timeout_at);
 
     let still_owed = engine.advance(window_end - Duration::from_millis(1));
     assert!(terminal_outcome(&still_owed, queued).is_none());
@@ -13702,7 +13611,7 @@ fn unsettled_owed_reply_latches_only_that_targets_inquiries_until_it_arrives() {
     let rejected = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(3),
-            request: inquiry(1, POWER),
+            request: inquiry(1),
             slot: AdmissionSlot::Ordinary,
         },
         window_end + Duration::from_millis(1),
@@ -13725,7 +13634,7 @@ fn unsettled_owed_reply_latches_only_that_targets_inquiries_until_it_arrives() {
         now,
     );
     assert_eq!(request_transmit(&command_send).1, command_id);
-    let (other_send, other_id) = admit(&mut engine, 5, inquiry(2, POWER), now);
+    let (other_send, other_id) = admit(&mut engine, 5, inquiry(2), now);
     assert_eq!(request_transmit(&other_send).1, other_id);
     send_ok(&mut engine, &other_send, None, now);
     let other_reply = engine.handle(unkeyed_reply(2, 0x03), now);
@@ -13745,7 +13654,7 @@ fn unsettled_owed_reply_latches_only_that_targets_inquiries_until_it_arrives() {
     assert_eq!(owed_state(&engine, 1), Some(LaneState::Clear));
     let reopened = late + Duration::from_millis(50);
     engine.advance(reopened);
-    let (send, id) = admit(&mut engine, 6, inquiry(1, POWER), reopened);
+    let (send, id) = admit(&mut engine, 6, inquiry(1), reopened);
     send_ok(&mut engine, &send, None, reopened);
     let reply = engine.handle(unkeyed_reply(1, 0x03), reopened);
     assert!(matches!(
@@ -13770,12 +13679,7 @@ fn short_budget() -> RetryPolicy {
 fn stream_inquiry_budget_expiry_while_sending_owes_no_reply() {
     let start = Instant::now();
     let mut engine = single_flight_raw_stream_engine();
-    let (send, id) = admit(
-        &mut engine,
-        1,
-        inquiry_with_retry(1, POWER, short_budget()),
-        start,
-    );
+    let (send, id) = admit(&mut engine, 1, inquiry_with_retry(1, short_budget()), start);
     assert_eq!(request_transmit(&send).1, id);
     let budget_at = start + Duration::from_millis(20);
     let expired = engine.advance(budget_at);
@@ -13801,12 +13705,7 @@ fn stream_inquiry_budget_expiry_while_sending_owes_no_reply() {
 fn stream_inquiry_write_succeeding_after_its_budget_owes_its_reply() {
     let start = Instant::now();
     let mut engine = single_flight_raw_stream_engine();
-    let (send, id) = admit(
-        &mut engine,
-        1,
-        inquiry_with_retry(1, POWER, short_budget()),
-        start,
-    );
+    let (send, id) = admit(&mut engine, 1, inquiry_with_retry(1, short_budget()), start);
     let (transmission, _, _) = request_transmit(&send);
     let late = start + Duration::from_millis(21);
     let finished = finish_write_input_only(
@@ -13836,7 +13735,7 @@ fn stream_inquiry_write_succeeding_after_its_budget_owes_its_reply() {
 fn raw_datagram_inquiry_timeout_keeps_skew_hold_and_retry() {
     let start = Instant::now();
     let mut engine = single_flight_raw_engine();
-    let (send, id) = admit(&mut engine, 1, inquiry(1, POWER), start);
+    let (send, id) = admit(&mut engine, 1, inquiry(1), start);
     send_ok(&mut engine, &send, None, start);
     let timeout_at = start + Duration::from_millis(30);
     let timed_out = engine.advance(timeout_at);

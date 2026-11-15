@@ -10,9 +10,8 @@ use grafton_visca::{
     raw,
     testing::camera_simulator::{CommandType, ViscaCameraSimulator},
     transport::{AsyncTransport, SendSemantics},
-    CameraId, CancellationOutcome, ControlClass, Error, Inquiry, InquiryRoute, Request,
-    ResponseDecoder, RetryClass, Session, SessionConfig, SessionStatus, TimeoutClass,
-    TokioExecutor,
+    CameraId, CancellationOutcome, ControlClass, Error, Inquiry, Request, ResponseDecoder,
+    RetryClass, Session, SessionConfig, SessionStatus, TimeoutClass, TokioExecutor,
 };
 
 const POWER_ON: &[u8] = &[0x81, 0x01, 0x04, 0x00, 0x02, 0xff];
@@ -216,10 +215,6 @@ impl Request for UnknownInquiry {
 
 impl Inquiry for UnknownInquiry {
     type Response = ();
-
-    fn route(&self) -> InquiryRoute {
-        InquiryRoute::RAW
-    }
 
     fn decoder(&self) -> ResponseDecoder<()> {
         ResponseDecoder::from_fn(|_| Ok(()))

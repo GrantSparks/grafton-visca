@@ -982,13 +982,7 @@ fn decode_response(target: TargetSlot, payload: &[u8]) -> Result<DecodedResponse
         BasicKind::DataReply(payload) => {
             let mut owned = SmallVec::<[u8; INLINE_BYTES]>::new();
             owned.extend_from_slice(payload.as_slice());
-            DecodedResponse::InquiryReply {
-                // Response route classification is intentionally left to the
-                // owner/engine's raw inquiry policy. A transport adapter has
-                // no request decoder context from which to invent a route.
-                route: None,
-                payload: owned,
-            }
+            DecodedResponse::InquiryReply { payload: owned }
         }
         BasicKind::Error { socket, code } => DecodedResponse::Error { socket, code },
         BasicKind::NetworkChange => DecodedResponse::NetworkChange,

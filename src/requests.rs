@@ -488,44 +488,6 @@ impl From<AffectedAxes> for u8 {
     }
 }
 
-/// A response-correlation route chosen before inquiry admission.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct InquiryRoute(u16);
-
-impl InquiryRoute {
-    /// The unclassified route used for raw custom inquiries.
-    pub const RAW: Self = Self(0);
-
-    /// Constructs an application-defined route.
-    #[must_use]
-    pub const fn custom(identifier: u16) -> Self {
-        Self(identifier)
-    }
-
-    /// Constructs an application-defined route, rejecting the reserved raw
-    /// FIFO identifier.
-    pub fn try_custom(identifier: u16) -> Result<Self> {
-        if identifier == 0 {
-            return Err(Error::InvalidRequest(
-                "inquiry route identifier 0 is reserved for InquiryRoute::RAW".into(),
-            ));
-        }
-        Ok(Self(identifier))
-    }
-
-    /// Returns whether this route requests the explicit raw FIFO path.
-    #[must_use]
-    pub const fn is_raw(self) -> bool {
-        self.0 == 0
-    }
-
-    /// Returns the stable route identifier.
-    #[must_use]
-    pub const fn identifier(self) -> u16 {
-        self.0
-    }
-}
-
 type SharedDecoder<R> = dyn Fn(&[u8]) -> Result<R> + Send + Sync + 'static;
 
 enum DecoderInner<R> {
@@ -846,9 +808,6 @@ impl<T> PlainCommand for T where T: Request<Class = request::Plain> + ?Sized {}
 pub trait Inquiry: Request<Class = request::Inquiry> {
     /// Successfully decoded response value.
     type Response: Send + 'static;
-
-    /// Returns the response-correlation route.
-    fn route(&self) -> InquiryRoute;
 
     /// Returns the owned response decoder.
     fn decoder(&self) -> ResponseDecoder<Self::Response>;

@@ -2485,20 +2485,11 @@ impl ProtocolEngine {
                     self.completion(id, socket, now, effects);
                 }
             }
-            DecodedResponse::InquiryReply {
-                #[cfg(test)]
-                route,
-                payload,
-                ..
-            } => {
+            DecodedResponse::InquiryReply { payload } => {
                 if correlation_kind == CorrelationKind::Cancellation {
                     effects.push(Effect::Ignored(IgnoreReason::MalformedFrame));
                 } else {
-                    let reply = RuntimeOutcome::Reply {
-                        #[cfg(test)]
-                        route,
-                        payload,
-                    };
+                    let reply = RuntimeOutcome::Reply { payload };
                     self.inquiry_reply(id, reply, effects);
                 }
             }
@@ -2617,24 +2608,7 @@ impl ProtocolEngine {
                     .sole_socket_holder(target)
                     .or_else(|| self.completion_only_candidate(target)),
             },
-            DecodedResponse::InquiryReply { route, .. } => {
-                if let Some(route) = route.filter(|route| *route != InquiryRoute::UNKNOWN) {
-                    let matches: SmallVec<[RequestId; 4]> = self
-                        .entries
-                        .iter()
-                        .filter(|(_, entry)| {
-                            entry.request.context().target == target
-                                && entry.request.inquiry_route() == Some(route)
-                                && matches!(entry.lifecycle.phase(), Phase::AwaitingReply { .. })
-                        })
-                        .map(|(id, _)| *id)
-                        .collect();
-                    if let [id] = matches.as_slice() {
-                        return Some(*id);
-                    }
-                }
-                self.raw_inquiry_front(target)
-            }
+            DecodedResponse::InquiryReply { .. } => self.raw_inquiry_front(target),
             DecodedResponse::Error { socket, code } => {
                 if let Some(socket) = socket {
                     return self.resolve_raw_named_error(target, *socket, *code);
@@ -3305,12 +3279,7 @@ impl ProtocolEngine {
             return None;
         }
         if entry.request.is_inquiry() {
-            return Some(Owes::Reply(
-                entry
-                    .request
-                    .inquiry_route()
-                    .unwrap_or(InquiryRoute::UNKNOWN),
-            ));
+            return Some(Owes::Reply);
         }
         match entry.request.context().reply_shape {
             ReplyShape::AckThenCompletion => Some(Owes::Ack),
@@ -3349,7 +3318,7 @@ impl ProtocolEngine {
         let reply_written = self
             .ledger
             .live(target, id)
-            .any(|entry| entry.written && matches!(entry.owes, Owes::Reply(_)));
+            .any(|entry| entry.written && matches!(entry.owes, Owes::Reply));
         if single_flight && reply_written {
             self.extend_raw_hold(
                 target,
@@ -3363,7 +3332,7 @@ impl ProtocolEngine {
         }
         let command_window_end = add_duration(now, timeout.ambiguity);
         let answered = self.ledger.retire(target, id, |owes| match owes {
-            Owes::Reply(_) => (reply_window_end, Duration::ZERO),
+            Owes::Reply => (reply_window_end, Duration::ZERO),
             Owes::Ack
             | Owes::Completion
             | Owes::AcceptedCompletion
@@ -3469,12 +3438,7 @@ impl ProtocolEngine {
         let target = frame.target;
         let (answer, socket) = match &frame.response {
             DecodedResponse::Ack { .. } => (Some(Answer::Ack), None),
-            DecodedResponse::InquiryReply { route, .. } => (
-                Some(Answer::Reply(
-                    route.filter(|route| *route != InquiryRoute::UNKNOWN),
-                )),
-                None,
-            ),
+            DecodedResponse::InquiryReply { .. } => (Some(Answer::Reply), None),
             DecodedResponse::Completion { socket } => {
                 (socket.is_none().then_some(Answer::Completion), *socket)
             }
@@ -3615,11 +3579,9 @@ impl ProtocolEngine {
                     Resolved::Nothing => None,
                 }
             }
-            DecodedResponse::InquiryReply { route, .. } => {
-                let route = route.filter(|route| *route != InquiryRoute::UNKNOWN);
-                self.take_stream_answer(target, Answer::Reply(route), evidence, now)?
-                    .ok()
-            }
+            DecodedResponse::InquiryReply { .. } => self
+                .take_stream_answer(target, Answer::Reply, evidence, now)?
+                .ok(),
             // A completion naming a socket is the completion of a command
             // that earned that socket: its live owner's, or the late one of a
             // quarantined or owed command (whose hold it releases). It never
@@ -5722,7 +5684,7 @@ impl ProtocolEngine {
                             entry.lifecycle.phase(),
                             Phase::Sending { .. } | Phase::AwaitingAck { .. }
                         ),
-                        Owes::Reply(_) => matches!(
+                        Owes::Reply => matches!(
                             entry.lifecycle.phase(),
                             Phase::Sending { .. } | Phase::AwaitingReply { .. }
                         ),

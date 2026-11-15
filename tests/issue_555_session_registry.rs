@@ -196,7 +196,7 @@ mod async_registry {
     use fake_camera::AsyncWire;
 
     #[cfg(feature = "runtime-tokio")]
-    use grafton_visca::{Inquiry, InquiryRoute, ResponseDecoder};
+    use grafton_visca::{Inquiry, ResponseDecoder};
 
     /// A spy camera and its wire: the shared wire with the spy's addressing
     /// and, when `standard_kind` is a standard transport, its kind.
@@ -267,10 +267,6 @@ mod async_registry {
     #[cfg(feature = "runtime-tokio")]
     impl Inquiry for RawPowerInquiry {
         type Response = Vec<u8>;
-
-        fn route(&self) -> InquiryRoute {
-            InquiryRoute::RAW
-        }
 
         fn decoder(&self) -> ResponseDecoder<Self::Response> {
             ResponseDecoder::from_fn(|payload| Ok(payload.to_vec()))

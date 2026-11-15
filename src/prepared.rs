@@ -22,8 +22,8 @@ use crate::{
     target::TargetSlot,
     timeout::CommandCategory,
     types::{FocusPosition, IrisLevel, ZoomPosition},
-    AffectedAxes, ControlClass, Inquiry, InquiryRoute, OperationCommand, OperationalTuning,
-    PlainCommand, ProfileSpec, Request, ResponseDecoder, RetryClass, SubmissionClass, TimeoutClass,
+    AffectedAxes, ControlClass, Inquiry, OperationCommand, OperationalTuning, PlainCommand,
+    ProfileSpec, Request, ResponseDecoder, RetryClass, SubmissionClass, TimeoutClass,
 };
 use crate::{Error, Result};
 
@@ -124,13 +124,12 @@ impl PreparedWire {
 }
 
 /// Reusable, inert lowering of one typed inquiry. Re-instantiation preserves
-/// the exact wire, route, decoder, target, and protocol policy selected during
+/// the exact wire, decoder, target, and protocol policy selected during
 /// operation preparation.
 #[derive(Debug, Clone)]
 pub(crate) struct PreparedInquiryTemplate<R> {
     wire: Arc<EncodedMessage>,
     context: RequestContext,
-    route: InquiryRoute,
     decoder: ResponseDecoder<R>,
 }
 
@@ -139,7 +138,6 @@ impl<R> PreparedInquiryTemplate<R> {
         PreparedInquiry {
             wire: PreparedWire::Shared(Arc::clone(&self.wire)),
             context: self.context,
-            route: self.route,
             decoder: self.decoder.clone(),
         }
     }
@@ -572,7 +570,6 @@ pub(crate) struct PreparedCommand {
 pub(crate) struct PreparedInquiry<R> {
     wire: PreparedWire,
     context: RequestContext,
-    route: InquiryRoute,
     decoder: ResponseDecoder<R>,
 }
 
@@ -776,7 +773,6 @@ where
     Ok(PreparedInquiry {
         wire,
         context,
-        route: inquiry.route(),
         decoder: inquiry.decoder_for_profile(profile),
     })
 }
@@ -1207,7 +1203,6 @@ impl<R> PreparedInquiry<R> {
         PreparedInquiryTemplate {
             wire: self.wire.into_shared(),
             context: self.context,
-            route: self.route,
             decoder: self.decoder,
         }
     }
@@ -1220,7 +1215,6 @@ impl<R> PreparedInquiry<R> {
         let request = RuntimeRequest::Inquiry {
             wire: self.wire.into_shared(),
             context: self.context,
-            route: crate::runtime::engine::InquiryRoute(self.route.identifier()),
         };
         admit(request, self.decoder, timeout)
     }
@@ -1444,10 +1438,6 @@ mod tests {
     impl Inquiry for CountingInquiry {
         type Response = Vec<u8>;
 
-        fn route(&self) -> InquiryRoute {
-            InquiryRoute::RAW
-        }
-
         fn decoder(&self) -> ResponseDecoder<Self::Response> {
             ResponseDecoder::from_fn(|payload| Ok(payload.to_vec()))
         }
@@ -1560,10 +1550,6 @@ mod tests {
     impl Inquiry for ClassifiedInquiry {
         type Response = Vec<u8>;
 
-        fn route(&self) -> InquiryRoute {
-            InquiryRoute::RAW
-        }
-
         fn decoder(&self) -> ResponseDecoder<Self::Response> {
             ResponseDecoder::from_fn(|payload| Ok(payload.to_vec()))
         }
@@ -1595,10 +1581,6 @@ mod tests {
 
     impl Inquiry for NonDefaultReplyShapeInquiry {
         type Response = Vec<u8>;
-
-        fn route(&self) -> InquiryRoute {
-            InquiryRoute::RAW
-        }
 
         fn decoder(&self) -> ResponseDecoder<Self::Response> {
             ResponseDecoder::from_fn(|payload| Ok(payload.to_vec()))
@@ -2050,9 +2032,7 @@ mod tests {
             ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("Sony FR7 profile");
         let auto_iris = crate::raw::Inquiry::from_fn(
             [0x81, 0x09, 0x05, 0x34, VISCA_TERMINATOR],
-            crate::InquiryRoute::RAW,
             decode_raw,
-            TimeoutClass::Inquiry,
             RetryClass::Inquiry,
             ControlClass::Normal,
         )
@@ -2243,7 +2223,6 @@ mod tests {
         let zoom = queries.zoom.expect("selected zoom query").instantiate();
         assert_eq!(zoom.context.target.camera(), CameraId::CAMERA_2);
         assert_eq!(zoom.context.timeout.inquiry, Duration::from_secs(1));
-        assert_eq!(zoom.route, ZoomPositionInquiry.route());
         assert_eq!(
             zoom.wire.as_bytes(),
             &[
@@ -2757,7 +2736,6 @@ mod tests {
             .iris
             .expect("selected iris settlement inquiry")
             .instantiate();
-        assert_eq!(iris.route, IrisInquiry.route());
         assert_eq!(
             iris.wire.as_bytes(),
             &[
@@ -3430,9 +3408,7 @@ mod tests {
             }
             let inquiry = crate::raw::Inquiry::from_fn(
                 [0x81, 0x09, 0x04, 0x00, 0xff],
-                crate::InquiryRoute::RAW,
                 |_payload: &[u8]| Ok(0_u8),
-                TimeoutClass::Inquiry,
                 RetryClass::Inquiry,
                 ControlClass::Normal,
             )

@@ -143,10 +143,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   return `Option`; `Nibbles::from_array` and `Payload::assert_nibbles` return
   `Result` and validate all builds. The unsourced `Nibbles4Or8` zoom leniency
   helper is removed.
-- **BREAKING** (#854): `raw::Inquiry::new` no longer takes a `TimeoutClass`
-  argument: its class is always `Inquiry`. Explicit-policy and convenience
-  inquiry constructors retain their signatures and check that class; raw
-  commands and operations reject inquiry timeout classes at construction.
+- **BREAKING** (#860, #874): `InquiryRoute`, `Inquiry::route()` and route
+  parameters on raw inquiry constructors are removed: a raw reply carries no
+  inquiry identity. `raw::Inquiry::{new, from_fn, with_context}` fix the timeout
+  category to `Inquiry`; `from_fn` and `with_context` no longer accept a timeout
+  argument. `with_policy` validates that category, and raw commands and
+  operations reject inquiry timeout classes at construction.
 - Engine entries store one closed lifecycle with legal phase-local cancellation
   and attempt facts. Raced replies and attempt records cannot outlive their
   phases; duplicated socket/deadline state and manual latch resets are removed.

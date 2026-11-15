@@ -596,7 +596,7 @@ impl Session {
         for step in 0..DRAIN_STEPS {
             if step % 50 == 0 {
                 for target in [1, 2] {
-                    let request = inquiry(target, InquiryRoute::UNKNOWN);
+                    let request = inquiry(target);
                     session.admit(request, AdmissionSlot::Ordinary);
                     if step % 200 == 0 {
                         let now = session.now;
@@ -629,10 +629,7 @@ impl Session {
                 for target in [camera(1), camera(2)] {
                     if !session.owes_only_completions(target) {
                         let now = session.now;
-                        session.admit(
-                            inquiry(target.camera().id(), InquiryRoute::UNKNOWN),
-                            AdmissionSlot::Ordinary,
-                        );
+                        session.admit(inquiry(target.camera().id()), AdmissionSlot::Ordinary);
                         session.admit(
                             stop(
                                 target.camera().id(),
@@ -750,10 +747,7 @@ impl Session {
                 ),
                 AdmissionSlot::ControlReserve,
             ),
-            3..=8 => (
-                inquiry(target, InquiryRoute::UNKNOWN),
-                AdmissionSlot::Ordinary,
-            ),
+            3..=8 => (inquiry(target), AdmissionSlot::Ordinary),
             9..=15 => (
                 command(target, CancellationPolicy::Supported),
                 AdmissionSlot::Ordinary,
@@ -983,7 +977,6 @@ impl Session {
                     DecodedResponse::Error { socket: None, code }
                 } else {
                     DecodedResponse::InquiryReply {
-                        route: None,
                         payload: SmallVec::from_slice(&id.get().to_le_bytes()),
                     }
                 };

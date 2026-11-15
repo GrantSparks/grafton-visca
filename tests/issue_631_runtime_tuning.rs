@@ -33,8 +33,8 @@ use std::time::Duration;
 
 use grafton_visca::{
     camera::CameraConfig, completion::AppliedOnly, profile::ProfileSpec, profiles::SonyFR7,
-    request, AffectedAxes, CameraId, ControlClass, Error, FailureStage, Inquiry, InquiryRoute,
-    OperationCommand, OperationalTuning, Request, ResponseDecoder, RetryClass, TimeoutClass,
+    request, AffectedAxes, CameraId, ControlClass, Error, FailureStage, Inquiry, OperationCommand,
+    OperationalTuning, Request, ResponseDecoder, RetryClass, TimeoutClass,
 };
 
 use fake_camera::FakeCamera;
@@ -100,10 +100,6 @@ impl Request for SilentInquiry {
 
 impl Inquiry for SilentInquiry {
     type Response = Vec<u8>;
-
-    fn route(&self) -> InquiryRoute {
-        InquiryRoute::RAW
-    }
 
     fn decoder(&self) -> ResponseDecoder<Self::Response> {
         ResponseDecoder::from_fn(|payload| Ok(payload.to_vec()))

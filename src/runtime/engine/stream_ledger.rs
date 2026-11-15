@@ -88,7 +88,7 @@ use crate::{
     ViscaSocket,
 };
 
-use super::{GenerationTicket, InquiryRoute, Lane, RequestId};
+use super::{GenerationTicket, Lane, RequestId};
 
 /// Debts at which a camera's correlation is lost.
 ///
@@ -156,7 +156,7 @@ pub(crate) enum Owes {
     /// `CompletionOnly` commands to its camera fail rather than wait.
     Rejection,
     /// An inquiry: its reply, or an error rejecting it.
-    Reply(InquiryRoute),
+    Reply,
     /// A socket cancellation packet: `0x04` or `0x05` naming its socket.
     Cancel(ViscaSocket),
 }
@@ -180,7 +180,7 @@ impl Owes {
     pub(crate) const fn lane(self) -> Option<Lane> {
         match self {
             Self::Ack | Self::Completion | Self::AcceptedCompletion => Some(Lane::Command),
-            Self::Reply(_) => Some(Lane::Inquiry),
+            Self::Reply => Some(Lane::Inquiry),
             Self::Rejection | Self::Cancel(_) => None,
         }
     }
@@ -298,8 +298,8 @@ impl Outstanding {
 pub(crate) enum Answer {
     /// `z0 4y FF`.
     Ack,
-    /// Inquiry data, with the route its content selects (if any).
-    Reply(Option<InquiryRoute>),
+    /// Unidentified inquiry data.
+    Reply,
     /// `z0 6y 04|05 FF` naming `y`: only a cancellation packet's answer.
     CancelReply(ViscaSocket),
     /// A rejection naming a free socket: the socket the camera allocated for
@@ -1007,7 +1007,7 @@ impl StreamLedger {
     pub(crate) fn owes_reply(&self, target: TargetSlot) -> bool {
         self.queue(target)
             .iter()
-            .any(|entry| entry.is_debt() && matches!(entry.owes, Owes::Reply(_)))
+            .any(|entry| entry.is_debt() && matches!(entry.owes, Owes::Reply))
     }
 
     /// Whether `target` owes [`MAX_DEBTS_PER_TARGET`] debts: every lane
@@ -1254,10 +1254,7 @@ fn resolve_in(queue: &Queue, answer: Answer) -> Resolution {
 fn legal(answer: Answer, owes: Owes) -> bool {
     match (answer, owes) {
         (Answer::Ack, Owes::Ack) => true,
-        (Answer::Reply(route), Owes::Reply(owed)) => {
-            route.is_none_or(|route| route == owed || route == InquiryRoute::UNKNOWN)
-                || owed == InquiryRoute::UNKNOWN
-        }
+        (Answer::Reply, Owes::Reply) => true,
         (Answer::CancelReply(socket), Owes::Cancel(owed)) => socket == owed,
         (Answer::NamedRejection, Owes::Ack) => true,
         (Answer::SocketlessError, owes) => {
@@ -1276,7 +1273,7 @@ fn apply_in(queue: &mut Queue, entry: Outstanding) -> bool {
     // Settle first: taking the entry may merge the runs it separated.
     let retired_reply = settle_in(queue, entry.order);
     take_in(queue, entry.order);
-    let paid_reply = entry.is_debt() && matches!(entry.owes, Owes::Reply(_));
+    let paid_reply = entry.is_debt() && matches!(entry.owes, Owes::Reply);
     paid_reply || retired_reply
 }
 
@@ -1324,7 +1321,7 @@ fn settle_in(queue: &mut Queue, order: u64) -> bool {
                 true
             }
             Owes::AcceptedCompletion => true,
-            Owes::Reply(_) => {
+            Owes::Reply => {
                 reply = true;
                 false
             }
@@ -1411,7 +1408,7 @@ mod tests {
     /// `o`: it settles older `NoReply` and ACK debts, whatever the time.
     #[test]
     fn a_completion_settles_the_debts_written_before_its_request() {
-        let reply = Owes::Reply(InquiryRoute::UNKNOWN);
+        let reply = Owes::Reply;
         let mut ledger = owed(&[Owes::Rejection, Owes::Ack, reply]);
         assert_eq!(ledger.debts(TARGET), 3);
         let last = ledger
@@ -1480,7 +1477,7 @@ mod tests {
         let ledger = owed(&[s1, s2, s1, s2, s1, Owes::Ack, s2, Owes::Ack]);
         assert_eq!(shape(&ledger), [(s1, 3), (s2, 3), (Owes::Ack, 2)]);
 
-        let reply = Owes::Reply(InquiryRoute::UNKNOWN);
+        let reply = Owes::Reply;
         let ledger = owed(&[Owes::Ack, Owes::Ack, reply, Owes::Ack, Owes::Completion]);
         assert_eq!(
             shape(&ledger),
@@ -1498,10 +1495,10 @@ mod tests {
     /// pay oldest first.
     #[test]
     fn a_first_answer_settles_older_debts_and_runs_pay_in_order() {
-        let reply = Owes::Reply(InquiryRoute::UNKNOWN);
+        let reply = Owes::Reply;
         let mut ledger = owed(&[Owes::Ack, reply, Owes::Ack, Owes::Ack]);
         assert_eq!(shape(&ledger), [(Owes::Ack, 1), (reply, 1), (Owes::Ack, 2)]);
-        let answered = ledger.answer(TARGET, Answer::Reply(None), evidence(Answer::Reply(None)));
+        let answered = ledger.answer(TARGET, Answer::Reply, evidence(Answer::Reply));
         assert!(matches!(answered.resolved, Resolved::Debt(entry) if entry.owes == reply));
         assert!(answered.reply_settled);
         assert_eq!(shape(&ledger), [(Owes::Ack, 2)]);

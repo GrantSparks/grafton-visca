@@ -379,8 +379,8 @@ mod metrics {
     use crate::{
         runtime::engine::{
             CancellationPolicy, ControlPolicy, DeadlineKind, DecodedFrame, DecodedResponse,
-            EncodedMessage, EnvelopeKind, EnvelopeSequence, InquiryRoute, ReplyShape,
-            RequestContext, RetryPolicy, SequenceWidth, TimeoutPolicy, TransmissionMeta,
+            EncodedMessage, EnvelopeKind, EnvelopeSequence, ReplyShape, RequestContext,
+            RetryPolicy, SequenceWidth, TimeoutPolicy, TransmissionMeta,
         },
         Error, ViscaSocket,
     };
@@ -456,7 +456,6 @@ mod metrics {
         RuntimeRequest::Inquiry {
             wire: wire(),
             context,
-            route: InquiryRoute(1),
         }
     }
 
@@ -1283,8 +1282,8 @@ mod lifecycle_trace {
     use crate::{
         protocol::response::{decode_basic, BasicKind},
         runtime::engine::{
-            CancellationPolicy, ControlPolicy, EncodedMessage, InquiryRoute, ReplyShape,
-            RequestContext, RetryPolicy, TimeoutPolicy, TransportKind,
+            CancellationPolicy, ControlPolicy, EncodedMessage, ReplyShape, RequestContext,
+            RetryPolicy, TimeoutPolicy, TransportKind,
         },
         CameraId, Error,
     };
@@ -1445,8 +1444,8 @@ mod lifecycle_trace {
             RuntimeOutcome::Applied => "Applied".to_owned(),
             RuntimeOutcome::Cancelled => "Cancelled".to_owned(),
             RuntimeOutcome::Failed(error) => format!("Error::{}", error_label(error)),
-            RuntimeOutcome::Reply { route, payload } => {
-                format!("Reply(route={route:?},payload={payload:?})")
+            RuntimeOutcome::Reply { payload } => {
+                format!("Reply(payload={payload:?})")
             }
         }
     }
@@ -1557,7 +1556,6 @@ mod lifecycle_trace {
                 cancellation,
                 reply_shape: ReplyShape::AckThenCompletion,
             },
-            route: InquiryRoute::UNKNOWN,
         }
     }
 

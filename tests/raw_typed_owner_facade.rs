@@ -15,8 +15,7 @@
 use grafton_visca_test_support::fake_camera;
 
 use grafton_visca::{
-    raw, AffectedAxes, ControlClass, Error, InquiryRoute, ProfileSpec, ResponseDecoder, RetryClass,
-    TimeoutClass,
+    raw, AffectedAxes, ControlClass, Error, ProfileSpec, ResponseDecoder, RetryClass, TimeoutClass,
 };
 
 use fake_camera::{frames, FakeCamera};
@@ -81,7 +80,6 @@ fn raw_values() -> (
     .expect("plain frame");
     let inquiry = raw::Inquiry::new(
         [0x81, 0x09, 0x01, 0xff],
-        InquiryRoute::RAW,
         ResponseDecoder::from_fn(decode_first),
         RetryClass::Inquiry,
         ControlClass::Normal,

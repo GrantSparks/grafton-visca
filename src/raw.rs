@@ -31,9 +31,8 @@
 //!
 //! Raw policy is explicit and owned by each value. Commands require timeout,
 //! retry, and control classes, directly or through [`crate::raw::Policy`].
-//! [`Inquiry::new`](crate::raw::Inquiry::new) fixes the timeout class to [`TimeoutClass::Inquiry`];
-//! inquiry constructors with an explicit policy or class reject any other
-//! timeout at construction. No byte-based lifecycle inference or
+//! Inquiry convenience constructors fix the timeout class to [`TimeoutClass::Inquiry`];
+//! [`Inquiry::with_policy`] rejects any other timeout at construction. No byte-based lifecycle inference or
 //! caller-selected operation class exists.
 //!
 //! A raw command also declares its [`crate::raw::RawReplyShape`]: the default
@@ -58,9 +57,7 @@ use std::{borrow::Cow, fmt};
 use smallvec::SmallVec;
 
 /// Policy and validation types used by the raw constructors.
-pub use crate::{
-    AffectedAxes, ControlClass, InquiryRoute, ResponseDecoder, RetryClass, TimeoutClass,
-};
+pub use crate::{AffectedAxes, ControlClass, ResponseDecoder, RetryClass, TimeoutClass};
 
 use crate::{
     command::bytes::{constants::system, VISCA_TERMINATOR},
@@ -666,16 +663,15 @@ impl Request for Plain {
     }
 }
 
-/// A raw inquiry with an explicit response route and typed decoder.
+/// A raw inquiry with an owned typed response decoder.
 pub struct Inquiry<R> {
     wire: Wire,
-    route: InquiryRoute,
     decoder: ResponseDecoder<R>,
     policy: Policy,
 }
 
 impl<R> Inquiry<R> {
-    /// Creates a bounded raw inquiry with explicit route, decoder, and policy.
+    /// Creates a bounded raw inquiry with an explicit decoder and policy.
     /// Its timeout class is always [`TimeoutClass::Inquiry`].
     ///
     /// `ResponseDecoder::with_context` can be used when the decoder needs
@@ -683,20 +679,18 @@ impl<R> Inquiry<R> {
     /// and remains outside the protocol engine.
     pub fn new(
         bytes: impl AsRef<[u8]>,
-        route: InquiryRoute,
         decoder: ResponseDecoder<R>,
         retry: RetryClass,
         control: ControlClass,
     ) -> Result<Self> {
         Self::with_policy(
             bytes,
-            route,
             decoder,
             Policy::new(TimeoutClass::Inquiry, retry, control)?,
         )
     }
 
-    /// Creates a raw inquiry from explicit route, decoder, and policy values.
+    /// Creates a raw inquiry from an explicit decoder and policy.
     ///
     /// The policy's timeout class must be [`TimeoutClass::Inquiry`]. Its
     /// reply shape must be the default
@@ -705,49 +699,39 @@ impl<R> Inquiry<R> {
     /// rejected here rather than silently ignored.
     pub fn with_policy(
         bytes: impl AsRef<[u8]>,
-        route: InquiryRoute,
         decoder: ResponseDecoder<R>,
         policy: Policy,
     ) -> Result<Self> {
         validate_timeout_class(policy.timeout_class(), true)?;
         validate_inquiry_reply_shape(policy.reply_shape())?;
-        validate_route(route)?;
         Ok(Self {
             wire: Wire::new(bytes)?,
-            route,
             decoder,
             policy,
         })
     }
 
     /// Creates a raw inquiry using an allocation-free function decoder.
-    /// The explicit timeout must be [`TimeoutClass::Inquiry`]; other values
-    /// are rejected at construction.
+    /// Its timeout class is always [`TimeoutClass::Inquiry`].
     pub fn from_fn(
         bytes: impl AsRef<[u8]>,
-        route: InquiryRoute,
         decoder: fn(&[u8]) -> Result<R>,
-        timeout: TimeoutClass,
         retry: RetryClass,
         control: ControlClass,
     ) -> Result<Self> {
         Self::with_policy(
             bytes,
-            route,
             ResponseDecoder::from_fn(decoder),
-            Policy::new(timeout, retry, control)?,
+            Policy::new(TimeoutClass::Inquiry, retry, control)?,
         )
     }
 
     /// Creates a raw inquiry whose decoder owns immutable context.
-    /// The explicit timeout must be [`TimeoutClass::Inquiry`]; other values
-    /// are rejected at construction.
+    /// Its timeout class is always [`TimeoutClass::Inquiry`].
     pub fn with_context<C>(
         bytes: impl AsRef<[u8]>,
-        route: InquiryRoute,
         context: C,
         decoder: fn(&C, &[u8]) -> Result<R>,
-        timeout: TimeoutClass,
         retry: RetryClass,
         control: ControlClass,
     ) -> Result<Self>
@@ -757,9 +741,8 @@ impl<R> Inquiry<R> {
     {
         Self::with_policy(
             bytes,
-            route,
             ResponseDecoder::with_context(context, decoder),
-            Policy::new(timeout, retry, control)?,
+            Policy::new(TimeoutClass::Inquiry, retry, control)?,
         )
     }
 
@@ -767,12 +750,6 @@ impl<R> Inquiry<R> {
     #[must_use]
     pub fn bytes(&self) -> &[u8] {
         self.wire.as_bytes()
-    }
-
-    /// Returns this inquiry's explicit response-correlation route.
-    #[must_use]
-    pub const fn route(&self) -> InquiryRoute {
-        self.route
     }
 
     raw_policy_accessors!("this inquiry");
@@ -783,7 +760,6 @@ impl<R> fmt::Debug for Inquiry<R> {
         formatter
             .debug_struct("Inquiry")
             .field("wire", &self.wire)
-            .field("route", &self.route)
             .field("decoder", &self.decoder)
             .field("policy", &self.policy)
             .finish()
@@ -794,7 +770,6 @@ impl<R> Clone for Inquiry<R> {
     fn clone(&self) -> Self {
         Self {
             wire: self.wire.clone(),
-            route: self.route,
             decoder: self.decoder.clone(),
             policy: self.policy,
         }
@@ -814,10 +789,6 @@ where
     R: Send + 'static,
 {
     type Response = R;
-
-    fn route(&self) -> InquiryRoute {
-        self.route
-    }
 
     fn decoder(&self) -> ResponseDecoder<Self::Response> {
         self.decoder.clone()
@@ -868,19 +839,6 @@ fn validate_operation_reply_shape(reply_shape: RawReplyShape) -> Result<()> {
         )))
     } else {
         Ok(())
-    }
-}
-
-fn validate_route(route: InquiryRoute) -> Result<()> {
-    // `InquiryRoute::RAW` (identifier zero) is the explicit raw FIFO route;
-    // non-zero values are application/built-in route identifiers. Rebuilding
-    // non-zero values through the checked constructor keeps the reserved
-    // identifier rule in one place and makes the validation visible at the
-    // raw boundary.
-    if route.is_raw() {
-        Ok(())
-    } else {
-        InquiryRoute::try_custom(route.identifier()).map(|_| ())
     }
 }
 
@@ -946,7 +904,6 @@ mod tests {
         let bytes = [0x81, 0x09, 0x04, 0x00, 0xff];
         let inquiry = Inquiry::new(
             bytes,
-            InquiryRoute::RAW,
             ResponseDecoder::from_fn(decode_first),
             RetryClass::Inquiry,
             ControlClass::Normal,
@@ -959,21 +916,15 @@ mod tests {
         assert!(matches!(
             Inquiry::with_policy(
                 bytes,
-                InquiryRoute::RAW,
                 ResponseDecoder::from_fn(decode_first),
                 command_policy
             ),
             Err(Error::InvalidRequest(_))
         ));
-        assert!(Inquiry::from_fn(
-            bytes,
-            InquiryRoute::RAW,
-            decode_first,
-            TimeoutClass::Quick,
-            RetryClass::Never,
-            ControlClass::Normal
-        )
-        .is_err());
+        let function_inquiry =
+            Inquiry::from_fn(bytes, decode_first, RetryClass::Never, ControlClass::Normal)
+                .expect("a function decoder also fixes the inquiry timeout class");
+        assert_eq!(function_inquiry.timeout_class(), TimeoutClass::Inquiry);
     }
 
     #[test]
@@ -1003,18 +954,15 @@ mod tests {
 
         let inquiry = Inquiry::new(
             [0x81, 0x09, 0x04, 0xff],
-            InquiryRoute::try_custom(7).expect("non-zero route"),
             ResponseDecoder::from_fn(decode_first),
             RetryClass::Never,
             ControlClass::Normal,
         )
         .expect("valid raw inquiry");
-        assert_eq!(inquiry.route(), InquiryRoute::custom(7));
         assert_eq!(inquiry.decoder().decode(&[0x42]).expect("decode"), 0x42);
 
         let context_inquiry = Inquiry::<u8>::with_context(
             [0x81, 0x09, 0x05, 0xff],
-            InquiryRoute::RAW,
             0x10_u8,
             |context, payload| {
                 payload
@@ -1022,11 +970,11 @@ mod tests {
                     .map(|value| value.saturating_add(*context))
                     .ok_or_else(|| Error::InvalidRequest("empty test payload".into()))
             },
-            TimeoutClass::Inquiry,
             RetryClass::Inquiry,
             ControlClass::Normal,
         )
         .expect("context decoder");
+        assert_eq!(context_inquiry.timeout_class(), TimeoutClass::Inquiry);
         assert_eq!(
             context_inquiry
                 .decoder()
@@ -1058,7 +1006,7 @@ mod tests {
     }
 
     #[test]
-    fn construction_rejects_invalid_wire_axes_and_route_specs() {
+    fn construction_rejects_invalid_wire_and_axes() {
         assert!(Plain::new(
             [],
             TimeoutClass::Quick,
@@ -1087,7 +1035,6 @@ mod tests {
             ControlClass::Normal,
         )
         .is_err());
-        assert!(InquiryRoute::try_custom(0).is_err());
         assert!(AffectedAxes::from_bits(0).is_err());
     }
 
@@ -1139,10 +1086,9 @@ mod tests {
         assert_eq!(accepted.bytes(), at_bound.as_slice());
 
         // Every constructor shares `validate_wire`, so the bound holds for the
-        // axis- and route-carrying values too.
+        // axis-carrying values too.
         let inquiry_error = Inquiry::new(
             frame(MAX_BYTES + 1),
-            InquiryRoute::RAW,
             ResponseDecoder::from_fn(decode_first),
             RetryClass::Inquiry,
             ControlClass::Normal,
@@ -1260,11 +1206,9 @@ mod tests {
         .is_err());
         assert!(Inquiry::from_fn(
             [0x81, 0x09, 0x04, 0xff],
-            InquiryRoute::RAW,
             decode_first,
-            TimeoutClass::Inquiry,
             RetryClass::Never,
-            ControlClass::Urgent,
+            ControlClass::Urgent
         )
         .is_err());
         assert!(Targeted::new(
@@ -1343,11 +1287,9 @@ mod tests {
         // The guard is shared by every raw request class, not just `Plain`.
         assert!(Inquiry::from_fn(
             [0x81, 0x21, 0xff],
-            InquiryRoute::RAW,
             decode_first,
-            TimeoutClass::Inquiry,
             RetryClass::Never,
-            ControlClass::Normal,
+            ControlClass::Normal
         )
         .is_err());
         assert!(Targeted::new(
@@ -1561,18 +1503,15 @@ mod tests {
         // The default shape is accepted through every inquiry constructor.
         assert!(Inquiry::<u8>::with_policy(
             [0x81, 0x09, 0x04, 0xff],
-            InquiryRoute::RAW,
             ResponseDecoder::from_fn(decode_first),
-            ackthen,
+            ackthen
         )
         .is_ok());
         assert!(Inquiry::from_fn(
             [0x81, 0x09, 0x04, 0xff],
-            InquiryRoute::RAW,
             decode_first,
-            TimeoutClass::Inquiry,
             RetryClass::Never,
-            ControlClass::Normal,
+            ControlClass::Normal
         )
         .is_ok());
 
@@ -1584,9 +1523,8 @@ mod tests {
                 matches!(
                     Inquiry::<u8>::with_policy(
                         [0x81, 0x09, 0x04, 0xff],
-                        InquiryRoute::RAW,
                         ResponseDecoder::from_fn(decode_first),
-                        policy,
+                        policy
                     ),
                     Err(Error::InvalidRequest(_))
                 ),

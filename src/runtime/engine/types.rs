@@ -165,15 +165,6 @@ pub(crate) struct QueueTicket {
     pub(crate) queue_generation: u64,
 }
 
-/// Classifies an inquiry for parsed-content routing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct InquiryRoute(pub(crate) u16);
-
-impl InquiryRoute {
-    /// A parser could not classify the response content.
-    pub(crate) const UNKNOWN: Self = Self(0);
-}
-
 /// Public request semantics lower to this private scheduling classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ControlClass {
@@ -444,7 +435,6 @@ pub(crate) enum RuntimeRequest {
     Inquiry {
         wire: Arc<EncodedMessage>,
         context: RequestContext,
-        route: InquiryRoute,
     },
 }
 
@@ -476,13 +466,6 @@ impl RuntimeRequest {
         match self {
             Self::Command { .. } => Lane::Command,
             Self::Inquiry { .. } => Lane::Inquiry,
-        }
-    }
-
-    pub(crate) const fn inquiry_route(&self) -> Option<InquiryRoute> {
-        match self {
-            Self::Inquiry { route, .. } => Some(*route),
-            Self::Command { .. } => None,
         }
     }
 
@@ -625,7 +608,6 @@ pub(crate) enum DecodedResponse {
         socket: Option<ViscaSocket>,
     },
     InquiryReply {
-        route: Option<InquiryRoute>,
         payload: SmallVec<[u8; INLINE_BYTES]>,
     },
     Error {
@@ -860,10 +842,6 @@ pub(crate) enum RuntimeOutcome {
     Written,
     Applied,
     Reply {
-        /// The route the reply frame was decoded with; `None` when it was
-        /// correlated without one. Only the protocol trace tests read it.
-        #[cfg(test)]
-        route: Option<InquiryRoute>,
         payload: SmallVec<[u8; INLINE_BYTES]>,
     },
     Cancelled,

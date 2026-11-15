@@ -115,8 +115,8 @@ use grafton_visca::{
         TiltSpeed, ZoomPosition,
     },
     units::{Degrees, UnitInterval},
-    AffectedAxes, CameraId, CompileTimeProfile, ControlClass, Error, InquiryRoute,
-    PanTiltCoordinateConversion, Request, RetryClass, TimeoutClass, ZoomDomain,
+    AffectedAxes, CameraId, CompileTimeProfile, ControlClass, Error, PanTiltCoordinateConversion,
+    Request, RetryClass, ZoomDomain,
 };
 
 use hardware::{
@@ -1188,9 +1188,7 @@ fn shutter_body<P: WireRowProfile>(
         hw: *hw,
         raw_inquiry: raw::Inquiry::from_fn(
             encode(&ShutterInquiry, target)?,
-            InquiryRoute::RAW,
             payload_bytes,
-            TimeoutClass::Inquiry,
             RetryClass::Inquiry,
             ControlClass::Normal,
         )?,

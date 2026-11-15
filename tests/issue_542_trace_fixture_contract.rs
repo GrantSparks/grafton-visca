@@ -10,7 +10,7 @@
 //! What a production replay cannot check is whether the normative record is
 //! still a well-formed normative record: that the trace format stays
 //! explicitly versioned, that every scoped correlation case is still present,
-//! that every expectation still cites a recognized #542 clause rather than an
+//! that every expectation still cites a recognized #542 clause or its #860 revision rather than an
 //! invented one, that every frame is answered by exactly one expectation, and
 //! that both envelopes and all three lower-16 sequence cases stay covered.
 //! Those are properties of the fixture, so they are checked here — and only
@@ -22,7 +22,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 const TRACE: &str = include_str!("fixtures/issue_542/protocol/correlation-routing.trace");
-const FORMAT: &str = "issue-542-protocol-correlation/v1";
+const FORMAT: &str = "issue-542-protocol-correlation/v2";
 
 const NORMATIVE_CLAUSES: &[&str] = &[
     "#542 exact Sony sequence matches are authoritative and target-compatible.",
@@ -33,10 +33,8 @@ const NORMATIVE_CLAUSES: &[&str] = &[
     "#542 every target and socket pair has at most one active owner.",
     "#542 malformed, unmatched, duplicate, reordered, or unsolicited input cannot mutate unrelated state.",
     "#542 completion releases all target and socket ownership and emits Applied for the exact request.",
-    "#542 raw inquiry replies use route and content matching before FIFO fallback.",
+    "#860 raw inquiry replies carry no inquiry identity and follow per-target write order.",
     "#542 raw inquiry FIFO fallback is established independently for each target.",
-    "#542 ambiguous raw inquiry content matching falls back to the established per-target FIFO.",
-    "#542 absent raw inquiry content matching falls back to the established per-target FIFO.",
     "#542 socketless raw errors route a unique unacknowledged command only without an inquiry owner.",
     "#542 socketless raw errors use per-target inquiry FIFO only without an unacknowledged command.",
     "#542 ambiguous socketless raw errors leave both live requests authoritative without terminal or retry.",
@@ -52,7 +50,7 @@ const NORMATIVE_CLAUSES: &[&str] = &[
 const SCENARIOS: &[&str] = &[
     "raw-command-target-and-socket",
     "raw-error-unique-evidence-and-authority",
-    "raw-inquiry-content-then-per-target-fifo",
+    "raw-inquiry-per-target-write-order",
     "sony-exact-out-of-order-and-target-compatible",
     "sony-stale-duplicate-and-unmatched-never-fallback",
     "sony-unique-lower16-collision-and-truncation",

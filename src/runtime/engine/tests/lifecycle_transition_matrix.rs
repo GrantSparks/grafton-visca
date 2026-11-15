@@ -249,7 +249,7 @@ impl Fixture {
         let now = Instant::now();
         let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
         let mut request = match state {
-            AwaitingReply => inquiry(1, POWER),
+            AwaitingReply => inquiry(1),
             AwaitingCompletion => command_with_reply_shape(
                 1,
                 CancellationPolicy::Supported,
