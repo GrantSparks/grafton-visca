@@ -9,6 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Sony FR7 AE-level, automatic gain/shutter/iris, relative iris-step and
+  high-resolution zoom controls use their sourced R7 packets and checked
+  domains. Clear Image Zoom has a bounded position readback; it adds no
+  unsupported direct-positioning command (#894).
+
 - Serial startup has a bounded fuzz target for arbitrary bus input, I/O results
   and timing ticks, with reply/noise/echo seeds also exercised on stable (#887).
 - `PayloadShape` describes an inquiry's decoded data width and nibble
