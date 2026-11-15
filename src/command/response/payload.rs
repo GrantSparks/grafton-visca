@@ -14,9 +14,9 @@ use crate::error::Error;
 ///
 /// # Protocol Background
 ///
-/// The VISCA protocol inherited an inconsistent boolean encoding from its
-/// origins in Sony broadcast equipment. Most commands use `0x03 = on`,
-/// but some legacy commands inverted this to `0x02 = on`.
+/// Standard VISCA on/off replies use `0x02 = on` and `0x03 = off`.
+/// A register that documents the opposite polarity must explicitly select
+/// [`Self::OnIs03`]. The inquiry's source determines the convention.
 ///
 /// # Examples
 ///
@@ -26,28 +26,22 @@ use crate::error::Error;
 /// let data = [0x02];
 /// let payload = Payload::new(&data);
 ///
-/// // Standard convention: 0x02 = off
-/// let enabled = payload.parse_bool("autofocus", BoolConvention::OnIs03)?;
-/// assert!(!enabled);
+/// // Standard convention: 0x02 = on
+/// let powered = payload.parse_bool("power", BoolConvention::OnIs02)?;
+/// assert!(powered);
 ///
-/// // Inverted convention: 0x02 = on
-/// let is_open = payload.parse_bool("menu_status", BoolConvention::OnIs02)?;
-/// assert!(is_open);
+/// // Use the opposite convention only for a register that documents it.
+/// let enabled = payload.parse_bool("vendor_setting", BoolConvention::OnIs03)?;
+/// assert!(!enabled);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BoolConvention {
-    /// Standard: `0x02` = off/false, `0x03` = on/true.
-    ///
-    /// Used by the majority of VISCA commands including:
-    /// - AutoFocus, Standby, IrisControl, DefogMode, DigitalPtz
-    /// - NightDayMode, NightDaySwitch, AutoTrace, FocusUnlock
-    /// - Rtmp, Digital, TallyAutoAdjust
-    /// - IrisUp, IrisDown, FocusNearFar
-    /// - ZoomOut, ZoomIn, ZoomTeleWide
+    /// Register-specific opposite polarity: `0x02` = off/false, `0x03` = on/true.
+    /// Select this only when the register's source documents that meaning.
     OnIs03,
-    /// Inverted: `0x02` = on/true, `0x03` = off/false.
+    /// Standard VISCA on/off polarity: `0x02` = on/true, `0x03` = off/false.
     ///
-    /// Used by a small number of legacy commands:
+    /// Used by sourced replies including:
     /// - MenuOpenClose (0x02 = open)
     /// - TallyGreen (0x02 = on)
     /// - Power (0x02 = on)

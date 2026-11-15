@@ -65,8 +65,24 @@ decode with the `response` table entry, including its boolean convention,
 nibble width, and value conversion. Transforming selectors carry their own
 decoding: `Custom` calls `parse_with`, and `BoolConvention`, the nibble
 selectors, `Mode`, `NdFilter`, `PictureEffect`, `DefogLevel` and `FocusRange`
-apply their transformation, using `field`, `value_type` and `data_variant`
-where the selector reads them.
+apply their transformation. Every optional key must be consumed by the
+selected parser; an ignored key is a compile error.
+
+| Selector | Accepted decoder keys |
+| --- | --- |
+| Built-in table shapes | None; the canonical table owns their conventions |
+| `BoolConvention` | `field`, `convention`, optional `data_variant` |
+| `Nibble`, `ExtendedNibble` | Optional `field` |
+| `Mode`, `ModeEnum` | `value_type` |
+| `LastNibble` | `field`, optional `data_variant` |
+| `NdFilter`, `PictureEffect`, `DefogLevel`, `FocusRange` | Optional `data_variant` |
+| `Custom` | `parse_with`, optional `data_variant` with a typed response |
+
+`Mode` and nibble selectors always construct the named `response` variant,
+so they reject `data_variant`. Standard VISCA on/off replies use
+`BoolConvention::OnIs02`; use `OnIs03` only for a register that documents the
+opposite polarity. Neither `opcode` nor `subcode` may be `0xFF`, because that
+byte terminates a VISCA frame.
 
 ## ViscaEnum
 
