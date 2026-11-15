@@ -237,7 +237,6 @@ pub(super) fn settlement_budget(
 #[derive(Debug, Clone, Copy)]
 pub(super) struct PositionPoll<'a> {
     pub(super) queries: &'a PositionQueryPlan,
-    pub(super) axes: AffectedAxes,
     pub(super) tolerance: MovementTolerance,
     pub(super) interval: Duration,
 }
@@ -247,7 +246,6 @@ pub(super) struct PositionPoll<'a> {
 /// completion to be the settlement evidence.
 pub(super) fn position_poll(
     settlement: &completion::Settlement<completion::Targeted>,
-    affected_axes: AffectedAxes,
 ) -> Option<PositionPoll<'_>> {
     match settlement.plan() {
         SettlementPlan::CompletionIsSettled { .. } => None,
@@ -258,7 +256,6 @@ pub(super) fn position_poll(
             ..
         } => Some(PositionPoll {
             queries,
-            axes: affected_axes,
             tolerance: *tolerance,
             interval: *interval,
         }),

@@ -330,15 +330,11 @@ macro_rules! owner_handle_methods {
                 poll: super::receipt::PositionPoll<'_>,
                 deadline: std::time::Instant,
             ) -> Result<(), crate::Error> {
-                let mut settlement = crate::prepared::SettlementPoll::new(
-                    poll.axes,
-                    poll.tolerance,
-                    poll.interval,
-                    deadline,
-                );
+                let mut queries = poll.queries.clone();
+                let mut settlement = crate::prepared::SettlementPoll::new(poll.interval, deadline);
                 loop {
-                    let snapshot = self.sample_positions(poll.queries, deadline) $($await)* ?;
-                    match settlement.observe(snapshot, self.now())? {
+                    let moving = self.sample_positions(&mut queries, poll.tolerance, deadline) $($await)* ?;
+                    match settlement.observe(moving, self.now())? {
                         crate::prepared::SettlementStep::Settled => return Ok(()),
                         crate::prepared::SettlementStep::SampleAfter(pause) => {
                             self.sleep(pause) $($await)*
@@ -357,7 +353,6 @@ macro_rules! owner_handle_methods {
                 let deadline = self.deadline_after(wait.timeout)?;
                 let poll = super::receipt::PositionPoll {
                     queries,
-                    axes: wait.axes,
                     tolerance: wait.tolerance,
                     interval: wait.interval,
                 };
@@ -373,8 +368,10 @@ macro_rules! owner_handle_methods {
                 queries: &crate::prepared::PositionQueryPlan,
             ) -> Result<bool, crate::Error> {
                 let deadline = self.deadline_after(window.budget(queries)?)?;
-                let baseline = self.sample_positions(queries, deadline) $($await)* ?;
-                let window = window.observe_baseline(baseline, self.now(), deadline)?;
+                let tolerance = window.tolerance();
+                let mut queries = queries.clone();
+                self.sample_positions(&mut queries, tolerance, deadline) $($await)* ?;
+                let window = window.observe_baseline(self.now(), deadline)?;
                 loop {
                     let now = self.now();
                     if now >= window.final_not_before() {
@@ -385,39 +382,40 @@ macro_rules! owner_handle_methods {
                 }
                 self.ensure_before(deadline)?;
                 let started_at = self.now();
-                let last = self.sample_positions(queries, deadline) $($await)* ?;
-                window.observe_final(last, started_at)
+                let moving = self.sample_positions(&mut queries, tolerance, deadline) $($await)* ?;
+                window.observe_final(moving, started_at)
             }
 
             /// Samples exactly the prepared position inquiries, in axis
             /// order, before one absolute deadline.
             $($async)* fn sample_positions(
                 &self,
-                queries: &crate::prepared::PositionQueryPlan,
+                queries: &mut crate::prepared::PositionQueryPlan,
+                tolerance: crate::camera::MovementTolerance,
                 deadline: std::time::Instant,
-            ) -> Result<crate::prepared::PositionSnapshot, crate::Error> {
-                Ok(crate::prepared::PositionSnapshot {
-                    pan_tilt: match &queries.pan_tilt {
-                        Some(query) => Some(self.sample(query, deadline) $($await)* ?),
-                        None => None,
-                    },
-                    zoom: match &queries.zoom {
-                        Some(query) => Some(self.sample(query, deadline) $($await)* ?),
-                        None => None,
-                    },
-                    focus: match &queries.focus {
-                        Some(query) => Some(self.sample(query, deadline) $($await)* ?),
-                        None => None,
-                    },
-                    iris: match &queries.iris {
-                        Some(query) => Some(self.sample(query, deadline) $($await)* ?),
-                        None => None,
-                    },
-                    nd_filter: match &queries.nd_filter {
-                        Some(query) => Some(self.sample(query, deadline) $($await)* ?),
-                        None => None,
-                    },
-                })
+            ) -> Result<bool, crate::Error> {
+                let mut moving = false;
+                if let Some(query) = &mut queries.pan_tilt {
+                    let value = self.sample(query, deadline) $($await)* ?;
+                    moving |= query.record(value, tolerance);
+                }
+                if let Some(query) = &mut queries.zoom {
+                    let value = self.sample(query, deadline) $($await)* ?;
+                    moving |= query.record(value, tolerance);
+                }
+                if let Some(query) = &mut queries.focus {
+                    let value = self.sample(query, deadline) $($await)* ?;
+                    moving |= query.record(value, tolerance);
+                }
+                if let Some(query) = &mut queries.iris {
+                    let value = self.sample(query, deadline) $($await)* ?;
+                    moving |= query.record(value, tolerance);
+                }
+                if let Some(query) = &mut queries.nd_filter {
+                    let value = self.sample(query, deadline) $($await)* ?;
+                    moving |= query.record(value, tolerance);
+                }
+                Ok(moving)
             }
 
             /// One position inquiry, admitted and answered strictly before
@@ -425,7 +423,7 @@ macro_rules! owner_handle_methods {
             /// other failures retain their exact verdict.
             $($async)* fn sample<R>(
                 &self,
-                query: &crate::prepared::PreparedInquiryTemplate<R>,
+                query: &crate::prepared::PositionQuery<R>,
                 deadline: std::time::Instant,
             ) -> Result<R, crate::Error> {
                 self.sample_before(query, deadline)
@@ -435,7 +433,7 @@ macro_rules! owner_handle_methods {
 
             $($async)* fn sample_before<R>(
                 &self,
-                query: &crate::prepared::PreparedInquiryTemplate<R>,
+                query: &crate::prepared::PositionQuery<R>,
                 deadline: std::time::Instant,
             ) -> Result<R, crate::Error> {
                 self.ensure_before(deadline)?;
@@ -604,7 +602,6 @@ macro_rules! owner_handle_methods {
                 self.applied_until(deadline) $($await)* ?;
                 match super::receipt::position_poll(
                     &self.settlement,
-                    self.affected_axes,
                 ) {
                     Some(poll) => {
                         self.observation.check_settlement()?;
@@ -614,7 +611,7 @@ macro_rules! owner_handle_methods {
                             $($await)*
                             .map(|()| {
                                 crate::Settlement::observed_stable(
-                                    poll.axes,
+                                    self.affected_axes,
                                     poll.interval,
                                     poll.tolerance,
                                 )

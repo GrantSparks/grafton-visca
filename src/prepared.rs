@@ -153,14 +153,73 @@ impl SettlementPlan {
     }
 }
 
+/// One selected position inquiry and the answer from its preceding sample.
+/// Absence means no baseline has been sampled yet, never an omitted axis.
+#[derive(Debug, Clone)]
+pub(crate) struct PositionQuery<R> {
+    inquiry: PreparedInquiryTemplate<R>,
+    previous: Option<R>,
+}
+
+impl<R> PositionQuery<R> {
+    fn new(inquiry: PreparedInquiryTemplate<R>) -> Self {
+        Self {
+            inquiry,
+            previous: None,
+        }
+    }
+
+    pub(crate) fn instantiate(&self) -> PreparedInquiry<R> {
+        self.inquiry.instantiate()
+    }
+}
+
+pub(crate) trait PositionReading: Copy {
+    fn moved(self, previous: Self, tolerance: MovementTolerance) -> bool;
+}
+
+impl PositionReading for PanTiltPosition {
+    fn moved(self, previous: Self, tolerance: MovementTolerance) -> bool {
+        let (pan, tilt) = self.raw_values();
+        let (previous_pan, previous_tilt) = previous.raw_values();
+        let tolerance = u64::from(tolerance.pan_tilt.unsigned_abs());
+        (i64::from(pan) - i64::from(previous_pan)).unsigned_abs() > tolerance
+            || (i64::from(tilt) - i64::from(previous_tilt)).unsigned_abs() > tolerance
+    }
+}
+
+macro_rules! scalar_position_readings {
+    ($($type:ty => $field:ident),+ $(,)?) => {$(
+        impl PositionReading for $type {
+            fn moved(self, previous: Self, tolerance: MovementTolerance) -> bool {
+                u64::from(self.value().abs_diff(previous.value())) > u64::from(tolerance.$field)
+            }
+        }
+    )+};
+}
+
+scalar_position_readings! {
+    ZoomPosition => zoom, FocusPosition => focus, IrisLevel => iris, NdFilterValue => nd_filter,
+}
+
+impl<R: PositionReading> PositionQuery<R> {
+    /// Records a successful reply. A first sample needs a second one before
+    /// it can prove stability, so it conservatively reports movement.
+    pub(crate) fn record(&mut self, value: R, tolerance: MovementTolerance) -> bool {
+        self.previous
+            .replace(value)
+            .is_none_or(|previous| value.moved(previous, tolerance))
+    }
+}
+
 /// Complete set of typed position inquiries selected for one operation.
 #[derive(Debug, Clone)]
 pub(crate) struct PositionQueryPlan {
-    pub(crate) pan_tilt: Option<PreparedInquiryTemplate<PanTiltPosition>>,
-    pub(crate) zoom: Option<PreparedInquiryTemplate<ZoomPosition>>,
-    pub(crate) focus: Option<PreparedInquiryTemplate<FocusPosition>>,
-    pub(crate) iris: Option<PreparedInquiryTemplate<IrisLevel>>,
-    pub(crate) nd_filter: Option<PreparedInquiryTemplate<NdFilterValue>>,
+    pub(crate) pan_tilt: Option<PositionQuery<PanTiltPosition>>,
+    pub(crate) zoom: Option<PositionQuery<ZoomPosition>>,
+    pub(crate) focus: Option<PositionQuery<FocusPosition>>,
+    pub(crate) iris: Option<PositionQuery<IrisLevel>>,
+    pub(crate) nd_filter: Option<PositionQuery<NdFilterValue>>,
 }
 
 impl PositionQueryPlan {
@@ -169,11 +228,11 @@ impl PositionQueryPlan {
     /// delay its admission after the preceding query.
     fn snapshot_budget(&self) -> Option<Duration> {
         [
-            self.pan_tilt.as_ref().map(|query| &query.context),
-            self.zoom.as_ref().map(|query| &query.context),
-            self.focus.as_ref().map(|query| &query.context),
-            self.iris.as_ref().map(|query| &query.context),
-            self.nd_filter.as_ref().map(|query| &query.context),
+            self.pan_tilt.as_ref().map(|query| &query.inquiry.context),
+            self.zoom.as_ref().map(|query| &query.inquiry.context),
+            self.focus.as_ref().map(|query| &query.inquiry.context),
+            self.iris.as_ref().map(|query| &query.inquiry.context),
+            self.nd_filter.as_ref().map(|query| &query.inquiry.context),
         ]
         .into_iter()
         .flatten()
@@ -201,7 +260,7 @@ impl PositionQueryPlan {
                     )
                 })
                 .transpose()?
-                .map(PreparedInquiry::into_template),
+                .map(|prepared| PositionQuery::new(prepared.into_template())),
             zoom: axes
                 .contains(AffectedAxes::ZOOM)
                 .then(|| {
@@ -213,7 +272,7 @@ impl PositionQueryPlan {
                     )
                 })
                 .transpose()?
-                .map(PreparedInquiry::into_template),
+                .map(|prepared| PositionQuery::new(prepared.into_template())),
             focus: axes
                 .contains(AffectedAxes::FOCUS)
                 .then(|| {
@@ -225,14 +284,14 @@ impl PositionQueryPlan {
                     )
                 })
                 .transpose()?
-                .map(PreparedInquiry::into_template),
+                .map(|prepared| PositionQuery::new(prepared.into_template())),
             iris: axes
                 .contains(AffectedAxes::IRIS)
                 .then(|| {
                     prepare_inquiry(&IrisInquiry, registration, tuning, ClassSelection::Request)
                 })
                 .transpose()?
-                .map(PreparedInquiry::into_template),
+                .map(|prepared| PositionQuery::new(prepared.into_template())),
             nd_filter: axes
                 .contains(AffectedAxes::ND_FILTER)
                 .then(|| {
@@ -244,7 +303,7 @@ impl PositionQueryPlan {
                     )
                 })
                 .transpose()?
-                .map(PreparedInquiry::into_template),
+                .map(|prepared| PositionQuery::new(prepared.into_template())),
         })
     }
 }
@@ -274,51 +333,6 @@ pub(crate) fn prepare_position_queries(
     PositionQueryPlan::prepare(registration, tuning, axes)
 }
 
-/// One complete position sample for an explicitly selected axis set.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) struct PositionSnapshot {
-    pub(crate) pan_tilt: Option<PanTiltPosition>,
-    pub(crate) zoom: Option<ZoomPosition>,
-    pub(crate) focus: Option<FocusPosition>,
-    pub(crate) iris: Option<IrisLevel>,
-    pub(crate) nd_filter: Option<NdFilterValue>,
-}
-
-/// Pure selected-axis movement detector shared by both execution modes.
-///
-/// It exists only once a complete baseline snapshot was taken, so every
-/// comparison has a previous snapshot by construction.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct MotionDetector {
-    axes: AffectedAxes,
-    tolerance: MovementTolerance,
-    previous: PositionSnapshot,
-}
-
-impl MotionDetector {
-    /// Starts detection from `baseline`, which must hold every selected axis.
-    pub(crate) fn from_baseline(
-        axes: AffectedAxes,
-        tolerance: MovementTolerance,
-        baseline: PositionSnapshot,
-    ) -> Result<Self> {
-        baseline.validate(axes)?;
-        Ok(Self {
-            axes,
-            tolerance,
-            previous: baseline,
-        })
-    }
-
-    /// Whether any selected axis moved beyond its tolerance between the
-    /// previous snapshot and `snapshot`, which then becomes the previous one.
-    pub(crate) fn moved(&mut self, snapshot: PositionSnapshot) -> Result<bool> {
-        snapshot.validate(self.axes)?;
-        let previous = std::mem::replace(&mut self.previous, snapshot);
-        snapshots_moved(self.axes, self.tolerance, previous, snapshot)
-    }
-}
-
 /// Temporal contract for one `is_moving` observation, shared by every facade
 /// (#781).
 ///
@@ -329,14 +343,14 @@ impl MotionDetector {
 /// least `window`, however quickly the camera answers each inquiry.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct MotionWindow {
-    query: MotionQuery,
+    window: Duration,
+    tolerance: MovementTolerance,
 }
 
 /// A [`MotionWindow`] whose baseline snapshot was received: the final
 /// snapshot may start at [`Self::final_not_before`].
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct OpenMotionWindow {
-    detector: MotionDetector,
     final_not_before: Instant,
 }
 
@@ -350,7 +364,14 @@ impl MotionWindow {
                 reason: "a movement observation needs a positive window".into(),
             });
         }
-        Ok(Self { query })
+        Ok(Self {
+            window: query.window,
+            tolerance: query.tolerance,
+        })
+    }
+
+    pub(crate) const fn tolerance(&self) -> MovementTolerance {
+        self.tolerance
     }
 
     /// The single absolute budget for the whole observation: both snapshots'
@@ -359,10 +380,10 @@ impl MotionWindow {
         queries
             .snapshot_budget()
             .and_then(|snapshot| snapshot.checked_mul(2))
-            .and_then(|snapshots| self.query.window.checked_add(snapshots))
+            .and_then(|snapshots| self.window.checked_add(snapshots))
             .ok_or_else(|| Error::InvalidParameter {
                 parameter: "MotionQuery::window",
-                value: format!("{:?}", self.query.window).into(),
+                value: format!("{:?}", self.window).into(),
                 reason: "the observation deadline is not representable".into(),
             })
     }
@@ -373,20 +394,14 @@ impl MotionWindow {
     /// and fails with [`Error::Timeout`] rather than reporting no movement.
     pub(crate) fn observe_baseline(
         self,
-        snapshot: PositionSnapshot,
         received_at: Instant,
         deadline: Instant,
     ) -> Result<OpenMotionWindow> {
-        let detector =
-            MotionDetector::from_baseline(self.query.axes, self.query.tolerance, snapshot)?;
         let final_not_before = received_at
-            .checked_add(self.query.window)
+            .checked_add(self.window)
             .filter(|not_before| *not_before < deadline)
             .ok_or_else(Error::query_timeout)?;
-        Ok(OpenMotionWindow {
-            detector,
-            final_not_before,
-        })
+        Ok(OpenMotionWindow { final_not_before })
     }
 }
 
@@ -396,19 +411,15 @@ impl OpenMotionWindow {
         self.final_not_before
     }
 
-    /// Compares the final snapshot, whose first inquiry started at
-    /// `started_at`, with the baseline. Returns whether movement was observed.
-    pub(crate) fn observe_final(
-        mut self,
-        snapshot: PositionSnapshot,
-        started_at: Instant,
-    ) -> Result<bool> {
+    /// Accepts the plan's final comparison, whose first inquiry started at
+    /// `started_at`, only once the observation window has elapsed.
+    pub(crate) fn observe_final(self, moving: bool, started_at: Instant) -> Result<bool> {
         if started_at < self.final_not_before {
             return Err(Error::InvalidState(
                 "final movement snapshot started before the observation window elapsed".into(),
             ));
         }
-        self.detector.moved(snapshot)
+        Ok(moving)
     }
 }
 
@@ -426,55 +437,23 @@ pub(crate) enum SettlementStep {
 ///
 /// A baseline snapshot, then one every `interval`, until two consecutive
 /// snapshots agree within tolerance, all before one absolute `deadline`. The
-/// driver supplies each snapshot and its owner-clock instant and performs the
-/// sleep this returns; every decision is made here.
+/// selected query slots compare their answers. The driver supplies that
+/// movement verdict and its owner-clock instant; this type selects the next
+/// pause or the deadline failure.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SettlementPoll {
-    axes: AffectedAxes,
-    tolerance: MovementTolerance,
     interval: Duration,
     deadline: Instant,
-    detector: Option<MotionDetector>,
 }
 
 impl SettlementPoll {
-    pub(crate) const fn new(
-        axes: AffectedAxes,
-        tolerance: MovementTolerance,
-        interval: Duration,
-        deadline: Instant,
-    ) -> Self {
-        Self {
-            axes,
-            tolerance,
-            interval,
-            deadline,
-            detector: None,
-        }
+    pub(crate) const fn new(interval: Duration, deadline: Instant) -> Self {
+        Self { interval, deadline }
     }
 
-    /// Records the snapshot that finished at `now` and decides the next step.
-    ///
-    /// The baseline never settles on its own. Once the deadline has passed
-    /// with the axes still moving, the poll fails with [`Error::Timeout`]; a
-    /// pause is clipped to the deadline, and the driver's next inquiry
-    /// rechecks it before admission.
-    pub(crate) fn observe(
-        &mut self,
-        snapshot: PositionSnapshot,
-        now: Instant,
-    ) -> Result<SettlementStep> {
-        let moving = match &mut self.detector {
-            None => {
-                self.detector = Some(MotionDetector::from_baseline(
-                    self.axes,
-                    self.tolerance,
-                    snapshot,
-                )?);
-                true
-            }
-            Some(detector) => detector.moved(snapshot)?,
-        };
+    /// A plan's first sample always reports movement, so only two successful
+    /// agreeing samples can settle. Replies are compared in their own slots.
+    pub(crate) fn observe(&mut self, moving: bool, now: Instant) -> Result<SettlementStep> {
         if !moving {
             return Ok(SettlementStep::Settled);
         }
@@ -484,108 +463,6 @@ impl SettlementPoll {
         }
         Ok(SettlementStep::SampleAfter(self.interval.min(remaining)))
     }
-}
-
-impl PositionSnapshot {
-    fn validate(self, axes: AffectedAxes) -> Result<()> {
-        let complete = (!axes.contains(AffectedAxes::PAN_TILT) || self.pan_tilt.is_some())
-            && (!axes.contains(AffectedAxes::ZOOM) || self.zoom.is_some())
-            && (!axes.contains(AffectedAxes::FOCUS) || self.focus.is_some())
-            && (!axes.contains(AffectedAxes::IRIS) || self.iris.is_some())
-            && (!axes.contains(AffectedAxes::ND_FILTER) || self.nd_filter.is_some());
-        if complete {
-            Ok(())
-        } else {
-            Err(Error::InvalidState(
-                "position snapshot omitted a selected settlement axis".into(),
-            ))
-        }
-    }
-}
-
-fn snapshots_moved(
-    axes: AffectedAxes,
-    tolerance: MovementTolerance,
-    previous: PositionSnapshot,
-    current: PositionSnapshot,
-) -> Result<bool> {
-    if axes.contains(AffectedAxes::PAN_TILT) {
-        let (previous_pan, previous_tilt) = previous
-            .pan_tilt
-            .ok_or_else(|| {
-                Error::InvalidState("previous snapshot omitted selected pan/tilt".into())
-            })?
-            .raw_values();
-        let (current_pan, current_tilt) = current
-            .pan_tilt
-            .ok_or_else(|| {
-                Error::InvalidState("current snapshot omitted selected pan/tilt".into())
-            })?
-            .raw_values();
-        let tolerance = u64::from(tolerance.pan_tilt.unsigned_abs());
-        if (i64::from(previous_pan) - i64::from(current_pan)).unsigned_abs() > tolerance
-            || (i64::from(previous_tilt) - i64::from(current_tilt)).unsigned_abs() > tolerance
-        {
-            return Ok(true);
-        }
-    }
-    if axes.contains(AffectedAxes::ZOOM) {
-        let previous = previous
-            .zoom
-            .ok_or_else(|| Error::InvalidState("previous snapshot omitted selected zoom".into()))?
-            .value();
-        let current = current
-            .zoom
-            .ok_or_else(|| Error::InvalidState("current snapshot omitted selected zoom".into()))?
-            .value();
-        if previous.abs_diff(current) > tolerance.zoom {
-            return Ok(true);
-        }
-    }
-    if axes.contains(AffectedAxes::FOCUS) {
-        let previous = previous
-            .focus
-            .ok_or_else(|| Error::InvalidState("previous snapshot omitted selected focus".into()))?
-            .value();
-        let current = current
-            .focus
-            .ok_or_else(|| Error::InvalidState("current snapshot omitted selected focus".into()))?
-            .value();
-        if previous.abs_diff(current) > tolerance.focus {
-            return Ok(true);
-        }
-    }
-    if axes.contains(AffectedAxes::IRIS) {
-        let previous = previous
-            .iris
-            .ok_or_else(|| Error::InvalidState("previous snapshot omitted selected iris".into()))?
-            .value();
-        let current = current
-            .iris
-            .ok_or_else(|| Error::InvalidState("current snapshot omitted selected iris".into()))?
-            .value();
-        if u16::from(previous.abs_diff(current)) > tolerance.iris {
-            return Ok(true);
-        }
-    }
-    if axes.contains(AffectedAxes::ND_FILTER) {
-        let previous = previous
-            .nd_filter
-            .ok_or_else(|| {
-                Error::InvalidState("previous snapshot omitted selected ND filter".into())
-            })?
-            .value();
-        let current = current
-            .nd_filter
-            .ok_or_else(|| {
-                Error::InvalidState("current snapshot omitted selected ND filter".into())
-            })?
-            .value();
-        if previous.abs_diff(current) > tolerance.nd_filter {
-            return Ok(true);
-        }
-    }
-    Ok(false)
 }
 
 /// A fully lowered ordinary command.
@@ -2302,11 +2179,25 @@ mod tests {
         );
     }
 
-    fn zoom_snapshot(value: u16) -> PositionSnapshot {
-        PositionSnapshot {
-            zoom: Some(ZoomPosition::new(value).expect("zoom")),
-            ..PositionSnapshot::default()
-        }
+    fn position_query<R>() -> PositionQuery<R> {
+        let profile =
+            ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().expect("profile");
+        let registration =
+            crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("registration");
+        let template = prepare_inquiry(
+            &ZoomPositionInquiry,
+            &registration,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("inquiry")
+        .into_template();
+        PositionQuery::new(PreparedInquiryTemplate {
+            wire: template.wire,
+            context: template.context,
+            route: template.route,
+            decoder: ResponseDecoder::from_fn(|_| Err(Error::InvalidResponseFormat)),
+        })
     }
 
     /// Runs the shared #781 window contract over synthetic owner-clock
@@ -2315,11 +2206,15 @@ mod tests {
     fn windowed_zoom(query: MotionQuery, baseline: u16, last: u16) -> Result<bool> {
         let start = Instant::now();
         let deadline = start + Duration::from_secs(30);
-        let window =
-            MotionWindow::new(query)?.observe_baseline(zoom_snapshot(baseline), start, deadline)?;
+        let mut position = position_query::<ZoomPosition>();
+        assert!(position.record(ZoomPosition::new(baseline)?, query.tolerance));
+        let window = MotionWindow::new(query)?.observe_baseline(start, deadline)?;
         let not_before = window.final_not_before();
         assert_eq!(not_before, start + query.window);
-        window.observe_final(zoom_snapshot(last), not_before)
+        window.observe_final(
+            position.record(ZoomPosition::new(last)?, query.tolerance),
+            not_before,
+        )
     }
 
     /// Issue #802: the one settlement-polling decision both owners drive.
@@ -2328,47 +2223,43 @@ mod tests {
         let start = Instant::now();
         let interval = Duration::from_millis(100);
         let deadline = start + Duration::from_millis(250);
-        let mut poll = SettlementPoll::new(
-            AffectedAxes::ZOOM,
-            MovementTolerance::default(),
-            interval,
-            deadline,
-        );
-        // The baseline never settles on its own, even when the next sample
-        // will agree with it.
+        let tolerance = MovementTolerance::default();
+        let mut query = position_query::<ZoomPosition>();
+        let mut poll = SettlementPoll::new(interval, deadline);
         assert_eq!(
-            poll.observe(zoom_snapshot(10), start).expect("baseline"),
+            poll.observe(
+                query.record(ZoomPosition::new(10).expect("zoom"), tolerance),
+                start
+            )
+            .expect("baseline"),
             SettlementStep::SampleAfter(interval)
         );
-        // Movement keeps polling; the pause is clipped to the deadline.
-        let late = start + Duration::from_millis(200);
         assert_eq!(
-            poll.observe(zoom_snapshot(500), late).expect("moving"),
+            poll.observe(
+                query.record(ZoomPosition::new(500).expect("zoom"), tolerance),
+                start + Duration::from_millis(200)
+            )
+            .expect("moving"),
             SettlementStep::SampleAfter(Duration::from_millis(50))
         );
-        // Two agreeing samples settle, regardless of the clock.
         assert_eq!(
-            poll.observe(zoom_snapshot(500), deadline).expect("settled"),
+            poll.observe(
+                query.record(ZoomPosition::new(500).expect("zoom"), tolerance),
+                deadline
+            )
+            .expect("stable"),
             SettlementStep::Settled
         );
-
-        // Still moving at the deadline is a timeout, never "settled".
-        let mut moving = SettlementPoll::new(
-            AffectedAxes::ZOOM,
-            MovementTolerance::default(),
-            interval,
-            deadline,
-        );
-        moving.observe(zoom_snapshot(10), start).expect("baseline");
+        let mut moving = SettlementPoll::new(interval, deadline);
         let timeout = moving
-            .observe(zoom_snapshot(900), deadline)
+            .observe(true, deadline)
             .expect_err("still moving at the deadline");
         assert!(matches!(timeout, Error::Timeout { .. }));
         assert_eq!(
             timeout.failure_context(),
             Some(crate::FailureContext::new(
                 crate::FailureStage::Observation,
-                crate::Certainty::NotAccepted
+                crate::Certainty::NotAccepted,
             ))
         );
     }
@@ -2391,18 +2282,18 @@ mod tests {
         let start = Instant::now();
         let window = MotionWindow::new(query)
             .expect("valid window")
-            .observe_baseline(zoom_snapshot(10), start, start + Duration::from_secs(30))
+            .observe_baseline(start, start + Duration::from_secs(30))
             .expect("baseline");
         let not_before = window.final_not_before();
         // A pair taken back to back cannot report "no movement" for a window
         // it did not span, even when the readings are identical.
         let early = not_before - Duration::from_nanos(1);
         assert!(matches!(
-            window.observe_final(zoom_snapshot(10), early),
+            window.observe_final(false, early),
             Err(Error::InvalidState(_))
         ));
         assert!(!window
-            .observe_final(zoom_snapshot(10), not_before)
+            .observe_final(false, not_before)
             .expect("a sample at the window edge is valid"));
     }
 
@@ -2416,7 +2307,7 @@ mod tests {
         // never a report of no movement (and with no open window, no final
         // snapshot can be compared at all).
         assert!(matches!(
-            window.observe_baseline(zoom_snapshot(10), start, start + Duration::from_secs(1)),
+            window.observe_baseline(start, start + Duration::from_secs(1)),
             Err(Error::Timeout { .. })
         ));
     }
@@ -2448,12 +2339,12 @@ mod tests {
             let context = prepared.context;
             let per_axis = observation_timeout(&context, context.timeout.inquiry)
                 + context.control.minimum_spacing;
-            fn template<R>(context: RequestContext) -> PreparedInquiryTemplate<R> {
-                PreparedInquiryTemplate {
+            fn template<R>(context: RequestContext) -> PositionQuery<R> {
+                PositionQuery::new(PreparedInquiryTemplate {
                     wire: Arc::new(EncodedMessage::new(&[0x81, 0x09, 0xff]).expect("inert wire")),
                     context,
                     decoder: ResponseDecoder::from_fn(|_| Err(Error::InvalidResponseFormat)),
-                }
+                })
             }
             let one_axis = PositionQueryPlan {
                 pan_tilt: None,
@@ -2542,22 +2433,32 @@ mod tests {
 
     #[test]
     fn motion_window_ignores_unselected_axes() {
-        let query = MotionQuery::new(AffectedAxes::ZOOM);
-        let start = Instant::now();
-        let mut baseline = zoom_snapshot(10);
-        baseline.focus = Some(FocusPosition::new(0));
-        let window = MotionWindow::new(query)
-            .expect("valid window")
-            .observe_baseline(baseline, start, start + Duration::from_secs(30))
-            .expect("baseline");
-        let not_before = window.final_not_before();
-        let mut last = zoom_snapshot(10);
-        last.focus = Some(FocusPosition::new(0x0fff));
-        assert!(!window.observe_final(last, not_before).expect("final"));
+        let profile =
+            ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().expect("profile");
+        let registration =
+            crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("registration");
+        let mut plan =
+            prepare_position_queries(&registration, OperationalTuning::new(), AffectedAxes::ZOOM)
+                .expect("selected zoom plan");
+        assert!(
+            plan.pan_tilt.is_none()
+                && plan.focus.is_none()
+                && plan.iris.is_none()
+                && plan.nd_filter.is_none()
+        );
+        let zoom = plan.zoom.as_mut().expect("selected zoom");
+        assert!(zoom.record(
+            ZoomPosition::new(10).expect("zoom"),
+            MovementTolerance::default()
+        ));
+        assert!(!zoom.record(
+            ZoomPosition::new(10).expect("zoom"),
+            MovementTolerance::default()
+        ));
     }
 
     #[test]
-    fn motion_detector_is_pure_selected_axis_tolerant_and_overflow_safe() {
+    fn position_queries_compare_typed_values_without_overflow() {
         let tolerance = MovementTolerance {
             pan_tilt: 2,
             zoom: 10,
@@ -2565,107 +2466,33 @@ mod tests {
             iris: 0,
             nd_filter: 0,
         };
-        let all = AffectedAxes::PAN_TILT
-            .union(AffectedAxes::ZOOM)
-            .union(AffectedAxes::FOCUS);
-        let mut detector = MotionDetector::from_baseline(
-            all,
-            tolerance,
-            PositionSnapshot {
-                pan_tilt: Some(PanTiltPosition::new(i32::MIN, i32::MAX)),
-                zoom: Some(ZoomPosition::new(100).expect("zoom")),
-                focus: Some(FocusPosition::new(200)),
-                iris: None,
-                nd_filter: None,
-            },
-        )
-        .expect("complete baseline");
-        assert!(detector
-            .moved(PositionSnapshot {
-                pan_tilt: Some(PanTiltPosition::new(i32::MAX, i32::MIN)),
-                zoom: Some(ZoomPosition::new(110).expect("zoom")),
-                focus: Some(FocusPosition::new(205)),
-                iris: None,
-                nd_filter: None,
-            })
-            .expect("complete moving sample"));
-        assert!(!detector
-            .moved(PositionSnapshot {
-                pan_tilt: Some(PanTiltPosition::new(i32::MAX - 2, i32::MIN + 2)),
-                zoom: Some(ZoomPosition::new(100).expect("zoom")),
-                focus: Some(FocusPosition::new(200)),
-                iris: None,
-                nd_filter: None,
-            })
-            .expect("tolerance-bound sample"));
-
-        let mut zoom_only = MotionDetector::from_baseline(
-            AffectedAxes::ZOOM,
-            tolerance,
-            PositionSnapshot {
-                pan_tilt: Some(PanTiltPosition::new(i32::MIN, i32::MAX)),
-                zoom: Some(ZoomPosition::new(10).expect("zoom")),
-                focus: None,
-                iris: None,
-                nd_filter: None,
-            },
-        )
-        .expect("zoom baseline");
-        assert!(!zoom_only
-            .moved(PositionSnapshot {
-                pan_tilt: Some(PanTiltPosition::new(i32::MAX, i32::MIN)),
-                zoom: Some(ZoomPosition::new(10).expect("zoom")),
-                focus: Some(FocusPosition::new(u16::MAX)),
-                iris: None,
-                nd_filter: None,
-            })
-            .expect("unselected changes are ignored"));
+        let mut pan_tilt = position_query::<PanTiltPosition>();
+        assert!(pan_tilt.record(PanTiltPosition::new(i32::MIN, i32::MAX), tolerance));
+        assert!(pan_tilt.record(PanTiltPosition::new(i32::MAX, i32::MIN), tolerance));
+        assert!(!pan_tilt.record(PanTiltPosition::new(i32::MAX - 2, i32::MIN + 2), tolerance));
+        let mut zoom = position_query::<ZoomPosition>();
+        assert!(zoom.record(ZoomPosition::new(100).expect("zoom"), tolerance));
+        assert!(!zoom.record(ZoomPosition::new(110).expect("zoom"), tolerance));
+        assert!(zoom.record(ZoomPosition::new(99).expect("zoom"), tolerance));
+        let mut focus = position_query::<FocusPosition>();
+        assert!(focus.record(FocusPosition::new(200), tolerance));
+        assert!(!focus.record(FocusPosition::new(205), tolerance));
+        assert!(focus.record(FocusPosition::new(199), tolerance));
     }
 
     #[test]
-    fn motion_detector_accepts_brc300_width_pan_tilt_tolerances() {
-        // Sony BRC-300's signed 20-bit pan range exceeds i16. A 40_000-unit
-        // tolerance is meaningful within its documented endpoints and must
-        // neither truncate nor overflow while comparing two snapshots.
+    fn position_queries_preserve_brc300_width_pan_tilt_tolerances() {
         let tolerance = MovementTolerance {
             pan_tilt: 40_000,
             ..MovementTolerance::default()
         };
         let endpoint = PanTiltPosition::new(0x08A58, 0x493D);
-        let within_tolerance = PanTiltPosition::new(0x08A58 - 40_000, 0x493D);
-        let beyond_tolerance = PanTiltPosition::new(0x08A58 - 40_001, 0x493D);
-
-        let mut stable = MotionDetector::from_baseline(
-            AffectedAxes::PAN_TILT,
-            tolerance,
-            PositionSnapshot {
-                pan_tilt: Some(endpoint),
-                ..PositionSnapshot::default()
-            },
-        )
-        .expect("BRC-300 baseline");
-        assert!(!stable
-            .moved(PositionSnapshot {
-                pan_tilt: Some(within_tolerance),
-                ..PositionSnapshot::default()
-            })
-            .expect("BRC-300 tolerance-bound sample"));
-
-        let mut moving = MotionDetector::from_baseline(
-            AffectedAxes::PAN_TILT,
-            tolerance,
-            PositionSnapshot {
-                pan_tilt: Some(endpoint),
-                ..PositionSnapshot::default()
-            },
-        )
-        .expect("BRC-300 moving baseline");
-        assert!(moving
-            .moved(PositionSnapshot {
-                pan_tilt: Some(beyond_tolerance),
-                ..PositionSnapshot::default()
-            })
-            .expect("BRC-300 beyond-tolerance sample"));
+        let mut stable = position_query::<PanTiltPosition>();
+        assert!(stable.record(endpoint, tolerance));
+        assert!(!stable.record(PanTiltPosition::new(0x08A58 - 40_000, 0x493D), tolerance));
+        let mut moving = position_query::<PanTiltPosition>();
+        assert!(moving.record(endpoint, tolerance));
+        assert!(moving.record(PanTiltPosition::new(0x08A58 - 40_001, 0x493D), tolerance));
     }
 
     #[test]
@@ -2792,10 +2619,8 @@ mod tests {
         assert!(queries.focus.is_none());
         assert!(queries.nd_filter.is_none());
 
-        let iris = queries
-            .iris
-            .expect("selected iris settlement inquiry")
-            .instantiate();
+        let mut sampled_iris = queries.iris.expect("selected iris settlement inquiry");
+        let iris = sampled_iris.instantiate();
         assert_eq!(
             iris.wire.as_bytes(),
             &[
@@ -2812,14 +2637,8 @@ mod tests {
             .expect("BRC-H900 iris readback 0x14");
         assert_eq!(decoded, level);
 
-        let snapshot = PositionSnapshot {
-            iris: Some(decoded),
-            ..PositionSnapshot::default()
-        };
-        let mut detector =
-            MotionDetector::from_baseline(prepared.affected_axes, tolerance, snapshot)
-                .expect("iris baseline");
-        assert!(!detector.moved(snapshot).expect("stable iris readback"));
+        assert!(sampled_iris.record(decoded, tolerance));
+        assert!(!sampled_iris.record(decoded, tolerance));
     }
 
     #[test]
@@ -2837,53 +2656,34 @@ mod tests {
     }
 
     #[test]
-    fn scalar_position_detector_honors_iris_and_nd_tolerance() {
-        let axes = AffectedAxes::IRIS.union(AffectedAxes::ND_FILTER);
-        let first = PositionSnapshot {
-            iris: Some(IrisLevel::new(4).expect("iris")),
-            nd_filter: Some(NdFilterValue::new(0).expect("minimum ND density")),
-            ..PositionSnapshot::default()
-        };
-        let mut detector = MotionDetector::from_baseline(axes, MovementTolerance::default(), first)
-            .expect("baseline");
-        let same = PositionSnapshot {
-            iris: Some(IrisLevel::new(4).expect("iris")),
-            nd_filter: Some(NdFilterValue::new(0).expect("minimum ND density")),
-            ..PositionSnapshot::default()
-        };
-        assert!(!detector.moved(same).expect("stable"));
-        let changed = PositionSnapshot {
-            iris: Some(IrisLevel::new(5).expect("iris")),
-            nd_filter: Some(NdFilterValue::new(4).expect("one-eighth ND density")),
-            ..PositionSnapshot::default()
-        };
-        assert!(detector.moved(changed).expect("moving"));
+    fn scalar_position_queries_honor_iris_and_nd_tolerance() {
+        let tolerance = MovementTolerance::default();
+        let mut iris = position_query::<IrisLevel>();
+        let mut nd = position_query::<NdFilterValue>();
+        let iris_value = IrisLevel::new(4).expect("iris");
+        let nd_value = NdFilterValue::new(0).expect("ND");
+        assert!(iris.record(iris_value, tolerance));
+        assert!(nd.record(nd_value, tolerance));
+        assert!(!iris.record(iris_value, tolerance));
+        assert!(!nd.record(nd_value, tolerance));
+        assert!(iris.record(IrisLevel::new(5).expect("iris"), tolerance));
+        assert!(nd.record(NdFilterValue::new(4).expect("ND"), tolerance));
     }
 
     #[test]
-    fn motion_detector_rejects_an_incomplete_selected_snapshot_without_panicking() {
-        let axes = AffectedAxes::PAN_TILT.union(AffectedAxes::ZOOM);
-        let incomplete = PositionSnapshot {
-            pan_tilt: Some(PanTiltPosition::new(0, 0)),
-            zoom: None,
-            focus: None,
-            iris: None,
-            nd_filter: None,
-        };
-        let error = MotionDetector::from_baseline(axes, MovementTolerance::default(), incomplete)
-            .expect_err("missing selected zoom must be rejected");
-        assert!(matches!(error, Error::InvalidState(_)));
-        let complete = PositionSnapshot {
-            zoom: Some(ZoomPosition::new(0).expect("zoom")),
-            ..incomplete
-        };
-        let mut detector =
-            MotionDetector::from_baseline(axes, MovementTolerance::default(), complete)
-                .expect("complete baseline");
-        let error = detector
-            .moved(incomplete)
-            .expect_err("missing selected zoom must be rejected");
-        assert!(matches!(error, Error::InvalidState(_)));
+    fn each_selected_query_needs_two_successful_answers_to_prove_stability() {
+        let tolerance = MovementTolerance::default();
+        let mut pan_tilt = position_query::<PanTiltPosition>();
+        let mut zoom = position_query::<ZoomPosition>();
+        let pan_tilt_value = PanTiltPosition::new(0, 0);
+        let zoom_value = ZoomPosition::new(0).expect("zoom");
+        assert!(pan_tilt.record(pan_tilt_value, tolerance));
+        assert!(!pan_tilt.record(pan_tilt_value, tolerance));
+        assert!(
+            zoom.record(zoom_value, tolerance),
+            "another axis's baseline is not zoom evidence"
+        );
+        assert!(!zoom.record(zoom_value, tolerance));
     }
 
     #[test]

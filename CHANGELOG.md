@@ -43,9 +43,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removed (#874).
 - Preparation consumes tuning validated at session construction or runtime
   update, retaining its proof through the owner and avoiding per-request tuning
-  checks and wall-clock reads. Non-zero identities, one inquiry provenance hook,
-  and private settlement lowering replace redundant conversions and checks
-  (#874).
+  checks and wall-clock reads. Selected position inquiries retain their own
+  previous typed answers, removing independent snapshot/axis selectors and
+  missing-axis branches. Non-zero identities, one inquiry provenance hook, and
+  private settlement lowering replace redundant conversions and checks (#874).
 
 - **BREAKING** (#872): Settlement tuning below every built-in targeted retry
   budget is refused. Default `settled()` waits use the larger of the override
