@@ -16,10 +16,9 @@
 //!
 //! Every scenario runs on the blocking facade and on the async facade under
 //! each enabled runtime, because a retry policy that only holds on one owner
-//! is not a policy. The Tokio cases run on paused (virtual) time, so the
-//! Sony FR7 deadlines these scenarios wait out (ACK, pre-ACK ambiguity, Quick
-//! completion) lapse at once and exactly; the blocking and smol owners read
-//! the real clock and still wait them out.
+//! is not a policy. The facade matrix uses paused clocks, so the Sony FR7
+//! deadlines these scenarios wait out (ACK, pre-ACK ambiguity, Quick completion)
+//! lapse without waiting for wall-clock time.
 
 #![cfg(any(
     feature = "runtime-tokio",
@@ -40,7 +39,7 @@ use grafton_visca::{
     raw,
     request::builtin::ZoomStop,
     types::ZoomPosition,
-    ControlClass, Error, RetryClass,
+    Certainty, ControlClass, Error, ErrorKind, FailureContext, FailureStage, Recovery, RetryClass,
 };
 
 use fake_camera::{frames, FakeCamera};
@@ -240,12 +239,31 @@ facade_matrix! {
         let custom = custom_zoom_inquiry();
         let error = wait!(view.inquire(&custom))
             .expect_err("a custom inquiry must surface the camera's syntax verdict");
-        assert!(matches!(error, Error::SyntaxError));
+        let Error::InquiryFailed { source, .. } = &error else {
+            panic!("the custom inquiry must report its terminal failure, got {error:?}");
+        };
+        assert!(matches!(source.as_ref(), Error::SyntaxError));
+        assert_eq!(
+            std::error::Error::source(&error).expect("camera refusal source").to_string(),
+            Error::SyntaxError.to_string()
+        );
+        assert_eq!(error.kind(), ErrorKind::InvalidParameter);
+        assert_eq!(
+            error.failure_context(),
+            Some(FailureContext::new(FailureStage::Terminal, Certainty::FailedConclusively))
+        );
+        assert_eq!(error.recovery(), Recovery::Abandon);
+        assert!(!error.requires_new_session());
         assert_eq!(
             camera.write_count(),
             1,
             "a custom inquiry must not reach the scripted resend"
         );
+        assert_eq!(
+            wait!(view.zoom().position()).expect("the session survives a rejected custom inquiry"),
+            ZoomPosition::new(0x1234).expect("zoom position")
+        );
+        assert_eq!(camera.write_count(), 2, "only the later explicit inquiry is written");
         session.shutdown().expect("owner shutdown");
     }
 

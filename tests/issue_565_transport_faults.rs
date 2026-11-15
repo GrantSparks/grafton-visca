@@ -40,7 +40,7 @@ use grafton_visca::{
     profiles::SonyFR7,
     request::builtin::{FocusDrive, FocusStop, ZoomStop},
     transport::{AddressingMode, SendSemantics, TransportConfig},
-    CameraId, CancellationOutcome, Error,
+    CameraId, CancellationOutcome, Error, ErrorKind, Recovery,
 };
 
 use fake_camera::{frames, FakeCamera, FOCUS_STOP, ZOOM_STOP};
@@ -245,8 +245,8 @@ facade_matrix! {
     }
 
     /// A failed datagram write fails exactly one command and the session keeps
-    /// running: a datagram is framed by its own boundary, so the owner treats
-    /// the failure as that command's outcome and nothing else is affected.
+    /// running: a datagram is framed by its own boundary, so the owner reports
+    /// an operation-scoped transport failure with the original OS cause.
     fn datagram_write_failure_fails_one_command_and_keeps_the_session() {
         let mut writes = 0usize;
         let camera = FakeCamera::visca(move |_, answer| {
@@ -265,9 +265,28 @@ facade_matrix! {
         let mut failing = wait!(view.submit::<AppliedOnly, _>(&ZoomStop))
             .expect("the submission is admitted before its write");
         let error = wait!(failing.applied()).expect_err("the first write fails on the wire");
-        assert!(
-            matches!(error, Error::Io(_)),
-            "the caller whose datagram write failed sees its own transport error, got {error:?}"
+        let Error::TransportError { source, .. } = &error else {
+            panic!("the failed datagram write is operation-scoped, got {error:?}");
+        };
+        let Error::Io(cause) = source.as_ref() else {
+            panic!("the transport wrapper must preserve the original OS error, got {source:?}");
+        };
+        assert_eq!(cause.kind(), std::io::ErrorKind::ConnectionRefused);
+        let original = std::error::Error::source(&error)
+            .and_then(std::error::Error::source)
+            .and_then(|cause| cause.downcast_ref::<Arc<std::io::Error>>())
+            .expect("the public source chain retains the OS error");
+        assert!(Arc::ptr_eq(original, cause), "the original shared cause is retained");
+        assert_eq!(original.kind(), std::io::ErrorKind::ConnectionRefused);
+        assert_eq!(error.kind(), ErrorKind::Transport);
+        assert_eq!(
+            error.failure_context(),
+            None,
+            "normalizing an OS error must not invent request uncertainty"
+        );
+        assert_eq!(
+            error.recovery(),
+            Recovery::Resubmit { after: Duration::from_millis(50) }
         );
         assert!(
             !error.requires_new_session(),
