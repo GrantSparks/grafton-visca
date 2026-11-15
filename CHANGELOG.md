@@ -195,6 +195,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   framing shares per-axis word widths, including FR7 five-nibble pan and tilt,
   and BRC-300 movement carries its single speed without discarding a second
   field (#893, #882).
+- Simulator inquiries reflect completed commands independently for each camera;
+  cancelled commands apply nothing. Negative standard pan/tilt positions now
+  encode as their signed two's-complement words (#888).
 
 - Raw completion-only commands refuse cancellation with `NotSupported` after a
   successful write and retain their own completion deadline. Cancellation
