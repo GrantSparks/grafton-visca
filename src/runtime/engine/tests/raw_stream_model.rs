@@ -736,9 +736,13 @@ impl Session {
     /// Whether `target` owes a `CompletionOnly` or `NoReply` command's answer
     /// that may still be a rejection.
     fn unproven(&self, target: TargetSlot) -> bool {
-        self.engine.ledger.entries().any(|(owner, entry)| {
-            owner == target && matches!(entry.owes, Owes::Completion | Owes::Rejection)
-        })
+        self.engine
+            .correlation
+            .ledger()
+            .entries()
+            .any(|(owner, entry)| {
+                owner == target && matches!(entry.owes, Owes::Completion | Owes::Rejection)
+            })
     }
 
     fn admit_random(&mut self, target: u8) {
@@ -1183,7 +1187,10 @@ impl Session {
     fn deliver_all(&mut self) {
         while let Some((target, response, originator)) = self.outbound.pop_front() {
             let camera_id = camera(target);
-            let buffered_candidates = self.engine.targets[camera_id]
+            let buffered_candidates = self
+                .engine
+                .correlation
+                .learning(camera_id)
                 .pending_socketless_completions
                 .map(|pending| pending.candidates);
             let expired_candidates: BTreeSet<_> = self
@@ -1203,8 +1210,8 @@ impl Session {
             }
             let exact = self.certain(target, originator);
             let accepted_before = self.accepted_completions(camera_id);
-            let disputes_before = self.engine.ledger.disputes_seen;
-            let debts_before = self.engine.ledger.debts(camera_id);
+            let disputes_before = self.engine.correlation.ledger().disputes_seen;
+            let debts_before = self.engine.correlation.ledger().debts(camera_id);
             let late = self
                 .engine
                 .entry(originator)
@@ -1344,9 +1351,9 @@ impl Session {
                 self.coverage.discarded_live += 1;
                 let cause = if late {
                     Cause::NeverArrived
-                } else if self.engine.ledger.disputes_seen > disputes_before {
+                } else if self.engine.correlation.ledger().disputes_seen > disputes_before {
                     Cause::Disputed
-                } else if self.engine.ledger.debts(camera_id) < debts_before {
+                } else if self.engine.correlation.ledger().debts(camera_id) < debts_before {
                     Cause::Cascade
                 } else if matches!(
                     response,
@@ -1371,7 +1378,8 @@ impl Session {
 
     fn accepted_completions(&self, target: TargetSlot) -> usize {
         self.engine
-            .ledger
+            .correlation
+            .ledger()
             .entries()
             .filter(|(owner, entry)| *owner == target && entry.owes == Owes::AcceptedCompletion)
             .count()
@@ -1400,12 +1408,12 @@ impl Session {
             self.seed
         );
         for (index, target) in [camera(1), camera(2)].into_iter().enumerate() {
-            let debts = usize::try_from(self.engine.ledger.debts(target)).unwrap();
+            let debts = usize::try_from(self.engine.correlation.ledger().debts(target)).unwrap();
             self.coverage.peak_debts = self.coverage.peak_debts.max(debts);
             self.coverage.peak_entries = self
                 .coverage
                 .peak_entries
-                .max(self.engine.ledger.len(target));
+                .max(self.engine.correlation.ledger().len(target));
             // A dropping camera's target has healed once it behaves again,
             // nothing is owed but a `CompletionOnly` completion, and nothing
             // from before is live or held.
@@ -1417,7 +1425,12 @@ impl Session {
                     .entries
                     .values()
                     .all(|entry| entry.request.context().target != target)
-                && self.engine.holds.keys().all(|key| key.target != target)
+                && self
+                    .engine
+                    .correlation
+                    .holds()
+                    .keys()
+                    .all(|key| key.target != target)
             {
                 self.certain_from[index] = Some(self.writes);
                 self.coverage.healed += 1;
@@ -1435,11 +1448,15 @@ impl Session {
     /// Whether `target` owes nothing but `CompletionOnly` completions: the
     /// documented endgame of one that never comes is a latched command lane.
     fn owes_only_completions(&self, target: TargetSlot) -> bool {
-        self.engine.ledger.entries().all(|(owner, entry)| {
-            owner != target
-                || (entry.is_debt()
-                    && matches!(entry.owes, Owes::Completion | Owes::AcceptedCompletion))
-        })
+        self.engine
+            .correlation
+            .ledger()
+            .entries()
+            .all(|(owner, entry)| {
+                owner != target
+                    || (entry.is_debt()
+                        && matches!(entry.owes, Owes::Completion | Owes::AcceptedCompletion))
+            })
     }
 
     fn finish(&mut self) {
@@ -1450,16 +1467,24 @@ impl Session {
                 self.seed,
                 self.kind.name,
                 self.engine
-                    .ledger
+                    .correlation
+                    .ledger()
                     .entries()
                     .filter(|(owner, _)| *owner == target)
                     .collect::<Vec<_>>(),
             );
-            if self.engine.ledger.lane_state(target, Lane::Command) == LaneState::Latched {
+            if self
+                .engine
+                .correlation
+                .ledger()
+                .lane_state(target, Lane::Command)
+                == LaneState::Latched
+            {
                 self.coverage.latched_at_end += 1;
                 let owner = self
                     .engine
-                    .ledger
+                    .correlation
+                    .ledger()
                     .entries()
                     .find(|(owner, entry)| {
                         *owner == target

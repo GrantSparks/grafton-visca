@@ -242,6 +242,41 @@ The construction and request path has a fixed order:
 8. Record terminal outcome, release admission capacity, and retain only the
    bounded diagnostic/history state promised by the public API.
 
+### Correlation state ownership
+
+`ProtocolEngine` contains shared `EngineCore` state and one closed
+`CorrelationMode`, selected at construction from the wire envelope and transport
+kind. `EngineCore` owns the entry table, target policies, identities, pacing,
+and session state. Correlation-specific state belongs to its mode:
+
+| Mode | Owned correlation state |
+| --- | --- |
+| `Sequenced` | No raw hold table or stream state; applies to Sony on either transport kind. |
+| `RawDatagram` | `HoldTable<RawHoldScope>`, including the `PreAck` scope. |
+| `RawStream` | `StreamCorrelation`: `HoldTable<StreamScope>`, `StreamLedger`, per-target `CompletionLearning`, and the retained-input release gate. |
+
+Mode dispatch borrows the shared core and the actual variant state together.
+`StreamContext` receives `&mut EngineCore` and `&mut StreamCorrelation`;
+`DatagramContext` receives the core and its datagram hold table. Stream-only
+processing methods are implemented on `StreamContext` and require its actual
+stream state. Completion learning and its due-pass work belong only to the
+stream state.
+
+The hold table exposes closed mutations: conservative extension with owner
+collapse, exact socket release, paid-reply skew reset, expiry, and clear. A
+`StreamScope` can name only `Socket`, `Inquiry`, or `AllResponses`; it cannot
+install `PreAck`. Stream hold expiry requires `&StreamLedger`, preserving exact
+socket holds until evidence releases them and inquiry-shape holds while their
+reply is still owed. One evidence-release predicate serves expiry, wake
+planning, and retained-input release. These mode-placement rules follow from
+the types; ledger ownership, phase legality, disputes, and collection bounds
+retain their semantic safety audits.
+
+The raw stream variant boxes `StreamCorrelation` once at engine construction.
+This keeps its larger learning and ledger state out of every engine's inline
+size and preserves the existing representation-size bound. The box introduces
+no allocation per request or transition.
+
 ### Raw response shapes and correlation ownership
 
 Correlation before ACK is envelope-specific. A raw-VISCA target normally has
@@ -1142,8 +1177,9 @@ than claimed as a snapshot-auditor check.
   an eligibility value issued only by unacknowledged lifecycles.)
 - Every live raw byte-stream ledger entry belongs to a request that still awaits that answer; the
   ledger exists only on a raw stream session, a frame resolves only against an entry that can
-  legally produce it, and a debt never blocks a STOP or poisons the session. (Enforcement: audit:
-  ledger ownership, phase, dispute and capacity rules; owner: STOP dispatch.)
+  legally produce it, and a debt never blocks a STOP or poisons the session. (Enforcement: types:
+  only `RawStream` owns a ledger; audit: ledger ownership, phase, dispute and capacity rules;
+  owner: STOP dispatch.)
 - Every `AwaitingCompletion` entry is completion-only, and every raw completion-only/no-reply
   positional candidate owns its target lane exclusively for ordinary work. On a raw byte stream an
   urgent STOP may cross that exclusion while the ledger keeps its evidence distinct (#795;
@@ -1152,6 +1188,11 @@ than claimed as a snapshot-auditor check.
 - Every keyed raw hold is inert: it can filter late input and gate successors, but it cannot consume
   a response, accept cancellation, or recreate a request. (Enforcement: types: holds have no request
   lifecycle; owner: resolver/dispatch gates.)
+- Raw holds exist only in raw correlation modes, and a raw stream cannot install a `PreAck` hold.
+  (Enforcement: types: `Sequenced` owns no hold table, and `HoldTable<StreamScope>` excludes
+  `PreAck`.) Stream hold expiry requires ledger evidence; exact socket holds do not expire by
+  time, and an owed inquiry reply retains its shape. (Enforcement: types: the stream expiry API
+  requires its ledger; owner: exact evidence-release transitions.)
 - Every `AwaitingCancellationResolution` entry has non-`None` cancellation state and owns its exact
   target/socket correlation. (Enforcement: types: resolving cancellation has no none state;
   entry-table transitions own the exact socket.)

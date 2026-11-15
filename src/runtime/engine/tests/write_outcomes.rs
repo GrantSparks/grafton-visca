@@ -90,7 +90,10 @@ fn refused_first_write_is_not_accepted_and_never_poisons_or_invalidates() {
             assert_eq!(engine.state(), SessionState::Running);
             assert!(invalidations(&effects).is_empty());
             assert_eq!(
-                engine.ledger.lane_state(camera(1), Lane::Command),
+                engine
+                    .correlation
+                    .ledger()
+                    .lane_state(camera(1), Lane::Command),
                 LaneState::Clear
             );
             let (next, _) = admit(&mut engine, 2, projected_command(), now);
@@ -325,7 +328,10 @@ fn refused_cancellation_keeps_the_written_operation_and_its_socket_live() {
             Effect::CancellationObservation { id: observed, observation: CancellationObservation::Failed(_) } if *observed == id)));
         assert_eq!(engine.state(), SessionState::Running);
         assert_eq!(
-            engine.ledger.lane_state(camera(1), Lane::Command),
+            engine
+                .correlation
+                .ledger()
+                .lane_state(camera(1), Lane::Command),
             LaneState::Clear,
             "the unsent cancellation leaves no owed first answer"
         );

@@ -286,9 +286,9 @@ fn raw_late_socketless_completion_releases_the_retired_holder_without_a_cascade(
                 assert_applied(&effects, id);
             }
             assert!(
-                engine.holds.is_empty(),
+                engine.correlation.holds().is_empty(),
                 "command {index}, due_first={due_first}: {:?}",
-                engine.holds
+                engine.correlation.holds()
             );
             engine.assert_invariants().unwrap();
         }
@@ -328,13 +328,17 @@ fn ambiguous_socketless_terminals_are_accounted_once_count_proves_both_candidate
     let at = start + Duration::from_millis(41);
     let first = engine.handle(complete(EnvelopeKind::Raw, None), at);
     assert!(terminal_id(&first).is_none());
-    assert!(engine.targets[camera(1)]
+    assert!(engine
+        .correlation
+        .learning(camera(1))
         .pending_socketless_completions
         .is_some());
     let second = engine.handle(complete(EnvelopeKind::Raw, None), at);
     assert_applied(&second, live);
-    assert!(engine.holds.is_empty());
-    assert!(engine.targets[camera(1)]
+    assert!(engine.correlation.holds().is_empty());
+    assert!(engine
+        .correlation
+        .learning(camera(1))
         .pending_socketless_completions
         .is_none());
     engine.assert_invariants().unwrap();
@@ -359,7 +363,9 @@ fn held_socket_reuse_does_not_assign_an_ambiguous_predecessor_completion_to_a_li
         "an ACK proves socket reuse, not whose earlier completion arrived"
     );
     assert!(engine.entry(live).is_some() && engine.entry(successor).is_some());
-    assert!(engine.targets[camera(1)]
+    assert!(engine
+        .correlation
+        .learning(camera(1))
         .pending_socketless_completions
         .is_none());
     engine.assert_invariants().unwrap();
@@ -432,7 +438,8 @@ fn order_snapshot(
         other => format!("{other:?}"),
     };
     let holds = engine
-        .holds
+        .correlation
+        .holds()
         .iter()
         .map(|(key, hold)| {
             format!(
@@ -443,7 +450,8 @@ fn order_snapshot(
         })
         .collect::<Vec<_>>();
     let ledger = engine
-        .ledger
+        .correlation
+        .ledger()
         .entries()
         .map(|(target, entry)| {
             format!(

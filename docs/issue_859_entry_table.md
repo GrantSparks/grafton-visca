@@ -2,7 +2,7 @@
 
 `EntryTable` owns live entries and all ready, sequence, and socket indexes. Its fields are private; immutable lookups do not expose a mutation path. Admission creates a fresh entry, closed changes update the entry and its index delta in place, and removal forgets every active claim. Transitions retain the existing BTreeMap node, avoiding a new allocation per phase change.
 
-The following 31 former auditor refusals have no independent state left to reconcile. The remaining capacity, reserve, raw-hold, stream-ledger, and raw-candidate checks remain semantic safety audits. No equivalent index audit moved into the table. Socket admission still refuses an occupied resource before changing a lifecycle.
+The following 34 former auditor refusals have no independent state left to reconcile. Entry indexes are private to `EntryTable`; correlation state is owned by the closed mode selected at construction (#901). The remaining capacity, reserve, raw-hold target registration, stream-ledger ownership/phase/dispute/bound, and raw-candidate checks remain semantic safety audits. No equivalent index audit moved into the table. Socket admission still refuses an occupied resource before changing a lifecycle.
 
 | Former refusal | Why it is enforced by construction |
 | --- | --- |
@@ -37,6 +37,17 @@ The following 31 former auditor refusals have no independent state left to recon
 | socket index is invalid | A typed two-slot map is updated with the closed active/displaced phase placement. No integer socket key or outside mutation can create a stale claim. |
 | socket owner is stale or phase-incompatible | A typed two-slot map is updated with the closed active/displaced phase placement. No integer socket key or outside mutation can create a stale claim. |
 | socket-owning entry is absent from socket index | A typed two-slot map is updated with the closed active/displaced phase placement. No integer socket key or outside mutation can create a stale claim. |
+| raw correlation hold on a sequenced session | `CorrelationMode::Sequenced` owns no raw hold table. Raw hold storage exists only in `RawDatagram` and `RawStream`. |
+| stream correlation ledger on a datagram or sequenced session | Only `RawStream` owns `StreamCorrelation`, containing the ledger, per-target completion learning, and retained-input release gate. `StreamContext` borrows that actual state together with `EngineCore`. |
+| pre-ACK hold on a raw byte stream, whose ledger owes the answer | The stream's `HoldTable<StreamScope>` accepts only `Socket`, `Inquiry`, or `AllResponses`. `PreAck` is available to the datagram hold table only; stream expiry also requires a `&StreamLedger`. |
+
+`ProtocolEngine` pairs `EngineCore` with the closed correlation state. A mode
+match constructs either `StreamContext` or `DatagramContext` from the shared
+core and the variant's actual mutable state. Stream-only processing therefore
+requires the stream state itself. All hold mutations pass through `HoldTable`;
+stream expiry cannot omit the ledger evidence that keeps socket holds and owed
+inquiry shapes from releasing by time alone. These placement guarantees do not
+replace the remaining ledger safety audits.
 
 Ready queues hold request ids, without queue generations or pruning. Sequence records hold only the sequence and response kind; target identity derives from the immutable request. Removing an evicted full sequence preserves a low-16 owner while another retained record of the same kind still uses those bits.
 

@@ -27,6 +27,32 @@ mod raw_stream_model;
 mod retry_history;
 mod write_outcomes;
 
+fn extend_fixture_hold(
+    engine: &mut ProtocolEngine,
+    target: TargetSlot,
+    scope: StreamScope,
+    until: Instant,
+    owner: Option<RequestId>,
+) {
+    use super::holds::Scope;
+    match &mut engine.correlation {
+        CorrelationMode::RawDatagram { holds } => holds.extend(target, scope.raw(), until, owner),
+        CorrelationMode::RawStream(stream) => stream.holds.extend(target, scope, until, owner),
+        CorrelationMode::Sequenced => panic!("fixture requires a raw mode"),
+    }
+}
+fn extend_fixture_pre_ack(
+    engine: &mut ProtocolEngine,
+    target: TargetSlot,
+    until: Instant,
+    owner: Option<RequestId>,
+) {
+    let CorrelationMode::RawDatagram { holds } = &mut engine.correlation else {
+        panic!("fixture requires datagram holds")
+    };
+    holds.extend(target, RawHoldScope::PreAck, until, owner);
+}
+
 fn camera(value: u8) -> TargetSlot {
     TargetSlot::try_from(crate::CameraId::new(value).unwrap()).unwrap()
 }
@@ -2558,7 +2584,7 @@ fn unsupported_target_cancels_queued_locally_but_sent_without_intent() {
     assert_eq!(engine.next_wake(start), Some(ambiguity_deadline));
     let resolved = engine.advance(ambiguity_deadline);
     assert!(terminal_outcome(&resolved, active_id).is_none());
-    assert!(engine.holds.is_empty());
+    assert!(engine.correlation.holds().is_empty());
     assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();
 }
@@ -3035,7 +3061,7 @@ fn cancel_after_raw_ack_timeout_cannot_resurrect_the_terminal_owner() {
     assert!(cancel_transmit_optional(&late_ack).is_none());
     assert!(engine.socket_owner(camera(1), ViscaSocket::S1).is_none());
     engine.advance(original_deadline);
-    assert!(engine.holds.is_empty());
+    assert!(engine.correlation.holds().is_empty());
     engine.assert_invariants().unwrap();
 }
 
@@ -4899,7 +4925,7 @@ impl FuzzCoverage {
                 _ => {}
             }
         }
-        if !engine.holds.is_empty() {
+        if !engine.correlation.holds().is_empty() {
             self.tombstoned += 1;
         }
         if engine.policy.inquiry_capacity == 1
@@ -5410,7 +5436,8 @@ fn seed_fuzz_coverage(
             // datagram keeps the time-bounded `PreAck` hold.
             if configuration.transport == TransportKind::Stream {
                 assert!(engine
-                    .ledger
+                    .correlation
+                    .ledger()
                     .entries()
                     .any(|(target, entry)| target == camera(2) && entry.is_debt()));
             } else {
@@ -6723,7 +6750,7 @@ fn raw_ack_reusing_an_occupied_socket_displaces_the_stale_owner() {
 
     let expired = engine.advance(first_quarantine_deadline);
     assert!(terminal_outcome(&expired, first_id).is_none());
-    assert!(engine.holds.is_empty());
+    assert!(engine.correlation.holds().is_empty());
     engine.assert_invariants().unwrap();
 }
 
@@ -6830,7 +6857,7 @@ fn raw_ack_reusing_a_quarantined_socket_downgrades_the_exact_hold() {
     assert_eq!(engine.state(), SessionState::Running);
     engine.advance(hold_deadline);
     assert!(
-        engine.holds.is_empty(),
+        engine.correlation.holds().is_empty(),
         "the original hold expires on schedule"
     );
     engine.assert_invariants().unwrap();
@@ -7197,7 +7224,7 @@ fn ack_deadline_expiry_without_retry_policy_reports_no_retry() {
     assert_eq!(engine.state(), SessionState::Running);
     let resolved = engine.advance(start + Duration::from_millis(70));
     assert!(terminal_outcome(&resolved, id).is_none());
-    assert!(engine.holds.is_empty());
+    assert!(engine.correlation.holds().is_empty());
     assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();
 }
@@ -7254,7 +7281,7 @@ fn completion_deadline_expiry_is_reported_as_a_completion_deadline() {
     );
     let resolved = engine.advance(start + Duration::from_millis(90));
     assert!(terminal_outcome(&resolved, id).is_none());
-    assert!(engine.holds.is_empty());
+    assert!(engine.correlation.holds().is_empty());
     assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();
 }
@@ -8067,7 +8094,7 @@ fn raw_no_reply_write_result_respects_total_budget_boundary() {
 
         let resolved = engine.advance(quarantine_deadline);
         assert!(terminal_outcome(&resolved, id).is_none());
-        assert!(engine.holds.is_empty());
+        assert!(engine.correlation.holds().is_empty());
         assert_eq!(engine.state(), SessionState::Running);
         engine.assert_invariants().unwrap();
     }
@@ -8110,7 +8137,7 @@ fn raw_no_reply_write_result_respects_total_budget_boundary() {
         );
         let resolved = engine.advance(late_at + Duration::from_millis(50));
         assert!(terminal_outcome(&resolved, id).is_none());
-        assert!(engine.holds.is_empty());
+        assert!(engine.correlation.holds().is_empty());
         engine.assert_invariants().unwrap();
     }
 
@@ -8670,7 +8697,7 @@ fn initial_budget_does_not_shorten_raw_unconfirmed_quarantine() {
 
     let resolved = engine.advance(quarantine_deadline);
     assert!(terminal_outcome(&resolved, id).is_none());
-    assert!(engine.holds.is_empty());
+    assert!(engine.correlation.holds().is_empty());
     engine.assert_invariants().unwrap();
 }
 
@@ -8953,7 +8980,7 @@ fn raw_active_retry_budget_expiry_quarantines_and_fails_per_request() {
     // terminal and the session remains running.
     let resolved = engine.advance(start + Duration::from_millis(71));
     assert!(terminal_outcome(&resolved, id).is_none());
-    assert!(engine.holds.is_empty());
+    assert!(engine.correlation.holds().is_empty());
     assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();
 }
@@ -9328,7 +9355,7 @@ fn raw_completion_timeout_hold_rejects_exact_late_completion() {
     assert_eq!(engine.state(), SessionState::Running);
     assert_eq!(socket_of(&engine, id), None);
     engine.advance(hold_deadline);
-    assert!(engine.holds.is_empty());
+    assert!(engine.correlation.holds().is_empty());
     engine.assert_invariants().unwrap();
 }
 
@@ -9918,7 +9945,7 @@ fn completion_only_command_without_completion_fails_per_request_not_the_session(
     // Ambiguity expiry removes the hold without emitting another terminal.
     let closed = engine.advance(start + Duration::from_millis(200));
     assert!(terminal_outcome(&closed, id).is_none());
-    assert!(engine.holds.is_empty());
+    assert!(engine.correlation.holds().is_empty());
     assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();
 }
@@ -10521,48 +10548,52 @@ fn raw_keyed_holds_merge_by_scope_and_expire_independently() {
     let first = RequestId::from_nonzero(NonZeroU64::new(101).unwrap());
     let second = RequestId::from_nonzero(NonZeroU64::new(202).unwrap());
 
-    engine.extend_raw_hold(
+    extend_fixture_hold(
+        &mut engine,
         camera(1),
-        RawHoldScope::Socket(ViscaSocket::S1),
+        StreamScope::Socket(ViscaSocket::S1),
         start + Duration::from_millis(10),
         Some(first),
     );
-    engine.extend_raw_hold(
+    extend_fixture_hold(
+        &mut engine,
         camera(1),
-        RawHoldScope::Socket(ViscaSocket::S2),
+        StreamScope::Socket(ViscaSocket::S2),
         start + Duration::from_millis(20),
         Some(first),
     );
-    engine.extend_raw_hold(
+    extend_fixture_pre_ack(
+        &mut engine,
         camera(1),
-        RawHoldScope::PreAck,
         start + Duration::from_millis(30),
         Some(first),
     );
-    engine.extend_raw_hold(
+    extend_fixture_hold(
+        &mut engine,
         camera(1),
-        RawHoldScope::Inquiry(PayloadShape::Unknown),
+        StreamScope::Inquiry(PayloadShape::Unknown),
         start + Duration::from_millis(40),
         Some(first),
     );
-    engine.extend_raw_hold(
+    extend_fixture_hold(
+        &mut engine,
         camera(1),
-        RawHoldScope::AllResponses,
+        StreamScope::AllResponses,
         start + Duration::from_millis(50),
         Some(first),
     );
-    engine.extend_raw_hold(
+    extend_fixture_pre_ack(
+        &mut engine,
         camera(2),
-        RawHoldScope::PreAck,
         start + Duration::from_millis(15),
         Some(second),
     );
-    assert_eq!(engine.holds.len(), 6);
+    assert_eq!(engine.correlation.holds().len(), 6);
 
     // An earlier contribution from the same request cannot shorten the hold.
-    engine.extend_raw_hold(
+    extend_fixture_pre_ack(
+        &mut engine,
         camera(1),
-        RawHoldScope::PreAck,
         start + Duration::from_millis(25),
         Some(first),
     );
@@ -10577,15 +10608,15 @@ fn raw_keyed_holds_merge_by_scope_and_expire_independently() {
     // A different contributor extends the same slot without guessing which
     // request owns the overlapping evidence. Once erased, identity stays
     // erased even if a later contribution happens to name one request again.
-    engine.extend_raw_hold(
+    extend_fixture_pre_ack(
+        &mut engine,
         camera(1),
-        RawHoldScope::PreAck,
         start + Duration::from_millis(35),
         Some(second),
     );
-    engine.extend_raw_hold(
+    extend_fixture_pre_ack(
+        &mut engine,
         camera(1),
-        RawHoldScope::PreAck,
         start + Duration::from_millis(34),
         Some(first),
     );
@@ -10610,7 +10641,7 @@ fn raw_keyed_holds_merge_by_scope_and_expire_independently() {
         .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S1))
         .is_none());
     assert!(engine.raw_hold(camera(2), RawHoldScope::PreAck).is_none());
-    assert_eq!(engine.holds.len(), 4);
+    assert_eq!(engine.correlation.holds().len(), 4);
 
     let pre_ack_release = engine.raw_correlation_releases_due(start + Duration::from_millis(35));
     assert!(pre_ack_release.for_target(camera(1)).pre_ack_unkeyed());
@@ -10626,7 +10657,7 @@ fn raw_keyed_holds_merge_by_scope_and_expire_independently() {
     assert!(target.inquiry_unkeyed());
     assert!(target.terminal_all());
     engine.advance(start + Duration::from_millis(50));
-    assert!(engine.holds.is_empty());
+    assert!(engine.correlation.holds().is_empty());
     engine.assert_invariants().unwrap();
 }
 
@@ -10789,9 +10820,10 @@ fn raw_release_gate_uses_one_time_budget_then_discards_the_orphan() {
     let grace = Duration::from_millis(37);
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
     engine.policy.raw_release_grace = grace;
-    engine.extend_raw_hold(
+    extend_fixture_hold(
+        &mut engine,
         camera(1),
-        RawHoldScope::Inquiry(PayloadShape::Unknown),
+        StreamScope::Inquiry(PayloadShape::Unknown),
         start,
         None,
     );
@@ -10827,9 +10859,10 @@ fn raw_release_gate_uses_one_time_budget_then_discards_the_orphan() {
 fn raw_release_gate_advances_immediately_when_no_input_is_retained() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
-    engine.extend_raw_hold(
+    extend_fixture_hold(
+        &mut engine,
         camera(1),
-        RawHoldScope::Inquiry(PayloadShape::Unknown),
+        StreamScope::Inquiry(PayloadShape::Unknown),
         start,
         None,
     );
@@ -12453,7 +12486,12 @@ fn unkeyed_reply(target: u8, value: u8) -> Input {
 fn owed_state(engine: &ProtocolEngine, target: u8) -> Option<LaneState> {
     engine
         .raw_hold(camera(target), RawHoldScope::Inquiry(PayloadShape::Unknown))
-        .map(|_| engine.ledger.lane_state(camera(target), Lane::Inquiry))
+        .map(|_| {
+            engine
+                .correlation
+                .ledger()
+                .lane_state(camera(target), Lane::Inquiry)
+        })
 }
 
 /// Times out one written raw stream inquiry at `start`'s reply deadline and
@@ -12910,9 +12948,10 @@ fn next_wake_ignores_a_stream_socket_hold_that_expired_after_the_last_turn() {
     let now = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
     let hold_until = now + Duration::from_millis(50);
-    engine.extend_raw_hold(
+    extend_fixture_hold(
+        &mut engine,
         camera(1),
-        RawHoldScope::Socket(ViscaSocket::S1),
+        StreamScope::Socket(ViscaSocket::S1),
         hold_until,
         None,
     );
