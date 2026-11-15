@@ -261,14 +261,25 @@ fn unpaid_stream_declarations_survive_time_and_release_only_after_evidence_and_s
     }
     engine.advance(now + Duration::from_millis(30));
     assert!(engine.entries.is_empty());
-    assert_eq!(engine.ledger.inquiry_shapes(camera(1)).count(), 16);
+    assert_eq!(
+        engine
+            .correlation
+            .ledger()
+            .inquiry_shapes(camera(1))
+            .count(),
+        16
+    );
     assert_eq!(engine.raw_inquiry_holds(camera(1)).count(), 16);
     assert_eq!(engine.tracked_inquiry_shapes(camera(1)).unwrap().len(), 16);
 
     let latched_at = now + Duration::from_millis(80);
     engine.advance(latched_at);
     assert_eq!(
-        engine.ledger.inquiry_shapes(camera(1)).count(),
+        engine
+            .correlation
+            .ledger()
+            .inquiry_shapes(camera(1))
+            .count(),
         16,
         "time cannot discard an unpaid answer"
     );
@@ -321,7 +332,14 @@ fn unpaid_stream_declarations_survive_time_and_release_only_after_evidence_and_s
         ),
         latched_at,
     );
-    assert_eq!(engine.ledger.inquiry_shapes(camera(1)).count(), 0);
+    assert_eq!(
+        engine
+            .correlation
+            .ledger()
+            .inquiry_shapes(camera(1))
+            .count(),
+        0
+    );
     assert_eq!(engine.tracked_inquiry_shapes(camera(1)).unwrap().len(), 16);
     assert_shape_capacity(
         &submit(

@@ -233,7 +233,7 @@ fn a_disputed_ack_at_equality_gets_a_strictly_later_minimum_ambiguity_deadline()
         ),
         now,
     );
-    assert!(engine.ledger.awaits_dispute(camera(1), stop));
+    assert!(engine.correlation.ledger().awaits_dispute(camera(1), stop));
     let equality = now + Duration::from_millis(20);
     engine.advance(equality);
     assert!(engine.entry(first).is_some());
@@ -256,14 +256,23 @@ fn ambiguous_wire_completion_counter_saturates() {
         ),
         now,
     );
-    engine.targets[camera(1)].unlearned_completions = u32::MAX;
+    engine
+        .correlation
+        .stream_mut()
+        .unwrap()
+        .update_learning(camera(1), |learning| {
+            learning.unlearned_completions = u32::MAX
+        });
     for _ in 0..4 {
         engine.handle(
             frame(1, None, DecodedResponse::Completion { socket: None }),
             now,
         );
     }
-    assert_eq!(engine.targets[camera(1)].unlearned_completions, u32::MAX);
+    assert_eq!(
+        engine.correlation.learning(camera(1)).unlearned_completions,
+        u32::MAX
+    );
     assert!(engine.entry(first).is_some() && engine.entry(stop).is_some());
     engine.assert_invariants().unwrap();
 }
@@ -309,7 +318,7 @@ fn preexisting_requests_make_progress_when_the_clock_reaches_its_last_instant() 
         ),
         now,
     );
-    assert!(engine.ledger.awaits_dispute(camera(1), stop));
+    assert!(engine.correlation.ledger().awaits_dispute(camera(1), stop));
     engine.advance(latest);
     assert!(engine.entries.is_empty());
     engine.advance(latest);

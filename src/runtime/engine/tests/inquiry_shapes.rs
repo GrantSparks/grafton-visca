@@ -484,7 +484,7 @@ fn distinct_shape_debts_stay_bounded_at_single_request_capacity() {
             }
         }
         model.tick(60);
-        assert!(model.engine.ledger.len(camera(1)) <= bound);
+        assert!(model.engine.correlation.ledger().len(camera(1)) <= bound);
     }
     assert_eq!(
         model.coverage.written as usize,
@@ -518,7 +518,7 @@ fn distinct_shape_debts_stay_bounded_at_single_request_capacity() {
     let _ = send_ok(&mut model.engine, &effects, None, model.now);
     model.engine.assert_invariants().unwrap();
     let first = first_written.expect("the first shape is admitted");
-    let debts = model.engine.ledger.debts(camera(1));
+    let debts = model.engine.correlation.ledger().debts(camera(1));
     assert!(
         debts > 0,
         "bounded pressure must retain the unanswered evidence"
@@ -534,7 +534,7 @@ fn distinct_shape_debts_stay_bounded_at_single_request_capacity() {
     };
     model.deliver(&answer);
     assert!(
-        model.engine.ledger.debts(camera(1)) < debts,
+        model.engine.correlation.ledger().debts(camera(1)) < debts,
         "the oldest real answer must still find its retained debt after bounded pressure"
     );
     let _ = model.engine.handle(
@@ -589,7 +589,7 @@ fn alternating_inquiry_and_stop_debts_bound_the_ack_separator_charge() {
     fn audit(engine: &ProtocolEngine, bound: usize) {
         assert_eq!(engine.state(), SessionState::Running);
         for target in 1..=7 {
-            assert!(engine.ledger.len(camera(target)) <= bound);
+            assert!(engine.correlation.ledger().len(camera(target)) <= bound);
             assert!(
                 engine.tracked_inquiry_shapes(camera(target)).unwrap().len()
                     <= MAX_RAW_INQUIRY_SHAPE_CLASSES_PER_TARGET
@@ -669,7 +669,7 @@ fn alternating_inquiry_and_stop_debts_bound_the_ack_separator_charge() {
                 bound,
             );
             assert_eq!(
-                engine.ledger.len(camera(target)),
+                engine.correlation.ledger().len(camera(target)),
                 2 * length,
                 "each new inquiry must separate the surrounding ACK runs"
             );
@@ -713,7 +713,7 @@ fn alternating_inquiry_and_stop_debts_bound_the_ack_separator_charge() {
                 bound,
             );
             assert_eq!(
-                engine.ledger.len(camera(target)),
+                engine.correlation.ledger().len(camera(target)),
                 2 * classes,
                 "a repeated STOP tail must merge into its existing ACK run"
             );
@@ -723,7 +723,7 @@ fn alternating_inquiry_and_stop_debts_bound_the_ack_separator_charge() {
     // Paying the oldest real first answer must still find that evidence after
     // all the bounded pressure; no later ACK is sent first to heal it for us.
     for target in 1..=7 {
-        let before = engine.ledger.debts(camera(target));
+        let before = engine.correlation.ledger().debts(camera(target));
         let _ = engine.handle(
             frame(
                 target,
@@ -736,11 +736,14 @@ fn alternating_inquiry_and_stop_debts_bound_the_ack_separator_charge() {
             now,
         );
         assert_eq!(
-            engine.ledger.debts(camera(target)) + 1,
+            engine.correlation.ledger().debts(camera(target)) + 1,
             before,
             "target {target}: the oldest declared reply must not have been forgotten"
         );
-        assert_eq!(engine.ledger.len(camera(target)), 2 * classes - 1);
+        assert_eq!(
+            engine.correlation.ledger().len(camera(target)),
+            2 * classes - 1
+        );
         audit(&engine, bound);
     }
 }
