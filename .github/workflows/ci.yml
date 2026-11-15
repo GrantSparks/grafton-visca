@@ -19,7 +19,7 @@ env:
 
 # Toolchain pinning policy
 #
-# The public API gate compares `api/2.0.0-rc.1/*.txt` byte for byte, while the
+# The public API gate generates and compares base/head listings, while the
 # compile-contract gate checks exact diagnostic codes and stable message
 # anchors declared inside each fixture. Floating `@stable`/`@nightly` refs
 # would still make those gates move without a source change, so every toolchain
@@ -45,7 +45,7 @@ env:
 #
 # Bumping stable requires running every compile-contract feature leg and
 # reviewing any diagnostic anchors rustc changed. Bumping nightly requires
-# regenerating the public API snapshots; see `api/2.0.0-rc.1/README.md`.
+# reviewing regenerated API diffs; see CONTRIBUTING.md, Public API Snapshots.
 
 jobs:
   format:
@@ -264,7 +264,9 @@ jobs:
           for target in response_parser protocol_framer sony_envelope response_target serial_startup; do
             cargo +nightly-2026-08-26 fuzz check "${target}"
           done
-      # Every target starts from its committed corpus. The response parser
+      - name: Generate starting corpus
+        run: python3 fuzz/seed_corpus.py
+      # Every target starts from its generated corpus. The response parser
       # applies every seed pattern to all generated inquiry decoder kinds,
       # while the structured targets build valid deep-path frames from their
       # input so a short smoke run does not spend its budget rediscovering
@@ -276,7 +278,7 @@ jobs:
               "${GITHUB_WORKSPACE}/fuzz/corpus/${target}" -- -runs=1000
           done
       # A crash reproducer is only useful if it leaves the runner. Upload it so
-      # it can be committed into the corpus as a permanent regression seed.
+      # it can be attached to the issue and encoded in a regression test.
       - name: Upload crash artifacts
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
@@ -310,6 +312,7 @@ jobs:
           fi
           python3 .github/scripts/validate-change-record.py "${base}" "${head}"
           bash .github/scripts/test-validate-change-record.sh
+          bash .github/scripts/test-check-public-api.sh
       - name: Check clean-checkout, hardware, and registry-payload gates
         run: |
           bash .github/scripts/test-validate-release.sh
@@ -371,7 +374,7 @@ jobs:
           exit 0
 
   public-api:
-    name: public API RC snapshot
+    name: public API comparison
     runs-on: ubuntu-latest
     timeout-minutes: 60
     strategy:
@@ -381,16 +384,15 @@ jobs:
         # `--no-default-features` surface and `tokio-dyn` is a strict superset of
         # the `async` surface, so those two legs subsume four of the retired
         # ones; `all-features` covers the rest (including the smol adapter,
-        # whose items mirror the tokio ones). See api/2.0.0-rc.1/README.md.
+        # whose items mirror the tokio ones). See CONTRIBUTING.md.
         include:
           - name: blocking
-            cargo_args: --no-default-features --features blocking
           - name: tokio-dyn
-            cargo_args: --no-default-features --features runtime-tokio,dyn-api
           - name: all-features
-            cargo_args: --all-features
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          fetch-depth: 0
       - name: Install serial transport dependencies
         timeout-minutes: 15
         uses: ./.github/actions/install-serial-deps
@@ -409,14 +411,26 @@ jobs:
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - name: Install pinned cargo-public-api
         run: cargo install cargo-public-api --version 0.52.0 --locked
-      - name: Diff ${{ matrix.name }} snapshot
+      - name: Compare ${{ matrix.name }} API with the base source
         shell: bash
+        env:
+          API_BASE_REF: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           set -euo pipefail
-          generated="${RUNNER_TEMP}/${{ matrix.name }}.txt"
-          cargo +nightly-2026-08-26 public-api --color never --simplified ${{ matrix.cargo_args }} >"${generated}"
-          test -s "${generated}"
-          diff -u "api/2.0.0-rc.1/${{ matrix.name }}.txt" "${generated}"
+          if [[ -z "${API_BASE_REF}" || "${API_BASE_REF}" =~ ^0+$ ]]; then
+            API_BASE_REF=HEAD^
+          fi
+          base="$(git merge-base "${API_BASE_REF}" HEAD)"
+          bash .github/scripts/check-public-api.sh "${base}" "${{ matrix.name }}"
+      - name: Upload API listings and review diff
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: public-api-${{ matrix.name }}
+          path: |
+            target/public-api/${{ matrix.name }}/*.txt
+            target/public-api/${{ matrix.name }}/*.diff
+          if-no-files-found: ignore
 
   downstream:
     name: Synemantic 2.0 contract fixture

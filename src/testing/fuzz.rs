@@ -242,10 +242,14 @@ fn drive_serial_startup(bytes: &[u8], inject_writes: bool) -> Option<crate::Resu
 mod serial_startup_tests {
     use super::{drive_serial_startup, serial_startup};
 
-    const ADDRESS: &[u8] = include_bytes!("../../tests/fixtures/serial_startup/address_set_reply");
-    const NETWORK: &[u8] = include_bytes!("../../tests/fixtures/serial_startup/network_change");
-    const OVERSIZED: &[u8] = include_bytes!("../../tests/fixtures/serial_startup/oversized_noise");
-    const ECHO: &[u8] = include_bytes!("../../tests/fixtures/serial_startup/rs485_echo");
+    const ADDRESS: &[u8] = &[0x88, 0x30, 0x02, 0xff];
+    const NETWORK: &[u8] = &[0x90, 0x38, 0xff];
+    const OVERSIZED: &[u8] = &{
+        let mut bytes = [0x31; 258];
+        bytes[257] = 0xff;
+        bytes
+    };
+    const ECHO: &[u8] = &[0x88, 0x30, 0x01, 0xff, 0x88, 0x30, 0x02, 0xff];
 
     #[test]
     fn seed_corpus_reaches_serial_startup_on_stable() {

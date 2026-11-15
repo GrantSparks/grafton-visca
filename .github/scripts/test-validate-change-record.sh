@@ -13,7 +13,7 @@ trap cleanup EXIT
 make_fixture() {
     local name="$1"
     fixture="${fixture_root}/${name}"
-    mkdir -p "${fixture}/api/2.0.0-rc.1" "${fixture}/src"
+    mkdir -p "${fixture}/src"
     git -C "${fixture}" init -q
     git -C "${fixture}" config user.name "Change Record Fixture"
     git -C "${fixture}" config user.email "change-record@example.invalid"
@@ -31,7 +31,6 @@ root = pathlib.Path(sys.argv[1])
     "## [1.1.0] - 2026-08-01\n\n"
     "- Published behavior.\n"
 )
-(root / "api/2.0.0-rc.1/all-features.txt").write_text("pub struct Example\n")
 (root / "src/lib.rs").write_text("pub struct Example;\n")
 PY
     git -C "${fixture}" add .
@@ -117,9 +116,6 @@ changelog = (root / "CHANGELOG.md").read_text()
         "- Initial development record.\n"
         "- **BREAKING** (#123): Change the public example.\n",
     )
-)
-(root / "api/2.0.0-rc.1/all-features.txt").write_text(
-    "pub struct Example\npub fn example()\n"
 )
 (root / "src/lib.rs").write_text("pub struct Example;\npub fn example() {}\n")
 PY
@@ -348,19 +344,6 @@ PY
 git -C "${fixture}" add CHANGELOG.md
 git -C "${fixture}" commit -q -m "docs: cut untracked breaking release"
 expect_failure '`**BREAKING**` bullet is missing an issue reference'
-
-# 10. Regenerating an API snapshot without a changelog hunk is rejected.
-make_fixture api-without-record
-python3 - "${fixture}" <<'PY'
-import pathlib
-import sys
-
-path = pathlib.Path(sys.argv[1]) / "api/2.0.0-rc.1/all-features.txt"
-path.write_text(path.read_text() + "pub fn unrecorded()\n")
-PY
-git -C "${fixture}" add api/2.0.0-rc.1/all-features.txt
-git -C "${fixture}" commit -q -m "test: mutate API snapshot"
-expect_failure "public API snapshot changes require a CHANGELOG.md hunk"
 
 # 11. An exact BREAKING label without the required issue-reference shape fails.
 make_fixture breaking-without-issue

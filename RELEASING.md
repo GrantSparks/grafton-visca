@@ -32,12 +32,11 @@ HW-03 may instead be accepted known limitations).
    tagged and published is not part of the record: fold it back into
    Unreleased before the next release cut.
 
-The `api/2.0.0-rc.1/` directory is the rolling public-surface baseline for the
-whole 2.0 prerelease line; its name records the candidate where that baseline
-was established. Regenerate those same files for an approved prerelease API
-change. Do not create a new snapshot directory merely because the candidate
-version advances; immutable release tags retain each release's historical
-snapshot bytes.
+The public API job generates listings from the base and proposed source for
+`blocking`, `tokio-dyn` and `all-features`. Review the uploaded API diffs with
+the source and changelog before release. Listings stay in CI artifacts or
+`target/public-api/`; release tags preserve the source needed to regenerate
+them. See [Public API Snapshots](CONTRIBUTING.md#public-api-snapshots).
 
 The tag, both package manifests, the exact macro dependency, and changelog
 heading must agree. Do not reuse a published version for different source.
@@ -128,9 +127,9 @@ test -z "$(git status --porcelain=v1 --untracked-files=all)"
 
 The change-record validator requires a full-history checkout with tags. It
 keeps every published changelog section (one with a `v<version>` tag, or below
-one) immutable, requires public API snapshot changes to carry an Unreleased
-record, requires `**BREAKING**` records to name an issue, and requires
-explanatory commit bodies for source changes. Correct a published release note
+one) immutable, requires `**BREAKING**` records to name an issue, and requires
+explanatory commit bodies for source changes. The public API comparison job
+requires API drift to carry a changelog change. Correct a published release note
 with an Unreleased entry; never rewrite the published text to make the current
 release look internally consistent.
 

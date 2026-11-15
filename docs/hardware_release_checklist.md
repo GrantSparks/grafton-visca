@@ -22,8 +22,9 @@ not verified on a physical camera.
 Before each run, record the camera model, exact firmware revision, transport,
 profile type, camera address, host OS, adapter/runtime, power state, and
 operator. Attach the raw command transcript or packet/serial capture and link
-any failure issue. Stop immediately if a movement, power, or network test
-behaves unexpectedly. Camera addresses and raw packet captures stay in the
+any failure issue. Store run records and captures on the relevant GitHub issue
+or as CI artifacts; link them here rather than committing run output. Stop
+immediately if a movement, power, or network test behaves unexpectedly. Camera addresses and raw packet captures stay in the
 private run record; published evidence names each camera by label, model and
 firmware and carries no network address or device serial number.
 
@@ -66,11 +67,11 @@ through the blocking and Tokio APIs, on a Linux x86_64 host with
 
 | ID | Required scenario | Status | Firmware / bench | Transcript / evidence |
 | --- | --- | --- | --- | --- |
-| HW-01 | Representative Raw TCP and UDP command, inquiry, and motion-safe-stop flow | Pass | PTZOptics G2 bench, all five cameras: PT30X-NDI G2 6.3.32/6.3.51THI; PT20X-NDI G2 6.3.22/6.3.76THI; PT12X-NDI G2 6.3.62/6.4.18SHI | 27/27 baseline inquiries on each camera; TCP pan/tilt drive and stop and UDP zoom drive and stop 10/10 ([P0 and P1 runs](../.github/hardware-evidence/2026-10-07-g2-bench/README.md#run-index)) |
+| HW-01 | Representative Raw TCP and UDP command, inquiry, and motion-safe-stop flow | Pass | PTZOptics G2 bench, all five cameras: PT30X-NDI G2 6.3.32/6.3.51THI; PT20X-NDI G2 6.3.22/6.3.76THI; PT12X-NDI G2 6.3.62/6.4.18SHI | 27/27 baseline inquiries on each camera; TCP pan/tilt drive and stop and UDP zoom drive and stop 10/10 ([P0 and P1 runs](https://github.com/GrantSparks/grafton-visca/issues/795#issuecomment-6901340424)) |
 | HW-02 | Blocking and Tokio Raw serial startup and timeout behavior, including attribution with at least two registered addresses | Not verified — accepted known limitation (no Raw serial adapter or serial camera on the bench) | No serial hardware available | Maintainer decision 2026-10-07 (#753): accepted known limitation for 2.0; covered by software tests only |
 | HW-03 | Representative Sony UDP envelope and sequence-numbered command and inquiry flow | Not verified — accepted known limitation (no Sony camera on the bench) | No Sony camera available | Maintainer decision 2026-10-07 (#753): accepted known limitation for 2.0; covered by software tests only |
-| HW-04 | Movement cancellation and owner halt: queued/retry fencing, independently dispatched STOPs and partial reports, then physical-rest observation, disconnect and recovery on representative Raw paths (the Sony path belongs to HW-03) | Pass | PTZOptics G2 bench, all five cameras (firmware as HW-01); disconnect, e1 and e5 runs on cam4 (PT12X-NDI G2 6.3.62/6.4.18SHI) | Halt idle report, halt fences queued motion, async G2 cancel refused then STOP 15/15; recovery after TCP reset and after silent drop; e1 manual-focus halt; e5 stale-reply contract at `6eba1696` (27 correlation refusals, 0 wrong values, then 8 correct answers on the same session) ([P3 runs](../.github/hardware-evidence/2026-10-07-g2-bench/README.md#run-index)) |
-| HW-05 | Representative high-risk corrected and profile-specific wire rows, with exact firmware and a complete transcript | Pass | PTZOptics G2 bench, all five cameras (firmware as HW-01); cam1 with `PtzOptics30X`, cam2-cam5 with `PtzOpticsG2` | Corrected inquiries, NR level zero, focus zone, shutter round trip, direct zoom positions, absolute pan/tilt small offset 30/30; tilt polarity 5/5, with a visible ~9° UP move confirmed physically UP by the operator on all five ([P2 runs](../.github/hardware-evidence/2026-10-07-g2-bench/README.md#run-index)) |
+| HW-04 | Movement cancellation and owner halt: queued/retry fencing, independently dispatched STOPs and partial reports, then physical-rest observation, disconnect and recovery on representative Raw paths (the Sony path belongs to HW-03) | Pass | PTZOptics G2 bench, all five cameras (firmware as HW-01); disconnect, e1 and e5 runs on cam4 (PT12X-NDI G2 6.3.62/6.4.18SHI) | Halt idle report, halt fences queued motion, async G2 cancel refused then STOP 15/15; recovery after TCP reset and after silent drop; e1 manual-focus halt; e5 stale-reply contract at `6eba1696` (27 correlation refusals, 0 wrong values, then 8 correct answers on the same session) ([P3 runs](https://github.com/GrantSparks/grafton-visca/issues/795#issuecomment-6901340424)) |
+| HW-05 | Representative high-risk corrected and profile-specific wire rows, with exact firmware and a complete transcript | Pass | PTZOptics G2 bench, all five cameras (firmware as HW-01); cam1 with `PtzOptics30X`, cam2-cam5 with `PtzOpticsG2` | Corrected inquiries, NR level zero, focus zone, shutter round trip, direct zoom positions, absolute pan/tilt small offset 30/30; tilt polarity 5/5, with a visible ~9° UP move confirmed physically UP by the operator on all five ([P2 runs](https://github.com/GrantSparks/grafton-visca/issues/795#issuecomment-6901340424)) |
 
 ## FR7 pan/tilt verification
 
@@ -87,11 +88,11 @@ recorded evidence, not a separate release gate.
 
 | Scenario | Result | Evidence |
 | --- | --- | --- |
-| hwc01: concurrent inquiries, Tokio | Pass | [run](../.github/hardware-evidence/2026-10-07-g2-bench/p4-hwc01_concurrent_inquiries_tokio/stdout.txt) |
-| hwc02: concurrent inquiries, blocking threads | Pass | [run](../.github/hardware-evidence/2026-10-07-g2-bench/p4-hwc02_concurrent_inquiries_blocking_threads/stdout.txt) |
-| hwc03: mixed TCP and UDP transports | Pass | [run](../.github/hardware-evidence/2026-10-07-g2-bench/p4-hwc03_mixed_transports/stdout.txt) |
-| hwc04: concurrent drive and stop | Pass | [run](../.github/hardware-evidence/2026-10-07-g2-bench/p4-hwc04_concurrent_drive_and_stop/stdout.txt) |
-| hwc05: one camera faulted does not stall the others | Pass: unfaulted cameras p50 134-149 ms, max < 255 ms; cam4 recovered on the same session | [run](../.github/hardware-evidence/2026-10-07-g2-bench/p4-hwc05_one_camera_fault_does_not_stall_others/stdout.txt) |
+| hwc01: concurrent inquiries, Tokio | Pass | [run](https://github.com/GrantSparks/grafton-visca/blob/a28bd442c6f6aaefce46493489471d46c815c0a0/.github/hardware-evidence/2026-10-07-g2-bench/p4-hwc01_concurrent_inquiries_tokio/stdout.txt) |
+| hwc02: concurrent inquiries, blocking threads | Pass | [run](https://github.com/GrantSparks/grafton-visca/blob/a28bd442c6f6aaefce46493489471d46c815c0a0/.github/hardware-evidence/2026-10-07-g2-bench/p4-hwc02_concurrent_inquiries_blocking_threads/stdout.txt) |
+| hwc03: mixed TCP and UDP transports | Pass | [run](https://github.com/GrantSparks/grafton-visca/blob/a28bd442c6f6aaefce46493489471d46c815c0a0/.github/hardware-evidence/2026-10-07-g2-bench/p4-hwc03_mixed_transports/stdout.txt) |
+| hwc04: concurrent drive and stop | Pass | [run](https://github.com/GrantSparks/grafton-visca/blob/a28bd442c6f6aaefce46493489471d46c815c0a0/.github/hardware-evidence/2026-10-07-g2-bench/p4-hwc04_concurrent_drive_and_stop/stdout.txt) |
+| hwc05: one camera faulted does not stall the others | Pass: unfaulted cameras p50 134-149 ms, max < 255 ms; cam4 recovered on the same session | [run](https://github.com/GrantSparks/grafton-visca/blob/a28bd442c6f6aaefce46493489471d46c815c0a0/.github/hardware-evidence/2026-10-07-g2-bench/p4-hwc05_one_camera_fault_does_not_stall_others/stdout.txt) |
 
 The final-state inquiries (P5) equal the P0 baseline except that cam1 and cam2
 now rest at preset 1 (maintainer-approved) and the autofocus focus positions
@@ -115,6 +116,6 @@ the release tag, or an unrecorded manual observation. Release notes for a
 release whose rows carry an accepted known limitation must name that
 limitation.
 
-Evidence index: [.github/hardware-evidence/2026-10-07-g2-bench/README.md](../.github/hardware-evidence/2026-10-07-g2-bench/README.md)
+Evidence index: [PTZOptics G2 bench record on #795](https://github.com/GrantSparks/grafton-visca/issues/795#issuecomment-6901340424)
 
 Final sign-off: Pending

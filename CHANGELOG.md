@@ -59,6 +59,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Contributor workflow keeps issue reviews and bench records on GitHub issues.
+  Public API listings are generated from base and proposed source and uploaded
+  with their diff for review; API drift requires a changelog entry. Fuzz starting
+  corpora are generated from source recipes instead of tracked binary files.
+
 - Built-in source evidence uses typed catalogue packet patterns. Admission
   performs bounded byte checks, and the wire golden inventory verifies every
   encoder case and selector arm against its exact evidence row (#910).

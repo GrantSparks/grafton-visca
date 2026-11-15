@@ -9555,7 +9555,7 @@ fn a_post_ack_completion_timeout_never_rewrites_the_command() {
 /// dispatch gate. In particular, completion-only `AwaitingCompletion` owns no
 /// socket and cannot coexist with another same-target positional candidate.
 ///
-/// Design references: issue_542_design_review.md, “Decisions from this review”,
+/// Design references: GitHub issue #542, “Decisions from this review”,
 /// item 7; architecture_2_0.md, “Correlation before ACK is envelope-specific”
 /// and “Operational invariants”.
 #[test]

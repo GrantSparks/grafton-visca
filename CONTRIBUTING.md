@@ -30,9 +30,9 @@ Before contributing, please:
 
 CI pins every toolchain to an exact version in `.github/workflows/ci.yml`.
 Compile-contract fixtures declare exact error codes and stable diagnostic
-anchors in their source, while the `api/2.0.0-rc.1/*.txt` public API snapshots
-are compared byte for byte. Reproducing a CI failure locally means using the
-same versions:
+anchors in their source, while public API listings generated from the base
+and proposed source are compared byte for byte. Reproducing a CI failure locally
+means using the same versions:
 
 ```bash
 rustup toolchain install 1.98.0          # stable jobs and compile contracts
@@ -46,7 +46,8 @@ rustup toolchain install nightly-2026-08-26 --profile minimal --component rustfm
 A newer stable can change diagnostic prose. Update a fixture's in-source
 message anchor only when the workflow's pinned stable is bumped in the same
 change and the new diagnostic still proves the intended contract. Regenerating
-the public API snapshots is documented in `api/2.0.0-rc.1/README.md`.
+the public API listings is documented under
+[Public API Snapshots](#public-api-snapshots).
 
 ```bash
 # Clone your fork
@@ -259,7 +260,7 @@ Then:
 - update the semantic class tripwire in `src/command/surface.rs`
   (`surface_ledger_is_exhaustive_unique_and_class_balanced`) and name the class
   the row landed in in the commit message;
-- regenerate the public API snapshots (see [Public API Snapshots](#public-api-snapshots)).
+- review the generated public API diff (see [Public API Snapshots](#public-api-snapshots)).
 
 ## Camera Profile Support
 
@@ -402,36 +403,34 @@ is set. Review the fixture diff, then rerun the test without the variable.
 
 ## Public API Snapshots
 
-`api/2.0.0-rc.1/` holds the rolling approved public-surface baseline for the
-2.0 release-candidate line: one `cargo public-api` listing per tracked feature
-surface. The directory name records where the baseline was established; it is
-not a per-release archive. Approved prerelease API changes regenerate these
-files in place, while immutable release tags preserve their historical bytes.
-The `public API RC snapshot` CI job regenerates each listing and byte-compares
-it with the committed file, so any change to the crate's public API — including
-one you did not intend, such as a type escaping its feature gate or a public
-type quietly losing `Send` — fails the job with a readable diff instead of
-reaching downstream users.
+Public API listings are generated from both the proposed source and its merge
+base using the same pinned toolchain. CI uploads the two listings and their
+diff as artifacts; generated listings are never committed. Release tags retain
+the source needed to reproduce each release's API.
 
-Three surfaces are tracked, and they are deliberately few: `blocking` subsumes
-the bare no-default-features surface, `tokio-dyn` subsumes the async surface,
-and `all-features` covers everything else. `--simplified` drops compiler-emitted
-blanket impls, which are ~42% of the raw output and identical for every public
-type. The baselines are CI-only; `api/` is excluded from the published crate.
+Three surfaces are compared: `blocking` includes the bare no-default-features
+surface, `tokio-dyn` includes the async surface, and `all-features` covers the
+serial transports, ecosystem derives and smol adapter. `--simplified` removes
+blanket implementations while retaining auto traits such as `Send` and `Sync`.
+Hidden macro adapters remain covered by downstream compile contracts.
 
-**If the job fails on your PR**, decide which case you are in:
+To reproduce the comparison locally:
 
-- The API change is intended. Regenerate the snapshots and commit them
-  alongside the change, so the diff is reviewed with the code that caused it.
-- The API change is not intended. Fix the code — the snapshot is telling you
-  something leaked.
+```bash
+cargo +1.98.0 install cargo-public-api --version 0.52.0 --locked
+base="$(git merge-base HEAD origin/main)"
+for surface in blocking tokio-dyn all-features; do
+  bash .github/scripts/check-public-api.sh "$base" "$surface"
+done
+```
 
-Regenerate with the pinned toolchain, never with a floating `+nightly`; the
-exact commands and the pins live in
-[api/2.0.0-rc.1/README.md](api/2.0.0-rc.1/README.md). Snapshot bytes depend on
-the nightly rustdoc that produced them, so bumping the pinned nightly in
-`.github/workflows/ci.yml` requires regenerating all three files in the same
-commit.
+The script writes `base.txt`, `head.txt` and `changes.diff` under
+`target/public-api/<surface>/`. It builds the base from a temporary source
+archive and removes that archive afterward. Both builds use
+`nightly-2026-08-26`; when changing that pin, update the workflow and script
+together. API drift without a `CHANGELOG.md` hunk fails the comparison. An
+intended change needs a caller-visible changelog entry and review of the
+uploaded diff alongside its source; fix any unintended change before merging.
 
 ## Documentation
 
@@ -445,6 +444,26 @@ behavior, setup, examples, or contributor workflow changes, update the matching
 README, example, or contributor docs before closing the task. `submit` examples
 must distinguish lifecycle management from profile-aware input validation and
 applied completion from physical settling.
+
+### Repository contents
+
+Keep source, durable product and contributor documentation, and authored test
+contracts in git. Put issue investigations, design reviews, decision records,
+measurements and completion evidence on their GitHub issues and link them from
+the relevant documentation.
+
+Keep generated build and test output under ignored directories such as
+`target/` or in CI artifacts. Commit a deterministic generator instead of its
+output when fixtures or seed files can be recreated reliably. Fuzz starting
+seeds are materialized by `python3 fuzz/seed_corpus.py`.
+
+Retain independent regression inputs and expected results that cannot be
+reconstructed from the implementation under test: authored compile contracts
+and lifecycle traces, reviewed literal wire goldens, previous-release profile
+JSON, and saved property-test failure seeds. Regenerating an oracle from the
+current implementation would merely accept the behavior it is meant to check.
+A new reproducer should become a focused source test or a seed recipe; attach
+raw failure output to the issue or CI run.
 
 ### Changelog discipline for reversals and waivers
 
@@ -463,7 +482,7 @@ or update a row there wherever a 1.x user would feel a change; do not add rows
 or notes for differences between 2.0 prereleases, and do not describe an API
 that did not exist in 1.2 as a migration source.
 
-The `release-validation` CI job enforces four parts of this record mechanically:
+The `release-validation` CI job enforces three parts of this record mechanically:
 
 - Every published release section is byte-for-byte immutable relative to the
   pull request's merge base. A release is published once its `v<version>` tag
@@ -479,8 +498,6 @@ The `release-validation` CI job enforces four parts of this record mechanically:
   published entry. The validator needs the release tags, so run it from a
   full-history checkout with tags; it fails rather than guess when none are
   present.
-- A change to `api/2.0.0-rc.1/*.txt` must include a `CHANGELOG.md` change in the
-  same pull request.
 - Every top-level Unreleased bullet carrying the exact `**BREAKING**` label must
   include an issue reference in the form `(#NNN)` or `(#NNN, #MMM)`.
 - Every new commit that touches `src/` must have a non-empty explanatory body,
@@ -573,11 +590,11 @@ depends on the same-version `grafton-visca-macros` package. Follow
 finalization, validation, tagging, crates.io index verification, and recovery if
 the macro package publishes but the main package does not. Never create a
 release tag from a commit that has not passed the complete 2.0 matrix — public
-API snapshots included — on a pull request.
+API comparisons included — on a pull request.
 
 `cargo-semver-checks` is not part of that matrix while 2.0 is a release
-candidate. Prerelease API drift is reviewed directly in the pinned public API
-snapshots, and comparing with 1.x would only re-report the intended major
+candidate. Prerelease API drift is reviewed directly in the generated public API
+diffs, and comparing with 1.x would only re-report the intended major
 break. It returns once 2.0.0 is published.
 
 ## Feature Flags

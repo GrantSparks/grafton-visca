@@ -11,7 +11,6 @@ import sys
 
 
 CHANGELOG = "CHANGELOG.md"
-API_SNAPSHOT_GLOB = "api/2.0.0-rc.1/*.txt"
 BODY_POLICY_BOUNDARY = ".github/change-record-body-policy-boundary"
 HISTORY_POLICY_BOUNDARY = ".github/change-record-history-policy-boundary"
 VERSION_COMPONENT = r"(?:0|[1-9][0-9]*)"
@@ -286,27 +285,6 @@ def validated_release_cut(
     return cuts[0]
 
 
-def changed_paths(start: str, end: str, pathspec: str) -> list[str]:
-    result = git(
-        "diff",
-        "--name-only",
-        "--diff-filter=ACDMRTUXB",
-        start,
-        end,
-        "--",
-        pathspec,
-    )
-    return [line for line in result.stdout.splitlines() if line]
-
-
-def path_changed(start: str, end: str, path: str) -> bool:
-    result = git("diff", "--quiet", start, end, "--", path, check=False)
-    if result.returncode not in (0, 1):
-        detail = result.stderr.strip() or result.stdout.strip()
-        raise ValidationError(f"cannot compare {path}: {detail}")
-    return result.returncode == 1
-
-
 def is_ancestor(ancestor: str, descendant: str) -> bool:
     result = git("merge-base", "--is-ancestor", ancestor, descendant, check=False)
     if result.returncode not in (0, 1):
@@ -508,13 +486,6 @@ def main(argv: list[str]) -> int:
                     "Unreleased before cutting a release"
                 )
 
-        snapshots = changed_paths(merge_base, head, API_SNAPSHOT_GLOB)
-        if snapshots and not path_changed(merge_base, head, CHANGELOG):
-            errors.append(
-                "public API snapshot changes require a CHANGELOG.md hunk in the same "
-                f"change ({', '.join(snapshots)})"
-            )
-
         errors.extend(
             breaking_bullet_errors(head_changelog, unreleased, unreleased_offset)
         )
@@ -543,7 +514,7 @@ def main(argv: list[str]) -> int:
     print(
         "change-record validation passed: published release history is immutable "
         "outside validated release cuts, "
-        "API snapshots are recorded, breaking bullets are referenced, and src/ "
+        "breaking bullets are referenced, and src/ "
         "commits have bodies"
     )
     return 0

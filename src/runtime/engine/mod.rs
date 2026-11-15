@@ -4919,7 +4919,7 @@ trait EngineMethods: EngineAccess {
         // completion-only `AwaitingCompletion` is uncorrelated for its entire
         // lifetime, while exact socket holds live in the keyed quarantine table
         // rather than masquerading as active positional candidates. See
-        // issue_542_design_review.md,
+        // GitHub issue #542,
         // “Decisions from this review”, item 7, and architecture_2_0.md,
         // “Correlation before ACK is envelope-specific” and “Operational
         // invariants”.

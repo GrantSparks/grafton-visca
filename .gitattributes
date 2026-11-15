@@ -1,3 +1,0 @@
-# Raw protocol seeds must retain their bytes across platforms and checkouts.
-fuzz/corpus/** binary
-tests/fixtures/serial_startup/* binary

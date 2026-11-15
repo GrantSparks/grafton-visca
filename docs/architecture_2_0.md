@@ -1046,8 +1046,8 @@ Transmission identities never repeat; no parallel write-ownership map exists.
 Raw inquiry order derives from `AwaitingReply`'s required send order. Ready
 queues contain request ids only and eagerly remove ids on every phase change;
 there are no queue generations, stale tickets, or dispatch-time pruning passes.
-The [entry-table audit record](issue_859_entry_table.md) explains each of the
-31 cross-index checks replaced by construction.
+The [entry-table audit record](https://github.com/GrantSparks/grafton-visca/issues/859#issuecomment-6901336955) explains the
+cross-index checks replaced by construction.
 
 Terminal results retain their request lane: `CommandOutcome` contains written,
 applied, cancelled or failed commands, while `InquiryOutcome` contains a reply
@@ -1511,4 +1511,4 @@ For the preservation inventory and ecosystem list, see
 [`architecture_inventory.md`](architecture_inventory.md). For construction and
 operational examples, see [`usage_2_0.md`](usage_2_0.md). The critical 1.x/v2
 trade-off, size, and reuse analysis is recorded in
-[`issue_542_design_review.md`](issue_542_design_review.md).
+[issue #542](https://github.com/GrantSparks/grafton-visca/issues/542#issuecomment-6901336636).

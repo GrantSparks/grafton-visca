@@ -14,9 +14,10 @@ The fuzz package exercises five bounded protocol layers through doc-hidden
 With `cargo-fuzz` 0.12.0 installed, run:
 
 ```text
+python3 fuzz/seed_corpus.py
 for target in response_parser protocol_framer sony_envelope response_target serial_startup; do
   cargo fuzz check "$target"
-  cargo fuzz run "$target" "corpus/$target" -- -runs=1000
+  cargo fuzz run "$target" "fuzz/corpus/$target" -- -runs=1000
 done
 ```
 
@@ -26,9 +27,10 @@ doing a longer investigation.
 
 ## Corpus
 
-Each target has a committed `corpus/<target>/` directory, which is the path
-`cargo-fuzz` uses by default. The structured harnesses derive valid framing
-from the mutated input, so the finite CI budget reaches past protocol headers.
+Run `python3 fuzz/seed_corpus.py` to materialize each target's ignored
+`corpus/<target>/` directory, the path `cargo-fuzz` uses by default. The
+generator preserves additional inputs discovered by local fuzz runs. The
+structured harnesses derive valid framing from the mutated input, so the finite CI budget reaches past protocol headers.
 Every `response_parser` seed is run through the complete generated inquiry
 inventory: the 74 sourced queryable rows have 74 distinct response kinds,
 including parameterized queries. Together the existing seed patterns form the
@@ -44,18 +46,18 @@ The seeds are grouped by filename prefix:
 | `command_` / `inquiry_` | Well-formed controller-to-camera frames, which is what `raw::Plain` validates. |
 | `malformed_` | Inputs every parser must reject without panicking: empty, truncated, missing terminator, bad address byte, out-of-range nibbles, a trailing terminator, and a frame past `raw::MAX_BYTES`. |
 
-Seeds are plain bytes with no header or wrapper; add one by writing the frame
-to a new file in that directory.
+Seeds are plain bytes with no header or wrapper. Add reproducible cases to
+`SEEDS` in `seed_corpus.py`; repeated noise and other synthetic inputs are
+constructed there rather than stored as binary files.
 
-**Commit every crash as a seed.** When a run finds one, `cargo-fuzz` writes the
-reproducing input to `fuzz/artifacts/<target>/`; the CI job uploads that
-directory as the `fuzz-artifacts` artifact on failure. Reproduce it with
-`cargo fuzz run <target> fuzz/artifacts/<target>/<file>`, then commit the file
-into that target's corpus under a descriptive name alongside the fix. A crash
-found once and not pinned is a crash the next cold run has to find again.
+When a run finds a crash, `cargo-fuzz` writes the reproducing input to
+`fuzz/artifacts/<target>/`; CI uploads that directory as the `fuzz-artifacts`
+artifact on failure. Attach the reproducer to the issue and reproduce it with
+`cargo fuzz run <target> fuzz/artifacts/<target>/<file>`. Preserve the fix with
+a focused source regression or a deterministic seed recipe, rather than a
+committed run-output directory.
 
-The `serial_startup` corpus contains an Address Set reply, Network Change,
-oversized noise and an RS-485 broadcast echo followed by a reply. Its stable
-unit test runs the same files through the production startup driver. The bytes
-live in `tests/fixtures/serial_startup/` (included in the published crate), and
-this corpus links to them so there is one copy of each seed. The fuzz package enables blocking serial support, but the driver performs no device I/O.
+The `serial_startup` recipes cover an Address Set reply, Network Change,
+oversized noise and an RS-485 broadcast echo followed by a reply. Stable unit
+tests construct the same four cases directly and exercise the production
+startup driver without device I/O.

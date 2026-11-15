@@ -28,3 +28,10 @@ all_source.txt
 AGENTS.md
 bindings/
 .tidy-rust-cache
+
+# Generated API listings, fuzz inputs/results, and local bench output
+/api/
+/fuzz/corpus/
+/fuzz/artifacts/
+/fuzz/coverage/
+/.github/hardware-evidence/
