@@ -886,7 +886,7 @@ fn selector_decode_body(
         PayloadDecoder::DefogLevel => quote! {
             {
                 #single_byte
-                let level = #crate_path::types::DefogLevel::new(byte)?;
+                let level = #crate_path::types::DefogLevel::new(byte).map_err(|error| #crate_path::Error::invalid_response(error.to_string(), payload.to_vec()))?;
                 ::core::result::Result::Ok(
                     #crate_path::command::InquiryData::#variant { level }
                 )

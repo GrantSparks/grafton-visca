@@ -254,11 +254,10 @@ fn validate_percentage(value: f32, parameter: &'static str) -> Result<f32, Error
         });
     }
     if !(0.0..=100.0).contains(&value) {
-        return Err(Error::ParameterOutOfRange {
+        return Err(Error::InvalidParameter {
             parameter,
-            value: value as i32,
-            min: 0,
-            max: 100,
+            value: Cow::Owned(value.to_string()),
+            reason: Cow::Borrowed("Value must be between 0.0 and 100.0"),
         });
     }
     Ok(value)
@@ -426,6 +425,17 @@ scaled_value_conversions! {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn percentage_range_errors_preserve_the_float_input() {
+        for value in [-0.5, 100.5, 1000.75] {
+            let error = validate_percentage(value, "percentage").expect_err("outside range");
+            assert!(
+                matches!(error, Error::InvalidParameter { value: actual, .. } if actual == value.to_string())
+            );
+        }
+    }
 
     #[test]
     #[allow(clippy::unwrap_used)]

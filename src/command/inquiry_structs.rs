@@ -23,7 +23,7 @@ use super::image::{ImageFlipMode, NoiseReduction2DMode, SharpnessMode};
 use super::nd_filter::NdFilterValue;
 use super::pan_tilt::PanTiltFraming;
 use super::resolution::PictureEffectMode;
-use super::response::{BoolConvention, Nibbles, Nibbles4Or8, Payload, Response};
+use super::response::{BoolConvention, Nibbles, Payload, Response};
 use super::system::{MotionSyncMode, MotionSyncPreset};
 use super::white_balance::{AutoWhiteBalanceSensitivity, WhiteBalanceMode};
 use crate::command::bytes::constants::{
@@ -158,11 +158,12 @@ macro_rules! impl_builtin_response_parser {
             type Response = $response_ty;
 
             fn from_response(resp: Response) -> Result<Self::Response, Error> {
-                match resp {
+                let result = match resp {
                     Response::Inquiry(InquiryData::$kind $data_pattern) => $conversion,
                     Response::Error(e) => Err(e),
                     _ => Err(Error::UnexpectedResponseType),
-                }
+                };
+                result.map_err(|error| reply_value_error(error, &[]))
             }
         }
     };
@@ -265,6 +266,7 @@ trait GeneratedInquiry: crate::Inquiry {
 /// framing.
 fn decode_payload<C: GeneratedInquiry>(payload: &[u8]) -> Result<C::Response, Error> {
     C::lift(dispatch(C::KIND, Payload::new(payload))?)
+        .map_err(|error| reply_value_error(error, payload))
 }
 
 /// Decodes a payload as `C`'s response with a profile's pan/tilt framing.
@@ -283,6 +285,7 @@ fn decode_payload_with_framing<C: GeneratedInquiry>(
         Payload::new(payload),
         framing,
     )?)
+    .map_err(|error| reply_value_error(error, payload))
 }
 
 /// The decoder a generated inquiry uses for a validated profile.
@@ -390,7 +393,7 @@ macro_rules! define_builtin_inquiries {
         /// Generated from the built-in inquiry table, so every
         /// [`InquiryKind`] variant has exactly one decoder arm.
         pub(crate) fn dispatch(kind: InquiryKind, payload: Payload<'_>) -> Result<Response, Error> {
-            let data = match kind {
+            let data = (|| { match kind {
                 $(
                     InquiryKind::$kind => {
                         let $payload = payload;
@@ -403,8 +406,8 @@ macro_rules! define_builtin_inquiries {
                         $decode_body
                     }
                 )*
-            };
-            data.map(Response::Inquiry)
+            } })();
+            data.map(Response::Inquiry).map_err(|error| reply_value_error(error, payload.as_slice()))
         }
 
         /// Generated inquiry-kind inventory used by the downstream fuzz
@@ -636,17 +639,9 @@ define_builtin_inquiries! {
         ZoomPosition {
             /// Zoom position value.
             position: u16,
-        } => |payload| {
-            let nibbles = Nibbles4Or8::try_from(payload)?;
-            if matches!(nibbles, Nibbles4Or8::N8(_)) {
-                tracing::warn!(
-                    "ZoomPosition: Received extended format (8 nibbles). Using first 4 nibbles (16-bit) per VISCA spec."
-                );
-            }
-            Ok(InquiryData::ZoomPosition {
-                position: nibbles.first_u16(),
-            })
-        };
+        } => |payload| Ok(InquiryData::ZoomPosition {
+            position: Nibbles::<4>::try_from(payload)?.u16_quad(0).ok_or(Error::InvalidResponseFormat)?,
+        });
         commands [
             /// Inquiry command to get the current zoom position.
             ZoomPositionInquiry {
@@ -666,7 +661,7 @@ define_builtin_inquiries! {
             /// Focus position value.
             position: u16,
         } => |payload| Ok(InquiryData::FocusPosition {
-            position: Nibbles::<4>::try_from(payload)?.u16_quad(0),
+            position: Nibbles::<4>::try_from(payload)?.u16_quad(0).ok_or(Error::InvalidResponseFormat)?,
         });
         commands [
             /// Inquiry command to get the current focus position.
@@ -975,7 +970,7 @@ define_builtin_inquiries! {
             /// Maximum gain limit (0x0=0 to 0xF=15).
             limit: u8,
         } => |payload| Ok(InquiryData::GainLimit {
-            limit: Nibbles::<1>::try_from(payload)?.byte(0),
+            limit: Nibbles::<1>::try_from(payload)?.byte(0).ok_or(Error::InvalidResponseFormat)?,
         });
         commands [
             /// Inquiry command to get the current gain limit setting.
@@ -1158,7 +1153,7 @@ define_builtin_inquiries! {
             /// Near limit position value.
             position: u16,
         } => |payload| Ok(InquiryData::FocusNearLimit {
-            position: Nibbles::<4>::try_from(payload)?.u16_quad(0),
+            position: Nibbles::<4>::try_from(payload)?.u16_quad(0).ok_or(Error::InvalidResponseFormat)?,
         });
         commands [
             /// Inquiry command to get the focus near limit position.
@@ -1362,7 +1357,7 @@ define_builtin_inquiries! {
             /// Exposure compensation position value (high-resolution EV adjustment).
             position: ExposureCompensationPosition,
         } => |payload| Ok(InquiryData::ExposureCompensationPosition {
-            position: ExposureCompensationPosition::new(Nibbles::<4>::try_from(payload)?.u16_quad(0)),
+            position: ExposureCompensationPosition::new(u16::from(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)),
         });
         commands [
             /// Inquiry command to get the exposure compensation position.
@@ -1879,6 +1874,23 @@ define_builtin_inquiries! {
 // Helper functions
 // ============================================================
 
+/// A constructor rejecting a value read from the camera describes a protocol
+/// fault. Callers using the same constructor directly keep its caller-error kind.
+fn reply_value_error(error: Error, payload: &[u8]) -> Error {
+    if error.kind() == crate::ErrorKind::InvalidParameter {
+        Error::invalid_response(format!("camera reply value: {error}"), payload.to_vec())
+    } else {
+        match error {
+            Error::InvalidResponse { expected, actual }
+                if actual.is_empty() && !payload.is_empty() =>
+            {
+                Error::invalid_response(expected, payload.to_vec())
+            }
+            other => other,
+        }
+    }
+}
+
 /// Require payload to have exactly the specified length.
 #[inline]
 fn require_len(payload: &Payload<'_>, expected: usize) -> Result<(), Error> {
@@ -2332,13 +2344,10 @@ mod wire_decoder_regression_tests {
                 let response = parse_inquiry_payload(&payload, &kind);
                 assert!(
                     matches!(
-                        response,
-                        Err(Error::ParameterOutOfRange {
-                            parameter: actual,
-                            value,
-                            min: 0,
-                            max,
-                        }) if actual == parameter && value == i32::from(raw) && max == i32::from(maximum)
+                        &response,
+                        Err(Error::InvalidResponse { expected, actual })
+                            if actual.as_slice() == payload && expected.contains(parameter)
+                                && expected.contains(&raw.to_string())
                     ),
                     "{parameter} {payload:02X?}: {response:?}"
                 );
@@ -2510,8 +2519,8 @@ mod wire_decoder_regression_tests {
     ///
     /// The sweep covers every response kind: each one-byte reply outside a
     /// kind's code set must be `InvalidResponse` carrying that byte, unless the
-    /// kind is a numeric field whose out-of-range values are the value type's
-    /// `ParameterOutOfRange`, or a raw byte that every value decodes.
+    /// kind is a numeric field (whose range failure is also a protocol error),
+    /// or a raw byte that every value decodes.
     #[cfg(feature = "test-utils")]
     #[test]
     fn every_unknown_code_byte_is_invalid_response() {
@@ -2570,9 +2579,9 @@ mod wire_decoder_regression_tests {
                 assert!(
                     !matches!(
                         result,
-                        Err(Error::InvalidResponse { .. } | Error::InvalidParameter { .. })
+                        Err(Error::InvalidParameter { .. } | Error::ParameterOutOfRange { .. })
                     ),
-                    "{kind:?} is not a code reply but reported {result:?}; list it in CODE_KINDS",
+                    "{kind:?} reported a caller error for a camera reply: {result:?}",
                 );
             }
         }
@@ -2582,9 +2591,61 @@ mod wire_decoder_regression_tests {
     /// zero padding. The decoders used to drop the leading nibbles, so a
     /// sharpness position of `00 01 00 05` decoded as level 5.
     #[test]
+    fn zoom_position_accepts_only_the_documented_four_nibbles() {
+        use crate::Inquiry;
+        let decoder = ZoomPositionInquiry.decoder();
+        assert_eq!(decoder.decode(&[0, 1, 2, 3]).unwrap().value(), 0x0123);
+        assert!(matches!(
+            decoder.decode(&[0; 8]),
+            Err(Error::InvalidResponseLength {
+                expected: 4,
+                actual: 8,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn decoded_numeric_range_errors_are_protocol_faults() {
+        use crate::Inquiry;
+        for (kind, payload) in [
+            (InquiryKind::DefogLevel, &[0xFF][..]),
+            (InquiryKind::NdFilterPreset, &[0xFF][..]),
+            (InquiryKind::ExposureCompensation, &[0, 0, 1, 0][..]),
+            (InquiryKind::RedTuning, &[0, 0, 1, 5][..]),
+            (InquiryKind::BlueTuning, &[0, 0, 1, 5][..]),
+            (InquiryKind::BroadcastDomain, &[0xFF][..]),
+            (InquiryKind::NdFilter, &[0, 0, 1, 5][..]),
+        ] {
+            assert_eq!(
+                parse_inquiry_payload(payload, &kind).unwrap_err().kind(),
+                crate::ErrorKind::Protocol,
+                "{kind:?}"
+            );
+        }
+        // The table's raw u8 is lifted into the typed bounded value only here.
+        for error in [
+            GainInquiry.decoder().decode(&[0, 0, 1, 0]).unwrap_err(),
+            IrisInquiry
+                .decoder()
+                .decode(&[0, 0, 0x0F, 0x0F])
+                .unwrap_err(),
+            HueInquiry.decoder().decode(&[0, 0, 0, 0x0F]).unwrap_err(),
+        ] {
+            assert_eq!(error.kind(), crate::ErrorKind::Protocol);
+        }
+        assert_eq!(
+            DefogLevel::new(0xFF).unwrap_err().kind(),
+            crate::ErrorKind::InvalidParameter
+        );
+    }
+
+    #[test]
     fn padded_replies_reject_nonzero_leading_nibbles() {
         let pair_kinds = [
             InquiryKind::ExposureCompensation,
+            InquiryKind::ExposureCompensationPosition,
+            InquiryKind::NdFilter,
             InquiryKind::Iris,
             InquiryKind::Shutter,
             InquiryKind::Brightness,

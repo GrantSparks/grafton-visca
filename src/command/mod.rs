@@ -76,8 +76,7 @@ pub use self::{
     preset::*,
     resolution::{NdFilterPosition, PictureEffectMode},
     response::{
-        parse_inquiry_payload, BoolConvention, Nibbles, Nibbles4Or8, Payload, RawInquiryPayload,
-        Response,
+        parse_inquiry_payload, BoolConvention, Nibbles, Payload, RawInquiryPayload, Response,
     },
     streaming::{MulticastStreaming, SetNdiQuality, UsbAudio},
     system::{MotionSyncMode, MotionSyncPreset, SettingsSaveCommand},

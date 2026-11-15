@@ -129,11 +129,10 @@ impl NdFilterValue {
     /// quarter stop is truncated, so `2.3` maps to `0x0001`.
     pub fn from_stops(stops: f32) -> Result<Self, Error> {
         if !(2.0..=7.0).contains(&stops) {
-            return Err(Error::ParameterOutOfRange {
+            return Err(Error::InvalidParameter {
                 parameter: "ND filter stops",
-                value: stops as i32,
-                min: 2,
-                max: 7,
+                value: stops.to_string().into(),
+                reason: "Value must be finite and between 2.0 and 7.0 stops".into(),
             });
         }
         // Convert stops to value: 2 stops = 0x0000, 7 stops = 0x0014
@@ -348,4 +347,20 @@ mod tests {
         AutoNdCommand::new(false),
         &[0x81, 0x01, 0x7E, 0x04, 0x53, 0x03, VISCA_TERMINATOR]
     );
+}
+
+#[cfg(test)]
+mod float_range_tests {
+    use super::*;
+
+    #[test]
+    #[allow(clippy::expect_used)]
+    fn invalid_stop_errors_preserve_the_float_input() {
+        for stops in [1.5, 7.5, f32::INFINITY, f32::NAN] {
+            let error = NdFilterValue::from_stops(stops).expect_err("outside range");
+            assert!(
+                matches!(error, Error::InvalidParameter { value, .. } if value == stops.to_string())
+            );
+        }
+    }
 }

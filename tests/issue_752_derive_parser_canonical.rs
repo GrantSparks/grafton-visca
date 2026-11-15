@@ -241,16 +241,24 @@ fn digital_on_is_03_is_true_on_both_public_decode_paths() {
 }
 
 #[test]
-fn extended_zoom_position_is_accepted_on_both_public_decode_paths() {
+fn undocumented_extended_zoom_position_is_rejected_on_both_public_decode_paths() {
     let payload = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
     assert_canonical_decode!(PositionInquiry, &payload);
     assert!(matches!(
         PositionInquiry.parse_response(&payload),
-        Ok(InquiryData::ZoomPosition { position: 0x0123 })
+        Err(Error::InvalidResponseLength {
+            expected: 4,
+            actual: 8,
+            ..
+        })
     ));
     assert!(matches!(
         decoded_inquiry(&PositionInquiry, &payload),
-        Ok(InquiryData::ZoomPosition { position: 0x0123 })
+        Err(Error::InvalidResponseLength {
+            expected: 4,
+            actual: 8,
+            ..
+        })
     ));
 }
 

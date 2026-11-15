@@ -12,7 +12,7 @@ mod types;
 pub(crate) use self::lift::lift_inquiry;
 pub use self::{
     lift::parse_inquiry_payload,
-    payload::{BoolConvention, Nibbles, Nibbles4Or8, Payload},
+    payload::{BoolConvention, Nibbles, Payload},
     types::{RawInquiryPayload, Response},
 };
 
