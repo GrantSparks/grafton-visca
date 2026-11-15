@@ -80,12 +80,12 @@ use crate::{
 use crate::{raw::MAX_BYTES, CancellationOutcome, Error, ErrorKind, ViscaSocket};
 
 use super::engine::{
-    AdmissionSlot, AdmissionTicket, AppliedStateProjection, CancellationObservation,
-    CancellationPolicy, ControlClass, DeadlineKind, DecodedFrame, DecodedResponse, Effect,
-    EngineTurn, EnvelopeKind, EnvelopeSequence, IgnoreReason, Input, InputTurn, Lane, Lifecycle,
-    ProtocolEngine, ProtocolPolicy, RequestContext, RequestId, RetryPolicy, RuntimeOutcome,
-    RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy, Transmission,
-    TransmissionId, TransmissionMeta, TransportKind, WriteFraming, WriteOutcome,
+    AdmissionSlot, AppliedStateProjection, CancellationObservation, CancellationPolicy,
+    ControlClass, DeadlineKind, DecodedFrame, DecodedResponse, Effect, EngineTurn, EnvelopeKind,
+    EnvelopeSequence, IgnoreReason, Input, InputTurn, Lane, Lifecycle, ProtocolEngine,
+    ProtocolPolicy, RequestContext, RequestId, RetryPolicy, RuntimeOutcome, RuntimeRequest,
+    SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy, Transmission, TransmissionId,
+    TransmissionMeta, TransportKind, WriteFraming, WriteOutcome,
 };
 
 #[cfg(test)]
@@ -1020,15 +1020,6 @@ fn normalize_inquiry_outcome<R>(
 }
 
 #[derive(Debug)]
-struct PendingAdmission {
-    motion: Option<MotionStamp>,
-    permit: AdmissionPermit,
-    observer: Arc<ObserverCell<RuntimeOutcome>>,
-    reply: flume::Sender<Result<Admitted, Error>>,
-    summary: RequestSummary,
-}
-
-#[derive(Debug)]
 struct ActiveRequest {
     _permit: AdmissionPermit,
     observer: Arc<ObserverCell<RuntimeOutcome>>,
@@ -1550,7 +1541,6 @@ pub(crate) struct OwnerState {
     policy: OwnerPolicy,
     tuning: LiveTuning,
     permits: AdmissionPermitPool,
-    pending: BTreeMap<AdmissionTicket, PendingAdmission>,
     active: BTreeMap<RequestId, ActiveRequest>,
     motion: Arc<MotionRegistry>,
     target_cache: Arc<PerTarget<Mutex<TargetStateCache>>>,
@@ -1559,7 +1549,6 @@ pub(crate) struct OwnerState {
     // (#636).
     #[cfg(any(feature = "async", feature = "blocking", test))]
     next_diagnostic_subscription: u64,
-    next_ticket: u64,
     metrics: OwnerMetrics,
     buffers: OwnerBuffers,
 }
@@ -1596,7 +1585,6 @@ impl OwnerState {
             policy,
             tuning,
             permits,
-            pending: BTreeMap::new(),
             active: BTreeMap::new(),
             motion: Arc::new(MotionRegistry::default()),
             target_cache: Arc::new(PerTarget::from_fn(|_| {
@@ -1605,7 +1593,6 @@ impl OwnerState {
             diagnostic_subscribers: BTreeMap::new(),
             #[cfg(any(feature = "async", feature = "blocking", test))]
             next_diagnostic_subscription: 1,
-            next_ticket: 1,
             metrics: OwnerMetrics::default(),
             buffers,
         })
@@ -1832,7 +1819,7 @@ impl OwnerState {
     pub(crate) fn input(&mut self, input: Input, now: Instant) -> VecDeque<Effect> {
         self.observed_at = now;
         self.observe_input(&input);
-        self.engine_input(input, |engine, input| engine.handle(input, now))
+        self.engine.handle(input, now).into()
     }
 
     pub(crate) fn begin_input_turn(&self, now: Instant) -> OwnerInputTurn {
@@ -1849,38 +1836,7 @@ impl OwnerState {
     ) -> VecDeque<Effect> {
         self.observed_at = turn.1;
         self.observe_input(&input);
-        self.engine_input(input, |engine, input| engine.handle_in_turn(&turn.0, input))
-    }
-
-    fn engine_input(
-        &mut self,
-        input: Input,
-        apply: impl FnOnce(&mut ProtocolEngine, Input) -> Vec<Effect>,
-    ) -> VecDeque<Effect> {
-        let admission = match &input {
-            Input::Admit {
-                ticket, request, ..
-            } => request
-                .context()
-                .motion
-                .map(|motion| (*ticket, *request.context(), motion)),
-            _ => None,
-        };
-        if let Some((ticket, context, motion)) = admission {
-            let registry = Arc::clone(&self.motion);
-            let (effects, stamp) = registry.admit(
-                context.target,
-                motion.axes,
-                context.submission_order,
-                || apply(&mut self.engine, input),
-            );
-            if let Some(pending) = self.pending.get_mut(&ticket) {
-                pending.motion = stamp;
-            }
-            effects.into()
-        } else {
-            apply(&mut self.engine, input).into()
-        }
+        self.engine.handle_in_turn(&turn.0, input).into()
     }
 
     pub(crate) fn finish_input_turn(
@@ -1992,32 +1948,59 @@ impl OwnerState {
         });
     }
 
-    fn stage_admission_with(
+    /// Admit, stamp motion and install the active observer before due/dispatch.
+    /// The shell and owner halt share this synchronous path.
+    fn admit_in_turn(
         &mut self,
+        turn: &OwnerInputTurn,
         request: RuntimeRequest,
         permit: AdmissionPermit,
         observer: Arc<ObserverCell<RuntimeOutcome>>,
-        reply: flume::Sender<Result<Admitted, Error>>,
-    ) -> Input {
-        let ticket = self.allocate_ticket();
+    ) -> Result<Admitted, Error> {
+        self.observed_at = turn.1;
         let summary = RequestSummary::new(&request);
+        let context = *request.context();
         let slot = permit.slot();
-        let previous = self.pending.insert(
-            ticket,
-            PendingAdmission {
-                motion: None,
-                permit,
+        let verdict = {
+            let motion_admission = context.motion.map(|motion| {
+                self.motion
+                    .begin_admission(context.target, motion.axes, context.submission_order)
+            });
+            let verdict = self.engine.admit_in_turn(&turn.0, request, slot);
+            match motion_admission {
+                Some(admission) => admission
+                    .admit(verdict)
+                    .map(|(id, stamp)| (id, Some(stamp))),
+                None => verdict.map(|id| (id, None)),
+            }
+        };
+        let (id, motion) = verdict.inspect_err(|error| {
+            self.record_admission_rejection(summary.target, summary.lane, error);
+        })?;
+        self.active.insert(
+            id,
+            ActiveRequest {
+                _permit: permit,
                 observer,
-                reply,
                 summary,
+                cancellation: None,
             },
         );
-        debug_assert!(previous.is_none());
-        Input::Admit {
-            ticket,
-            request,
-            slot,
+        self.metrics.admitted = self.metrics.admitted.saturating_add(1);
+        if slot == AdmissionSlot::ControlReserve {
+            self.metrics.control_reserve_admitted =
+                self.metrics.control_reserve_admitted.saturating_add(1);
         }
+        self.record(DiagnosticEvent::Admitted {
+            id,
+            target: summary.target,
+            lane: summary.lane,
+            timeout: summary.timeout,
+            retry: summary.retry,
+            control: summary.control,
+            cancellation: summary.cancellation,
+        });
+        Ok(Admitted { id, motion })
     }
 
     fn mark_cancellation_recorded(&mut self, id: RequestId) {
@@ -2057,17 +2040,6 @@ impl OwnerState {
             }
             Some(CancellationIntent::Requested(_)) => active.cancellation = None,
             None => {}
-        }
-    }
-
-    fn allocate_ticket(&mut self) -> AdmissionTicket {
-        loop {
-            let value = self.next_ticket;
-            self.next_ticket = self.next_ticket.wrapping_add(1);
-            let ticket = AdmissionTicket(value);
-            if !self.pending.contains_key(&ticket) {
-                return ticket;
-            }
         }
     }
 
@@ -2231,69 +2203,12 @@ impl OwnerState {
     /// any previously queued effect or unrelated boundary input.
     pub(crate) fn apply_effect(&mut self, effect: Effect) -> AppliedEffect {
         match effect {
-            Effect::Admitted { ticket, id } => {
-                let Some(pending) = self.pending.remove(&ticket) else {
-                    self.record(DiagnosticEvent::Ignored(IgnoreReason::UnknownRequest));
-                    return AppliedEffect::None;
-                };
-                let PendingAdmission {
-                    motion,
-                    permit,
-                    observer,
-                    reply,
-                    summary,
-                } = pending;
-                let permit_slot = permit.slot();
-                self.active.insert(
-                    id,
-                    ActiveRequest {
-                        _permit: permit,
-                        observer,
-                        summary,
-                        cancellation: None,
-                    },
-                );
-                self.metrics.admitted = self.metrics.admitted.saturating_add(1);
-                if permit_slot == AdmissionSlot::ControlReserve {
-                    self.metrics.control_reserve_admitted =
-                        self.metrics.control_reserve_admitted.saturating_add(1);
-                }
-                self.record(DiagnosticEvent::Admitted {
-                    id,
-                    target: summary.target,
-                    lane: summary.lane,
-                    timeout: summary.timeout,
-                    retry: summary.retry,
-                    control: summary.control,
-                    cancellation: summary.cancellation,
-                });
-                let _ = reply.try_send(Ok(Admitted { id, motion }));
-                AppliedEffect::None
-            }
-            Effect::AdmissionRejected { ticket, error } => {
-                if let Some(pending) = self.pending.remove(&ticket) {
-                    self.record_admission_rejection(
-                        pending.summary.target,
-                        pending.summary.lane,
-                        &error,
-                    );
-                    let _ = pending.reply.try_send(Err(error.clone()));
-                    // Dropping pending releases the boundary/engine permit and
-                    // disconnects its terminal observer without allocating an ID.
-                } else {
-                    self.record(DiagnosticEvent::Ignored(IgnoreReason::UnknownRequest));
-                    self.metrics.admission_rejected =
-                        self.metrics.admission_rejected.saturating_add(1);
-                }
-                #[cfg(test)]
-                {
-                    AppliedEffect::AdmissionRejected(error)
-                }
-                #[cfg(not(test))]
-                {
-                    AppliedEffect::None
-                }
-            }
+            // Admission effects are emitted only by test compatibility shims;
+            // production admission installs its owner record synchronously.
+            #[cfg(test)]
+            Effect::Admitted { .. } => AppliedEffect::None,
+            #[cfg(test)]
+            Effect::AdmissionRejected { error, .. } => AppliedEffect::AdmissionRejected(error),
             Effect::Transition { id, from, to } => {
                 if let Some(target) = self.active.get(&id).map(|active| active.summary.target) {
                     self.record(DiagnosticEvent::Transition {

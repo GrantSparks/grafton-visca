@@ -603,6 +603,20 @@ impl ProtocolEngine {
         self.finish_decision(turn.now, effects)
     }
 
+    /// Returns the admission verdict inside the caller's sampled input turn.
+    /// Admission produces no effects, deadlines or dispatch work.
+    pub(crate) fn admit_in_turn(
+        &mut self,
+        turn: &InputTurn,
+        request: RuntimeRequest,
+        slot: AdmissionSlot,
+    ) -> Result<RequestId, Error> {
+        self.debug_assert_input_boundary();
+        let verdict = self.admit(request, slot, turn.now);
+        self.debug_assert_invariants();
+        verdict
+    }
+
     /// Applies cancellation in an input turn and returns synchronous refusal
     /// directly, so the owner does not need a parallel refusal latch.
     pub(crate) fn cancel_in_turn(
@@ -646,11 +660,18 @@ impl ProtocolEngine {
 
     fn apply_input(&mut self, input: Input, now: Instant, effects: &mut Decision) {
         match input {
+            #[cfg(test)]
             Input::Admit {
                 ticket,
                 request,
                 slot,
-            } => self.admit(ticket, request, slot, now, effects),
+            } => {
+                let turn = self.begin_input_turn(now);
+                effects.push(match self.admit_in_turn(&turn, request, slot) {
+                    Ok(id) => Effect::Admitted { ticket, id },
+                    Err(error) => Effect::AdmissionRejected { ticket, error },
+                });
+            }
             Input::TransmissionFinished {
                 request,
                 transmission,
@@ -880,50 +901,29 @@ impl ProtocolEngine {
 
     fn admit(
         &mut self,
-        ticket: AdmissionTicket,
         request: RuntimeRequest,
         slot: AdmissionSlot,
         now: Instant,
-        effects: &mut Decision,
-    ) {
+    ) -> Result<RequestId, Error> {
         if self.state != SessionState::Running {
-            effects.push(Effect::AdmissionRejected {
-                ticket,
-                error: self
-                    .terminal_error
-                    .clone()
-                    .unwrap_or(Error::RuntimeShutdown),
-            });
-            return;
+            return Err(self
+                .terminal_error
+                .clone()
+                .unwrap_or(Error::RuntimeShutdown));
         }
         let context = *request.context();
-        if let Err(error) = context.validate_at(now) {
-            effects.push(Effect::AdmissionRejected { ticket, error });
-            return;
-        }
+        context.validate_at(now)?;
         if let Some(axes) = self.motion_superseded(&context) {
-            effects.push(Effect::AdmissionRejected {
-                ticket,
-                error: Error::MotionSuperseded {
-                    axes,
-                    context: FailureContext::new(
-                        FailureStage::PreAdmission,
-                        Certainty::NotAccepted,
-                    ),
-                },
+            return Err(Error::MotionSuperseded {
+                axes,
+                context: FailureContext::new(FailureStage::PreAdmission, Certainty::NotAccepted),
             });
-            return;
         }
-        if let Err(error) = self.admission_slot_available(&request, slot) {
-            effects.push(Effect::AdmissionRejected { ticket, error });
-            return;
-        }
+        self.admission_slot_available(&request, slot)?;
         let Some(target_policy) = self.targets[context.target].policy else {
-            effects.push(Effect::AdmissionRejected {
-                ticket,
-                error: Error::InvalidState("target is not registered in this session".into()),
-            });
-            return;
+            return Err(Error::InvalidState(
+                "target is not registered in this session".into(),
+            ));
         };
         if let Some(shape) = request
             .payload_shape()
@@ -936,42 +936,25 @@ impl ProtocolEngine {
                         || tracked.len() < MAX_RAW_INQUIRY_SHAPE_CLASSES_PER_TARGET
                 });
             if !available {
-                effects.push(Effect::AdmissionRejected {
-                    ticket,
-                    error: Error::inquiry_shape_capacity_exhausted(
-                        context.target.camera(),
-                        MAX_RAW_INQUIRY_SHAPE_CLASSES_PER_TARGET,
-                    ),
-                });
-                return;
+                return Err(Error::inquiry_shape_capacity_exhausted(
+                    context.target.camera(),
+                    MAX_RAW_INQUIRY_SHAPE_CLASSES_PER_TARGET,
+                ));
             }
         }
         if let Some(error) = self.latched_raw_lane_error(&request) {
-            effects.push(Effect::AdmissionRejected { ticket, error });
-            return;
+            return Err(error);
         }
         if target_policy.cancellation != context.cancellation {
-            effects.push(Effect::AdmissionRejected {
-                ticket,
-                error: Error::InvalidState(
-                    "request cancellation policy conflicts with target registration".into(),
-                ),
-            });
-            return;
+            return Err(Error::InvalidState(
+                "request cancellation policy conflicts with target registration".into(),
+            ));
         }
         let Some(id) = self.allocate_request_id() else {
-            effects.push(Effect::AdmissionRejected {
-                ticket,
-                error: Error::RuntimeIdentityExhausted,
-            });
-            return;
+            return Err(Error::RuntimeIdentityExhausted);
         };
         let Some(generation) = self.allocate_generation() else {
-            effects.push(Effect::AdmissionRejected {
-                ticket,
-                error: Error::RuntimeIdentityExhausted,
-            });
-            return;
+            return Err(Error::RuntimeIdentityExhausted);
         };
         let admission_order = self.next_admission_order;
         self.next_admission_order = self.next_admission_order.wrapping_add(1);
@@ -986,13 +969,9 @@ impl ProtocolEngine {
             },
         );
         if !admitted {
-            effects.push(Effect::AdmissionRejected {
-                ticket,
-                error: Error::RuntimeIdentityExhausted,
-            });
-            return;
+            return Err(Error::RuntimeIdentityExhausted);
         }
-        effects.push(Effect::Admitted { ticket, id });
+        Ok(id)
     }
 
     fn allocate_request_id(&mut self) -> Option<RequestId> {

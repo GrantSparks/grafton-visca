@@ -1,6 +1,6 @@
 //! One owner halt transaction; STOP slots live only in its bounded report.
 use super::boundary::AdmissionValidity;
-use super::{AppliedEffect, EngineTurn, OwnerState, ReceiptCore, TerminalObserver};
+use super::{EngineTurn, OwnerState, ReceiptCore, TerminalObserver};
 use crate::{prepared::PreparedHalt, Error, HaltOutcome, HaltReport};
 use std::time::Instant;
 
@@ -84,18 +84,7 @@ impl OwnerState {
                         );
                     })?;
                 let (completion, observer) = TerminalObserver::pair();
-                let (reply, admitted) = flume::bounded(1);
-                let input = self.stage_admission_with(request, permit, observer, reply);
-                for effect in self.input_in_turn(&turn, input) {
-                    if let AppliedEffect::Transmit(_) = self.apply_effect(effect) {
-                        return Err(Error::InvalidState(
-                            "input-only halt admission unexpectedly transmitted".into(),
-                        ));
-                    }
-                }
-                let admitted = admitted.try_recv().map_err(|_| {
-                    Error::InvalidState("halt admission omitted its outcome".into())
-                })??;
+                let admitted = self.admit_in_turn(&turn, request, permit, observer)?;
                 Ok(ReceiptCore::admitted(admitted, completion, remaining))
             })
         });

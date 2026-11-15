@@ -1,5 +1,7 @@
 #![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
 
+use crate::runtime::engine::AdmissionTicket;
+
 use std::time::Duration;
 
 use super::*;
@@ -51,18 +53,57 @@ fn policy_for_target_validation() -> ProtocolPolicy {
 /// Stage one admission with a fresh observer slot and admission reply, as a
 /// handle's boundary message would carry them.
 fn stage_admission(
-    state: &mut OwnerState,
+    _state: &mut OwnerState,
     request: RuntimeRequest,
     permit: AdmissionPermit,
 ) -> (
-    Input,
+    StagedAdmission,
     TerminalObserver,
     flume::Receiver<Result<Admitted, Error>>,
 ) {
     let (observer, cell) = TerminalObserver::pair();
     let (reply, admission) = flume::bounded(1);
-    let input = state.stage_admission_with(request, permit, cell, reply);
+    let input = StagedAdmission {
+        request,
+        permit,
+        observer: cell,
+        reply,
+    };
     (input, observer, admission)
+}
+
+/// Test-local compatibility fixture: one owned admission, with no owner ticket
+/// allocator or map. Synthetic effects preserve the checked trace vocabulary.
+struct StagedAdmission {
+    request: RuntimeRequest,
+    permit: AdmissionPermit,
+    observer: Arc<ObserverCell<RuntimeOutcome>>,
+    reply: flume::Sender<Result<Admitted, Error>>,
+}
+
+impl StagedAdmission {
+    fn in_turn(self, state: &mut OwnerState, turn: &OwnerInputTurn) -> VecDeque<Effect> {
+        let result = state.admit_in_turn(turn, self.request, self.permit, self.observer);
+        let effect = match &result {
+            Ok(admitted) => Effect::Admitted {
+                ticket: AdmissionTicket(0),
+                id: admitted.id,
+            },
+            Err(error) => Effect::AdmissionRejected {
+                ticket: AdmissionTicket(0),
+                error: error.clone(),
+            },
+        };
+        let _ = self.reply.try_send(result);
+        VecDeque::from([effect])
+    }
+
+    fn complete(self, state: &mut OwnerState, now: Instant) -> VecDeque<Effect> {
+        let turn = state.begin_input_turn(now);
+        let mut effects = self.in_turn(state, &turn);
+        effects.extend(state.finish_input_turn(turn, EngineTurn::Complete));
+        effects
+    }
 }
 
 #[test]
@@ -624,7 +665,7 @@ mod metrics {
             .try_acquire_ordinary()
             .expect("admission permit");
         let (input, observer, _admission) = super::stage_admission(state, request, permit);
-        let effects = state.input(input, now);
+        let effects = input.complete(state, now);
         drain(state, effects, sequence, now);
         observer
     }
@@ -873,9 +914,14 @@ mod metrics {
         let permit = state.permits.try_acquire(request.context()).unwrap();
         let (observer, cell) = TerminalObserver::pair();
         let (reply, admitted) = flume::bounded(1);
-        let input = state.stage_admission_with(request, permit, Arc::clone(&cell), reply);
+        let input = super::StagedAdmission {
+            request,
+            permit,
+            observer: Arc::clone(&cell),
+            reply,
+        };
         let turn = state.begin_input_turn(now);
-        for effect in state.input_in_turn(&turn, input) {
+        for effect in input.in_turn(state, &turn) {
             let _ = state.apply_effect(effect);
         }
         let _ = state.finish_input_turn(turn, EngineTurn::InputOnly);
@@ -917,7 +963,7 @@ mod metrics {
         let permit = state.permits.try_acquire(request.context()).unwrap();
         let (input, completion, reply) = super::stage_admission(&mut state, request, permit);
         let admission_turn = state.begin_input_turn(now);
-        let effects = state.input_in_turn(&admission_turn, input);
+        let effects = input.in_turn(&mut state, &admission_turn);
         assert!(
             matches!(
                 original.check_settlement(),
@@ -1016,7 +1062,7 @@ mod metrics {
         );
         let effects = state.engine.handle_turn(
             Input::Admit {
-                ticket: AdmissionTicket(99),
+                ticket: crate::runtime::engine::AdmissionTicket(99),
                 request: motion,
                 slot: AdmissionSlot::Ordinary,
             },
@@ -1922,14 +1968,6 @@ mod lifecycle_trace {
             let now = self.now;
             let (staged, observer, admission) =
                 super::stage_admission(self.state_mut(), request, permit);
-            let Input::Admit {
-                ticket,
-                request,
-                slot,
-            } = staged
-            else {
-                panic!("staged admission did not produce an admit input")
-            };
             self.pending = Some(Pending {
                 label,
                 kind,
@@ -1941,14 +1979,7 @@ mod lifecycle_trace {
             // Admission alone: the fixture's own `dispatch` step decides when
             // the scheduler writes.
             let turn = self.state().begin_input_turn(now);
-            let mut effects = self.state_mut().input_in_turn(
-                &turn,
-                Input::Admit {
-                    ticket,
-                    request,
-                    slot,
-                },
-            );
+            let mut effects = staged.in_turn(self.state_mut(), &turn);
             effects.extend(
                 self.state_mut()
                     .finish_input_turn(turn, EngineTurn::InputOnly),

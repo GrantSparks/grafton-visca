@@ -12,6 +12,7 @@ use smallvec::{smallvec, SmallVec};
 use super::*;
 use crate::FailureContext;
 
+mod admission_verdict;
 mod audit_rules;
 mod cancellation_holds;
 mod due_actions;
