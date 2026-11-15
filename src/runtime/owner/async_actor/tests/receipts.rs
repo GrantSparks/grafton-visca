@@ -237,7 +237,7 @@ async fn immediate_pre_admission_deadline_is_telemetrized() {
     assert!(matches!(error, Error::Timeout { .. }));
 
     actor.core.flush_pre_admission_rejections(true);
-    let metrics = actor.core.state.metrics_snapshot();
+    let metrics = actor.core.state.metrics_snapshot(0);
     assert_eq!(metrics.admission_rejected, 1);
     assert_eq!(metrics.admitted, 0);
     assert_eq!(metrics.active, 0);
@@ -292,7 +292,7 @@ async fn actor_expired_pre_admission_boundary_is_telemetrized_once() {
         reply.recv_async().await,
         Ok(Err(Error::Timeout { .. }))
     ));
-    let metrics = actor.core.state.metrics_snapshot();
+    let metrics = actor.core.state.metrics_snapshot(0);
     assert_eq!(metrics.admission_rejected, 1);
     assert_eq!(metrics.admitted, 0);
     assert_eq!(metrics.active, 0);
@@ -568,7 +568,7 @@ fn smol_fail_fast_capacity_rejection_records_telemetry() {
     assert!(matches!(error, Error::RuntimeQueueFull { capacity: 1 }));
 
     actor.core.flush_pre_admission_rejections(true);
-    let metrics = actor.core.state.metrics_snapshot();
+    let metrics = actor.core.state.metrics_snapshot(0);
     assert_eq!(metrics.admission_rejected, 1);
     assert_eq!(metrics.admitted, 0);
     assert_eq!(metrics.active, 0);
@@ -645,11 +645,7 @@ async fn disconnected_pre_boundary_admission_is_telemetrized() {
         Ok(_) => panic!("a disconnected admission receiver must reject"),
         Err(error) => error,
     };
-    assert!(matches!(
-        error,
-        Error::InvalidState(message)
-            if message.contains("without publishing a terminal result")
-    ));
+    assert!(matches!(error, Error::OwnerTerminated));
 
     actor.core.flush_pre_admission_rejections(true);
     assert_eq!(actor.core.state.metrics().admission_rejected, 1);
@@ -658,7 +654,7 @@ async fn disconnected_pre_boundary_admission_is_telemetrized() {
         vec![DiagnosticEvent::AdmissionRejected {
             target: CameraId::CAMERA_1,
             lane: crate::runtime::engine::Lane::Command,
-            error: crate::ErrorKind::NotExecutable,
+            error: crate::ErrorKind::IoClosed,
         }]
     );
 }

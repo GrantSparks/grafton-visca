@@ -824,8 +824,8 @@ fn a_worker_panic_is_a_terminal_error_for_waiters_and_close() {
     peer.next_write();
     peer.send(Read::Panic);
 
-    assert!(matches!(receipt.wait(), Err(Error::InvalidState(_))));
-    assert!(matches!(owner.close(), Err(Error::InvalidState(_))));
+    assert!(matches!(receipt.wait(), Err(Error::OwnerTerminated)));
+    assert!(matches!(owner.close(), Err(Error::OwnerTerminated)));
     assert!(peer.transport_dropped());
 }
 
@@ -894,10 +894,10 @@ fn selected_empty_disconnect_preserves_missing_and_published_owner_errors() {
     let (sender, receiver) = flume::bounded::<u64>(1);
     drop(sender);
     assert!(!owner.core.actor_alive.is_disconnected());
-    assert!(
-        matches!(owner.reply(&receiver).wait(), Err(Error::InvalidState(reason))
-        if reason == "owner actor disconnected without publishing a terminal result")
-    );
+    assert!(matches!(
+        owner.reply(&receiver).wait(),
+        Err(Error::OwnerTerminated)
+    ));
     owner.close().unwrap();
     assert!(owner.core.actor_alive.is_disconnected());
     assert!(matches!(
@@ -983,4 +983,64 @@ fn replies_after_a_full_idle_read_win_before_their_deadlines() {
             owner.close().unwrap();
         }
     }
+}
+
+fn subscription_terminal(subscription: &super::super::DiagnosticSubscription) -> Error {
+    loop {
+        match subscription.recv_timeout(PROMPTLY) {
+            Ok(Some(_)) => {}
+            Ok(None) => panic!("the ended owner must disconnect its subscription"),
+            Err(error) => return error,
+        }
+    }
+}
+
+#[test]
+fn diagnostic_subscriptions_keep_the_blocking_owners_terminal_cause() {
+    for failure in [0, 1, 2] {
+        let setup = if failure == 2 {
+            Setup {
+                fail_writes: true,
+                ..Setup::stream()
+            }
+        } else {
+            Setup::datagram()
+        };
+        let (owner, peer) = setup.spawn();
+        let subscription = owner.subscribe_diagnostics(1).unwrap();
+        let receipt = owner.submit_command(focus_manual()).unwrap();
+        if failure != 2 {
+            peer.next_write();
+            peer.send(if failure == 0 {
+                Read::EndOfStream
+            } else {
+                Read::Panic
+            });
+        }
+        let terminal = receipt.wait().unwrap_err();
+        assert!(terminal.requires_new_session());
+        assert!(owner.metrics().unwrap_err().requires_new_session());
+        assert!(owner.close().unwrap_err().requires_new_session());
+        let reported = subscription_terminal(&subscription);
+        assert!(reported.requires_new_session());
+        assert_eq!(reported.to_string(), terminal.to_string());
+    }
+}
+
+#[test]
+fn diagnostic_subscriber_capacity_has_its_own_nonretryable_error() {
+    let (owner, _peer) = Setup::datagram().spawn();
+    let mut subscriptions = Vec::new();
+    for _ in 0..4 {
+        subscriptions.push(owner.subscribe_diagnostics(1).unwrap());
+    }
+    let error = owner.subscribe_diagnostics(1).unwrap_err();
+    assert!(matches!(
+        error,
+        Error::DiagnosticSubscriberLimit { capacity: 4 }
+    ));
+    assert!(!error.is_retryable());
+    subscriptions.pop();
+    subscriptions.push(owner.subscribe_diagnostics(1).unwrap());
+    owner.close().unwrap();
 }

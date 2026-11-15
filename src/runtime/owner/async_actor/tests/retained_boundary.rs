@@ -290,6 +290,12 @@ async fn two_live_admissions_at_h_each_receive_their_own_reply() {
         "C stays queued while B occupies the slot"
     );
 
+    assert_eq!(
+        owner.handle.metrics().await.unwrap().pending,
+        2,
+        "both queued and retained admissions are waiting owner-boundary work"
+    );
+
     owner.release();
     let b = admitted_within(&b_admitted, "B is admitted after the release")
         .await
@@ -374,6 +380,11 @@ async fn live_cancellation_then_admission_are_both_answered() {
         owner.handle.core.admissions.len(),
         1,
         "B stays queued while the cancellation occupies the slot"
+    );
+    assert_eq!(
+        owner.handle.metrics().await.unwrap().pending,
+        1,
+        "a retained cancellation is not a waiting request"
     );
 
     owner.release();

@@ -558,6 +558,11 @@ impl<B> OwnerCoordinator<B> {
         self.retained.take()
     }
 
+    /// The boundary waiting behind the current raw-release proof.
+    pub(in crate::runtime::owner) const fn retained(&self) -> Option<&B> {
+        self.retained.as_ref()
+    }
+
     /// Whether a boundary is retained.
     #[cfg(test)]
     pub(in crate::runtime::owner) const fn has_retained(&self) -> bool {

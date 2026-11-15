@@ -483,7 +483,7 @@ impl OwnerLifecycle {
     }
 
     /// The published terminal error, if the owner has ended.
-    fn terminal(&self) -> Option<Error> {
+    pub(super) fn terminal(&self) -> Option<Error> {
         self.lock_terminal().clone()
     }
 
@@ -550,7 +550,7 @@ impl OwnerLifecycle {
 /// The error for an owner that disappeared without publishing its terminal
 /// result, which only an unwind can cause.
 pub(super) fn missing_terminal_error() -> Error {
-    Error::InvalidState("owner actor disconnected without publishing a terminal result".into())
+    Error::OwnerTerminated
 }
 
 /// The owner's ends of the bounded boundary lanes, one per source the

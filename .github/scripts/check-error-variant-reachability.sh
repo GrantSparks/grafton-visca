@@ -100,7 +100,11 @@ record_construction MaxRetriesExceeded src/transport/serial/handshake.rs \
 record_construction NotSupported src/runtime/owner/adapter.rs \
   'return Err(Error::NotSupported);'
 record_construction InvalidState src/runtime/owner/blocking.rs \
-  'Err(Error::InvalidState("blocking owner worker panicked".into()))'
+  'return Err(Error::InvalidState('
+record_construction OwnerTerminated src/runtime/owner/boundary.rs \
+  'Error::OwnerTerminated'
+record_construction DiagnosticSubscriberLimit src/runtime/owner/mod.rs \
+  'return Err(Error::DiagnosticSubscriberLimit {'
 record_construction RuntimeShutdown src/runtime/engine/mod.rs \
   'self.terminate_session(SessionState::Shutdown, Error::RuntimeShutdown, effects)'
 record_construction CancellationUnconfirmed src/runtime/engine/mod.rs \

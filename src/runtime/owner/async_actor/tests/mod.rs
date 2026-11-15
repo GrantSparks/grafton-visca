@@ -48,6 +48,8 @@ mod fairness;
 mod faults;
 #[cfg(feature = "runtime-tokio")]
 mod lifecycle;
+#[cfg(feature = "runtime-tokio")]
+mod observability;
 mod receipts;
 #[cfg(feature = "runtime-tokio")]
 mod release_boundary;

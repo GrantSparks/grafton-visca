@@ -513,7 +513,7 @@ impl Session {
     /// explicit shutdown returns `Ok(())`, while a transport close or stream
     /// poison that won the race is returned unchanged. If sending this call's
     /// shutdown signal fails immediately, that error is preserved. A worker
-    /// that panicked is reported as [`Error::InvalidState`].
+    /// that panicked is reported as [`Error::OwnerTerminated`].
     /// A custom transport calling this from its own worker requests shutdown
     /// but receives [`Error::InvalidState`] immediately: it cannot wait for
     /// its own teardown. A caller on another thread can still close and join.

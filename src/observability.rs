@@ -451,8 +451,10 @@ impl DiagnosticSubscription {
     /// Waits up to `timeout` for one event on the calling thread.
     ///
     /// Returns `Ok(None)` when no event arrived in time, and
-    /// [`Error::RuntimeShutdown`] once the owner has ended and every queued
-    /// event has been received.
+    /// the owner's published terminal error once it has ended and every
+    /// queued event has been received. Deliberate shutdown returns
+    /// [`Error::RuntimeShutdown`]; peer closure, poison and owner failure keep
+    /// their original cause.
     #[cfg(feature = "blocking")]
     pub fn recv_timeout(
         &self,

@@ -563,7 +563,7 @@ impl BlockingOwnerHandle {
         let teardown = match worker {
             Some(worker) => match worker.join() {
                 Ok(()) => self.core.closed_result(),
-                Err(_) => Err(Error::InvalidState("blocking owner worker panicked".into())),
+                Err(_) => Err(Error::OwnerTerminated),
             },
             None => self.core.closed_result(),
         };

@@ -1333,6 +1333,7 @@ struct AppliedSubscriber {
 #[derive(Debug)]
 pub(crate) struct DiagnosticSubscription {
     receiver: flume::Receiver<DiagnosticEvent>,
+    lifecycle: Arc<boundary::OwnerLifecycle>,
 }
 
 impl DiagnosticSubscription {
@@ -1345,7 +1346,13 @@ impl DiagnosticSubscription {
         self.receiver
             .recv_async()
             .await
-            .map_err(|_| Error::RuntimeShutdown)
+            .map_err(|_| self.disconnected_error())
+    }
+
+    fn disconnected_error(&self) -> Error {
+        self.lifecycle
+            .terminal()
+            .unwrap_or_else(boundary::missing_terminal_error)
     }
 
     #[cfg(feature = "blocking")]
@@ -1353,7 +1360,7 @@ impl DiagnosticSubscription {
         match self.receiver.recv_timeout(timeout) {
             Ok(event) => Ok(Some(event)),
             Err(flume::RecvTimeoutError::Timeout) => Ok(None),
-            Err(flume::RecvTimeoutError::Disconnected) => Err(Error::RuntimeShutdown),
+            Err(flume::RecvTimeoutError::Disconnected) => Err(self.disconnected_error()),
         }
     }
 }
@@ -1811,11 +1818,11 @@ impl OwnerState {
         self.metrics
     }
 
-    pub(crate) fn metrics_snapshot(&self) -> crate::observability::MetricsSnapshot {
+    pub(crate) fn metrics_snapshot(&self, pending: usize) -> crate::observability::MetricsSnapshot {
         crate::observability::metrics_snapshot(
             self.metrics,
             self.active.len(),
-            self.pending.len(),
+            pending,
             self.state(),
         )
     }
@@ -2268,9 +2275,10 @@ impl OwnerState {
     }
 
     #[cfg(any(feature = "async", feature = "blocking", test))]
-    pub(crate) fn subscribe_diagnostics(
+    fn subscribe_diagnostics(
         &mut self,
         event_capacity: usize,
+        lifecycle: Arc<boundary::OwnerLifecycle>,
     ) -> Result<DiagnosticSubscription, Error> {
         if event_capacity == 0
             || event_capacity > self.policy.limits.diagnostic_events_per_subscription
@@ -2282,7 +2290,7 @@ impl OwnerState {
         self.diagnostic_subscribers
             .retain(|_, value| !value.sender.is_disconnected());
         if self.diagnostic_subscribers.len() >= self.policy.limits.diagnostic_subscribers {
-            return Err(Error::RuntimeQueueFull {
+            return Err(Error::DiagnosticSubscriberLimit {
                 capacity: self.policy.limits.diagnostic_subscribers,
             });
         }
@@ -2293,7 +2301,10 @@ impl OwnerState {
         let (sender, receiver) = flume::bounded(event_capacity);
         self.diagnostic_subscribers
             .insert(id, DiagnosticSubscriber { sender });
-        Ok(DiagnosticSubscription { receiver })
+        Ok(DiagnosticSubscription {
+            receiver,
+            lifecycle,
+        })
     }
 
     pub(crate) fn validate_frame_batch(&self, frames: &[DecodedFrame]) -> Result<(), Error> {

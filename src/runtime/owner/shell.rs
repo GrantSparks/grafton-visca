@@ -1053,10 +1053,20 @@ impl OwnerShellCore {
                 let _ = reply.try_send(self.snapshot());
             }
             ControlBoundary::Metrics(reply) => {
-                let _ = reply.try_send(Ok(self.state.metrics_snapshot()));
+                let pending =
+                    self.receivers
+                        .admissions
+                        .len()
+                        .saturating_add(usize::from(matches!(
+                            self.coordinator.retained(),
+                            Some(RetainedBoundary::Admission(_))
+                        )));
+                let _ = reply.try_send(Ok(self.state.metrics_snapshot(pending)));
             }
             ControlBoundary::SubscribeDiagnostics { capacity, reply } => {
-                let result = self.state.subscribe_diagnostics(capacity);
+                let result = self
+                    .state
+                    .subscribe_diagnostics(capacity, Arc::clone(&self.lifecycle));
                 let _ = reply.try_send(result);
             }
             ControlBoundary::Reconfigure {
