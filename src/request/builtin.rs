@@ -3193,60 +3193,78 @@ mod tests {
         }
     }
 
-    /// Preset 255 and a documented direct-menu button prepare on Sony FR7.
+    /// FR7 admits its documented highest preset and refuses larger slots
+    /// before encoding, while retaining its distinct direct-menu command.
     #[test]
-    fn preset_255_and_direct_menu_prepare_on_fr7() {
+    fn fr7_preset_boundary_and_direct_menu_prepare_with_source_backed_facts() {
         use crate::command::menu::DirectMenuControl;
 
         let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
-        let preset = PresetNumber::new(255).expect("255 is a valid preset number");
-
+        let registration = crate::TargetRegistration::new(CameraId::CAMERA_1, fr7.clone())
+            .expect("target registration");
+        let highest = PresetNumber::new(99).expect("R7 highest preset");
         prepare_builtin_command(
-            &PresetSet::new(preset),
-            &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
-                fr7.clone(),
-            )
-            .expect("valid target registration"),
+            &PresetSet::new(highest),
+            &registration,
             OperationalTuning::new(),
         )
-        .expect("preset 255 set must prepare end-to-end on FR7");
-
+        .expect("R7 highest preset set");
         prepare_builtin_command(
-            &PresetReset::new(preset),
-            &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
-                fr7.clone(),
-            )
-            .expect("valid target registration"),
+            &PresetReset::new(highest),
+            &registration,
             OperationalTuning::new(),
         )
-        .expect("preset 255 reset must prepare end-to-end on FR7");
-
+        .expect("R7 highest preset reset");
         prepare_builtin_operation::<completion::Targeted, _>(
-            &PresetRecall::for_profile(preset, &fr7).expect("FR7 preset recall"),
-            &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
-                fr7.clone(),
-            )
-            .expect("valid target registration"),
+            &PresetRecall::for_profile(highest, &fr7).expect("FR7 preset axes"),
+            &registration,
             OperationalTuning::new(),
         )
-        .expect("preset 255 recall must prepare end-to-end on FR7");
+        .expect("R7 highest preset recall");
 
+        for value in [100, 255] {
+            let preset = PresetNumber::new(value).expect("global wire-value type");
+            reset_request_write_count();
+            let attempts = [
+                prepare_builtin_command(
+                    &PresetSet::new(preset),
+                    &registration,
+                    OperationalTuning::new(),
+                )
+                .map(drop),
+                prepare_builtin_command(
+                    &PresetReset::new(preset),
+                    &registration,
+                    OperationalTuning::new(),
+                )
+                .map(drop),
+                prepare_builtin_operation::<completion::Targeted, _>(
+                    &PresetRecall::for_profile(preset, &fr7).expect("FR7 preset axes"),
+                    &registration,
+                    OperationalTuning::new(),
+                )
+                .map(drop),
+            ];
+            for result in attempts {
+                assert!(
+                    matches!(result, Err(Error::ParameterOutOfRange { parameter: "preset number", value: actual, min: 0, max: 99 }) if actual == i32::from(value))
+                );
+            }
+            assert_eq!(
+                request_write_count(),
+                0,
+                "out-of-profile presets never encode"
+            );
+        }
         prepare_builtin_command(
             &DirectMenuControl::new(
                 crate::command::DirectMenuTarget::Exit,
                 crate::command::MenuButton::Release,
             ),
-            &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
-                fr7.clone(),
-            )
-            .expect("valid target registration"),
+            &registration,
             OperationalTuning::new(),
         )
-        .expect("documented direct menu control must prepare end-to-end on FR7");
+        .expect("documented FR7 direct menu control");
     }
 
     /// Guard for #683: the fix must not double-terminate the complete-command
@@ -3548,7 +3566,7 @@ mod tests {
         row!(
             "digital zoom on",
             DigitalZoom::new(true),
-            &fr7,
+            &evi,
             B::DigitalZoom,
             Set(S::DigitalZoomMode),
             crate::runtime::engine::AppliedStateProjection::set(
@@ -3558,7 +3576,7 @@ mod tests {
         row!(
             "digital zoom off",
             DigitalZoom::new(false),
-            &fr7,
+            &evi,
             B::DigitalZoom,
             Set(S::DigitalZoomMode),
             crate::runtime::engine::AppliedStateProjection::set(
@@ -4347,10 +4365,13 @@ mod tests {
     /// digital-range validation against a documented digital maximum.
     #[test]
     fn normalized_combined_zoom_retains_its_permission_beyond_raw_overlap() {
-        let source = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+        let source = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
         let mut capabilities = source.capabilities().clone();
         capabilities.profile_id = None;
         capabilities.model_name = "Documented Digital Range Without Permission".into();
+        // These are explicit caller-owned runtime facts, not a digital-range
+        // claim about any built-in model. Permission remains independently absent.
+        capabilities.zoom.as_mut().expect("zoom domain").digital_max = Some(0x7000);
         capabilities.typed_support =
             crate::capabilities::TypedSupportSet::from_surface(TypedSupportSurface::DirectZoom);
         let profile = ProfileSpec::builder(capabilities)
@@ -4368,8 +4389,8 @@ mod tests {
         let normalized =
             ZoomTarget::from_normalized(midpoint, crate::ZoomDomain::OpticalPlusDigital, &profile)
                 .expect("documented digital maximum maps the midpoint");
-        // The FR7 combined midpoint is 0x3800, which is still in its optical
-        // range. Use that exact raw value as the direct-position control.
+        // This custom combined midpoint is 0x3800, still inside its 0x4000
+        // optical range. Keep that exact raw value as the direct control.
         let explicit = ZoomTarget::new(ZoomPosition::new(0x3800).expect("optical position"));
         assert_eq!(wire(&normalized), wire(&explicit));
         assert_ne!(
@@ -4574,7 +4595,7 @@ mod tests {
         )
         .is_ok());
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
-            &IrisDirect::new(IrisLevel::new(0x1E).unwrap()),
+            &IrisDirect::new(IrisLevel::new(0x19).unwrap()),
             &crate::TargetRegistration::new(
                 (crate::target::TargetSlot::CAMERA_1).camera(),
                 h900.clone()
@@ -4585,6 +4606,21 @@ mod tests {
         .is_ok());
 
         reset_request_write_count();
+        // BRC-H900's sourced maximum is 0x19, not the global type's 0x1E.
+        let beyond_h900 = prepare_builtin_operation::<completion::Targeted, _>(
+            &IrisDirect::new(IrisLevel::new(0x1A).unwrap()),
+            &crate::TargetRegistration::new(CameraId::CAMERA_1, h900.clone()).expect("H900 target"),
+            OperationalTuning::new(),
+        );
+        assert!(matches!(
+            beyond_h900,
+            Err(Error::ParameterOutOfRange {
+                parameter: "iris level",
+                min: 0,
+                max: 25,
+                ..
+            })
+        ));
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &IrisReset,
             &crate::TargetRegistration::new(
@@ -4640,29 +4676,55 @@ mod tests {
     }
 
     #[test]
-    fn high_gain_values_are_admitted_by_profiles_that_advertise_them() {
-        let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
+    fn gain_validation_uses_each_profiles_sourced_domain() {
         let h900 = ProfileSpec::from_compile_time::<SonyBRCH900>().expect("H900 profile");
-        let gain = crate::command::Gain::SetValue(
-            crate::types::GainLevel::new(0x0C).expect("gain nibble must be representable"),
-        );
-
-        for profile in [&fr7, &h900] {
-            assert!(
-                prepare_builtin_command(
-                    &gain,
-                    &crate::TargetRegistration::new(
-                        (crate::target::TargetSlot::CAMERA_1).camera(),
-                        profile.clone()
-                    )
-                    .expect("valid target registration"),
-                    OperationalTuning::new(),
-                )
-                .is_ok(),
-                "{} advertises 0x0C gain",
-                profile.capabilities().model_name,
+        let evi = ProfileSpec::from_compile_time::<SonyEVIH100>().expect("EVI profile");
+        for (profile, value) in [(&h900, 0x19), (&evi, 0x0F)] {
+            let gain = crate::command::Gain::SetValue(
+                crate::types::GainLevel::new(value).expect("sourced gain code"),
             );
+            prepare_builtin_command(
+                &gain,
+                &crate::TargetRegistration::new(CameraId::CAMERA_1, profile.clone())
+                    .expect("target"),
+                OperationalTuning::new(),
+            )
+            .expect("documented upper gain boundary prepares");
         }
+
+        let gain = crate::command::Gain::SetValue(
+            crate::types::GainLevel::new(0x0C).expect("representable gain"),
+        );
+        let fr7 = crate::TargetRegistration::new(
+            CameraId::CAMERA_1,
+            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"),
+        )
+        .expect("FR7 target");
+        let ptz = crate::TargetRegistration::new(
+            CameraId::CAMERA_1,
+            ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile"),
+        )
+        .expect("G2 target");
+        reset_request_write_count();
+        let absent = prepare_builtin_command(&gain, &fr7, OperationalTuning::new())
+            .expect_err("FR7 has no shared gain family");
+        assert!(matches!(absent, Error::FeatureNotSupported { .. }));
+        let out_of_range = prepare_builtin_command(&gain, &ptz, OperationalTuning::new())
+            .expect_err("G2's shared gain maximum is 7");
+        assert!(matches!(
+            out_of_range,
+            Error::ParameterOutOfRange {
+                value: 12,
+                min: 0,
+                max: 7,
+                ..
+            }
+        ));
+        assert_eq!(
+            request_write_count(),
+            0,
+            "unsupported gain requests never encode"
+        );
     }
 
     #[test]

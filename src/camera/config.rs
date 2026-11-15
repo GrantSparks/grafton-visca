@@ -959,7 +959,8 @@ mod tests {
             .preset_timeout(Duration::from_secs(73))
             .long_running_timeout(Duration::from_secs(379))
             .network_timeout(Duration::from_secs(83))
-            .settlement_timeout(Duration::from_secs(83));
+            // The longer movement/preset deadlines also raise their retry floor.
+            .settlement_timeout(Duration::from_secs(600));
         let config = CameraConfig::<PtzOpticsG2>::udp("camera.local").with_tuning(tuning);
 
         assert_eq!(

@@ -1057,33 +1057,33 @@ mod tests {
         assert_eq!(transports.tcp_port(), None);
         assert_eq!(transports.udp_port(), Some(52381));
 
-        assert_eq!(caps.presets.as_ref().expect("presets").highest, 255);
-        assert!(caps.supports_preset_tour());
+        assert_eq!(caps.presets.as_ref().expect("presets").highest, 99);
+        assert!(!caps.supports_preset_tour());
         assert!(!caps.has_one_push_focus());
         assert!(caps.focus.as_ref().expect("focus").zones.is_empty());
         assert!(!caps.has_focus_zone_inquiry());
         assert!(!caps.has_af_sensitivity());
-        assert!(caps.has_focus_near_limit_inquiry());
+        assert!(!caps.has_focus_near_limit_inquiry());
         assert_eq!(
             caps.white_balance
                 .as_ref()
                 .and_then(|domain| domain.rgb_gain)
                 .map(|range| range.red.as_inclusive()),
-            Some(0..=0xFF)
+            None
         );
         assert_eq!(
             caps.white_balance
                 .as_ref()
                 .and_then(|domain| domain.rgb_gain)
                 .map(|range| range.blue.as_inclusive()),
-            Some(0..=0xFF)
+            None
         );
         assert_eq!(
             caps.exposure
                 .as_ref()
                 .and_then(|domain| domain.compensation_range)
                 .map(|range| range.as_inclusive()),
-            Some(-7..=7)
+            None
         );
         assert_eq!(
             caps.white_balance
@@ -1118,7 +1118,7 @@ mod tests {
                 .as_ref()
                 .and_then(|domain| domain.contrast_range)
                 .map(|range| range.as_inclusive()),
-            Some(0..=14)
+            None
         );
         assert_eq!(
             caps.image
@@ -1132,11 +1132,14 @@ mod tests {
                 .as_ref()
                 .and_then(|domain| domain.gamma_range)
                 .map(|range| range.as_inclusive()),
-            Some(0..=4)
+            None
         );
         assert!(!caps.has_picture_effect());
 
-        assert!(caps.has_advanced_features());
+        // The shared advanced refinements (digital range, one-push, WDR,
+        // shared Kelvin control and preset tour) were withdrawn for FR7.
+        // Its source-backed vendor controls have independent typed grants.
+        assert!(!caps.has_advanced_features());
     }
 
     #[test]
@@ -1165,8 +1168,8 @@ mod tests {
             <SonyFR7 as ProfileTypedSupport>::TYPED_SUPPORT
         );
         assert!(fr7.supports_typed(TypedSupportSurface::DirectZoom));
-        assert!(fr7.supports_typed(TypedSupportSurface::DigitalZoomToggle));
-        assert!(fr7.supports_typed(TypedSupportSurface::DigitalZoomRange));
+        assert!(!fr7.supports_typed(TypedSupportSurface::DigitalZoomToggle));
+        assert!(!fr7.supports_typed(TypedSupportSurface::DigitalZoomRange));
         assert!(!fr7.supports_typed(TypedSupportSurface::FocusZone));
         assert!(!fr7.supports_typed(TypedSupportSurface::FocusZoneInquiry));
         assert!(!fr7.supports_typed(TypedSupportSurface::UsbAudio));
@@ -1222,7 +1225,7 @@ mod tests {
             (
                 "Sony BRC-H900",
                 Capabilities::from_profile::<SonyBRCH900>(),
-                true,
+                false,
                 false,
             ),
             (
@@ -1326,58 +1329,36 @@ mod tests {
             Capabilities::from_profile::<PtzOpticsG2>(),
             Capabilities::from_profile::<PtzOpticsG3>(),
             Capabilities::from_profile::<PtzOptics30X>(),
-            Capabilities::from_profile::<SonyBRCH900>(),
         ] {
+            let white = caps.white_balance.as_ref().expect("white balance");
             assert_eq!(
-                caps.white_balance
-                    .as_ref()
-                    .and_then(|domain| domain.color_temp_range)
-                    .map(|range| range.as_inclusive()),
+                white.color_temp_range.map(|range| range.as_inclusive()),
                 Some(2500..=8000)
             );
-            assert_eq!(
-                caps.white_balance
-                    .as_ref()
-                    .expect("white balance")
-                    .modes
-                    .len(),
-                6
-            );
+            assert_eq!(white.modes.len(), 6);
+            assert!(white.modes.contains(&WhiteBalanceMode::ColorTemperature));
         }
 
-        // #828: the EVI-H100 manual (R8) has no color-temperature mode or
-        // command.
-        let evi = Capabilities::from_profile::<SonyEVIH100>();
-        assert_eq!(
-            evi.white_balance
-                .as_ref()
-                .and_then(|domain| domain.color_temp_range)
-                .map(|range| range.as_inclusive()),
-            None
-        );
-        assert!(!evi
-            .white_balance
-            .as_ref()
-            .expect("white balance")
-            .modes
-            .contains(&WhiteBalanceMode::ColorTemperature));
-
-        let fr7 = Capabilities::from_profile::<SonyFR7>();
-        assert_eq!(
-            fr7.white_balance
-                .as_ref()
-                .and_then(|domain| domain.color_temp_range)
-                .map(|range| range.as_inclusive()),
-            None
-        );
-        assert_eq!(
-            fr7.white_balance
-                .as_ref()
-                .expect("white balance")
-                .modes
-                .len(),
-            6
-        );
+        // These Sony sources do not grant the shared color-temperature mode
+        // or register. FR7's own Kelvin families are separate typed surfaces.
+        for caps in [
+            Capabilities::from_profile::<SonyEVIH100>(),
+            Capabilities::from_profile::<SonyBRCH900>(),
+            Capabilities::from_profile::<SonyFR7>(),
+        ] {
+            let white = caps.white_balance.as_ref().expect("white balance");
+            assert_eq!(white.color_temp_range, None, "{}", caps.model_name);
+            assert!(
+                !white.modes.contains(&WhiteBalanceMode::ColorTemperature),
+                "{}",
+                caps.model_name
+            );
+            assert!(
+                !caps.supports_typed(TypedSupportSurface::ColorTemperature),
+                "{}",
+                caps.model_name
+            );
+        }
     }
 
     #[test]

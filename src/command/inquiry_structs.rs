@@ -3083,9 +3083,17 @@ mod wire_decoder_regression_tests {
                 "{kind:?}"
             );
         }
+        // BRC-H900 gain codes through 0x19 are representable; the decoder
+        // must distinguish that expanded wire domain from corrupt values.
+        for (payload, expected) in [([0, 0, 1, 0], 0x10), ([0, 0, 1, 9], 0x19)] {
+            assert_eq!(
+                GainInquiry.decoder().decode(&payload).unwrap().value(),
+                expected
+            );
+        }
         // The table's raw u8 is lifted into the typed bounded value only here.
         for error in [
-            GainInquiry.decoder().decode(&[0, 0, 1, 0]).unwrap_err(),
+            GainInquiry.decoder().decode(&[0, 0, 1, 0x0A]).unwrap_err(),
             IrisInquiry
                 .decoder()
                 .decode(&[0, 0, 0x0F, 0x0F])
