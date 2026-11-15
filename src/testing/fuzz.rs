@@ -136,3 +136,131 @@ pub fn response_target(bytes: &[u8]) {
         let _ = decode_response_target(ambiguous_ip, payload);
     }
 }
+
+/// Exercise serial startup over arbitrary bus chunks, read failures and ticks.
+///
+/// Each run uses finite protocol budgets and bounded reads, checks retention
+/// after every action, and requires the startup to finish within a finite turn
+/// budget. One pass always writes Address Set so raw reply seeds reach parsing;
+/// the other also injects write failures.
+#[cfg(feature = "transport-serial")]
+pub fn serial_startup(bytes: &[u8]) {
+    for inject_writes in [false, true] {
+        assert!(
+            drive_serial_startup(bytes, inject_writes).is_some(),
+            "serial startup exceeded its bounded turn budget"
+        );
+    }
+}
+
+#[cfg(feature = "transport-serial")]
+fn drive_serial_startup(bytes: &[u8], inject_writes: bool) -> Option<crate::Result<Option<u8>>> {
+    use crate::transport::serial::{
+        handshake::{Action, SerialStartup, StartupTiming},
+        Config, Startup,
+    };
+    use std::{
+        io::ErrorKind,
+        time::{Duration, Instant},
+    };
+
+    let buffers = BufferConfig {
+        recv_buffer_size: 64,
+        max_buffer_size: 128,
+    };
+    let config = Config::new("fuzz")
+        .startup(Startup {
+            address_set: true,
+            interface_clear: true,
+        })
+        .read_timeout(Duration::from_millis(2))
+        .write_timeout(Duration::from_millis(2))
+        .buffer_config(buffers);
+    let timing = StartupTiming {
+        address_set_attempt: Duration::from_millis(10),
+        address_set_attempts: 3,
+        address_set_retry_delay: Duration::from_millis(1),
+        idle_pause: Duration::from_millis(1),
+        if_clear_operation: Duration::from_millis(10),
+        if_clear_settle: Duration::from_millis(2),
+    };
+    let mut startup = match SerialStartup::new(&config, timing) {
+        Ok(startup) => startup,
+        Err(error) => return Some(Err(error)),
+    };
+    let mut now = Instant::now();
+    let mut cursor = 0;
+    for turn in 0..256 {
+        assert!(startup.retained_len() <= buffers.framer_capacity());
+        let control = bytes.get(turn % bytes.len().max(1)).copied().unwrap_or(0);
+        let selector = if inject_writes {
+            control.rotate_left(1)
+        } else {
+            control
+        };
+        match startup.next(now) {
+            Action::Write { frame, .. } => {
+                assert!(frame.len() <= startup.read_capacity());
+                let written = if inject_writes && selector & 0x80 != 0 {
+                    Err(crate::Error::io_timeout())
+                } else {
+                    Ok(())
+                };
+                startup.wrote(written);
+            }
+            Action::Read { .. } => {
+                let count = (1 + usize::from(selector) % startup.read_capacity())
+                    .min(bytes.len().saturating_sub(cursor));
+                let end = cursor + count;
+                match selector & 0x0F {
+                    0x0C => startup.read(Err(crate::Error::io_timeout())),
+                    0x0D => startup.read(Ok(&[])),
+                    0x0E | 0x0F => startup.read(Err(std::io::Error::new(
+                        ErrorKind::BrokenPipe,
+                        "fuzz read failure",
+                    )
+                    .into())),
+                    _ => {
+                        startup.read(Ok(&bytes[cursor..end]));
+                        cursor = end;
+                    }
+                }
+            }
+            Action::Sleep(duration) => now += duration,
+            Action::DiscardInput => {}
+            Action::Done(result) => {
+                assert!(startup.retained_len() <= buffers.framer_capacity());
+                return Some(result.map(|()| startup.addressed_cameras()));
+            }
+        }
+        assert!(startup.retained_len() <= buffers.framer_capacity());
+        // Even an immediately-ready read samples a later instant eventually.
+        now += Duration::from_micros(1) + Duration::from_millis(u64::from(selector >> 6));
+    }
+    None
+}
+
+#[cfg(all(test, feature = "transport-serial"))]
+mod serial_startup_tests {
+    use super::{drive_serial_startup, serial_startup};
+
+    const ADDRESS: &[u8] = include_bytes!("../../tests/fixtures/serial_startup/address_set_reply");
+    const NETWORK: &[u8] = include_bytes!("../../tests/fixtures/serial_startup/network_change");
+    const OVERSIZED: &[u8] = include_bytes!("../../tests/fixtures/serial_startup/oversized_noise");
+    const ECHO: &[u8] = include_bytes!("../../tests/fixtures/serial_startup/rs485_echo");
+
+    #[test]
+    fn seed_corpus_reaches_serial_startup_on_stable() {
+        for seed in [ADDRESS, NETWORK, OVERSIZED, ECHO, &[]] {
+            serial_startup(seed);
+        }
+        assert!(matches!(
+            drive_serial_startup(ADDRESS, false),
+            Some(Ok(Some(1)))
+        ));
+        assert!(matches!(
+            drive_serial_startup(ECHO, false),
+            Some(Ok(Some(1)))
+        ));
+    }
+}

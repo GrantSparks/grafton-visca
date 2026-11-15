@@ -9,6 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Serial startup has a bounded fuzz target for arbitrary bus input, I/O results
+  and timing ticks, with reply/noise/echo seeds also exercised on stable (#887).
+
 - `test-utils` (#832): `testkit::ManualClock`, a virtual clock for owner deadline tests. A
   blocking session opened with `ManualClock::open_blocking_session` or
   `open_blocking_camera_session`, and an async session run on the new

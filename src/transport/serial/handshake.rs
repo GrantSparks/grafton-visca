@@ -222,6 +222,12 @@ impl SerialStartup {
         self.read_capacity
     }
 
+    /// Retained input inspected by the bounded serial-startup fuzz driver.
+    #[cfg(feature = "test-utils")]
+    pub(crate) fn retained_len(&self) -> usize {
+        self.framer.buffered_len()
+    }
+
     /// The next I/O to perform, given the driver's clock.
     pub(crate) fn next(&mut self, now: Instant) -> Action<'_> {
         loop {

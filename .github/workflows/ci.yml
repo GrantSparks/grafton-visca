@@ -261,7 +261,7 @@ jobs:
         run: cargo +1.98.0 install cargo-fuzz --version 0.12.0 --locked
       - name: Check protocol fuzz targets
         run: |
-          for target in response_parser protocol_framer sony_envelope response_target; do
+          for target in response_parser protocol_framer sony_envelope response_target serial_startup; do
             cargo +nightly-2026-08-26 fuzz check "${target}"
           done
       # Every target starts from its committed corpus. The response parser
@@ -271,7 +271,7 @@ jobs:
       # headers.
       - name: Run bounded protocol fuzz smoke tests
         run: |
-          for target in response_parser protocol_framer sony_envelope response_target; do
+          for target in response_parser protocol_framer sony_envelope response_target serial_startup; do
             cargo +nightly-2026-08-26 fuzz run "${target}" \
               "${GITHUB_WORKSPACE}/fuzz/corpus/${target}" -- -runs=1000
           done

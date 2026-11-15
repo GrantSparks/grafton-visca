@@ -1,6 +1,6 @@
 # Grafton VISCA fuzz targets
 
-The fuzz package exercises four bounded protocol layers through doc-hidden
+The fuzz package exercises five bounded protocol layers through doc-hidden
 `test-utils` wrappers; production protocol modules remain crate-private:
 
 | Target | Coverage |
@@ -9,11 +9,12 @@ The fuzz package exercises four bounded protocol layers through doc-hidden
 | `protocol_framer` | Raw and Sony framing with whole and split reads, plus a structurally valid Sony frame derived from each input. |
 | `sony_envelope` | Sony request framing, public VISCA extraction, owner control-reply extraction, and sequence RESET framing. |
 | `response_target` | Strict serial and single-/multi-target IP source routing. |
+| `serial_startup` | Address Set and I/F Clear phases with arbitrary chunks, read/write failures and timing ticks, bounded progress and retained input. |
 
 With `cargo-fuzz` 0.12.0 installed, run:
 
 ```text
-for target in response_parser protocol_framer sony_envelope response_target; do
+for target in response_parser protocol_framer sony_envelope response_target serial_startup; do
   cargo fuzz check "$target"
   cargo fuzz run "$target" "corpus/$target" -- -runs=1000
 done
@@ -52,3 +53,9 @@ directory as the `fuzz-artifacts` artifact on failure. Reproduce it with
 `cargo fuzz run <target> fuzz/artifacts/<target>/<file>`, then commit the file
 into that target's corpus under a descriptive name alongside the fix. A crash
 found once and not pinned is a crash the next cold run has to find again.
+
+The `serial_startup` corpus contains an Address Set reply, Network Change,
+oversized noise and an RS-485 broadcast echo followed by a reply. Its stable
+unit test runs the same files through the production startup driver. The bytes
+live in `tests/fixtures/serial_startup/` (included in the published crate), and
+this corpus links to them so there is one copy of each seed. The fuzz package enables blocking serial support, but the driver performs no device I/O.
