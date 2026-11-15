@@ -1193,7 +1193,7 @@ mod tests {
                 struct GenericInquiry;
             },
             syn::parse_quote! {
-                #[visca(opcode = 0x00, response = Power, typed_response = bool, typed_field = on)]
+                #[visca(opcode = 0x00, response = Power, typed_response = ::grafton_visca::PowerStatus, typed_field = status)]
                 struct TypedInquiry;
             },
         ] {

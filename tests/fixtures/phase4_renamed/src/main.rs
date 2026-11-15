@@ -448,7 +448,7 @@ struct RenamedRawInquiry;
 struct RenamedResponseInquiry;
 
 #[derive(Debug, Clone, Copy, ViscaInquiry)]
-#[visca(opcode = 0x00, response = Power, typed_response = bool, typed_field = on)]
+#[visca(opcode = 0x00, response = Power, typed_response = ::visca_renamed::PowerStatus, typed_field = status)]
 struct RenamedTypedInquiry;
 
 fn assert_inquiry_contracts() {
@@ -465,8 +465,8 @@ fn assert_inquiry_contracts() {
     fn typed<T>()
     where
         T: Request<Class = request::Inquiry>
-            + Inquiry<Response = bool>
-            + ResponseParser<Response = bool>,
+            + Inquiry<Response = visca_renamed::PowerStatus>
+            + ResponseParser<Response = visca_renamed::PowerStatus>,
     {
     }
 
