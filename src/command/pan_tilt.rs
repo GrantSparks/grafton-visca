@@ -928,6 +928,15 @@ impl WireEncode for PanTiltProfiled {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
+        if let Self::LimitClear { codec, .. } = *self {
+            let required = codec.maximum_position_frame_bytes();
+            if buffer.len() < required {
+                return Err(Error::BufferTooSmall {
+                    required,
+                    actual: buffer.len(),
+                });
+            }
+        }
         let frame = FrameWriter::new(camera_id, buffer);
         match *self {
             Self::AbsolutePosition {
