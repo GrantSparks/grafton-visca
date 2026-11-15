@@ -29,18 +29,18 @@
 //! intermediate frame buffer is copied. Standard built-in request
 //! encoding remains inline and allocation-free.
 //!
-//! Raw policy is explicit and owned by each value. [`CommandPolicy`] supplies
-//! a [`Plain`] command's [`CommandCategory`], retry and ordinary submission
-//! class; [`OperationPolicy`] supplies the same facts for [`Targeted`] and
-//! [`AppliedOnly`]. [`InquiryPolicy`] carries only retry and submission class:
+//! Raw policy is explicit and owned by each value. [`CommandPolicy`](crate::raw::CommandPolicy) supplies
+//! a [`Plain`](crate::raw::Plain) command's [`CommandCategory`], retry and ordinary submission
+//! class; [`OperationPolicy`](crate::raw::OperationPolicy) supplies the same facts for [`Targeted`](crate::raw::Targeted) and
+//! [`AppliedOnly`](crate::raw::AppliedOnly). [`InquiryPolicy`](crate::raw::InquiryPolicy) carries only retry and submission class:
 //! its timeout is always [`TimeoutClass::Inquiry`] and its reply protocol is
 //! fixed. Policy constructors are infallible; raw request constructors validate
 //! only the wire bytes. No byte-based lifecycle inference or caller-selected
 //! operation class exists.
 //!
-//! A plain command declares its [`RawReplyShape`] with
-//! [`CommandPolicy::with_reply_shape`]. Operations instead select
-//! [`OperationReplyShape`], whose variants are `AckThenCompletion` and
+//! A plain command declares its [`RawReplyShape`](crate::raw::RawReplyShape) with
+//! [`CommandPolicy::with_reply_shape`](crate::raw::CommandPolicy::with_reply_shape). Operations instead select
+//! [`OperationReplyShape`](crate::raw::OperationReplyShape), whose variants are `AckThenCompletion` and
 //! `CompletionOnly`. `NoReply` is plain-command-only: a successful
 //! fire-and-forget write proves local transport submission rather than the
 //! protocol application an operation handle promises. Reply shape never
