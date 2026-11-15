@@ -83,6 +83,11 @@ impl crate::command::encode::WireEncode for MenuNavigate {
 ///
 /// Moves the menu cursor in the specified direction.
 ///
+/// # Safety
+///
+/// With the menu closed, this is a continuous physical pan/tilt drive.
+/// Send an explicit STOP or call `stop_all_motion()` to end the movement.
+///
 /// VISCA format: `81 01 06 01 VV WW XX YY FF` where:
 /// - VV = Pan speed (0x0E for menu)
 /// - WW = Tilt speed (0x0E for menu)

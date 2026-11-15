@@ -538,7 +538,7 @@ builtin_command_ledger! {
     TallyOff => plain(Set(TallyMode)),
     // Menus.
     MenuDisplay => plain,
-    MenuNavigate => plain,
+    MenuNavigate => applied(PAN_TILT),
     MenuSelect => plain,
     MenuCancel => plain,
     DirectMenu => plain,
@@ -624,6 +624,12 @@ mod tests {
 
     #[test]
     fn physical_actuation_audit_decisions_are_explicit() {
+        assert_eq!(
+            BuiltinCommand::MenuNavigate.classification(),
+            BuiltinRequestClass::AppliedOnly {
+                axes: BuiltinAxisSelection::Exact(AffectedAxes::PAN_TILT)
+            },
+        );
         for command in [
             BuiltinCommand::IrisReset,
             BuiltinCommand::IrisUp,

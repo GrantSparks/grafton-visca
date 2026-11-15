@@ -919,8 +919,15 @@ macro_rules! noun_table {
             /// Displays or hides the on-screen menu.
             plain [MenuDisplay] display(on: bool) -> command::SetMenuDisplay
                 = [command::SetMenuDisplay::new(on)];
-            /// Moves the menu cursor.
-            plain [MenuNavigate] navigate(direction: command::MenuDirection)
+            /// Moves the menu cursor with a pan/tilt drive.
+            ///
+            /// # Safety
+            ///
+            /// If the menu is closed, this starts continuous physical pan/tilt
+            /// movement. Send an explicit pan/tilt STOP or call
+            /// `stop_all_motion()` to stop it. The applied handle confirms
+            /// acceptance, not that physical movement has stopped.
+            applied [MenuNavigate] navigate(direction: command::MenuDirection)
                 -> command::MenuNavigate
                 = [command::MenuNavigate::new(direction)];
             /// Selects the current menu item.

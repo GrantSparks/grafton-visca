@@ -1392,7 +1392,7 @@ builtin_request! {
         size: 6,
     };
     crate::command::menu::SetMenuDisplay => MenuDisplay: Plain { size: 6 };
-    crate::command::menu::MenuNavigate => MenuNavigate: Plain { size: 9 };
+    crate::command::menu::MenuNavigate => MenuNavigate: AppliedOnly { size: 9 };
     crate::command::menu::PerformMenuAction => MenuSelect: Plain { size: 6 };
     crate::command::menu::DirectMenuControl => DirectMenu: Plain { size: 8 };
     crate::command::streaming::UsbAudio => UsbAudioOn: Plain { size: 7 };

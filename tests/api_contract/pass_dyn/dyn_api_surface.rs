@@ -290,7 +290,7 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let menu = camera.menu();
     let _: DynFuture<'_, Result<bool, Error>> = menu.status();
     let _: DynFuture<'_, Result<(), Error>> = menu.display(true);
-    let _: DynFuture<'_, Result<(), Error>> = menu.navigate(MenuDirection::Up);
+    let _: DynFuture<'_, Result<DynAppliedOperation, Error>> = menu.navigate(MenuDirection::Up);
     let _: DynFuture<'_, Result<(), Error>> = menu.select();
     let _: DynFuture<'_, Result<(), Error>> = menu.cancel();
     let _: DynFuture<'_, Result<(), Error>> = menu.direct(0, 0);
