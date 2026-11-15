@@ -438,7 +438,7 @@ mod tests {
         // and serde's derive-generated spelling.  It pins each public wire tag
         // to its exact semantic surface, so a swapped decoder, a spurious
         // accepted tag, or a surface added only to `ALL` cannot pass.
-        const WIRE_SURFACES: [(&str, TypedSupportSurface); 74] = [
+        const WIRE_SURFACES: [(&str, TypedSupportSurface); 85] = [
             ("direct-zoom", TypedSupportSurface::DirectZoom),
             (
                 "digital-zoom-toggle",
@@ -606,9 +606,26 @@ mod tests {
                 TypedSupportSurface::SonyFr7PresetDuration,
             ),
             ("sharpness-mode", TypedSupportSurface::SharpnessMode),
+            ("focus-infinity", TypedSupportSurface::FocusInfinity),
+            ("preset-memory", TypedSupportSurface::PresetMemory),
+            ("shutter-control", TypedSupportSurface::ShutterControl),
+            ("gain-control", TypedSupportSurface::GainControl),
+            ("gain-limit", TypedSupportSurface::GainLimit),
+            (
+                "standard-white-balance-modes",
+                TypedSupportSurface::StandardWhiteBalanceModes,
+            ),
+            ("menu-display", TypedSupportSurface::MenuDisplay),
+            ("menu-enter-return", TypedSupportSurface::MenuEnterReturn),
+            (
+                "menu-status-inquiry",
+                TypedSupportSurface::MenuStatusInquiry,
+            ),
+            ("shutter-direct", TypedSupportSurface::ShutterDirect),
+            ("power-standby", TypedSupportSurface::PowerStandby),
         ];
 
-        assert_eq!(TypedSupportSurface::ALL.len(), 74);
+        assert_eq!(TypedSupportSurface::ALL.len(), 85);
         assert_eq!(WIRE_SURFACES.len(), TypedSupportSurface::ALL.len());
         for (wire_name, surface) in WIRE_SURFACES {
             assert_eq!(surface.wire_name(), wire_name);

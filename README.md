@@ -117,6 +117,11 @@ facts live in optional domain records: `caps.zoom.as_ref()` yields the lens
 maxima and direct-positioning fact, and `caps.has_zoom()` derives domain presence.
 Use typed support checks before calling optional dyn typed operations.
 
+Domain support also leaves individual methods gated: H900 exposes shutter steps
+and readback without direct positioning, and some power profiles have no standby
+method. See the [optional method permissions](docs/migration_2_0.md#optional-method-permissions)
+for the eleven refinements, built-in restrictions, and custom profile opt-in.
+
 | Runtime domain | Owning facts |
 | --- | --- |
 | `pan_tilt: Option<PanTiltCaps>` | Raw bounds, conversion, nominal endpoint policy, speed ranges and mount-selected tilt limits |

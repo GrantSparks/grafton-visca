@@ -213,6 +213,9 @@ trait WireRowProfile:
     + HasPresets
     + HasImageProcessing
     + HasExposure
+    + grafton_visca::capabilities::HasShutterControl
+    + grafton_visca::capabilities::HasShutterDirect
+    + grafton_visca::capabilities::HasGainControl
     + HasExposureMode
     + HasIrisControl
     + HasDirectZoom
@@ -236,6 +239,9 @@ impl<P> WireRowProfile for P where
         + HasPresets
         + HasImageProcessing
         + HasExposure
+        + grafton_visca::capabilities::HasShutterControl
+        + grafton_visca::capabilities::HasShutterDirect
+        + grafton_visca::capabilities::HasGainControl
         + HasExposureMode
         + HasIrisControl
         + HasDirectZoom

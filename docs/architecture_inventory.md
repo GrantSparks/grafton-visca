@@ -67,7 +67,8 @@ The optional typed gates are exactly the following closed list:
 `SonyFr7MemoryGain`, `SonyFr7MemoryTint`, `SonyFr7AtwOffsets`, `SonyFr7Black`,
 `SonyFr7Detail`, `SonyFr7Knee`, `SonyFr7HighResolutionZoom`,
 `SonyFr7ClearImageZoom`, `SonyFr7PresetSpeed`, `SonyFr7PresetDuration`, and
-`SharpnessMode`.
+`SharpnessMode`, `FocusInfinity`, `PresetMemory`, `ShutterControl`, `GainControl`, `GainLimit`, `StandardWhiteBalanceModes`, `MenuDisplay`, `MenuEnterReturn`, and
+`MenuStatusInquiry`, `ShutterDirect`, and `PowerStandby`.
 <!-- END OPTIONAL TYPED GATES -->
 
 The generated profile registry remains

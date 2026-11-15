@@ -3327,6 +3327,7 @@ mod tests {
     #[test]
     fn zero_is_one_preset_and_the_highest_number_is_inclusive() {
         let mut caps = valid_runtime_capabilities();
+        caps.typed_support = TypedSupportSet::from_surface(TypedSupportSurface::PresetMemory);
         caps.presets.as_mut().expect("presets").highest = 0;
         let profile = runtime_builder(caps).build().expect("preset zero");
         let registration =

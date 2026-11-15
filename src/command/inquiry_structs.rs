@@ -261,7 +261,7 @@ fn write_query_frame(
 
 /// The facts every generated inquiry command shares with the generic decode
 /// path below.
-trait GeneratedInquiry: crate::Inquiry {
+pub(crate) trait GeneratedInquiry: crate::Inquiry {
     /// The response kind the command queries.
     const KIND: InquiryKind;
     /// The address-free fixed prefix, without the argument or terminator.

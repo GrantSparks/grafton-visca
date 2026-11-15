@@ -271,6 +271,17 @@ synthetic_profile!(
     OptionalSurfacesTypedSupport,
     "Optional Surfaces Typed Support",
     TypedSupportSet::from_surfaces(&[
+        TypedSupportSurface::PowerStandby,
+        TypedSupportSurface::ShutterDirect,
+        TypedSupportSurface::FocusInfinity,
+        TypedSupportSurface::PresetMemory,
+        TypedSupportSurface::ShutterControl,
+        TypedSupportSurface::GainControl,
+        TypedSupportSurface::GainLimit,
+        TypedSupportSurface::StandardWhiteBalanceModes,
+        TypedSupportSurface::MenuDisplay,
+        TypedSupportSurface::MenuEnterReturn,
+        TypedSupportSurface::MenuStatusInquiry,
         TypedSupportSurface::AutoFocusSensitivity,
         TypedSupportSurface::AutoWhiteBalanceSensitivity,
         TypedSupportSurface::BacklightCompensation,
@@ -383,3 +394,17 @@ pub fn sony_session_config() -> SessionConfig {
             .expect("Sony FR7 profile"),
     )
 }
+
+impl capabilities::HasFocusInfinity for OptionalSurfacesTypedSupport {}
+impl capabilities::HasPresetMemory for OptionalSurfacesTypedSupport {}
+impl capabilities::HasShutterControl for OptionalSurfacesTypedSupport {}
+impl capabilities::HasGainControl for OptionalSurfacesTypedSupport {}
+impl capabilities::HasGainLimit for OptionalSurfacesTypedSupport {}
+impl capabilities::HasStandardWhiteBalanceModes for OptionalSurfacesTypedSupport {}
+impl capabilities::HasMenuDisplay for OptionalSurfacesTypedSupport {}
+impl capabilities::HasMenuEnterReturn for OptionalSurfacesTypedSupport {}
+impl capabilities::HasMenuStatusInquiry for OptionalSurfacesTypedSupport {}
+
+impl capabilities::HasShutterDirect for OptionalSurfacesTypedSupport {}
+
+impl capabilities::HasPowerStandby for OptionalSurfacesTypedSupport {}

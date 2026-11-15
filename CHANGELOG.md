@@ -59,6 +59,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING** (#896): Static noun methods use eleven refining support markers
+  for focus infinity, preset memory, shared shutter/gain controls, gain limit,
+  standard white-balance modes, menu display/enter-return/status, direct shutter
+  and standby. The 59 built-in method/profile pairs that were always refused
+  now fail to compile; discovery predicts the same admission gate. H900 keeps
+  shutter steps/readback but withholds direct values until its table is sourced;
+  BRC-300, Nearus and Generic profiles withhold standby. Custom profiles opt
+  into the new typed surfaces explicitly; raw requests remain the escape hatch.
+
 - **BREAKING** (#899): Custom transports implement the required shared
   `HasTransportConfig::identity()` descriptor, which fixes kind, send semantics
   and addressing together. `TransportConfig::addressing`, the facade identity

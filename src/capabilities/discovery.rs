@@ -589,10 +589,25 @@ impl Capabilities {
             S::SonyFr7PresetSpeed | S::SonyFr7PresetDuration => {
                 ParentDomain(self.presets.is_some())
             }
+            S::PowerStandby => Dedicated(
+                self.power
+                    .as_ref()
+                    .is_some_and(|domain| domain.standby.is_some()),
+            ),
+            S::FocusInfinity => ParentDomain(focus.is_some()),
+            S::PresetMemory => ParentDomain(self.presets.is_some()),
+            S::ShutterControl | S::GainControl | S::GainLimit => ParentDomain(exposure.is_some()),
+            S::StandardWhiteBalanceModes => ParentDomain(white_balance.is_some()),
+            S::ShutterDirect => {
+                ParentDomain(exposure.is_some_and(|domain| !domain.shutter_speeds.is_empty()))
+            }
             S::PtzOpticsSettingsSave
             | S::PtzOpticsMulticastStreaming
             | S::PtzOpticsNdiQuality
-            | S::VersionInquiry => ParentDomain(true),
+            | S::VersionInquiry
+            | S::MenuDisplay
+            | S::MenuEnterReturn
+            | S::MenuStatusInquiry => ParentDomain(true),
         }
     }
 

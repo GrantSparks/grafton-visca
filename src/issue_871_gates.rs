@@ -278,21 +278,19 @@ macro_rules! agreement_row {
     (inquiry, [], $ret:ty, [$($request:tt)*], [$($arg:ident: $ty:ty),*], $profile:ident) => {{
         $(let $arg = <$ty as Sample>::sample($profile);)*
         let gate = inquiry_gate_of!([$($request)*]);
-        if let RowGate::Typed(surfaces) = gate {
-            let expected = surfaces.iter().all(|surface| $profile.capabilities().supports_typed(surface));
-            let registration = target_for($profile);
-            assert_eq!(crate::Request::validate_for_target(&$($request)*, &registration).is_ok(), expected,
-                "{} inquiry {}", $profile.name(), stringify!($($request)*));
-        }
+        let expected = gate.validate($profile, "agreement inquiry").is_ok();
+        let registration = target_for($profile);
+        assert_eq!(crate::Request::validate_for_target(&$($request)*, &registration).is_ok(), expected,
+            "{} inquiry {}", $profile.name(), stringify!($($request)*));
     }};
     ($kind:ident, [$row:ident], $ret:ty, [$($request:tt)*], [$($arg:ident: $ty:ty),*], $profile:ident) => {{
-        if let RowGate::Typed(surfaces) = row_gate(BuiltinCommand::$row) {
-            $(let $arg = <$ty as Sample>::sample($profile);)*
-            let registration = target_for($profile);
-            let request = crate::noun_facade::noun_request!($profile, &registration; $ret; $($request)*).expect(stringify!($row));
-            let expected = surfaces.iter().all(|surface| $profile.capabilities().supports_typed(surface));
-            assert_eq!(crate::Request::validate_for_target(&request, &registration).is_ok(), expected,
-                "{} command {:?}", $profile.name(), BuiltinCommand::$row);
+        let expected = row_gate(BuiltinCommand::$row).validate($profile, "agreement command").is_ok();
+        $(let $arg = <$ty as Sample>::sample($profile);)*
+        let registration = target_for($profile);
+        match crate::noun_facade::noun_request!($profile, &registration; $ret; $($request)*) {
+            Ok(request) => assert_eq!(crate::Request::validate_for_target(&request, &registration).is_ok(), expected,
+                "{} command {:?}", $profile.name(), BuiltinCommand::$row),
+            Err(error) => assert!(!expected, "{} command {:?}: {error}", $profile.name(), BuiltinCommand::$row),
         }
     }};
     ($kind:ident, [], $ret:ty, $request:tt, $args:tt, $profile:ident) => {};
@@ -317,7 +315,7 @@ macro_rules! gate_tests {
        $($(#[$row_doc:meta])* $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty $(where $rgate:ident $(+ $extra:ident)*)? = [$($request:tt)*];)*)*
        @exceptions; $($exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty;)*) => {
         #[test]
-        fn every_builtin_and_mutated_spec_agrees_with_discovery_for_typed_rows() {
+        fn every_builtin_and_mutated_spec_agrees_with_discovery_for_all_rows() {
             let (full, none, no_typed) = profiles();
             let profiles = [
                 ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2"),

@@ -137,7 +137,7 @@ macro_rules! noun_table {
             /// Powers the camera on.
             plain [PowerOn] on() -> command::PowerOn = [command::PowerOn::new()];
             /// Places the camera in standby.
-            plain [PowerStandby] off() -> command::PowerStandby = [command::PowerStandby::new()];
+            plain [PowerStandby] off() -> command::PowerStandby where HasPowerStandby = [command::PowerStandby::new()];
 
             @noun Zoom {
                 accessor: ZoomAccessor,
@@ -318,7 +318,7 @@ macro_rules! noun_table {
             applied [FocusOnePush] one_push() -> builtin::FocusTrigger where HasOnePushFocus
                 = [by_value builtin::FocusTrigger::OnePush];
             /// Moves focus to infinity.
-            targeted [FocusInfinity] infinity() -> builtin::FocusInfinity
+            targeted [FocusInfinity] infinity() -> builtin::FocusInfinity where HasFocusInfinity
                 = [builtin::FocusInfinity];
             /// Toggles automatic/manual focus mode.
             plain [FocusToggle] toggle() -> builtin::FocusModeCommand
@@ -377,10 +377,10 @@ macro_rules! noun_table {
                 where HasPtzOpticsPresetRecallSpeed
                 = [command::PresetRecallSpeedCommand::new(speed)];
             /// Stores the current camera state in a preset.
-            plain [PresetSet] set(preset: command::PresetNumber) -> builtin::PresetSet
+            plain [PresetSet] set(preset: command::PresetNumber) -> builtin::PresetSet where HasPresetMemory
                 = [builtin::PresetSet::new(preset)];
             /// Clears a stored preset.
-            plain [PresetReset] reset(preset: command::PresetNumber) -> builtin::PresetReset
+            plain [PresetReset] reset(preset: command::PresetNumber) -> builtin::PresetReset where HasPresetMemory
                 = [builtin::PresetReset::new(preset)];
 
 
@@ -441,17 +441,17 @@ macro_rules! noun_table {
                 -> command::ExposureCommand where HasExposureMode
                 = [command::ExposureCommand::new(mode)];
             /// Returns the shutter speed.
-            inquiry [] shutter() -> types::ShutterSpeed
+            inquiry [] shutter() -> types::ShutterSpeed where HasShutterControl
                 = [command::ShutterInquiry];
             /// Restores the camera's shutter default.
-            plain [ShutterReset] shutter_reset() -> command::Shutter = [command::Shutter::Reset];
+            plain [ShutterReset] shutter_reset() -> command::Shutter where HasShutterControl = [command::Shutter::Reset];
             /// Increases shutter speed by one camera-defined step.
-            plain [ShutterUp] shutter_up() -> command::Shutter = [command::Shutter::Up];
+            plain [ShutterUp] shutter_up() -> command::Shutter where HasShutterControl = [command::Shutter::Up];
             /// Decreases shutter speed by one camera-defined step.
-            plain [ShutterDown] shutter_down() -> command::Shutter = [command::Shutter::Down];
+            plain [ShutterDown] shutter_down() -> command::Shutter where HasShutterControl = [command::Shutter::Down];
             /// Sets an explicit shutter speed.
             plain [ShutterDirect] shutter_direct(speed: types::ShutterSpeed)
-                -> command::Shutter = [command::Shutter::SetSpeed(speed)];
+                -> command::Shutter where HasShutterDirect = [by_value [command::Shutter::SetSpeed(types::ShutterSpeed::new(0))] command::Shutter::SetSpeed(speed)];
             /// Returns the exposure compensation value.
             inquiry [] compensation()
                 -> types::ExposureCompensationLevel
@@ -531,22 +531,23 @@ macro_rules! noun_table {
                 -> command::Brightness where HasBrightnessControl
                 = [command::Brightness::SetLevel(level)];
             /// Returns gain.
-            inquiry [] gain() -> types::GainLevel = [command::GainInquiry];
+            inquiry [] gain() -> types::GainLevel where HasGainControl
+                = [command::GainInquiry];
             /// Resets gain.
-            plain [GainReset] gain_reset() -> command::Gain = [command::Gain::Reset];
+            plain [GainReset] gain_reset() -> command::Gain where HasGainControl = [command::Gain::Reset];
             /// Increases gain.
-            plain [GainUp] gain_up() -> command::Gain = [command::Gain::Up];
+            plain [GainUp] gain_up() -> command::Gain where HasGainControl = [command::Gain::Up];
             /// Decreases gain.
-            plain [GainDown] gain_down() -> command::Gain = [command::Gain::Down];
+            plain [GainDown] gain_down() -> command::Gain where HasGainControl = [command::Gain::Down];
             /// Sets direct gain.
-            plain [GainDirect] gain_direct(level: types::GainLevel) -> command::Gain
+            plain [GainDirect] gain_direct(level: types::GainLevel) -> command::Gain where HasGainControl
                 = [command::Gain::SetValue(level)];
             /// Returns the configured gain limit.
-            inquiry [] gain_limit() -> types::GainLimit
+            inquiry [] gain_limit() -> types::GainLimit where HasGainLimit
                 = [command::GainLimitInquiry];
             /// Sets the configured gain limit.
             plain [GainLimit] set_gain_limit(limit: types::GainLimit)
-                -> command::GainLimitCommand = [command::GainLimitCommand::new(limit)];
+                -> command::GainLimitCommand where HasGainLimit = [command::GainLimitCommand::new(limit)];
             /// Sets anti-flicker mode.
             plain [AntiFlicker] set_anti_flicker(mode: command::AntiFlickerMode)
                 -> command::AntiFlickerCommand
@@ -630,17 +631,17 @@ macro_rules! noun_table {
             inquiry [] mode() -> command::WhiteBalanceMode
                 = [command::WhiteBalanceModeInquiry];
             /// Selects automatic white balance.
-            plain [WhiteBalanceAuto] auto() -> command::WhiteBalanceCommand
+            plain [WhiteBalanceAuto] auto() -> command::WhiteBalanceCommand where HasStandardWhiteBalanceModes
                 = [by_value command::WhiteBalanceCommand {
                     mode: command::WhiteBalanceMode::Auto,
                 }];
             /// Selects the indoor white-balance preset.
-            plain [WhiteBalanceIndoor] indoor() -> command::WhiteBalanceCommand
+            plain [WhiteBalanceIndoor] indoor() -> command::WhiteBalanceCommand where HasStandardWhiteBalanceModes
                 = [by_value command::WhiteBalanceCommand {
                     mode: command::WhiteBalanceMode::Indoor,
                 }];
             /// Selects the outdoor white-balance preset.
-            plain [WhiteBalanceOutdoor] outdoor() -> command::WhiteBalanceCommand
+            plain [WhiteBalanceOutdoor] outdoor() -> command::WhiteBalanceCommand where HasStandardWhiteBalanceModes
                 = [by_value command::WhiteBalanceCommand {
                     mode: command::WhiteBalanceMode::Outdoor,
                 }];
@@ -1225,9 +1226,10 @@ macro_rules! noun_table {
                 doc: "On-screen menu display and navigation commands and the menu-status inquiry.",
             };
             /// Returns whether the on-screen menu is open.
-            inquiry [] status() -> bool = [command::MenuOpenCloseInquiry];
+            inquiry [] status() -> bool where HasMenuStatusInquiry
+                = [command::MenuOpenCloseInquiry];
             /// Displays or hides the on-screen menu.
-            plain [MenuDisplay] display(on: bool) -> command::SetMenuDisplay
+            plain [MenuDisplay] display(on: bool) -> command::SetMenuDisplay where HasMenuDisplay
                 = [command::SetMenuDisplay::new(on)];
             /// Moves the menu cursor with a pan/tilt drive.
             ///
@@ -1241,10 +1243,10 @@ macro_rules! noun_table {
                 -> command::MenuNavigate
                 = [command::MenuNavigate::new(direction)];
             /// Selects the current menu item.
-            plain [MenuSelect] select() -> command::PerformMenuAction
+            plain [MenuSelect] select() -> command::PerformMenuAction where HasMenuEnterReturn
                 = [command::PerformMenuAction::new(command::MenuAction::Select)];
             /// Cancels or returns from the current menu item.
-            plain [MenuCancel] cancel() -> command::PerformMenuAction
+            plain [MenuCancel] cancel() -> command::PerformMenuAction where HasMenuEnterReturn
                 = [command::PerformMenuAction::new(command::MenuAction::Cancel)];
             /// Sends a typed Sony FR7 direct-menu button control.
             plain [DirectMenu] direct(target: command::DirectMenuTarget, button: command::MenuButton)

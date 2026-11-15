@@ -30,6 +30,58 @@ use grafton_visca::{
 
 fn plain(_: Result<()>) {}
 
+fn source_refinements<P>(camera: &Camera<P>)
+where
+    P: CompileTimeProfile
+        + grafton_visca::capabilities::HasPowerStandby
+        + grafton_visca::capabilities::HasFocusInfinity
+        + grafton_visca::capabilities::HasPresetMemory
+        + grafton_visca::capabilities::HasShutterControl
+        + grafton_visca::capabilities::HasShutterDirect
+        + grafton_visca::capabilities::HasGainControl
+        + grafton_visca::capabilities::HasGainLimit
+        + grafton_visca::capabilities::HasStandardWhiteBalanceModes
+        + grafton_visca::capabilities::HasMenuDisplay
+        + grafton_visca::capabilities::HasMenuEnterReturn
+        + grafton_visca::capabilities::HasMenuStatusInquiry,
+{
+    plain(camera.power().off());
+    targeted(camera.focus().infinity());
+    plain(camera.presets().set(grafton_visca::PresetNumber::MIN));
+    plain(camera.presets().reset(grafton_visca::PresetNumber::MIN));
+    plain(camera.exposure().shutter_reset());
+    plain(camera.exposure().shutter_up());
+    plain(camera.exposure().shutter_down());
+    plain(
+        camera
+            .exposure()
+            .shutter_direct(grafton_visca::types::ShutterSpeed::new(0)),
+    );
+    let _ = camera.exposure().shutter();
+    plain(camera.exposure().gain_reset());
+    plain(camera.exposure().gain_up());
+    plain(camera.exposure().gain_down());
+    plain(
+        camera
+            .exposure()
+            .gain_direct(grafton_visca::types::GainLevel::MIN),
+    );
+    let _ = camera.exposure().gain();
+    plain(
+        camera
+            .exposure()
+            .set_gain_limit(grafton_visca::types::GainLimit::MIN),
+    );
+    let _ = camera.exposure().gain_limit();
+    plain(camera.white_balance().auto());
+    plain(camera.white_balance().indoor());
+    plain(camera.white_balance().outdoor());
+    plain(camera.menu().display(true));
+    plain(camera.menu().select());
+    plain(camera.menu().cancel());
+    let _ = camera.menu().status();
+}
+
 fn applied(_: Result<Operation<AppliedOnly>>) {}
 
 fn targeted(_: Result<Operation<Targeted>>) {}
@@ -47,9 +99,6 @@ where
         + HasMenuControl,
 {
     plain(camera.power().on());
-    plain(camera.power().off());
-    plain(camera.white_balance().auto());
-    plain(camera.menu().display(true));
 
     targeted(camera.pan_tilt().home());
     applied(camera.pan_tilt().stop());
@@ -85,7 +134,15 @@ where
     plain(camera.image().set_backlight(true));
 }
 
-fn all_base_inquiries<P: CompileTimeProfile>(camera: &Camera<P>) {
+fn all_base_inquiries<
+    P: CompileTimeProfile
+        + grafton_visca::capabilities::HasShutterControl
+        + grafton_visca::capabilities::HasGainControl
+        + grafton_visca::capabilities::HasGainLimit
+        + grafton_visca::capabilities::HasMenuStatusInquiry,
+>(
+    camera: &Camera<P>,
+) {
     let _ = camera.power().state();
     let _ = camera.zoom().position();
     let _ = camera.pan_tilt().position();
@@ -272,6 +329,8 @@ fn non_default(camera: &Camera<profile_fixtures::NonDefaultCompileTimeProfile>) 
 
 #[test]
 fn static_camera_surface_is_profile_typed_and_non_default() {
+    let _: fn(&Camera<profile_fixtures::OptionalSurfacesTypedSupport>) =
+        source_refinements::<profile_fixtures::OptionalSurfacesTypedSupport>;
     let _: fn(&Camera<PtzOpticsG2>) = baseline::<PtzOpticsG2>;
     let _: fn(&Camera<PtzOpticsG2>) = combined_flip_inquiry;
     let _: fn(&Camera<PtzOpticsG2>) = noise_2d_gate::<PtzOpticsG2>;

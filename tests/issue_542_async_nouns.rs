@@ -44,9 +44,6 @@ where
 
 fn baseline_surface<P: CompileTimeProfile>(camera: &Camera<P>) {
     plain(camera.power().on());
-    plain(camera.power().off());
-    plain(camera.white_balance().auto());
-    plain(camera.menu().display(true));
     targeted(camera.pan_tilt().home());
     applied(camera.pan_tilt().stop());
     applied(camera.zoom().stop());
