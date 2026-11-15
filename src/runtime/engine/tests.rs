@@ -567,7 +567,7 @@ fn request_transmission_and_generation_allocators_stop_at_exhaustion() {
         effect,
         Effect::Terminal {
             id,
-            outcome: RuntimeOutcome::Failed(Error::RuntimeIdentityExhausted),
+            outcome: RuntimeOutcome::Command(CommandOutcome::Failed(Error::RuntimeIdentityExhausted)),
         } if *id == second_id
     )));
     assert!(transmission_engine.entry(first_id).is_some());
@@ -1896,7 +1896,7 @@ fn correlated_frames_win_at_equality_and_are_stale_one_nanosecond_later() {
                 assert!(engine.entry(id).is_none());
                 assert!(matches!(
                     terminal_outcome(effects, id),
-                    Some(RuntimeOutcome::Reply { .. })
+                    Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { .. }))
                 ));
             },
         );
@@ -1950,7 +1950,7 @@ fn correlated_frames_win_at_equality_and_are_stale_one_nanosecond_later() {
                 assert!(engine.entry(id).is_none());
                 assert!(matches!(
                     terminal_outcome(effects, id),
-                    Some(RuntimeOutcome::Applied)
+                    Some(RuntimeOutcome::Command(CommandOutcome::Applied))
                 ));
             },
         );
@@ -1988,7 +1988,7 @@ fn correlated_frames_win_at_equality_and_are_stale_one_nanosecond_later() {
                 assert!(engine.entry(id).is_none());
                 assert!(matches!(
                     terminal_outcome(effects, id),
-                    Some(RuntimeOutcome::Applied)
+                    Some(RuntimeOutcome::Command(CommandOutcome::Applied))
                 ));
             },
         );
@@ -2032,7 +2032,7 @@ fn correlated_frames_win_at_equality_and_are_stale_one_nanosecond_later() {
             assert!(engine.entry(id).is_none());
             assert!(matches!(
                 terminal_outcome(effects, id),
-                Some(RuntimeOutcome::Applied)
+                Some(RuntimeOutcome::Command(CommandOutcome::Applied))
             ));
         },
     );
@@ -2080,7 +2080,7 @@ fn an_overdue_request_does_not_make_an_unrelated_correlated_frame_stale() {
     assert!(ignored_reasons(&effects).is_empty());
     assert!(matches!(
         terminal_outcome(&effects, reply_id),
-        Some(RuntimeOutcome::Reply { .. })
+        Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { .. }))
     ));
     assert_eq!(
         deadline_expiries(&effects, overdue_id),
@@ -2172,7 +2172,7 @@ fn cancellation_terminal_frames_are_inclusive_at_ambiguity_and_stale_afterward()
         assert!(ignored_reasons(&equal).is_empty());
         assert!(matches!(
             terminal_outcome(&equal, equal_id),
-            Some(RuntimeOutcome::Cancelled)
+            Some(RuntimeOutcome::Command(CommandOutcome::Cancelled))
         ));
         equal_engine.assert_invariants().unwrap();
 
@@ -2279,7 +2279,7 @@ fn executing_response_outlives_cancellation_ambiguity_until_its_completion_deadl
     assert!(ignored_reasons(&completed).is_empty());
     assert!(matches!(
         terminal_outcome(&completed, id),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     engine.assert_invariants().unwrap();
 }
@@ -2404,7 +2404,7 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
                 effect,
                 Effect::Terminal {
                     id,
-                    outcome: RuntimeOutcome::Applied,
+                    outcome: RuntimeOutcome::Command(CommandOutcome::Applied),
                 } if *id == a_id
             )
         })
@@ -2414,7 +2414,7 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
         effect,
         Effect::Terminal {
             id,
-            outcome: RuntimeOutcome::Applied,
+            outcome: RuntimeOutcome::Command(CommandOutcome::Applied),
         } if *id == a_id
     )));
     assert!(!ordered_effects.iter().any(|effect| matches!(
@@ -2425,7 +2425,7 @@ fn ordered_input_turn_applies_all_frames_before_an_equal_deadline() {
         effect,
         Effect::Terminal {
             id,
-            outcome: RuntimeOutcome::Failed(_),
+            outcome: RuntimeOutcome::Command(CommandOutcome::Failed(_)),
         } if *id == a_id
     )));
     assert!(engine.entry(a_id).is_none());
@@ -2512,7 +2512,7 @@ fn unsupported_target_cancels_queued_locally_but_sent_without_intent() {
         effect,
         Effect::Terminal {
             id,
-            outcome: RuntimeOutcome::Cancelled
+            outcome: RuntimeOutcome::Command(CommandOutcome::Cancelled)
         } if *id == queued_id
     )));
     assert!(!local.iter().any(|effect| matches!(
@@ -2667,7 +2667,7 @@ fn pre_ack_cancellation_records_intent_then_emits_one_cancel_on_ack() {
         effect,
         Effect::Terminal {
             id: seen,
-            outcome: RuntimeOutcome::Cancelled
+            outcome: RuntimeOutcome::Command(CommandOutcome::Cancelled)
         } if *seen == id
     )));
     assert!(cancelled.iter().any(|effect| matches!(
@@ -3083,7 +3083,7 @@ fn completion_before_cancellation_pacing_due_wins_and_removes_intent() {
         effect,
         Effect::Terminal {
             id: seen,
-            outcome: RuntimeOutcome::Applied,
+            outcome: RuntimeOutcome::Command(CommandOutcome::Applied),
         } if *seen == id
     )));
     assert!(!completed.iter().any(|effect| matches!(
@@ -3165,7 +3165,7 @@ fn late_ack_ambiguity_keeps_capacity_and_correlation_until_quarantine() {
         effect,
         Effect::Terminal {
             id: seen,
-            outcome: RuntimeOutcome::Applied
+            outcome: RuntimeOutcome::Command(CommandOutcome::Applied)
         } if *seen == id
     )));
     // Completion at the exact ambiguity deadline wins and releases capacity;
@@ -3208,7 +3208,7 @@ fn ambiguity_expiry_is_unconfirmed_and_releases_only_after_deadline() {
         effect,
         Effect::Terminal {
             id: seen,
-            outcome: RuntimeOutcome::Failed(Error::CancellationUnconfirmed)
+            outcome: RuntimeOutcome::Command(CommandOutcome::Failed(Error::CancellationUnconfirmed))
         } if *seen == id
     )));
     assert_eq!(engine.active_len(), 0);
@@ -3274,7 +3274,7 @@ fn datagram_cancel_failure_resolves_token_but_original_remains_routable() {
         effect,
         Effect::Terminal {
             id: seen,
-            outcome: RuntimeOutcome::Applied
+            outcome: RuntimeOutcome::Command(CommandOutcome::Applied)
         } if *seen == id
     )));
     assert!(!completion
@@ -3342,7 +3342,9 @@ fn stream_cancel_failure_poisons_and_terminalizes_in_admission_order() {
             .filter(|effect| matches!(
                 effect,
                 Effect::Terminal {
-                    outcome: RuntimeOutcome::Failed(Error::StreamPoisoned { .. }),
+                    outcome: RuntimeOutcome::Command(CommandOutcome::Failed(
+                        Error::StreamPoisoned { .. }
+                    )),
                     ..
                 }
             ))
@@ -3402,7 +3404,7 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
         effect,
         Effect::Terminal {
             id,
-            outcome: RuntimeOutcome::Failed(Error::InquiryFailed { source })
+            outcome: RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source }))
         } if *id == second_id && matches!(source.as_ref(), Error::ConnectionClosed { .. })
     )));
 
@@ -3423,7 +3425,7 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
         effect,
         Effect::Terminal {
             id,
-            outcome: RuntimeOutcome::Failed(Error::InquiryFailed { source })
+            outcome: RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source }))
         } if *id == pending_id && matches!(source.as_ref(), Error::RuntimeShutdown)
     )));
     fresh.assert_invariants().unwrap();
@@ -3595,7 +3597,7 @@ fn applied_state_actions_are_closed_and_uncertain_failure_invalidates() {
         effect,
         Effect::Terminal {
             id: terminal,
-            outcome: RuntimeOutcome::Failed(_),
+            outcome: RuntimeOutcome::Command(CommandOutcome::Failed(_)),
         } if *terminal == id
     )));
     assert!(failed.iter().any(|effect| matches!(
@@ -4060,7 +4062,7 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
     );
     assert!(matches!(
         terminal_outcome(&second_reply, second_id),
-        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [1]
+        Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. })) if payload.as_slice() == [1]
     ));
     // A matched reply cannot produce a late duplicate, so B's success releases
     // the FIFO-tail retry immediately without adding another hold (#712).
@@ -4092,7 +4094,7 @@ fn raw_inquiry_retry_releases_fifo_and_requeues_at_tail_with_same_wire() {
     );
     assert!(matches!(
         terminal_outcome(&legitimate_retry, first_id),
-        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x0b]
+        Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. })) if payload.as_slice() == [0x0b]
     ));
     engine.assert_invariants().unwrap();
 }
@@ -4405,20 +4407,24 @@ fn fixture_observation(
     }) {
         let name = names.get(&id).unwrap();
         let outcome = match outcome {
-            RuntimeOutcome::Written => "written".to_owned(),
-            RuntimeOutcome::Applied => "applied".to_owned(),
-            RuntimeOutcome::Reply { payload } => {
+            RuntimeOutcome::Command(CommandOutcome::Written) => "written".to_owned(),
+            RuntimeOutcome::Command(CommandOutcome::Applied) => "applied".to_owned(),
+            RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload }) => {
                 format!("reply:{}", String::from_utf8_lossy(payload))
             }
             // #795: an error after the request's ACK keeps the camera's
             // exact code but is reported as unconfirmed.
-            RuntimeOutcome::Failed(Error::CommandFailedAfterAck { source, .. }) => {
+            RuntimeOutcome::Command(CommandOutcome::Failed(Error::CommandFailedAfterAck {
+                source,
+                ..
+            })) => {
                 format!("error-after-ack:{}", fixture_error_code(source))
             }
-            RuntimeOutcome::Failed(error) => {
+            RuntimeOutcome::Command(CommandOutcome::Failed(error))
+            | RuntimeOutcome::Inquiry(InquiryOutcome::Failed(error)) => {
                 format!("error:{}", fixture_error_code(error))
             }
-            RuntimeOutcome::Cancelled => "cancelled".to_owned(),
+            RuntimeOutcome::Command(CommandOutcome::Cancelled) => "cancelled".to_owned(),
         };
         return format!("observer={name} outcome={outcome}");
     }
@@ -4862,23 +4868,26 @@ impl FuzzCoverage {
                     ..
                 } => self.completion_only += 1,
                 Effect::Terminal {
-                    outcome: RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
+                    outcome:
+                        RuntimeOutcome::Command(CommandOutcome::Failed(
+                            Error::UnsequencedCommandUnconfirmed,
+                        )),
                     ..
                 } => self.quarantined += 1,
                 Effect::Terminal {
-                    outcome: RuntimeOutcome::Applied,
+                    outcome: RuntimeOutcome::Command(CommandOutcome::Applied),
                     ..
                 } => self.applied += 1,
                 Effect::Terminal {
-                    outcome: RuntimeOutcome::Reply { .. },
+                    outcome: RuntimeOutcome::Inquiry(InquiryOutcome::Reply { .. }),
                     ..
                 } => self.replied += 1,
                 Effect::Terminal {
-                    outcome: RuntimeOutcome::Cancelled,
+                    outcome: RuntimeOutcome::Command(CommandOutcome::Cancelled),
                     ..
                 } => self.cancelled += 1,
                 Effect::Terminal {
-                    outcome: RuntimeOutcome::Written,
+                    outcome: RuntimeOutcome::Command(CommandOutcome::Written),
                     ..
                 } => self.written += 1,
                 Effect::RetryScheduled { .. } => self.retried += 1,
@@ -5005,7 +5014,7 @@ fn seed_fuzz_coverage(
         effect,
         Effect::Terminal {
             id: terminal,
-            outcome: RuntimeOutcome::Applied,
+            outcome: RuntimeOutcome::Command(CommandOutcome::Applied),
         } if *terminal == id
     )));
     *now += Duration::from_micros(2);
@@ -5043,7 +5052,7 @@ fn seed_fuzz_coverage(
         effect,
         Effect::Terminal {
             id: terminal,
-            outcome: RuntimeOutcome::Reply { .. },
+            outcome: RuntimeOutcome::Inquiry(InquiryOutcome::Reply { .. }),
         } if *terminal == id
     )));
     *now += Duration::from_micros(2);
@@ -5192,7 +5201,7 @@ fn seed_fuzz_coverage(
             effect,
             Effect::Terminal {
                 id,
-                outcome: RuntimeOutcome::Cancelled,
+                outcome: RuntimeOutcome::Command(CommandOutcome::Cancelled),
             } if *id == cancel_id
         )),
         "{envelope:?} cancellation effects: {cancelled:?}"
@@ -5238,7 +5247,7 @@ fn seed_fuzz_coverage(
     coverage.record(engine, &completed);
     assert!(matches!(
         terminal_outcome(&completed, completion_only_id),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     *now += Duration::from_micros(2);
 
@@ -5264,7 +5273,7 @@ fn seed_fuzz_coverage(
     coverage.record(engine, &written);
     assert!(matches!(
         terminal_outcome(&written, no_reply_id),
-        Some(RuntimeOutcome::Written)
+        Some(RuntimeOutcome::Command(CommandOutcome::Written))
     ));
     *now += Duration::from_micros(1);
     if envelope == EnvelopeKind::Raw {
@@ -5360,7 +5369,7 @@ fn seed_fuzz_coverage(
         coverage.record(engine, &replied);
         assert!(matches!(
             terminal_outcome(&replied, second_id),
-            Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [2]
+            Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. })) if payload.as_slice() == [2]
         ));
         *now = release_at + Duration::from_micros(1);
     }
@@ -5704,7 +5713,7 @@ fn cancellation_response_timeout_resolves_observer_but_retains_quarantine() {
         effect,
         Effect::Terminal {
             id: seen,
-            outcome: RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed)
+            outcome: RuntimeOutcome::Command(CommandOutcome::Failed(Error::UnsequencedCommandUnconfirmed))
         } if *seen == id
     )));
     // Issue #671: failing the request at the quarantine deadline no longer
@@ -5844,7 +5853,7 @@ fn failed_cancel_write_does_not_shorten_an_executing_commands_completion_window(
     );
     assert!(matches!(
         terminal_outcome(&completed, id),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();
@@ -5880,7 +5889,7 @@ fn retryable_rejection_after_cancel_intent_is_cancelled_without_retry() {
         effect,
         Effect::Terminal {
             id: seen,
-            outcome: RuntimeOutcome::Cancelled
+            outcome: RuntimeOutcome::Command(CommandOutcome::Cancelled)
         } if *seen == id
     )));
     assert!(!rejected
@@ -5921,7 +5930,7 @@ fn inquiry_syntax_retry_requires_explicit_builtin_policy() {
         effect,
         Effect::Terminal {
             id,
-            outcome: RuntimeOutcome::Failed(Error::InquiryFailed { source }),
+            outcome: RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })),
         } if *id == custom_id && matches!(source.as_ref(), Error::SyntaxError)
     )));
     assert!(!custom_error
@@ -6211,7 +6220,7 @@ fn receive_fault_fails_only_unretryable_work_and_never_the_session() {
         effect,
         Effect::Terminal {
             id,
-            outcome: RuntimeOutcome::Failed(Error::TransportError { .. }),
+            outcome: RuntimeOutcome::Command(CommandOutcome::Failed(Error::TransportError { .. })),
         } if *id == command_id
     )));
     assert!(
@@ -6298,12 +6307,14 @@ fn stream_write_failure_poisons_with_the_typed_transport_cause() {
         vec![first_id, second_id]
     );
     for (_, outcome) in &terminals {
-        let RuntimeOutcome::Failed(Error::StreamPoisoned { source }) = outcome else {
+        let RuntimeOutcome::Command(CommandOutcome::Failed(Error::StreamPoisoned { source })) =
+            outcome
+        else {
             panic!("every request on a poisoned stream reports the session verdict: {outcome:?}");
         };
         assert!(matches!(source.as_ref(), Error::TransportError { source }
             if matches!(source.as_ref(), Error::Io(io) if io.kind() == std::io::ErrorKind::Other)));
-        let RuntimeOutcome::Failed(error) = outcome else {
+        let RuntimeOutcome::Command(CommandOutcome::Failed(error)) = outcome else {
             unreachable!()
         };
         assert!(std::error::Error::source(error).is_some());
@@ -7343,10 +7354,7 @@ fn terminal_outcome(effects: &[Effect], id: RequestId) -> Option<RuntimeOutcome>
 
 /// Terminal failure error for one request, if it failed in this batch.
 fn terminal_failure(effects: &[Effect], id: RequestId) -> Option<Error> {
-    match terminal_outcome(effects, id) {
-        Some(RuntimeOutcome::Failed(error)) => Some(error),
-        _ => None,
-    }
+    terminal_outcome(effects, id).and_then(|outcome| outcome.failure().cloned())
 }
 
 /// The original protocol/transport cause, independent of inquiry terminal facts.
@@ -8008,7 +8016,7 @@ fn raw_no_reply_write_result_respects_total_budget_boundary() {
         );
         assert!(matches!(
             terminal_outcome(&equal, id),
-            Some(RuntimeOutcome::Written)
+            Some(RuntimeOutcome::Command(CommandOutcome::Written))
         ));
         assert!(!equal.iter().any(|effect| matches!(
             effect,
@@ -8457,7 +8465,7 @@ fn initial_admission_budget_preserves_exact_boundary_precedence() {
         );
         assert!(matches!(
             terminal_outcome(&reply, id),
-            Some(RuntimeOutcome::Reply { .. })
+            Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { .. }))
         ));
         assert!(deadline_expiries(&reply, id).is_empty());
         equal_engine.assert_invariants().unwrap();
@@ -8616,7 +8624,7 @@ fn initial_budget_and_cancel_ambiguity_do_not_shorten_executing_completion() {
     );
     assert!(matches!(
         terminal_outcome(&resolved, id),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     engine.assert_invariants().unwrap();
 }
@@ -9663,7 +9671,7 @@ fn completion_only_command_skips_ack_and_terminates_on_completion() {
     );
     assert!(matches!(
         terminal_outcome(&done, id),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     assert!(phase_of(&engine, id).is_none(), "the entry is finished");
     engine.assert_invariants().unwrap();
@@ -9825,7 +9833,7 @@ fn completion_only_accepts_socket_bearing_terminal_completion() {
     );
     assert!(matches!(
         terminal_outcome(&completed, id),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     assert!(phase_of(&engine, id).is_none());
     assert_eq!(
@@ -9930,7 +9938,10 @@ fn no_reply_command_terminates_on_send() {
     );
     let send = send_ok(&mut engine, &admitted_effects, None, start);
     assert!(
-        matches!(terminal_outcome(&send, id), Some(RuntimeOutcome::Written)),
+        matches!(
+            terminal_outcome(&send, id),
+            Some(RuntimeOutcome::Command(CommandOutcome::Written))
+        ),
         "a no-reply command reports only a local write on send",
     );
     assert!(
@@ -9968,7 +9979,7 @@ fn late_reply_to_completed_completion_only_is_ignored() {
     );
     assert!(matches!(
         terminal_outcome(&done, id),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     for response in [
         DecodedResponse::Completion { socket: None },
@@ -10006,7 +10017,7 @@ fn no_reply_terminal_quarantine_blocks_successor_then_restores_liveness() {
     let sent = send_ok(&mut engine, &first, None, start);
     assert!(matches!(
         terminal_outcome(&sent, first_id),
-        Some(RuntimeOutcome::Written)
+        Some(RuntimeOutcome::Command(CommandOutcome::Written))
     ));
     // The owner applies this admission only after the immediate write result
     // installed the predecessor's target tombstone.
@@ -10102,7 +10113,7 @@ fn terminal_tombstone_ignores_frame_at_exact_expiry_before_releasing_successor()
     let written = send_ok(&mut engine, &first, None, start);
     assert!(matches!(
         terminal_outcome(&written, first_id),
-        Some(RuntimeOutcome::Written)
+        Some(RuntimeOutcome::Command(CommandOutcome::Written))
     ));
     let (successor, successor_id) = admit(
         &mut engine,
@@ -10178,7 +10189,7 @@ fn raw_single_flight_inquiry_success_releases_successor_without_tombstone() {
     );
     assert!(matches!(
         terminal_outcome(&first_reply, first_id),
-        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x0a]
+        Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. })) if payload.as_slice() == [0x0a]
     ));
     assert_eq!(
         request_transmit(&first_reply).1,
@@ -10203,7 +10214,7 @@ fn raw_single_flight_inquiry_success_releases_successor_without_tombstone() {
     );
     assert!(matches!(
         terminal_outcome(&successor_reply, successor_id),
-        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x0b]
+        Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. })) if payload.as_slice() == [0x0b]
     ));
     engine.assert_invariants().unwrap();
 }
@@ -10374,7 +10385,7 @@ fn raw_inquiry_hold_preserves_live_preack_ack_and_sole_socketless_completion() {
     );
     assert!(matches!(
         terminal_outcome(&completed, command_id),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     engine.assert_invariants().unwrap();
 }
@@ -10433,7 +10444,7 @@ fn raw_inquiry_hold_preserves_live_named_socket_terminals() {
     );
     assert!(matches!(
         terminal_outcome(&completion, completion_id),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     completion_engine.assert_invariants().unwrap();
 
@@ -10468,7 +10479,7 @@ fn raw_uncorrelatable_terminal_hold_still_filters_all_response_shapes() {
     let written = send_ok(&mut engine, &send, None, start);
     assert!(matches!(
         terminal_outcome(&written, id),
-        Some(RuntimeOutcome::Written)
+        Some(RuntimeOutcome::Command(CommandOutcome::Written))
     ));
     for response in [
         DecodedResponse::Ack {
@@ -10968,7 +10979,7 @@ fn raw_single_flight_inquiry_timeout_quarantines_late_reply_until_successor_rele
     );
     assert!(matches!(
         terminal_outcome(&successor_reply, successor_id),
-        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x0b]
+        Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. })) if payload.as_slice() == [0x0b]
     ));
     engine.assert_invariants().unwrap();
 }
@@ -11119,7 +11130,7 @@ fn urgent_ack_binds_when_its_preack_hold_has_no_live_predecessor() {
     );
     assert!(matches!(
         terminal_outcome(&completed, urgent_id),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     assert_eq!(
         engine.raw_hold(camera(1), RawHoldScope::PreAck),
@@ -11174,7 +11185,7 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
         send_ok(&mut engine, &stale, None, release_at);
         let own_reply = engine.handle(unkeyed_reply(1, 0x0b), release_at);
         assert!(
-            matches!(terminal_outcome(&own_reply, successor), Some(RuntimeOutcome::Reply { payload }) if payload.as_slice() == [0x0b])
+            matches!(terminal_outcome(&own_reply, successor), Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload })) if payload.as_slice() == [0x0b])
         );
         engine.assert_invariants().unwrap();
     }
@@ -11211,7 +11222,7 @@ fn completion_only_terminal_quarantine_blocks_successor_then_restores_liveness()
     );
     assert!(matches!(
         terminal_outcome(&completed, first_id),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     assert!(
         request_transmit_optional(&engine.finish_input_turn(turn, EngineTurn::Complete)).is_none()
@@ -11258,7 +11269,7 @@ fn no_reply_terminal_quarantine_holds_same_target_inquiry_until_expiry() {
     let written = send_ok(&mut engine, &first, None, start);
     assert!(matches!(
         terminal_outcome(&written, first_id),
-        Some(RuntimeOutcome::Written)
+        Some(RuntimeOutcome::Command(CommandOutcome::Written))
     ));
 
     let (inquiry, inquiry_id) = admit(&mut engine, 2, inquiry(1), start);
@@ -11408,7 +11419,7 @@ fn uncorrelatable_terminal_allows_no_reply_successor_and_extends_hold() {
         let second_terminal = send_ok(&mut engine, &second, None, successor_at);
         assert!(matches!(
             terminal_outcome(&second_terminal, second_id),
-            Some(RuntimeOutcome::Written)
+            Some(RuntimeOutcome::Command(CommandOutcome::Written))
         ));
 
         let extended_deadline = successor_at + Duration::from_millis(50);
@@ -11470,7 +11481,7 @@ fn completed_raw_command_allows_immediate_same_socket_reuse() {
     );
     assert!(matches!(
         terminal_outcome(&complete_first, first_id),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     let (second, second_id) = admit(
         &mut engine,
@@ -11507,7 +11518,7 @@ fn completed_raw_command_allows_immediate_same_socket_reuse() {
     );
     assert!(matches!(
         terminal_outcome(&complete_second, second_id),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     engine.assert_invariants().unwrap();
 }
@@ -11693,7 +11704,7 @@ fn raw_inquiry_blocks_same_target_completion_only_until_reply() {
     );
     assert!(matches!(
         terminal_outcome(&completed, completion_id),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     runtime.assert_invariants().unwrap();
 }
@@ -11759,7 +11770,7 @@ fn sony_completion_only_does_not_block_same_target_inquiry() {
     );
     assert!(matches!(
         terminal_outcome(&completed, completion_id),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     let replied = runtime.handle(
         frame(
@@ -11976,7 +11987,7 @@ fn completion_only_refused_cancel_does_not_extend_correlation() {
         if envelope == EnvelopeKind::Sony {
             assert!(matches!(
                 terminal_outcome(&completion, id),
-                Some(RuntimeOutcome::Applied)
+                Some(RuntimeOutcome::Command(CommandOutcome::Applied))
             ));
             assert_eq!(
                 deadline_expiries(&completion, id),
@@ -11986,7 +11997,7 @@ fn completion_only_refused_cancel_does_not_extend_correlation() {
             assert!(ignored_reasons(&completion).contains(&IgnoreReason::UnmatchedFrame));
             assert!(!matches!(
                 terminal_outcome(&completion, id),
-                Some(RuntimeOutcome::Applied)
+                Some(RuntimeOutcome::Command(CommandOutcome::Applied))
             ));
         }
         engine.assert_invariants().unwrap();
@@ -12023,7 +12034,7 @@ fn raw_inquiry_capacity_is_per_target() {
     );
     assert!(matches!(
         terminal_outcome(&first_reply, first_id),
-        Some(RuntimeOutcome::Reply { .. })
+        Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { .. }))
     ));
     assert_eq!(request_transmit(&first_reply).1, third_id);
     assert!(engine.entry(second_id).is_some());
@@ -12187,7 +12198,10 @@ fn control_reserve_is_urgent_only_and_released_at_terminal() {
             now,
         );
         if let Some(outcome) = terminal_outcome(&effects, first) {
-            assert!(matches!(outcome, RuntimeOutcome::Applied));
+            assert!(matches!(
+                outcome,
+                RuntimeOutcome::Command(CommandOutcome::Applied)
+            ));
         }
     }
     assert!(engine.entry(first).is_none(), "the first stop concluded");
@@ -12512,7 +12526,7 @@ fn raw_stream_inquiry_timeout_owes_its_reply_and_never_binds_it_to_a_successor()
     let reply = engine.handle(unkeyed_reply(1, 0x03), late + Duration::from_millis(51));
     assert!(matches!(
         terminal_outcome(&reply, successor),
-        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x03]
+        Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. })) if payload.as_slice() == [0x03]
     ));
     engine.assert_invariants().unwrap();
 }
@@ -12669,7 +12683,7 @@ fn unsettled_owed_reply_latches_only_that_targets_inquiries_until_it_arrives() {
     let other_reply = engine.handle(unkeyed_reply(2, 0x03), now);
     assert!(matches!(
         terminal_outcome(&other_reply, other_id),
-        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x03]
+        Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. })) if payload.as_slice() == [0x03]
     ));
 
     // The owed reply finally arrives: it is discarded and the lane reopens
@@ -12688,7 +12702,7 @@ fn unsettled_owed_reply_latches_only_that_targets_inquiries_until_it_arrives() {
     let reply = engine.handle(unkeyed_reply(1, 0x03), reopened);
     assert!(matches!(
         terminal_outcome(&reply, id),
-        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x03]
+        Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. })) if payload.as_slice() == [0x03]
     ));
     assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();

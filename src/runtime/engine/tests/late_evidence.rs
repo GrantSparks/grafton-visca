@@ -29,7 +29,7 @@ fn complete(envelope: EnvelopeKind, socket: Option<ViscaSocket>) -> Input {
 fn assert_applied(effects: &[Effect], request: RequestId) {
     assert!(
         effects.iter().any(|effect| matches!(effect,
-            Effect::Terminal { id, outcome: RuntimeOutcome::Applied } if *id == request
+            Effect::Terminal { id, outcome: RuntimeOutcome::Command(CommandOutcome::Applied) } if *id == request
         )),
         "{effects:?}"
     );
@@ -240,11 +240,11 @@ fn late_sony_completion_does_not_outlive_the_total_budget_in_backoff() {
         complete(EnvelopeKind::Sony, Some(ViscaSocket::S1)),
         start + Duration::from_millis(23),
     );
-    assert!(late.iter().any(|effect| matches!(effect, Effect::Terminal { id: ended, outcome: RuntimeOutcome::Failed(_) } if *ended == id)));
+    assert!(late.iter().any(|effect| matches!(effect, Effect::Terminal { id: ended, outcome: RuntimeOutcome::Command(CommandOutcome::Failed(_)) } if *ended == id)));
     assert!(!late.iter().any(|effect| matches!(
         effect,
         Effect::Terminal {
-            outcome: RuntimeOutcome::Applied,
+            outcome: RuntimeOutcome::Command(CommandOutcome::Applied),
             ..
         }
     )));
@@ -280,7 +280,7 @@ fn raw_late_socketless_completion_releases_the_retired_holder_without_a_cascade(
             effects.extend(engine.handle(complete(EnvelopeKind::Raw, None), at));
             if index == 0 {
                 assert!(effects.iter().any(|effect| matches!(effect,
-                    Effect::Terminal { id: terminal, outcome: RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed) } if *terminal == id
+                    Effect::Terminal { id: terminal, outcome: RuntimeOutcome::Command(CommandOutcome::Failed(Error::UnsequencedCommandUnconfirmed)) } if *terminal == id
                 )));
             } else {
                 assert_applied(&effects, id);

@@ -32,12 +32,12 @@ struct RetainedRelease {
     harness: ScriptedRawHarness,
     /// A, rejected by the camera with its terminal still buffered in its
     /// observer.
-    predecessor: Option<ReceiptCore>,
+    predecessor: Option<ReceiptCore<RuntimeOutcome>>,
     /// Commands admitted before H: the first is on the wire awaiting its ACK
     /// and any others are queued behind it. All are live, cancellable engine
     /// work without a buffered terminal, so cancelling one is a live
     /// cancellation that the coordinator must defer.
-    live: Vec<ReceiptCore>,
+    live: Vec<ReceiptCore<RuntimeOutcome>>,
 }
 
 impl RetainedRelease {
@@ -77,7 +77,10 @@ impl RetainedRelease {
         // engine-side reply deadline is non-zero, so the rejection can answer
         // A while it is still awaiting its reply.
         let a_timeout = Duration::ZERO;
-        let (a_completion, a_admitted) = handle.core.enqueue_admission(a_request, None).unwrap();
+        let (a_completion, a_admitted) = handle
+            .core
+            .enqueue_admission::<RuntimeOutcome>(a_request, None)
+            .unwrap();
         let a_boundary = actor.core.receivers.admissions.try_recv().unwrap();
         actor
             .handle_event(
@@ -90,12 +93,12 @@ impl RetainedRelease {
         let a = a_admitted.recv_async().await.unwrap().unwrap();
         assert_eq!(harness.writes.recv_async().await.unwrap(), a.id);
         reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
-        let predecessor = ReceiptCore::admitted(a, a_completion, a_timeout);
+        let predecessor = ReceiptCore::<RuntimeOutcome>::admitted(a, a_completion, a_timeout);
 
         if let Some(second_hold) = second_hold {
             let (_completion, admitted) = handle
                 .core
-                .enqueue_admission(
+                .enqueue_admission::<RuntimeOutcome>(
                     no_reply_command_for(TargetSlot::CAMERA_2, second_hold),
                     None,
                 )
@@ -117,7 +120,10 @@ impl RetainedRelease {
         for _ in 0..live_commands {
             let request = command();
             let timeout = request.context().timeout.completion.get();
-            let (completion, admitted) = handle.core.enqueue_admission(request, None).unwrap();
+            let (completion, admitted) = handle
+                .core
+                .enqueue_admission::<RuntimeOutcome>(request, None)
+                .unwrap();
             let boundary = actor.core.receivers.admissions.try_recv().unwrap();
             actor
                 .handle_event(
@@ -128,7 +134,9 @@ impl RetainedRelease {
                 )
                 .await;
             let id = admitted.recv_async().await.unwrap().unwrap();
-            live_receipts.push(ReceiptCore::admitted(id, completion, timeout));
+            live_receipts.push(ReceiptCore::<RuntimeOutcome>::admitted(
+                id, completion, timeout,
+            ));
         }
 
         // Only the first command can be on the wire before its ACK; any
@@ -203,13 +211,21 @@ impl RetainedRelease {
             .unwrap()
     }
 
-    fn enqueue_inquiry(&self) -> (TerminalObserver, flume::Receiver<Result<Admitted, Error>>) {
-        self.handle.core.enqueue_admission(inquiry(), None).unwrap()
+    fn enqueue_inquiry(
+        &self,
+    ) -> (
+        TerminalObserver<RuntimeOutcome>,
+        flume::Receiver<Result<Admitted, Error>>,
+    ) {
+        self.handle
+            .core
+            .enqueue_admission::<RuntimeOutcome>(inquiry(), None)
+            .unwrap()
     }
 
     /// Requests cancellation on a spawned task, which hands the receipt back
     /// with the answer so its terminal slot stays observable.
-    fn spawn_cancel(&self, receipt: ReceiptCore) -> CancelTask {
+    fn spawn_cancel(&self, receipt: ReceiptCore<RuntimeOutcome>) -> CancelTask {
         let handle = self.handle.clone();
         tokio::spawn(async move {
             let answer = handle.cancel_test(&receipt).await;
@@ -253,12 +269,18 @@ async fn admitted_within(
         .map(|admitted| admitted.id)
 }
 
-type CancelTask = tokio::task::JoinHandle<(Result<CancellationObserver, Error>, ReceiptCore)>;
+type CancelTask = tokio::task::JoinHandle<(
+    Result<CancellationObserver, Error>,
+    ReceiptCore<RuntimeOutcome>,
+)>;
 
 async fn cancelled_within(
     task: CancelTask,
     context: &'static str,
-) -> (Result<CancellationObserver, Error>, ReceiptCore) {
+) -> (
+    Result<CancellationObserver, Error>,
+    ReceiptCore<RuntimeOutcome>,
+) {
     tokio::time::timeout(Duration::from_secs(1), task)
         .await
         .expect(context)
@@ -314,7 +336,7 @@ async fn two_live_admissions_at_h_each_receive_their_own_reply() {
     assert!(
         matches!(
             c_completion.recv_async().await.unwrap(),
-            RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::RuntimeShutdown)
+            RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::RuntimeShutdown)
         ),
         "C, still queued behind B's inquiry, terminalizes at shutdown"
     );
@@ -487,7 +509,7 @@ async fn buffered_terminal_cancellation_waits_behind_retained_admission() {
         .expect("a concluded request answers its cancellation with Ok");
     assert!(matches!(
         a.completion.try_recv(),
-        Some(RuntimeOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::CommandNotExecutable)
+        Some(RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source }))) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
     assert!(
         observer.try_recv().is_none(),
@@ -510,7 +532,7 @@ async fn admission_deadlines_are_claimed_at_selection_not_at_release() {
     let (_b_completion, b_admitted) = owner
         .handle
         .core
-        .enqueue_admission(
+        .enqueue_admission::<RuntimeOutcome>(
             inquiry(),
             Some(crate::runtime::owner::boundary::AdmissionValidity::until(
                 deadline,
@@ -523,7 +545,7 @@ async fn admission_deadlines_are_claimed_at_selection_not_at_release() {
     let (_c_completion, c_admitted) = owner
         .handle
         .core
-        .enqueue_admission(
+        .enqueue_admission::<RuntimeOutcome>(
             inquiry(),
             Some(crate::runtime::owner::boundary::AdmissionValidity::until(
                 deadline,

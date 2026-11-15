@@ -943,7 +943,9 @@ impl Session {
                     Effect::Terminal { id, outcome } => {
                         if matches!(
                             outcome,
-                            RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed)
+                            RuntimeOutcome::Command(CommandOutcome::Failed(
+                                Error::UnsequencedCommandUnconfirmed
+                            ))
                         ) {
                             let cause = self
                                 .discard_cause
@@ -1233,7 +1235,9 @@ impl Session {
                     && matches!(
                         effect,
                         Effect::Terminal {
-                            outcome: RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
+                            outcome: RuntimeOutcome::Command(CommandOutcome::Failed(
+                                Error::UnsequencedCommandUnconfirmed
+                            )),
                             ..
                         } | Effect::CancellationObservation {
                             observation: CancellationObservation::Failed(
@@ -1252,7 +1256,7 @@ impl Session {
                 if matches!(
                     effect,
                     Effect::Terminal {
-                        outcome: RuntimeOutcome::Applied,
+                        outcome: RuntimeOutcome::Command(CommandOutcome::Applied),
                         ..
                     } | Effect::CancellationObservation {
                         observation: CancellationObservation::Completed,
@@ -1273,7 +1277,9 @@ impl Session {
                     && matches!(
                         effect,
                         Effect::Terminal {
-                            outcome: RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
+                            outcome: RuntimeOutcome::Command(CommandOutcome::Failed(
+                                Error::UnsequencedCommandUnconfirmed
+                            )),
                             ..
                         } | Effect::Transition { .. }
                             | Effect::CancellationObservation { .. }
@@ -1289,7 +1295,9 @@ impl Session {
                     && matches!(
                         effect,
                         Effect::Terminal {
-                            outcome: RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
+                            outcome: RuntimeOutcome::Command(CommandOutcome::Failed(
+                                Error::UnsequencedCommandUnconfirmed
+                            )),
                             ..
                         }
                     )
@@ -1316,7 +1324,7 @@ impl Session {
             for effect in &effects {
                 if let Effect::Terminal {
                     id,
-                    outcome: RuntimeOutcome::Reply { payload, .. },
+                    outcome: RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }),
                 } = effect
                 {
                     assert!(

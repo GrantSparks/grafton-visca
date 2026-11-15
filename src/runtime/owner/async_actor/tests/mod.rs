@@ -10,6 +10,8 @@
 use std::sync::atomic::AtomicUsize;
 use std::sync::{atomic::Ordering, Mutex};
 
+#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
+use crate::runtime::engine::CommandOutcome;
 use crate::runtime::Runtime;
 use crate::{
     runtime::engine::{
@@ -22,7 +24,8 @@ use crate::{
 
 #[cfg(feature = "runtime-tokio")]
 use crate::runtime::engine::{
-    ControlClass, EnvelopeKind, EnvelopeSequence, IgnoreReason, SequenceWidth, TransportKind,
+    ControlClass, EnvelopeKind, EnvelopeSequence, IgnoreReason, InquiryOutcome, SequenceWidth,
+    TransportKind,
 };
 
 use crate::runtime::engine::{DecodedFrame, SessionState};
@@ -1329,12 +1332,12 @@ async fn terminalize_raw_inquiry_predecessor(
     if stream {
         assert!(matches!(
             outcome,
-            RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
+            RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::CommandNotExecutable)
         ));
     } else {
         assert!(matches!(
             outcome,
-            RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::Timeout { .. })
+            RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::Timeout { .. })
         ));
     }
 }
@@ -1345,7 +1348,7 @@ async fn establish_raw_inquiry_tombstone_with_probe_driver(
     harness: &ScriptedRawHarness,
     transport: TransportKind,
     runtime: &ManualRuntime,
-) -> ReceiptCore {
+) -> ReceiptCore<RuntimeOutcome> {
     terminalize_raw_inquiry_predecessor(handle, harness, transport, runtime).await;
 
     let successor = handle.submit(inquiry()).await.unwrap();
@@ -1442,7 +1445,7 @@ async fn assert_raw_release_probe_precedes_stale_frame_after_idle_sleep(policy: 
         .unwrap();
     assert!(matches!(
         successor.terminal().await.unwrap(),
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xb2]
     ));
 
     handle.shutdown().unwrap();
@@ -1528,7 +1531,7 @@ async fn assert_pre_h_idle_read_resumed_at_h_requires_fresh_probe(policy: OwnerP
         .unwrap();
     assert!(matches!(
         successor.terminal().await.unwrap(),
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xb2]
     ));
 
     handle.shutdown().unwrap();
@@ -1676,7 +1679,7 @@ async fn assert_parked_cross_target_write_returns_to_raw_coordinator(policy: Own
         .unwrap();
     assert!(matches!(
         successor.terminal().await.unwrap(),
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xb2]
     ));
 
     handle.shutdown().unwrap();
@@ -1765,7 +1768,7 @@ async fn assert_raw_release_fault_then_stale_frame_stays_input_first(policy: Own
         .unwrap();
     assert!(matches!(
         successor.terminal().await.unwrap(),
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xb2]
     ));
 
     handle.shutdown().unwrap();
@@ -1774,7 +1777,7 @@ async fn assert_raw_release_fault_then_stale_frame_stays_input_first(policy: Own
 
 #[cfg(feature = "runtime-tokio")]
 async fn terminal_within_test_deadline(
-    receipt: &ReceiptCore,
+    receipt: &ReceiptCore<RuntimeOutcome>,
     context: &'static str,
 ) -> RuntimeOutcome {
     tokio::time::timeout(Duration::from_secs(1), receipt.terminal())
@@ -1789,7 +1792,7 @@ async fn establish_raw_inquiry_tombstone(
     handle: &AsyncOwnerHandle,
     harness: &ScriptedRawHarness,
     runtime: &ManualRuntime,
-) -> ReceiptCore {
+) -> ReceiptCore<RuntimeOutcome> {
     terminalize_raw_inquiry_predecessor(handle, harness, TransportKind::Stream, runtime).await;
 
     let successor = handle.submit(inquiry()).await.unwrap();
@@ -1810,7 +1813,11 @@ async fn establish_production_two_socket_boundary(
     handle: &AsyncOwnerHandle,
     chunks: &flume::Sender<Vec<u8>>,
     sent: &flume::Receiver<Vec<u8>>,
-) -> (ReceiptCore, ReceiptCore, ReceiptCore) {
+) -> (
+    ReceiptCore<RuntimeOutcome>,
+    ReceiptCore<RuntimeOutcome>,
+    ReceiptCore<RuntimeOutcome>,
+) {
     let x = handle
         .submit(raw_command_with_completion_deadline(
             0x11,
@@ -2603,7 +2610,7 @@ async fn assert_stalled_write_never_parks_close<R>(
     assert_eq!(snapshot.state, SessionState::Shutdown);
     assert!(
         matches!(receipt.terminal().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout { context })
+        RuntimeOutcome::Command(CommandOutcome::Failed(Error::Timeout { context }))
             if context == crate::FailureContext::new(crate::FailureStage::Session, crate::Certainty::Unconfirmed)),
         "a timed-out send retains its session-stage write uncertainty"
     );

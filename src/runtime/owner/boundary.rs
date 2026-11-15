@@ -27,8 +27,8 @@ use super::OwnerMetrics;
 use super::SessionState;
 use super::{
     AdmissionPermit, AdmissionPermitPool, Admitted, CancellationRequest, DiagnosticSubscription,
-    Lane, LiveTuning, ObserverCell, OwnerState, RuntimeOutcome, RuntimeRequest, TargetStateCache,
-    TerminalObserver,
+    Lane, LiveTuning, OwnerState, RuntimeRequest, TargetStateCache, TerminalLane, TerminalObserver,
+    TerminalSlot,
 };
 
 /// The one-way decision for an admission constrained by an outer deadline.
@@ -155,13 +155,13 @@ pub(super) struct AdmissionExpiry {
 /// It turns that reply into the receipt core, so both owner shells build
 /// receipts the same way and differ only in how they wait for the reply.
 #[derive(Debug)]
-pub(super) struct PendingAdmission {
-    completion: TerminalObserver,
+pub(super) struct PendingAdmission<T> {
+    completion: TerminalObserver<T>,
     reply: AdmissionReply,
     expiry: Option<AdmissionExpiry>,
 }
 
-impl PendingAdmission {
+impl<T: Clone> PendingAdmission<T> {
     /// The receiver of the owner's admission reply.
     pub(super) fn reply(&self) -> &AdmissionReply {
         &self.reply
@@ -183,7 +183,7 @@ impl PendingAdmission {
         self,
         reply: Result<Result<Admitted, Error>, Error>,
         configured_timeout: std::time::Duration,
-    ) -> Result<super::ReceiptCore, Error> {
+    ) -> Result<super::ReceiptCore<T>, Error> {
         Ok(super::ReceiptCore::admitted(
             reply??,
             self.completion,
@@ -196,7 +196,7 @@ impl PendingAdmission {
 pub(super) struct AdmissionBoundary {
     pub(super) request: RuntimeRequest,
     pub(super) permit: AdmissionPermit,
-    pub(super) observer: Arc<ObserverCell<RuntimeOutcome>>,
+    pub(super) observer: TerminalSlot,
     pub(super) reply: flume::Sender<Result<Admitted, Error>>,
     pub(super) claim: AdmissionBoundaryClaim,
 }
@@ -814,11 +814,11 @@ impl OwnerHandleCore {
     /// terminal observer and the receiver of the owner's admission reply.
     /// Every failure happens before an observer or engine ID is created and
     /// is recorded as a pre-admission rejection.
-    pub(super) fn enqueue_admission(
+    pub(super) fn enqueue_admission<T: TerminalLane>(
         &self,
         request: RuntimeRequest,
         validity: Option<AdmissionValidity>,
-    ) -> Result<(TerminalObserver, AdmissionReply), Error> {
+    ) -> Result<(TerminalObserver<T>, AdmissionReply), Error> {
         let target = request.context().target;
         let lane = request.lane();
         if let Some(error) = self.admission_rejection() {
@@ -848,7 +848,8 @@ impl OwnerHandleCore {
         };
         let mut request = request;
         request.context_mut().submission_order = self.lifecycle.allocate_order()?;
-        let (completion, observer) = TerminalObserver::pair();
+        let (completion, cell) = TerminalObserver::<T>::pair();
+        let observer = T::slot(cell);
         let (reply, admission) = flume::bounded(1);
         let boundary = AdmissionBoundary {
             request,
@@ -878,7 +879,10 @@ impl OwnerHandleCore {
 
     /// [`enqueue_admission`](Self::enqueue_admission) as a
     /// [`PendingAdmission`].
-    pub(super) fn admit(&self, request: RuntimeRequest) -> Result<PendingAdmission, Error> {
+    pub(super) fn admit<T: TerminalLane>(
+        &self,
+        request: RuntimeRequest,
+    ) -> Result<PendingAdmission<T>, Error> {
         let (completion, reply) = self.enqueue_admission(request, None)?;
         Ok(PendingAdmission {
             completion,
@@ -890,12 +894,12 @@ impl OwnerHandleCore {
     /// [`admit`](Self::admit) under a caller deadline that applies before
     /// admission. A deadline already reached at `now` is rejected without
     /// enqueuing anything.
-    pub(super) fn admit_until(
+    pub(super) fn admit_until<T: TerminalLane>(
         &self,
         request: RuntimeRequest,
         deadline: Instant,
         now: Instant,
-    ) -> Result<PendingAdmission, Error> {
+    ) -> Result<PendingAdmission<T>, Error> {
         let target = request.context().target;
         let lane = request.lane();
         if now >= deadline {

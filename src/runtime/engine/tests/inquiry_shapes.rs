@@ -281,7 +281,7 @@ impl Session {
                         .expect("terminal has an admission");
                     assert!(!record.terminal, "duplicate terminal for {id:?}");
                     record.terminal = true;
-                    if let RuntimeOutcome::Reply { payload } = outcome {
+                    if let RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload }) = outcome {
                         let answer = origin.expect("a reply terminal needs a camera-tagged answer");
                         assert!(record.written, "an unwritten inquiry received a reply");
                         assert_eq!(
@@ -557,7 +557,7 @@ fn distinct_shape_debts_stay_bounded_at_single_request_capacity() {
         ),
         model.now,
     );
-    assert!(effects.iter().any(|effect| matches!(effect, Effect::Terminal { id, outcome: RuntimeOutcome::Applied } if *id == command)));
+    assert!(effects.iter().any(|effect| matches!(effect, Effect::Terminal { id, outcome: RuntimeOutcome::Command(CommandOutcome::Applied) } if *id == command)));
     model.engine.assert_invariants().unwrap();
 }
 

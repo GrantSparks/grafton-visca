@@ -88,7 +88,7 @@ fn prepared_retry_budget_preserves_healthy_late_ack_attempts() {
         assert!(
             matches!(
                 terminal_outcome(&completed, id),
-                Some(RuntimeOutcome::Applied)
+                Some(RuntimeOutcome::Command(CommandOutcome::Applied))
             ),
             "{}: {completed:?}",
             profile.name()

@@ -41,7 +41,7 @@ fn completion_only_cancel_preserves_window_and_late_completion_cannot_apply_succ
         frame(1, None, DecodedResponse::Completion { socket: None }),
         now + Duration::from_millis(60),
     );
-    assert!(completion.iter().any(|effect| matches!(effect, Effect::Terminal { id: ended, outcome: RuntimeOutcome::Applied } if *ended == id)));
+    assert!(completion.iter().any(|effect| matches!(effect, Effect::Terminal { id: ended, outcome: RuntimeOutcome::Command(CommandOutcome::Applied) } if *ended == id)));
     assert!(!completion
         .iter()
         .any(|effect| matches!(effect, Effect::Terminal { id: ended, .. } if *ended == successor)));

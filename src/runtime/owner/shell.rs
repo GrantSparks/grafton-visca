@@ -1248,7 +1248,10 @@ mod tests {
     fn concluded_metrics_include_drained_work_and_answer_queued_observations() {
         let (handle, mut core) = owner();
         let (_observer, admission) = handle
-            .enqueue_admission(declared_request(false), None)
+            .enqueue_admission::<crate::runtime::engine::CommandOutcome>(
+                declared_request(false),
+                None,
+            )
             .unwrap();
         let (reply, metrics) = flume::bounded(1);
         handle
@@ -1367,7 +1370,9 @@ mod tests {
         request.context_mut().dispatch_deadline = Some(deadline);
         request.context_mut().retry.total_budget =
             Some(crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(10)).unwrap());
-        let (completion, admission) = handle.enqueue_admission(request, None).unwrap();
+        let (completion, admission) = handle
+            .enqueue_admission::<super::super::RuntimeOutcome>(request, None)
+            .unwrap();
         let boundary = core.receivers.admissions.recv().unwrap();
         let TurnStep::Drive { mut effects, .. } = core.handle(
             OwnerEvent::Admission(Ok(boundary)),
@@ -1383,7 +1388,9 @@ mod tests {
         assert!(admission.recv().unwrap().is_ok());
         assert!(matches!(
             completion.try_observed().map(|event| event.value),
-            Some(super::super::RuntimeOutcome::Failed(_))
+            Some(super::super::RuntimeOutcome::Command(
+                super::super::CommandOutcome::Failed(_)
+            ))
         ));
         assert!(completion.try_observed().is_none(), "exactly one terminal");
         assert_eq!(handle.permits.available(), 1);
@@ -1397,7 +1404,7 @@ mod tests {
         let deadline = now + Duration::from_secs(1);
         let (handle, mut core) = owner_with_capacity(4);
         let (_first, first) = handle
-            .enqueue_admission(declared_request(false), None)
+            .enqueue_admission::<super::super::RuntimeOutcome>(declared_request(false), None)
             .unwrap();
         let (reply, receipt) = flume::bounded(1);
         handle
@@ -1416,7 +1423,7 @@ mod tests {
         // This arrives after halt enqueue but before owner acceptance. It
         // must belong to the same fence as the first channel-retained move.
         let (_second, second) = handle
-            .enqueue_admission(declared_request(false), None)
+            .enqueue_admission::<super::super::RuntimeOutcome>(declared_request(false), None)
             .unwrap();
         let halt = core.receivers.cancellations.recv().unwrap();
         let mut step = core.handle(OwnerEvent::Cancellation(halt), &mut Datagrams, now, false);
@@ -1449,7 +1456,7 @@ mod tests {
             ));
         }
         let (_later, later) = handle
-            .enqueue_admission(declared_request(false), None)
+            .enqueue_admission::<super::super::RuntimeOutcome>(declared_request(false), None)
             .unwrap();
         let boundary = core.receivers.admissions.recv().unwrap();
         let step = core.handle(
@@ -1599,7 +1606,7 @@ mod tests {
             core.idle_receives.record();
         }
         let (_completion, admission) = handle
-            .enqueue_admission(declared_request(false), None)
+            .enqueue_admission::<super::super::RuntimeOutcome>(declared_request(false), None)
             .unwrap();
         let boundary = core.receivers.admissions.recv().unwrap();
         let TurnStep::Drive { mut effects, .. } = core.handle(

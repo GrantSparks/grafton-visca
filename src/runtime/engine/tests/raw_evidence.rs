@@ -412,7 +412,7 @@ fn stream_owed_ack_never_binds_a_later_command() {
     let applied = engine.handle(completion(1, ViscaSocket::S2), later);
     assert!(matches!(
         terminal_outcome(&applied, stop),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     engine.assert_invariants().unwrap();
 }
@@ -912,7 +912,7 @@ fn socketless_late_completion_never_completes_a_live_command() {
     let applied = engine.handle(completion(1, ViscaSocket::S2), later);
     assert!(matches!(
         terminal_outcome(&applied, stop),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     // With no live socket holder the socketless completion is the owed one.
     let settled = engine.handle(socketless_completion(1), later);
@@ -1078,7 +1078,7 @@ fn cancellation_reply_on_a_free_socket_never_reaches_another_command() {
         assert!(
             matches!(
                 terminal_outcome(&completed, cancelled),
-                Some(RuntimeOutcome::Applied)
+                Some(RuntimeOutcome::Command(CommandOutcome::Applied))
             ),
             "{transport:?}"
         );
@@ -1248,7 +1248,7 @@ fn inquiry_replies_answer_only_inquiry_entries() {
     let reply = engine.handle(unkeyed_reply(1, 0x07), start + Duration::from_millis(21));
     assert!(matches!(
         terminal_outcome(&reply, inquiry_id),
-        Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x07]
+        Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. })) if payload.as_slice() == [0x07]
     ));
     assert_eq!(raw_owed(&engine, 1), 1);
     assert_eq!(command_lane(&engine, 1), LaneState::Window);
@@ -1427,7 +1427,7 @@ fn a_disputed_completion_only_command_is_settled_by_its_completion() {
     let done = engine.handle(socketless_completion(1), now);
     assert!(matches!(
         terminal_outcome(&done, completion_only),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     assert!(matches!(
         terminal_failure(&done, stop),
@@ -2044,7 +2044,7 @@ fn stop_inside_no_reply_hold(
     let written = send_ok(engine, &effects, None, now);
     assert!(matches!(
         terminal_outcome(&written, no_reply),
-        Some(RuntimeOutcome::Written)
+        Some(RuntimeOutcome::Command(CommandOutcome::Written))
     ));
     let (queued, inquiry_id) = admit(engine, 2, inquiry(1), now);
     assert!(request_transmit_optional(&queued).is_none());
@@ -2077,7 +2077,10 @@ fn a_stop_inside_a_no_reply_hold_is_written_at_once_and_settled_by_its_ack() {
         assert!(matches!(phase_of(&engine, command_id), Some(Phase::Ready)));
         let done = engine.handle(completion(1, ViscaSocket::S1), now);
         assert!(
-            matches!(terminal_outcome(&done, stop), Some(RuntimeOutcome::Applied)),
+            matches!(
+                terminal_outcome(&done, stop),
+                Some(RuntimeOutcome::Command(CommandOutcome::Applied))
+            ),
             "{transport:?}"
         );
         assert_eq!(raw_owed(&engine, 1), 0);
@@ -2155,7 +2158,7 @@ fn a_late_no_reply_rejection_never_reaches_a_later_command() {
     let written = send_ok(&mut engine, &effects, None, start);
     assert!(matches!(
         terminal_outcome(&written, no_reply),
-        Some(RuntimeOutcome::Written)
+        Some(RuntimeOutcome::Command(CommandOutcome::Written))
     ));
     // Long past the hold, the link still stalled.
     let later = start + Duration::from_secs(5);
@@ -2193,7 +2196,10 @@ fn a_late_no_reply_rejection_never_reaches_a_later_command() {
     }
     assert_eq!(writes, 1, "the command was written again");
     assert!(!misbound);
-    assert!(matches!(done, Some(RuntimeOutcome::Applied)), "{done:?}");
+    assert!(
+        matches!(done, Some(RuntimeOutcome::Command(CommandOutcome::Applied))),
+        "{done:?}"
+    );
     assert_eq!(raw_owed(&engine, 1), 0);
     engine.assert_invariants().unwrap();
 }
@@ -2228,7 +2234,7 @@ fn leftover_unlearned_completions_never_complete_a_later_command() {
     let learned = engine.handle(completion(1, ViscaSocket::S1), now);
     assert!(matches!(
         terminal_outcome(&learned, first),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     let later = now + Duration::from_millis(1);
     let (effects, second) = admit(&mut engine, 3, completion_only_request(), later);
@@ -2244,7 +2250,7 @@ fn leftover_unlearned_completions_never_complete_a_later_command() {
     let done = engine.handle(socketless_completion(1), later);
     assert!(matches!(
         terminal_outcome(&done, second),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     engine.assert_invariants().unwrap();
 }
@@ -2292,7 +2298,7 @@ fn an_unanswered_tracked_dispute_falls_to_the_latch() {
         outcomes.values().any(|(ended, outcome)| *ended == step
             && matches!(
                 outcome,
-                RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::InquiryCorrelationLost { .. })
+                RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::InquiryCorrelationLost { .. })
             )),
         "{outcomes:?}"
     );
@@ -2379,7 +2385,7 @@ fn a_second_ambiguity_keeps_the_dispute_accept_only() {
     let done = engine.handle(socketless_completion(1), ack_at);
     assert!(matches!(
         terminal_outcome(&done, completion_only),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     assert!(matches!(
         terminal_failure(&done, first_stop),
@@ -2501,7 +2507,7 @@ fn a_learned_completion_decides_its_dispute_accepted() {
     let learned = engine.advance(now);
     assert!(matches!(
         terminal_outcome(&learned, completion_only),
-        Some(RuntimeOutcome::Applied)
+        Some(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     assert!(matches!(
         terminal_failure(&learned, stop),
@@ -2720,10 +2726,12 @@ fn late_first_answers_are_order_independent() {
         } else {
             Error::UnsequencedCommandUnconfirmed
         };
-        let expected = BTreeMap::from([(
-            id,
-            vec![format!("{:?}", RuntimeOutcome::Failed(expected_error))],
-        )]);
+        let expected_outcome = if class == 2 {
+            RuntimeOutcome::Inquiry(InquiryOutcome::Failed(expected_error))
+        } else {
+            RuntimeOutcome::Command(CommandOutcome::Failed(expected_error))
+        };
+        let expected = BTreeMap::from([(id, vec![format!("{expected_outcome:?}")])]);
         assert_eq!(
             due_first_outcomes, expected,
             "class {class}: exactly one expected terminal outcome"
