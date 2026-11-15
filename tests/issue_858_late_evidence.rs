@@ -2,10 +2,10 @@
 //! owners, including when the retry is already waiting in backoff.
 
 #![cfg(any(
-    feature = "blocking",
+    feature = "runtime-tokio",
     all(
-        feature = "async",
-        any(feature = "runtime-tokio", feature = "runtime-smol")
+        feature = "test-utils",
+        any(feature = "blocking", feature = "runtime-smol")
     )
 ))]
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]

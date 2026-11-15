@@ -1,9 +1,11 @@
 //! R7 position frames and polling through the real owner facades.
 
 #![cfg(any(
-    feature = "blocking",
     feature = "runtime-tokio",
-    feature = "runtime-smol"
+    all(
+        feature = "test-utils",
+        any(feature = "blocking", feature = "runtime-smol")
+    )
 ))]
 #![allow(clippy::expect_used)]
 

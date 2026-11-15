@@ -3,9 +3,11 @@
 #![cfg(all(
     feature = "dyn-api",
     any(
-        feature = "blocking",
         feature = "runtime-tokio",
-        feature = "runtime-smol"
+        all(
+            feature = "test-utils",
+            any(feature = "blocking", feature = "runtime-smol")
+        )
     )
 ))]
 #![allow(clippy::expect_used)]
