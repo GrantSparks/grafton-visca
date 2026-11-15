@@ -9,49 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Profile-aware wire golden cases cover FR7 mount endpoints, signed relative
-  spans and limits, standard/BRC-300 framing, unsigned relative zero and the
-  BRC-H900 target-specific power inquiry. The FR7 source review explicitly
-  distinguishes Sony vendor-angle signs from the right-positive public API
-  (#870, #893).
-
-- All 17 sourced Sony FR7 control families are available through static and
-  dynamic nouns and canonical typed inquiries. Separate preset speeds retain
-  their raw-byte grammar, common speeds use two nibbles, and durations use
-  three nibbles in tenths of a second. FR7 iris steps return applied-only
-  operations, and high-resolution zoom participates in motion halt fences (#894).
-
-- Sony FR7 AE-level, automatic gain/shutter/iris, relative iris-step and
-  high-resolution zoom controls use their sourced R7 packets and checked
-  domains. Clear Image Zoom has a bounded position readback; it adds no
-  unsupported direct-positioning command (#894).
+- Sony FR7 exposes 17 sourced control families through static and dynamic
+  nouns and canonical typed inquiries: AE-level adjustments, automatic
+  gain/shutter/iris, counted iris movement, preset white and Memory A white
+  balance, ATW offsets, black/detail/knee settings, high-resolution zoom,
+  Clear Image Zoom readback, and preset speed/duration settings. Values use
+  the R7 domains, including fractional gains and narrower Memory A Kelvin
+  steps; readback checks exact lengths, padding and value codes. Iris steps
+  return applied-only operations, and high-resolution zoom participates in
+  motion halt fences. Clear Image Zoom adds no direct-positioning command.
+  Parameterized queries own checked arguments; preset queries and settings
+  enforce the selected target's highest preset before encoding. Separate
+  preset speeds use raw bytes, common speeds two nibbles, and durations three
+  nibbles in tenths of a second (#894).
 
 - `DiagnosticIgnoreReason::ReplyShapeMismatch` and
   `MetricsSnapshot::ignored_reply_shape_mismatches` expose discarded raw inquiry
   payloads whose shape no retained inquiry admits (#892).
 
-- Raw inquiry admission reports `InquiryShapeCapacityExhausted` when a new
-  payload-shape declaration cannot be reserved. It is an unwritten,
-  `PreAdmission` / `NotAccepted` refusal with `Recovery::Abandon`; the target's
-  existing declaration classes and the session remain available (#892).
+- Raw inquiry admission reserves at most 16 exact payload-shape declarations
+  per target across admitted requests, unpaid replies and holds. A new class
+  beyond that limit returns `InquiryShapeCapacityExhausted` before admission:
+  `PreAdmission` / `NotAccepted` with `Recovery::Abandon`. Existing classes
+  and the session remain available (#892).
+
 - Serial startup has a bounded fuzz target for arbitrary bus input, I/O results
   and timing ticks, with reply/noise/echo seeds also exercised on stable (#887).
+
 - `PayloadShape` describes an inquiry's decoded data width and nibble
   structure. `Inquiry::payload_shape` defaults to `Unknown`, and custom raw
   inquiries can declare their decoder's shape with `with_payload_shape` (#892).
   Built-in and canonical derived inquiries get this fact from the decoder table;
   pan/tilt position shapes use the same per-profile axis words as decoding.
-- (#894) Sony FR7 white-balance controls use the R7 Kelvin, Memory A gain,
-  tint and ATW-offset packets and checked value domains. Memory A Kelvin
-  steps retain their narrower 1–30 range; other white-balance step counts
-  allow 1–255. Gain conversion rounds to the nearest tenth.
-- Sony FR7 black-level, detail-setting and knee control values and encoders use
-  the R7 domains, including fractional black levels and distinct knee
-  permissions. Inquiry decoding enforces exact lengths, zero padding and
-  source-backed value codes (#894).
 
-- `test-utils` (#832): `testkit::ManualClock`, a virtual clock for owner deadline tests. A
-  blocking session opened with `ManualClock::open_blocking_session` or
+- `test-utils` (#832, #884): `testkit::ManualClock`, a virtual clock for owner
+  deadline tests. A blocking session opened with `ManualClock::open_blocking_session` or
   `open_blocking_camera_session`, and an async session run on the new
   `testkit::ManualClockExecutor`, measure every deadline on virtual time, which
   moves on `advance` or, as Tokio's paused clock does, once every participant
@@ -67,36 +59,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **BREAKING** (#874): `completion::Settlement<K>`, the owner-only generic
-  settlement proof, is crate-private. The root `Settlement` remains the public
-  operation-observation outcome.
+- **BREAKING** (#874): The owner-only `completion::Settlement<K>` proof is
+  crate-private; root `Settlement` remains the public observation outcome.
+  Preparation retains validated tuning and nonzero operation identities,
+  reads inquiry provenance from one hook, and uses private settlement
+  lowering. Selected position inquiries retain their own typed answers.
+  Redundant per-request validation, wall-clock reads, mirrored snapshot/axis
+  selectors, impossible assertions and zero-to-one identity fallbacks are
+  removed.
 
-- EVI-H100 now admits its sourced aperture level/step controls independently
-  of the unsupported sharpness mode register.
-- Sharpness auto/manual mode has its own source-backed permission and marker;
-  level and step control no longer implies the separate mode register. FR7
-  retains level/step control and refuses undocumented mode operations (#878).
+- Sharpness level/reset/step controls use `HasSharpnessControl`; the separate
+  auto/manual register and inquiry require `HasSharpnessMode`. EVI-H100 now
+  admits its sourced aperture levels and steps. FR7 retains level/step
+  control; both Sony profiles refuse the undocumented shared mode family
+  (#878).
+
 - Raw inquiry matching uses decoder-declared payload shape. Disjoint classes
   can be live together and cross unrelated reply debt or skew holds, while
-  overlapping and `Unknown` inquiries retain conservative exclusion. Raw
-  targets reserve at most 16 exact declarations across admitted requests,
-  unpaid replies and holds; the audited stream ledger bound is `5A + 76` (#892).
+  overlapping and `Unknown` inquiries retain conservative exclusion. Retained
+  debts keep their exact declaration; shape overlap is never treated as a
+  transitive equivalence (#892).
 
-- Canonical inquiry generation supports a checked one-byte argument with a
-  constructor, accessor and valid test sample. Unit queries retain their
-  existing zero-sized API, and Source evidence keeps the fixed request prefix
-  separate from the argument (#894).
-
-- Engine deadlines use closed lifecycle-derived actions with checked progress.
-  Context timeouts cannot be zero, retry budgets use an optional positive
-  interval, and completed timing windows validate at the sampled owner clock.
-  Overflow retains the latest representable deadline; saturated extensions
-  terminate and ambiguous completion counters saturate. Long profile-derived
-  timing remains valid; the one-hour cap stays on configured retry overrides
-  (#861).
+- Engine deadlines use closed lifecycle-derived actions with checked progress,
+  positive timeout intervals and optional retry budgets. Timing validates at
+  construction, retuning and admission against the sampled owner clock;
+  composed intervals cannot overflow into immediate expiry. Extensions retain
+  the latest representable deadline, saturated extensions terminate, and
+  ambiguous completion counters saturate. Long profile-derived timing remains
+  valid; the one-hour cap stays on explicit retry overrides (#861).
 
 - Serial startup stores operation-specific phases and retries an entire Address
-  Set attempt after framing overflow instead of accepting a salvaged suffix (#891).
+  Set attempt after framing overflow instead of accepting a salvaged suffix.
+  An oversized Sony stream frame clears its retained input, so a rejected
+  payload cannot be reinterpreted as another encapsulated frame (#891).
+
 - Async and blocking camera cores share one preparation and forwarding
   definition; native owners share one turn-driver definition. The shells
   supply clock reads, cooperative handoff, selection and bounded I/O. Parity
@@ -109,9 +105,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   inquiry ownership are derived from entries; queue generations, dispatch-time
   pruning, parallel transmission tracking, and persistent decision scratch are
   removed. Seven-frame dispute decisions stay inline (#859).
-- **BREAKING** (#859): Removed `DiagnosticIgnoreReason::StaleQueueTicket`;
-  eager private queues cannot produce stale tickets. Other diagnostic reasons
-  retain their meaning.
 
 - Owner receives use one closed read verdict and one generated fatal I/O-kind
   table, including `InvalidInput`. Retained stream evidence is an infallible
@@ -123,19 +116,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   use `PanTiltLimitUpdate::clear`. State keys, variants, and typed accessors
   come from one ledger, and each target retains one inline slot per key;
   map allocation and unreachable cache eviction are removed.
-- Internal operation identities retain their non-zero representation from
-  engine allocation through receipts and public handles, removing the silent
-  zero-to-one fallback (#874).
-- Preparation retains non-zero operation identities through receipts and public
-  handles, reads built-in inquiry provenance from one hook, and lowers settlement
-  through the private seal. Impossible registry and observer assertions are
-  removed (#874).
-- Preparation consumes tuning validated at session construction or runtime
-  update, retaining its proof through the owner and avoiding per-request tuning
-  checks and wall-clock reads. Selected position inquiries retain their own
-  previous typed answers, removing independent snapshot/axis selectors and
-  missing-axis branches. Non-zero identities, one inquiry provenance hook, and
-  private settlement lowering replace redundant conversions and checks (#874).
+
 - **BREAKING** (#879): Runtime capabilities use optional per-domain structs.
   Coordinates, recall axes, RGB pairs, preset names and standby facts live in
   their owning domain; redundant presence flags, degree bounds, zoom starts,
@@ -146,6 +127,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fallback; `SessionConfig::new` selects that proven default. Regenerate persisted
   flat profiles. Target mounts select declared tilt ranges, and one checked
   coordinate conversion enforces exact or documented whole-degree endpoints.
+
 - **BREAKING** (#878): Unsourced built-in inquiries and legacy decode-only
   response kinds are removed, including combined tally, defog and iris
   auto/manual status. Custom requests and decoders remain the explicit path
@@ -169,11 +151,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   concrete encoder plans and constructs the matching receive framer; the adapter
   no longer stores an independent write mode or checks impossible cross-pairs.
 
-- **BREAKING** (#872): Settlement tuning below every built-in targeted retry
-  budget is refused. Default `settled()` waits use the larger of the override
-  and the request retry budget; `settled_with_timeout` remains an exact bound.
-  Movement observations derive both snapshots budgets from their prepared
+- **BREAKING** (#872): Settlement tuning must cover each built-in targeted
+  retry budget. Default `settled()` waits use the larger of the override and
+  the request retry budget; `settled_with_timeout` remains an exact bound.
+  Movement observations derive both snapshot budgets from their prepared
   inquiries and pacing, superseding the fixed 30-second budget shipped in #781.
+
 - Paused blocking and smol scenarios run only in virtual-time `test-utils`
   legs. The canonical matrix adds separate Tokio and smol toolkit legs and
   checks scenario placement; contributor docs use its command inventory (#887).
@@ -212,15 +195,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   zoom, variable zoom, and focus near-limit inquiry permissions default to false.
   Serial construction checks its transport declaration at compile time, and
   custom-profile validation checks the selected transport before opening it.
+
 - **BREAKING** (#893): Target registrations keep canonical profiles separate
-  from installation data. FR7 supports desktop and ceiling tilt limits and
-  uses signed twenty-bit positions at 235.9 units per degree, with rightward
-  pan mapped to negative R7 coordinates. Typed position constructors consume
-  `TargetRegistration`; request validation uses `validate_for_target`.
-  FR7 speed values extend to 50; values above 24 carry an immutable owner
-  dispatch prerequisite requiring session-confirmed Extended step mode. The
-  owner rechecks the live target cache before every attempt; unknown, normal
-  or invalidated mode state refuses the write without ending STOP delivery.
+  from installation data. FR7 uses desktop/ceiling tilt limits and signed
+  twenty-bit positions at 235.9 units per degree. The public API remains
+  right-positive: pan `+170°` encodes `F6359`, and `−170°` encodes `09CA7`.
+  This explicitly corrects the original #893 vendor-angle examples; raw codec
+  signs are unchanged (`+40103` is `09CA7`). Typed position constructors take
+  `TargetRegistration`; requests use `validate_for_target`. FR7 speeds extend
+  to 50; above 24, an immutable dispatch prerequisite requires session-confirmed
+  Extended step mode. The owner rechecks that cache before every attempt;
+  unknown, normal or invalidated mode refuses the write while STOP remains
+  available.
+
 - Both facade preludes share one export list, including `CameraSession`,
   metrics, session status and motion synchronization mode (#883).
 
@@ -231,13 +218,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   facts inline, including when cloned (#866).
 
 - **BREAKING** (#868): D28 supersedes #783 (D20 item 5): `Error::recovery()`
-  gives one exhaustive typed verdict with its resubmission delay. ACKs and
-  cancellation-attempt failures ask callers to wait; uncertain effects require
-  reconciliation. Deliberately superseded settlement observations have no new
-  effect uncertainty and return `Abandon`; only actual caller deadlines become
-  query timeouts. `InquiryFailed` preserves every failed inquiry terminal cause
-  with effect-free certainty, including arbitrary custom-transport errors. The
-  checked recovery tables cover every public error variant.
+  replaces `is_retryable()` and `suggested_retry_delay()` with one exhaustive
+  verdict and its resubmission delay. ACKs and cancellation-attempt failures
+  ask callers to wait; uncertain effects require reconciliation. Deliberately
+  superseded settlement observations return `Abandon`; only actual caller
+  deadlines become query timeouts. `InquiryFailed` retains every terminal
+  inquiry cause with effect-free certainty, including custom-transport errors.
+  Checked recovery tables cover every public error variant.
 
 - **BREAKING** (#869): `TransportError` retains its typed cause in
   `source: Arc<Error>` instead of a diagnostic string. Construct it with
@@ -263,18 +250,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   poison formatting are removed. Raw release proofs and fault runs use closed
   states; redundant permit, observer, halt-deadline and staged-sequence flags
   are removed (#864).
+
 - **BREAKING** (#863): `MetricsSnapshot::dropped_diagnostics` is replaced by
   `dropped_staged_diagnostics`, counting only pre-admission staging overflow.
   `dropped_applied_events` and unused applied-state subscriptions are removed.
   Diagnostic history is no longer retained; subscriber queue loss remains
   `dropped_diagnostic_events`. Control requests have their own bounded queue.
+
 - Blocking owner re-entry returns `InvalidState` for calls that would wait on
   the worker. This supersedes the rc.1 `TransportBusy` re-entry rule removed
   by #780; self-`close` still requests shutdown and leaves joining to an
   external caller (#862).
-- Internal response variants carry only their wire-format fields. An oversized
-  Sony stream frame clears its retained input, so direct framer callers cannot
-  reinterpret a rejected payload as a second encapsulated frame (#891).
 
 - UDP connections deterministically select the first IPv4 address of a
   dual-family hostname, while numeric addresses and single-family names retain
@@ -289,30 +275,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   parsers preserve network-change notifications as `Response::NetworkChange`;
   `into_result()` rejects them as `UnexpectedResponseType` because they do not
   complete a command.
+
 - **BREAKING** (#871): Static typed noun methods require a matching runtime
   typed-support bit for every profile marker at compile time. Commands and
   inquiries enforce the same generated noun-row capability gate before value
   validation, so a new built-in request cannot omit its runtime gate.
+
 - **BREAKING** (#875): Persisted profile facts and operational tuning refuse
-  unknown keys. The profile JSON Schema requires every current key while
-  retaining explicit `null` for absent optional facts, and closes nested
-  objects. Standalone `ProfileTiming` deserialization enforces builder
-  validation. Both structural and semantic profile-load refusals retain their
-  field context and instruct callers to regenerate stale profiles.
+  unknown keys. The profile JSON Schema requires every current key, retains
+  explicit `null` for absent optional facts, and closes nested objects.
+  Standalone `ProfileTiming` deserialization enforces builder validation.
+  Structural and semantic profile-load refusals retain their field context
+  and one complete regeneration instruction, preserving a model-specific
+  constructor when the builder already supplies it.
 
 - **BREAKING** (#829): The minimum supported Rust version is now 1.98 (was 1.88 in
   2.0.0-rc.3). The project builds and tests on one stable toolchain, 1.98.0;
   CI no longer runs a separate MSRV job or Miri.
+
 - **BREAKING** (#830): With no facade feature (`--no-default-features`, or only
   `serde`, `schemars`, `ts-rs` or `test-utils`) the crate now compiles only the domain vocabulary:
   the protocol engine, the owner and request preparation are no longer built.
   `StateCache` and `DiagnosticSubscription`, which only a running session can
   produce, are now available only with `blocking` or `async`, alongside the
   sessions that return them. Builds with a facade are unchanged.
+
 - **BREAKING** (#839): `menu().navigate()` returns an applied-only pan/tilt
   operation handle on blocking, async and dynamic cameras. Navigation is now
   tracked and fenced by halt; with the on-screen menu closed it is continuous
   physical movement and needs an explicit pan/tilt STOP.
+
 - **BREAKING** (#881): `ViscaInquiry` uses the canonical built-in inquiry table
   and profile framing. Omit `parser` for built-in replies; `Custom` with
   `parse_with` is the only selector. Removed selectors and their `field`,
@@ -327,56 +319,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   unsourced typed inquiry families and guessed profile-less `FStop` wire
   conversions are removed. FR7 ND readback uses `09 7E 04 42` and returns
   `NdFilterValue` variable density, replacing a discrete preset position.
+
 - **BREAKING** (#845): Indexed `Nibbles::{byte, u16_quad, i16_quad}` accessors
   return `Option`; `Nibbles::from_array` and `Payload::assert_nibbles` return
   `Result` and validate all builds. The unsourced `Nibbles4Or8` zoom leniency
   helper is removed.
+
 - **BREAKING** (#860, #874): `InquiryRoute`, `Inquiry::route()` and route
   parameters on raw inquiry constructors are removed: a raw reply carries no
   inquiry identity. `raw::Inquiry::{new, from_fn, with_context}` fix the timeout
   category to `Inquiry`; `from_fn` and `with_context` no longer accept a timeout
   argument. `with_policy` validates that category, and raw commands and
   operations reject inquiry timeout classes at construction.
+
 - Engine entries store one closed lifecycle with legal cancellation and attempt
   facts. Both owners complete each immediate write before another input or due
   pass; sending states carry no raced replies or cancellation intent. Active
   lifecycles determine response families, and only command requests carry a
   command reply shape. Retry waiting retains its written attempt for exact
   late Sony acceptance (#836, #858, #860).
+
 - Private per-target state uses one validated individual-camera key and fixed
   seven-slot tables across the engine, ledger, owners and caches. Broadcast
   maintenance stays outside those tables; public target APIs are unchanged
   (#853).
+
 - Settlement plans, owner cancellation intents and admission claims use closed
   internal types instead of contradictory optional fields. Cancellation
   refusals return from the same synchronous engine input (#854).
 
 ### Removed
 
+- **BREAKING** (#859): `DiagnosticIgnoreReason::StaleQueueTicket` is removed;
+  eager private queues cannot produce stale tickets. Other diagnostic reasons
+  retain their meaning.
+
 - **BREAKING** (#883): `visca_command!` is crate-internal, superseding the
   downstream macro guidance published in #811. Downstream commands implement
   `Request` or use `raw::Plain`; hidden encoder and parameter-buffer exports
   are removed.
+
 - **BREAKING** (#883): `Runtime::now` is removed. Custom runtime clocks are
   implemented through the single authoritative `Executor::now` hook.
 
-- **BREAKING** (#868): `Error::is_retryable()` and `suggested_retry_delay()`.
-  Match `recovery()` instead of combining predicates to decide replay.
+- **BREAKING** (#885): Removed `DeterministicExecutor`, `DeterministicClock`,
+  `DeterministicExecutorExt`, `ExecutorExt`, `DetJoin` and the executor-selection
+  helpers. Use `ManualClockExecutor::local` and its `run_until` driver instead.
 
 ### Fixed
 
 - Zoom and focus drive wrappers select the exact semantic/source row for
   standard and variable movement in each direction. Source checks no longer
-  mistake Wide/Near or variable commands for standard Tele/Far commands.
-
-- Parameterized FR7 preset queries and setting commands share the target
-  profile’s highest-preset check before encoding, including custom profiles
-  with a narrower preset inventory (#894).
-- Engine deadlines use positive timeout intervals and optional retry budgets,
-  validated at construction, retuning and admission against the owner's clock.
-  Composed intervals cannot silently overflow into immediate expiry; long
-  profile-derived timing remains valid, with the one-hour cap confined to
-  explicit retry overrides (#861).
+  mistake Wide/Near or variable commands for standard Tele/Far commands
+  (#878).
 
 - A write-only cache key becomes `Unknown` before its terminal observation when
   a written attempt may have changed the camera without confirmation. Prior
@@ -389,6 +384,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   datagram OS send error keeps its source while reporting `Transport`, and
   async write deadline expiry returns `Timeout { Session, Unconfirmed }`,
   restoring the timeout distinction fixed in #469 (#869).
+
 - Variable-ND helper validation uses the request value's `00..14` hexadecimal
   domain; discovery, profile validation and request gates agree (#877).
 
@@ -396,12 +392,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   controls, submitting requests, halting, cancelling or waiting for operations
   from inside a read or write. Refused callbacks leave the worker available
   for external close and transport teardown (#862).
+
 - `ViscaSocket::from_protocol_byte` (#889) now accepts exactly the documented
   addressing/cancel bytes `01`, `02`, `21`, and `22`, rejecting unrelated high
   nibbles such as `41` instead of silently masking them.
 
 - Contributor and release checks (#886) now require unique production error
   constructors and verify the specific rejection reason in release self-tests.
+
 - Requests that exceed the selected profile's supported envelope payload
   capacity fail before owner admission or I/O. Sony framing accommodates
   documented seventeen-byte FR7 position commands; other Sony profiles retain
@@ -409,9 +407,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Relative pan/tilt moves validate against the full reachable span and encode
   signed offsets without an unsigned-centered absolute bias (#870). Position
-  framing shares per-axis word widths, including FR7 five-nibble pan and tilt,
-  and BRC-300 movement carries its single speed without discarding a second
-  field (#893, #882).
+  framing shares per-axis word widths, including FR7 five-nibble pan and tilt;
+  BRC-300 movement retains its single speed. Profile-aware golden cases pin
+  mount endpoints, relative spans and the raw/public sign distinction
+  (#893, #882).
 
 - Scripted auto-response helpers answer every send, and signalled shutdown
   deterministically wins over a queued reply (#885).
@@ -424,6 +423,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   successful write and retain their own completion deadline. Unconfirmed raw
   cancellation terminals retain a future hold with the correct phase scope,
   preventing late replies from applying a successor (#835).
+
 - Strictly late correlated frames retire their owner before accounting the
   evidence. Late exact-sequence Sony ACKs and completions cancel pending
   retries, preventing an accepted movement from being written twice; late
@@ -432,62 +432,70 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   candidate evidence and resolve only when their count proves every candidate
   ended. A successful stream write remains owed when its result outlives the
   total budget (#837, #858).
+
 - Owner receive pacing preserves input already available at a response or
   release deadline. Only eager idle reads gain an extra pause; full-timeout
-  reads stay receive-first, and successful writes clear fault pauses and reset
-  idle escalation (#838).
+  reads stay receive-first. Staging a write clears a fault pause; successful
+  write feedback resets idle escalation (#838).
+
 - Awaiting `SmolExecutor` and `SmolRuntime` joins now retains the receive future
   and its waker across polls. Dropping a join still detaches the task (#840).
-- Every `StillLive` timeout and cached cancellation failure is nonretryable.
-  `CancellationObservationFailed` retains otherwise retryable causes while
-  stopping futile retry loops. Already nonretryable verdicts keep their exact
-  variant and context. Retry guidance and examples distinguish waiting,
-  conclusive failure, and uncertain effects, refining #783 (#841).
+
+- `StillLive` timeouts return `Recovery::WaitAgain`. Cached cancellation
+  observation failures preserve their cause and ask callers to observe again
+  while the session remains usable, rather than replay the cancellation.
+  Canonical operation/session outcomes retain their exact variant and context;
+  recovery distinguishes waiting, conclusive failure and uncertain effects
+  (#841).
+
 - Retry and observer budgets cover a full ACK-plus-completion attempt under a
   longer valid ACK override, so healthy executing commands are not ended by a
   completion-only budget calculation. Untuned built-in budgets are unchanged
   (#842).
+
 - Windows UDP port-unreachable receives (`WSAECONNRESET`) are transient faults
   rather than session death. Stream connection resets remain fatal (#843).
+
 - Socket options, buffer limits, and admission/reserve/ledger arithmetic are
   validated before I/O. Keepalive values use whole seconds in `1..=32767`,
   TTL uses `1..=255`, receive buffers are at most 65,535 bytes, and configured
   `max_buffer_size` is at most 1,048,576 bytes (#847).
+
 - Oversized raw stream frames ending in `FF` are counted and discarded while
   the session keeps running. Cumulative retention overflow and an oversized
   Sony declaration remain terminal. The retention bound is consistently
   documented as `max_buffer_size + recv_buffer_size` (#848).
+
 - Direct IP connectors reject serial addressing before socket creation;
   blocking stream reads handle zero and unrepresentable timeout budgets
   consistently, and Address Set immediately reports a chain longer than seven
   cameras (#849).
+
 - `test-utils` simulator options now schedule deterministic ACK/execution
   delays, busy responses, jitter, and dropped datagram replies through real
   sessions. Socket cancellation, unknown inquiries, reply sources, and
   per-camera socket bounds follow VISCA. Construction needs no runtime, and
   the lazy response task stops when the last clone drops (#850).
+
 - Diagnostic subscriptions preserve the owner's terminal cause. Owner panics
   report nonretryable `OwnerTerminated`, which requires a new session;
   subscriber exhaustion reports `DiagnosticSubscriberLimit`. `pending`
   counts queued and retained admissions, and both facades document that
   `metrics()` returns the terminal error once the owner ends (#851, #852).
+
 - Reply decoders reject nonzero padding and undocumented eight-nibble zoom
   payloads, and report camera-side numeric range failures as protocol errors.
-  Focus conversions round through profile ranges, and floating-point input
+  Supported focus conversions round through profile ranges, and floating-point input
   errors retain the exact value (#845).
+
 - Persisted profiles reject missing optional-fact keys with the regeneration
   instruction while accepting explicit `null`. Dynamic typed noun refinements
   retain their header gate, preventing tally refinements from bypassing
   `HasTally` (#855).
+
 - Engine invariant auditing checks terminated-session emptiness, both Sony
   sequence indexes with retained retry evidence, and inquiry/transmission/
   dispute bounds; intentionally corrupted states prove the new checks (#856).
-
-### Removed
-
-- **BREAKING** (#885): Removed `DeterministicExecutor`, `DeterministicClock`,
-  `DeterministicExecutorExt`, `ExecutorExt`, `DetJoin` and the executor-selection
-  helpers. Use `ManualClockExecutor::local` and its `run_until` driver instead.
 
 ## [2.0.0-rc.3] - 2026-10-07
 
