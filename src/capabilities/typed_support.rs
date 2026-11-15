@@ -39,7 +39,6 @@ macro_rules! define_typed_support_surfaces {
                     bit: $bit:literal,
                     wire: $wire:literal,
                     area: $area:literal,
-                    api: $api:literal,
                     surface_doc: $surface_doc:literal,
                     marker_doc: $marker_doc:literal,
                     diagnostic: $diagnostic:literal,
@@ -92,14 +91,6 @@ macro_rules! define_typed_support_surfaces {
                 }
             }
 
-            /// Returns the contributor-guide API description for this surface.
-            #[cfg(test)]
-            pub(crate) const fn documentation_api(self) -> &'static str {
-                match self {
-                    $(Self::$surface => $api,)*
-                }
-            }
-
             /// Returns the stable serde spelling for this surface.
             #[cfg(test)]
             pub(crate) const fn wire_name(self) -> &'static str {
@@ -147,6 +138,74 @@ macro_rules! define_typed_surface_lookup {
 }
 
 super::typed_support_registry::typed_support_registry!(define_typed_surface_lookup);
+
+/// The noun table owns both method names and marker membership. Keep this
+/// contributor projection beside the vocabulary rather than restating either
+/// fact in the typed-support registry.
+#[cfg(test)]
+macro_rules! typed_method_vocabulary {
+    (@header $entries:ident, [typed $marker:ident], $method:expr) => {
+        $entries.push((typed_surface!($marker), $method));
+    };
+    (@header $entries:ident, $base:tt, $method:expr) => {};
+    (
+        $(
+            @noun $noun:ident {
+                accessor: $accessor:ident,
+                getter: $getter:ident,
+                dyn_trait: $dyn_trait:ident,
+                gate: $base:tt,
+                doc: $noun_doc:literal,
+            };
+            $(
+                $(#[$doc:meta])*
+                $kind:ident [$($command:ident)?] $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty
+                    $(where $gate:ident $(+ $extra:ident)*)? = [$($request:tt)*];
+            )*
+        )*
+        @exceptions;
+        $( $exkind:ident [$excommand:ident] $exmethod:ident -> $exty:ty; )*
+    ) => {
+        #[allow(clippy::vec_init_then_push)] // Header gates expand to optional statements.
+        fn noun_typed_methods() -> Vec<(TypedSupportSurface, &'static str)> {
+            let mut entries = Vec::new();
+            $( $(
+                typed_method_vocabulary!(@header entries, $base, concat!(stringify!($getter), "().", stringify!($method)));
+                $(
+                    entries.push((typed_surface!($gate), concat!(stringify!($getter), "().", stringify!($method))));
+                    $(entries.push((typed_surface!($extra), concat!(stringify!($getter), "().", stringify!($method))));)*
+                )?
+            )* )*
+            entries
+        }
+    };
+}
+
+#[cfg(test)]
+crate::noun_table::noun_table!(typed_method_vocabulary);
+
+#[cfg(test)]
+impl TypedSupportSurface {
+    pub(crate) fn documentation_api(self) -> String {
+        if self == Self::DigitalZoomRange {
+            return "Runtime-only gate for `zoom().set_normalized(..., ZoomDomain::OpticalPlusDigital)`; also requires a documented digital maximum".to_owned();
+        }
+        let mut methods = Vec::new();
+        for (_, method) in noun_typed_methods()
+            .into_iter()
+            .filter(|(surface, _)| *surface == self)
+        {
+            if !methods.contains(&method) {
+                methods.push(method);
+            }
+        }
+        methods
+            .into_iter()
+            .map(|method| format!("`{method}`"))
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+}
 
 /// Compact set of typed API surfaces supported by a profile.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -260,7 +319,21 @@ impl<'de> serde::Deserialize<'de> for TypedSupportSet {
 
 #[cfg(test)]
 mod tests {
-    use super::{TypedSupportSet, TypedSupportSurface};
+    use super::{noun_typed_methods, TypedSupportSet, TypedSupportSurface};
+
+    #[test]
+    fn every_typed_surface_has_noun_methods_or_the_runtime_only_note() {
+        let methods = noun_typed_methods();
+        for surface in TypedSupportSurface::ALL {
+            let has_methods = methods.iter().any(|(marker, _)| *marker == surface);
+            assert_eq!(
+                has_methods,
+                surface != TypedSupportSurface::DigitalZoomRange,
+                "{surface:?}"
+            );
+            assert!(!surface.documentation_api().is_empty());
+        }
+    }
 
     #[test]
     fn empty_set_contains_no_surfaces() {

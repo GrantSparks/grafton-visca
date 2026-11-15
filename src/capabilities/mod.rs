@@ -50,7 +50,6 @@ macro_rules! export_typed_support_markers {
                     bit: $bit:literal,
                     wire: $wire:literal,
                     area: $area:literal,
-                    api: $api:literal,
                     surface_doc: $surface_doc:literal,
                     marker_doc: $marker_doc:literal,
                     diagnostic: $diagnostic:literal,

@@ -62,86 +62,87 @@ AF, focus zone, AF sensitivity, or focus near-limit inquiry. Model those
 surfaces with precise markers rather than runtime-only guards.
 
 Current built-in sub-capability markers include the generated table below. Its
-rows come from `src/capabilities/typed_support_registry.rs`; edit that
-declarative vocabulary rather than this marked region.
+marker vocabulary comes from `src/capabilities/typed_support_registry.rs`, and
+the method lists come from `src/noun_table.rs`; edit those declarations rather
+than this marked region.
 
 <!-- BEGIN GENERATED TYPED SUPPORT VOCABULARY -->
 | Area | Marker | Typed surface |
 | ---- | ------ | ------------- |
-| Zoom | `HasDirectZoom` | Static gate for `camera.zoom().set_position` and `.set_normalized` |
-| Zoom | `HasDigitalZoomToggle` | `camera.zoom().set_digital_zoom` |
-| Zoom | `HasDigitalZoomRange` | `TypedSupportSet` runtime gate when `.set_normalized(..., ZoomDomain::OpticalPlusDigital)` is chosen; also requires a documented digital maximum |
-| Exposure | `HasIrisControl` | iris reset/up/down/direct control and `IrisInquiryControl` (`09 04 4B` position) |
-| Focus | `HasOnePushFocus` | `OnePushFocusControl` |
-| Focus | `HasPtzOpticsSnapFocus` | `SnapFocusControl` |
-| Focus | `HasFocusLock` | focus-lock control |
-| Focus | `HasPushAutoFocus` | Sony Push AF press/release control |
-| Focus | `HasFocusZone` | focus-zone selection control |
-| Focus | `HasAutoFocusSensitivity` | AF sensitivity controls and inquiry |
-| Focus | `HasFocusNearLimitInquiry` | focus near-limit inquiry |
-| Exposure | `HasBacklightCompensation` | `BacklightCompensationControl` and backlight inquiry |
-| Exposure | `HasWideDynamicRange` | `WideDynamicRangeControl` |
-| Exposure | `HasExposureCompensation` | exposure-compensation controls and inquiries |
-| Exposure | `HasBrightnessControl` | exposure brightness controls and inquiry |
-| White balance | `HasOnePushWhiteBalance` | one-push white balance mode and trigger |
-| White balance | `HasAutoTrackingWhiteBalance` | ATW white balance mode |
-| White balance | `HasAutoWhiteBalanceSensitivity` | AWB sensitivity control |
-| Color | `HasColorTemperature` | color-temperature mode and setters |
-| Color | `HasRgbGain` | red/blue gain controls and inquiries |
-| Color | `HasRgbTuning` | red/blue tuning controls and inquiries |
-| Image | `HasImageFlip` | vertical image flip control and inquiry |
-| Image | `HasImageMirror` | horizontal mirror control |
-| Image | `HasCombinedImageFlip` | combined flip-mode command and inquiry |
-| Image | `HasContrastControl` | contrast control and inquiry |
-| Image | `HasSharpnessControl` | sharpness control and inquiry |
-| Image | `HasSaturationControl` | saturation control and inquiry |
-| Image | `HasHueControl` | hue control and inquiry |
-| Image | `HasLuminanceControl` | luminance control and inquiry |
-| Image | `HasGammaControl` | gamma control and inquiry |
-| Image | `HasNoiseReduction2D` | 2D noise-reduction level inquiry |
-| Image | `HasNoiseReduction3D` | 3D noise-reduction level inquiry |
-| Image | `HasPictureEffect` | picture-effect control and inquiry |
-| Tally | `HasTally` | tally light controls and inquiries |
-| Menu | `HasDirectMenuControl` | direct menu controls |
-| ND filter | `HasNdFilter` | ND filter controls and inquiries |
-| Variable speed | `HasVariableSpeed` | variable speed mode controls |
-| Motion Sync | `HasMotionSync` | Motion Sync controls and inquiries |
-| Focus | `HasFocusZoneInquiry` | focus-zone inquiry (independent of selection control) |
-| Streaming | `HasUsbAudio` | USB audio control and inquiry |
-| Exposure | `HasPtzOpticsAntiFlicker` | PTZOptics anti-flicker control and inquiry |
-| System | `HasPtzOpticsSettingsSave` | PTZOptics settings-save command |
-| Presets | `HasPtzOpticsPresetRecallSpeed` | PTZOptics preset-recall speed control |
-| Exposure | `HasSonySpotlight` | Sony spotlight controls |
-| Exposure | `HasSonyAutoSlowShutter` | Sony automatic slow-shutter controls |
-| Streaming | `HasPtzOpticsMulticastStreaming` | PTZOptics multicast-streaming controls |
-| Streaming | `HasPtzOpticsNdiQuality` | PTZOptics NDI-quality control |
-| Exposure | `HasExposureMode` | shared `04 39` exposure-mode control and inquiry |
-| Image | `HasNoiseReduction2DControl` | 2D noise-reduction level control and disable |
-| Image | `HasNoiseReduction3DControl` | 3D noise-reduction level control and disable |
-| Image | `HasImageFreeze` | image-freeze control |
-| Tally | `HasTallyBrightness` | extended tally-brightness commands |
-| Tally | `HasPtzOpticsTally` | PTZOptics tally flash/on/off commands |
-| System | `HasVersionInquiry` | `camera.system().version()` (`09 00 02` Sony-format `CAM_VersionInq` decode) |
-| Color | `HasColorTemperatureInquiry` | color-temperature inquiry |
-| Image | `HasNoiseReduction2DMode` | 2D noise-reduction auto/manual mode control and inquiry |
-| Exposure | `HasSonyFr7AeLevel` | Sony FR7 ae level controls and readback. |
-| Exposure | `HasSonyFr7AutoGain` | Sony FR7 auto gain controls and readback. |
-| Exposure | `HasSonyFr7AutoShutter` | Sony FR7 auto shutter controls and readback. |
-| Exposure | `HasSonyFr7Iris` | Sony FR7 counted iris steps and automatic-iris mode control/readback. |
-| WhiteBalance | `HasSonyFr7WhiteBalance` | Sony FR7 white balance controls and readback. |
-| WhiteBalance | `HasSonyFr7PresetWhite` | Sony FR7 preset white controls and readback. |
-| WhiteBalance | `HasSonyFr7MemoryColorTemperature` | Sony FR7 memory color temperature controls and readback. |
-| WhiteBalance | `HasSonyFr7MemoryGain` | Sony FR7 memory gain controls and readback. |
-| WhiteBalance | `HasSonyFr7MemoryTint` | Sony FR7 memory tint controls and readback. |
-| WhiteBalance | `HasSonyFr7AtwOffsets` | Sony FR7 atw offsets controls and readback. |
-| Image | `HasSonyFr7Black` | Sony FR7 black controls and readback. |
-| Image | `HasSonyFr7Detail` | Sony FR7 detail controls and readback. |
-| Image | `HasSonyFr7Knee` | Sony FR7 knee controls and readback. |
-| Zoom | `HasSonyFr7HighResolutionZoom` | Sony FR7 high-resolution zoom drive and stop. |
-| Zoom | `HasSonyFr7ClearImageZoom` | Sony FR7 read-only Clear Image Zoom position. |
-| Presets | `HasSonyFr7PresetSpeed` | Sony FR7 preset speed controls and readback. |
-| Presets | `HasSonyFr7PresetDuration` | Sony FR7 preset duration controls and readback. |
-| Image | `HasSharpnessMode` | Sharpness auto/manual mode control and inquiry |
+| Zoom | `HasDirectZoom` | `zoom().set_position`, `zoom().set_normalized` |
+| Zoom | `HasDigitalZoomToggle` | `zoom().set_digital_zoom` |
+| Zoom | `HasDigitalZoomRange` | Runtime-only gate for `zoom().set_normalized(..., ZoomDomain::OpticalPlusDigital)`; also requires a documented digital maximum |
+| Exposure | `HasIrisControl` | `exposure().iris`, `exposure().iris_reset`, `exposure().iris_up`, `exposure().iris_down`, `exposure().iris_direct` |
+| Focus | `HasOnePushFocus` | `focus().one_push` |
+| Focus | `HasPtzOpticsSnapFocus` | `focus().snap` |
+| Focus | `HasFocusLock` | `focus().set_lock` |
+| Focus | `HasPushAutoFocus` | `focus().push_af_press`, `focus().push_af_release` |
+| Focus | `HasFocusZone` | `focus().set_zone` |
+| Focus | `HasAutoFocusSensitivity` | `focus().set_sensitivity`, `focus().sensitivity` |
+| Focus | `HasFocusNearLimitInquiry` | `focus().set_near_limit`, `focus().near_limit` |
+| Exposure | `HasBacklightCompensation` | `image().backlight`, `image().set_backlight` |
+| Exposure | `HasWideDynamicRange` | `exposure().set_dynamic_range` |
+| Exposure | `HasExposureCompensation` | `exposure().compensation`, `exposure().compensation_enabled`, `exposure().compensation_position`, `exposure().compensation_on`, `exposure().compensation_off`, `exposure().compensation_reset`, `exposure().compensation_up`, `exposure().compensation_down`, `exposure().compensation_direct` |
+| Exposure | `HasBrightnessControl` | `exposure().brightness`, `exposure().brightness_reset`, `exposure().brightness_up`, `exposure().brightness_down`, `exposure().brightness_set` |
+| White balance | `HasOnePushWhiteBalance` | `white_balance().one_push`, `white_balance().one_push_trigger` |
+| White balance | `HasAutoTrackingWhiteBalance` | `white_balance().atw` |
+| White balance | `HasAutoWhiteBalanceSensitivity` | `white_balance().set_sensitivity`, `white_balance().sensitivity` |
+| Color | `HasColorTemperature` | `white_balance().color_temperature_mode`, `white_balance().reset_color_temperature`, `white_balance().increase_color_temperature`, `white_balance().decrease_color_temperature`, `white_balance().set_color_temperature` |
+| Color | `HasRgbGain` | `white_balance().red_gain`, `white_balance().reset_red_gain`, `white_balance().increase_red_gain`, `white_balance().decrease_red_gain`, `white_balance().set_red_gain`, `white_balance().blue_gain`, `white_balance().reset_blue_gain`, `white_balance().increase_blue_gain`, `white_balance().decrease_blue_gain`, `white_balance().set_blue_gain` |
+| Color | `HasRgbTuning` | `white_balance().set_red_tuning`, `white_balance().set_blue_tuning`, `white_balance().red_tuning`, `white_balance().blue_tuning` |
+| Image | `HasImageFlip` | `image().disable_flip`, `image().enable_flip`, `image().flip` |
+| Image | `HasImageMirror` | `image().enable_horizontal_flip`, `image().disable_horizontal_flip` |
+| Image | `HasCombinedImageFlip` | `image().set_flip_both`, `image().set_flip_mode`, `image().flip_mode` |
+| Image | `HasContrastControl` | `image().contrast`, `image().set_contrast` |
+| Image | `HasSharpnessControl` | `image().sharpness_level`, `image().reset_sharpness`, `image().increase_sharpness`, `image().decrease_sharpness`, `image().set_sharpness` |
+| Image | `HasSaturationControl` | `image().saturation`, `image().set_saturation` |
+| Image | `HasHueControl` | `image().hue`, `image().set_hue` |
+| Image | `HasLuminanceControl` | `image().luminance`, `image().set_luminance` |
+| Image | `HasGammaControl` | `image().gamma`, `image().set_gamma` |
+| Image | `HasNoiseReduction2D` | `image().noise_reduction_2d` |
+| Image | `HasNoiseReduction3D` | `image().noise_reduction_3d` |
+| Image | `HasPictureEffect` | `image().picture_effect`, `image().set_picture_effect` |
+| Tally | `HasTally` | `tally().red_on`, `tally().red_off`, `tally().bright_lo`, `tally().bright_hi`, `tally().green_on`, `tally().green_off`, `tally().flash`, `tally().on`, `tally().off`, `tally().red_status`, `tally().green_status` |
+| Menu | `HasDirectMenuControl` | `menu().direct`, `menu().toggle_display` |
+| ND filter | `HasNdFilter` | `nd_filter().position`, `nd_filter().preset`, `nd_filter().set_mode`, `nd_filter().set_value`, `nd_filter().step_up`, `nd_filter().step_down`, `nd_filter().auto_on`, `nd_filter().auto_off` |
+| Variable speed | `HasVariableSpeed` | `advanced().set_variable_speed_mode` |
+| Motion Sync | `HasMotionSync` | `motion_sync().mode`, `motion_sync().preset`, `motion_sync().set_mode`, `motion_sync().set_speed` |
+| Focus | `HasFocusZoneInquiry` | `focus().zone` |
+| Streaming | `HasUsbAudio` | `advanced().usb_audio_enabled`, `advanced().usb_audio_on`, `advanced().usb_audio_off` |
+| Exposure | `HasPtzOpticsAntiFlicker` | `exposure().set_anti_flicker`, `exposure().flicker_mode` |
+| System | `HasPtzOpticsSettingsSave` | `system().save_settings` |
+| Presets | `HasPtzOpticsPresetRecallSpeed` | `presets().set_recall_speed` |
+| Exposure | `HasSonySpotlight` | `exposure().spotlight_on`, `exposure().spotlight_off` |
+| Exposure | `HasSonyAutoSlowShutter` | `exposure().auto_slow_shutter_on`, `exposure().auto_slow_shutter_off` |
+| Streaming | `HasPtzOpticsMulticastStreaming` | `advanced().multicast_on`, `advanced().multicast_off` |
+| Streaming | `HasPtzOpticsNdiQuality` | `advanced().set_ndi_quality` |
+| Exposure | `HasExposureMode` | `exposure().mode`, `exposure().set_mode` |
+| Image | `HasNoiseReduction2DControl` | `image().set_noise_reduction_2d`, `image().disable_noise_reduction_2d` |
+| Image | `HasNoiseReduction3DControl` | `image().set_noise_reduction_3d`, `image().disable_noise_reduction_3d` |
+| Image | `HasImageFreeze` | `image().freeze_on`, `image().freeze_off` |
+| Tally | `HasTallyBrightness` | `tally().bright_lo`, `tally().bright_hi` |
+| Tally | `HasPtzOpticsTally` | `tally().flash`, `tally().on`, `tally().off` |
+| System | `HasVersionInquiry` | `system().version` |
+| Color | `HasColorTemperatureInquiry` | `white_balance().color_temperature` |
+| Image | `HasNoiseReduction2DMode` | `image().noise_reduction_2d_mode`, `image().set_noise_reduction_2d_mode` |
+| Exposure | `HasSonyFr7AeLevel` | `exposure().ae_level_up`, `exposure().ae_level_down`, `exposure().ae_level` |
+| Exposure | `HasSonyFr7AutoGain` | `exposure().set_auto_gain`, `exposure().auto_gain` |
+| Exposure | `HasSonyFr7AutoShutter` | `exposure().set_auto_shutter`, `exposure().auto_shutter` |
+| Exposure | `HasSonyFr7Iris` | `exposure().set_auto_iris`, `exposure().auto_iris`, `exposure().iris_up_by`, `exposure().iris_down_by` |
+| WhiteBalance | `HasSonyFr7WhiteBalance` | `white_balance().set_from_scene`, `white_balance().preset` |
+| WhiteBalance | `HasSonyFr7PresetWhite` | `white_balance().preset_white_up`, `white_balance().preset_white_down`, `white_balance().set_preset_white`, `white_balance().preset_white` |
+| WhiteBalance | `HasSonyFr7MemoryColorTemperature` | `white_balance().memory_temperature_up`, `white_balance().memory_temperature_down`, `white_balance().set_memory_temperature`, `white_balance().memory_temperature` |
+| WhiteBalance | `HasSonyFr7MemoryGain` | `white_balance().memory_red_gain_up`, `white_balance().memory_red_gain_down`, `white_balance().set_memory_red_gain`, `white_balance().memory_red_gain`, `white_balance().memory_blue_gain_up`, `white_balance().memory_blue_gain_down`, `white_balance().set_memory_blue_gain`, `white_balance().memory_blue_gain` |
+| WhiteBalance | `HasSonyFr7MemoryTint` | `white_balance().memory_tint_up`, `white_balance().memory_tint_down`, `white_balance().set_memory_tint`, `white_balance().memory_tint` |
+| WhiteBalance | `HasSonyFr7AtwOffsets` | `white_balance().atw_temperature_offset_up`, `white_balance().atw_temperature_offset_down`, `white_balance().set_atw_temperature_offset`, `white_balance().atw_temperature_offset`, `white_balance().atw_tint_offset_up`, `white_balance().atw_tint_offset_down`, `white_balance().set_atw_tint_offset`, `white_balance().atw_tint_offset` |
+| Image | `HasSonyFr7Black` | `image().master_black_up`, `image().master_black_down`, `image().set_master_black`, `image().master_black`, `image().red_black_up`, `image().red_black_down`, `image().set_red_black`, `image().red_black`, `image().blue_black_up`, `image().blue_black_down`, `image().set_blue_black`, `image().blue_black` |
+| Image | `HasSonyFr7Detail` | `image().set_detail`, `image().detail` |
+| Image | `HasSonyFr7Knee` | `image().set_knee`, `image().knee`, `image().set_knee_mode`, `image().knee_mode`, `image().set_knee_slope`, `image().knee_slope`, `image().set_knee_point`, `image().knee_point`, `image().knee_permission` |
+| Zoom | `HasSonyFr7HighResolutionZoom` | `zoom().tele_high_resolution`, `zoom().wide_high_resolution`, `zoom().stop_high_resolution` |
+| Zoom | `HasSonyFr7ClearImageZoom` | `zoom().clear_image_position` |
+| Presets | `HasSonyFr7PresetSpeed` | `presets().select_speed`, `presets().speed_selection`, `presets().set_common_speed`, `presets().common_speed`, `presets().set_separate_mode`, `presets().separate_mode`, `presets().set_separate_speed`, `presets().separate_speed` |
+| Presets | `HasSonyFr7PresetDuration` | `presets().set_separate_duration`, `presets().separate_duration` |
+| Image | `HasSharpnessMode` | `image().sharpness_mode`, `image().set_sharpness_mode` |
 <!-- END GENERATED TYPED SUPPORT VOCABULARY -->
 
 The image inquiry registers are separate evidence boundaries. `image().flip()`

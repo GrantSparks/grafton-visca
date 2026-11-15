@@ -46,7 +46,6 @@ macro_rules! define_direct_menu_marker {
                     bit: $bit:literal,
                     wire: $wire:literal,
                     area: $area:literal,
-                    api: $api:literal,
                     surface_doc: $surface_doc:literal,
                     marker_doc: $marker_doc:literal,
                     diagnostic: $diagnostic:literal,
