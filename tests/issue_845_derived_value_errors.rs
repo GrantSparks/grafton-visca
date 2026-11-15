@@ -33,7 +33,8 @@ struct GeneratedCustomGain;
 
 #[test]
 fn generated_typed_constructor_errors_are_protocol_faults() {
-    let payload = [0, 0, 1, 0]; // Valid nibble framing; gain 16 is out of range.
+    // Valid nibble framing; 26 exceeds the shared gain maximum of 25.
+    let payload = [0, 0, 1, 0x0A];
     for error in [
         CanonicalGain
             .decoder()
@@ -43,12 +44,13 @@ fn generated_typed_constructor_errors_are_protocol_faults() {
             .decoder()
             .decode(&payload)
             .expect_err("invalid camera gain"),
-        CanonicalGain::from_response(Response::Inquiry(InquiryData::Gain { gain: 16 }))
+        CanonicalGain::from_response(Response::Inquiry(InquiryData::Gain { gain: 26 }))
             .expect_err("invalid typed response value"),
-        CanonicalGainViaU8::from_response(Response::Inquiry(InquiryData::Gain { gain: 16 }))
+        CanonicalGainViaU8::from_response(Response::Inquiry(InquiryData::Gain { gain: 26 }))
             .expect_err("invalid typed response value"),
     ] {
         assert_eq!(error.kind(), ErrorKind::Protocol, "{error:?}");
+        assert!(matches!(error, Error::InvalidResponse { .. }), "{error:?}");
     }
 }
 
@@ -57,26 +59,27 @@ fn generated_custom_parser_errors_are_protocol_faults_at_the_decode_boundary() {
     for error in [
         GeneratedCustomGain
             .decoder()
-            .decode(&[16])
+            .decode(&[26])
             .expect_err("invalid camera gain"),
         GeneratedCustomGain
-            .parse_response(&[16])
+            .parse_response(&[26])
             .expect_err("same custom decode boundary"),
     ] {
         assert_eq!(error.kind(), ErrorKind::Protocol, "{error:?}");
+        assert!(matches!(error, Error::InvalidResponse { .. }), "{error:?}");
     }
 }
 
 #[test]
 fn direct_caller_construction_keeps_its_parameter_error() {
     assert_eq!(
-        GainLevel::new(16).expect_err("caller value").kind(),
+        GainLevel::new(26).expect_err("caller value").kind(),
         ErrorKind::InvalidParameter
     );
     // The caller-provided function is distinct from the library's generated
     // decode boundary; only that boundary reclassifies camera input failures.
     assert_eq!(
-        custom_gain_parser(&[16])
+        custom_gain_parser(&[26])
             .expect_err("direct custom function")
             .kind(),
         ErrorKind::InvalidParameter
@@ -84,9 +87,9 @@ fn direct_caller_construction_keeps_its_parameter_error() {
     assert_eq!(
         CanonicalGain
             .decoder()
-            .decode(&[0, 0, 0, 0x0F])
+            .decode(&[0, 0, 1, 9])
             .expect("valid gain")
             .value(),
-        15
+        25
     );
 }
