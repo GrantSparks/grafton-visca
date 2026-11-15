@@ -28,10 +28,12 @@
 //! are copied once into the prepared message. Standard built-in request
 //! encoding remains inline and allocation-free.
 //!
-//! Raw policy is explicit and owned by each value. Timeout, retry, and control
-//! classes are required constructor arguments (or can be supplied as a
-//! [`crate::raw::Policy`]); no default, optional metadata, byte-based
-//! inference, or caller-selected operation class exists.
+//! Raw policy is explicit and owned by each value. Commands require timeout,
+//! retry, and control classes, directly or through [`crate::raw::Policy`].
+//! [`Inquiry::new`](crate::raw::Inquiry::new) fixes the timeout class to [`TimeoutClass::Inquiry`];
+//! inquiry constructors with an explicit policy or class reject any other
+//! timeout at construction. No byte-based lifecycle inference or
+//! caller-selected operation class exists.
 //!
 //! A raw command also declares its [`crate::raw::RawReplyShape`]: the default
 //! [`AckThenCompletion`](crate::raw::RawReplyShape::AckThenCompletion) is the
@@ -166,7 +168,9 @@ pub enum RawReplyShape {
 /// The [`RawReplyShape`] here is the command's declared reply protocol. It
 /// defaults to [`RawReplyShape::AckThenCompletion`], so a policy built by
 /// [`Policy::new`] is unchanged for existing callers; a completion-only or
-/// no-reply command sets it with [`Policy::with_reply_shape`].
+/// no-reply command sets it with [`Policy::with_reply_shape`]. Command and
+/// inquiry constructors additionally require the timeout class matching their
+/// lifecycle: only inquiries accept [`TimeoutClass::Inquiry`].
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Policy {
     timeout: TimeoutClass,
@@ -602,6 +606,7 @@ pub struct Plain {
 
 impl Plain {
     /// Creates a bounded raw plain command with explicit protocol policy.
+    /// [`TimeoutClass::Inquiry`] is rejected at construction.
     pub fn new(
         bytes: impl AsRef<[u8]>,
         timeout: TimeoutClass,
@@ -683,7 +688,8 @@ impl<R> Inquiry<R> {
 
     /// Creates a raw inquiry from explicit route, decoder, and policy values.
     ///
-    /// The policy's reply shape must be the default
+    /// The policy's timeout class must be [`TimeoutClass::Inquiry`]. Its
+    /// reply shape must be the default
     /// [`RawReplyShape::AckThenCompletion`]: an inquiry always awaits its reply,
     /// so a completion-only or no-reply shape is meaningless for it and is
     /// rejected here rather than silently ignored.
@@ -705,6 +711,8 @@ impl<R> Inquiry<R> {
     }
 
     /// Creates a raw inquiry using an allocation-free function decoder.
+    /// The explicit timeout must be [`TimeoutClass::Inquiry`]; other values
+    /// are rejected at construction.
     pub fn from_fn(
         bytes: impl AsRef<[u8]>,
         route: InquiryRoute,
@@ -722,6 +730,8 @@ impl<R> Inquiry<R> {
     }
 
     /// Creates a raw inquiry whose decoder owns immutable context.
+    /// The explicit timeout must be [`TimeoutClass::Inquiry`]; other values
+    /// are rejected at construction.
     pub fn with_context<C>(
         bytes: impl AsRef<[u8]>,
         route: InquiryRoute,

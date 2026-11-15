@@ -150,8 +150,8 @@ pub enum ErrorKind {
 ///
 /// ## Terminal Session Failures
 /// A third category ends the session outright: the peer closed the connection,
-/// the byte-stream position became unknowable, or the application shut the
-/// runtime down. A fatal receive closure is normalized to
+/// the byte-stream position became unknowable, the owner terminated
+/// unexpectedly, or the application shut the runtime down. A fatal receive closure is normalized to
 /// [`Error::ConnectionClosed`] (with the transport cause retained in its
 /// reason); [`Error::StreamPoisoned`] is reserved for an unknowable stream
 /// framing or write position. Use [`Error::requires_new_session()`] to tell
@@ -173,6 +173,9 @@ pub enum ErrorKind {
 /// Use [`Error::from_code()`] to convert VISCA error codes to Error variants.
 ///
 /// # Example
+///
+/// Resubmission needs replay-safe certainty as well as a retryable condition.
+/// See the [recovery table](https://github.com/GrantSparks/grafton-visca/blob/main/docs/observability_and_recovery.md).
 ///
 /// ```rust
 /// use grafton_visca::{Certainty, Error, FailureStage};
@@ -1129,15 +1132,16 @@ impl Error {
     /// Reports whether the session that produced this error is permanently
     /// unusable, so recovery must construct a replacement session.
     ///
-    /// Transport close, explicit shutdown, and poison are given distinct
-    /// terminal errors, but they all share [`ErrorKind::IoClosed`]. Matching on
+    /// Transport close, owner termination, explicit shutdown, and poison have
+    /// distinct terminal errors, but they all share [`ErrorKind::IoClosed`]. Matching on
     /// the kind therefore cannot separate "the camera dropped the connection"
     /// from "this application asked the runtime to stop". This predicate draws
     /// exactly that line without exposing implementation details:
     ///
-    /// - `true` — the transport died underneath the session: the peer closed
-    ///   the connection ([`Error::ConnectionClosed`]) or the byte-stream
-    ///   position became unknowable ([`Error::StreamPoisoned`]). A poisoned
+    /// - `true` — the session lost its transport or owner: the peer closed
+    ///   the connection ([`Error::ConnectionClosed`]), the byte-stream
+    ///   position became unknowable ([`Error::StreamPoisoned`]), or the owner
+    ///   stopped without publishing a terminal result ([`Error::OwnerTerminated`]). A poisoned
     ///   session is terminal and is never revived; every retained and
     ///   subsequently attempted operation keeps reporting its exact terminal
     ///   session error. Fatal receive closure is always normalized to
@@ -1318,7 +1322,8 @@ impl Error {
     ///
     /// Returns `Some(Duration)` with a recommended delay before retrying the
     /// operation, or `None` if the error is not retryable. The delay depends
-    /// only on [`Self::kind()`]:
+    /// on [`Self::kind()`], apart from the nonretryable observation and
+    /// exhausted-budget exceptions below:
     ///
     /// - [`ErrorKind::Busy`] and [`ErrorKind::Transport`]: 50 ms, for camera
     ///   contention or one failed transport operation on a live session.
@@ -1395,7 +1400,9 @@ impl Error {
     /// [`Self::ObservationTimeout`]), for the unconfirmed outcomes
     /// ([`Self::UnsequencedCommandUnconfirmed`],
     /// [`Self::CancellationUnconfirmed`], and settlement observation
-    /// failures), and for [`Self::MotionSuperseded`], which carries the
+    /// failures), for [`Self::CancellationObservationFailed`] (its source's
+    /// context, or `CancellationAttempt`/`StillLive` when none was supplied),
+    /// and for [`Self::MotionSuperseded`], which carries the
     /// context recorded when the halt superseded it (`NotAccepted` when it
     /// never reached the camera); `None` otherwise. [`Self::WithContext`] is
     /// looked through. [`Self::SettlementObservationFailed`] reports
