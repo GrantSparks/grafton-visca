@@ -94,8 +94,10 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
     // flood. A socketless camera rejection terminalizes A immediately (a
     // timed-out stream inquiry would owe its reply and never release; see
     // `raw_inquiry_rejection`); H remains one second away.
-    let (predecessor_completion, predecessor_admitted) =
-        handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let (predecessor_completion, predecessor_admitted) = handle
+        .core
+        .enqueue_admission::<RuntimeOutcome>(inquiry(), None)
+        .unwrap();
     let predecessor_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
         .handle_event(
@@ -110,7 +112,7 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
+        RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
 
     // Establish the due retained-prefix gate without starting the flood yet.
@@ -133,7 +135,7 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
 
     let (urgent_completion, urgent_admitted) = handle
         .core
-        .enqueue_admission(urgent_command(), None)
+        .enqueue_admission::<RuntimeOutcome>(urgent_command(), None)
         .unwrap();
     assert!(!handle.core.admissions.is_empty());
     let actor_task = tokio::spawn(actor.run(driver));
@@ -204,7 +206,10 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
     let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
 
     if latched_raw_release {
-        let (completion, admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
+        let (completion, admitted) = handle
+            .core
+            .enqueue_admission::<RuntimeOutcome>(inquiry(), None)
+            .unwrap();
         let predecessor = actor.core.receivers.admissions.try_recv().unwrap();
         actor
             .handle_event(
@@ -219,7 +224,7 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
         reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
         assert!(matches!(
             completion.recv_async().await.unwrap(),
-            RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
+            RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::CommandNotExecutable)
         ));
 
         runtime.advance(HOLD);
@@ -239,7 +244,7 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
 
     let (_completion, _admitted) = handle
         .core
-        .enqueue_admission(urgent_command(), None)
+        .enqueue_admission::<RuntimeOutcome>(urgent_command(), None)
         .unwrap();
     let mut run = Box::pin(actor.run(driver));
     let waker = std::task::Waker::noop();
@@ -299,7 +304,10 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
 
     // Install one sent inquiry without running the event loop yet. Its
     // reply deadline is therefore the next authoritative engine wake.
-    let (completion, admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let (completion, admitted) = handle
+        .core
+        .enqueue_admission::<RuntimeOutcome>(inquiry(), None)
+        .unwrap();
     let admission = actor
         .core
         .receivers
@@ -361,7 +369,7 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
     );
     assert!(matches!(
         completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::Timeout { .. })
+        RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::Timeout { .. })
     ));
 
     for control in controls {
@@ -390,7 +398,10 @@ async fn parked_future_wake_charges_the_first_ready_control() {
     let (_frames, receives) = flume::bounded(1);
     let mut driver = UngatedDriver { receives };
 
-    let (completion, admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let (completion, admitted) = handle
+        .core
+        .enqueue_admission::<RuntimeOutcome>(inquiry(), None)
+        .unwrap();
     let admission = actor
         .core
         .receivers
@@ -449,7 +460,7 @@ async fn parked_future_wake_charges_the_first_ready_control() {
     );
     assert!(matches!(
         completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::Timeout { .. })
+        RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::Timeout { .. })
     ));
 }
 #[cfg(feature = "runtime-tokio")]
@@ -660,8 +671,10 @@ async fn raw_release_flood_resolves_without_a_prior_timer_turn() {
     };
     let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
 
-    let (predecessor_completion, predecessor_admitted) =
-        handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let (predecessor_completion, predecessor_admitted) = handle
+        .core
+        .enqueue_admission::<RuntimeOutcome>(inquiry(), None)
+        .unwrap();
     let predecessor_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
         .handle_event(
@@ -676,12 +689,12 @@ async fn raw_release_flood_resolves_without_a_prior_timer_turn() {
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
+        RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
 
     let (_urgent_completion, urgent_admitted) = handle
         .core
-        .enqueue_admission(urgent_command(), None)
+        .enqueue_admission::<RuntimeOutcome>(urgent_command(), None)
         .unwrap();
     let actor_task = tokio::spawn(actor.run(driver));
     // The hold matures while the flood is already running.

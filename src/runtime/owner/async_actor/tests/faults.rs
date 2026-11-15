@@ -31,7 +31,7 @@ async fn zero_length_stream_read_still_closes_the_session() {
 
     assert!(matches!(
         receipt.terminal().await.unwrap(),
-        RuntimeOutcome::Failed(Error::ConnectionClosed { .. })
+        RuntimeOutcome::Command(CommandOutcome::Failed(Error::ConnectionClosed { .. }))
     ));
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.state, SessionState::Closed);
@@ -94,7 +94,7 @@ async fn transient_receive_fault_retries_and_keeps_the_session_running() {
         .unwrap();
     assert!(matches!(
         receipt.terminal().await.unwrap(),
-        RuntimeOutcome::Applied
+        RuntimeOutcome::Command(CommandOutcome::Applied)
     ));
     handle.shutdown().unwrap();
     let snapshot = actor_task.await.unwrap();
@@ -126,7 +126,7 @@ async fn fatal_receive_fault_closes_the_session() {
 
         assert!(matches!(
             receipt.terminal().await.unwrap(),
-            RuntimeOutcome::Failed(Error::ConnectionClosed { source: Some(source) })
+            RuntimeOutcome::Command(CommandOutcome::Failed(Error::ConnectionClosed { source: Some(source) }))
                 if matches!(source.as_ref(), Error::Io(io) if io.kind() == kind)
         ));
         let snapshot = actor_task.await.unwrap();
@@ -341,7 +341,7 @@ async fn a_burst_of_transient_faults_then_recovery_keeps_the_session() {
         .unwrap();
     assert!(matches!(
         receipt.terminal().await.unwrap(),
-        RuntimeOutcome::Applied
+        RuntimeOutcome::Command(CommandOutcome::Applied)
     ));
 
     // The successful read cleared the run, so more faults are still
@@ -424,7 +424,7 @@ async fn an_idle_read_timeout_is_not_a_receive_fault() {
         .unwrap();
     assert!(matches!(
         receipt.terminal().await.unwrap(),
-        RuntimeOutcome::Applied
+        RuntimeOutcome::Command(CommandOutcome::Applied)
     ));
     handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
@@ -622,7 +622,7 @@ async fn a_malformed_datagram_does_not_kill_the_async_session() {
         .unwrap();
     assert!(matches!(
         receipt.terminal().await.unwrap(),
-        RuntimeOutcome::Applied
+        RuntimeOutcome::Command(CommandOutcome::Applied)
     ));
 
     handle.shutdown().unwrap();
@@ -687,7 +687,7 @@ async fn a_malformed_stream_frame_is_discarded_and_keeps_the_session() {
     chunk_tx.send_async(vec![0x90, 0x51, 0xff]).await.unwrap();
     assert!(matches!(
         receipt.terminal().await.unwrap(),
-        RuntimeOutcome::Applied
+        RuntimeOutcome::Command(CommandOutcome::Applied)
     ));
 
     handle.shutdown().unwrap();
@@ -751,7 +751,7 @@ async fn a_stream_burst_over_the_frame_limit_keeps_the_session() {
 
     assert!(matches!(
         receipt.terminal().await.unwrap(),
-        RuntimeOutcome::Applied
+        RuntimeOutcome::Command(CommandOutcome::Applied)
     ));
     assert_eq!(
         handle.snapshot().await.unwrap().state,
@@ -795,7 +795,7 @@ async fn a_single_target_ip_chain_address_reply_settles_the_command() {
 
     assert!(matches!(
         receipt.terminal().await.unwrap(),
-        RuntimeOutcome::Applied
+        RuntimeOutcome::Command(CommandOutcome::Applied)
     ));
 
     handle.shutdown().unwrap();
@@ -824,7 +824,8 @@ async fn a_datagram_send_failure_never_demands_a_new_session() {
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let receipt = handle.submit(command()).await.unwrap();
-    let RuntimeOutcome::Failed(error) = receipt.terminal().await.unwrap() else {
+    let RuntimeOutcome::Command(CommandOutcome::Failed(error)) = receipt.terminal().await.unwrap()
+    else {
         panic!("a datagram send failure fails its own request");
     };
     assert!(

@@ -146,11 +146,11 @@ macro_rules! owner_handle_methods {
             /// exhausted, then returns as soon as the owner admits the
             /// request. Admission is the success boundary: a transport write
             /// failure is reported through the receipt's outcome (D24).
-            $($async)* fn submit_with_timeout(
+            $($async)* fn submit_with_timeout<T: super::TerminalLane>(
                 &self,
                 request: super::RuntimeRequest,
                 configured_timeout: std::time::Duration,
-            ) -> Result<super::ReceiptCore, crate::Error> {
+            ) -> Result<super::ReceiptCore<T>, crate::Error> {
                 self.off_worker("submit_with_timeout")?;
                 let pending = self.core.admit(request)?;
                 let reply = self.boundary_reply(pending.reply()) $($await)*;
@@ -160,12 +160,12 @@ macro_rules! owner_handle_methods {
             /// [`Self::submit_with_timeout`] whose admission must happen
             /// before `deadline`. A boundary the owner claimed before its
             /// expiry is authoritative, so its reply is still observed.
-            $($async)* fn submit_with_timeout_until(
+            $($async)* fn submit_with_timeout_until<T: super::TerminalLane>(
                 &self,
                 request: super::RuntimeRequest,
                 configured_timeout: std::time::Duration,
                 deadline: std::time::Instant,
-            ) -> Result<super::ReceiptCore, crate::Error> {
+            ) -> Result<super::ReceiptCore<T>, crate::Error> {
                 self.off_worker("submit_with_timeout_until")?;
                 let pending = self.core.admit_until(request, deadline, self.now())?;
                 let reply = match self.boundary_reply_until(pending.reply(), deadline) $($await)* {
@@ -504,16 +504,16 @@ macro_rules! owner_handle_methods {
             }
 
             /// Waits for a command or inquiry receipt's terminal outcome.
-            $($async)* fn wait_core_until(
+            $($async)* fn wait_core_until<T: super::TerminalLane>(
                 &self,
-                core: &super::ReceiptCore,
+                core: &super::ReceiptCore<T>,
                 deadline: std::time::Instant,
-            ) -> Result<super::RuntimeOutcome, crate::Error> {
+            ) -> Result<T, crate::Error> {
                 self.off_worker("wait_core_until")?;
                 if let Some(concluded) = core.try_conclude(deadline) {
                     return concluded;
                 }
-                self.next_observation(&core.completion, None, deadline)
+                self.next_terminal(&core.completion, deadline)
                     $($await)*
                     .conclude(core, &self.core, deadline)
             }

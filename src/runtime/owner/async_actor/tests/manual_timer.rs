@@ -86,7 +86,7 @@ async fn owner_turns_reuse_the_same_four_manual_timers() {
             .unwrap();
         assert!(matches!(
             receipt.terminal().await.unwrap(),
-            RuntimeOutcome::Applied
+            RuntimeOutcome::Command(CommandOutcome::Applied)
         ));
         handle.metrics().await.unwrap();
         assert_eq!(runtime.timer_creations.load(Ordering::Relaxed), 4);

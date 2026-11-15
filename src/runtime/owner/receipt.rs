@@ -19,8 +19,8 @@ use crate::{
 
 use super::boundary::OwnerHandleCore;
 use super::{
-    CancellationObserver, Observed, OperationObservation, ReceiptCore, RuntimeOutcome,
-    TerminalObserver,
+    CancellationObserver, CommandOutcome, InquiryOutcome, Observed, OperationObservation,
+    ReceiptCore, TerminalObserver,
 };
 use crate::ResponseDecoder;
 
@@ -36,7 +36,7 @@ pub(crate) struct CommandReceipt<H> {
 /// owner handle `H` that admitted it.
 #[derive(Debug)]
 pub(crate) struct InquiryReceipt<R, H> {
-    pub(super) core: ReceiptCore,
+    pub(super) core: ReceiptCore<InquiryOutcome>,
     pub(super) decoder: ResponseDecoder<R>,
     pub(super) owner: H,
 }
@@ -84,7 +84,7 @@ where
 #[derive(Debug)]
 pub(super) enum ObservationWake {
     /// The terminal slot delivered (`None`: the owner dropped it unresolved).
-    Terminal(Option<Observed<RuntimeOutcome>>),
+    Terminal(Option<Observed<CommandOutcome>>),
     /// The cancellation slot delivered (`None`: the owner dropped it, which it
     /// does only when the operation's terminal outcome is already delivered).
     Cancellation(Option<Observed<Error>>),
@@ -94,7 +94,15 @@ pub(super) enum ObservationWake {
     Deadline,
 }
 
-impl ObservationWake {
+/// A command or inquiry's wait cannot observe a cancellation slot.
+#[derive(Debug)]
+pub(super) enum TerminalWake<T> {
+    Terminal(Option<Observed<T>>),
+    OwnerGone,
+    Deadline,
+}
+
+impl<T: Clone> TerminalWake<T> {
     /// The outcome of a command or inquiry receipt's single wait.
     ///
     /// Once the owner is gone or the deadline passed, the slot is read once
@@ -102,10 +110,10 @@ impl ObservationWake {
     /// deadline, still decides.
     pub(super) fn conclude(
         self,
-        core: &ReceiptCore,
+        core: &ReceiptCore<T>,
         owner: &OwnerHandleCore,
         deadline: Instant,
-    ) -> Result<RuntimeOutcome, Error> {
+    ) -> Result<T, Error> {
         match self {
             Self::Terminal(Some(outcome)) => core.conclude(outcome, deadline),
             Self::Terminal(None) | Self::OwnerGone => core
@@ -114,9 +122,6 @@ impl ObservationWake {
             Self::Deadline => core
                 .observed_within(deadline)
                 .ok_or_else(|| super::observation_timeout(core.id)),
-            Self::Cancellation(_) => Err(Error::InvalidState(
-                "a receipt without a cancellation slot observed one".into(),
-            )),
         }
     }
 }

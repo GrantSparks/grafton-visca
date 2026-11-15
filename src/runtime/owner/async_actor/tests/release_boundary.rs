@@ -42,7 +42,10 @@ async fn async_receive_batch_precedes_a_completion_deadline_at_equality() {
     assert_eq!(handle.snapshot().await.unwrap().active, 1);
     let first_outcome = first.terminal().await.unwrap();
     assert!(
-        matches!(first_outcome, RuntimeOutcome::Applied),
+        matches!(
+            first_outcome,
+            RuntimeOutcome::Command(CommandOutcome::Applied)
+        ),
         "completion from the receive batch must win: {first_outcome:?}"
     );
 
@@ -98,7 +101,7 @@ async fn async_receive_batch_rejects_an_overdue_completion() {
     .await;
     assert!(matches!(
         outcome,
-        RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed)
+        RuntimeOutcome::Command(CommandOutcome::Failed(Error::UnsequencedCommandUnconfirmed))
     ));
 
     handle.shutdown().unwrap();
@@ -184,8 +187,10 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
     // Stage A before starting the eager receiver. That keeps the fixture's
     // first observed sleep attributable to A's raw hold rather than to a
     // pre-admission read timeout race.
-    let (predecessor_completion, predecessor_admitted) =
-        handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let (predecessor_completion, predecessor_admitted) = handle
+        .core
+        .enqueue_admission::<RuntimeOutcome>(inquiry(), None)
+        .unwrap();
     let predecessor_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
         .handle_event(
@@ -200,7 +205,7 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
+        RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
     let actor_task = tokio::spawn(actor.run(driver));
 
@@ -336,7 +341,7 @@ async fn raw_tombstone_timeout_verdict() -> RawReleaseObserverDeadlineVerdict {
 
     let (_predecessor_completion, predecessor_admitted) = handle
         .core
-        .enqueue_admission(no_reply_command_for(TargetSlot::CAMERA_1, HOLD), None)
+        .enqueue_admission::<RuntimeOutcome>(no_reply_command_for(TargetSlot::CAMERA_1, HOLD), None)
         .unwrap();
     let predecessor_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
@@ -354,7 +359,11 @@ async fn raw_tombstone_timeout_verdict() -> RawReleaseObserverDeadlineVerdict {
     let expiring_handle = handle.clone();
     let successor = tokio::spawn(async move {
         expiring_handle
-            .submit_with_timeout_until(command(), Duration::from_secs(1), deadline)
+            .submit_with_timeout_until::<RuntimeOutcome>(
+                command(),
+                Duration::from_secs(1),
+                deadline,
+            )
             .await
     });
     while handle.core.admissions.is_empty() {
@@ -447,7 +456,10 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
 
     // A creates S1's inquiry hold. C independently creates S2's broad raw
     // hold at a later deadline; B remains queued behind S1.
-    let (a_completion, a_admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let (a_completion, a_admitted) = handle
+        .core
+        .enqueue_admission::<RuntimeOutcome>(inquiry(), None)
+        .unwrap();
     let a_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
         .handle_event(
@@ -462,12 +474,12 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         a_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
+        RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
 
     let (_c_completion, c_admitted) = handle
         .core
-        .enqueue_admission(
+        .enqueue_admission::<RuntimeOutcome>(
             no_reply_command_for(TargetSlot::CAMERA_2, SECOND_HOLD),
             None,
         )
@@ -484,7 +496,10 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
     let c = c_admitted.recv_async().await.unwrap().unwrap();
     assert_eq!(harness.writes.recv_async().await.unwrap(), c.id);
 
-    let (_b_completion, b_admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let (_b_completion, b_admitted) = handle
+        .core
+        .enqueue_admission::<RuntimeOutcome>(inquiry(), None)
+        .unwrap();
     let b_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
         .handle_event(
@@ -644,7 +659,7 @@ async fn raw_stream_more_than_sixty_four_retained_turns_release_by_progress() {
         .unwrap();
     assert!(matches!(
         successor.terminal().await.unwrap(),
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xb2]
     ));
 
     handle.shutdown().unwrap();
@@ -681,7 +696,7 @@ async fn raw_stream_split_tail_at_tombstone_boundary_precedes_release() {
         .unwrap();
     assert!(matches!(
         successor.terminal().await.unwrap(),
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xb2]
     ));
     assert_eq!(harness.discards.load(Ordering::Relaxed), 0);
 
@@ -725,7 +740,7 @@ async fn raw_stream_prefix_fault_tail_keeps_boundary_input_precedence() {
         .unwrap();
     assert!(matches!(
         successor.terminal().await.unwrap(),
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xb2]
     ));
 
     handle.shutdown().unwrap();
@@ -762,7 +777,7 @@ async fn raw_stream_prefix_idle_tail_keeps_boundary_input_precedence() {
         .unwrap();
     assert!(matches!(
         successor.terminal().await.unwrap(),
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xb2]
     ));
 
     handle.shutdown().unwrap();
@@ -805,7 +820,7 @@ async fn raw_stream_orphan_prefix_is_reset_before_successor_dispatch() {
         .unwrap();
     assert!(matches!(
         successor.terminal().await.unwrap(),
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xb2]
     ));
 
     handle.shutdown().unwrap();
@@ -834,7 +849,7 @@ async fn raw_stream_nonclearing_decoder_poisons_at_release() {
 
     assert!(matches!(
         successor.terminal().await.unwrap(),
-        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::StreamPoisoned { .. })
+        RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::StreamPoisoned { .. })
     ));
     assert_eq!(
         harness.discards.load(Ordering::Relaxed),
@@ -891,7 +906,7 @@ async fn raw_stream_ambiguous_prefix_expires_without_poisoning_successor() {
             .await
             .expect("the successor remains usable after orphan discard")
             .unwrap(),
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xb2]
     ));
     handle.shutdown().unwrap();
     assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
@@ -915,7 +930,10 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
     // which installs the releasable inquiry hold retained by #712 (a
     // timed-out stream inquiry now owes its reply instead; see
     // `raw_inquiry_rejection`). B remains queued behind it.
-    let (a_completion, a_admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let (a_completion, a_admitted) = handle
+        .core
+        .enqueue_admission::<RuntimeOutcome>(inquiry(), None)
+        .unwrap();
     let a_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
         .handle_event(
@@ -930,10 +948,13 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         a_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
+        RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
 
-    let (b_completion, b_admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let (b_completion, b_admitted) = handle
+        .core
+        .enqueue_admission::<RuntimeOutcome>(inquiry(), None)
+        .unwrap();
     let b_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
         .handle_event(
@@ -988,10 +1009,13 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         b_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
+        RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
 
-    let (_c_completion, c_admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
+    let (_c_completion, c_admitted) = handle
+        .core
+        .enqueue_admission::<RuntimeOutcome>(inquiry(), None)
+        .unwrap();
     let c_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
         .handle_event(
@@ -1080,7 +1104,7 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
             "the production split-tail predecessor terminalizes",
         )
         .await,
-        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
+        RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
 
     let successor = handle.submit(inquiry()).await.unwrap();
@@ -1106,7 +1130,7 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
             "the production split-tail successor receives its own reply",
         )
         .await,
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xb2]
     ));
 
     handle.shutdown().unwrap();
@@ -1155,7 +1179,7 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
                 "the ambiguous-prefix predecessor terminalizes",
             )
             .await,
-            RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
+            RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::CommandNotExecutable)
         ));
         let successor = handle.submit(inquiry()).await.unwrap();
         assert!(sent_rx.try_recv().is_err());
@@ -1192,7 +1216,7 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
                 "the successor remains usable after orphan discard",
             )
             .await,
-            RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+            RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xb2]
         ));
         handle.shutdown().unwrap();
         assert_eq!(actor_task.await.unwrap().state, SessionState::Shutdown);
@@ -1243,7 +1267,7 @@ async fn production_raw_s1_split_tail_precedes_same_target_s2_release() {
             "the literal S1 tail completes X at the release boundary",
         )
         .await,
-        RuntimeOutcome::Applied
+        RuntimeOutcome::Command(CommandOutcome::Applied)
     ));
     assert_eq!(
         sent_rx.recv_async().await.unwrap(),
@@ -1296,7 +1320,7 @@ async fn production_raw_live_s1_prefix_survives_same_target_s2_release() {
     chunk_tx.send_async(vec![0xff]).await.unwrap();
     assert!(matches!(
         terminal_within_test_deadline(&x, "the retained live S1 prefix completes X").await,
-        RuntimeOutcome::Applied
+        RuntimeOutcome::Command(CommandOutcome::Applied)
     ));
 
     handle.shutdown().unwrap();
@@ -1354,7 +1378,7 @@ async fn production_raw_stale_s2_prefix_is_discarded_before_successor_write() {
     chunk_tx.send_async(vec![0x90, 0x51, 0xff]).await.unwrap();
     assert!(matches!(
         terminal_within_test_deadline(&x, "X completes only after its explicit S1 response",).await,
-        RuntimeOutcome::Applied
+        RuntimeOutcome::Command(CommandOutcome::Applied)
     ));
 
     handle.shutdown().unwrap();
@@ -1439,7 +1463,7 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
             "camera C completes from its preserved partial reply",
         )
         .await,
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xc3]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xc3]
     ));
 
     chunk_tx
@@ -1452,7 +1476,7 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
             "camera A's queued successor receives its own reply",
         )
         .await,
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xb2]
     ));
 
     handle.shutdown().unwrap();
@@ -1519,7 +1543,7 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
             "the frame-limit predecessor receives its reply",
         )
         .await,
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xa1]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xa1]
     ));
 
     let camera_c = handle
@@ -1558,7 +1582,7 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
             "camera C completes after the frame-limit batch",
         )
         .await,
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xc3]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xc3]
     ));
     assert!(matches!(
         terminal_within_test_deadline(
@@ -1566,7 +1590,7 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
             "camera A's successor completes from its retained input",
         )
         .await,
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xa1]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xa1]
     ));
 
     handle.shutdown().unwrap();
@@ -1614,7 +1638,7 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
     assert!(matches!(
         terminal_within_test_deadline(&predecessor, "the invalid-prefix predecessor terminalizes",)
             .await,
-        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
+        RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
     let successor = handle.submit(inquiry()).await.unwrap();
     assert!(sent_rx.try_recv().is_err());
@@ -1647,7 +1671,7 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
             "{case}: successor survives the retained malformed input",
         )
         .await,
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xb2]
     ));
 
     handle.shutdown().unwrap();
@@ -1752,7 +1776,7 @@ async fn stream_reply_split_across_two_reads_keeps_the_session_running() {
 
     assert!(matches!(
         receipt.terminal().await.unwrap(),
-        RuntimeOutcome::Applied
+        RuntimeOutcome::Command(CommandOutcome::Applied)
     ));
     assert_eq!(handle.snapshot().await.unwrap().active, 0);
     handle.shutdown().unwrap();
@@ -1789,7 +1813,7 @@ async fn owed_stream_inquiry_fixture() -> (
     AsyncOwnerHandle,
     ScriptedRawHarness,
     tokio::task::JoinHandle<OwnerSnapshot>,
-    ReceiptCore,
+    ReceiptCore<RuntimeOutcome>,
 ) {
     let runtime = ManualRuntime::with_polling_sleeps(Instant::now());
     let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime.clone()).unwrap();
@@ -1808,7 +1832,7 @@ async fn owed_stream_inquiry_fixture() -> (
     runtime.advance(MINIMUM_FIXTURE_INQUIRY_TIMEOUT);
     assert!(matches!(
         terminal_within_test_deadline(&predecessor, "A times out at its reply deadline").await,
-        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::Timeout { .. })
+        RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::Timeout { .. })
     ));
     let successor = within(handle.submit(inquiry()), "B is admitted")
         .await
@@ -1874,7 +1898,7 @@ async fn raw_stream_owed_split_reply_settles_before_the_window_and_reopens_after
         .unwrap();
     assert!(matches!(
         terminal_within_test_deadline(&successor, "B receives its own reply").await,
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xb2]
     ));
     assert_eq!(harness.discards.load(Ordering::Relaxed), 0);
 
@@ -1905,7 +1929,7 @@ async fn raw_stream_owed_prefix_at_window_end_latches_instead_of_releasing() {
     runtime.advance(Duration::from_secs(1));
     assert!(matches!(
         terminal_within_test_deadline(&successor, "B fails at the latch").await,
-        RuntimeOutcome::Failed(Error::InquiryFailed { source })
+        RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source }))
             if matches!(source.as_ref(), Error::InquiryCorrelationLost { camera } if *camera == TargetSlot::CAMERA_1.camera())
     ));
     runtime.advance(Duration::from_secs(5));
@@ -1965,7 +1989,7 @@ async fn raw_stream_owed_prefix_at_window_end_latches_instead_of_releasing() {
         .unwrap();
     assert!(matches!(
         terminal_within_test_deadline(&reopened, "the reopened lane binds its own reply").await,
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xb2]
     ));
 
     handle.shutdown().unwrap();
@@ -1986,7 +2010,7 @@ async fn raw_stream_latched_target_still_writes_stop_and_ack_bearing_commands() 
     runtime.advance(Duration::from_secs(1));
     assert!(matches!(
         terminal_within_test_deadline(&successor, "B fails at the latch").await,
-        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::InquiryCorrelationLost { .. })
+        RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::InquiryCorrelationLost { .. })
     ));
 
     for request in [urgent_command(), command()] {
@@ -2014,7 +2038,7 @@ async fn raw_stream_latched_target_still_writes_stop_and_ack_bearing_commands() 
             .unwrap();
         assert!(matches!(
             terminal_within_test_deadline(&receipt, "the command applies").await,
-            RuntimeOutcome::Applied
+            RuntimeOutcome::Command(CommandOutcome::Applied)
         ));
     }
     assert_eq!(
@@ -2075,7 +2099,7 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
     runtime.advance(MINIMUM_FIXTURE_INQUIRY_TIMEOUT);
     assert!(matches!(
         terminal_within_test_deadline(&predecessor, "A times out at its reply deadline").await,
-        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::Timeout { .. })
+        RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::Timeout { .. })
     ));
     let successor = within(handle.submit(inquiry()), "B is admitted")
         .await
@@ -2089,7 +2113,7 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
     runtime.advance(Duration::from_secs(1));
     assert!(matches!(
         terminal_within_test_deadline(&successor, "B fails at the latch").await,
-        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::InquiryCorrelationLost { .. })
+        RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::InquiryCorrelationLost { .. })
     ));
     runtime.advance(Duration::from_millis(500));
     let snapshot = within(handle.snapshot(), "the actor answers a snapshot")
@@ -2130,7 +2154,7 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
         .unwrap();
     assert!(matches!(
         terminal_within_test_deadline(&reopened, "the reopened lane binds its own reply").await,
-        RuntimeOutcome::Reply { payload, .. } if payload.as_slice() == [0xb2]
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. }) if payload.as_slice() == [0xb2]
     ));
 
     handle.shutdown().unwrap();

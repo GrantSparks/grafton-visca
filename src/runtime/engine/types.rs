@@ -886,20 +886,91 @@ pub(crate) enum DeadlineKind {
     InquiryReply,
 }
 
-/// Public-observer-independent terminal engine result.
+/// A command's terminal result. Inquiry-only payloads cannot enter this lane.
 #[derive(Debug, Clone)]
-pub(crate) enum RuntimeOutcome {
-    /// A raw plain `NoReply` command was accepted by the local transport.
-    ///
-    /// This deliberately differs from [`Self::Applied`]: the camera did not
-    /// supply protocol evidence that it accepted or applied the command.
+pub(crate) enum CommandOutcome {
+    /// A raw plain `NoReply` command reached the local transport only.
     Written,
     Applied,
+    Cancelled,
+    Failed(Error),
+}
+
+impl CommandOutcome {
+    /// One projection shared by application and cancellation observers.
+    pub(crate) fn verdict(&self) -> Result<crate::CancellationOutcome, Error> {
+        match self {
+            Self::Written | Self::Applied => Ok(crate::CancellationOutcome::Completed),
+            Self::Cancelled => Ok(crate::CancellationOutcome::Cancelled),
+            Self::Failed(error) => Err(error.clone()),
+        }
+    }
+}
+
+/// An inquiry's terminal result: a reply or a conclusive failure.
+#[derive(Debug, Clone)]
+pub(crate) enum InquiryOutcome {
     Reply {
         payload: SmallVec<[u8; INLINE_BYTES]>,
     },
-    Cancelled,
     Failed(Error),
+}
+
+/// The heterogeneous effect stream retains each terminal result's lane.
+#[derive(Debug, Clone)]
+pub(crate) enum RuntimeOutcome {
+    Command(CommandOutcome),
+    Inquiry(InquiryOutcome),
+}
+
+#[cfg(test)]
+impl RuntimeOutcome {
+    pub(crate) const fn failure(&self) -> Option<&Error> {
+        match self {
+            Self::Command(CommandOutcome::Failed(error))
+            | Self::Inquiry(InquiryOutcome::Failed(error)) => Some(error),
+            _ => None,
+        }
+    }
+}
+
+/// A generic failure is lifted into the entry's lane at the terminal boundary.
+/// Success constructors already carry their lane's closed outcome type.
+pub(super) enum FinishOutcome {
+    Command(CommandOutcome),
+    Inquiry(InquiryOutcome),
+    Failed(Error),
+}
+impl From<CommandOutcome> for FinishOutcome {
+    fn from(value: CommandOutcome) -> Self {
+        Self::Command(value)
+    }
+}
+impl From<InquiryOutcome> for FinishOutcome {
+    fn from(value: InquiryOutcome) -> Self {
+        Self::Inquiry(value)
+    }
+}
+impl From<Error> for FinishOutcome {
+    fn from(value: Error) -> Self {
+        Self::Failed(value)
+    }
+}
+impl FinishOutcome {
+    pub(super) fn for_request(self, request: &RuntimeRequest) -> RuntimeOutcome {
+        match self {
+            Self::Command(outcome) => RuntimeOutcome::Command(outcome),
+            Self::Inquiry(outcome) => RuntimeOutcome::Inquiry(outcome),
+            Self::Failed(error) => match request {
+                RuntimeRequest::Command { .. } => {
+                    RuntimeOutcome::Command(CommandOutcome::Failed(error))
+                }
+                RuntimeRequest::Inquiry { .. } => {
+                    RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::inquiry_failed(error)))
+                }
+            },
+        }
+    }
 }
 
 /// Exact result observed by the cancellation token layer.

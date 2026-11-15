@@ -98,7 +98,7 @@ async fn async_urgent_stop_binds_its_ack_under_a_preack_hold() {
     runtime.advance(Duration::from_millis(10));
     assert!(matches!(
         terminal_within_test_deadline(&predecessor, "lost ACK terminalizes the predecessor").await,
-        RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed)
+        RuntimeOutcome::Command(CommandOutcome::Failed(Error::UnsequencedCommandUnconfirmed))
     ));
 
     let stop = handle.submit(urgent_stop_command()).await.unwrap();
@@ -124,7 +124,7 @@ async fn async_urgent_stop_binds_its_ack_under_a_preack_hold() {
 
     assert!(matches!(
         terminal_within_test_deadline(&stop, "the urgent stop owns its ACK and completion").await,
-        RuntimeOutcome::Applied
+        RuntimeOutcome::Command(CommandOutcome::Applied)
     ));
     handle.metrics().await.unwrap();
     assert!(
@@ -153,7 +153,11 @@ async fn expired_pre_admission_boundary_never_writes_and_releases_capacity() {
     let expiring_handle = handle.clone();
     let expiring = tokio::spawn(async move {
         expiring_handle
-            .submit_with_timeout_until(inquiry(), Duration::from_secs(5), deadline)
+            .submit_with_timeout_until::<RuntimeOutcome>(
+                inquiry(),
+                Duration::from_secs(5),
+                deadline,
+            )
             .await
     });
 
@@ -222,7 +226,11 @@ async fn immediate_pre_admission_deadline_is_telemetrized() {
     let (handle, mut actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
     let diagnostics = observe_diagnostics(&mut actor);
     let error = handle
-        .submit_with_timeout_until(inquiry(), Duration::from_secs(1), handle.now())
+        .submit_with_timeout_until::<RuntimeOutcome>(
+            inquiry(),
+            Duration::from_secs(1),
+            handle.now(),
+        )
         .await
         .unwrap_err();
     assert!(matches!(error, Error::Timeout { .. }));
@@ -256,7 +264,7 @@ async fn actor_expired_pre_admission_boundary_is_telemetrized_once() {
     let validity = crate::runtime::owner::boundary::AdmissionValidity::until(deadline);
     let (completion, reply) = handle
         .core
-        .enqueue_admission(inquiry(), Some(validity))
+        .enqueue_admission::<RuntimeOutcome>(inquiry(), Some(validity))
         .expect("a future deadline can enter the bounded admission lane");
     drop(completion);
     tokio::time::advance(Duration::from_millis(1)).await;
@@ -372,7 +380,7 @@ async fn async_admission_precedes_write_and_matches_blocking_terminal_trace() {
         .unwrap();
     assert!(matches!(
         receipt.terminal().await.unwrap(),
-        RuntimeOutcome::Applied
+        RuntimeOutcome::Command(CommandOutcome::Applied)
     ));
     handle.shutdown().unwrap();
     let snapshot = actor_task.await.unwrap();
@@ -545,7 +553,10 @@ fn smol_fail_fast_capacity_rejection_records_telemetry() {
         .try_acquire_ordinary()
         .expect("the test reserves the only admission slot");
 
-    let error = match handle.core.enqueue_admission(inquiry(), None) {
+    let error = match handle
+        .core
+        .enqueue_admission::<RuntimeOutcome>(inquiry(), None)
+    {
         Ok(_) => panic!("a full admission pool must fail fast"),
         Err(error) => error,
     };
@@ -685,7 +696,11 @@ async fn async_cancellation_returns_after_recording_and_retains_terminal() {
     // The cancellation concludes on the operation's terminal slot.
     let terminal = operation.terminal().await.unwrap();
     assert_eq!(
-        cancellation_outcome(&terminal).unwrap(),
+        cancellation_outcome(match &terminal {
+            RuntimeOutcome::Command(outcome) => outcome,
+            _ => panic!("command terminal"),
+        })
+        .unwrap(),
         CancellationOutcome::Cancelled
     );
     assert!(cancellation.try_recv().is_none());
@@ -717,7 +732,7 @@ fn smol_actor_has_the_same_admit_write_terminal_order() {
             .unwrap();
         assert!(matches!(
             receipt.terminal().await.unwrap(),
-            RuntimeOutcome::Applied
+            RuntimeOutcome::Command(CommandOutcome::Applied)
         ));
         handle.shutdown().unwrap();
         let snapshot = task.await;

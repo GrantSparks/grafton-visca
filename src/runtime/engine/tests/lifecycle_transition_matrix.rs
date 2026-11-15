@@ -411,41 +411,47 @@ fn assert_expected(fixture: &Fixture, effects: &[Effect], expected: Expected) {
     assert!(fixture.engine.entry(fixture.id).is_none());
     let outcome = terminal_outcome(effects, fixture.id).expect("one terminal outcome");
     let protocol_outcome = match &outcome {
-        RuntimeOutcome::Failed(Error::InquiryFailed { source }) => {
-            RuntimeOutcome::Failed(source.as_ref().clone())
+        RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source })) => {
+            RuntimeOutcome::Command(CommandOutcome::Failed(source.as_ref().clone()))
         }
         outcome => outcome.clone(),
     };
     let correct = match expected {
-        Applied => matches!(&protocol_outcome, RuntimeOutcome::Applied),
-        Cancelled => matches!(&protocol_outcome, RuntimeOutcome::Cancelled),
+        Applied => matches!(
+            &protocol_outcome,
+            RuntimeOutcome::Command(CommandOutcome::Applied)
+        ),
+        Cancelled => matches!(
+            &protocol_outcome,
+            RuntimeOutcome::Command(CommandOutcome::Cancelled)
+        ),
         WriteFailure => {
-            matches!(&protocol_outcome, RuntimeOutcome::Failed(Error::TransportError { source: message, .. }) if message.to_string().ends_with("matrix write failed"))
+            matches!(&protocol_outcome, RuntimeOutcome::Command(CommandOutcome::Failed(Error::TransportError { source: message, .. })) if message.to_string().ends_with("matrix write failed"))
         }
         SyntaxFailure => matches!(
             &protocol_outcome,
-            RuntimeOutcome::Failed(Error::SyntaxError)
+            RuntimeOutcome::Command(CommandOutcome::Failed(Error::SyntaxError))
         ),
         AfterAckFailure => {
-            matches!(&protocol_outcome, RuntimeOutcome::Failed(Error::CommandFailedAfterAck { source, .. }) if matches!(source.as_ref(), Error::SyntaxError))
+            matches!(&protocol_outcome, RuntimeOutcome::Command(CommandOutcome::Failed(Error::CommandFailedAfterAck { source, .. })) if matches!(source.as_ref(), Error::SyntaxError))
         }
         Unconfirmed => matches!(
             protocol_outcome,
-            RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed)
+            RuntimeOutcome::Command(CommandOutcome::Failed(Error::UnsequencedCommandUnconfirmed))
         ),
         UnwrittenBudgetTimeout | InquiryTimeout => {
             matches!(
                 &protocol_outcome,
-                RuntimeOutcome::Failed(Error::Timeout { .. })
+                RuntimeOutcome::Command(CommandOutcome::Failed(Error::Timeout { .. }))
             )
         }
         Live(_) => unreachable!("live outcome was checked above"),
     };
     assert!(correct, "expected {expected:?}, got {outcome:?}");
     if let UnwrittenBudgetTimeout | InquiryTimeout = expected {
-        let RuntimeOutcome::Failed(error) = &outcome else {
-            unreachable!()
-        };
+        let error = outcome
+            .failure()
+            .expect("the terminal lane retains its failure");
         let certainty = if matches!(expected, UnwrittenBudgetTimeout) {
             Certainty::NotAccepted
         } else {

@@ -34,7 +34,7 @@ use crate::Error;
 
 use super::boundary::{OwnerHandleCore, OwnerSnapshot};
 use super::clock::{Clock, Select};
-use super::receipt::{ObservationWake, OperationReceipt};
+use super::receipt::{ObservationWake, OperationReceipt, TerminalWake};
 use super::shell::{ClassifiedEvent, OwnerEvent, OwnerShellCore, TurnStep};
 use super::turn::{ReceiveArm, Selection, Source, TimerArm, TurnOutcome, TurnPlan};
 use super::{
@@ -457,6 +457,21 @@ impl BlockingOwnerHandle {
     /// deadline. Each arm only reads a slot, and the caller records every
     /// wake before re-reading the verdict, so the order in which
     /// simultaneous wakes are reported does not matter.
+    fn next_terminal<T: super::TerminalLane>(
+        &self,
+        terminal: &TerminalObserver<T>,
+        deadline: Instant,
+    ) -> TerminalWake<T> {
+        self.clock
+            .select()
+            .recv(terminal.receiver(), |outcome| {
+                TerminalWake::Terminal(resolve_selected_receive(terminal.receiver(), outcome).ok())
+            })
+            .recv(&self.core.actor_alive, |_| TerminalWake::OwnerGone)
+            .wait_until(deadline)
+            .unwrap_or(TerminalWake::Deadline)
+    }
+
     fn next_observation(
         &self,
         terminal: &TerminalObserver,

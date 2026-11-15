@@ -58,10 +58,10 @@ fn stage_admission(
     permit: AdmissionPermit,
 ) -> (
     StagedAdmission,
-    TerminalObserver,
+    TerminalObserver<RuntimeOutcome>,
     flume::Receiver<Result<Admitted, Error>>,
 ) {
-    let (observer, cell) = TerminalObserver::pair();
+    let (observer, cell) = TerminalObserver::<RuntimeOutcome>::pair();
     let (reply, admission) = flume::bounded(1);
     let input = StagedAdmission {
         request,
@@ -74,14 +74,14 @@ fn stage_admission(
 
 /// Test-local compatibility fixture: one owned admission, with no owner ticket
 /// allocator or map. Synthetic effects preserve the checked trace vocabulary.
-struct StagedAdmission {
+struct StagedAdmission<T = RuntimeOutcome> {
     request: RuntimeRequest,
     permit: AdmissionPermit,
-    observer: Arc<ObserverCell<RuntimeOutcome>>,
+    observer: Arc<ObserverCell<T>>,
     reply: flume::Sender<Result<Admitted, Error>>,
 }
 
-impl StagedAdmission {
+impl<T: TerminalLane> StagedAdmission<T> {
     fn in_turn(self, state: &mut OwnerState, turn: &OwnerInputTurn) -> VecDeque<Effect> {
         let result = state.admit_in_turn(turn, self.request, self.permit, self.observer);
         let effect = match &result {
@@ -260,43 +260,46 @@ fn a_rejected_retune_changes_neither_the_live_tuning_nor_the_policy() {
 /// no longer holds the intent.
 #[test]
 fn dropping_an_unresolved_cell_disconnects_its_observer() {
-    let (observer, cell) = TerminalObserver::pair();
+    let (observer, cell) = TerminalObserver::<RuntimeOutcome>::pair();
     assert!(observer.cell().is_some());
     drop(cell);
     assert!(observer.cell().is_none());
     assert!(observer.receiver.is_disconnected());
     assert!(observer.try_recv().is_none());
 
-    let (observer, cell) = TerminalObserver::pair();
+    let (observer, cell) = TerminalObserver::<RuntimeOutcome>::pair();
     assert_eq!(
-        cell.resolve(RuntimeOutcome::Applied),
+        cell.resolve(RuntimeOutcome::Command(CommandOutcome::Applied)),
         ObserverResolution::Delivered
     );
     drop(cell);
     assert!(
-        matches!(observer.try_recv(), Some(RuntimeOutcome::Applied)),
+        matches!(
+            observer.try_recv(),
+            Some(RuntimeOutcome::Command(CommandOutcome::Applied))
+        ),
         "a delivered value outlives the cell"
     );
 }
 
 #[test]
 fn observer_resolution_distinguishes_receiver_loss_from_duplicate_delivery() {
-    let (observer, cell) = TerminalObserver::pair();
+    let (observer, cell) = TerminalObserver::<RuntimeOutcome>::pair();
     assert_eq!(
-        cell.resolve(RuntimeOutcome::Applied),
+        cell.resolve(RuntimeOutcome::Command(CommandOutcome::Applied)),
         ObserverResolution::Delivered
     );
     drop(observer);
     assert_eq!(
-        cell.resolve(RuntimeOutcome::Applied),
+        cell.resolve(RuntimeOutcome::Command(CommandOutcome::Applied)),
         ObserverResolution::AlreadyResolved,
         "dropping a receiver after delivery cannot turn a duplicate into loss"
     );
 
-    let (observer, cell) = TerminalObserver::pair();
+    let (observer, cell) = TerminalObserver::<RuntimeOutcome>::pair();
     drop(observer);
     assert_eq!(
-        cell.resolve(RuntimeOutcome::Applied),
+        cell.resolve(RuntimeOutcome::Command(CommandOutcome::Applied)),
         ObserverResolution::ReceiverLost
     );
 }
@@ -659,7 +662,7 @@ mod metrics {
         request: RuntimeRequest,
         sequence: Option<u32>,
         now: Instant,
-    ) -> TerminalObserver {
+    ) -> TerminalObserver<RuntimeOutcome> {
         let permit = state
             .permits()
             .try_acquire_ordinary()
@@ -910,9 +913,9 @@ mod metrics {
         state: &mut OwnerState,
         request: RuntimeRequest,
         now: Instant,
-    ) -> (OperationObservation, Arc<ObserverCell<RuntimeOutcome>>) {
+    ) -> (OperationObservation, Arc<ObserverCell<CommandOutcome>>) {
         let permit = state.permits.try_acquire(request.context()).unwrap();
-        let (observer, cell) = TerminalObserver::pair();
+        let (observer, cell) = TerminalObserver::<CommandOutcome>::pair();
         let (reply, admitted) = flume::bounded(1);
         let input = super::StagedAdmission {
             request,
@@ -929,9 +932,48 @@ mod metrics {
         (OperationObservation::new(core, ACK), cell)
     }
 
-    fn observation_fixture() -> (OperationObservation, Arc<ObserverCell<RuntimeOutcome>>) {
+    fn observation_fixture() -> (OperationObservation, Arc<ObserverCell<CommandOutcome>>) {
         let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
         admit_observation(&mut state, command(retrying()), Instant::now())
+    }
+
+    #[test]
+    fn operation_application_and_cancellation_share_each_terminal_verdict() {
+        for outcome in [
+            CommandOutcome::Written,
+            CommandOutcome::Applied,
+            CommandOutcome::Cancelled,
+            CommandOutcome::Failed(Error::SyntaxError),
+        ] {
+            let (mut observation, cell) = observation_fixture();
+            let at = Instant::now();
+            assert_eq!(
+                cell.resolve_at(outcome.clone(), at),
+                ObserverResolution::Delivered
+            );
+            match (
+                outcome,
+                observation.applied(at),
+                observation.cancellation(at),
+            ) {
+                (
+                    CommandOutcome::Written | CommandOutcome::Applied,
+                    Some(Ok(())),
+                    Some(Ok(CancellationOutcome::Completed)),
+                )
+                | (
+                    CommandOutcome::Cancelled,
+                    Some(Err(Error::CommandCanceled)),
+                    Some(Ok(CancellationOutcome::Cancelled)),
+                )
+                | (
+                    CommandOutcome::Failed(Error::SyntaxError),
+                    Some(Err(Error::SyntaxError)),
+                    Some(Err(Error::SyntaxError)),
+                ) => {}
+                other => panic!("application and cancellation disagreed on {other:?}"),
+            }
+        }
     }
 
     #[cfg(any(feature = "async", feature = "blocking"))]
@@ -954,14 +996,21 @@ mod metrics {
             .collect();
         let (handle, _ends) = boundary::OwnerHandleCore::new(&state);
         assert!(matches!(
-            handle.enqueue_admission(request.clone(), None),
+            handle.enqueue_admission::<CommandOutcome>(request.clone(), None),
             Err(Error::RuntimeQueueFull { .. })
         ));
         assert!(original.check_settlement().is_ok());
         drop(held);
         request.context_mut().submission_order = 2;
         let permit = state.permits.try_acquire(request.context()).unwrap();
-        let (input, completion, reply) = super::stage_admission(&mut state, request, permit);
+        let (completion, observer) = TerminalObserver::<CommandOutcome>::pair();
+        let (reply_sender, reply) = flume::bounded(1);
+        let input = super::StagedAdmission {
+            request,
+            permit,
+            observer,
+            reply: reply_sender,
+        };
         let admission_turn = state.begin_input_turn(now);
         let effects = input.in_turn(&mut state, &admission_turn);
         assert!(
@@ -994,7 +1043,7 @@ mod metrics {
                 .completion
                 .try_observed()
                 .map(|event| event.value),
-            Some(RuntimeOutcome::Cancelled)
+            Some(CommandOutcome::Cancelled)
         ));
     }
 
@@ -1013,7 +1062,9 @@ mod metrics {
         let request = command(retrying());
         let joined = std::thread::spawn(move || {
             ready.wait();
-            producer.enqueue_admission(request, None).unwrap()
+            producer
+                .enqueue_admission::<CommandOutcome>(request, None)
+                .unwrap()
         });
         barrier.wait();
         let cutoff = ends
@@ -1035,7 +1086,9 @@ mod metrics {
             stamp.check(crate::OperationId::from_raw(1)).is_err(),
             "generation publishes at acceptance"
         );
-        let _later = handle.enqueue_admission(command(retrying()), None).unwrap();
+        let _later = handle
+            .enqueue_admission::<CommandOutcome>(command(retrying()), None)
+            .unwrap();
         assert!(
             ends.receivers
                 .admissions
@@ -1090,7 +1143,7 @@ mod metrics {
             deadline + Duration::from_nanos(1),
         ] {
             let (mut observation, cell) = observation_fixture();
-            cell.resolve_at(RuntimeOutcome::Applied, delivered);
+            cell.resolve_at(CommandOutcome::Applied, delivered);
             assert_eq!(
                 observation.applied(deadline).is_some(),
                 delivered <= deadline
@@ -1111,7 +1164,7 @@ mod metrics {
         let (mut observation, terminal) = observation_fixture();
         let cancel = observation.cancellation_request();
         cancel.observer.resolve_at(Error::NotSupported, deadline);
-        terminal.resolve_at(RuntimeOutcome::Applied, deadline + Duration::from_nanos(1));
+        terminal.resolve_at(CommandOutcome::Applied, deadline + Duration::from_nanos(1));
         assert!(matches!(
             observation.cancellation(deadline),
             Some(Err(Error::NotSupported))
@@ -1178,7 +1231,7 @@ mod metrics {
         assert_canonical(observation.cancellation(deadline));
 
         terminal.resolve_at(
-            RuntimeOutcome::Failed(Error::CancellationUnconfirmed),
+            CommandOutcome::Failed(Error::CancellationUnconfirmed),
             delivered + Duration::from_nanos(1),
         );
         assert_canonical(observation.cancellation(deadline));
@@ -1533,7 +1586,7 @@ mod lifecycle_trace {
     struct ObserverSlot {
         kind: ObserverKind,
         /// Dropping the observer *is* the detach operation.
-        observer: Option<TerminalObserver>,
+        observer: Option<TerminalObserver<RuntimeOutcome>>,
         cell: Arc<ObserverCell<RuntimeOutcome>>,
         terminal_source: Option<&'static str>,
     }
@@ -1541,7 +1594,7 @@ mod lifecycle_trace {
     struct Pending {
         label: String,
         kind: ObserverKind,
-        observer: TerminalObserver,
+        observer: TerminalObserver<RuntimeOutcome>,
         admission: flume::Receiver<Result<Admitted, Error>>,
         permits_before: usize,
         active_before: usize,
@@ -1663,11 +1716,14 @@ mod lifecycle_trace {
 
     fn outcome_text(outcome: &RuntimeOutcome) -> String {
         match outcome {
-            RuntimeOutcome::Written => "Written".to_owned(),
-            RuntimeOutcome::Applied => "Applied".to_owned(),
-            RuntimeOutcome::Cancelled => "Cancelled".to_owned(),
-            RuntimeOutcome::Failed(error) => format!("Error::{}", error_label(error)),
-            RuntimeOutcome::Reply { payload } => {
+            RuntimeOutcome::Command(CommandOutcome::Written) => "Written".to_owned(),
+            RuntimeOutcome::Command(CommandOutcome::Applied) => "Applied".to_owned(),
+            RuntimeOutcome::Command(CommandOutcome::Cancelled) => "Cancelled".to_owned(),
+            RuntimeOutcome::Command(CommandOutcome::Failed(error))
+            | RuntimeOutcome::Inquiry(InquiryOutcome::Failed(error)) => {
+                format!("Error::{}", error_label(error))
+            }
+            RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload }) => {
                 format!("Reply(payload={payload:?})")
             }
         }
@@ -2315,7 +2371,7 @@ mod lifecycle_trace {
                         let source = if deadlines.contains(&id) {
                             "scheduler"
                         } else if boundary == "protocol"
-                            && matches!(outcome, RuntimeOutcome::Failed(_))
+                            && matches!(outcome, RuntimeOutcome::Command(CommandOutcome::Failed(_)))
                         {
                             "camera"
                         } else {

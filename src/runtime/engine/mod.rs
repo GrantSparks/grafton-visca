@@ -881,10 +881,10 @@ impl ProtocolEngine {
             // camera did not conclusively reject.
             self.finish(
                 id,
-                RuntimeOutcome::Failed(Error::MotionSuperseded {
+                Error::MotionSuperseded {
                     axes,
                     context: superseded_context(certainty),
-                }),
+                },
                 now,
                 &mut effects,
             );
@@ -934,7 +934,7 @@ impl ProtocolEngine {
         let mut effects = Decision::new();
         self.finish_observed(
             owner.request,
-            RuntimeOutcome::Failed(Error::timeout(FailureStage::Terminal, certainty)),
+            Error::timeout(FailureStage::Terminal, certainty),
             AttemptEvidence::Unwritten,
             now,
             &mut effects,
@@ -1138,12 +1138,7 @@ impl ProtocolEngine {
     ) {
         let request = selected.request;
         let Some(transmission) = self.allocate_transmission_id() else {
-            self.finish(
-                request,
-                RuntimeOutcome::Failed(Error::RuntimeIdentityExhausted),
-                now,
-                effects,
-            );
+            self.finish(request, Error::RuntimeIdentityExhausted, now, effects);
             return;
         };
         let Some(entry) = self.entries.get(&request) else {
@@ -1851,7 +1846,7 @@ impl ProtocolEngine {
         }
         self.finish_observed(
             owner.request,
-            RuntimeOutcome::Failed(error),
+            error,
             AttemptEvidence::Unwritten,
             now,
             effects,
@@ -1923,13 +1918,7 @@ impl ProtocolEngine {
             // A late Sony result — including a late transport error — cannot
             // extend the budget or mutate correlation. Preserve the prior
             // retry cause when there is one, matching ordinary budget expiry.
-            self.finish_observed(
-                owner.request,
-                RuntimeOutcome::Failed(error),
-                AttemptEvidence::Written,
-                now,
-                effects,
-            );
+            self.finish_observed(owner.request, error, AttemptEvidence::Written, now, effects);
         }
         true
     }
@@ -1961,9 +1950,9 @@ impl ProtocolEngine {
         if !metadata_valid {
             self.finish_observed(
                 owner.request,
-                RuntimeOutcome::Failed(Error::InvalidState(
+                Error::InvalidState(
                     "transmission metadata conflicts with requested framing".into(),
-                )),
+                ),
                 AttemptEvidence::Written,
                 now,
                 effects,
@@ -2033,7 +2022,7 @@ impl ProtocolEngine {
                         self.quarantine_raw_terminal(owner.request, now);
                         self.finish_observed(
                             owner.request,
-                            RuntimeOutcome::Written,
+                            CommandOutcome::Written,
                             AttemptEvidence::Written,
                             now,
                             effects,
@@ -2144,13 +2133,7 @@ impl ProtocolEngine {
         }
         match owner.kind {
             CorrelationKind::Request => {
-                self.finish_observed(
-                    owner.request,
-                    RuntimeOutcome::Failed(error),
-                    AttemptEvidence::Written,
-                    now,
-                    effects,
-                );
+                self.finish_observed(owner.request, error, AttemptEvidence::Written, now, effects);
             }
             CorrelationKind::Cancellation => {
                 self.failed_cancellation_transmission(owner, error, now, effects);
@@ -2424,7 +2407,7 @@ impl ProtocolEngine {
                 if correlation_kind == CorrelationKind::Cancellation {
                     effects.push(Effect::Ignored(IgnoreReason::MalformedFrame));
                 } else {
-                    let reply = RuntimeOutcome::Reply { payload };
+                    let reply = InquiryOutcome::Reply { payload };
                     self.inquiry_reply(id, reply, now, effects);
                 }
             }
@@ -2950,7 +2933,7 @@ impl ProtocolEngine {
         }
         self.finish_with_cancel_hold(
             stale,
-            RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
+            Error::UnsequencedCommandUnconfirmed,
             false,
             now,
             effects,
@@ -3056,7 +3039,7 @@ impl ProtocolEngine {
             return;
         }
         self.quarantine_raw_terminal(id, now);
-        self.finish(id, RuntimeOutcome::Applied, now, effects);
+        self.finish(id, CommandOutcome::Applied, now, effects);
     }
 
     /// Retains bounded raw-correlation evidence after an uncorrelatable
@@ -4017,14 +4000,14 @@ impl ProtocolEngine {
             })
             .collect();
         for (id, error) in failed {
-            self.finish(id, RuntimeOutcome::Failed(error), now, effects);
+            self.finish(id, error, now, effects);
         }
     }
 
     fn inquiry_reply(
         &mut self,
         id: RequestId,
-        reply: RuntimeOutcome,
+        reply: InquiryOutcome,
         now: Instant,
         effects: &mut Decision,
     ) {
@@ -4127,7 +4110,7 @@ impl ProtocolEngine {
             if cancellation_active {
                 self.finish_observed(
                     id,
-                    RuntimeOutcome::Cancelled,
+                    CommandOutcome::Cancelled,
                     AttemptEvidence::Rejected,
                     now,
                     effects,
@@ -4143,7 +4126,7 @@ impl ProtocolEngine {
                 );
             }
         } else {
-            self.finish_observed(id, RuntimeOutcome::Failed(error), evidence, now, effects);
+            self.finish_observed(id, error, evidence, now, effects);
         }
     }
 
@@ -4171,7 +4154,7 @@ impl ProtocolEngine {
         }
         self.finish_with_cancel_hold(
             id,
-            RuntimeOutcome::Failed(Error::command_failed_after_ack(error)),
+            Error::command_failed_after_ack(error),
             !cancellation_answered,
             now,
             effects,
@@ -4194,15 +4177,10 @@ impl ProtocolEngine {
             .get(&id)
             .is_some_and(|entry| entry.lifecycle().cancellation_ambiguity().is_some());
         if !active {
-            self.finish(
-                id,
-                RuntimeOutcome::Failed(Error::CommandCanceled),
-                now,
-                effects,
-            );
+            self.finish(id, Error::CommandCanceled, now, effects);
             return;
         }
-        self.finish_with_cancel_hold(id, RuntimeOutcome::Cancelled, false, now, effects);
+        self.finish_with_cancel_hold(id, CommandOutcome::Cancelled, false, now, effects);
     }
 
     fn cancel(&mut self, id: RequestId, now: Instant, effects: &mut Decision) -> Result<(), Error> {
@@ -4232,7 +4210,7 @@ impl ProtocolEngine {
                     id,
                     observation: CancellationObservation::Cancelled,
                 });
-                self.finish(id, RuntimeOutcome::Cancelled, now, effects);
+                self.finish(id, CommandOutcome::Cancelled, now, effects);
             }
             CancellationDecision::Refused(error) => {
                 effects.push(Effect::CancellationObservation {
@@ -4284,12 +4262,7 @@ impl ProtocolEngine {
             ProtocolEncoder::Sony(encoder) => encoder.plan(SonyRequestSequence::AllocateFresh),
         };
         let Some(transmission) = self.allocate_transmission_id() else {
-            self.finish(
-                id,
-                RuntimeOutcome::Failed(Error::RuntimeIdentityExhausted),
-                now,
-                effects,
-            );
+            self.finish(id, Error::RuntimeIdentityExhausted, now, effects);
             return;
         };
         self.transition(
@@ -4339,10 +4312,10 @@ impl ProtocolEngine {
         {
             self.finish_observed(
                 id,
-                RuntimeOutcome::Failed(Error::MotionSuperseded {
+                Error::MotionSuperseded {
                     axes,
                     context: superseded_context(certainty),
-                }),
+                },
                 evidence,
                 now,
                 effects,
@@ -4362,7 +4335,7 @@ impl ProtocolEngine {
             return;
         };
         if cancellation {
-            self.finish_observed(id, RuntimeOutcome::Failed(error), evidence, now, effects);
+            self.finish_observed(id, error, evidence, now, effects);
             return;
         }
         // Releasing a raw inquiry for a retry could let a delayed attempt-N
@@ -4378,7 +4351,7 @@ impl ProtocolEngine {
             .total_budget
             .is_none_or(|budget| elapsed < budget.get());
         if next_retry_count > policy.max_retries || !within_duration {
-            self.finish_observed(id, RuntimeOutcome::Failed(error), evidence, now, effects);
+            self.finish_observed(id, error, evidence, now, effects);
             return;
         }
         let delay = retry_delay(
@@ -4392,7 +4365,7 @@ impl ProtocolEngine {
             .total_budget
             .is_some_and(|budget| ready_at >= add_duration(submitted_at, budget.get()))
         {
-            self.finish_observed(id, RuntimeOutcome::Failed(error), evidence, now, effects);
+            self.finish_observed(id, error, evidence, now, effects);
             return;
         }
         self.retire_stream_answers(id, now, effects);
@@ -4604,12 +4577,7 @@ impl ProtocolEngine {
             return;
         }
         self.quarantine_unconfirmed_raw(id, now);
-        self.finish(
-            id,
-            RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
-            now,
-            effects,
-        );
+        self.finish(id, Error::UnsequencedCommandUnconfirmed, now, effects);
     }
 
     fn finish_cancellation_unconfirmed(
@@ -4620,12 +4588,7 @@ impl ProtocolEngine {
     ) {
         match self.policy.wire.kind() {
             EnvelopeKind::Raw => self.terminate_unconfirmed_raw(id, now, effects),
-            EnvelopeKind::Sony => self.finish(
-                id,
-                RuntimeOutcome::Failed(Error::CancellationUnconfirmed),
-                now,
-                effects,
-            ),
+            EnvelopeKind::Sony => self.finish(id, Error::CancellationUnconfirmed, now, effects),
         }
     }
 
@@ -4679,10 +4642,10 @@ impl ProtocolEngine {
                     }
                     BudgetRetirement::Inquiry => {
                         self.retain_unanswered_inquiry(id, now);
-                        self.finish(id, RuntimeOutcome::Failed(error), now, effects);
+                        self.finish(id, error, now, effects);
                     }
                     BudgetRetirement::Queued | BudgetRetirement::Command => {
-                        self.finish(id, RuntimeOutcome::Failed(error), now, effects)
+                        self.finish(id, error, now, effects)
                     }
                 }
             }
@@ -4751,10 +4714,7 @@ impl ProtocolEngine {
                 } else {
                     self.finish(
                         id,
-                        RuntimeOutcome::Failed(Error::timeout(
-                            FailureStage::Terminal,
-                            current_certainty,
-                        )),
+                        Error::timeout(FailureStage::Terminal, current_certainty),
                         now,
                         effects,
                     );
@@ -4782,10 +4742,7 @@ impl ProtocolEngine {
                         } else {
                             self.finish(
                                 id,
-                                RuntimeOutcome::Failed(Error::timeout(
-                                    FailureStage::Terminal,
-                                    current_certainty,
-                                )),
+                                Error::timeout(FailureStage::Terminal, current_certainty),
                                 now,
                                 effects,
                             );
@@ -4799,10 +4756,7 @@ impl ProtocolEngine {
                             // same-sequence Sony retransmission.
                             self.finish(
                                 id,
-                                RuntimeOutcome::Failed(Error::timeout(
-                                    FailureStage::Terminal,
-                                    current_certainty,
-                                )),
+                                Error::timeout(FailureStage::Terminal, current_certainty),
                                 now,
                                 effects,
                             );
@@ -4849,7 +4803,7 @@ impl ProtocolEngine {
                         effects,
                     );
                 } else {
-                    self.finish(id, RuntimeOutcome::Failed(error), now, effects);
+                    self.finish(id, error, now, effects);
                 }
                 record_deadline_expiry(id, DeadlineKind::InquiryReply, mark, effects);
             }
@@ -4863,7 +4817,7 @@ impl ProtocolEngine {
                         .retry_cause()
                         .cloned()
                         .unwrap_or_else(|| Error::timeout(FailureStage::Terminal, certainty));
-                    self.finish(id, RuntimeOutcome::Failed(error), now, effects);
+                    self.finish(id, error, now, effects);
                 } else {
                     self.promote_retry(id, previous_attempt, now, effects);
                 }
@@ -5158,7 +5112,7 @@ impl ProtocolEngine {
     fn finish(
         &mut self,
         id: RequestId,
-        outcome: RuntimeOutcome,
+        outcome: impl Into<FinishOutcome>,
         now: Instant,
         effects: &mut Decision,
     ) {
@@ -5168,7 +5122,7 @@ impl ProtocolEngine {
     fn finish_with_cancel_hold(
         &mut self,
         id: RequestId,
-        outcome: RuntimeOutcome,
+        outcome: impl Into<FinishOutcome>,
         keep_cancel_hold: bool,
         now: Instant,
         effects: &mut Decision,
@@ -5186,7 +5140,7 @@ impl ProtocolEngine {
     fn finish_observed(
         &mut self,
         id: RequestId,
-        outcome: RuntimeOutcome,
+        outcome: impl Into<FinishOutcome>,
         evidence: AttemptEvidence,
         now: Instant,
         effects: &mut Decision,
@@ -5197,7 +5151,7 @@ impl ProtocolEngine {
     fn finish_with_evidence(
         &mut self,
         id: RequestId,
-        outcome: RuntimeOutcome,
+        outcome: impl Into<FinishOutcome>,
         keep_cancel_hold: bool,
         evidence: AttemptEvidence,
         now: Instant,
@@ -5211,15 +5165,11 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
             return;
         };
-        let outcome = match outcome {
-            RuntimeOutcome::Failed(error) if entry.reply_family() == SendingReply::Inquiry => {
-                RuntimeOutcome::Failed(Error::inquiry_failed(error))
-            }
-            outcome => outcome,
-        };
+        let outcome = outcome.into().for_request(&entry.request);
         let target = entry.request.context().target;
         if let Some(projection) = entry.request.applied_state() {
-            let projection = if matches!(outcome, RuntimeOutcome::Applied) {
+            let projection = if matches!(outcome, RuntimeOutcome::Command(CommandOutcome::Applied))
+            {
                 Some(projection)
             } else if entry.may_have_effect(evidence) {
                 Some(AppliedStateProjection::invalidate(projection.key()))
@@ -5238,12 +5188,18 @@ impl ProtocolEngine {
         }
         if entry.cancellation_observation_open() {
             let observation = match &outcome {
-                RuntimeOutcome::Applied => Some(CancellationObservation::Completed),
-                RuntimeOutcome::Cancelled => Some(CancellationObservation::Cancelled),
-                RuntimeOutcome::Failed(error) => {
+                RuntimeOutcome::Command(CommandOutcome::Applied) => {
+                    Some(CancellationObservation::Completed)
+                }
+                RuntimeOutcome::Command(CommandOutcome::Cancelled) => {
+                    Some(CancellationObservation::Cancelled)
+                }
+                RuntimeOutcome::Command(CommandOutcome::Failed(error))
+                | RuntimeOutcome::Inquiry(InquiryOutcome::Failed(error)) => {
                     Some(CancellationObservation::Failed(error.clone()))
                 }
-                RuntimeOutcome::Written | RuntimeOutcome::Reply { .. } => None,
+                RuntimeOutcome::Command(CommandOutcome::Written)
+                | RuntimeOutcome::Inquiry(InquiryOutcome::Reply { .. }) => None,
             };
             if let Some(observation) = observation {
                 effects.push(Effect::CancellationObservation { id, observation });
@@ -5273,7 +5229,7 @@ impl ProtocolEngine {
             .collect();
         active.sort_unstable_by_key(|(order, _)| *order);
         for (_, id) in active {
-            self.finish(id, RuntimeOutcome::Failed(error.clone()), now, effects);
+            self.finish(id, error.clone(), now, effects);
         }
         self.targets = PerTarget::from_fn(|target| TargetState {
             policy: self.targets[target].policy,
@@ -5937,7 +5893,7 @@ mod cancellation_regression_tests {
                 effect,
                 Effect::Terminal {
                     id: terminal,
-                    outcome: RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
+                    outcome: RuntimeOutcome::Command(CommandOutcome::Failed(Error::UnsequencedCommandUnconfirmed)),
                 } if *terminal == id
             )
         })
@@ -6129,7 +6085,7 @@ mod cancellation_regression_tests {
                 effect,
                 Effect::Terminal {
                     id: terminal,
-                    outcome: RuntimeOutcome::Cancelled,
+                    outcome: RuntimeOutcome::Command(CommandOutcome::Cancelled),
                 } if *terminal == id
             )
         }));
@@ -6138,7 +6094,7 @@ mod cancellation_regression_tests {
                 effect,
                 Effect::Terminal {
                     id: terminal,
-                    outcome: RuntimeOutcome::Failed(Error::NoSocket),
+                    outcome: RuntimeOutcome::Command(CommandOutcome::Failed(Error::NoSocket)),
                 } if *terminal == id
             ) || matches!(effect, Effect::RetryScheduled { id: scheduled, .. } if *scheduled == id)
         }));
@@ -6306,7 +6262,7 @@ mod cancellation_regression_tests {
                 effect,
                 Effect::Terminal {
                     id: terminal,
-                    outcome: RuntimeOutcome::Failed(Error::CommandFailedAfterAck { source, .. }),
+                    outcome: RuntimeOutcome::Command(CommandOutcome::Failed(Error::CommandFailedAfterAck { source, .. })),
                 } if *terminal == id && matches!(**source, Error::NoSocket)
             )
         }));
@@ -6315,7 +6271,7 @@ mod cancellation_regression_tests {
                 effect,
                 Effect::Terminal {
                     id: terminal,
-                    outcome: RuntimeOutcome::Cancelled,
+                    outcome: RuntimeOutcome::Command(CommandOutcome::Cancelled),
                 } if *terminal == id
             )
         }));

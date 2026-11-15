@@ -23,7 +23,10 @@ async fn full_idle_read_timeouts_do_not_delay_the_next_reply() {
             context.timeout.inquiry =
                 crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(deadline_ms))
                     .unwrap();
-            let (completion, admitted) = handle.core.enqueue_admission(request, None).unwrap();
+            let (completion, admitted) = handle
+                .core
+                .enqueue_admission::<RuntimeOutcome>(request, None)
+                .unwrap();
             let admission = actor.core.receivers.admissions.try_recv().unwrap();
             actor
                 .handle_event(
@@ -58,7 +61,7 @@ async fn full_idle_read_timeouts_do_not_delay_the_next_reply() {
                 assert!(run.as_mut().poll(&mut cx).is_pending());
             }
             assert!(
-                matches!(completion.try_recv(), Some(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [3])
+                matches!(completion.try_recv(), Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. })) if payload.as_slice() == [3])
             );
             handle.shutdown().unwrap();
             assert_eq!(run.await.state, SessionState::Shutdown);
@@ -80,7 +83,10 @@ async fn a_paced_receive_at_its_response_deadline_wins_the_timer_race() {
     };
     context.timeout.inquiry =
         crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(5)).unwrap();
-    let (completion, admitted) = handle.core.enqueue_admission(request, None).unwrap();
+    let (completion, admitted) = handle
+        .core
+        .enqueue_admission::<RuntimeOutcome>(request, None)
+        .unwrap();
     let admission = actor.core.receivers.admissions.try_recv().unwrap();
     actor
         .handle_event(
@@ -135,7 +141,7 @@ async fn a_paced_receive_at_its_response_deadline_wins_the_timer_race() {
     }
     assert!(matches!(
         completion.try_recv(),
-        Some(RuntimeOutcome::Reply { .. })
+        Some(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { .. }))
     ));
     handle.shutdown().unwrap();
     assert_eq!(run.await.state, SessionState::Shutdown);

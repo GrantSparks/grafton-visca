@@ -21,6 +21,7 @@ use super::super::{
     canonical_owner_trace, BlockingTransportAdapter, DeadlineKind, DiagnosticEvent,
     OperationObservation, RuntimeOutcome, RuntimeRequest, CANONICAL_OWNER_TRACE,
 };
+use super::super::{CommandOutcome, InquiryOutcome};
 use super::*;
 use crate::testing::manual_clock::ManualClock;
 use crate::{
@@ -798,7 +799,7 @@ fn a_stale_raw_reply_is_consumed_before_the_successor_is_written() {
     let deadline = owner.deadline_after(PROMPTLY).unwrap();
     assert!(matches!(
         owner.wait_core_until(&first, deadline),
-        Ok(RuntimeOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::Timeout { .. })
+        Ok(RuntimeOutcome::Inquiry(InquiryOutcome::Failed(Error::InquiryFailed { source }))) if matches!(source.as_ref(), Error::Timeout { .. })
     ));
     let timed_out = clock.now();
 
@@ -815,7 +816,7 @@ fn a_stale_raw_reply_is_consumed_before_the_successor_is_written() {
     let deadline = owner.deadline_after(PROMPTLY).unwrap();
     assert!(matches!(
         owner.wait_core_until(&second, deadline),
-        Ok(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [0x03]
+        Ok(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. })) if payload.as_slice() == [0x03]
     ));
     owner.close().unwrap();
 }
@@ -1042,14 +1043,14 @@ fn selected_disconnect_preserves_late_terminal_timeout_and_borrowing_cache() {
     sender
         .send(Observed {
             at: late,
-            value: RuntimeOutcome::Applied,
+            value: CommandOutcome::Applied,
         })
         .unwrap();
     drop(sender);
     let event = resolve_selected_receive(&receiver, Err(flume::RecvError::Disconnected));
     assert!(
         matches!(
-            ObservationWake::Terminal(event.clone().ok()).conclude(
+            TerminalWake::Terminal(event.clone().ok()).conclude(
                 &receipt.core,
                 &owner.core,
                 deadline
@@ -1099,7 +1100,7 @@ fn replies_after_a_full_idle_read_win_before_their_deadlines() {
             ));
             let deadline = owner.deadline_after(PROMPTLY).unwrap();
             assert!(
-                matches!(owner.wait_core_until(&receipt, deadline), Ok(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [3])
+                matches!(owner.wait_core_until(&receipt, deadline), Ok(RuntimeOutcome::Inquiry(InquiryOutcome::Reply { payload, .. })) if payload.as_slice() == [3])
             );
             assert_eq!(owner.metrics().unwrap().inquiry_timeouts, 0);
             owner.close().unwrap();
@@ -1224,7 +1225,7 @@ fn a_stream_completion_after_a_long_idle_read_wins_before_its_deadline() {
     let deadline = owner.deadline_after(Duration::from_secs(10)).unwrap();
     assert!(matches!(
         owner.wait_core_until(&receipt, deadline),
-        Ok(RuntimeOutcome::Applied)
+        Ok(RuntimeOutcome::Command(CommandOutcome::Applied))
     ));
     assert_eq!(owner.metrics().unwrap().completion_timeouts, 0);
     owner.close().unwrap();

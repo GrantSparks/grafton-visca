@@ -341,7 +341,7 @@ fn refused_cancellation_keeps_the_written_operation_and_its_socket_live() {
         );
         assert!(matches!(
             terminal_outcome(&completed, id),
-            Some(RuntimeOutcome::Applied)
+            Some(RuntimeOutcome::Command(CommandOutcome::Applied))
         ));
         assert!(invalidations(&completed).is_empty());
         engine.assert_invariants().unwrap();

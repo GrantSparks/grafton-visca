@@ -145,7 +145,8 @@ fn queued_mode_refusal(invalidate: bool) {
     for effect in state.finish_write(&staged, WriteOutcome::NotSent(error), now) {
         state.apply_effect(effect);
     }
-    let RuntimeOutcome::Failed(error) = observer.try_recv().unwrap() else {
+    let RuntimeOutcome::Command(CommandOutcome::Failed(error)) = observer.try_recv().unwrap()
+    else {
         panic!("the drive must be refused");
     };
     assert_eq!(
@@ -267,7 +268,8 @@ fn a_retry_refused_after_mode_invalidation_preserves_the_first_attempts_uncertai
     for effect in state.finish_write(&retry, WriteOutcome::NotSent(error), retry_at) {
         state.apply_effect(effect);
     }
-    let RuntimeOutcome::Failed(error) = observer.try_recv().unwrap() else {
+    let RuntimeOutcome::Command(CommandOutcome::Failed(error)) = observer.try_recv().unwrap()
+    else {
         panic!("retry prerequisite failed");
     };
     assert_eq!(

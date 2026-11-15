@@ -18,7 +18,7 @@ use crate::{
 };
 
 use super::boundary::{BoundaryReceivers, OwnerHandleCore, OwnerSnapshot};
-use super::receipt::{ObservationWake, OperationReceipt};
+use super::receipt::{ObservationWake, OperationReceipt, TerminalWake};
 use super::shell::{ClassifiedEvent, OwnerEvent, OwnerShellCore, TurnStep};
 use super::{
     CancellationObserver, OwnerInputTurn, OwnerPolicy, OwnerReceive, OwnerState,
@@ -346,6 +346,24 @@ impl AsyncOwnerHandle {
     /// cancellation slot, then actor liveness, then the observer deadline, in
     /// left-biased order. Each arm only reads a slot; flume leaves an unread
     /// value queued if this future is dropped.
+    async fn next_terminal<T: super::TerminalLane>(
+        &self,
+        terminal: &TerminalObserver<T>,
+        deadline: Instant,
+    ) -> TerminalWake<T> {
+        let terminal = async { TerminalWake::Terminal(terminal.recv_observed_async().await) };
+        let owner_gone = async {
+            while self.core.actor_alive.recv_async().await.is_ok() {}
+            TerminalWake::OwnerGone
+        };
+        let timer = async {
+            self.sleep(deadline.saturating_duration_since(self.now()))
+                .await;
+            TerminalWake::Deadline
+        };
+        future::or(terminal, future::or(owner_gone, timer)).await
+    }
+
     async fn next_observation(
         &self,
         terminal: &TerminalObserver,
@@ -384,7 +402,10 @@ impl AsyncOwnerHandle {
     /// context configures.
     // Used only by owner unit tests; the public session uses the typed seams.
     #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
-    pub(crate) async fn submit(&self, request: RuntimeRequest) -> Result<ReceiptCore, Error> {
+    pub(crate) async fn submit(
+        &self,
+        request: RuntimeRequest,
+    ) -> Result<ReceiptCore<super::RuntimeOutcome>, Error> {
         let timeout = test_observer_timeout(&request);
         self.submit_with_timeout(request, timeout).await
     }
@@ -395,7 +416,10 @@ impl AsyncOwnerHandle {
     pub(crate) fn try_submit(
         &self,
         request: RuntimeRequest,
-    ) -> Result<impl Future<Output = Result<ReceiptCore, Error>> + Send + '_, Error> {
+    ) -> Result<
+        impl Future<Output = Result<ReceiptCore<super::RuntimeOutcome>, Error>> + Send + '_,
+        Error,
+    > {
         let timeout = test_observer_timeout(&request);
         let pending = self.core.admit(request)?;
         Ok(async move {
@@ -408,9 +432,9 @@ impl AsyncOwnerHandle {
     /// observe the outcome on the receipt's terminal slot and a failed
     /// cancellation on the returned observer.
     #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
-    pub(crate) async fn cancel_test(
+    pub(crate) async fn cancel_test<T: Clone>(
         &self,
-        receipt: &ReceiptCore,
+        receipt: &ReceiptCore<T>,
     ) -> Result<CancellationObserver, Error> {
         let (observer, cell) = CancellationObserver::pair();
         let deadline = self.deadline_after(Duration::from_secs(3600))?;

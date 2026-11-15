@@ -81,11 +81,11 @@ use crate::{raw::MAX_BYTES, CancellationOutcome, Error, ErrorKind, ViscaSocket};
 
 use super::engine::{
     AdmissionSlot, AppliedStateProjection, CancellationObservation, CancellationPolicy,
-    ControlClass, DeadlineKind, DecodedFrame, DecodedResponse, Effect, EngineTurn, EnvelopeKind,
-    EnvelopeSequence, IgnoreReason, Input, InputTurn, Lane, Lifecycle, ProtocolEngine,
-    ProtocolPolicy, RequestContext, RequestId, RetryPolicy, RuntimeOutcome, RuntimeRequest,
-    SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy, Transmission, TransmissionId,
-    TransmissionMeta, TransportKind, WriteFraming, WriteOutcome,
+    CommandOutcome, ControlClass, DeadlineKind, DecodedFrame, DecodedResponse, Effect, EngineTurn,
+    EnvelopeKind, EnvelopeSequence, IgnoreReason, Input, InputTurn, InquiryOutcome, Lane,
+    Lifecycle, ProtocolEngine, ProtocolPolicy, RequestContext, RequestId, RetryPolicy,
+    RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy,
+    Transmission, TransmissionId, TransmissionMeta, TransportKind, WriteFraming, WriteOutcome,
 };
 
 #[cfg(test)]
@@ -892,7 +892,53 @@ impl<T> Observer<T> {
 }
 
 /// Observes one request's authoritative terminal outcome.
-pub(crate) type TerminalObserver = Observer<RuntimeOutcome>;
+pub(crate) type TerminalObserver<T = CommandOutcome> = Observer<T>;
+
+/// The owner retains a lane-specific terminal cell for each admitted request.
+#[derive(Debug)]
+pub(crate) enum TerminalSlot {
+    Command(Arc<ObserverCell<CommandOutcome>>),
+    Inquiry(Arc<ObserverCell<InquiryOutcome>>),
+    /// The heterogeneous internal test driver observes complete engine effects.
+    #[cfg(test)]
+    Test(Arc<ObserverCell<RuntimeOutcome>>),
+}
+
+pub(crate) trait TerminalLane: Clone + Send + std::fmt::Debug + 'static {
+    fn slot(cell: Arc<ObserverCell<Self>>) -> TerminalSlot;
+}
+impl TerminalLane for CommandOutcome {
+    fn slot(cell: Arc<ObserverCell<Self>>) -> TerminalSlot {
+        TerminalSlot::Command(cell)
+    }
+}
+impl TerminalLane for InquiryOutcome {
+    fn slot(cell: Arc<ObserverCell<Self>>) -> TerminalSlot {
+        TerminalSlot::Inquiry(cell)
+    }
+}
+#[cfg(test)]
+impl TerminalLane for RuntimeOutcome {
+    fn slot(cell: Arc<ObserverCell<Self>>) -> TerminalSlot {
+        TerminalSlot::Test(cell)
+    }
+}
+impl<T: TerminalLane> From<Arc<ObserverCell<T>>> for TerminalSlot {
+    fn from(cell: Arc<ObserverCell<T>>) -> Self {
+        T::slot(cell)
+    }
+}
+impl TerminalSlot {
+    fn resolve_at(self, outcome: RuntimeOutcome, at: Instant) -> ObserverResolution {
+        match (self, outcome) {
+            (Self::Command(cell), RuntimeOutcome::Command(outcome)) => cell.resolve_at(outcome, at),
+            (Self::Inquiry(cell), RuntimeOutcome::Inquiry(outcome)) => cell.resolve_at(outcome, at),
+            #[cfg(test)]
+            (Self::Test(cell), outcome) => cell.resolve_at(outcome, at),
+            _ => unreachable!("an admitted request and its terminal effect have the same lane"),
+        }
+    }
+}
 
 /// Observes a cancellation that failed *without* ending its operation: a
 /// cancellation write that could not be sent, or a cancellation observation
@@ -914,21 +960,21 @@ pub(crate) struct CancellationRequest {
 /// Exact, linear observation authority shared by the mode-specific receipt
 /// wrappers. It is deliberately neither cloneable nor publicly nameable.
 #[derive(Debug)]
-pub(crate) struct ReceiptCore {
+pub(crate) struct ReceiptCore<T = CommandOutcome> {
     motion: Option<MotionStamp>,
     pub(crate) id: RequestId,
-    pub(crate) completion: TerminalObserver,
+    pub(crate) completion: TerminalObserver<T>,
     pub(crate) configured_timeout: Duration,
 }
 
-impl ReceiptCore {
-    fn admitted(admitted: Admitted, completion: TerminalObserver, timeout: Duration) -> Self {
+impl<T: Clone> ReceiptCore<T> {
+    fn admitted(admitted: Admitted, completion: TerminalObserver<T>, timeout: Duration) -> Self {
         let mut core = Self::new(admitted.id, completion, timeout);
         core.motion = admitted.motion;
         core
     }
 
-    fn new(id: RequestId, completion: TerminalObserver, configured_timeout: Duration) -> Self {
+    fn new(id: RequestId, completion: TerminalObserver<T>, configured_timeout: Duration) -> Self {
         Self {
             motion: None,
             id,
@@ -949,11 +995,7 @@ impl ReceiptCore {
     /// ending at `deadline`: its value when it counts, else an observation
     /// timeout.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    fn conclude(
-        &self,
-        outcome: Observed<RuntimeOutcome>,
-        deadline: Instant,
-    ) -> Result<RuntimeOutcome, Error> {
+    fn conclude(&self, outcome: Observed<T>, deadline: Instant) -> Result<T, Error> {
         if outcome.within(deadline) {
             Ok(outcome.value)
         } else {
@@ -964,7 +1006,7 @@ impl ReceiptCore {
     /// The terminal outcome already delivered, if any, judged against
     /// `deadline`; `None` while the slot is still empty.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    fn try_conclude(&self, deadline: Instant) -> Option<Result<RuntimeOutcome, Error>> {
+    fn try_conclude(&self, deadline: Instant) -> Option<Result<T, Error>> {
         self.completion
             .try_observed()
             .map(|outcome| self.conclude(outcome, deadline))
@@ -972,7 +1014,7 @@ impl ReceiptCore {
 
     /// The terminal outcome already delivered within `deadline`, if any.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    fn observed_within(&self, deadline: Instant) -> Option<RuntimeOutcome> {
+    fn observed_within(&self, deadline: Instant) -> Option<T> {
         self.completion
             .try_observed()
             .filter(|outcome| outcome.within(deadline))
@@ -986,7 +1028,7 @@ impl ReceiptCore {
         feature = "async",
         any(feature = "runtime-tokio", feature = "runtime-smol")
     ))]
-    pub(crate) async fn terminal(&self) -> Result<RuntimeOutcome, Error> {
+    pub(crate) async fn terminal(&self) -> Result<T, Error> {
         self.completion
             .recv_async()
             .await
@@ -994,35 +1036,35 @@ impl ReceiptCore {
     }
 }
 
-fn normalize_command_outcome(outcome: RuntimeOutcome) -> Result<(), Error> {
+fn application_outcome(verdict: Result<CancellationOutcome, Error>) -> Result<(), Error> {
+    match verdict? {
+        CancellationOutcome::Completed => Ok(()),
+        CancellationOutcome::Cancelled => Err(Error::CommandCanceled),
+    }
+}
+
+fn normalize_command_outcome(outcome: CommandOutcome) -> Result<(), Error> {
     match outcome {
-        RuntimeOutcome::Written | RuntimeOutcome::Applied => Ok(()),
-        RuntimeOutcome::Cancelled => Err(Error::CommandCanceled),
-        RuntimeOutcome::Failed(error) => Err(error),
-        RuntimeOutcome::Reply { .. } => Err(Error::InvalidState(
-            "a command observer received an inquiry reply".into(),
-        )),
+        CommandOutcome::Written | CommandOutcome::Applied => Ok(()),
+        CommandOutcome::Cancelled => Err(Error::CommandCanceled),
+        CommandOutcome::Failed(error) => Err(error),
     }
 }
 
 fn normalize_inquiry_outcome<R>(
-    outcome: RuntimeOutcome,
+    outcome: InquiryOutcome,
     decoder: &crate::ResponseDecoder<R>,
 ) -> Result<R, Error> {
     match outcome {
-        RuntimeOutcome::Reply { payload, .. } => decoder.decode(&payload),
-        RuntimeOutcome::Failed(error) => Err(error),
-        RuntimeOutcome::Cancelled => Err(Error::CommandCanceled),
-        RuntimeOutcome::Written | RuntimeOutcome::Applied => Err(Error::InvalidState(
-            "an inquiry observer received a command outcome".into(),
-        )),
+        InquiryOutcome::Reply { payload } => decoder.decode(&payload),
+        InquiryOutcome::Failed(error) => Err(error),
     }
 }
 
 #[derive(Debug)]
 struct ActiveRequest {
     _permit: AdmissionPermit,
-    observer: Arc<ObserverCell<RuntimeOutcome>>,
+    observer: TerminalSlot,
     summary: RequestSummary,
     /// The one cancellation intent a handle installed (#777). It lives exactly
     /// as long as the request, so it adds no unbounded state.
@@ -1039,19 +1081,9 @@ enum CancellationIntent {
 /// is known: `Completed` after a successful application, `Cancelled` after a
 /// cancellation, and the failure itself after a failed operation.
 pub(crate) fn cancellation_outcome(
-    terminal: &RuntimeOutcome,
+    terminal: &CommandOutcome,
 ) -> Result<CancellationOutcome, Error> {
-    match terminal {
-        RuntimeOutcome::Cancelled => Ok(CancellationOutcome::Cancelled),
-        RuntimeOutcome::Applied => Ok(CancellationOutcome::Completed),
-        RuntimeOutcome::Failed(error) => Err(error.clone()),
-        RuntimeOutcome::Written => Err(Error::InvalidState(
-            "a local write outcome cannot authorize cancellation".into(),
-        )),
-        RuntimeOutcome::Reply { .. } => Err(Error::InvalidState(
-            "an inquiry outcome cannot authorize cancellation".into(),
-        )),
-    }
+    terminal.verdict()
 }
 
 /// The handle-side observation state of one admitted operation (#777).
@@ -1064,7 +1096,7 @@ pub(crate) fn cancellation_outcome(
 pub(crate) struct OperationObservation {
     core: ReceiptCore,
     cancellation_timeout: Duration,
-    terminal: Option<Observed<RuntimeOutcome>>,
+    terminal: Option<Observed<CommandOutcome>>,
     settled: Option<Result<crate::Settlement, Error>>,
     cancellation: Option<CancellationObserver>,
     cancellation_failure: Option<Observed<Error>>,
@@ -1115,7 +1147,7 @@ impl OperationObservation {
         self.terminal
             .as_ref()
             .filter(|event| event.within(deadline))
-            .map(|event| normalize_command_outcome(event.value.clone()))
+            .map(|event| application_outcome(cancellation_outcome(&event.value)))
     }
 
     /// The cancellation verdict, once known. The terminal outcome always
@@ -1162,7 +1194,7 @@ impl OperationObservation {
         }
     }
 
-    pub(crate) fn record_terminal(&mut self, outcome: Observed<RuntimeOutcome>) {
+    pub(crate) fn record_terminal(&mut self, outcome: Observed<CommandOutcome>) {
         self.terminal.get_or_insert(outcome);
     }
 
@@ -1955,7 +1987,7 @@ impl OwnerState {
         turn: &OwnerInputTurn,
         request: RuntimeRequest,
         permit: AdmissionPermit,
-        observer: Arc<ObserverCell<RuntimeOutcome>>,
+        observer: impl Into<TerminalSlot>,
     ) -> Result<Admitted, Error> {
         self.observed_at = turn.1;
         let summary = RequestSummary::new(&request);
@@ -1981,7 +2013,7 @@ impl OwnerState {
             id,
             ActiveRequest {
                 _permit: permit,
-                observer,
+                observer: observer.into(),
                 summary,
                 cancellation: None,
             },
@@ -2318,9 +2350,7 @@ impl OwnerState {
                 if let Some(active) = self.active.remove(&id) {
                     let target = active.summary.target;
                     if matches!(
-                        active
-                            .observer
-                            .resolve_at(outcome.clone(), self.observed_at),
+                        active.observer.resolve_at(outcome, self.observed_at),
                         ObserverResolution::ReceiverLost
                     ) {
                         self.metrics.dropped_observer_events =
@@ -2433,11 +2463,14 @@ fn response_diagnostic(response: &DecodedResponse) -> ResponseDiagnostic {
 
 fn outcome_diagnostic(outcome: &RuntimeOutcome) -> OutcomeDiagnostic {
     match outcome {
-        RuntimeOutcome::Written => OutcomeDiagnostic::Written,
-        RuntimeOutcome::Applied => OutcomeDiagnostic::Applied,
-        RuntimeOutcome::Reply { .. } => OutcomeDiagnostic::Reply,
-        RuntimeOutcome::Cancelled => OutcomeDiagnostic::Cancelled,
-        RuntimeOutcome::Failed(error) => OutcomeDiagnostic::Failed(error.kind()),
+        RuntimeOutcome::Command(CommandOutcome::Written) => OutcomeDiagnostic::Written,
+        RuntimeOutcome::Command(CommandOutcome::Applied) => OutcomeDiagnostic::Applied,
+        RuntimeOutcome::Inquiry(InquiryOutcome::Reply { .. }) => OutcomeDiagnostic::Reply,
+        RuntimeOutcome::Command(CommandOutcome::Cancelled) => OutcomeDiagnostic::Cancelled,
+        RuntimeOutcome::Command(CommandOutcome::Failed(error))
+        | RuntimeOutcome::Inquiry(InquiryOutcome::Failed(error)) => {
+            OutcomeDiagnostic::Failed(error.kind())
+        }
     }
 }
 

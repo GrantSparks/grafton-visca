@@ -138,7 +138,11 @@ async fn queued_cancel_at_shutdown_concludes_on_the_buffered_terminal_slot() {
     );
     let terminal = operation.terminal().await.unwrap();
     assert_eq!(
-        cancellation_outcome(&terminal).unwrap(),
+        cancellation_outcome(match &terminal {
+            RuntimeOutcome::Command(outcome) => outcome,
+            _ => panic!("command terminal"),
+        })
+        .unwrap(),
         CancellationOutcome::Completed
     );
     assert_eq!(
@@ -177,7 +181,7 @@ async fn stream_poison_resolves_active_and_drains_unstaged_boundary() {
 
     assert!(matches!(
         first.terminal().await.unwrap(),
-        RuntimeOutcome::Failed(Error::StreamPoisoned { .. })
+        RuntimeOutcome::Command(CommandOutcome::Failed(Error::StreamPoisoned { .. }))
     ));
     assert!(matches!(
         queued.await.unwrap().unwrap_err(),
