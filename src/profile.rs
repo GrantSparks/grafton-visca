@@ -2015,7 +2015,7 @@ impl ProfileSpecBuilder {
         self
     }
 
-    /// Sets the default camera ID.
+    /// Sets the validated individual default camera ID.
     #[must_use]
     pub fn default_camera_id(mut self, camera_id: crate::IndividualCameraId) -> Self {
         self.capabilities.default_camera_id = camera_id;
@@ -2050,7 +2050,7 @@ impl ProfileSpecBuilder {
         self
     }
 
-    /// Sets the complete white/balance domain facts.
+    /// Sets the complete white-balance domain facts.
     #[must_use]
     pub fn white_balance(mut self, facts: capabilities::WhiteBalanceCaps) -> Self {
         self.capabilities.white_balance = Some(facts);

@@ -110,7 +110,7 @@ impl<T: Exposure> ExposureExt for T {}
 /// profile-specific wire code that selects it.
 ///
 /// Compile-time profiles list these in [`Exposure::SHUTTER_SPEEDS`] and
-/// runtime [`Capabilities::shutter_speeds`](crate::capabilities::Capabilities::shutter_speeds)
+/// runtime [`ExposureCaps::shutter_speeds`](crate::capabilities::ExposureCaps::shutter_speeds)
 /// holds the same entries. The wire code itself is the
 /// [`crate::types::ShutterSpeed`] value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

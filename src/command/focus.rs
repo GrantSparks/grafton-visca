@@ -117,7 +117,7 @@ impl WireEncode for Focus {
 ///
 /// Decoding accepts every variant from any camera. Sending is gated per
 /// profile: the typed setter refuses a value outside
-/// [`Capabilities::focus_zones`](crate::capabilities::Capabilities::focus_zones)
+/// [`FocusCaps::zones`](crate::capabilities::FocusCaps::zones)
 /// before any I/O.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

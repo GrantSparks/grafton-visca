@@ -377,7 +377,7 @@ impl Session {
     /// use std::time::Duration;
     /// use grafton_visca::{
     ///     blocking::Session,
-    ///     capabilities::Capabilities,
+    ///     capabilities::{Capabilities, PowerCaps},
     ///     command::PowerOn,
     ///     profile::{
     ///         PositionInquirySupport, ProfileEnvelope, ProfileSpec, ProfileTiming,
@@ -389,8 +389,13 @@ impl Session {
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut capabilities = Capabilities::runtime_baseline("Custom camera", 1)?;
-    /// capabilities.has_power = true;
-    /// capabilities.power_on_time = Duration::from_secs(1);
+    /// capabilities.power = Some(PowerCaps {
+    ///     on_time: Duration::from_secs(1),
+    ///     standby: None,
+    ///     wake_on_lan: false,
+    ///     retains_settings: false,
+    ///     home_on_up: false,
+    /// });
     ///
     /// let timing = ProfileTiming::builder()
     ///     .ack_timeout(Duration::from_millis(100))
@@ -410,7 +415,6 @@ impl Session {
     ///     .maximum_command_sockets(1)
     ///     .supports_operation_complete(true)
     ///     .supports_command_cancel(false)
-    ///     .preset_recall_axes(None)
     ///     .position_inquiries(PositionInquirySupport::new(false, false, false))
     ///     .build()?;
     ///

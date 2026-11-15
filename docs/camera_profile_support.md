@@ -236,8 +236,9 @@ says which image area it weights; it is not focus lock, which is the separate
 `81 0A 04 68 02/03 FF` command. `FocusZone` is `#[non_exhaustive]` because its
 values are evidence-driven vendor values rather than one fixed protocol table.
 
-Sending a zone is gated per value, following the `exposure_modes` precedent.
-`Focus::FOCUS_ZONES` lists the values a profile may send (default: empty) and `Capabilities::focus.as_ref().map(|focus| &focus.zones)` mirrors it at runtime; it is
+Sending a zone is gated per value, following the `ExposureCaps::modes` precedent.
+`Focus::FOCUS_ZONES` lists the values a profile may send (default: empty,
+with no focus-zone selection) and `Capabilities::focus.as_ref().map(|focus| &focus.zones)` mirrors it at runtime; it is
 empty exactly when focus-zone selection is unsupported and must be
 duplicate-free. `FocusZoneCommand` refuses a value outside the list with
 `Error::InvalidParameter { parameter: "focus_zone", .. }` before any I/O, on
@@ -387,7 +388,7 @@ R/B gain (`04 03`/`04 04`, `04 43`/`04 44`) commands with their inquiries, so
 all three carry `HasExposureCompensation`, `HasBrightnessControl` and
 `HasRgbGain`; BRC-300 and Nearus also document `CAM_ImgFlip` `04 66` with its
 inquiry (`HasImageFlip`, no mirror). `BrightnessLevel` is the `0p 0q` wire byte
-of `CAM_Bright` Direct, so each profile's `exposure_brightness_range` is the sole
+of `CAM_Bright` Direct, so each profile's `ExposureCaps::brightness_range` is the sole
 admission authority: `0x00..=0x1F` without `0x01..=0x04` for EVI-H100 (R8), `0x00..=0x17` for BRC-300
 and Nearus BRC-300 (R12, R21), and `0x00..=0x11` for the PTZOptics profiles.
 EVI-H100's Wide-D is `CAM_WD` `04 3D`; the typed `WideDynamicRange` surface sends
@@ -398,9 +399,9 @@ Shutter codes are per-model tables, and a code means a different exposure time
 on each table, so each profile carries its own source's table: EVI-H100 `00`
 (1/1 s) through `15` (1/10000 s) from R8's 60/30 mode column, and BRC-300 and
 Nearus BRC-300 `02` (1/4 s) through `15` from R12/R21. Generic VISCA uses the
-codes all three share (`02` through `15`). The FR7 and BRC-H900 command lists
-could not be read, so those profiles advertise no shutter codes and a typed
-shutter position is refused for them; the raw command path remains.
+codes all three share (`02` through `15`). No checked shutter-code inventory has been transcribed for FR7 or BRC-H900,
+so those profiles advertise no shutter codes and refuse typed shutter
+positions; the raw command path remains.
 
 #### FR7 pan/tilt installation facts
 
@@ -435,11 +436,11 @@ in the hardware release checklist.
   inquiry reply polarity is not evidence for an absent setter. Incomplete
   families remain available through explicit caller-owned custom requests.
 
-- **FR7 shutter codes (R7).** The shutter table of the FR7 command list could
-  not be read, so `SonyFR7` advertises no shutter codes (`shutter_speeds` is
-  empty) and `ShutterSpeed` positions are refused before any I/O.
-- **BRC-H900 shutter codes (R11).** The shutter table of the BRC-H900 command
-  list could not be read, so `SonyBRCH900` advertises no shutter codes either.
+- **FR7 shutter codes (R7).** No checked R7 shutter-code inventory has
+  been transcribed, so `SonyFR7` advertises no shutter codes
+  (`ExposureCaps::shutter_speeds` is empty) and `ShutterSpeed` positions are refused before any I/O.
+- **BRC-H900 shutter codes (R11).** No checked R11 shutter-code inventory has
+  been transcribed, so `SonyBRCH900` advertises no shutter codes either.
 - **Pan/tilt direction of PTZOptics and BRC-H900.** Degrees are positive
   right and positive up for every profile. R8 (EVI-H100) documents increasing
   raw pan as right and increasing raw tilt as up, and R12/R21 (BRC-300, Nearus)

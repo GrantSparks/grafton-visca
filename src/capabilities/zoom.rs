@@ -39,7 +39,8 @@ pub trait Zoom {
     /// with
     /// [`Capabilities::zoom_scale_for_lens`](crate::capabilities::Capabilities::zoom_scale_for_lens),
     /// and a custom profile with a fixed lens states it once through the
-    /// `optical_zoom_ratio` argument of
+    /// [`ZoomCaps::optical_ratio`](crate::capabilities::ZoomCaps::optical_ratio)
+    /// field in the complete domain supplied to
     /// [`ProfileSpecBuilder::zoom`](crate::ProfileSpecBuilder::zoom).
     const OPTICAL_ZOOM_RATIO: Option<f32>;
 }
@@ -149,7 +150,7 @@ pub trait ZoomExt: Zoom {
     /// Validate a zoom speed against `ZOOM_SPEED_RANGE`.
     ///
     /// Rejects out-of-range speeds instead of clamping them, matching the
-    /// request path (`Capabilities::zoom_speed`).
+    /// request path (`ZoomCaps::speed`).
     fn validate_zoom_speed(&self, speed: u8) -> Result<u8, ValidationError> {
         Self::ZOOM_SPEED_RANGE.validate("zoom speed", speed)
     }

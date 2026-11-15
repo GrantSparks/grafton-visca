@@ -346,19 +346,21 @@
 //! The library provides comprehensive parameter validation at multiple levels, ensuring
 //! commands are correct before being sent to the camera:
 //!
-//! ### Type-Safe Parameters with Conservative Defaults
-//! All parameter types provide conservative VISCA-compliant ranges by default:
+//! ### Checked Wire Parameters
+//! Parameter types cover the wire values used by the built-in profiles. Request
+//! preparation enforces the selected model's range. FR7 pan/tilt speeds above
+//! 24 also require session-confirmed Extended speed-step mode.
 //! ```rust
 //! use grafton_visca::types::{PanSpeed, SpeedLevel, ZoomSpeed};
 //!
 //! // All range types expose MIN/MAX constants for validation
 //! assert_eq!(PanSpeed::MIN.value(), 0);
-//! assert_eq!(PanSpeed::MAX.value(), 24);
+//! assert_eq!(PanSpeed::MAX.value(), 50);
 //!
 //! // Validated constructors provide clear error messages
-//! let speed = PanSpeed::new(15).expect("0..=24 is in range");
+//! let speed = PanSpeed::new(15).expect("0..=50 is in the wire domain");
 //! assert_eq!(speed.value(), 15);
-//! let error = PanSpeed::new(30).expect_err("25..=255 is out of range");
+//! let error = PanSpeed::new(51).expect_err("51..=255 is outside the wire domain");
 //! println!("{error}");
 //!
 //! // Speed types work seamlessly with SpeedLevel enum

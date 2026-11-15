@@ -95,7 +95,7 @@ impl_into_iris_level! {
 /// This is the byte carried by the `0p 0q` shutter field, so every `u8` is a
 /// well-formed code. Shutter codes are camera-specific: the same code selects
 /// a different exposure time on different models. The selected profile's
-/// shutter table (`Capabilities::shutter_speeds`) is the only authority for
+/// shutter table (`ExposureCaps::shutter_speeds`) is the only authority for
 /// which codes a camera accepts; request preparation rejects a code the
 /// profile does not list. Use [`Capabilities::shutter_speed_for`] to look a
 /// code up by exposure time.
@@ -145,7 +145,7 @@ impl fmt::Display for ShutterSpeed {
 /// This is the byte carried by the `0p 0q` field of `CAM_Bright` Direct
 /// (`8x 01 04 4D 00 00 0p 0q FF`), so every `u8` is a well-formed position.
 /// Bright positions are camera-specific: the selected profile's
-/// `Capabilities::exposure_brightness_range` is the only authority for which
+/// `ExposureCaps::brightness_range` is the only authority for which
 /// positions a camera accepts, and request preparation rejects any other.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

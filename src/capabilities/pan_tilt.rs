@@ -107,7 +107,7 @@ pub trait PanTiltExt: PanTilt {
     /// Validate a pan speed against `1..=MAX_PAN_SPEED`.
     ///
     /// Rejects out-of-range speeds instead of clamping them, matching the
-    /// request path (`Capabilities::pan_speed`).
+    /// request path (`PanTiltCaps::pan_speed`).
     /// A profile whose `MAX_PAN_SPEED` is `0` has no valid speed and fails to
     /// compile a call to this method.
     fn validate_pan_speed(&self, speed: u8) -> Result<u8, ValidationError> {
@@ -117,7 +117,7 @@ pub trait PanTiltExt: PanTilt {
     /// Validate a tilt speed against `1..=MAX_TILT_SPEED`.
     ///
     /// Rejects out-of-range speeds instead of clamping them, matching the
-    /// request path (`Capabilities::tilt_speed`).
+    /// request path (`PanTiltCaps::tilt_speed`).
     /// A profile whose `MAX_TILT_SPEED` is `0` has no valid speed and fails to
     /// compile a call to this method.
     fn validate_tilt_speed(&self, speed: u8) -> Result<u8, ValidationError> {

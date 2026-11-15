@@ -63,8 +63,8 @@ pub trait Focus {
 pub trait FocusExt: Focus {
     /// Validate a focus position is within range.
     ///
-    /// A profile whose `FOCUS_NEAR_LIMIT` exceeds its `FOCUS_FAR_LIMIT` fails to
-    /// compile a call to this method.
+    /// `FOCUS_RANGE` is the validated, ordered interval; `FOCUS_NEAR_END`
+    /// separately identifies its physical orientation.
     fn validate_focus_position(&self, position: u16) -> Result<u16, ValidationError> {
         Self::FOCUS_RANGE.validate("focus position", position)
     }
@@ -72,7 +72,7 @@ pub trait FocusExt: Focus {
     /// Validate a focus speed against `0..=MAX_FOCUS_SPEED`.
     ///
     /// Rejects out-of-range speeds instead of clamping them, matching the
-    /// request path (`Capabilities::focus_speed`).
+    /// request path (`FocusCaps::speed`).
     fn validate_focus_speed(&self, speed: u8) -> Result<u8, ValidationError> {
         CapabilityRange::<u8>::new(0, Self::MAX_FOCUS_SPEED).validate("focus speed", speed)
     }
