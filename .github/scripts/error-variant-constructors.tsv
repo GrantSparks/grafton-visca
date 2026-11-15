@@ -22,7 +22,7 @@ InvalidParameter	src/units.rs	if !value.is_finite() { return Err(Error::InvalidP
 BufferTooSmall	src/command/bytes/frame.rs	Err(Error::buffer_too_small(frame.len, frame.buffer.len()))
 ParameterOutOfRange	src/error.rs	Self::ParameterOutOfRange { parameter, value, min, max, }
 Timeout	src/runtime/engine/mod.rs	Error::timeout(FailureStage::Terminal, terminal_certainty(entry))
-MotionSuperseded	src/runtime/engine/mod.rs	RuntimeOutcome::Failed(Error::MotionSuperseded { axes, context: superseded_context(effect_possible), }), &mut effects,
+MotionSuperseded	src/runtime/engine/mod.rs	RuntimeOutcome::Failed(Error::MotionSuperseded { axes, context: superseded_context(effect_possible), }), now, &mut effects,
 SettlementSuperseded	src/runtime/owner/motion.rs	let error = Error::SettlementSuperseded
 SettlementObservationFailed	src/runtime/owner/mod.rs	Error::SettlementObservationFailed {
 CancellationObservationFailed	src/error.rs	Self::CancellationObservationFailed { source: Box::new(source), }
@@ -33,9 +33,9 @@ NotSupported	src/runtime/owner/adapter.rs	if config.addressing == AddressingMode
 InvalidState	src/runtime/owner/blocking.rs	return Err(Error::InvalidState(format!("blocking owner worker cannot call {call} on its own session").into(),));
 OwnerTerminated	src/runtime/owner/boundary.rs	fn missing_terminal_error() -> Error { Error::OwnerTerminated }
 DiagnosticSubscriberLimit	src/runtime/owner/mod.rs	return Err(Error::DiagnosticSubscriberLimit {
-RuntimeShutdown	src/runtime/engine/mod.rs	self.terminate_session(SessionState::Shutdown, Error::RuntimeShutdown, effects)
+RuntimeShutdown	src/runtime/engine/mod.rs	self.terminate_session( SessionState::Shutdown, Error::RuntimeShutdown, now, effects, )
 CancellationUnconfirmed	src/runtime/engine/mod.rs	RuntimeOutcome::Failed(Error::CancellationUnconfirmed)
-UnsequencedCommandUnconfirmed	src/runtime/engine/mod.rs	self.finish( id, RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed), effects, )
+UnsequencedCommandUnconfirmed	src/runtime/engine/mod.rs	self.finish( id, RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed), now, effects, )
 InquiryCorrelationLost	src/runtime/engine/mod.rs	return Some(Error::inquiry_correlation_lost(target.camera()));
 CommandCorrelationLost	src/runtime/engine/mod.rs	.then(|| Error::command_correlation_lost(target.camera()))
 CommandFailedAfterAck	src/runtime/engine/mod.rs	RuntimeOutcome::Failed(Error::command_failed_after_ack(error))
