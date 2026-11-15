@@ -183,6 +183,26 @@ mod tests {
     };
     use std::collections::VecDeque;
 
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn transport_handle_preserves_the_serial_addressed_bus_identity() {
+        use crate::{
+            transport::{TransportConfig, TransportIdentity},
+            TokioRuntime, TransportHandle,
+        };
+
+        let (_master, stream) = SerialStream::pair().expect("pseudo-terminal pair");
+        let bus = AddressedBus::new("test pseudo-terminal", 3);
+        let transport = Serial::new(TokioSerialAdapter { stream }, TransportConfig::for_serial())
+            .with_addressed_bus(Some(bus.clone()));
+        let handle = TransportHandle::<TokioRuntime>::Serial(Box::new(transport));
+
+        assert_eq!(
+            handle.identity(),
+            TransportIdentity::Serial { bus: Some(&bus) }
+        );
+    }
+
     /// Scripted serial I/O: queued read results and a write log.
     #[derive(Default)]
     struct TranscriptIo {

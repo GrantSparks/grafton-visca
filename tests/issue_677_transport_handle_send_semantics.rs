@@ -3,7 +3,9 @@
 
 #![cfg(feature = "runtime-tokio")]
 
-use grafton_visca::transport::{HasTransportConfig, SendSemantics, TransportConfig};
+use grafton_visca::transport::{
+    HasTransportConfig, SendSemantics, TransportConfig, TransportIdentity,
+};
 use grafton_visca::{Runtime, TokioRuntime, TransportHandle};
 
 /// A UDP session built through the wrapper must be governed by datagram rules.
@@ -21,6 +23,8 @@ async fn udp_transport_handle_reports_datagram_semantics() {
         .await
         .expect("udp connect is a local operation and needs no peer");
     let handle: TransportHandle<TokioRuntime> = TransportHandle::Udp(udp);
+
+    assert_eq!(handle.identity(), TransportIdentity::Udp);
 
     assert_eq!(
         handle.identity().send_semantics(),
@@ -49,6 +53,8 @@ async fn tcp_transport_handle_reports_stream_semantics() {
         .await
         .expect("tcp connect to local listener");
     let handle: TransportHandle<TokioRuntime> = TransportHandle::Tcp(tcp);
+
+    assert_eq!(handle.identity(), TransportIdentity::Tcp);
 
     assert_eq!(
         handle.identity().send_semantics(),

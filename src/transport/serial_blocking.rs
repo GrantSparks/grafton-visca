@@ -487,6 +487,21 @@ mod tests {
         }
     }
 
+    #[test]
+    fn transport_handle_preserves_the_serial_addressed_bus_identity() {
+        use crate::transport::{BlockingTransportHandle, TransportIdentity};
+
+        let bus = AddressedBus::new("/dev/test", 3);
+        let mut transport = create_test_transport(TestSerialPort::new(Duration::from_secs(1)));
+        transport.addressed_bus = Some(bus.clone());
+        let handle = BlockingTransportHandle::Serial(transport);
+
+        assert_eq!(
+            handle.identity(),
+            TransportIdentity::Serial { bus: Some(&bus) }
+        );
+    }
+
     /// The production timing with a different Address Set attempt budget.
     fn timing(address_set_attempt: Duration) -> StartupTiming {
         StartupTiming {

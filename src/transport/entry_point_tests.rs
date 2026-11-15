@@ -20,7 +20,7 @@ mod tcp_queue;
 
 #[cfg(feature = "blocking")]
 use crate::transport::HasTransportConfig;
-use crate::transport::{AddressingMode, TransportConfig};
+use crate::transport::TransportConfig;
 
 #[cfg(feature = "blocking")]
 fn invalid_bound_configurations() -> Vec<TransportConfig> {
@@ -263,7 +263,9 @@ mod blocking {
     }
 
     #[test]
-    fn built_transports_report_their_defaults_and_a_matching_hint() {
+    fn built_transports_report_their_defaults_and_complete_identity() {
+        use crate::transport::TransportIdentity;
+
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
         let peer = UdpSocket::bind("127.0.0.1:0").expect("bind UDP peer");
 
@@ -276,12 +278,12 @@ mod blocking {
             .build_blocking()
             .expect("UDP connects");
 
-        for (transport, expected) in [
-            (&tcp, TransportConfig::for_tcp()),
-            (&udp, TransportConfig::for_udp()),
+        for (transport, expected, identity) in [
+            (&tcp, TransportConfig::for_tcp(), TransportIdentity::Tcp),
+            (&udp, TransportConfig::for_udp(), TransportIdentity::Udp),
         ] {
             assert_eq!(transport.transport_config(), &expected);
-            assert_eq!(transport.identity().addressing(), AddressingMode::Ip);
+            assert_eq!(transport.identity(), identity);
         }
     }
 
@@ -339,7 +341,7 @@ mod blocking {
         {
             use serialport::SerialPort;
 
-            use crate::transport::serial::Config;
+            use crate::transport::{serial::Config, AddressingMode};
 
             let (_master, slave) = serialport::TTYPort::pair().expect("pseudo-terminal pair");
             let mut serial = crate::transport::serial_blocking::SerialTransport::new(Config::new(
@@ -469,6 +471,8 @@ mod facades {
 
     #[tokio::test]
     async fn async_direct_connectors_use_the_transport_defaults() {
+        use crate::transport::AddressingMode;
+
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind listener");
         let peer = UdpSocket::bind("127.0.0.1:0").expect("bind UDP peer");
         let tcp_address = listener.local_addr().expect("address").to_string();
