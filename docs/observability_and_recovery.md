@@ -138,7 +138,7 @@ over it needs a wildcard arm:
 let cache = camera.state_cache();
 assert_eq!(cache.target(), camera.target());
 match cache.value(grafton_visca::StateKey::ImageFreeze) {
-    grafton_visca::StateEntry::Unknown => { /* no exact applied value yet */ }
+    grafton_visca::StateEntry::Unknown => { /* no exact applied value is currently known */ }
     grafton_visca::StateEntry::Set(grafton_visca::KnownState::ImageFreeze(enabled)) => {
         println!("freeze enabled: {enabled}");
     }

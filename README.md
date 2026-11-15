@@ -232,7 +232,7 @@ matrix fit together.
 | `schemars` | Stable JSON Schema generation for serde-backed public types |
 | `ts-rs` | Stable TypeScript type generation for supported exported types |
 | `dyn-api` | Runtime-profile camera projections; native blocking with `blocking`, plus object-safe noun/custom-operation views and erased lifecycle handles with `async`. It projects the enabled facades, so enabling it without `blocking` or `async` is a compile error |
-| `test-utils` | Exposes the stable `grafton_visca::testing` module. It enables no facade of its own, so what it exposes depends on the union: `testkit::{Step, helpers}` always, `ScriptedBlockingTransport` with `blocking`, `ManualClock` and `ClockParticipant` with either facade, `ScriptedTransport`, the deterministic executor and `ManualClockExecutor` with `async`, and `ViscaCameraSimulator` only with `runtime-tokio`. Neither `runtime-tokio` nor `blocking` exposes any of it on its own. |
+| `test-utils` | Exposes the stable `grafton_visca::testing` module. It enables no facade of its own, so what it exposes depends on the union: `testkit::{Step, helpers}` always, `ScriptedBlockingTransport` with `blocking`, `ManualClock` and `ClockParticipant` with either facade, `ScriptedTransport`, `LocalExecutor` and `ManualClockExecutor` with `async`, and `ViscaCameraSimulator` only with `runtime-tokio`. Neither `runtime-tokio` nor `blocking` exposes any of it on its own. |
 
 ### Feature-union checks
 

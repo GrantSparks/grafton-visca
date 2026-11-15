@@ -68,7 +68,7 @@ match error {
 
 Named patterns need `..` even when the parent enum was already non-exhaustive.
 Matches over `InquiryKind`, `InquiryData`, `FrameSequence`, `ReceiveOutcome`,
-`Step` and `TestExecutorType` also need a wildcard arm. These registries can grow;
+and `Step` also need a wildcard arm. These registries can grow;
 fixed wire/value records and command payloads retain their literal construction
 and exhaustive field patterns. Opaque types with private fields continue to use
 their existing constructors.

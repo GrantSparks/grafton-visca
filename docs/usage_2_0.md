@@ -24,7 +24,7 @@ Cargo feature a snippet needs.
 | Testkit steps and helpers | `test-utils` |
 | Scripted blocking transport | `test-utils,blocking` |
 | Manual owner clock and participation guard (`ManualClock`, `ClockParticipant`) | `test-utils,blocking` or `test-utils,async` |
-| Manual-clock async executor (`ManualClockExecutor`) | `test-utils,async` |
+| Manual-clock async executor (`ManualClockExecutor`, `LocalExecutor`) | `test-utils,async` |
 | Async scripted transport and deterministic clock/executor | `test-utils,async` |
 | VISCA camera simulator | `test-utils,runtime-tokio` |
 
@@ -471,7 +471,7 @@ the builder's validation (#875).
 `ViscaInquiry`, `ViscaEnum`, and `ViscaValue` are the supported downstream
 derive entry points. `test-utils` alone exposes `testkit::{Step, helpers}` for
 tests. Add `blocking` for `ScriptedBlockingTransport`; add `async` for
-`ScriptedTransport` and `ManualClockExecutor`; either facade exposes
+`ScriptedTransport`, `LocalExecutor` and `ManualClockExecutor`; either facade exposes
 `ManualClock`, `ClockParticipant`, and `ClockJoinHandle`. Add
 `runtime-tokio` for `ViscaCameraSimulator`. It is not required by production
 applications.
