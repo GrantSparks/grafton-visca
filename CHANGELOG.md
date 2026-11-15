@@ -358,12 +358,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `Result` and validate all builds. The unsourced `Nibbles4Or8` zoom leniency
   helper is removed.
 
-- **BREAKING** (#860, #874): `InquiryRoute`, `Inquiry::route()` and route
+- **BREAKING** (#860, #874, #909): `InquiryRoute`, `Inquiry::route()` and route
   parameters on raw inquiry constructors are removed: a raw reply carries no
-  inquiry identity. `raw::Inquiry::{new, from_fn, with_context}` fix the timeout
-  category to `Inquiry`; `from_fn` and `with_context` no longer accept a timeout
-  argument. `with_policy` validates that category, and raw commands and
-  operations reject inquiry timeout classes at construction.
+  inquiry identity. Raw requests use infallible `CommandPolicy`, `OperationPolicy`
+  and `InquiryPolicy` values. `CommandCategory` excludes inquiry timing;
+  operations use `OperationReplyShape`, which excludes `NoReply`; inquiries
+  fix both timing and reply protocol. The #679 urgent-lane guarantee is unchanged:
+  policies use `SubmissionClass`, which cannot express `Urgent`, instead of
+  refusing it at construction. Request constructors validate only wire bytes.
 
 - Engine entries store one closed lifecycle with legal cancellation and attempt
   facts. Both owners complete each immediate write before another input or due

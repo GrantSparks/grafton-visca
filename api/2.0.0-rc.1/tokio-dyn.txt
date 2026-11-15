@@ -20888,6 +20888,34 @@ impl core::marker::UnsafeUnpin for grafton_visca::camera::profiles::SonyFR7
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::camera::profiles::SonyFR7
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::camera::profiles::SonyFR7
 pub mod grafton_visca::raw
+pub enum grafton_visca::raw::CommandCategory
+pub grafton_visca::raw::CommandCategory::LongRunning
+pub grafton_visca::raw::CommandCategory::Movement
+pub grafton_visca::raw::CommandCategory::Network
+pub grafton_visca::raw::CommandCategory::Preset
+pub grafton_visca::raw::CommandCategory::Quick
+impl grafton_visca::CommandCategory
+pub const fn grafton_visca::CommandCategory::timeout_class(self) -> grafton_visca::TimeoutClass
+impl core::clone::Clone for grafton_visca::CommandCategory
+pub fn grafton_visca::CommandCategory::clone(&self) -> grafton_visca::CommandCategory
+impl core::cmp::Eq for grafton_visca::CommandCategory
+impl core::cmp::PartialEq for grafton_visca::CommandCategory
+pub fn grafton_visca::CommandCategory::eq(&self, &grafton_visca::CommandCategory) -> bool
+impl core::convert::From<grafton_visca::CommandCategory> for grafton_visca::TimeoutClass
+pub fn grafton_visca::TimeoutClass::from(grafton_visca::CommandCategory) -> Self
+impl core::fmt::Debug for grafton_visca::CommandCategory
+pub fn grafton_visca::CommandCategory::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for grafton_visca::CommandCategory
+pub fn grafton_visca::CommandCategory::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for grafton_visca::CommandCategory
+impl core::marker::StructuralPartialEq for grafton_visca::CommandCategory
+impl core::marker::Freeze for grafton_visca::CommandCategory
+impl core::marker::Send for grafton_visca::CommandCategory
+impl core::marker::Sync for grafton_visca::CommandCategory
+impl core::marker::Unpin for grafton_visca::CommandCategory
+impl core::marker::UnsafeUnpin for grafton_visca::CommandCategory
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CommandCategory
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::CommandCategory
 #[non_exhaustive] pub enum grafton_visca::raw::ControlClass
 pub grafton_visca::raw::ControlClass::Background
 pub grafton_visca::raw::ControlClass::Normal
@@ -20913,6 +20941,31 @@ impl core::marker::Unpin for grafton_visca::ControlClass
 impl core::marker::UnsafeUnpin for grafton_visca::ControlClass
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::ControlClass
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::ControlClass
+pub enum grafton_visca::raw::OperationReplyShape
+pub grafton_visca::raw::OperationReplyShape::AckThenCompletion
+pub grafton_visca::raw::OperationReplyShape::CompletionOnly
+impl core::clone::Clone for grafton_visca::raw::OperationReplyShape
+pub fn grafton_visca::raw::OperationReplyShape::clone(&self) -> grafton_visca::raw::OperationReplyShape
+impl core::cmp::Eq for grafton_visca::raw::OperationReplyShape
+impl core::cmp::PartialEq for grafton_visca::raw::OperationReplyShape
+pub fn grafton_visca::raw::OperationReplyShape::eq(&self, &grafton_visca::raw::OperationReplyShape) -> bool
+impl core::convert::From<grafton_visca::raw::OperationReplyShape> for grafton_visca::raw::RawReplyShape
+pub fn grafton_visca::raw::RawReplyShape::from(grafton_visca::raw::OperationReplyShape) -> Self
+impl core::default::Default for grafton_visca::raw::OperationReplyShape
+pub fn grafton_visca::raw::OperationReplyShape::default() -> grafton_visca::raw::OperationReplyShape
+impl core::fmt::Debug for grafton_visca::raw::OperationReplyShape
+pub fn grafton_visca::raw::OperationReplyShape::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for grafton_visca::raw::OperationReplyShape
+pub fn grafton_visca::raw::OperationReplyShape::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for grafton_visca::raw::OperationReplyShape
+impl core::marker::StructuralPartialEq for grafton_visca::raw::OperationReplyShape
+impl core::marker::Freeze for grafton_visca::raw::OperationReplyShape
+impl core::marker::Send for grafton_visca::raw::OperationReplyShape
+impl core::marker::Sync for grafton_visca::raw::OperationReplyShape
+impl core::marker::Unpin for grafton_visca::raw::OperationReplyShape
+impl core::marker::UnsafeUnpin for grafton_visca::raw::OperationReplyShape
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::raw::OperationReplyShape
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::raw::OperationReplyShape
 pub enum grafton_visca::raw::RawReplyShape
 pub grafton_visca::raw::RawReplyShape::AckThenCompletion
 pub grafton_visca::raw::RawReplyShape::CompletionOnly
@@ -20922,6 +20975,8 @@ pub fn grafton_visca::raw::RawReplyShape::clone(&self) -> grafton_visca::raw::Ra
 impl core::cmp::Eq for grafton_visca::raw::RawReplyShape
 impl core::cmp::PartialEq for grafton_visca::raw::RawReplyShape
 pub fn grafton_visca::raw::RawReplyShape::eq(&self, &grafton_visca::raw::RawReplyShape) -> bool
+impl core::convert::From<grafton_visca::raw::OperationReplyShape> for grafton_visca::raw::RawReplyShape
+pub fn grafton_visca::raw::RawReplyShape::from(grafton_visca::raw::OperationReplyShape) -> Self
 impl core::default::Default for grafton_visca::raw::RawReplyShape
 pub fn grafton_visca::raw::RawReplyShape::default() -> grafton_visca::raw::RawReplyShape
 impl core::fmt::Debug for grafton_visca::raw::RawReplyShape
@@ -20961,6 +21016,32 @@ impl core::marker::Unpin for grafton_visca::RetryClass
 impl core::marker::UnsafeUnpin for grafton_visca::RetryClass
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::RetryClass
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::RetryClass
+#[non_exhaustive] pub enum grafton_visca::raw::SubmissionClass
+pub grafton_visca::raw::SubmissionClass::Background
+pub grafton_visca::raw::SubmissionClass::Normal
+pub grafton_visca::raw::SubmissionClass::User
+impl grafton_visca::SubmissionClass
+pub const fn grafton_visca::SubmissionClass::control_class(self) -> grafton_visca::ControlClass
+impl core::clone::Clone for grafton_visca::SubmissionClass
+pub fn grafton_visca::SubmissionClass::clone(&self) -> grafton_visca::SubmissionClass
+impl core::cmp::Eq for grafton_visca::SubmissionClass
+impl core::cmp::PartialEq for grafton_visca::SubmissionClass
+pub fn grafton_visca::SubmissionClass::eq(&self, &grafton_visca::SubmissionClass) -> bool
+impl core::convert::From<grafton_visca::SubmissionClass> for grafton_visca::ControlClass
+pub fn grafton_visca::ControlClass::from(grafton_visca::SubmissionClass) -> Self
+impl core::fmt::Debug for grafton_visca::SubmissionClass
+pub fn grafton_visca::SubmissionClass::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for grafton_visca::SubmissionClass
+pub fn grafton_visca::SubmissionClass::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for grafton_visca::SubmissionClass
+impl core::marker::StructuralPartialEq for grafton_visca::SubmissionClass
+impl core::marker::Freeze for grafton_visca::SubmissionClass
+impl core::marker::Send for grafton_visca::SubmissionClass
+impl core::marker::Sync for grafton_visca::SubmissionClass
+impl core::marker::Unpin for grafton_visca::SubmissionClass
+impl core::marker::UnsafeUnpin for grafton_visca::SubmissionClass
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::SubmissionClass
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::SubmissionClass
 #[non_exhaustive] pub enum grafton_visca::raw::TimeoutClass
 pub grafton_visca::raw::TimeoutClass::Inquiry
 pub grafton_visca::raw::TimeoutClass::LongRunning
@@ -20973,6 +21054,8 @@ pub fn grafton_visca::TimeoutClass::clone(&self) -> grafton_visca::TimeoutClass
 impl core::cmp::Eq for grafton_visca::TimeoutClass
 impl core::cmp::PartialEq for grafton_visca::TimeoutClass
 pub fn grafton_visca::TimeoutClass::eq(&self, &grafton_visca::TimeoutClass) -> bool
+impl core::convert::From<grafton_visca::CommandCategory> for grafton_visca::TimeoutClass
+pub fn grafton_visca::TimeoutClass::from(grafton_visca::CommandCategory) -> Self
 impl core::fmt::Debug for grafton_visca::TimeoutClass
 pub fn grafton_visca::TimeoutClass::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::hash::Hash for grafton_visca::TimeoutClass
@@ -21041,12 +21124,12 @@ impl grafton_visca::raw::AppliedOnly
 pub const fn grafton_visca::raw::AppliedOnly::affected_axes(&self) -> grafton_visca::AffectedAxes
 pub fn grafton_visca::raw::AppliedOnly::bytes(&self) -> &[u8]
 pub const fn grafton_visca::raw::AppliedOnly::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::raw::AppliedOnly::new(impl core::convert::AsRef<[u8]>, grafton_visca::AffectedAxes, grafton_visca::TimeoutClass, grafton_visca::RetryClass, grafton_visca::ControlClass) -> grafton_visca::Result<Self>
-pub const fn grafton_visca::raw::AppliedOnly::policy(&self) -> grafton_visca::raw::Policy
+pub fn grafton_visca::raw::AppliedOnly::new(impl core::convert::AsRef<[u8]>, grafton_visca::AffectedAxes, grafton_visca::CommandCategory, grafton_visca::RetryClass, grafton_visca::SubmissionClass) -> grafton_visca::Result<Self>
+pub const fn grafton_visca::raw::AppliedOnly::policy(&self) -> grafton_visca::raw::OperationPolicy
 pub const fn grafton_visca::raw::AppliedOnly::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
 pub const fn grafton_visca::raw::AppliedOnly::retry_class(&self) -> grafton_visca::RetryClass
 pub const fn grafton_visca::raw::AppliedOnly::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::raw::AppliedOnly::with_policy(impl core::convert::AsRef<[u8]>, grafton_visca::AffectedAxes, grafton_visca::raw::Policy) -> grafton_visca::Result<Self>
+pub fn grafton_visca::raw::AppliedOnly::with_policy(impl core::convert::AsRef<[u8]>, grafton_visca::AffectedAxes, grafton_visca::raw::OperationPolicy) -> grafton_visca::Result<Self>
 impl core::clone::Clone for grafton_visca::raw::AppliedOnly
 pub fn grafton_visca::raw::AppliedOnly::clone(&self) -> grafton_visca::raw::AppliedOnly
 impl core::cmp::Eq for grafton_visca::raw::AppliedOnly
@@ -21077,18 +21160,45 @@ impl core::marker::Unpin for grafton_visca::raw::AppliedOnly
 impl core::marker::UnsafeUnpin for grafton_visca::raw::AppliedOnly
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::raw::AppliedOnly
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::raw::AppliedOnly
+pub struct grafton_visca::raw::CommandPolicy
+impl grafton_visca::raw::CommandPolicy
+pub const fn grafton_visca::raw::CommandPolicy::control_class(self) -> grafton_visca::ControlClass
+pub const fn grafton_visca::raw::CommandPolicy::new(grafton_visca::CommandCategory, grafton_visca::RetryClass, grafton_visca::SubmissionClass) -> Self
+pub const fn grafton_visca::raw::CommandPolicy::retry_class(self) -> grafton_visca::RetryClass
+pub const fn grafton_visca::raw::CommandPolicy::submission_class(self) -> grafton_visca::SubmissionClass
+pub const fn grafton_visca::raw::CommandPolicy::timeout_class(self) -> grafton_visca::TimeoutClass
+pub const fn grafton_visca::raw::CommandPolicy::with_reply_shape(self, grafton_visca::raw::RawReplyShape) -> Self
+impl grafton_visca::raw::CommandPolicy
+pub const fn grafton_visca::raw::CommandPolicy::reply_shape(self) -> grafton_visca::raw::RawReplyShape
+impl core::clone::Clone for grafton_visca::raw::CommandPolicy
+pub fn grafton_visca::raw::CommandPolicy::clone(&self) -> grafton_visca::raw::CommandPolicy
+impl core::cmp::Eq for grafton_visca::raw::CommandPolicy
+impl core::cmp::PartialEq for grafton_visca::raw::CommandPolicy
+pub fn grafton_visca::raw::CommandPolicy::eq(&self, &grafton_visca::raw::CommandPolicy) -> bool
+impl core::fmt::Debug for grafton_visca::raw::CommandPolicy
+pub fn grafton_visca::raw::CommandPolicy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for grafton_visca::raw::CommandPolicy
+pub fn grafton_visca::raw::CommandPolicy::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for grafton_visca::raw::CommandPolicy
+impl core::marker::StructuralPartialEq for grafton_visca::raw::CommandPolicy
+impl core::marker::Freeze for grafton_visca::raw::CommandPolicy
+impl core::marker::Send for grafton_visca::raw::CommandPolicy
+impl core::marker::Sync for grafton_visca::raw::CommandPolicy
+impl core::marker::Unpin for grafton_visca::raw::CommandPolicy
+impl core::marker::UnsafeUnpin for grafton_visca::raw::CommandPolicy
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::raw::CommandPolicy
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::raw::CommandPolicy
 pub struct grafton_visca::raw::Inquiry<R>
 impl<R> grafton_visca::raw::Inquiry<R>
 pub fn grafton_visca::raw::Inquiry<R>::bytes(&self) -> &[u8]
 pub const fn grafton_visca::raw::Inquiry<R>::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::raw::Inquiry<R>::from_fn(impl core::convert::AsRef<[u8]>, fn(&[u8]) -> grafton_visca::Result<R>, grafton_visca::RetryClass, grafton_visca::ControlClass) -> grafton_visca::Result<Self>
-pub fn grafton_visca::raw::Inquiry<R>::new(impl core::convert::AsRef<[u8]>, grafton_visca::ResponseDecoder<R>, grafton_visca::RetryClass, grafton_visca::ControlClass) -> grafton_visca::Result<Self>
-pub const fn grafton_visca::raw::Inquiry<R>::policy(&self) -> grafton_visca::raw::Policy
+pub fn grafton_visca::raw::Inquiry<R>::from_fn(impl core::convert::AsRef<[u8]>, fn(&[u8]) -> grafton_visca::Result<R>, grafton_visca::RetryClass, grafton_visca::SubmissionClass) -> grafton_visca::Result<Self>
+pub fn grafton_visca::raw::Inquiry<R>::new(impl core::convert::AsRef<[u8]>, grafton_visca::ResponseDecoder<R>, grafton_visca::RetryClass, grafton_visca::SubmissionClass) -> grafton_visca::Result<Self>
+pub const fn grafton_visca::raw::Inquiry<R>::policy(&self) -> grafton_visca::raw::InquiryPolicy
 pub const fn grafton_visca::raw::Inquiry<R>::retry_class(&self) -> grafton_visca::RetryClass
-pub const fn grafton_visca::raw::Inquiry<R>::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::raw::Inquiry<R>::with_context<C>(impl core::convert::AsRef<[u8]>, C, fn(&C, &[u8]) -> grafton_visca::Result<R>, grafton_visca::RetryClass, grafton_visca::ControlClass) -> grafton_visca::Result<Self> where C: core::marker::Send + core::marker::Sync + 'static, R: 'static
+pub fn grafton_visca::raw::Inquiry<R>::with_context<C>(impl core::convert::AsRef<[u8]>, C, fn(&C, &[u8]) -> grafton_visca::Result<R>, grafton_visca::RetryClass, grafton_visca::SubmissionClass) -> grafton_visca::Result<Self> where C: core::marker::Send + core::marker::Sync + 'static, R: 'static
 pub const fn grafton_visca::raw::Inquiry<R>::with_payload_shape(self, grafton_visca::PayloadShape) -> Self
-pub fn grafton_visca::raw::Inquiry<R>::with_policy(impl core::convert::AsRef<[u8]>, grafton_visca::ResponseDecoder<R>, grafton_visca::raw::Policy) -> grafton_visca::Result<Self>
+pub fn grafton_visca::raw::Inquiry<R>::with_policy(impl core::convert::AsRef<[u8]>, grafton_visca::ResponseDecoder<R>, grafton_visca::raw::InquiryPolicy) -> grafton_visca::Result<Self>
 impl<R> core::clone::Clone for grafton_visca::raw::Inquiry<R>
 pub fn grafton_visca::raw::Inquiry<R>::clone(&self) -> Self
 impl<R> core::fmt::Debug for grafton_visca::raw::Inquiry<R>
@@ -21117,17 +21227,69 @@ impl<R> core::marker::Unpin for grafton_visca::raw::Inquiry<R> where grafton_vis
 impl<R> core::marker::UnsafeUnpin for grafton_visca::raw::Inquiry<R> where grafton_visca::ResponseDecoder<R>: core::marker::UnsafeUnpin
 impl<R> !core::panic::unwind_safe::RefUnwindSafe for grafton_visca::raw::Inquiry<R>
 impl<R> !core::panic::unwind_safe::UnwindSafe for grafton_visca::raw::Inquiry<R>
+pub struct grafton_visca::raw::InquiryPolicy
+impl grafton_visca::raw::InquiryPolicy
+pub const fn grafton_visca::raw::InquiryPolicy::control_class(self) -> grafton_visca::ControlClass
+pub const fn grafton_visca::raw::InquiryPolicy::new(grafton_visca::RetryClass, grafton_visca::SubmissionClass) -> Self
+pub const fn grafton_visca::raw::InquiryPolicy::retry_class(self) -> grafton_visca::RetryClass
+pub const fn grafton_visca::raw::InquiryPolicy::submission_class(self) -> grafton_visca::SubmissionClass
+impl core::clone::Clone for grafton_visca::raw::InquiryPolicy
+pub fn grafton_visca::raw::InquiryPolicy::clone(&self) -> grafton_visca::raw::InquiryPolicy
+impl core::cmp::Eq for grafton_visca::raw::InquiryPolicy
+impl core::cmp::PartialEq for grafton_visca::raw::InquiryPolicy
+pub fn grafton_visca::raw::InquiryPolicy::eq(&self, &grafton_visca::raw::InquiryPolicy) -> bool
+impl core::fmt::Debug for grafton_visca::raw::InquiryPolicy
+pub fn grafton_visca::raw::InquiryPolicy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for grafton_visca::raw::InquiryPolicy
+pub fn grafton_visca::raw::InquiryPolicy::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for grafton_visca::raw::InquiryPolicy
+impl core::marker::StructuralPartialEq for grafton_visca::raw::InquiryPolicy
+impl core::marker::Freeze for grafton_visca::raw::InquiryPolicy
+impl core::marker::Send for grafton_visca::raw::InquiryPolicy
+impl core::marker::Sync for grafton_visca::raw::InquiryPolicy
+impl core::marker::Unpin for grafton_visca::raw::InquiryPolicy
+impl core::marker::UnsafeUnpin for grafton_visca::raw::InquiryPolicy
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::raw::InquiryPolicy
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::raw::InquiryPolicy
+pub struct grafton_visca::raw::OperationPolicy
+impl grafton_visca::raw::OperationPolicy
+pub const fn grafton_visca::raw::OperationPolicy::control_class(self) -> grafton_visca::ControlClass
+pub const fn grafton_visca::raw::OperationPolicy::new(grafton_visca::CommandCategory, grafton_visca::RetryClass, grafton_visca::SubmissionClass) -> Self
+pub const fn grafton_visca::raw::OperationPolicy::retry_class(self) -> grafton_visca::RetryClass
+pub const fn grafton_visca::raw::OperationPolicy::submission_class(self) -> grafton_visca::SubmissionClass
+pub const fn grafton_visca::raw::OperationPolicy::timeout_class(self) -> grafton_visca::TimeoutClass
+pub const fn grafton_visca::raw::OperationPolicy::with_reply_shape(self, grafton_visca::raw::OperationReplyShape) -> Self
+impl grafton_visca::raw::OperationPolicy
+pub const fn grafton_visca::raw::OperationPolicy::reply_shape(self) -> grafton_visca::raw::RawReplyShape
+impl core::clone::Clone for grafton_visca::raw::OperationPolicy
+pub fn grafton_visca::raw::OperationPolicy::clone(&self) -> grafton_visca::raw::OperationPolicy
+impl core::cmp::Eq for grafton_visca::raw::OperationPolicy
+impl core::cmp::PartialEq for grafton_visca::raw::OperationPolicy
+pub fn grafton_visca::raw::OperationPolicy::eq(&self, &grafton_visca::raw::OperationPolicy) -> bool
+impl core::fmt::Debug for grafton_visca::raw::OperationPolicy
+pub fn grafton_visca::raw::OperationPolicy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for grafton_visca::raw::OperationPolicy
+pub fn grafton_visca::raw::OperationPolicy::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for grafton_visca::raw::OperationPolicy
+impl core::marker::StructuralPartialEq for grafton_visca::raw::OperationPolicy
+impl core::marker::Freeze for grafton_visca::raw::OperationPolicy
+impl core::marker::Send for grafton_visca::raw::OperationPolicy
+impl core::marker::Sync for grafton_visca::raw::OperationPolicy
+impl core::marker::Unpin for grafton_visca::raw::OperationPolicy
+impl core::marker::UnsafeUnpin for grafton_visca::raw::OperationPolicy
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::raw::OperationPolicy
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::raw::OperationPolicy
 pub struct grafton_visca::raw::Plain
 impl grafton_visca::raw::Plain
 pub fn grafton_visca::raw::Plain::bytes(&self) -> &[u8]
 pub const fn grafton_visca::raw::Plain::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::raw::Plain::new(impl core::convert::AsRef<[u8]>, grafton_visca::TimeoutClass, grafton_visca::RetryClass, grafton_visca::ControlClass) -> grafton_visca::Result<Self>
-pub const fn grafton_visca::raw::Plain::policy(&self) -> grafton_visca::raw::Policy
+pub fn grafton_visca::raw::Plain::new(impl core::convert::AsRef<[u8]>, grafton_visca::CommandCategory, grafton_visca::RetryClass, grafton_visca::SubmissionClass) -> grafton_visca::Result<Self>
+pub const fn grafton_visca::raw::Plain::policy(&self) -> grafton_visca::raw::CommandPolicy
 pub const fn grafton_visca::raw::Plain::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
 pub const fn grafton_visca::raw::Plain::retry_class(&self) -> grafton_visca::RetryClass
 pub const fn grafton_visca::raw::Plain::timeout_class(&self) -> grafton_visca::TimeoutClass
 pub const fn grafton_visca::raw::Plain::with_motion_axes(self, grafton_visca::AffectedAxes) -> Self
-pub fn grafton_visca::raw::Plain::with_policy(impl core::convert::AsRef<[u8]>, grafton_visca::raw::Policy) -> grafton_visca::Result<Self>
+pub fn grafton_visca::raw::Plain::with_policy(impl core::convert::AsRef<[u8]>, grafton_visca::raw::CommandPolicy) -> grafton_visca::Result<Self>
 impl core::clone::Clone for grafton_visca::raw::Plain
 pub fn grafton_visca::raw::Plain::clone(&self) -> grafton_visca::raw::Plain
 impl core::cmp::Eq for grafton_visca::raw::Plain
@@ -21156,32 +21318,6 @@ impl core::marker::Unpin for grafton_visca::raw::Plain
 impl core::marker::UnsafeUnpin for grafton_visca::raw::Plain
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::raw::Plain
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::raw::Plain
-pub struct grafton_visca::raw::Policy
-impl grafton_visca::raw::Policy
-pub const fn grafton_visca::raw::Policy::control_class(self) -> grafton_visca::ControlClass
-pub const fn grafton_visca::raw::Policy::new(grafton_visca::TimeoutClass, grafton_visca::RetryClass, grafton_visca::ControlClass) -> grafton_visca::Result<Self>
-pub const fn grafton_visca::raw::Policy::reply_shape(self) -> grafton_visca::raw::RawReplyShape
-pub const fn grafton_visca::raw::Policy::retry_class(self) -> grafton_visca::RetryClass
-pub const fn grafton_visca::raw::Policy::timeout_class(self) -> grafton_visca::TimeoutClass
-pub const fn grafton_visca::raw::Policy::with_reply_shape(self, grafton_visca::raw::RawReplyShape) -> Self
-impl core::clone::Clone for grafton_visca::raw::Policy
-pub fn grafton_visca::raw::Policy::clone(&self) -> grafton_visca::raw::Policy
-impl core::cmp::Eq for grafton_visca::raw::Policy
-impl core::cmp::PartialEq for grafton_visca::raw::Policy
-pub fn grafton_visca::raw::Policy::eq(&self, &grafton_visca::raw::Policy) -> bool
-impl core::fmt::Debug for grafton_visca::raw::Policy
-pub fn grafton_visca::raw::Policy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-impl core::hash::Hash for grafton_visca::raw::Policy
-pub fn grafton_visca::raw::Policy::hash<__H: core::hash::Hasher>(&self, &mut __H)
-impl core::marker::Copy for grafton_visca::raw::Policy
-impl core::marker::StructuralPartialEq for grafton_visca::raw::Policy
-impl core::marker::Freeze for grafton_visca::raw::Policy
-impl core::marker::Send for grafton_visca::raw::Policy
-impl core::marker::Sync for grafton_visca::raw::Policy
-impl core::marker::Unpin for grafton_visca::raw::Policy
-impl core::marker::UnsafeUnpin for grafton_visca::raw::Policy
-impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::raw::Policy
-impl core::panic::unwind_safe::UnwindSafe for grafton_visca::raw::Policy
 pub struct grafton_visca::raw::ResponseDecoder<R>
 impl<R> grafton_visca::ResponseDecoder<R>
 pub fn grafton_visca::ResponseDecoder<R>::decode(&self, &[u8]) -> grafton_visca::Result<R>
@@ -21203,12 +21339,12 @@ impl grafton_visca::raw::Targeted
 pub const fn grafton_visca::raw::Targeted::affected_axes(&self) -> grafton_visca::AffectedAxes
 pub fn grafton_visca::raw::Targeted::bytes(&self) -> &[u8]
 pub const fn grafton_visca::raw::Targeted::control_class(&self) -> grafton_visca::ControlClass
-pub fn grafton_visca::raw::Targeted::new(impl core::convert::AsRef<[u8]>, grafton_visca::AffectedAxes, grafton_visca::TimeoutClass, grafton_visca::RetryClass, grafton_visca::ControlClass) -> grafton_visca::Result<Self>
-pub const fn grafton_visca::raw::Targeted::policy(&self) -> grafton_visca::raw::Policy
+pub fn grafton_visca::raw::Targeted::new(impl core::convert::AsRef<[u8]>, grafton_visca::AffectedAxes, grafton_visca::CommandCategory, grafton_visca::RetryClass, grafton_visca::SubmissionClass) -> grafton_visca::Result<Self>
+pub const fn grafton_visca::raw::Targeted::policy(&self) -> grafton_visca::raw::OperationPolicy
 pub const fn grafton_visca::raw::Targeted::reply_shape(&self) -> grafton_visca::raw::RawReplyShape
 pub const fn grafton_visca::raw::Targeted::retry_class(&self) -> grafton_visca::RetryClass
 pub const fn grafton_visca::raw::Targeted::timeout_class(&self) -> grafton_visca::TimeoutClass
-pub fn grafton_visca::raw::Targeted::with_policy(impl core::convert::AsRef<[u8]>, grafton_visca::AffectedAxes, grafton_visca::raw::Policy) -> grafton_visca::Result<Self>
+pub fn grafton_visca::raw::Targeted::with_policy(impl core::convert::AsRef<[u8]>, grafton_visca::AffectedAxes, grafton_visca::raw::OperationPolicy) -> grafton_visca::Result<Self>
 impl core::clone::Clone for grafton_visca::raw::Targeted
 pub fn grafton_visca::raw::Targeted::clone(&self) -> grafton_visca::raw::Targeted
 impl core::cmp::Eq for grafton_visca::raw::Targeted
@@ -25463,6 +25599,34 @@ impl core::marker::Unpin for grafton_visca::Certainty
 impl core::marker::UnsafeUnpin for grafton_visca::Certainty
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::Certainty
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::Certainty
+pub enum grafton_visca::CommandCategory
+pub grafton_visca::CommandCategory::LongRunning
+pub grafton_visca::CommandCategory::Movement
+pub grafton_visca::CommandCategory::Network
+pub grafton_visca::CommandCategory::Preset
+pub grafton_visca::CommandCategory::Quick
+impl grafton_visca::CommandCategory
+pub const fn grafton_visca::CommandCategory::timeout_class(self) -> grafton_visca::TimeoutClass
+impl core::clone::Clone for grafton_visca::CommandCategory
+pub fn grafton_visca::CommandCategory::clone(&self) -> grafton_visca::CommandCategory
+impl core::cmp::Eq for grafton_visca::CommandCategory
+impl core::cmp::PartialEq for grafton_visca::CommandCategory
+pub fn grafton_visca::CommandCategory::eq(&self, &grafton_visca::CommandCategory) -> bool
+impl core::convert::From<grafton_visca::CommandCategory> for grafton_visca::TimeoutClass
+pub fn grafton_visca::TimeoutClass::from(grafton_visca::CommandCategory) -> Self
+impl core::fmt::Debug for grafton_visca::CommandCategory
+pub fn grafton_visca::CommandCategory::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl core::hash::Hash for grafton_visca::CommandCategory
+pub fn grafton_visca::CommandCategory::hash<__H: core::hash::Hasher>(&self, &mut __H)
+impl core::marker::Copy for grafton_visca::CommandCategory
+impl core::marker::StructuralPartialEq for grafton_visca::CommandCategory
+impl core::marker::Freeze for grafton_visca::CommandCategory
+impl core::marker::Send for grafton_visca::CommandCategory
+impl core::marker::Sync for grafton_visca::CommandCategory
+impl core::marker::Unpin for grafton_visca::CommandCategory
+impl core::marker::UnsafeUnpin for grafton_visca::CommandCategory
+impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::CommandCategory
+impl core::panic::unwind_safe::UnwindSafe for grafton_visca::CommandCategory
 #[non_exhaustive] pub enum grafton_visca::ControlClass
 pub grafton_visca::ControlClass::Background
 pub grafton_visca::ControlClass::Normal
@@ -26579,6 +26743,8 @@ pub fn grafton_visca::TimeoutClass::clone(&self) -> grafton_visca::TimeoutClass
 impl core::cmp::Eq for grafton_visca::TimeoutClass
 impl core::cmp::PartialEq for grafton_visca::TimeoutClass
 pub fn grafton_visca::TimeoutClass::eq(&self, &grafton_visca::TimeoutClass) -> bool
+impl core::convert::From<grafton_visca::CommandCategory> for grafton_visca::TimeoutClass
+pub fn grafton_visca::TimeoutClass::from(grafton_visca::CommandCategory) -> Self
 impl core::fmt::Debug for grafton_visca::TimeoutClass
 pub fn grafton_visca::TimeoutClass::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl core::hash::Hash for grafton_visca::TimeoutClass
