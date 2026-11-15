@@ -777,7 +777,9 @@ from its boundary lanes. Queued boundaries and writes can add to a STOP or
 control request's total latency; STOP dispatch also waits for protocol
 eligibility. A custom transport calling `close` from its own worker requests
 shutdown and receives `InvalidState` immediately, leaving the worker available
-for an external caller to join. An idle read is reported only when the
+for an external caller to join. Other calls that would wait for the same worker
+fail immediately with `InvalidState` before enqueuing work, so a transport
+callback cannot deadlock the owner or prevent STOP delivery. An idle read is reported only when the
 configured `read_timeout` has elapsed
 without data, and the coordinator paces an eagerly idle or faulting transport
 while every other source stays selectable.

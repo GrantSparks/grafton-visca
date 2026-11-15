@@ -44,12 +44,15 @@ use crate::{
 };
 
 mod cancellation_and_budget;
+mod reentry;
 
 const ACK: &[u8] = &[0x90, 0x41, 0xff];
 const COMPLETION: &[u8] = &[0x90, 0x51, 0xff];
 const ZOOM_STOP: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x00, 0xff];
 /// How long a test waits for something the worker should do promptly.
 const PROMPTLY: Duration = Duration::from_secs(2);
+
+type TransportCallback = Box<dyn FnOnce() + Send>;
 
 /// One scripted transport read.
 enum Read {
@@ -62,7 +65,7 @@ enum Read {
     EndOfStream,
     Fail(Error),
     Panic,
-    Callback(Box<dyn FnOnce() + Send>),
+    Callback(TransportCallback),
 }
 
 /// Receive from `receiver` within `timeout` on `clock`.
@@ -97,6 +100,7 @@ struct ChannelTransport {
     read_calls: Arc<AtomicUsize>,
     dropped: Arc<AtomicBool>,
     scheduled: Option<(Instant, Vec<u8>)>,
+    write_callback: Arc<Mutex<Option<TransportCallback>>>,
 }
 
 impl Drop for ChannelTransport {
@@ -118,6 +122,10 @@ impl BlockingTransport for ChannelTransport {
         _kind: CommandKind,
         _timeout: Duration,
     ) -> Result<(), Error> {
+        let callback = self.write_callback.lock().unwrap().take();
+        if let Some(callback) = callback {
+            callback();
+        }
         if self.fail_writes {
             return Err(Error::TransportError("injected write failure".into()));
         }
@@ -186,6 +194,7 @@ struct Peer {
     writes: flume::Receiver<Vec<u8>>,
     read_calls: Arc<AtomicUsize>,
     dropped: Arc<AtomicBool>,
+    write_callback: Arc<Mutex<Option<TransportCallback>>>,
 }
 
 impl Peer {
@@ -260,6 +269,7 @@ impl Setup {
         let (writes, write_rx) = flume::unbounded();
         let read_calls = Arc::new(AtomicUsize::new(0));
         let dropped = Arc::new(AtomicBool::new(false));
+        let write_callback = Arc::new(Mutex::new(None));
         let transport = ChannelTransport {
             clock: self.clock.clone(),
             config: TransportConfig {
@@ -275,6 +285,7 @@ impl Setup {
             read_calls: Arc::clone(&read_calls),
             dropped: Arc::clone(&dropped),
             scheduled: None,
+            write_callback: Arc::clone(&write_callback),
         };
         let peer = Peer {
             clock: self.clock.clone(),
@@ -282,6 +293,7 @@ impl Setup {
             writes: write_rx,
             read_calls,
             dropped,
+            write_callback,
         };
         (transport, peer, self.profile, self.raw_inquiry_release_hold)
     }

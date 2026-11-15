@@ -522,6 +522,8 @@ impl Session {
     /// A custom transport calling this from its own worker requests shutdown
     /// but receives [`Error::InvalidState`] immediately: it cannot wait for
     /// its own teardown. A caller on another thread can still close and join.
+    /// Other calls that would wait for this worker also fail immediately with
+    /// [`Error::InvalidState`], without enqueuing work.
     pub fn close(self) -> Result<(), Error> {
         self.owner.close()
     }

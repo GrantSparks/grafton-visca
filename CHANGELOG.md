@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removed. Oversized raw input returns `InvalidRequest` with kind
   `InvalidParameter`, rather than the inbound `ResponseTooLarge` protocol error.
 
+- Blocking owner re-entry returns `InvalidState` for calls that would wait on
+  the worker. This supersedes the rc.1 `TransportBusy` re-entry rule removed
+  by #780; self-`close` still requests shutdown and leaves joining to an
+  external caller (#862).
 - **BREAKING** (#829): The minimum supported Rust version is now 1.98 (was 1.88 in
   2.0.0-rc.3). The project builds and tests on one stable toolchain, 1.98.0;
   CI no longer runs a separate MSRV job or Miri.
@@ -71,6 +75,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Custom blocking transports cannot deadlock their owner by calling session
+  controls, submitting requests, halting, cancelling or waiting for operations
+  from inside a read or write. Refused callbacks leave the worker available
+  for external close and transport teardown (#862).
 - Raw completion-only commands refuse cancellation with `NotSupported` after a
   successful write and retain their own completion deadline. Cancellation
   requested during the write is refused when it succeeds. Unconfirmed raw

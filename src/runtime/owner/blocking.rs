@@ -444,6 +444,16 @@ impl BlockingOwnerHandle {
         self.clock.sleep(duration);
     }
 
+    /// A worker callback cannot wait for work only this worker can perform.
+    fn off_worker(&self, call: &str) -> Result<(), Error> {
+        if self.worker_id == thread::current().id() {
+            return Err(Error::InvalidState(
+                format!("blocking owner worker cannot call {call} on its own session").into(),
+            ));
+        }
+        Ok(())
+    }
+
     /// A wait for one boundary reply, or for the worker's disappearance.
     ///
     /// #626: the worker answers every boundary message its final drain can
@@ -535,7 +545,7 @@ impl BlockingOwnerHandle {
     /// Request shutdown and wait for the worker to release its transport.
     ///
     /// The first close joins the worker thread; a worker panic is reported as
-    /// [`Error::InvalidState`]. Any other clone waits on the liveness lane,
+    /// [`Error::OwnerTerminated`]. Any other clone waits on the liveness lane,
     /// which the worker drops only after the transport. A close issued on the
     /// worker thread itself, by a custom transport calling back into its own
     /// session, requests shutdown but returns [`Error::InvalidState`] because

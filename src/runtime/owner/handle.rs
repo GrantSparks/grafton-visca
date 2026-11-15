@@ -60,6 +60,7 @@ macro_rules! owner_handle_methods {
             where
                 T: Send,
             {
+                self.off_worker("control_request")?;
                 let (reply, receiver) = flume::bounded(1);
                 self.send_lane(&self.core.control, request(reply)) $($await)* ?;
                 self.boundary_reply(&receiver) $($await)*
@@ -150,6 +151,7 @@ macro_rules! owner_handle_methods {
                 request: super::RuntimeRequest,
                 configured_timeout: std::time::Duration,
             ) -> Result<super::ReceiptCore, crate::Error> {
+                self.off_worker("submit_with_timeout")?;
                 let pending = self.core.admit(request)?;
                 let reply = self.boundary_reply(pending.reply()) $($await)*;
                 pending.receipt(reply, configured_timeout)
@@ -164,6 +166,7 @@ macro_rules! owner_handle_methods {
                 configured_timeout: std::time::Duration,
                 deadline: std::time::Instant,
             ) -> Result<super::ReceiptCore, crate::Error> {
+                self.off_worker("submit_with_timeout_until")?;
                 let pending = self.core.admit_until(request, deadline, self.now())?;
                 let reply = match self.boundary_reply_until(pending.reply(), deadline) $($await)* {
                     Some(reply) => reply,
@@ -183,6 +186,7 @@ macro_rules! owner_handle_methods {
                 prepared: crate::prepared::PreparedHalt,
                 started: std::time::Instant,
             ) -> Result<crate::HaltReport, crate::Error> {
+                self.off_worker("halt")?;
                 let deadline = super::receipt::observer_deadline(started, prepared.budget)?;
                 let validity = super::boundary::AdmissionValidity::until(deadline);
                 let (reply, receiver) = flume::bounded(1);
@@ -240,6 +244,7 @@ macro_rules! owner_handle_methods {
                 request: super::CancellationRequest,
                 deadline: std::time::Instant,
             ) -> Result<(), crate::Error> {
+                self.off_worker("request_cancellation")?;
                 let id = request.id;
                 let (reply, receiver) = flume::bounded(1);
                 let boundary = super::boundary::CancellationBoundary::Cancel { request, reply };
@@ -449,6 +454,7 @@ macro_rules! owner_handle_methods {
                 deadline: std::time::Instant,
                 verdict: impl Fn(&mut super::OperationObservation, std::time::Instant) -> Option<T>,
             ) -> Result<T, crate::Error> {
+                self.off_worker("observe_until")?;
                 let mut wait = super::receipt::OperationWait::new(observation, verdict, deadline);
                 loop {
                     if let Some(value) = wait.verdict() {
@@ -470,6 +476,7 @@ macro_rules! owner_handle_methods {
                 core: &super::ReceiptCore,
                 deadline: std::time::Instant,
             ) -> Result<super::RuntimeOutcome, crate::Error> {
+                self.off_worker("wait_core_until")?;
                 if let Some(concluded) = core.try_conclude(deadline) {
                     return concluded;
                 }

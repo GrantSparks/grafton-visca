@@ -249,6 +249,13 @@ impl AsyncOwnerHandle {
         self.core.closed_result()
     }
 
+    // Shared handle methods guard blocking worker re-entry. Async callers
+    // yield to the actor rather than blocking its worker thread.
+    #[allow(clippy::unnecessary_wraps)]
+    fn off_worker(&self, _call: &str) -> Result<(), Error> {
+        Ok(())
+    }
+
     /// Await one boundary reply, or the actor's disappearance, whichever
     /// happens first.
     ///

@@ -169,6 +169,13 @@ impl HasTransportConfig for BlockingTransportHandle {
 ///     }
 /// }
 /// ```
+/// # Session callbacks
+///
+/// A transport must not call into its own session from a read or write.
+/// Calls that would wait for the owner fail immediately with
+/// [`Error::InvalidState`], since the worker cannot answer its own request.
+/// Calling `close` also requests shutdown before returning that error; an
+/// external caller can then join the worker and release the transport.
 pub trait BlockingTransport: Send {
     /// Send raw bytes to the device with command kind and a deadline (blocking).
     ///
