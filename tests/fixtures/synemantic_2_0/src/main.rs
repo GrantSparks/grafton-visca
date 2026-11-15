@@ -97,7 +97,7 @@ mod tests {
         assert_eq!(PictureEffectMode::BlackAndWhite.as_byte(), 0x04);
         assert!(matches!(
             PictureEffectMode::from_byte(0x7f),
-            PictureEffectMode::Unknown(0x7f)
+            PictureEffectMode::Unknown(value) if value.value() == 0x7f
         ));
     }
 }

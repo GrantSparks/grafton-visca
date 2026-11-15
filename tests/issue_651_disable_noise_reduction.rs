@@ -72,7 +72,7 @@ mod blocking_surface {
     use grafton_visca::{
         blocking::{Session, SessionConfig},
         capabilities::{HasImageProcessing, HasNoiseReduction3D, HasNoiseReduction3DControl},
-        command::NoiseReduction2DMode,
+        command::{NoiseReduction2DMode, NoiseReduction3D},
         profile::ProfileSpec,
         profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3},
         types::{NoiseReduction2DLevel, NoiseReduction3DLevel},
@@ -84,7 +84,7 @@ mod blocking_surface {
         NR_2D_OFF, NR_3D_LEVEL_8, NR_3D_OFF, NR_MODE_MANUAL,
     };
 
-    fn round_trip_3d<P>(level: u8) -> Result<NoiseReduction3DLevel, Error>
+    fn round_trip_3d<P>(level: u8) -> Result<NoiseReduction3D, Error>
     where
         P: CompileTimeProfile
             + HasImageProcessing
@@ -98,11 +98,13 @@ mod blocking_surface {
         )
         .expect("session");
         let camera = session.camera::<P>().expect("matching camera profile");
-        let value = NoiseReduction3DLevel::new(level).expect("level is in the public domain");
-        let result = camera
-            .image()
-            .set_noise_reduction_3d(value)
-            .and_then(|_| camera.image().noise_reduction_3d());
+        let value =
+            NoiseReduction3D::from_byte(level).expect("level or Off is in the register domain");
+        let set = match value {
+            NoiseReduction3D::Off => camera.image().disable_noise_reduction_3d(),
+            NoiseReduction3D::Level(level) => camera.image().set_noise_reduction_3d(level),
+        };
+        let result = set.and_then(|_| camera.image().noise_reduction_3d());
         assert_raw_writes(&fake);
         session.shutdown().expect("shutdown");
         result
@@ -163,7 +165,8 @@ mod blocking_surface {
                         .unwrap_or_else(|panic| std::panic::resume_unwind(panic));
                     assert_eq!(
                         result.expect("every admissible 3D NR setter value decodes on readback"),
-                        NoiseReduction3DLevel::new(level).expect("level is in the public domain")
+                        NoiseReduction3D::from_byte(level)
+                            .expect("level or Off is in the register domain")
                     );
                 }
             }
@@ -175,7 +178,7 @@ mod blocking_surface {
 mod async_surface {
     use grafton_visca::{
         capabilities::{HasImageProcessing, HasNoiseReduction3D, HasNoiseReduction3DControl},
-        command::NoiseReduction2DMode,
+        command::{NoiseReduction2DMode, NoiseReduction3D},
         profile::ProfileSpec,
         profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3},
         transport::AddressingMode,
@@ -206,7 +209,7 @@ mod async_surface {
         .await
     }
 
-    async fn round_trip_3d<P>(level: u8) -> Result<NoiseReduction3DLevel, Error>
+    async fn round_trip_3d<P>(level: u8) -> Result<NoiseReduction3D, Error>
     where
         P: CompileTimeProfile
             + HasImageProcessing
@@ -220,8 +223,13 @@ mod async_surface {
         )
         .await;
         let camera = session.camera::<P>().expect("matching camera profile");
-        let value = NoiseReduction3DLevel::new(level).expect("level is in the public domain");
-        let result = match camera.image().set_noise_reduction_3d(value).await {
+        let value =
+            NoiseReduction3D::from_byte(level).expect("level or Off is in the register domain");
+        let set = match value {
+            NoiseReduction3D::Off => camera.image().disable_noise_reduction_3d().await,
+            NoiseReduction3D::Level(level) => camera.image().set_noise_reduction_3d(level).await,
+        };
+        let result = match set {
             Ok(_) => camera.image().noise_reduction_3d().await,
             Err(error) => Err(error),
         };
@@ -291,7 +299,8 @@ mod async_surface {
                     .unwrap_or_else(|failure| std::panic::resume_unwind(failure.into_panic()));
                 assert_eq!(
                     result.expect("every admissible 3D NR setter value decodes on readback"),
-                    NoiseReduction3DLevel::new(level).expect("level is in the public domain")
+                    NoiseReduction3D::from_byte(level)
+                        .expect("level or Off is in the register domain")
                 );
             }
         }
@@ -302,7 +311,7 @@ mod async_surface {
 mod dyn_surface {
     use grafton_visca::{
         capabilities::TypedSupportSurface,
-        command::NoiseReduction2DMode,
+        command::{NoiseReduction2DMode, NoiseReduction3D},
         dynapi::DynSessionCameraNouns,
         profile::ProfileSpec,
         profiles::PtzOpticsG2,

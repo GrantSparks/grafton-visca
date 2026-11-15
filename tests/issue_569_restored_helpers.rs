@@ -224,7 +224,13 @@ fn menu_toggle_sends_the_vendor_open_close_control() {
     let (session, fake) = fr7_session();
     let camera = session.camera::<SonyFR7>().expect("camera");
 
-    camera.menu().direct(0x00, 0x01).expect("explicit control");
+    camera
+        .menu()
+        .direct(
+            grafton_visca::command::DirectMenuTarget::NdFilter,
+            grafton_visca::command::MenuButton::Press,
+        )
+        .expect("explicit control");
     let explicit_frame = fake.take_only_payload();
 
     camera.menu().toggle_display().expect("menu toggle");

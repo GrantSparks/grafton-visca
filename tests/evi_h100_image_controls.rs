@@ -12,7 +12,7 @@ use grafton_visca::{
         SharpnessModeInquiry,
     },
     profiles::SonyEVIH100,
-    types::{HueLevel, NoiseReduction2DLevel, SaturationLevel},
+    types::{HueLevel, SaturationLevel},
     CameraId, Error, ProfileSpec, Request,
 };
 
@@ -34,8 +34,7 @@ fn r8_noise_reduction_is_the_2d_level_family() {
     let profile = profile();
     // `CAM_NR` `8x 01 04 53 0p FF`, p = 0 (off) and 1..5.
     for level in 0..=5 {
-        let command =
-            NoiseReduction2D::with_level(NoiseReduction2DLevel::new(level).expect("level"));
+        let command = NoiseReduction2D::from_byte(level).expect("level or Off");
         command
             .validate_for_target(
                 &grafton_visca::TargetRegistration::new(

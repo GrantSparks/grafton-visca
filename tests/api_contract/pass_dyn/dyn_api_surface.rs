@@ -7,9 +7,9 @@ use grafton_visca::{
     capabilities::Capabilities,
     command::{
         AntiFlickerMode, AutoFocusSensitivity, AutoWhiteBalanceSensitivity, FocusLock, FocusMode,
-        FocusZone, ImageFlipMode, MenuDirection, MotionSyncMode, MotionSyncPreset,
-        NdFilterMode, NdFilterValue, PanTiltDirection, PanTiltLimitCorner, PictureEffectMode,
-        PresetNumber, SharpnessMode, TallyStatusState, VariableSpeedMode, WhiteBalanceMode,
+        FocusZone, ImageFlipMode, MenuDirection, MotionSyncMode, MotionSyncPreset, NdFilterMode,
+        NdFilterValue, PanTiltDirection, PanTiltLimitCorner, PictureEffectMode, PresetNumber,
+        SharpnessMode, TallyStatusState, VariableSpeedMode, WhiteBalanceMode,
     },
     dynapi::{
         DynAppliedOperation, DynAppliedRequest, DynFuture, DynMotion, DynPower, DynSessionCamera,
@@ -229,10 +229,12 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<(), Error>> = image.set_sharpness(SharpnessLevel::MIN);
     let _: DynFuture<'_, Result<bool, Error>> = image.backlight();
     let _: DynFuture<'_, Result<(), Error>> = image.set_backlight(false);
-    let _: DynFuture<'_, Result<NoiseReduction2DLevel, Error>> = image.noise_reduction_2d();
+    let _: DynFuture<'_, Result<grafton_visca::command::NoiseReduction2D, Error>> =
+        image.noise_reduction_2d();
     let _: DynFuture<'_, Result<grafton_visca::command::NoiseReduction2DMode, Error>> =
         image.noise_reduction_2d_mode();
-    let _: DynFuture<'_, Result<NoiseReduction3DLevel, Error>> = image.noise_reduction_3d();
+    let _: DynFuture<'_, Result<grafton_visca::command::NoiseReduction3D, Error>> =
+        image.noise_reduction_3d();
     let _: DynFuture<'_, Result<(), Error>> = image.disable_flip();
     let _: DynFuture<'_, Result<(), Error>> = image.enable_flip();
     let _: DynFuture<'_, Result<(), Error>> = image.enable_horizontal_flip();
@@ -291,7 +293,10 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<DynAppliedOperation, Error>> = menu.navigate(MenuDirection::Up);
     let _: DynFuture<'_, Result<(), Error>> = menu.select();
     let _: DynFuture<'_, Result<(), Error>> = menu.cancel();
-    let _: DynFuture<'_, Result<(), Error>> = menu.direct(0, 0);
+    let _: DynFuture<'_, Result<(), Error>> = menu.direct(
+        grafton_visca::command::DirectMenuTarget::NdFilter,
+        grafton_visca::command::MenuButton::Press,
+    );
     let _: DynFuture<'_, Result<(), Error>> = menu.toggle_display();
 
     let advanced = camera.advanced();
@@ -325,7 +330,9 @@ fn assert_session_selectors(session: &Session) {
 
 /// Waits borrow the handle (#777): application then settlement on one handle,
 /// cached results, and idempotent cancellation.
-async fn assert_targeted_lifecycle(mut targeted: DynTargetedOperation) -> Result<grafton_visca::Settlement, Error> {
+async fn assert_targeted_lifecycle(
+    mut targeted: DynTargetedOperation,
+) -> Result<grafton_visca::Settlement, Error> {
     targeted
         .applied_with_timeout(Duration::from_millis(1))
         .await?;

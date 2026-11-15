@@ -28,16 +28,18 @@ crate::__grafton_visca_newtype! {
 }
 
 crate::__grafton_visca_newtype! {
-    /// 2D noise reduction level.
+    /// Nonzero 2D noise reduction level.
+    /// Use [`crate::command::NoiseReduction2D::off()`] to disable the filter.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0", max = "5", display_prefix = "2D NR Level")]
+    #[visca_value(min = "1", max = "5", display_prefix = "2D NR Level")]
     pub struct NoiseReduction2DLevel(u8);
 }
 
 crate::__grafton_visca_newtype! {
-    /// 3D noise reduction level.
+    /// Nonzero 3D noise reduction level.
+    /// Use [`crate::command::NoiseReduction3D::off()`] to disable the filter.
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0", max = "8", display_prefix = "3D NR Level")]
+    #[visca_value(min = "1", max = "8", display_prefix = "3D NR Level")]
     pub struct NoiseReduction3DLevel(u8);
 }
 
@@ -893,11 +895,11 @@ mod tests {
 
     #[test]
     fn test_noise_reduction_levels() {
-        assert!(NoiseReduction2DLevel::new(0).is_ok());
+        assert!(NoiseReduction2DLevel::new(0).is_err());
         assert!(NoiseReduction2DLevel::new(5).is_ok());
         assert!(NoiseReduction2DLevel::new(6).is_err());
 
-        assert!(NoiseReduction3DLevel::new(0).is_ok());
+        assert!(NoiseReduction3DLevel::new(0).is_err());
         assert!(NoiseReduction3DLevel::new(8).is_ok());
         assert!(NoiseReduction3DLevel::new(9).is_err());
     }

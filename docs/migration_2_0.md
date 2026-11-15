@@ -374,6 +374,15 @@ not established:
 These are breaking source and wire corrections, not aliases: code that names a
 removed item must choose the model-specific behavior it intended.
 
+### Canonical command values (#882)
+
+| 1.x input | 2.0 input and behavior |
+| --- | --- |
+| `NdFilterValue::from_stops` truncated fractional quarter stops | The conversion rounds to the nearest quarter stop using `f32`, with halves away from zero: `6.99` becomes code `14` hex and `2.24` becomes `01`. |
+| `DirectMenuControl::new(u8, u8)` and `menu().direct(u8, u8)` | Pass `DirectMenuTarget` and `MenuButton`. The constructor is infallible; both enums admit only R7's documented targets and release/press states. Raw requests remain available for model-specific experiments. |
+| Noise-reduction level zero and `off()` represented the same register value | `NoiseReduction2DLevel` and `NoiseReduction3DLevel` are nonzero. Use `NoiseReduction2D::Off` / `NoiseReduction3D::Off` or the noun's `disable_noise_reduction_*` method for zero. Typed inquiry readback returns the same `Off` / `Level(level)` value, preserving an off register without constructing level zero. |
+| `PictureEffectMode::Unknown(u8)` admitted aliases for known codes | `Unknown(UnknownPictureEffect)` validates model-specific codes, rejecting `00`, `02`, and `04`. `from_command_byte` normalizes command Off (`00`) and black and white (`04`); inquiry `from_byte` still maps `02` to Off and also normalizes `00`. |
+
 ### Noise-reduction controls and independent gates
 
 The surviving typed NR surface is split by direction and dimension. The

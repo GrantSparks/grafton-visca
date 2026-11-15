@@ -53,7 +53,7 @@
 //!   gate at runtime through `validate_for_target` (a command through the
 //!   ledger row its request serves, an inquiry through its
 //!   `BuiltinInquiryGate`).
-//! * `<request>` is the command or inquiry value to send.  Four forms exist,
+//! * `<request>` is the command or inquiry value to send.  The forms are:
 //!   and only `noun_request!` (in `crate::noun_facade`) parses them:
 //!   * `<expr>` — an infallible constructor.
 //!   * `by_value <const expr>` — a constant of a request type whose values
@@ -61,6 +61,9 @@
 //!     Every row sending such a type uses this form, and the typed-request
 //!     inventory checks at compile time that the constant selects the row's
 //!     command.
+//!   * `by_value [<const witness>] <expr>` — an argument-bearing constructor
+//!     whose constant witness selects the same ledger row. Generated row tests
+//!     check the evaluated request as well.
 //!   * `checked <expr>` — a fallible constructor returning `Result<_>`.
 //!   * `with_profile |<name>| <expr>` — a fallible constructor that needs the
 //!     session's profile; the binder names it.
@@ -720,7 +723,7 @@ macro_rules! noun_table {
                 = [command::BacklightCommand::new(enabled)];
             /// Returns 2D noise reduction level.
             inquiry [] noise_reduction_2d()
-                -> types::NoiseReduction2DLevel where HasNoiseReduction2D
+                -> command::NoiseReduction2D where HasNoiseReduction2D
                 = [command::NoiseReduction2DInquiry];
             /// Returns the 2D noise reduction mode.
             inquiry [] noise_reduction_2d_mode()
@@ -728,7 +731,7 @@ macro_rules! noun_table {
                 = [command::NoiseReduction2DModeInquiry];
             /// Returns 3D noise reduction level.
             inquiry [] noise_reduction_3d()
-                -> types::NoiseReduction3DLevel where HasNoiseReduction3D
+                -> command::NoiseReduction3D where HasNoiseReduction3D
                 = [command::NoiseReduction3DInquiry];
             /// Sets the 2D noise-reduction mode.
             plain [NoiseReduction2dMode] set_noise_reduction_2d_mode(
@@ -738,17 +741,17 @@ macro_rules! noun_table {
             /// Sets the 2D noise-reduction level.
             plain [NoiseReduction2d] set_noise_reduction_2d(level: types::NoiseReduction2DLevel)
                 -> command::NoiseReduction2D where HasNoiseReduction2DControl
-                = [command::NoiseReduction2D::with_level(level)];
+                = [by_value [command::NoiseReduction2D::with_level(types::NoiseReduction2DLevel::MIN)] command::NoiseReduction2D::with_level(level)];
             /// Disables 2D noise reduction.
             plain [NoiseReduction2dOff] disable_noise_reduction_2d() -> command::NoiseReduction2D
-                where HasNoiseReduction2DControl = [command::NoiseReduction2D::off()];
+                where HasNoiseReduction2DControl = [by_value command::NoiseReduction2D::off()];
             /// Sets the 3D noise-reduction level.
             plain [NoiseReduction3d] set_noise_reduction_3d(level: types::NoiseReduction3DLevel)
                 -> command::NoiseReduction3D where HasNoiseReduction3DControl
-                = [command::NoiseReduction3D::with_level(level)];
+                = [by_value [command::NoiseReduction3D::with_level(types::NoiseReduction3DLevel::MIN)] command::NoiseReduction3D::with_level(level)];
             /// Disables 3D noise reduction.
             plain [NoiseReduction3dOff] disable_noise_reduction_3d() -> command::NoiseReduction3D
-                where HasNoiseReduction3DControl = [command::NoiseReduction3D::off()];
+                where HasNoiseReduction3DControl = [by_value command::NoiseReduction3D::off()];
             /// Disables vertical image flip.
             plain [ImageFlipOff] disable_flip() -> builtin::ImageFlipCommand where HasImageFlip
                 = [builtin::ImageFlipCommand::new(command::Flip::Off)];
@@ -933,10 +936,10 @@ macro_rules! noun_table {
             /// Cancels or returns from the current menu item.
             plain [MenuCancel] cancel() -> command::PerformMenuAction
                 = [command::PerformMenuAction::new(command::MenuAction::Cancel)];
-            /// Sends a vendor-specific direct menu control.
-            plain [DirectMenu] direct(control1: u8, control2: u8)
+            /// Sends a typed Sony FR7 direct-menu button control.
+            plain [DirectMenu] direct(target: command::DirectMenuTarget, button: command::MenuButton)
                 -> command::DirectMenuControl where HasDirectMenuControl
-                = [checked command::DirectMenuControl::new(control1, control2)];
+                = [command::DirectMenuControl::new(target, button)];
             /// Toggles the on-screen menu open or closed.
             ///
             /// This is the vendor open/close direct control, so it needs no prior

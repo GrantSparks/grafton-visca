@@ -26,8 +26,8 @@
 use bytes::BytesMut;
 use grafton_visca::{
     command::{
-        CommandKind, DirectMenuControl, PowerInquiry, PowerOn, PowerStandby, TallyGreenInquiry,
-        ZoomPositionInquiry, VISCA_TERMINATOR,
+        CommandKind, PowerInquiry, PowerOn, PowerStandby, TallyGreenInquiry, ZoomPositionInquiry,
+        VISCA_TERMINATOR,
     },
     raw,
     request::builtin::{
@@ -134,13 +134,6 @@ fn final_ff_data_byte_is_not_mistaken_for_the_terminator() {
     assert_eq!(
         preset,
         [0x81, 0x01, 0x04, 0x3F, 0x01, 0xFF, VISCA_TERMINATOR]
-    );
-
-    let direct_menu =
-        encode(&DirectMenuControl::new(0x00, 0xFF).expect("0xFF is valid as the final data byte"));
-    assert_eq!(
-        direct_menu,
-        [0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0xFF, VISCA_TERMINATOR,]
     );
 }
 

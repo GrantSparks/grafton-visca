@@ -617,11 +617,11 @@ fn noise_reduction_inquiries_match_the_documented_2d_mode_and_level_registers() 
 
     assert_eq!(
         decode::<NoiseReduction2DInquiry>(InquiryKind::NoiseReduction2D, &[0x90, 0x50, 0x00, 0xFF],),
-        NoiseReduction2DLevel::MIN,
+        NoiseReduction2D::Off,
     );
     assert_eq!(
         decode::<NoiseReduction2DInquiry>(InquiryKind::NoiseReduction2D, &[0x90, 0x50, 0x05, 0xFF],),
-        NoiseReduction2DLevel::MAX,
+        NoiseReduction2D::Level(NoiseReduction2DLevel::MAX),
     );
     assert!(
         Response::parse_with_type(&[0x90, 0x50, 0x06, 0xFF], &InquiryKind::NoiseReduction2D,)
@@ -646,7 +646,7 @@ fn noise_reduction_inquiries_match_the_documented_2d_mode_and_level_registers() 
         5,
     );
     // This public parser has no profile context, so it accepts the value
-    // type's full legacy-compatible domain. Session decoding narrows current
+    // type's full syntactic register domain. Session decoding narrows current
     // G2/G3 replies independently.
     assert_eq!(
         decode::<NoiseReduction3DInquiry>(

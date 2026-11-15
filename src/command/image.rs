@@ -163,51 +163,115 @@ impl NoiseReduction2DModeCommand {
     }
 }
 
-visca_command! {
-    /// Command to set or disable 2D noise reduction.
-    pub struct NoiseReduction2D { level: Option<NoiseReduction2DLevel> };
-    prefix = image::NOISE_REDUCTION_2D;
-    param = match level { None => 0x00, Some(level) => level.value() };
-    max_param_size = 1;
+/// Canonical 2D noise-reduction value for commands and inquiry readback.
+///
+/// Zero is represented only by [`Self::Off`]; every [`Self::Level`] is nonzero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub enum NoiseReduction2D {
+    /// Disables the filter.
+    Off,
+    /// A validated nonzero strength.
+    Level(NoiseReduction2DLevel),
 }
 
 impl NoiseReduction2D {
     /// Disables 2D noise reduction.
     #[must_use]
     pub const fn off() -> Self {
-        Self { level: None }
+        Self::Off
     }
 
-    /// Sets 2D noise reduction to a validated level.
-    ///
-    /// Level zero is the protocol's Off value and is intentionally valid.
+    /// Selects a nonzero validated filter strength.
     #[must_use]
     pub const fn with_level(level: NoiseReduction2DLevel) -> Self {
-        Self { level: Some(level) }
+        Self::Level(level)
+    }
+
+    /// Decodes a register value, preserving zero as Off.
+    pub fn from_byte(value: u8) -> Result<Self, Error> {
+        if value == 0 {
+            Ok(Self::Off)
+        } else {
+            NoiseReduction2DLevel::new(value).map(Self::Level)
+        }
+    }
+
+    /// Returns the exact noise-reduction register code, including zero for Off.
+    #[must_use]
+    pub const fn value(self) -> u8 {
+        match self {
+            Self::Off => 0,
+            Self::Level(level) => level.value(),
+        }
     }
 }
 
-visca_command! {
-    /// Command to set or disable 3D noise reduction.
-    pub struct NoiseReduction3D { level: Option<NoiseReduction3DLevel> };
-    prefix = image::NOISE_REDUCTION_3D;
-    param = match level { None => 0x00, Some(level) => level.value() };
-    max_param_size = 1;
+impl WireEncode for NoiseReduction2D {
+    fn write_into(&self, camera_id: crate::CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&image::NOISE_REDUCTION_2D)
+            .byte(self.value())
+            .finish()
+    }
+}
+
+/// Canonical 3D noise-reduction value for commands and inquiry readback.
+///
+/// Zero is represented only by [`Self::Off`]; every [`Self::Level`] is nonzero.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub enum NoiseReduction3D {
+    /// Disables the filter.
+    Off,
+    /// A validated nonzero strength.
+    Level(NoiseReduction3DLevel),
 }
 
 impl NoiseReduction3D {
     /// Disables 3D noise reduction.
     #[must_use]
     pub const fn off() -> Self {
-        Self { level: None }
+        Self::Off
     }
 
-    /// Sets 3D noise reduction to a validated level.
-    ///
-    /// Level zero is the protocol's Off value and is intentionally valid.
+    /// Selects a nonzero validated filter strength.
     #[must_use]
     pub const fn with_level(level: NoiseReduction3DLevel) -> Self {
-        Self { level: Some(level) }
+        Self::Level(level)
+    }
+
+    /// Decodes a register value, preserving zero as Off.
+    pub fn from_byte(value: u8) -> Result<Self, Error> {
+        if value == 0 {
+            Ok(Self::Off)
+        } else {
+            NoiseReduction3DLevel::new(value).map(Self::Level)
+        }
+    }
+
+    /// Returns the exact noise-reduction register code, including zero for Off.
+    #[must_use]
+    pub const fn value(self) -> u8 {
+        match self {
+            Self::Off => 0,
+            Self::Level(level) => level.value(),
+        }
+    }
+}
+
+impl WireEncode for NoiseReduction3D {
+    fn write_into(&self, camera_id: crate::CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
+        FrameWriter::new(camera_id, buffer)
+            .bytes(&image::NOISE_REDUCTION_3D)
+            .byte(self.value())
+            .finish()
     }
 }
 
@@ -260,7 +324,7 @@ impl ImageFlipCombinedCommand {
 /// Command to set picture effect mode.
 ///
 /// The built-in reference validates the standard off command and PTZOptics
-/// black-and-white command. Use `PictureEffectMode::Unknown(value)` for raw
+/// black-and-white command. Use `PictureEffectMode::Unknown(UnknownPictureEffect::new(value)?)` for
 /// model-specific picture-effect values outside that source-backed surface.
 #[derive(Debug, Copy, Clone)]
 pub struct PictureEffectCommand {
@@ -298,6 +362,60 @@ impl WireEncode for PictureEffectCommand {
 mod tests {
     use super::*;
     use crate::{command::bytes::VISCA_TERMINATOR, macros::test_utils::visca_test};
+
+    #[test]
+    fn noise_reduction_codes_have_one_spelling_and_ledger_row() {
+        use crate::command::semantics::BuiltinCommand;
+        for byte in 0..=u8::MAX {
+            let two = NoiseReduction2D::from_byte(byte);
+            let three = NoiseReduction3D::from_byte(byte);
+            assert_eq!(two.is_ok(), byte <= 5);
+            assert_eq!(three.is_ok(), byte <= 8);
+            if let Ok(value) = two {
+                assert_eq!(value.value(), byte);
+                assert_eq!(
+                    value.ledger_row(),
+                    if byte == 0 {
+                        BuiltinCommand::NoiseReduction2dOff
+                    } else {
+                        BuiltinCommand::NoiseReduction2d
+                    }
+                );
+            }
+            if let Ok(value) = three {
+                assert_eq!(value.value(), byte);
+                assert_eq!(
+                    value.ledger_row(),
+                    if byte == 0 {
+                        BuiltinCommand::NoiseReduction3dOff
+                    } else {
+                        BuiltinCommand::NoiseReduction3d
+                    }
+                );
+            }
+        }
+        assert!(NoiseReduction2DLevel::new(0).is_err());
+        assert!(NoiseReduction3DLevel::new(0).is_err());
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn noise_reduction_persistence_rejects_zero_levels() {
+        for json in [r#"{"level":0}"#, r#"{"level":255}"#] {
+            assert!(serde_json::from_str::<NoiseReduction2D>(json).is_err());
+            assert!(serde_json::from_str::<NoiseReduction3D>(json).is_err());
+        }
+        for value in [
+            NoiseReduction2D::Off,
+            NoiseReduction2D::Level(NoiseReduction2DLevel::MAX),
+        ] {
+            let json = serde_json::to_string(&value).unwrap();
+            assert_eq!(
+                serde_json::from_str::<NoiseReduction2D>(&json).unwrap(),
+                value
+            );
+        }
+    }
 
     fn sharpness(value: u8) -> SharpnessLevel {
         match SharpnessLevel::new(value) {
@@ -449,7 +567,9 @@ mod tests {
         PictureEffectCommand,
         test_picture_effect_unknown_raw_value,
         PictureEffectCommand {
-            mode: PictureEffectMode::Unknown(0x05)
+            mode: PictureEffectMode::Unknown(
+                crate::command::UnknownPictureEffect::new(0x05).unwrap()
+            )
         },
         &[0x81, 0x01, 0x04, 0x63, 0x05, VISCA_TERMINATOR]
     );

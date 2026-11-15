@@ -712,12 +712,12 @@ pub(crate) fn rows() -> Vec<String> {
             mode: PictureEffectMode::BlackAndWhite
         }
     );
-    row!(
+    rowr!(
         o,
-        "PictureEffect[Unknown 0x02]",
-        PictureEffectCommand {
-            mode: PictureEffectMode::Unknown(0x02)
-        }
+        "PictureEffect[Unknown 0x05]",
+        Ok(PictureEffectCommand {
+            mode: PictureEffectMode::Unknown(UnknownPictureEffect::new(0x05)?)
+        })
     );
     row!(o, "ImageFlip[On]", flip::ImageFlip { flip: Flip::On });
     row!(o, "ImageFlip[Off]", flip::ImageFlip { flip: Flip::Off });
@@ -1051,7 +1051,10 @@ fn assert_inquiry_coverage(rows: &[String]) {
 // ---- Shared row helpers ----
 use crate::command::encode::WireEncode as Enc;
 fn dmc(a: u8, b: u8) -> Result<DirectMenuControl, Error> {
-    DirectMenuControl::new(a, b)
+    Ok(DirectMenuControl::new(
+        DirectMenuTarget::try_from(a)?,
+        MenuButton::try_from(b)?,
+    ))
 }
 fn extra_rows(o: &mut Vec<String>) {
     row!(

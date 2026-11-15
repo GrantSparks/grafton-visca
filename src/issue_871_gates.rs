@@ -76,6 +76,8 @@ samples! {
     command::MotionSyncMode => command::MotionSyncMode::Off;
     types::MotionSyncSpeed => types::MotionSyncSpeed::new(1).expect("speed");
     command::MenuDirection => command::MenuDirection::Up;
+    command::DirectMenuTarget => command::DirectMenuTarget::NdFilter;
+    command::MenuButton => command::MenuButton::Release;
     types::NdiQuality => types::NdiQuality::High;
     command::VariableSpeedMode => command::VariableSpeedMode::Standard24;
 }
@@ -194,12 +196,23 @@ macro_rules! prepare {
         .map(drop)
     };
 }
+macro_rules! assert_selected_row {
+    ($request:ident, $row:ident, [by_value $($tokens:tt)*]) => {
+        assert_eq!(
+            $request.ledger_row(),
+            BuiltinCommand::$row,
+            "evaluated by-value request must agree with its constant witness"
+        );
+    };
+    ($request:ident, $row:ident, $other:tt) => {};
+}
 macro_rules! exercise_row {
     ([], $($rest:tt)*) => {};
     ([$row:ident], $kind:ident, $ret:ty, [$($request:tt)*], [$($arg:ident: $ty:ty),*], $full:ident, $none:ident, $no_typed:ident, $covered:ident) => {{
         $(let $arg = <$ty as Sample>::sample(&$full);)*
         let _registration = target_for(&$full);
         let request = crate::noun_facade::noun_request!(&$full, &_registration; $ret; $($request)*).expect(stringify!($row));
+        assert_selected_row!(request, $row, [$($request)*]);
         assert!(prepare!($kind, &request, &$full).is_ok(), "{:?}: positive preparation", BuiltinCommand::$row);
         $covered.insert(BuiltinCommand::$row);
         if !matches!(row_gate(BuiltinCommand::$row), RowGate::Always | RowGate::Domain(DomainGate::MenuControl)) {

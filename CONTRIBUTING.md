@@ -246,8 +246,10 @@ The compiler rejects a ledger row without a noun row, a noun row whose kind
 disagrees with the ledger class, and a request type without a `rows:` entry
 whose noun rows disagree on their capability gate. For a type with a `rows:`
 entry, every noun row that
-sends it must be a `[by_value <const expr>]` row whose value selects that noun
-row's ledger row. A typed built-in inquiry is added to
+sends it must use `[by_value <const expr>]`, or
+`[by_value [<const witness>] <runtime expr>]` for an argument-bearing constructor.
+The constant must select the noun row's ledger row; generated preparation tests
+also check the ledger row selected by the evaluated runtime request. A typed built-in inquiry is added to
 `define_builtin_inquiries!` in `src/command/inquiry_structs.rs` and gets its
 runtime gate from its noun row in the same way.
 

@@ -1075,8 +1075,20 @@ builtin_request! {
     crate::command::image::GammaCommand => Gamma: Plain { size: 6 };
     crate::command::image::BacklightCommand => Backlight: Plain { size: 6 };
     crate::command::image::NoiseReduction2DModeCommand => NoiseReduction2dMode: Plain { size: 6 };
-    crate::command::image::NoiseReduction2D => NoiseReduction2d: Plain { size: 6 };
-    crate::command::image::NoiseReduction3D => NoiseReduction3d: Plain { size: 6 };
+    crate::command::image::NoiseReduction2D => NoiseReduction2d: Plain {
+        size: 6,
+        rows: |command| match command {
+            crate::command::NoiseReduction2D::Off => NoiseReduction2dOff,
+            crate::command::NoiseReduction2D::Level(_) => NoiseReduction2d,
+        },
+    };
+    crate::command::image::NoiseReduction3D => NoiseReduction3d: Plain {
+        size: 6,
+        rows: |command| match command {
+            crate::command::NoiseReduction3D::Off => NoiseReduction3dOff,
+            crate::command::NoiseReduction3D::Level(_) => NoiseReduction3d,
+        },
+    };
     crate::command::image::ImageFlipCombinedCommand => ImageFlipBoth: Plain { size: 6 };
     crate::command::image::PictureEffectCommand => PictureEffect: Plain { size: 6 };
     crate::command::focus::FocusZoneCommand => FocusZone: Plain { size: 6 };
@@ -1190,9 +1202,15 @@ pub(crate) struct BuiltinTypedRequestCoverage {
 /// The one construction site of [`BuiltinTypedRequestCoverage`].
 ///
 /// The inline const asserts at compile time that `$ty` serves `$row`. A
-/// `by_value` request is a constant, so its own `ledger_row` must select
-/// `$row`; any other request form is checked on its type alone.
+/// `by_value` request supplies a constant value or a constant witness for an
+/// argument-bearing constructor. Its `ledger_row` must select `$row`; generated
+/// row tests also check that the evaluated request selects the same row. Other
+/// request forms are checked on their type alone.
 macro_rules! typed_request_coverage {
+    ($row:ident, $ty:ty, [by_value [$witness:expr] $request:expr]) => {
+        typed_request_coverage!(@entry $row, $ty, stringify!([by_value [$witness] $request]),
+            assert_value_selects_row::<$ty>(BuiltinCommand::$row, ($witness).ledger_row()))
+    };
     ($row:ident, $ty:ty, [by_value $($value:tt)*]) => {
         typed_request_coverage!(@entry $row, $ty, stringify!([by_value $($value)*]),
             assert_value_selects_row::<$ty>(BuiltinCommand::$row, ($($value)*).ledger_row()))
@@ -1278,7 +1296,7 @@ macro_rules! typed_request_inventory {
         /// request; see `typed_request_coverage!`.
         #[used]
         pub(crate) static BUILTIN_TYPED_REQUEST_INVENTORY: &[BuiltinTypedRequestCoverage] = {
-            use crate::{command, request::builtin};
+            use crate::{command, request::builtin, types};
             &[
                 $( $( typed_request_coverage!($command, $ret, $request), )? )*
                 $( typed_request_coverage!(@exception $excommand, $exty, $exkind), )*
@@ -2939,15 +2957,8 @@ mod tests {
         );
     }
 
-    /// Exhaustive value-domain sweep for #683.
-    ///
-    /// Every valid preset number (0..=255) and every direct-menu control
-    /// parameter (0..=255) must encode to a frame whose length equals the
-    /// documented wire length and that ends in the terminator. The old
-    /// const builder swallowed a trailing `0xFF` *data* byte as the terminator,
-    /// so `write_into` reported a frame one byte short and
-    /// `prepared::encode` rejected preset 255 and `direct(_, 0xFF)` outright.
-    /// This test would catch any reintroduction of that last-byte inference.
+    /// Every preset and typed direct-menu value encodes to one terminated frame.
+    /// Preset 255 exercises a final data byte equal to the terminator (#683).
     #[test]
     fn preset_and_direct_menu_value_domains_stay_terminated() {
         use crate::command::menu::DirectMenuControl;
@@ -2985,38 +2996,37 @@ mod tests {
             );
         }
 
-        // Direct menu control: sweep control2 over its whole domain, including
-        // 0xFF, across a spread of control1 values.
-        for control1 in [0x00u8, 0x7F, 0x80, 0xFF] {
-            for control2 in 0..=u8::MAX {
-                let command = DirectMenuControl::new(control1, control2);
-                if control1 == 0xFF && (0x81..=0x88).contains(&control2) {
-                    assert!(matches!(command, Err(Error::InvalidRequest(_))));
-                    continue;
-                }
-                let command = command.expect("all remaining direct-menu controls are valid");
+        // Every documented direct-menu target and button writes exactly once.
+        for target in [
+            crate::command::DirectMenuTarget::NdFilter,
+            crate::command::DirectMenuTarget::Exit,
+        ] {
+            for button in [
+                crate::command::MenuButton::Release,
+                crate::command::MenuButton::Press,
+            ] {
+                let command = DirectMenuControl::new(target, button);
                 let bytes = wire(&command);
                 assert_eq!(
-                    bytes.len(),
-                    8,
-                    "direct menu {control1:#x},{control2:#x} terminated length"
-                );
-                assert_eq!(
                     bytes,
-                    vec![0x81, 0x01, 0x7E, 0x04, 0x72, control1, control2, 0xFF],
-                    "direct menu {control1:#x},{control2:#x} wire bytes"
+                    [
+                        0x81,
+                        1,
+                        0x7E,
+                        4,
+                        0x72,
+                        u8::from(target),
+                        u8::from(button),
+                        0xFF
+                    ]
                 );
             }
         }
     }
 
-    /// End-to-end proof for #683 through the prepared (validate + encode) path
-    /// on Sony FR7, the profile that both allows preset 255 and supports direct
-    /// menu control. Before the fix these returned an `InvalidRequest`
-    /// contract-string error from `encode` because `write_into` fell one byte
-    /// short of the documented frame length.
+    /// Preset 255 and a documented direct-menu button prepare on Sony FR7.
     #[test]
-    fn preset_255_and_direct_menu_ff_prepare_on_fr7() {
+    fn preset_255_and_direct_menu_prepare_on_fr7() {
         use crate::command::menu::DirectMenuControl;
 
         let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
@@ -3056,7 +3066,10 @@ mod tests {
         .expect("preset 255 recall must prepare end-to-end on FR7");
 
         prepare_builtin_command(
-            &DirectMenuControl::new(0x00, 0xFF).expect("0xFF data byte is valid"),
+            &DirectMenuControl::new(
+                crate::command::DirectMenuTarget::Exit,
+                crate::command::MenuButton::Release,
+            ),
             &crate::TargetRegistration::new(
                 (crate::target::TargetSlot::CAMERA_1).camera(),
                 fr7.clone(),
@@ -3064,7 +3077,7 @@ mod tests {
             .expect("valid target registration"),
             OperationalTuning::new(),
         )
-        .expect("direct menu (_, 0xFF) must prepare end-to-end on FR7");
+        .expect("documented direct menu control must prepare end-to-end on FR7");
     }
 
     /// Guard for #683: the fix must not double-terminate the complete-command

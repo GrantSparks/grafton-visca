@@ -1111,8 +1111,8 @@ define_builtin_inquiries! {
             NoiseReduction2DInquiry {
                 bytes: image::NOISE_REDUCTION_2D_INQUIRY,
                 typed: (
-                    crate::types::NoiseReduction2DLevel,
-                    { level } => crate::types::NoiseReduction2DLevel::new(level)
+                    crate::command::NoiseReduction2D,
+                    { level } => crate::command::NoiseReduction2D::from_byte(level)
                 ),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: false,
@@ -1130,14 +1130,14 @@ define_builtin_inquiries! {
         commands [
             /// Inquiry command to get the 3D noise reduction level.
             ///
-            /// Every decoder accepts the public value type's `0..=8` domain. This
+            /// Every decoder accepts Off (`0`) or a nonzero level through `8`. This
             /// keeps well-formed readback values symmetric with the separately
             /// documented `04 54` setter domain across PTZOptics profiles (#717).
             NoiseReduction3DInquiry {
                 bytes: image::NOISE_REDUCTION_3D_INQUIRY,
                 typed: (
-                    crate::types::NoiseReduction3DLevel,
-                    { level } => crate::types::NoiseReduction3DLevel::new(level)
+                    crate::command::NoiseReduction3D,
+                    { level } => crate::command::NoiseReduction3D::from_byte(level)
                 ),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: false,

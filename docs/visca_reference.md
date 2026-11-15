@@ -855,7 +855,7 @@ eight-byte envelope itself.
 | Push AF / Push MF | `8x 01 7E 04 58 0p FF` | `p = 0` release; `p = 1` press. This is distinct from the red-tally `7E 01 0A` family. |
 | Pan/tilt speed-step range | `8x 01 06 45 pp FF` | `pp = 08` normal (24 steps); `pp = 18` extended (50 steps). `7E 04 1B` is FR7 preset-speed selection, not this control. |
 | Auto-tracking white balance | `8x 01 04 35 04 FF` | `04` selects ATW; inquiry `8x 09 04 35 FF` reports `04`. The `09 04 A9` AWB-sensitivity row in §7.10 is a separate PTZOptics register. |
-| Direct menu | `8x 01 7E 04 72 pp 0q FF` | `pp` selects the direct-menu control and `q = 0/1` is release/press. The typed raw-selector constructor also enforces the safe-frame delimiter boundary described in §5.2. |
+| Direct menu | `8x 01 7E 04 72 pp 0q FF` | `pp = 00` ND Filter, `01` Iris, `02` ISO/Gain, `03` Shutter, `04` AE Level/Mode, or `7F` exit; `q = 0/1` is release/press (R7 v4.00 p. 20). `DirectMenuTarget` and `MenuButton` close both typed domains. |
 
 The variable-density query is not the unsourced legacy `09 04 64` packet.
 Its four-nibble reply requires zero padding and a code in `00..14` hex; typed

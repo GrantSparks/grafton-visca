@@ -106,14 +106,11 @@ use grafton_visca::{
         ShutterSpeedEntry, SupportsTcp,
     },
     command::{
-        ExposureCommand, ExposureMode, FocusZone, NoiseReduction2DMode, PanTiltDirection, Shutter,
-        ShutterInquiry,
+        ExposureCommand, ExposureMode, FocusZone, NoiseReduction2D, NoiseReduction2DMode,
+        NoiseReduction3D, PanTiltDirection, Shutter, ShutterInquiry,
     },
     raw,
-    types::{
-        NoiseReduction2DLevel, NoiseReduction3DLevel, PanSpeed, ShutterSpeed, SpeedLevel,
-        TiltSpeed, ZoomPosition,
-    },
+    types::{PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed, ZoomPosition},
     units::{Degrees, UnitInterval},
     AffectedAxes, CameraId, CompileTimeProfile, ControlClass, Error, PanTiltCoordinateConversion,
     Request, RetryClass, ZoomDomain,
@@ -329,13 +326,13 @@ fn corrected_inquiries<P: WireRowProfile>(hw: &Hw, ip: &str) {
 // HW-05.2: NR level zero round trip (settings)
 // ---------------------------------------------------------------------------
 
-fn level2(result: &Result<NoiseReduction2DLevel, Error>) -> String {
+fn level2(result: &Result<NoiseReduction2D, Error>) -> String {
     result
         .as_ref()
         .map_or_else(|_| "ERR".to_owned(), |level| level.value().to_string())
 }
 
-fn level3(result: &Result<NoiseReduction3DLevel, Error>) -> String {
+fn level3(result: &Result<NoiseReduction3D, Error>) -> String {
     result
         .as_ref()
         .map_or_else(|_| "ERR".to_owned(), |level| level.value().to_string())
@@ -354,9 +351,9 @@ fn mode2(result: &Result<NoiseReduction2DMode, Error>) -> String {
 struct NrGuard<'a, P: WireRowProfile> {
     camera: &'a Camera<P>,
     hw: Hw,
-    orig_2d: Option<NoiseReduction2DLevel>,
+    orig_2d: Option<NoiseReduction2D>,
     orig_mode: Option<NoiseReduction2DMode>,
-    orig_3d: Option<NoiseReduction3DLevel>,
+    orig_3d: Option<NoiseReduction3D>,
     dirty_2d: Cell<bool>,
     dirty_3d: Cell<bool>,
 }
@@ -372,7 +369,10 @@ impl<P: WireRowProfile> NrGuard<'_, P> {
         }
         let hw = &self.hw;
         if let Some(level) = self.orig_2d {
-            let result = self.camera.image().set_noise_reduction_2d(level);
+            let result = match level {
+                NoiseReduction2D::Off => self.camera.image().disable_noise_reduction_2d(),
+                NoiseReduction2D::Level(level) => self.camera.image().set_noise_reduction_2d(level),
+            };
             observe(hw, "restore.nr2d.set", &result);
             sleep(SETTLE_DELAY);
         }
@@ -394,7 +394,10 @@ impl<P: WireRowProfile> NrGuard<'_, P> {
         }
         let hw = &self.hw;
         if let Some(level) = self.orig_3d {
-            let result = self.camera.image().set_noise_reduction_3d(level);
+            let result = match level {
+                NoiseReduction3D::Off => self.camera.image().disable_noise_reduction_3d(),
+                NoiseReduction3D::Level(level) => self.camera.image().set_noise_reduction_3d(level),
+            };
             observe(hw, "restore.nr3d.set", &result);
             sleep(SETTLE_DELAY);
         }
@@ -405,9 +408,9 @@ impl<P: WireRowProfile> NrGuard<'_, P> {
     fn report_restored(
         &self,
     ) -> (
-        Result<NoiseReduction2DLevel, Error>,
+        Result<NoiseReduction2D, Error>,
         Result<NoiseReduction2DMode, Error>,
-        Result<NoiseReduction3DLevel, Error>,
+        Result<NoiseReduction3D, Error>,
     ) {
         let hw = &self.hw;
         let nr2d = self.camera.image().noise_reduction_2d();
@@ -489,9 +492,8 @@ fn nr_zero_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Checks
     // 2D first. The mode is never changed by the test body itself; whether the
     // level setter changes it is recorded, not asserted.
     if guard.orig_2d.is_some() {
-        let zero = NoiseReduction2DLevel::new(0)?;
         guard.dirty_2d.set(true);
-        let set = camera.image().set_noise_reduction_2d(zero);
+        let set = camera.image().disable_noise_reduction_2d();
         observe(hw, "nr2d.set_level_zero", &set);
         sleep(SETTLE_DELAY);
         let level = camera.image().noise_reduction_2d();
@@ -515,9 +517,8 @@ fn nr_zero_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Checks
 
     // Then 3D.
     if guard.orig_3d.is_some() {
-        let zero = NoiseReduction3DLevel::new(0)?;
         guard.dirty_3d.set(true);
-        let set = camera.image().set_noise_reduction_3d(zero);
+        let set = camera.image().disable_noise_reduction_3d();
         observe(hw, "nr3d.set_level_zero", &set);
         sleep(SETTLE_DELAY);
         let level = camera.image().noise_reduction_3d();
