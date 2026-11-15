@@ -775,13 +775,18 @@ impl PanTiltFraming {
         match self {
             Self::Standard(coordinate_system) => {
                 let nibbles = Nibbles::<8>::try_from(payload)?;
-                let (pan, tilt) = coordinate_system
-                    .convert_from_camera_coords(nibbles.u16_quad(0), nibbles.u16_quad(4));
+                let (pan, tilt) = coordinate_system.convert_from_camera_coords(
+                    nibbles.u16_quad(0).ok_or(Error::InvalidResponseFormat)?,
+                    nibbles.u16_quad(4).ok_or(Error::InvalidResponseFormat)?,
+                );
                 Ok((i32::from(pan), i32::from(tilt)))
             }
             Self::SonyBrc300 => {
                 let nibbles = Nibbles::<9>::try_from(payload)?;
-                Ok((nibbles.i20_penta(0), i32::from(nibbles.i16_quad(5))))
+                Ok((
+                    nibbles.i20_penta(0).ok_or(Error::InvalidResponseFormat)?,
+                    i32::from(nibbles.i16_quad(5).ok_or(Error::InvalidResponseFormat)?),
+                ))
             }
         }
     }

@@ -457,19 +457,24 @@ fn validate_tally_state(profile: &crate::ProfileSpec, row: BuiltinCommand) -> Re
 /// Validates a command gate derived from the static noun-table row.
 ///
 /// The dynamic facade has no marker bounds, so it must consult the same typed
-/// support surface that its static method's `where Has*` clause projects to.
-/// Only rows with a typed surface may call this helper.
+/// support surfaces that its static noun header and method's `where Has*`
+/// clause project to. Only rows with typed gates may call this helper.
 fn validate_static_typed_command(
     profile: &crate::ProfileSpec,
     command: BuiltinCommand,
     feature: &'static str,
 ) -> Result<(), Error> {
-    let Some(surface) = typed_surface_for_command(command) else {
+    let Some(surfaces) = typed_surface_for_command(command) else {
         return Err(Error::InvalidRequest(
             "static typed-command gate is missing from the noun surface".into(),
         ));
     };
-    require(profile.capabilities().permits_typed(surface), feature)
+    require(
+        surfaces
+            .iter()
+            .all(|surface| profile.capabilities().permits_typed(surface)),
+        feature,
+    )
 }
 
 /// USB audio is a model capability, not a family-wide PTZOptics assumption.
@@ -1392,7 +1397,7 @@ builtin_request! {
         size: 6,
     };
     crate::command::menu::SetMenuDisplay => MenuDisplay: Plain { size: 6 };
-    crate::command::menu::MenuNavigate => MenuNavigate: Plain { size: 9 };
+    crate::command::menu::MenuNavigate => MenuNavigate: AppliedOnly { size: 9 };
     crate::command::menu::PerformMenuAction => MenuSelect: Plain { size: 6 };
     crate::command::menu::DirectMenuControl => DirectMenu: Plain { size: 8 };
     crate::command::streaming::UsbAudio => UsbAudioOn: Plain { size: 7 };
@@ -1557,12 +1562,12 @@ const fn assert_value_selects_row<T: BuiltinRequestContract>(
 }
 
 const fn same_typed_gate(
-    left: Option<TypedSupportSurface>,
-    right: Option<TypedSupportSurface>,
+    left: Option<crate::capabilities::TypedSupportSet>,
+    right: Option<crate::capabilities::TypedSupportSet>,
 ) -> bool {
     match (left, right) {
         (None, None) => true,
-        (Some(left), Some(right)) => left as u8 == right as u8,
+        (Some(left), Some(right)) => left.contains_all(right) && right.contains_all(left),
         (None, Some(_)) | (Some(_), None) => false,
     }
 }
@@ -2190,7 +2195,7 @@ impl NdFilterDirect {
 
 builtin_request! {
     NdFilterDirect => NdFilterDirect: Targeted {
-        size: 9,
+        size: 10,
         wire: |value: &NdFilterDirect| value.0,
     };
 }
@@ -3018,7 +3023,7 @@ mod tests {
         for profile in [&g2, &thirty_x] {
             assert!(prepare_builtin_command(
                 &crate::command::UsbAudio::On,
-                CameraId::CAMERA_1,
+                crate::target::TargetSlot::CAMERA_1,
                 profile,
                 OperationalTuning::new(),
             )
@@ -3028,7 +3033,7 @@ mod tests {
         for profile in [&g3, &fr7, &generic] {
             assert!(prepare_builtin_command(
                 &crate::command::UsbAudio::On,
-                CameraId::CAMERA_1,
+                crate::target::TargetSlot::CAMERA_1,
                 profile,
                 OperationalTuning::new(),
             )
@@ -3068,7 +3073,7 @@ mod tests {
                     assert_eq!(
                         $($prepare)+(
                             &request,
-                            CameraId::CAMERA_1,
+                            crate::target::TargetSlot::CAMERA_1,
                             profile,
                             OperationalTuning::new(),
                         )
@@ -3437,7 +3442,7 @@ mod tests {
 
         prepare_builtin_command(
             &PresetSet::new(preset),
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &fr7,
             OperationalTuning::new(),
         )
@@ -3445,7 +3450,7 @@ mod tests {
 
         prepare_builtin_command(
             &PresetReset::new(preset),
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &fr7,
             OperationalTuning::new(),
         )
@@ -3453,7 +3458,7 @@ mod tests {
 
         prepare_builtin_operation::<completion::Targeted, _>(
             &PresetRecall::for_profile(preset, &fr7).expect("FR7 preset recall"),
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &fr7,
             OperationalTuning::new(),
         )
@@ -3461,7 +3466,7 @@ mod tests {
 
         prepare_builtin_command(
             &DirectMenuControl::new(0x00, 0xFF).expect("0xFF data byte is valid"),
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &fr7,
             OperationalTuning::new(),
         )
@@ -3495,7 +3500,7 @@ mod tests {
     {
         prepare_command(
             command,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             profile,
             OperationalTuning::new(),
             ClassSelection::Request,
@@ -3944,84 +3949,84 @@ mod tests {
             &crate::command::PresetRecallSpeedCommand {
                 speed: PresetRecallSpeed::new(12).expect("preset speed"),
             },
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &generic,
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &FocusLock::On,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &generic,
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &SpotlightOn::new(),
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &generic,
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &AutoSlowShutterOn::new(),
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &generic,
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &NdFilterModeCommand::new(NdFilterMode::Variable),
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &generic,
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &DigitalZoom::new(true),
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &generic,
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &MulticastStreaming::On,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &generic,
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &SetNdiQuality::new(NdiQuality::High),
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &generic,
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &TallyBrightLo::new(),
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &generic,
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &crate::command::SetVariableSpeedMode::new(VariableSpeedMode::Standard24),
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &generic,
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &TallyOn::new(),
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &generic,
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &TallyFlash::new(),
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &generic,
             OperationalTuning::new(),
         )
@@ -4278,7 +4283,7 @@ mod tests {
         ] {
             let request = prepare_builtin_command(
                 &command,
-                CameraId::CAMERA_1,
+                crate::target::TargetSlot::CAMERA_1,
                 &profile,
                 OperationalTuning::new(),
             )
@@ -4379,7 +4384,7 @@ mod tests {
             ControlClass::User,
         );
         assert_policy::<NdFilterDirect>(
-            9,
+            10,
             TimeoutClass::Movement,
             RetryClass::Movement,
             ControlClass::User,
@@ -4484,7 +4489,7 @@ mod tests {
 
         prepare_builtin_operation::<completion::Targeted, _>(
             &explicit,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &profile,
             OperationalTuning::new(),
         )
@@ -4492,7 +4497,7 @@ mod tests {
 
         let error = prepare_builtin_operation::<completion::Targeted, _>(
             &normalized,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &profile,
             OperationalTuning::new(),
         )
@@ -4515,19 +4520,19 @@ mod tests {
         for result in [
             prepare_builtin_operation::<completion::Targeted, _>(
                 &IrisReset,
-                CameraId::CAMERA_1,
+                crate::target::TargetSlot::CAMERA_1,
                 &fr7,
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::Targeted, _>(
                 &IrisUp,
-                CameraId::CAMERA_1,
+                crate::target::TargetSlot::CAMERA_1,
                 &fr7,
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::Targeted, _>(
                 &IrisDown,
-                CameraId::CAMERA_1,
+                crate::target::TargetSlot::CAMERA_1,
                 &fr7,
                 OperationalTuning::new(),
             ),
@@ -4537,7 +4542,7 @@ mod tests {
         let iris_direct = IrisDirect::new(IrisLevel::new(4).unwrap());
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &iris_direct,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &fr7,
             OperationalTuning::new(),
         )
@@ -4545,19 +4550,19 @@ mod tests {
         for result in [
             prepare_builtin_operation::<completion::Targeted, _>(
                 &nd,
-                CameraId::CAMERA_1,
+                crate::target::TargetSlot::CAMERA_1,
                 &generic,
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::Targeted, _>(
                 &NdFilterStepUp,
-                CameraId::CAMERA_1,
+                crate::target::TargetSlot::CAMERA_1,
                 &generic,
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::Targeted, _>(
                 &NdFilterStepDown,
-                CameraId::CAMERA_1,
+                crate::target::TargetSlot::CAMERA_1,
                 &generic,
                 OperationalTuning::new(),
             ),
@@ -4567,13 +4572,13 @@ mod tests {
         for result in [
             prepare_builtin_operation::<completion::AppliedOnly, _>(
                 &PushAfPress,
-                CameraId::CAMERA_1,
+                crate::target::TargetSlot::CAMERA_1,
                 &generic,
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::AppliedOnly, _>(
                 &PushAfRelease,
-                CameraId::CAMERA_1,
+                crate::target::TargetSlot::CAMERA_1,
                 &generic,
                 OperationalTuning::new(),
             ),
@@ -4626,21 +4631,21 @@ mod tests {
 
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &IrisReset,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &ptz,
             OperationalTuning::new(),
         )
         .is_ok());
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &iris,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &ptz,
             OperationalTuning::new(),
         )
         .is_ok());
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &IrisDirect::new(IrisLevel::new(0x1E).unwrap()),
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &h900,
             OperationalTuning::new(),
         )
@@ -4649,14 +4654,14 @@ mod tests {
         reset_request_write_count();
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &IrisReset,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &fr7,
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &iris,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &fr7,
             OperationalTuning::new(),
         )
@@ -4665,21 +4670,21 @@ mod tests {
 
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &NdFilterDirect::new(NdFilterValue::new(4).unwrap()),
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &fr7,
             OperationalTuning::new(),
         )
         .is_ok());
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &NdFilterStepUp,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &fr7,
             OperationalTuning::new(),
         )
         .is_ok());
         assert!(prepare_builtin_operation::<completion::AppliedOnly, _>(
             &PushAfPress,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &fr7,
             OperationalTuning::new(),
         )
@@ -4698,7 +4703,7 @@ mod tests {
             assert!(
                 prepare_builtin_command(
                     &gain,
-                    CameraId::CAMERA_1,
+                    crate::target::TargetSlot::CAMERA_1,
                     profile,
                     OperationalTuning::new(),
                 )
@@ -4723,7 +4728,7 @@ mod tests {
         ] {
             let error = prepare_builtin_command(
                 &ExposureCommand::new(mode),
-                CameraId::CAMERA_1,
+                crate::target::TargetSlot::CAMERA_1,
                 &fr7,
                 OperationalTuning::new(),
             )
@@ -4775,7 +4780,7 @@ mod tests {
         reset_request_write_count();
         let error = prepare_builtin_command(
             &ExposureCommand::new(ExposureMode::Auto),
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &generic,
             OperationalTuning::new(),
         )
@@ -4802,7 +4807,7 @@ mod tests {
             ($profile:expr, $command:expr) => {
                 prepare_builtin_command(
                     &$command,
-                    CameraId::CAMERA_1,
+                    crate::target::TargetSlot::CAMERA_1,
                     $profile,
                     OperationalTuning::new(),
                 )

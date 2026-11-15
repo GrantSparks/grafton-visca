@@ -12,11 +12,7 @@ use crate::{AffectedAxes, CameraId, OperationalTuning, ProfileSpec, Result};
 /// keeps downstream attempts to implement this sealed trait focused on the
 /// sealing diagnostic instead of requiring internal lowering items.
 pub trait Kind: private::Sealed + Send + Sync + 'static {
-    /// Lower this closed completion marker into the owner-private settlement
-    /// representation. The default is the applied-only contract; targeted
-    /// completion overrides it inside the crate. Keeping this item optional
-    /// for implementors preserves the useful sealed-trait diagnostic without
-    /// exposing lowering details as an external implementation obligation.
+    /// Lowers this marker to its matching owner-private settlement plan.
     #[cfg(any(feature = "blocking", feature = "async"))]
     #[doc(hidden)]
     fn lower_settlement(
@@ -29,7 +25,7 @@ pub trait Kind: private::Sealed + Send + Sync + 'static {
     where
         Self: Sized,
     {
-        lowering::applied_only(target, profile, tuning, axes, default_budget)
+        <Self as private::Sealed>::lower(target, profile, tuning, axes, default_budget)
     }
 }
 
@@ -42,26 +38,59 @@ pub struct Targeted;
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct AppliedOnly;
 
-impl Kind for Targeted {
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    fn lower_settlement(
-        target: CameraId,
-        profile: &ProfileSpec,
-        tuning: OperationalTuning,
-        axes: AffectedAxes,
-        default_budget: Duration,
-    ) -> Result<Settlement<Self>> {
-        lowering::targeted(target, profile, tuning, axes, default_budget)
-    }
-}
-
+impl Kind for Targeted {}
 impl Kind for AppliedOnly {}
 
 mod private {
-    pub trait Sealed {}
+    /// The plan association lives on the private seal, so it adds no public
+    /// implementation obligation or supported API surface.
+    pub trait Sealed {
+        #[cfg(any(feature = "blocking", feature = "async"))]
+        type Plan: std::fmt::Debug + Send + Sync + Unpin;
 
-    impl Sealed for super::Targeted {}
-    impl Sealed for super::AppliedOnly {}
+        #[cfg(any(feature = "blocking", feature = "async"))]
+        fn lower(
+            target: crate::CameraId,
+            profile: &crate::ProfileSpec,
+            tuning: crate::OperationalTuning,
+            axes: crate::AffectedAxes,
+            default_budget: std::time::Duration,
+        ) -> crate::Result<super::Settlement<Self>>
+        where
+            Self: super::Kind + Sized;
+    }
+
+    impl Sealed for super::Targeted {
+        #[cfg(any(feature = "blocking", feature = "async"))]
+        type Plan = super::lowering::TargetedSettlementPlan;
+
+        #[cfg(any(feature = "blocking", feature = "async"))]
+        fn lower(
+            target: crate::CameraId,
+            profile: &crate::ProfileSpec,
+            tuning: crate::OperationalTuning,
+            axes: crate::AffectedAxes,
+            default_budget: std::time::Duration,
+        ) -> crate::Result<super::Settlement<Self>> {
+            super::lowering::targeted(target, profile, tuning, axes, default_budget)
+        }
+    }
+
+    impl Sealed for super::AppliedOnly {
+        #[cfg(any(feature = "blocking", feature = "async"))]
+        type Plan = ();
+
+        #[cfg(any(feature = "blocking", feature = "async"))]
+        fn lower(
+            target: crate::CameraId,
+            profile: &crate::ProfileSpec,
+            tuning: crate::OperationalTuning,
+            axes: crate::AffectedAxes,
+            default_budget: std::time::Duration,
+        ) -> crate::Result<super::Settlement<Self>> {
+            super::lowering::applied_only(target, profile, tuning, axes, default_budget)
+        }
+    }
 }
 
 #[cfg(any(feature = "blocking", feature = "async"))]
@@ -71,138 +100,67 @@ pub use lowering::Settlement;
 /// owner does.
 #[cfg(any(feature = "blocking", feature = "async"))]
 mod lowering {
-    use std::{marker::PhantomData, time::Duration};
+    use std::time::Duration;
 
-    use super::{Kind, Targeted};
+    use super::{AppliedOnly, Kind, Targeted};
     use crate::{AffectedAxes, CameraId, OperationalTuning, ProfileSpec, Result};
 
     /// Opaque settlement lowering returned by [`Kind`].
     ///
-    /// The concrete plan remains owner-private. This wrapper keeps the public
-    /// completion contract closed without exposing operation metadata or engine
-    /// state in public handles.
+    /// Each kind stores exactly its own plan: targeted operations retain their
+    /// prepared settlement plan; applied-only operations retain no plan.
     #[doc(hidden)]
     #[derive(Debug)]
     pub struct Settlement<K>
     where
         K: Kind,
     {
-        plan: LoweredPlan,
-        marker: PhantomData<fn() -> K>,
+        plan: <K as super::private::Sealed>::Plan,
     }
 
-    // Boxing this variant would add an allocation to every targeted operation's
-    // settlement plan. The owner deliberately keeps the plan inert and inline.
-    #[allow(clippy::large_enum_variant)]
-    #[derive(Debug)]
-    enum LoweredPlan {
-        Targeted(TargetedSettlementPlan),
-        AppliedOnly(AppliedOnlySettlementPlan),
-    }
-
-    impl<K> Settlement<K>
-    where
-        K: Kind,
-    {
-        fn new(plan: LoweredPlan) -> Self {
-            Self {
-                plan,
-                marker: PhantomData,
-            }
+    impl<K: Kind> Settlement<K> {
+        fn new(plan: <K as super::private::Sealed>::Plan) -> Self {
+            Self { plan }
         }
     }
 
     impl Settlement<Targeted> {
-        pub(crate) fn default_budget(&self) -> Option<Duration> {
-            match &self.plan {
-                LoweredPlan::Targeted(plan) => plan.inner.default_budget(),
-                LoweredPlan::AppliedOnly(_) => None,
-            }
+        pub(crate) fn default_budget(&self) -> Duration {
+            self.plan.inner.default_budget()
         }
 
-        /// The prepared settlement plan. Borrowed, so a settlement wait that is
-        /// abandoned or times out can be restarted on the same handle (#777).
-        pub(crate) fn plan(&self) -> Result<&crate::prepared::SettlementPlan> {
-            match &self.plan {
-                LoweredPlan::Targeted(plan) => Ok(&plan.inner),
-                LoweredPlan::AppliedOnly(_) => Err(crate::Error::InvalidState(
-                    "targeted settlement was lowered as applied-only".into(),
-                )),
-            }
+        /// The prepared settlement plan. Borrowed, so an abandoned wait can
+        /// restart on the same handle without reconstructing its plan (#777).
+        pub(crate) const fn plan(&self) -> &crate::prepared::SettlementPlan {
+            &self.plan.inner
         }
     }
 
-    pub(crate) struct AppliedOnlySettlementPlan;
-
-    impl core::fmt::Debug for AppliedOnlySettlementPlan {
-        fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            formatter.write_str("AppliedOnlySettlementPlan")
-        }
+    // Public only within this private module for the private sealed
+    // association. The representation and its fields remain owner-private.
+    #[doc(hidden)]
+    #[derive(Debug)]
+    pub struct TargetedSettlementPlan {
+        inner: crate::prepared::SettlementPlan,
     }
 
-    pub(crate) struct TargetedSettlementPlan {
-        pub(crate) inner: crate::prepared::SettlementPlan,
-    }
-
-    impl core::fmt::Debug for TargetedSettlementPlan {
-        fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            self.inner.fmt(formatter)
-        }
-    }
-
-    impl TargetedSettlementPlan {
-        pub(crate) fn new(inner: crate::prepared::SettlementPlan) -> Self {
-            Self { inner }
-        }
-    }
-
-    impl Default for AppliedOnlySettlementPlan {
-        fn default() -> Self {
-            Self
-        }
-    }
-
-    impl Clone for AppliedOnlySettlementPlan {
-        fn clone(&self) -> Self {
-            *self
-        }
-    }
-
-    impl Copy for AppliedOnlySettlementPlan {}
-
-    impl PartialEq for AppliedOnlySettlementPlan {
-        fn eq(&self, _other: &Self) -> bool {
-            true
-        }
-    }
-
-    impl Eq for AppliedOnlySettlementPlan {}
-
-    impl core::hash::Hash for AppliedOnlySettlementPlan {
-        fn hash<H: core::hash::Hasher>(&self, _state: &mut H) {}
-    }
-
-    /// Lowers the applied-only contract after the shared profile checks.
-    pub(super) fn applied_only<K: Kind>(
+    pub(super) fn applied_only(
         target: CameraId,
         profile: &ProfileSpec,
         tuning: OperationalTuning,
         axes: AffectedAxes,
         default_budget: Duration,
-    ) -> Result<Settlement<K>> {
+    ) -> Result<Settlement<AppliedOnly>> {
         crate::prepared::lower_applied_only_settlement(
-            target,
+            crate::target::TargetSlot::try_from(target)?,
             profile,
             tuning,
             axes,
             default_budget,
         )?;
-        Ok(Settlement::new(LoweredPlan::AppliedOnly(
-            AppliedOnlySettlementPlan,
-        )))
+        Ok(Settlement::new(()))
     }
 
-    /// Lowers a targeted operation into its profile-selected settlement plan.
     pub(super) fn targeted(
         target: CameraId,
         profile: &ProfileSpec,
@@ -210,9 +168,13 @@ mod lowering {
         axes: AffectedAxes,
         default_budget: Duration,
     ) -> Result<Settlement<Targeted>> {
-        crate::prepared::lower_targeted_settlement(target, profile, tuning, axes, default_budget)
-            .map(TargetedSettlementPlan::new)
-            .map(LoweredPlan::Targeted)
-            .map(Settlement::new)
+        crate::prepared::lower_targeted_settlement(
+            crate::target::TargetSlot::try_from(target)?,
+            profile,
+            tuning,
+            axes,
+            default_budget,
+        )
+        .map(|inner| Settlement::new(TargetedSettlementPlan { inner }))
     }
 }

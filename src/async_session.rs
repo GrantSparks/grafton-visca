@@ -27,6 +27,7 @@ use crate::{
         owner::AsyncTransportAdapter,
         owner::{AsyncOwnerActor, AsyncOwnerHandle},
     },
+    target::TargetSlot,
     transport::{AsyncTransport, HasTransportConfig},
     CameraId, DiagnosticSubscription, Inquiry, MetricsSnapshot, OperationCommand, PlainCommand,
     Result, SessionConfig, StateCache, SubmissionClass,
@@ -119,12 +120,13 @@ impl Session {
     where
         P: CompileTimeProfile,
     {
+        let target = TargetSlot::try_from(target)?;
         let profile = self.config.registered_profile_for::<P>(target)?;
         Ok(Camera::from_core(self.core(target, profile)))
     }
 
     /// The erased view of `target`, registered with `profile`.
-    fn core(&self, target: CameraId, profile: Arc<ProfileSpec>) -> AsyncCameraCore {
+    fn core(&self, target: TargetSlot, profile: Arc<ProfileSpec>) -> AsyncCameraCore {
         AsyncCameraCore {
             owner: self.owner.clone(),
             target,
@@ -146,6 +148,7 @@ impl Session {
     /// Returns a target-specific runtime-profile camera view.
     #[cfg(feature = "dyn-api")]
     pub fn camera_dyn_for(&self, target: CameraId) -> Result<crate::dynapi::DynSessionCamera> {
+        let target = TargetSlot::try_from(target)?;
         let profile = self.config.registered_profile(target)?;
         Ok(crate::dynapi::DynSessionCamera::new(
             self.core(target, profile),
@@ -301,6 +304,7 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     /// from this exact `P`. That is what makes the bind structural instead of
     /// a runtime profile comparison.
     pub(crate) fn from_session(session: Session, target: CameraId) -> Result<Self> {
+        let target = TargetSlot::try_from(target)?;
         let profile = session.config.registered_profile(target)?;
         let camera = Camera::from_core(session.core(target, profile));
         Ok(Self { session, camera })
@@ -419,7 +423,7 @@ impl<P: CompileTimeProfile> CameraSession<P> {
 #[derive(Clone)]
 pub(crate) struct AsyncCameraCore {
     owner: AsyncOwnerHandle,
-    target: CameraId,
+    target: TargetSlot,
     profile: Arc<ProfileSpec>,
     class: ClassSelection,
 }
@@ -438,7 +442,7 @@ impl AsyncCameraCore {
     }
 
     pub(crate) const fn target(&self) -> CameraId {
-        self.target
+        self.target.camera()
     }
 
     pub(crate) fn profile(&self) -> &ProfileSpec {
@@ -591,7 +595,7 @@ impl<P: CompileTimeProfile> fmt::Debug for Camera<P> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Camera")
-            .field("target", &self.core.target)
+            .field("target", &self.core.target.camera())
             .field("profile", &self.core.profile)
             .finish_non_exhaustive()
     }
@@ -779,9 +783,9 @@ mod tests {
     fn partial_motion_core(session: &Session) -> AsyncCameraCore {
         let profile = session
             .config
-            .registered_profile(CameraId::CAMERA_1)
+            .registered_profile(TargetSlot::CAMERA_1)
             .expect("registered partial motion profile");
-        session.core(CameraId::CAMERA_1, profile)
+        session.core(TargetSlot::CAMERA_1, profile)
     }
 
     /// Issue #805: an operation's `Debug` output is its identity only, the

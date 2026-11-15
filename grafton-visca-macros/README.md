@@ -60,13 +60,32 @@ The macro generates:
 `parser` is the current way to request the inherent `parse_response()`
 convenience method. It never defines a second decoder: `parse_response()` and
 `Inquiry::decoder()` share one generated payload decoder. Shape selectors
-(`Bool`, `Byte`, `Position`, `PanTilt`, and the other built-in table shapes)
+(`Bool`, `Byte`, `Position`, `PanTilt`, `NdFilter`, and the other built-in table shapes)
 decode with the `response` table entry, including its boolean convention,
 nibble width, and value conversion. Transforming selectors carry their own
 decoding: `Custom` calls `parse_with`, and `BoolConvention`, the nibble
-selectors, `Mode`, `NdFilter`, `PictureEffect`, `DefogLevel` and `FocusRange`
-apply their transformation, using `field`, `value_type` and `data_variant`
-where the selector reads them.
+selectors, `Mode`, `PictureEffect`, `DefogLevel` and `FocusRange`
+apply their transformation. Every optional key must be consumed by the
+selected parser; an ignored key is a compile error.
+
+| Selector | Accepted decoder keys |
+| --- | --- |
+| Built-in table shapes | None; the canonical table owns their conventions |
+| `BoolConvention` | `field`, `convention`, optional `data_variant` |
+| `Nibble`, `ExtendedNibble` | Optional `field` |
+| `Mode`, `ModeEnum` | `value_type` |
+| `LastNibble` | `field`, optional `data_variant` |
+| `PictureEffect`, `DefogLevel`, `FocusRange` | Optional `data_variant` |
+| `Custom` | `parse_with`, optional `data_variant` with a typed response |
+
+`Mode` and nibble selectors always construct the named `response` variant,
+so they reject `data_variant`. Standard VISCA on/off replies use
+`BoolConvention::OnIs02`; use `OnIs03` only for a register that documents the
+opposite polarity. Neither `opcode` nor `subcode` may be `0xFF`, because that
+byte terminates a VISCA frame.
+
+Typed-only keys, including `typed_is_tuple`, require `typed_response`; a
+standalone tuple flag is rejected rather than ignored.
 
 ## ViscaEnum
 

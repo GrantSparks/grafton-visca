@@ -192,7 +192,7 @@ async fn expired_pre_admission_boundary_never_writes_and_releases_capacity() {
     assert_eq!(
         snapshot.diagnostics,
         vec![DiagnosticEvent::AdmissionRejected {
-            target: CameraId::CAMERA_1,
+            target: crate::target::TargetSlot::CAMERA_1,
             lane: crate::runtime::engine::Lane::Inquiry,
             error: crate::ErrorKind::Timeout,
         }],
@@ -237,7 +237,7 @@ async fn immediate_pre_admission_deadline_is_telemetrized() {
     assert!(matches!(error, Error::Timeout { .. }));
 
     actor.core.flush_pre_admission_rejections(true);
-    let metrics = actor.core.state.metrics_snapshot();
+    let metrics = actor.core.state.metrics_snapshot(0);
     assert_eq!(metrics.admission_rejected, 1);
     assert_eq!(metrics.admitted, 0);
     assert_eq!(metrics.active, 0);
@@ -246,7 +246,7 @@ async fn immediate_pre_admission_deadline_is_telemetrized() {
     assert_eq!(
         actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
-            target: CameraId::CAMERA_1,
+            target: crate::target::TargetSlot::CAMERA_1,
             lane: crate::runtime::engine::Lane::Inquiry,
             error: crate::ErrorKind::Timeout,
         }]
@@ -292,7 +292,7 @@ async fn actor_expired_pre_admission_boundary_is_telemetrized_once() {
         reply.recv_async().await,
         Ok(Err(Error::Timeout { .. }))
     ));
-    let metrics = actor.core.state.metrics_snapshot();
+    let metrics = actor.core.state.metrics_snapshot(0);
     assert_eq!(metrics.admission_rejected, 1);
     assert_eq!(metrics.admitted, 0);
     assert_eq!(metrics.active, 0);
@@ -302,7 +302,7 @@ async fn actor_expired_pre_admission_boundary_is_telemetrized_once() {
     assert_eq!(
         actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
-            target: CameraId::CAMERA_1,
+            target: crate::target::TargetSlot::CAMERA_1,
             lane: crate::runtime::engine::Lane::Inquiry,
             error: crate::ErrorKind::Timeout,
         }]
@@ -538,7 +538,7 @@ async fn fail_fast_capacity_rejection_records_metrics_and_diagnostic() {
     assert_eq!(
         rejected,
         DiagnosticEvent::AdmissionRejected {
-            target: CameraId::CAMERA_1,
+            target: crate::target::TargetSlot::CAMERA_1,
             lane: crate::runtime::engine::Lane::Command,
             error: crate::ErrorKind::BufferFull,
         }
@@ -568,7 +568,7 @@ fn smol_fail_fast_capacity_rejection_records_telemetry() {
     assert!(matches!(error, Error::RuntimeQueueFull { capacity: 1 }));
 
     actor.core.flush_pre_admission_rejections(true);
-    let metrics = actor.core.state.metrics_snapshot();
+    let metrics = actor.core.state.metrics_snapshot(0);
     assert_eq!(metrics.admission_rejected, 1);
     assert_eq!(metrics.admitted, 0);
     assert_eq!(metrics.active, 0);
@@ -577,7 +577,7 @@ fn smol_fail_fast_capacity_rejection_records_telemetry() {
     assert_eq!(
         actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
-            target: CameraId::CAMERA_1,
+            target: crate::target::TargetSlot::CAMERA_1,
             lane: crate::runtime::engine::Lane::Inquiry,
             error: crate::ErrorKind::BufferFull,
         }]
@@ -596,12 +596,12 @@ async fn pre_admission_rejection_ingress_reports_bounded_diagnostic_loss() {
     owner_policy.limits.diagnostics = 1;
     let (_handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime).unwrap();
     let first = PreAdmissionRejection {
-        target: CameraId::CAMERA_1,
+        target: crate::target::TargetSlot::CAMERA_1,
         lane: crate::runtime::engine::Lane::Command,
         error: crate::ErrorKind::BufferFull,
     };
     let second = PreAdmissionRejection {
-        target: CameraId::CAMERA_1,
+        target: crate::target::TargetSlot::CAMERA_1,
         lane: crate::runtime::engine::Lane::Inquiry,
         error: crate::ErrorKind::IoClosed,
     };
@@ -619,7 +619,7 @@ async fn pre_admission_rejection_ingress_reports_bounded_diagnostic_loss() {
     assert_eq!(
         actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
-            target: CameraId::CAMERA_1,
+            target: crate::target::TargetSlot::CAMERA_1,
             lane: crate::runtime::engine::Lane::Inquiry,
             error: crate::ErrorKind::IoClosed,
         }],
@@ -645,20 +645,16 @@ async fn disconnected_pre_boundary_admission_is_telemetrized() {
         Ok(_) => panic!("a disconnected admission receiver must reject"),
         Err(error) => error,
     };
-    assert!(matches!(
-        error,
-        Error::InvalidState(message)
-            if message.contains("without publishing a terminal result")
-    ));
+    assert!(matches!(error, Error::OwnerTerminated));
 
     actor.core.flush_pre_admission_rejections(true);
     assert_eq!(actor.core.state.metrics().admission_rejected, 1);
     assert_eq!(
         actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
         vec![DiagnosticEvent::AdmissionRejected {
-            target: CameraId::CAMERA_1,
+            target: crate::target::TargetSlot::CAMERA_1,
             lane: crate::runtime::engine::Lane::Command,
-            error: crate::ErrorKind::NotExecutable,
+            error: crate::ErrorKind::IoClosed,
         }]
     );
 }
@@ -696,7 +692,7 @@ async fn async_cancellation_returns_after_recording_and_retains_terminal() {
     let cancellation = cancellation.unwrap();
     frames
         .send_async(batch(vec![DecodedFrame {
-            target: CameraId::CAMERA_1,
+            target: crate::target::TargetSlot::CAMERA_1,
             sequence: None,
             response: DecodedResponse::Error {
                 socket: Some(ViscaSocket::S1),

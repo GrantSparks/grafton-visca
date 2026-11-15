@@ -14,9 +14,9 @@ use crate::error::Error;
 ///
 /// # Protocol Background
 ///
-/// The VISCA protocol inherited an inconsistent boolean encoding from its
-/// origins in Sony broadcast equipment. Most commands use `0x03 = on`,
-/// but some legacy commands inverted this to `0x02 = on`.
+/// Standard VISCA on/off replies use `0x02 = on` and `0x03 = off`.
+/// A register that documents the opposite polarity must explicitly select
+/// [`Self::OnIs03`]. The inquiry's source determines the convention.
 ///
 /// # Examples
 ///
@@ -26,28 +26,22 @@ use crate::error::Error;
 /// let data = [0x02];
 /// let payload = Payload::new(&data);
 ///
-/// // Standard convention: 0x02 = off
-/// let enabled = payload.parse_bool("autofocus", BoolConvention::OnIs03)?;
-/// assert!(!enabled);
+/// // Standard convention: 0x02 = on
+/// let powered = payload.parse_bool("power", BoolConvention::OnIs02)?;
+/// assert!(powered);
 ///
-/// // Inverted convention: 0x02 = on
-/// let is_open = payload.parse_bool("menu_status", BoolConvention::OnIs02)?;
-/// assert!(is_open);
+/// // Use the opposite convention only for a register that documents it.
+/// let enabled = payload.parse_bool("vendor_setting", BoolConvention::OnIs03)?;
+/// assert!(!enabled);
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BoolConvention {
-    /// Standard: `0x02` = off/false, `0x03` = on/true.
-    ///
-    /// Used by the majority of VISCA commands including:
-    /// - AutoFocus, Standby, IrisControl, DefogMode, DigitalPtz
-    /// - NightDayMode, NightDaySwitch, AutoTrace, FocusUnlock
-    /// - Rtmp, Digital, TallyAutoAdjust
-    /// - IrisUp, IrisDown, FocusNearFar
-    /// - ZoomOut, ZoomIn, ZoomTeleWide
+    /// Register-specific opposite polarity: `0x02` = off/false, `0x03` = on/true.
+    /// Select this only when the register's source documents that meaning.
     OnIs03,
-    /// Inverted: `0x02` = on/true, `0x03` = off/false.
+    /// Standard VISCA on/off polarity: `0x02` = on/true, `0x03` = off/false.
     ///
-    /// Used by a small number of legacy commands:
+    /// Used by sourced replies including:
     /// - MenuOpenClose (0x02 = open)
     /// - TallyGreen (0x02 = on)
     /// - Power (0x02 = on)
@@ -55,11 +49,11 @@ pub enum BoolConvention {
     OnIs02,
 }
 
-/// Zero-copy view into VISCA nibble payloads.
+/// Zero-copy view of unvalidated VISCA reply payload bytes.
 ///
-/// This wrapper provides a type-safe interface to raw payload bytes,
-/// ensuring nibble invariants in debug builds while maintaining zero-cost
-/// abstraction in release builds.
+/// [`Self::new`] retains raw bytes without checking their shape or nibble values.
+/// [`Self::assert_nibbles`] validates the values; conversion to [`Nibbles`]
+/// additionally establishes the fixed length without copying the bytes.
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Payload<'a>(pub(crate) &'a [u8]);
@@ -89,25 +83,25 @@ impl<'a> Payload<'a> {
         self.0.is_empty()
     }
 
-    /// Debug assertion that all bytes are valid nibbles (≤ 0x0F).
+    /// Validates that every payload byte is a nibble in every build.
     ///
-    /// This is only checked in debug builds to ensure data integrity
-    /// without runtime overhead in release builds.
+    /// # Errors
+    /// Returns [`Error::InvalidResponseFormat`] if a byte exceeds `0x0F`.
     #[inline]
-    pub fn assert_nibbles(&self) {
-        debug_assert!(
-            self.0.iter().all(|&b| b <= 0x0F),
-            "Invalid nibble values in payload: {:?}",
-            self.0
-        );
+    pub fn assert_nibbles(&self) -> Result<(), Error> {
+        if self.0.iter().all(|&byte| byte <= 0x0F) {
+            Ok(())
+        } else {
+            Err(Error::InvalidResponseFormat)
+        }
     }
 
     /// Parse a single-byte boolean response with explicit convention.
     ///
     /// VISCA uses `0x02` and `0x03` for boolean states. The semantic meaning
-    /// depends on the command—most use `0x03=on` (standard), but some legacy
-    /// commands use `0x02=on` (inverted). This method requires the caller to
-    /// specify the convention, making the polarity explicit.
+    /// depends on the register: standard VISCA on/off replies use `0x02=on`.
+    /// Select the opposite convention only when that register's source documents
+    /// it. This method requires the convention explicitly at each call.
     ///
     /// # Arguments
     ///
@@ -124,11 +118,11 @@ impl<'a> Payload<'a> {
     /// # Examples
     ///
     /// ```ignore
-    /// // Standard convention (0x03 = on)
-    /// let enabled = payload.parse_bool("autofocus", BoolConvention::OnIs03)?;
+    /// // Standard convention (0x02 = on)
+    /// let powered = payload.parse_bool("power", BoolConvention::OnIs02)?;
     ///
-    /// // Inverted convention (0x02 = on)
-    /// let is_open = payload.parse_bool("menu_status", BoolConvention::OnIs02)?;
+    /// // Opposite polarity, only for a register that documents it.
+    /// let enabled = payload.parse_bool("vendor_setting", BoolConvention::OnIs03)?;
     /// ```
     pub fn parse_bool(
         &self,
@@ -160,10 +154,13 @@ impl<'a> Payload<'a> {
 pub struct Nibbles<'a, const N: usize>(&'a [u8; N]);
 
 impl<'a, const N: usize> Nibbles<'a, N> {
-    /// Create from an exact-size array reference.
+    /// Creates a validated view from an exact-size array reference.
+    ///
+    /// # Errors
+    /// Returns [`Error::InvalidResponseFormat`] if a byte exceeds `0x0F`.
     #[inline]
-    pub fn from_array(data: &'a [u8; N]) -> Self {
-        Self(data)
+    pub fn from_array(data: &'a [u8; N]) -> Result<Self, Error> {
+        Self::try_from(Payload::new(data))
     }
 
     /// Get the underlying array.
@@ -172,46 +169,43 @@ impl<'a, const N: usize> Nibbles<'a, N> {
         self.0
     }
 
-    /// Get a single byte at index.
+    /// Gets a nibble, or `None` when `index` is out of bounds.
     #[inline]
-    pub fn byte(&self, index: usize) -> u8 {
-        self.0[index]
+    pub fn byte(&self, index: usize) -> Option<u8> {
+        self.0.get(index).copied()
     }
 
-    /// Combine four nibbles into a u16 value.
-    ///
-    /// Takes bytes at positions \[start..start+4\] and combines them as:
-    /// (byte\[0\] << 12) | (byte\[1\] << 8) | (byte\[2\] << 4) | byte\[3\]
-    ///
-    /// Each nibble is masked with 0x0F to ensure only the lower 4 bits are used.
+    /// Combines four nibbles into a `u16`, or `None` if the range is out of bounds.
     #[inline]
-    pub fn u16_quad(&self, start: usize) -> u16 {
-        debug_assert!(start + 3 < N, "u16_quad index out of bounds");
-        combine(&self.0[start..start + 4]) as u16
+    pub fn u16_quad(&self, start: usize) -> Option<u16> {
+        let end = start.checked_add(4)?;
+        self.0
+            .get(start..end)
+            .map(|nibbles| combine(nibbles) as u16)
     }
 
-    /// Combine four nibbles into an i16 value.
+    /// Combines four nibbles into an `i16`, or `None` if the range is out of bounds.
     #[inline]
-    pub fn i16_quad(&self, start: usize) -> i16 {
-        self.u16_quad(start) as i16
+    pub fn i16_quad(&self, start: usize) -> Option<i16> {
+        self.u16_quad(start).map(|value| value as i16)
     }
 
-    /// Combine five nibbles into a 20-bit unsigned value.
+    /// Combines five nibbles, or `None` if the range is out of bounds.
     #[inline]
-    pub(crate) fn u20_penta(&self, start: usize) -> u32 {
-        debug_assert!(start + 4 < N, "u20_penta index out of bounds");
-        combine(&self.0[start..start + 5])
+    pub(crate) fn u20_penta(&self, start: usize) -> Option<u32> {
+        let end = start.checked_add(5)?;
+        self.0.get(start..end).map(combine)
     }
 
-    /// Combine five nibbles into a signed two's-complement 20-bit value.
+    /// Combines a signed 20-bit value, or `None` if the range is out of bounds.
     #[inline]
-    pub(crate) fn i20_penta(&self, start: usize) -> i32 {
-        let value = self.u20_penta(start);
-        if value & 0x0008_0000 != 0 {
+    pub(crate) fn i20_penta(&self, start: usize) -> Option<i32> {
+        let value = self.u20_penta(start)?;
+        Some(if value & 0x0008_0000 != 0 {
             value as i32 - 0x0010_0000
         } else {
             value as i32
-        }
+        })
     }
 
     /// The value of the trailing two nibbles of a zero-padded reply
@@ -270,84 +264,9 @@ impl<'a, const N: usize> TryFrom<Payload<'a>> for Nibbles<'a, N> {
             .try_into()
             .map_err(|_| Error::invalid_response_length(N, payload.0))?;
 
-        // Validate that all bytes are valid nibbles (≤ 0x0F) in release builds too
-        for &byte in array_ref {
-            if byte > 0x0F {
-                return Err(Error::InvalidResponseFormat);
-            }
-        }
+        payload.assert_nibbles()?;
 
         Ok(Nibbles(array_ref))
-    }
-}
-
-/// Variable-length nibble view for responses that support multiple formats.
-///
-/// Used by the Zoom-position response parser, which supports both 4-nibble and
-/// 8-nibble reply forms. Standard pan/tilt replies use an exact eight-nibble
-/// [`Nibbles`] view instead.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Nibbles4Or8<'a> {
-    /// 4-nibble response format.
-    N4(Nibbles<'a, 4>),
-    /// 8-nibble extended response format.
-    N8(Nibbles<'a, 8>),
-}
-
-impl<'a> Nibbles4Or8<'a> {
-    /// Get the u16 value from the first 4 nibbles.
-    ///
-    /// Works for both 4 and 8 nibble variants, extracting from positions 0..4.
-    #[inline]
-    pub fn first_u16(&self) -> u16 {
-        match self {
-            Self::N4(n) => n.u16_quad(0),
-            Self::N8(n) => n.u16_quad(0),
-        }
-    }
-
-    /// Get the u16 value from nibbles at the specified position.
-    ///
-    /// Returns None if the position would exceed the available nibbles.
-    #[inline]
-    pub fn u16_at(&self, start: usize) -> Option<u16> {
-        match self {
-            Self::N4(n) if start + 3 < 4 => Some(n.u16_quad(start)),
-            Self::N8(n) if start + 3 < 8 => Some(n.u16_quad(start)),
-            _ => None,
-        }
-    }
-}
-
-impl<'a> TryFrom<Payload<'a>> for Nibbles4Or8<'a> {
-    type Error = Error;
-
-    fn try_from(payload: Payload<'a>) -> Result<Self, Self::Error> {
-        match payload.len() {
-            4 => Ok(Self::N4(Nibbles::<4>::try_from(payload)?)),
-            8 => Ok(Self::N8(Nibbles::<8>::try_from(payload)?)),
-            // Expected either 4 or 8 bytes; report as "4 or 8" expectation
-            _ => Err(Error::InvalidResponseLength {
-                expected: 4, // Primary expected size (can't express "4 or 8" with single usize)
-                actual: payload.len(),
-                payload_hex: {
-                    // Use a descriptive message that captures the alternative expectation
-                    let hex = payload
-                        .0
-                        .iter()
-                        .take(32)
-                        .map(|b| format!("{b:02X}"))
-                        .collect::<Vec<_>>()
-                        .join(" ");
-                    if payload.len() > 32 {
-                        format!("{hex}... ({} bytes total, expected 4 or 8)", payload.len())
-                            .into_boxed_str()
-                    } else {
-                        format!("{hex} (expected 4 or 8 bytes)").into_boxed_str()
-                    }
-                },
-            }),
-        }
     }
 }
 
@@ -355,6 +274,36 @@ impl<'a> TryFrom<Payload<'a>> for Nibbles4Or8<'a> {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
+
+    proptest::proptest! {
+        #[test]
+        fn indexed_nibble_access_is_total_for_arbitrary_indices(index in proptest::prelude::any::<usize>()) {
+            let data = [0, 1, 2, 3, 4, 5, 6, 7];
+            let nibbles = Nibbles::from_array(&data).expect("valid nibbles");
+            proptest::prop_assert_eq!(nibbles.byte(index), data.get(index).copied());
+            let expected = index.checked_add(4).and_then(|end| data.get(index..end)).map(|bytes| combine(bytes) as u16);
+            proptest::prop_assert_eq!(nibbles.u16_quad(index), expected);
+            proptest::prop_assert_eq!(nibbles.i16_quad(index), expected.map(|value| value as i16));
+            let empty = Nibbles::<0>::from_array(&[]).expect("empty validated view");
+            proptest::prop_assert_eq!(empty.byte(index), None);
+            proptest::prop_assert_eq!(empty.u16_quad(index), None);
+            proptest::prop_assert_eq!(empty.i16_quad(index), None);
+        }
+    }
+
+    #[test]
+    fn maximum_indices_and_short_views_never_overflow() {
+        let data = [0; 8];
+        let nibbles = Nibbles::from_array(&data).expect("valid nibbles");
+        for index in [usize::MAX, usize::MAX - 1, usize::MAX - 3, 5, 8] {
+            assert_eq!(nibbles.u16_quad(index), None);
+            assert_eq!(nibbles.i16_quad(index), None);
+            assert_eq!(nibbles.u20_penta(index), None);
+            assert_eq!(nibbles.i20_penta(index), None);
+        }
+        let short = Nibbles::<3>::from_array(&[0, 1, 2]).expect("short validated view");
+        assert_eq!(short.u16_quad(0), None);
+    }
 
     #[test]
     fn test_payload_basic() {
@@ -368,10 +317,10 @@ mod tests {
     #[test]
     fn test_nibbles_4() {
         let data = [0x01, 0x02, 0x03, 0x04];
-        let nibbles = Nibbles::<4>::from_array(&data);
-        assert_eq!(nibbles.byte(0), 0x01);
-        assert_eq!(nibbles.byte(3), 0x04);
-        assert_eq!(nibbles.u16_quad(0), 0x1234);
+        let nibbles = Nibbles::<4>::from_array(&data).expect("valid nibbles");
+        assert_eq!(nibbles.byte(0), Some(0x01));
+        assert_eq!(nibbles.byte(3), Some(0x04));
+        assert_eq!(nibbles.u16_quad(0), Some(0x1234));
     }
 
     #[test]
@@ -379,7 +328,7 @@ mod tests {
         let data = vec![0x0A, 0x0B, 0x0C, 0x0D];
         let payload = Payload::new(&data);
         let nibbles = Nibbles::<4>::try_from(payload).expect("Should convert to Nibbles<4>");
-        assert_eq!(nibbles.u16_quad(0), 0xABCD);
+        assert_eq!(nibbles.u16_quad(0), Some(0xABCD));
     }
 
     #[test]
@@ -398,50 +347,23 @@ mod tests {
     }
 
     #[test]
-    fn test_nibbles_4_or_8() {
-        // Test 4-nibble variant
-        let data4 = vec![0x01, 0x02, 0x03, 0x04];
-        let payload4 = Payload::new(&data4);
-        let nibbles4 = Nibbles4Or8::try_from(payload4).expect("Should convert to Nibbles4Or8");
-        assert!(matches!(nibbles4, Nibbles4Or8::N4(_)));
-        assert_eq!(nibbles4.first_u16(), 0x1234);
-
-        // Test 8-nibble variant
-        let data8 = vec![0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
-        let payload8 = Payload::new(&data8);
-        let nibbles8 = Nibbles4Or8::try_from(payload8).expect("Should convert to Nibbles4Or8");
-        assert!(matches!(nibbles8, Nibbles4Or8::N8(_)));
-        assert_eq!(nibbles8.first_u16(), 0x1234);
-        assert_eq!(nibbles8.u16_at(4), Some(0x5678));
-
-        // Test invalid size
-        let data_invalid = vec![0x01, 0x02];
-        let payload_invalid = Payload::new(&data_invalid);
-        let result = Nibbles4Or8::try_from(payload_invalid);
-        assert!(matches!(
-            result,
-            Err(Error::InvalidResponseLength {
-                expected: 4,
-                actual: 2,
-                ..
-            })
-        ));
-    }
-
-    #[test]
     fn test_i16_conversion() {
         let data = [0x0F, 0x0F, 0x0F, 0x0F];
-        let nibbles = Nibbles::<4>::from_array(&data);
-        assert_eq!(nibbles.i16_quad(0), -1);
+        let nibbles = Nibbles::<4>::from_array(&data).expect("valid nibbles");
+        assert_eq!(nibbles.i16_quad(0), Some(-1));
     }
 
     #[test]
-    #[cfg(debug_assertions)]
-    #[should_panic(expected = "Invalid nibble values")]
-    fn test_debug_assert_nibbles() {
-        let data = vec![0x10, 0x02]; // 0x10 is not a valid nibble
-        let payload = Payload::new(&data);
-        payload.assert_nibbles();
+    fn array_and_payload_validation_are_fallible_in_every_build() {
+        let data = [0x10, 0x02];
+        assert!(matches!(
+            Payload::new(&data).assert_nibbles(),
+            Err(Error::InvalidResponseFormat)
+        ));
+        assert!(matches!(
+            Nibbles::from_array(&data),
+            Err(Error::InvalidResponseFormat)
+        ));
     }
 
     #[test]
@@ -462,9 +384,9 @@ mod tests {
     #[test]
     fn test_nibbles_masking() {
         let data = [0x0F, 0x0F, 0x0F, 0x0F];
-        let nibbles = Nibbles::<4>::from_array(&data);
+        let nibbles = Nibbles::<4>::from_array(&data).expect("valid nibbles");
 
-        assert_eq!(nibbles.u16_quad(0), 0xFFFF); // All nibbles are 0x0F
+        assert_eq!(nibbles.u16_quad(0), Some(0xFFFF)); // All nibbles are 0x0F
     }
 
     /// Issue #828 L1: a padded `00 … 0p 0q` reply whose padding is not zero
@@ -472,12 +394,13 @@ mod tests {
     /// leading nibbles silently; they now reject them.
     #[test]
     fn zero_extended_accessors_reject_nonzero_padding() {
-        let pair = Nibbles::<4>::from_array(&[0x00, 0x00, 0x0A, 0x05]);
+        let pair = Nibbles::<4>::from_array(&[0x00, 0x00, 0x0A, 0x05]).expect("valid nibbles");
         assert_eq!(pair.zero_extended_u8().unwrap(), 0xA5);
-        let single = Nibbles::<4>::from_array(&[0x00, 0x00, 0x00, 0x0E]);
+        let single = Nibbles::<4>::from_array(&[0x00, 0x00, 0x00, 0x0E]).expect("valid nibbles");
         assert_eq!(single.zero_extended_nibble().unwrap(), 0x0E);
         assert_eq!(
             Nibbles::<2>::from_array(&[0x01, 0x0F])
+                .expect("valid nibbles")
                 .zero_extended_u8()
                 .unwrap(),
             0x1F
@@ -485,18 +408,24 @@ mod tests {
 
         for padded in [[0x01, 0x00, 0x0A, 0x05], [0x00, 0x0F, 0x0A, 0x05]] {
             assert!(matches!(
-                Nibbles::<4>::from_array(&padded).zero_extended_u8(),
+                Nibbles::<4>::from_array(&padded)
+                    .expect("valid nibbles")
+                    .zero_extended_u8(),
                 Err(Error::InvalidResponseFormat)
             ));
         }
         for padded in [[0x00, 0x00, 0x01, 0x0E], [0x08, 0x00, 0x00, 0x0E]] {
             assert!(matches!(
-                Nibbles::<4>::from_array(&padded).zero_extended_nibble(),
+                Nibbles::<4>::from_array(&padded)
+                    .expect("valid nibbles")
+                    .zero_extended_nibble(),
                 Err(Error::InvalidResponseFormat)
             ));
         }
         assert!(matches!(
-            Nibbles::<1>::from_array(&[0x01]).zero_extended_u8(),
+            Nibbles::<1>::from_array(&[0x01])
+                .expect("valid nibbles")
+                .zero_extended_u8(),
             Err(Error::InvalidResponseFormat)
         ));
     }
@@ -520,7 +449,7 @@ mod tests {
                     | ((value as u16) << 8)
                     | ((value as u16) << 4)
                     | (value as u16);
-                assert_eq!(nibbles.u16_quad(0), expected_u16);
+                assert_eq!(nibbles.u16_quad(0), Some(expected_u16));
             }
         }
     }
@@ -545,8 +474,8 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn test_parse_bool_standard_convention() {
-        // Standard convention: 0x02 = off, 0x03 = on
+    fn test_parse_bool_register_specific_opposite_convention() {
+        // Register-specific opposite convention: 0x02 = off, 0x03 = on
         let data_off = vec![0x02];
         let payload_off = Payload::new(&data_off);
         assert!(!payload_off
@@ -561,8 +490,8 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_bool_inverted_convention() {
-        // Inverted convention: 0x02 = on, 0x03 = off
+    fn test_parse_bool_standard_convention() {
+        // Standard convention: 0x02 = on, 0x03 = off
         let data_on = vec![0x02];
         let payload_on = Payload::new(&data_on);
         assert!(payload_on

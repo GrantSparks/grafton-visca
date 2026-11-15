@@ -115,6 +115,8 @@ pub(crate) fn write_all_bounded<Io: Write + ?Sized>(
 
 /// Perform one read armed with `timeout`, reporting an idle end as
 /// [`Error::io_timeout`] according to `kind`.
+/// A zero budget ends idle before arming or reading; an unrepresentable
+/// monotonic-clock budget is rejected as [`Error::InvalidParameter`].
 pub(crate) fn read_once_bounded<Io: Read + ?Sized>(
     io: &mut Io,
     arm: Arm<Io>,
@@ -122,6 +124,9 @@ pub(crate) fn read_once_bounded<Io: Read + ?Sized>(
     timeout: Duration,
     kind: TimedIo,
 ) -> Result<usize> {
+    let now = Instant::now();
+    let timeout =
+        Deadline::after(now, timeout, "read_timeout")?.remaining_or(now, Error::io_timeout)?;
     arm(io, timeout)?;
     match io.read(dst) {
         Ok(read) => Ok(read),

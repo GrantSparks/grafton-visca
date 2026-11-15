@@ -15,7 +15,9 @@ fn set(targets: &[u8]) -> RawCorrelationReleaseSet {
     targets
         .iter()
         .fold(RawCorrelationReleaseSet::default(), |set, target| {
-            set.with_terminal_for_test(CameraId::new(*target).unwrap())
+            set.with_terminal_for_test(
+                crate::target::TargetSlot::try_from(CameraId::new(*target).unwrap()).unwrap(),
+            )
         })
 }
 
@@ -1278,6 +1280,38 @@ mod model {
             steps in prop::collection::vec(0_usize..ALPHABET.len(), 1..96)
         ) {
             run(steps.into_iter().map(|index| ALPHABET[index]));
+        }
+    }
+}
+
+#[test]
+fn a_pause_that_meets_a_deadline_polls_receive_before_timer() {
+    for already_due in [false, true] {
+        for grace in [false, true] {
+            let mut coordinator = OwnerCoordinator::<u32>::default();
+            let now = Instant::now();
+            let deadline = now + ms(10);
+            if grace {
+                coordinator.release_mut().wait_for_input_until(deadline);
+            }
+            coordinator.pace_receive(deadline);
+            coordinator.finish(
+                Selected::Receive {
+                    due_at_receive: empty(),
+                    class: ReceiveClass::NoInput,
+                },
+                None,
+                TurnOutcome::YieldBoundaries,
+            );
+            coordinator.begin_turn();
+            let selection = select(coordinator.plan(
+                if already_due { deadline } else { now },
+                Some(deadline),
+                empty(),
+                || false,
+            ));
+            assert_eq!(selection.order().next(), Some(Source::Receive));
+            assert_eq!(selection.phase, SourcePhase::ReceiveFirst);
         }
     }
 }

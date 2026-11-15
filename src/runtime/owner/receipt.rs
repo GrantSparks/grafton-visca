@@ -229,15 +229,8 @@ pub(super) fn observer_deadline(now: Instant, timeout: Duration) -> Result<Insta
 pub(super) fn settlement_budget(
     settlement: &completion::Settlement<completion::Targeted>,
     timeout: Option<Duration>,
-) -> Result<Duration, Error> {
-    match timeout {
-        Some(timeout) => Ok(timeout),
-        None => settlement.default_budget().ok_or_else(|| {
-            Error::InvalidState(
-                "targeted operation omitted its configured settlement budget".into(),
-            )
-        }),
-    }
+) -> Duration {
+    timeout.unwrap_or_else(|| settlement.default_budget())
 }
 
 /// How settlement is proved by position polling once an operation applied.
@@ -252,33 +245,23 @@ pub(super) struct PositionPoll<'a> {
 /// The position polling that proves settlement of the applied operation
 /// `observation`, or `None` when the profile declares its applied protocol
 /// completion to be the settlement evidence.
-pub(super) fn position_poll<'a>(
-    settlement: &'a completion::Settlement<completion::Targeted>,
-    observation: &OperationObservation,
+pub(super) fn position_poll(
+    settlement: &completion::Settlement<completion::Targeted>,
     affected_axes: AffectedAxes,
-) -> Result<Option<PositionPoll<'a>>, Error> {
-    match settlement.plan()? {
-        SettlementPlan::CompletionIsSettled { target, .. } => {
-            debug_assert_eq!(*target, observation.target());
-            Ok(None)
-        }
+) -> Option<PositionPoll<'_>> {
+    match settlement.plan() {
+        SettlementPlan::CompletionIsSettled { .. } => None,
         SettlementPlan::Poll {
-            target,
             queries,
-            axes,
             tolerance,
             interval,
             ..
-        } => {
-            debug_assert_eq!(*target, observation.target());
-            debug_assert_eq!(*axes, affected_axes);
-            Ok(Some(PositionPoll {
-                queries,
-                axes: *axes,
-                tolerance: *tolerance,
-                interval: *interval,
-            }))
-        }
+        } => Some(PositionPoll {
+            queries,
+            axes: affected_axes,
+            tolerance: *tolerance,
+            interval: *interval,
+        }),
     }
 }
 

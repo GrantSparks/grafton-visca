@@ -51,14 +51,16 @@ fn monotonic_duration_is_representable(now: Instant, duration: Duration) -> bool
     now.checked_add(duration).is_some()
 }
 
-/// The default retry budget is at least twice the governing command/inquiry
-/// deadline. Check that derived deadline too, rather than accepting an input
-/// that is individually representable but overflows when the retry budget is
-/// constructed.
-fn retry_budget_is_representable(now: Instant, deadline: Duration) -> bool {
+/// The derived budget covers twice the response window and the full attempt
+/// (ACK plus completion for a command). Check their combined deadline rather
+/// than accepting individually representable inputs that overflow together.
+fn retry_budget_is_representable(now: Instant, deadline: Duration, ack: Duration) -> bool {
     deadline
         .checked_mul(2)
-        .is_some_and(|budget| monotonic_duration_is_representable(now, budget))
+        .zip(deadline.checked_add(ack))
+        .is_some_and(|(budget, attempt)| {
+            monotonic_duration_is_representable(now, budget.max(attempt))
+        })
 }
 
 /// Position inquiries available for profile-selected protocol settlement.
@@ -179,7 +181,15 @@ pub enum ProfileEnvelope {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct TransportCompatibility {
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     tcp_port: Option<u16>,
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     udp_port: Option<u16>,
     serial: bool,
 }
@@ -651,8 +661,8 @@ impl ProfileTiming {
         // those derived values here as well as the stored timing facts.
         if command_deadlines
             .into_iter()
-            .chain([self.inquiry_timeout])
-            .any(|deadline| !retry_budget_is_representable(now, deadline))
+            .any(|deadline| !retry_budget_is_representable(now, deadline, self.ack_timeout))
+            || !retry_budget_is_representable(now, self.inquiry_timeout, Duration::ZERO)
         {
             return Err(invalid_profile_fields(
                 &["timing.command_timeouts", "timing.inquiry_timeout"],
@@ -1045,21 +1055,26 @@ pub(crate) struct RetryBounds {
 }
 
 impl RetryBounds {
-    /// The profile's retry bounds for a request whose own governing deadline
-    /// (its completion deadline for a command, its reply deadline for an
-    /// inquiry) is `deadline`.
+    /// The profile's retry bounds for a response deadline and full attempt.
     ///
-    /// Backoff starts at 50 ms and is capped at the larger of 500 ms and the
-    /// profile busy timeout. The total budget is the largest of ten seconds,
-    /// twice the governing deadline, and the busy timeout: a request must be
-    /// able to finish one governing attempt and still have room for a retry,
-    /// and the busy timeout covers camera-side recovery windows.
-    pub(crate) fn for_request(busy_timeout: Duration, deadline: Duration) -> Self {
+    /// `deadline` is a command's completion window or an inquiry's reply
+    /// window. `attempt` additionally includes the ACK window for an
+    /// ACK-bearing command. The budget retains the established floor of ten
+    /// seconds, twice the response deadline, and the busy timeout, and grows
+    /// when needed to fit the complete attempt. This preserves ordinary
+    /// untuned budgets while a longer ACK override cannot truncate healthy
+    /// execution. Backoff starts at 50 ms, capped by 500 ms or the busy timeout.
+    pub(crate) fn for_request(
+        busy_timeout: Duration,
+        deadline: Duration,
+        attempt: Duration,
+    ) -> Self {
         Self {
             initial_backoff: MINIMUM_INITIAL_RETRY_BACKOFF,
             maximum_backoff: MINIMUM_MAXIMUM_RETRY_BACKOFF.max(busy_timeout),
             total_budget: MINIMUM_RETRY_BUDGET
                 .max(deadline.saturating_mul(2))
+                .max(attempt)
                 .max(busy_timeout),
         }
     }
@@ -1088,6 +1103,10 @@ pub struct ProfileSpec {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub(crate) struct ProfileFacts {
     capabilities: capabilities::Capabilities,
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pan_tilt_coordinates: Option<PanTiltCoordinateConversion>,
     transports: TransportCompatibility,
     envelope: ProfileEnvelope,
@@ -1095,6 +1114,10 @@ pub(crate) struct ProfileFacts {
     maximum_command_sockets: u8,
     supports_operation_complete: bool,
     supports_command_cancel: bool,
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     preset_recall_axes: Option<AffectedAxes>,
     position_inquiries: PositionInquirySupport,
 }
@@ -1144,6 +1167,21 @@ impl ProfileFacts {
     {
         *self == Self::compile_time::<P>()
     }
+}
+
+/// Deserialize an optional fact whose key must still be present.
+///
+/// Attaching `deserialize_with` prevents serde's implicit missing-Option
+/// default while retaining explicit `null` as the declared absent value.
+#[cfg(feature = "serde")]
+pub(crate) fn required_option<'de, D, T>(
+    deserializer: D,
+) -> std::result::Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    serde::Deserialize::deserialize(deserializer)
 }
 
 /// Instruction appended to every refused persisted spec.
@@ -1389,12 +1427,19 @@ impl ProfileSpec {
 
         // Command and inquiry overrides feed the same derived retry-budget
         // calculation as their profile-owned counterparts.
-        if command_overrides
-            .into_iter()
-            .chain([tuning.inquiry_timeout])
-            .flatten()
-            .any(|deadline| !retry_budget_is_representable(now, deadline))
-        {
+        let ack = tuning.ack_timeout.unwrap_or(self.facts.timing.ack_timeout);
+        if CommandCategory::ALL.into_iter().any(|category| {
+            let deadline = tuning
+                .command_override(category)
+                .unwrap_or(self.facts.timing.command_timeouts.get(category));
+            !retry_budget_is_representable(now, deadline, ack)
+        }) || !retry_budget_is_representable(
+            now,
+            tuning
+                .inquiry_timeout
+                .unwrap_or(self.facts.timing.inquiry_timeout),
+            Duration::ZERO,
+        ) {
             return Err(Error::InvalidRequest(
                 "operational retry deadlines must be representable by the monotonic clock".into(),
             ));
@@ -1477,7 +1522,11 @@ impl ProfileSpec {
         // The profile's request-independent retry floor: every request's own
         // bound is at least this, so an override below it could only shorten
         // retry timing.
-        let floor = RetryBounds::for_request(self.facts.timing.busy_timeout, Duration::ZERO);
+        let floor = RetryBounds::for_request(
+            self.facts.timing.busy_timeout,
+            Duration::ZERO,
+            Duration::ZERO,
+        );
         if undercuts(tuning.initial_retry_backoff, floor.initial_backoff)
             || undercuts(tuning.maximum_retry_backoff, floor.maximum_backoff)
             || undercuts(tuning.retry_budget, floor.total_budget)
@@ -3378,6 +3427,45 @@ mod tests {
             .minimum_command_spacing(Duration::ZERO)
             .build()
             .is_err());
+    }
+
+    #[test]
+    fn retry_budget_representability_includes_the_ack_window() {
+        let now = Instant::now();
+        assert!(retry_budget_is_representable(
+            now,
+            Duration::from_secs(8),
+            Duration::from_secs(10)
+        ));
+        assert!(!retry_budget_is_representable(
+            now,
+            Duration::from_secs(1),
+            Duration::MAX
+        ));
+        assert!(!retry_budget_is_representable(
+            now,
+            Duration::MAX,
+            Duration::from_secs(1)
+        ));
+    }
+
+    #[test]
+    fn individually_representable_ack_cannot_overflow_the_full_attempt() {
+        let now = Instant::now();
+        let (mut low, mut high) = (0_u64, u64::MAX);
+        while low < high {
+            let middle = low + (high - low) / 2 + (high - low) % 2;
+            if now.checked_add(Duration::from_secs(middle)).is_some() {
+                low = middle;
+            } else {
+                high = middle - 1;
+            }
+        }
+        let ack = Duration::from_secs(low);
+        let response = Duration::from_secs(1);
+        assert!(monotonic_duration_is_representable(now, ack));
+        assert!(monotonic_duration_is_representable(now, response * 2));
+        assert!(!retry_budget_is_representable(now, response, ack));
     }
 
     #[test]

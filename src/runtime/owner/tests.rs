@@ -15,13 +15,6 @@ fn policy_for_target_validation() -> ProtocolPolicy {
     }
 }
 
-fn target_policy_for_validation() -> TargetPolicy {
-    TargetPolicy {
-        command_sockets: 1,
-        ..TargetPolicy::test_default()
-    }
-}
-
 /// Stage one admission with a fresh observer slot and admission reply, as a
 /// handle's boundary message would carry them.
 fn stage_admission(
@@ -40,21 +33,15 @@ fn stage_admission(
 }
 
 #[test]
-fn single_target_rejects_broadcast_without_panicking() {
-    let result = OwnerPolicy::single_target(
-        policy_for_target_validation(),
-        CameraId::BROADCAST,
-        target_policy_for_validation(),
-    );
-    assert!(result.is_err());
+fn an_individual_target_rejects_broadcast_without_panicking() {
+    assert!(TargetSlot::try_from(CameraId::BROADCAST).is_err());
 }
 
 #[test]
-fn with_targets_rejects_broadcast_slot_without_panicking() {
-    let mut targets = [None; 9];
-    targets[8] = Some(target_policy_for_validation());
-    let result = OwnerPolicy::with_targets(policy_for_target_validation(), targets);
-    assert!(result.is_err());
+fn with_targets_rejects_an_empty_registry_without_panicking() {
+    assert!(
+        OwnerPolicy::with_targets(policy_for_target_validation(), PerTarget::default()).is_err()
+    );
 }
 
 /// Issue #631: the owner state used by the reconfiguration tests below.
@@ -66,13 +53,13 @@ fn reconfigurable_owner_state() -> OwnerState {
     protocol.command_spacing = Duration::from_millis(10);
     protocol.inquiry_spacing = Duration::from_millis(20);
     let policy =
-        OwnerPolicy::single_target(protocol, CameraId::CAMERA_1, TargetPolicy::test_default())
+        OwnerPolicy::single_target(protocol, TargetSlot::CAMERA_1, TargetPolicy::test_default())
             .expect("single-target owner policy");
     OwnerState::new(policy).expect("owner state")
 }
 
 fn command_sockets(state: &OwnerState) -> u8 {
-    state.policy().targets[usize::from(CameraId::CAMERA_1.id())]
+    state.policy().targets[TargetSlot::CAMERA_1]
         .expect("camera one is registered")
         .command_sockets
 }
@@ -215,7 +202,7 @@ mod control_reserve {
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
-            target: CameraId::new(target).unwrap(),
+            target: TargetSlot::try_from(CameraId::new(target).unwrap()).unwrap(),
             timeout: TimeoutPolicy {
                 ack: Duration::from_millis(10),
                 completion: Duration::from_millis(20),
@@ -235,9 +222,9 @@ mod control_reserve {
 
     /// One ordinary slot; cameras 1 and 2 reserve two and one control slots.
     fn pool() -> AdmissionPermitPool {
-        let mut reserves = [0; 9];
-        reserves[1] = 2;
-        reserves[2] = 1;
+        let mut reserves = PerTarget::default();
+        reserves[TargetSlot::CAMERA_1] = 2;
+        reserves[TargetSlot::CAMERA_2] = 1;
         AdmissionPermitPool::new(1, reserves)
     }
 
@@ -254,7 +241,7 @@ mod control_reserve {
         assert!(matches!(
             pool.try_acquire(&urgent),
             Err(Error::ControlReserveExhausted { target, reserve: 2 })
-                if target == CameraId::CAMERA_1
+                if target == TargetSlot::CAMERA_1.camera()
         ));
         assert!(matches!(
             pool.try_acquire(&context(1, ControlClass::User)),
@@ -348,7 +335,7 @@ mod metrics {
             EncodedMessage, EnvelopeKind, EnvelopeSequence, InquiryRoute, ReplyShape,
             RequestContext, RetryPolicy, SequenceWidth, TimeoutPolicy, TransmissionMeta,
         },
-        CameraId, Error, ViscaSocket,
+        Error, ViscaSocket,
     };
 
     const ACK: Duration = Duration::from_millis(10);
@@ -379,7 +366,7 @@ mod metrics {
             raw_inquiry_release_hold: Duration::from_millis(10),
             ..ProtocolPolicy::test_default()
         };
-        OwnerPolicy::single_target(protocol, CameraId::CAMERA_1, TargetPolicy::test_default())
+        OwnerPolicy::single_target(protocol, TargetSlot::CAMERA_1, TargetPolicy::test_default())
             .unwrap()
     }
 
@@ -388,7 +375,7 @@ mod metrics {
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
-            target: CameraId::CAMERA_1,
+            target: TargetSlot::CAMERA_1,
             timeout: TimeoutPolicy {
                 ack: ACK,
                 completion: COMPLETION,
@@ -427,7 +414,7 @@ mod metrics {
 
     fn frame(sequence: Option<u32>, response: DecodedResponse) -> Input {
         OwnerState::frame_input(DecodedFrame {
-            target: CameraId::CAMERA_1,
+            target: TargetSlot::CAMERA_1,
             sequence: sequence.map(|value| EnvelopeSequence {
                 value,
                 width: SequenceWidth::Full32,
@@ -652,7 +639,7 @@ mod metrics {
         assert!(state.diagnostics().any(|event| matches!(
             event,
             DiagnosticEvent::FrameReceived {
-                target: CameraId::CAMERA_1,
+                target: TargetSlot::CAMERA_1,
                 sequence: None,
                 response: ResponseDiagnostic::SonyControl { code: 0x0F01 },
             }
@@ -708,12 +695,7 @@ mod metrics {
             let _ = state.apply_effect(effect);
         }
         let _ = state.finish_input_turn(turn, EngineTurn::INPUT_ONLY);
-        let core = ReceiptCore::admitted(
-            admitted.recv().unwrap().unwrap(),
-            CameraId::CAMERA_1,
-            observer,
-            ACK,
-        );
+        let core = ReceiptCore::admitted(admitted.recv().unwrap().unwrap(), observer, ACK);
         (OperationObservation::new(core, ACK), cell)
     }
 
@@ -764,12 +746,7 @@ mod metrics {
         }
         let _ = state.finish_input_turn(admission_turn, EngineTurn::INPUT_ONLY);
         let later = OperationObservation::new(
-            ReceiptCore::admitted(
-                reply.recv().unwrap().unwrap(),
-                CameraId::CAMERA_1,
-                completion,
-                ACK,
-            ),
+            ReceiptCore::admitted(reply.recv().unwrap().unwrap(), completion, ACK),
             ACK,
         );
         let turn = state.begin_input_turn(now);
@@ -799,7 +776,7 @@ mod metrics {
         let (handle, ends) = boundary::OwnerHandleCore::new(&state);
         let stamp = state
             .motion
-            .establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 0);
+            .establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 0);
         let barrier = Arc::new(std::sync::Barrier::new(2));
         let producer = handle.clone();
         let ready = Arc::clone(&barrier);
@@ -813,7 +790,7 @@ mod metrics {
             .lifecycle
             .fence_order(
                 &state.motion,
-                CameraId::CAMERA_1,
+                TargetSlot::CAMERA_1,
                 Some(AffectedAxes::PAN_TILT),
             )
             .unwrap();
@@ -849,7 +826,7 @@ mod metrics {
         motion.context_mut().submission_order = order;
         let _ = state
             .engine
-            .halt(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, cutoff);
+            .halt(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, cutoff);
         let effects = state.engine.handle_turn(
             Input::Admit {
                 ticket: AdmissionTicket(99),
@@ -922,15 +899,65 @@ mod metrics {
         ));
     }
 
+    /// A cancellation's failure slot can wake its caller before the engine's
+    /// matching terminal effect is delivered. Both slots must expose the same
+    /// canonical verdict, independently of that delivery order (#857).
+    #[test]
+    fn canonical_cancellation_failure_survives_receipt_delivery_order() {
+        fn assert_canonical(verdict: Option<Result<CancellationOutcome, Error>>) {
+            let Some(Err(error)) = verdict else {
+                panic!("the cancellation must have a recorded failure");
+            };
+            assert!(
+                matches!(error, Error::CancellationUnconfirmed),
+                "expected the canonical ambiguity verdict, got {error:?}"
+            );
+            assert!(!error.is_retryable());
+            assert_eq!(error.suggested_retry_delay(), None);
+            assert_eq!(
+                error.failure_context(),
+                Some(crate::FailureContext::new(
+                    crate::FailureStage::CancellationAttempt,
+                    crate::Certainty::Unconfirmed
+                ))
+            );
+        }
+
+        let delivered = Instant::now();
+        let deadline = delivered + Duration::from_secs(1);
+        let (mut observation, terminal) = observation_fixture();
+        let cancellation = observation.cancellation_request();
+        cancellation.observer.resolve_at(
+            Error::cancellation_observation_failed(Error::CancellationUnconfirmed),
+            delivered,
+        );
+
+        // Force the formerly failing schedule: the cancellation answer is
+        // observable and cached while the terminal slot is still unresolved.
+        assert!(observation.applied(deadline).is_none());
+        assert_canonical(observation.cancellation(deadline));
+        assert_canonical(observation.cancellation(deadline));
+
+        terminal.resolve_at(
+            RuntimeOutcome::Failed(Error::CancellationUnconfirmed),
+            delivered + Duration::from_nanos(1),
+        );
+        assert_canonical(observation.cancellation(deadline));
+        assert!(matches!(
+            observation.applied(deadline),
+            Some(Err(Error::CancellationUnconfirmed))
+        ));
+    }
+
     #[test]
     fn settlement_attribution_is_axis_local_cached_and_profile_completion_is_exact() {
         use crate::{AffectedAxes, Settlement};
         let registry = Arc::new(MotionRegistry::default());
         let (mut observation, _) = observation_fixture();
         observation.core.motion =
-            Some(registry.establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 1));
-        registry.establish(CameraId::CAMERA_1, AffectedAxes::ZOOM, 2);
-        registry.establish(CameraId::new(2).unwrap(), AffectedAxes::PAN_TILT, 3);
+            Some(registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 1));
+        registry.establish(TargetSlot::CAMERA_1, AffectedAxes::ZOOM, 2);
+        registry.establish(TargetSlot::CAMERA_2, AffectedAxes::PAN_TILT, 3);
         assert!(observation.check_settlement().is_ok());
         let evidence = Settlement::observed_stable(
             AffectedAxes::PAN_TILT,
@@ -941,7 +968,7 @@ mod metrics {
             observation.commit_settlement(Ok(evidence), true).unwrap(),
             evidence
         );
-        registry.establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 4);
+        registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 4);
         assert_eq!(
             observation.settled().unwrap().unwrap(),
             evidence,
@@ -949,15 +976,16 @@ mod metrics {
         );
         let (mut superseded, _) = observation_fixture();
         superseded.core.motion =
-            Some(registry.establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 5));
-        registry.establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 6);
+            Some(registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 5));
+        registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 6);
         assert!(matches!(
             superseded.commit_settlement(Ok(evidence), true),
             Err(Error::SettlementSuperseded { .. })
         ));
         let (mut exact, _) = observation_fixture();
-        exact.core.motion = Some(registry.establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 7));
-        registry.establish(CameraId::CAMERA_1, AffectedAxes::PAN_TILT, 8);
+        exact.core.motion =
+            Some(registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 7));
+        registry.establish(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, 8);
         let exact_evidence = Settlement::profile_completion(AffectedAxes::PAN_TILT);
         assert_eq!(
             exact.commit_settlement(Ok(exact_evidence), false).unwrap(),
@@ -994,7 +1022,10 @@ mod metrics {
     fn halt_reserve_exhaustion_counts_each_axis_and_releases_no_held_permit() {
         let now = Instant::now();
         let mut policy = owner_policy(EnvelopeKind::Raw);
-        policy.targets[1].as_mut().unwrap().control_reserve = 2;
+        policy.targets[TargetSlot::CAMERA_1]
+            .as_mut()
+            .unwrap()
+            .control_reserve = 2;
         let mut state = OwnerState::new(policy).unwrap();
         let held: Vec<_> = (0..4)
             .map(|_| state.permits.try_acquire_ordinary().unwrap())
@@ -1010,7 +1041,7 @@ mod metrics {
         let stop_context = *stop.context();
         let receipt = state.accept_halt(
             crate::prepared::PreparedHalt {
-                target: CameraId::CAMERA_1,
+                target: TargetSlot::CAMERA_1,
                 axes: Some(crate::AffectedAxes::MOVEMENT),
                 requests: [
                     Some(Ok(stop.clone())),
@@ -1365,8 +1396,8 @@ mod lifecycle_trace {
             raw_inquiry_release_hold: Duration::from_millis(10),
             ..ProtocolPolicy::test_default()
         };
-        let mut targets = [None; 9];
-        for slot in targets.iter_mut().take(4).skip(1) {
+        let mut targets = PerTarget::default();
+        for (_, slot) in targets.iter_mut().take(3) {
             *slot = Some(TargetPolicy {
                 cancellation,
                 ..TargetPolicy::test_default()
@@ -1376,7 +1407,7 @@ mod lifecycle_trace {
     }
 
     fn command(
-        target: CameraId,
+        target: TargetSlot,
         wire: &str,
         cancellation: CancellationPolicy,
         ack: Duration,
@@ -1407,7 +1438,7 @@ mod lifecycle_trace {
     }
 
     fn inquiry(
-        target: CameraId,
+        target: TargetSlot,
         wire: &str,
         cancellation: CancellationPolicy,
         reply: Duration,
@@ -1533,7 +1564,8 @@ mod lifecycle_trace {
             self.next_transmission = 0;
             self.cancel_transmissions = 0;
             let state = OwnerState::new(owner_policy(transport, capacity, cancellation)).unwrap();
-            let registered = state.policy().targets[1].expect("camera one is registered");
+            let registered =
+                state.policy().targets[TargetSlot::CAMERA_1].expect("camera one is registered");
             out.push(format!(
                 "{} effect session state={} transport={} capacity={} cancel={}",
                 self.at,
@@ -1547,7 +1579,10 @@ mod lifecycle_trace {
 
         fn subscribe_applied(&mut self, input: &[&str], out: &mut Vec<String>) {
             let name = input[3].to_owned();
-            let target = CameraId::new(required(input, "target").parse().unwrap()).unwrap();
+            let target = TargetSlot::try_from(
+                CameraId::new(required(input, "target").parse().unwrap()).unwrap(),
+            )
+            .unwrap();
             let subscription = self
                 .state_mut()
                 .subscribe_applied(Some(target), 8)
@@ -1556,13 +1591,16 @@ mod lifecycle_trace {
             out.push(format!(
                 "{} effect subscriber-added observer={name} target={}",
                 self.at,
-                target.id()
+                target.camera().id()
             ));
         }
 
         fn admit(&mut self, input: &[&str], out: &mut Vec<String>) {
             let label = input[3].to_owned();
-            let target = CameraId::new(required(input, "target").parse().unwrap()).unwrap();
+            let target = TargetSlot::try_from(
+                CameraId::new(required(input, "target").parse().unwrap()).unwrap(),
+            )
+            .unwrap();
             let wire = required(input, "wire");
             let kind = match required(input, "observer") {
                 "async" => ObserverKind::Async,
@@ -1693,7 +1731,7 @@ mod lifecycle_trace {
             }
             // Every lifecycle fixture is a raw session, so correlation is by
             // target and socket rather than by envelope sequence.
-            let target = decoded.source;
+            let target = TargetSlot::try_from(decoded.source).unwrap();
             let sequence: Option<EnvelopeSequence> = None;
             let now = self.now;
             let pre_socket = |state: &OwnerState, id: RequestId| match state.request_state(id) {
@@ -1728,7 +1766,7 @@ mod lifecycle_trace {
                 "{} effect frame-routed id={} target={} via={} socket={} bytes={}",
                 self.at,
                 routed.get(),
-                target.id(),
+                target.camera().id(),
                 if sequence.is_some() {
                     "sequence"
                 } else {
@@ -1886,8 +1924,8 @@ mod lifecycle_trace {
                             "{} effect state id={} from={} to={}",
                             self.at,
                             id.get(),
-                            phase_name(from),
-                            phase_name(to)
+                            phase_name(from.phase()),
+                            phase_name(to.phase())
                         ));
                     }
                     Effect::Transmit { .. } => {
@@ -1949,7 +1987,7 @@ mod lifecycle_trace {
                                     format!(
                                         "{} outcome applied-state observer={name} target={} id={} state={}",
                                         self.at,
-                                        delivered.target.id(),
+                                        delivered.target.camera().id(),
                                         delivered.request.get(),
                                         if delivered.projection.is_known() {
                                             "applied"
@@ -2054,7 +2092,7 @@ mod lifecycle_trace {
                 self.at,
                 pending.label,
                 id.get(),
-                target.id(),
+                target.camera().id(),
                 if acquired { "acquired" } else { "unclaimed" },
                 phase_name(phase),
                 match pending.kind {
@@ -2139,7 +2177,7 @@ mod lifecycle_trace {
                     "{} effect transmit tx={transmission} id={} kind=request target={} wire={}",
                     self.at,
                     request.get(),
-                    target.id(),
+                    target.camera().id(),
                     hex_text(wire.as_bytes())
                 )),
                 Transmission::Cancel { target, socket, .. } => {
@@ -2148,7 +2186,7 @@ mod lifecycle_trace {
                         "{} effect transmit tx={transmission} id={} kind=cancel target={} socket={}",
                         self.at,
                         request.get(),
-                        target.id(),
+                        target.camera().id(),
                         socket.as_socket_number()
                     ));
                 }

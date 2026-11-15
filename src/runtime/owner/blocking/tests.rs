@@ -40,8 +40,10 @@ use crate::{
         AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
         TransportConfig,
     },
-    CameraId, OperationalTuning,
+    OperationalTuning,
 };
+
+mod cancellation_and_budget;
 
 const ACK: &[u8] = &[0x90, 0x41, 0xff];
 const COMPLETION: &[u8] = &[0x90, 0x51, 0xff];
@@ -52,6 +54,8 @@ const PROMPTLY: Duration = Duration::from_secs(2);
 /// One scripted transport read.
 enum Read {
     Bytes(Vec<u8>),
+    /// Bytes become available on the transport at an exact virtual instant.
+    At(Instant, Vec<u8>),
     /// An oversized datagram: the prefix that fits is copied and the read
     /// reports the rest as lost.
     Truncated(Vec<u8>),
@@ -92,6 +96,7 @@ struct ChannelTransport {
     eager_idle: bool,
     read_calls: Arc<AtomicUsize>,
     dropped: Arc<AtomicBool>,
+    scheduled: Option<(Instant, Vec<u8>)>,
 }
 
 impl Drop for ChannelTransport {
@@ -129,8 +134,26 @@ impl BlockingTransport for ChannelTransport {
         if self.eager_idle {
             return Err(Error::io_timeout());
         }
+        if let Some((at, bytes)) = self.scheduled.take() {
+            self.clock
+                .sleep(at.saturating_duration_since(self.clock.now()).min(timeout));
+            return if self.clock.now() >= at {
+                Ok(ReceiveOutcome::copy_message(&bytes, dst))
+            } else {
+                self.scheduled = Some((at, bytes));
+                Err(Error::io_timeout())
+            };
+        }
+        let deadline = self.clock.now() + timeout;
         match recv_within(&self.clock, &self.reads, timeout) {
             Ok(Read::Bytes(bytes)) => Ok(ReceiveOutcome::copy_message(&bytes, dst)),
+            Ok(Read::At(at, bytes)) => {
+                self.scheduled = Some((at, bytes));
+                self.recv_into_with_timeout(
+                    dst,
+                    deadline.saturating_duration_since(self.clock.now()),
+                )
+            }
             Ok(Read::Truncated(prefix)) => {
                 let copied = prefix.len().min(dst.len());
                 dst[..copied].copy_from_slice(&prefix[..copied]);
@@ -251,6 +274,7 @@ impl Setup {
             eager_idle: self.eager_idle,
             read_calls: Arc::clone(&read_calls),
             dropped: Arc::clone(&dropped),
+            scheduled: None,
         };
         let peer = Peer {
             clock: self.clock.clone(),
@@ -266,7 +290,8 @@ impl Setup {
         let clock = self.clock.clone();
         let (transport, peer, profile, hold) = self.transport();
         let adapter =
-            BlockingTransportAdapter::new(transport, &profile, CameraId::CAMERA_1).unwrap();
+            BlockingTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
+                .unwrap();
         let mut policy = adapter.policy().clone();
         if let Some(hold) = hold {
             policy.protocol.raw_inquiry_release_hold = hold;
@@ -290,7 +315,7 @@ fn focus_manual() -> crate::prepared::PreparedCommand {
 fn focus_manual_for(profile: &ProfileSpec) -> crate::prepared::PreparedCommand {
     prepare_command(
         &FocusModeCommand::Manual,
-        CameraId::CAMERA_1,
+        crate::target::TargetSlot::CAMERA_1,
         profile,
         OperationalTuning::new(),
         ClassSelection::Request,
@@ -302,7 +327,7 @@ fn focus_manual_for(profile: &ProfileSpec) -> crate::prepared::PreparedCommand {
 fn limit_clear_for(profile: &ProfileSpec) -> crate::prepared::PreparedCommand {
     prepare_command(
         &PanTiltLimitClear::for_profile(PanTiltLimitCorner::DownLeft, profile).unwrap(),
-        CameraId::CAMERA_1,
+        crate::target::TargetSlot::CAMERA_1,
         profile,
         OperationalTuning::new(),
         ClassSelection::Request,
@@ -325,7 +350,7 @@ fn sony_reply_to(request: &[u8], payload: &[u8]) -> Vec<u8> {
 fn await_pan_tilt_limits(owner: &BlockingOwnerHandle) {
     let deadline = Instant::now() + PROMPTLY;
     while owner
-        .state_cache(CameraId::CAMERA_1)
+        .state_cache(crate::target::TargetSlot::CAMERA_1)
         .pan_tilt_limits()
         .is_none()
     {
@@ -340,7 +365,7 @@ fn await_pan_tilt_limits(owner: &BlockingOwnerHandle) {
 fn zoom_stop() -> crate::prepared::PreparedOperation<AppliedOnly> {
     prepare_operation::<AppliedOnly, _>(
         &ZoomStop,
-        CameraId::CAMERA_1,
+        crate::target::TargetSlot::CAMERA_1,
         &generic_profile(),
         OperationalTuning::new(),
         ClassSelection::Request,
@@ -356,7 +381,7 @@ fn raw_inquiry(inquiry: Duration) -> RuntimeRequest {
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
-            target: CameraId::CAMERA_1,
+            target: crate::target::TargetSlot::CAMERA_1,
             timeout: TimeoutPolicy {
                 ack: Duration::from_secs(1),
                 completion: Duration::from_secs(1),
@@ -824,8 +849,8 @@ fn a_worker_panic_is_a_terminal_error_for_waiters_and_close() {
     peer.next_write();
     peer.send(Read::Panic);
 
-    assert!(matches!(receipt.wait(), Err(Error::InvalidState(_))));
-    assert!(matches!(owner.close(), Err(Error::InvalidState(_))));
+    assert!(matches!(receipt.wait(), Err(Error::OwnerTerminated)));
+    assert!(matches!(owner.close(), Err(Error::OwnerTerminated)));
     assert!(peer.transport_dropped());
 }
 
@@ -894,10 +919,10 @@ fn selected_empty_disconnect_preserves_missing_and_published_owner_errors() {
     let (sender, receiver) = flume::bounded::<u64>(1);
     drop(sender);
     assert!(!owner.core.actor_alive.is_disconnected());
-    assert!(
-        matches!(owner.reply(&receiver).wait(), Err(Error::InvalidState(reason))
-        if reason == "owner actor disconnected without publishing a terminal result")
-    );
+    assert!(matches!(
+        owner.reply(&receiver).wait(),
+        Err(Error::OwnerTerminated)
+    ));
     owner.close().unwrap();
     assert!(owner.core.actor_alive.is_disconnected());
     assert!(matches!(
@@ -952,5 +977,141 @@ fn selected_disconnect_preserves_late_terminal_timeout_and_borrowing_cache() {
         "late delivery stays cached for the next wait"
     );
     assert!(!owner.core.actor_alive.is_disconnected());
+    owner.close().unwrap();
+}
+
+/// #838: a full read timeout already paced the worker. A reply arriving in
+/// the following read must not sit behind another idle pause until its due pass.
+#[test]
+fn replies_after_a_full_idle_read_win_before_their_deadlines() {
+    for semantics in [SendSemantics::Datagram, SendSemantics::Stream] {
+        for (deadline_ms, reply_ms) in [(205, 202), (400, 210), (205, 205)] {
+            let clock = ManualClock::new();
+            let _driver = clock.enter();
+            let (owner, peer) = Setup {
+                semantics,
+                ..Setup::datagram()
+            }
+            .on(&clock)
+            .spawn();
+            let receipt = owner
+                .submit_with_timeout(raw_inquiry(Duration::from_millis(deadline_ms)), PROMPTLY)
+                .unwrap();
+            peer.next_write();
+            peer.send(Read::At(
+                clock.now() + Duration::from_millis(reply_ms),
+                vec![0x90, 0x50, 0x03, 0xff],
+            ));
+            let deadline = owner.deadline_after(PROMPTLY).unwrap();
+            assert!(
+                matches!(owner.wait_core_until(&receipt, deadline), Ok(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [3])
+            );
+            assert_eq!(owner.metrics().unwrap().inquiry_timeouts, 0);
+            owner.close().unwrap();
+        }
+    }
+}
+
+fn subscription_terminal(subscription: &super::super::DiagnosticSubscription) -> Error {
+    loop {
+        match subscription.recv_timeout(PROMPTLY) {
+            Ok(Some(_)) => {}
+            Ok(None) => panic!("the ended owner must disconnect its subscription"),
+            Err(error) => return error,
+        }
+    }
+}
+
+#[test]
+fn diagnostic_subscriptions_keep_the_blocking_owners_terminal_cause() {
+    for failure in [0, 1, 2] {
+        let setup = if failure == 2 {
+            Setup {
+                fail_writes: true,
+                ..Setup::stream()
+            }
+        } else {
+            Setup::datagram()
+        };
+        let (owner, peer) = setup.spawn();
+        let subscription = owner.subscribe_diagnostics(1).unwrap();
+        let receipt = owner.submit_command(focus_manual()).unwrap();
+        if failure != 2 {
+            peer.next_write();
+            peer.send(if failure == 0 {
+                Read::EndOfStream
+            } else {
+                Read::Panic
+            });
+        }
+        let terminal = receipt.wait().unwrap_err();
+        assert!(terminal.requires_new_session());
+        assert!(owner.metrics().unwrap_err().requires_new_session());
+        assert!(owner.close().unwrap_err().requires_new_session());
+        let reported = subscription_terminal(&subscription);
+        assert!(reported.requires_new_session());
+        assert_eq!(reported.to_string(), terminal.to_string());
+    }
+}
+
+#[test]
+fn diagnostic_subscriber_capacity_has_its_own_nonretryable_error() {
+    let (owner, _peer) = Setup::datagram().spawn();
+    let mut subscriptions = Vec::new();
+    for _ in 0..4 {
+        subscriptions.push(owner.subscribe_diagnostics(1).unwrap());
+    }
+    let error = owner.subscribe_diagnostics(1).unwrap_err();
+    assert!(matches!(
+        error,
+        Error::DiagnosticSubscriberLimit { capacity: 4 }
+    ));
+    assert!(!error.is_retryable());
+    subscriptions.pop();
+    subscriptions.push(owner.subscribe_diagnostics(1).unwrap());
+    owner.close().unwrap();
+}
+
+/// #838: the final part of a long stream command remains readable after a
+/// full five-second idle read; the last millisecond is still inside its window.
+#[test]
+fn a_stream_completion_after_a_long_idle_read_wins_before_its_deadline() {
+    let clock = ManualClock::new();
+    let _driver = clock.enter();
+    let (mut transport, peer, profile, _) = Setup::stream().on(&clock).transport();
+    transport.config.read_timeout = Duration::from_secs(5);
+    let adapter =
+        BlockingTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
+            .unwrap();
+    let owner = BlockingOwnerHandle::spawn(
+        adapter.policy().clone(),
+        adapter,
+        Clock::Manual(clock.clone()),
+    )
+    .unwrap();
+    let mut context = *raw_inquiry(Duration::from_secs(1)).context();
+    context.timeout.completion = Duration::from_secs(6);
+    let request = RuntimeRequest::Command {
+        wire: Arc::new(EncodedMessage::new(ZOOM_STOP).unwrap()),
+        context,
+        applied_state: None,
+    };
+    let receipt = owner
+        .submit_with_timeout(request, Duration::from_secs(10))
+        .unwrap();
+    peer.next_write();
+    let begun = clock.now();
+    peer.reply(ACK);
+    assert_eq!(owner.metrics().unwrap().active, 1);
+    peer.send(Read::At(
+        begun + Duration::from_millis(5_999),
+        COMPLETION.to_vec(),
+    ));
+    let deadline = owner.deadline_after(Duration::from_secs(10)).unwrap();
+    assert!(matches!(
+        owner.wait_core_until(&receipt, deadline),
+        Ok(RuntimeOutcome::Applied)
+    ));
+    assert_eq!(owner.metrics().unwrap().completion_timeouts, 0);
     owner.close().unwrap();
 }

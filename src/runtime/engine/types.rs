@@ -1,12 +1,13 @@
 //! Inert values crossing the deterministic protocol-engine boundary.
+use crate::target::{PerTarget, TargetSlot};
 
 use std::{num::NonZeroU64, sync::Arc, time::Duration};
 
 use smallvec::SmallVec;
 
 use crate::{
-    protocol::framer::RawIncompletePrefix, raw::INLINE_BYTES, raw::MAX_BYTES, CameraId, Error,
-    StateKey, ViscaSocket,
+    protocol::framer::RawIncompletePrefix, raw::INLINE_BYTES, raw::MAX_BYTES, Error, StateKey,
+    ViscaSocket,
 };
 
 /// Maximum number of Sony sequences retained for one request across retries.
@@ -282,7 +283,7 @@ pub(crate) struct RequestContext {
     pub(crate) submission_order: u64,
     /// Absolute last instant before which an owner-halt STOP may begin a write.
     pub(crate) dispatch_deadline: Option<std::time::Instant>,
-    pub(crate) target: CameraId,
+    pub(crate) target: TargetSlot,
     pub(crate) timeout: TimeoutPolicy,
     pub(crate) retry: RetryPolicy,
     pub(crate) control: ControlPolicy,
@@ -672,31 +673,24 @@ impl RawCorrelationRelease {
 
 /// The complete set of raw correlation releases due in one owner turn.
 ///
-/// Index zero is intentionally retained as an inert slot, matching the engine
-/// target table.  Real camera identifiers occupy one through seven.
+/// Only validated individual targets can enter this fixed, seven-slot table;
+/// controller and broadcast wire addresses have no correlation-release slot.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub(crate) struct RawCorrelationReleaseSet {
-    targets: [RawCorrelationRelease; 9],
+    targets: PerTarget<RawCorrelationRelease>,
 }
 
 impl RawCorrelationReleaseSet {
-    pub(crate) const fn is_empty(self) -> bool {
-        let mut index = 0;
-        while index < self.targets.len() {
-            if !self.targets[index].is_empty() {
-                return false;
-            }
-            index += 1;
-        }
-        true
+    pub(crate) fn is_empty(self) -> bool {
+        self.targets.iter().all(|(_, release)| release.is_empty())
     }
 
-    pub(crate) fn for_target(self, target: CameraId) -> RawCorrelationRelease {
-        self.targets[target.id() as usize]
+    pub(crate) fn for_target(self, target: TargetSlot) -> RawCorrelationRelease {
+        self.targets[target]
     }
 
-    pub(super) fn for_target_mut(&mut self, target: CameraId) -> &mut RawCorrelationRelease {
-        &mut self.targets[target.id() as usize]
+    pub(super) fn for_target_mut(&mut self, target: TargetSlot) -> &mut RawCorrelationRelease {
+        &mut self.targets[target]
     }
 }
 
@@ -704,7 +698,7 @@ impl RawCorrelationReleaseSet {
 impl RawCorrelationReleaseSet {
     /// Add `target`'s broad terminal release, for owner arbitration tests that
     /// need distinct non-empty sets without a running engine.
-    pub(crate) fn with_terminal_for_test(mut self, target: CameraId) -> Self {
+    pub(crate) fn with_terminal_for_test(mut self, target: TargetSlot) -> Self {
         self.for_target_mut(target).release_terminal_all();
         self
     }
@@ -725,7 +719,7 @@ pub(crate) enum RawPrefixEvidence {
     /// candidate and never a framing failure (#745).
     Malformed,
     Incomplete {
-        target: CameraId,
+        target: TargetSlot,
         kind: RawIncompletePrefix,
     },
 }
@@ -760,7 +754,7 @@ pub(crate) enum RawReleaseGateAction {
 /// A decoded frame owns its target and parsed data; it borrows no scheduler state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct DecodedFrame {
-    pub(crate) target: CameraId,
+    pub(crate) target: TargetSlot,
     pub(crate) sequence: Option<EnvelopeSequence>,
     pub(crate) response: DecodedResponse,
 }
@@ -775,7 +769,7 @@ pub(crate) struct TransmissionMeta {
 #[derive(Debug, Clone)]
 pub(crate) enum Transmission {
     Request {
-        target: CameraId,
+        target: TargetSlot,
         wire: Arc<EncodedMessage>,
         /// `None` asks the envelope to allocate a sequence for the first
         /// logical transmission (or for a request whose first write never
@@ -784,7 +778,7 @@ pub(crate) enum Transmission {
         requested_sequence: Option<u32>,
     },
     Cancel {
-        target: CameraId,
+        target: TargetSlot,
         socket: ViscaSocket,
         /// Cancellation is a separate logical message and therefore always
         /// asks Sony framing for a fresh sequence.
@@ -885,6 +879,7 @@ pub(crate) enum Input {
         result: Result<TransmissionMeta, Error>,
     },
     Frame(DecodedFrame),
+    #[cfg(test)]
     Cancel {
         id: RequestId,
     },
@@ -909,7 +904,8 @@ pub(crate) enum Input {
     Wake,
 }
 
-/// Explicit authoritative phase. No driver owns a parallel phase copy.
+/// Flattened lifecycle projection for diagnostics and independent test oracles.
+/// The engine stores only `Lifecycle`; this is never a parallel authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Phase {
     Ready {
@@ -951,7 +947,9 @@ pub(crate) enum Phase {
     },
 }
 
-/// Cancellation is a substate of the same authoritative request entry.
+/// Flattened cancellation projection; never independently stored in an entry.
+/// Socket identity is read from the enclosing lifecycle only for this view.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CancelState {
     None,
@@ -986,9 +984,8 @@ pub(crate) enum Effect {
     },
     Transition {
         id: RequestId,
-        from: Phase,
-        to: Phase,
-        cancellation: CancelState,
+        from: super::Lifecycle,
+        to: super::Lifecycle,
     },
     Transmit {
         transmission: TransmissionId,
@@ -1037,6 +1034,11 @@ pub(crate) enum Effect {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct AppliedStateEffect {
     pub(crate) request: RequestId,
-    pub(crate) target: CameraId,
+    pub(crate) target: TargetSlot,
     pub(crate) projection: AppliedStateProjection,
+}
+
+/// Returns the stream ledger's fixed memory bound, or refuses arithmetic overflow.
+pub(crate) const fn checked_stream_ledger_bound(admissible: usize) -> Option<usize> {
+    super::stream_ledger::checked_max_entries_per_target(admissible)
 }

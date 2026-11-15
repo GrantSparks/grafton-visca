@@ -240,12 +240,8 @@ pub mod exposure {
     /// PTZOptics anti-flicker prefix, followed by the mode byte.
     pub const ANTI_FLICKER: [u8; 3] = [COMMAND, 0x04, 0x23];
 
-    shared_register! {
-        /// PTZOptics dynamic range control prefix, followed by `0p`.
-        DYNAMIC_RANGE [0x00, 0x00, 0x00],
-        /// Dynamic range inquiry.
-        DYNAMIC_RANGE_INQUIRY = [0x04, 0x25];
-    }
+    /// PTZOptics dynamic-range direct command, followed by `0p`.
+    pub const DYNAMIC_RANGE: [u8; 6] = [COMMAND, 0x04, 0x25, 0x00, 0x00, 0x00];
 
     const SPOTLIGHT: [u8; 3] = [COMMAND, 0x04, 0x3A];
 
@@ -548,8 +544,8 @@ pub mod nd_filter {
     /// Preset (`00`) / variable (`01`) mode prefix.
     pub const MODE: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x52];
 
-    /// Variable ND direct prefix, followed by `0p 0q`.
-    pub const DIRECT: [u8; 5] = [COMMAND, 0x7E, 0x04, 0x42, 0x00];
+    /// Variable ND direct prefix, followed by `0p 0q` (R7, p.14).
+    pub const DIRECT: [u8; 6] = [COMMAND, 0x7E, 0x04, 0x42, 0x00, 0x00];
 
     /// Variable ND step prefix.
     pub const STEP: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x12];

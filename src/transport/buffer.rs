@@ -36,7 +36,9 @@ const SONY_HEADER: usize = 8;
 ///   frame** a session accepts — a raw VISCA frame including its `0xFF`
 ///   terminator, a Sony header plus its payload, or one UDP datagram — and the
 ///   most bytes a single transport read requests. A larger datagram is
-///   discarded; a larger stream frame is a framing failure that ends the
+///   discarded. A larger raw stream frame that ends in `0xFF` is discarded
+///   and counted as malformed input; the terminator preserves the next frame's
+///   boundary. An oversized Sony header is a framing failure that ends the
 ///   session. The largest VISCA reply is 16 bytes (24 with a Sony header),
 ///   which is [`BufferConfig::MIN_RECV_BUFFER_SIZE`]; every preset leaves
 ///   ample headroom above it.
@@ -45,13 +47,18 @@ const SONY_HEADER: usize = 8;
 ///   owner has not yet delivered. The framer always has room for one more full
 ///   read on top of it, so a healthy stream whose replies are split across
 ///   reads can never overflow, while the memory a byte stream can retain is
-///   bounded by `max_buffer_size + recv_buffer_size`.
+///   bounded by `max_buffer_size + recv_buffer_size`. Exceeding that sum is a
+///   framing-position loss that ends the stream session, including when input
+///   has no terminating boundary.
 ///
 /// Every session open validates `recv_buffer_size >=`
 /// [`BufferConfig::MIN_RECV_BUFFER_SIZE`], a non-zero `max_buffer_size` and
 /// `recv_buffer_size <= max_buffer_size`, so every valid reply fits one read
 /// and every partial frame (at most `recv_buffer_size - 1` bytes) fits within
-/// the retention bound.
+/// the retention bound. The receive buffer is limited to 65,535 bytes and
+/// the retention bound to 1,048,576 bytes (1 MiB). These ceilings keep input
+/// memory bounded even for caller-selected limits; all transport presets are
+/// well below them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct BufferConfig {
@@ -70,6 +77,12 @@ impl Default for BufferConfig {
 }
 
 impl BufferConfig {
+    #[cfg(any(feature = "async", feature = "blocking", test))]
+    pub(crate) const MAX_RECV_BUFFER_SIZE: usize = 65_535;
+
+    #[cfg(any(feature = "async", feature = "blocking", test))]
+    pub(crate) const MAX_RETENTION_SIZE: usize = 1_048_576;
+
     /// The smallest accepted [`recv_buffer_size`](Self::recv_buffer_size):
     /// the largest valid VISCA reply, a 16-byte message behind Sony's 8-byte
     /// header. A smaller limit would reject a valid reply as oversized.

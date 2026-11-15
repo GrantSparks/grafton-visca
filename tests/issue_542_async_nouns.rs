@@ -97,7 +97,12 @@ fn ptzoptics_optional_surface(camera: &Camera<PtzOpticsG2>) {
     inquiry(camera.image().flip_mode());
 }
 
-fn image_flip_surface<P: CompileTimeProfile + HasImageProcessing + HasImageFlip>(
+fn image_flip_surface<
+    P: CompileTimeProfile
+        + HasImageProcessing
+        + HasImageFlip
+        + grafton_visca::capabilities::HasCombinedImageFlip,
+>(
     camera: &Camera<P>,
 ) {
     inquiry(camera.image().flip_mode());

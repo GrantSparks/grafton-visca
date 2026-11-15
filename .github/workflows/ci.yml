@@ -466,6 +466,11 @@ jobs:
       # `docs/hardware_release_checklist.md`, not in this job.
       - run: cargo test --no-default-features --features transport-serial
 
+      # Exercise Winsock's UDP ICMP port-unreachable behavior on real loopback
+      # sockets, including owner recovery and unchanged fatal stream resets.
+      - run: cargo test --no-default-features --features blocking,runtime-tokio,runtime-smol --test issue_843_udp_transient
+      - run: cargo test --no-default-features --features blocking,runtime-tokio,runtime-smol --lib transport::datagram::tests::windows_udp_port_unreachable_is_connection_refused
+
   macos:
     name: macOS check
     runs-on: macos-latest

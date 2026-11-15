@@ -81,8 +81,8 @@ record_construction InvalidParameter src/units.rs \
   'return Err(Error::InvalidParameter {'
 record_construction BufferTooSmall src/command/bytes/frame.rs \
   'Err(Error::buffer_too_small(frame.len, frame.buffer.len()))'
-record_construction ParameterOutOfRange src/units.rs \
-  'return Err(Error::ParameterOutOfRange {'
+record_construction ParameterOutOfRange src/error.rs \
+  'Self::ParameterOutOfRange {'
 record_construction Timeout src/runtime/engine/mod.rs \
   'Error::timeout(FailureStage::Terminal, certainty)'
 record_construction MotionSuperseded src/runtime/engine/mod.rs \
@@ -91,6 +91,8 @@ record_construction SettlementSuperseded src/runtime/owner/motion.rs \
   'let error = Error::SettlementSuperseded'
 record_construction SettlementObservationFailed src/runtime/owner/mod.rs \
   'Error::SettlementObservationFailed {'
+record_construction CancellationObservationFailed src/error.rs \
+  'Self::CancellationObservationFailed {'
 record_construction ObservationTimeout src/runtime/owner/mod.rs \
   'Error::ObservationTimeout {'
 record_construction ControlReserveExhausted src/runtime/owner/mod.rs \
@@ -100,7 +102,11 @@ record_construction MaxRetriesExceeded src/transport/serial/handshake.rs \
 record_construction NotSupported src/runtime/owner/adapter.rs \
   'return Err(Error::NotSupported);'
 record_construction InvalidState src/runtime/owner/blocking.rs \
-  'Err(Error::InvalidState("blocking owner worker panicked".into()))'
+  'return Err(Error::InvalidState('
+record_construction OwnerTerminated src/runtime/owner/boundary.rs \
+  'Error::OwnerTerminated'
+record_construction DiagnosticSubscriberLimit src/runtime/owner/mod.rs \
+  'return Err(Error::DiagnosticSubscriberLimit {'
 record_construction RuntimeShutdown src/runtime/engine/mod.rs \
   'self.terminate_session(SessionState::Shutdown, Error::RuntimeShutdown, effects)'
 record_construction CancellationUnconfirmed src/runtime/engine/mod.rs \
@@ -108,9 +114,9 @@ record_construction CancellationUnconfirmed src/runtime/engine/mod.rs \
 record_construction UnsequencedCommandUnconfirmed src/runtime/engine/mod.rs \
   'RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed)'
 record_construction InquiryCorrelationLost src/runtime/engine/mod.rs \
-  'return Some(Error::inquiry_correlation_lost(target));'
+  'return Some(Error::inquiry_correlation_lost(target.camera()));'
 record_construction CommandCorrelationLost src/runtime/engine/mod.rs \
-  '.then(|| Error::command_correlation_lost(target))'
+  '.then(|| Error::command_correlation_lost(target.camera()))'
 record_construction CommandFailedAfterAck src/runtime/engine/mod.rs \
   'RuntimeOutcome::Failed(Error::command_failed_after_ack(error))'
 record_construction RuntimeIdentityExhausted src/runtime/engine/mod.rs \
@@ -124,7 +130,7 @@ record_construction InvalidCameraId src/camera_id.rs \
 record_construction ResponseTooLarge src/raw.rs \
   'return Err(Error::ResponseTooLarge {'
 record_construction InquiryNotCancelable src/runtime/engine/mod.rs \
-  'observation: CancellationObservation::Failed(Error::InquiryNotCancelable),'
+  'CancellationDecision::Refused(Error::InquiryNotCancelable)'
 record_construction InvalidAddress src/transport/address.rs \
   'Error::InvalidAddress {'
 record_construction UnsupportedTransport src/runtime/owner/adapter.rs \

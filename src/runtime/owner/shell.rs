@@ -29,9 +29,9 @@ use std::{
 use crate::Error;
 
 use super::boundary::{
-    missing_terminal_error, AdmissionBoundary, AdmissionClaim, AdmissionRejectionIngress,
-    BoundaryReceivers, CancellationBoundary, ControlBoundary, OwnerEnds, OwnerLifecycle,
-    OwnerSnapshot, PreAdmissionRejection, RetainedBoundary,
+    missing_terminal_error, AdmissionBoundary, AdmissionBoundaryClaim, AdmissionClaim,
+    AdmissionRejectionIngress, BoundaryReceivers, CancellationBoundary, ControlBoundary, OwnerEnds,
+    OwnerLifecycle, OwnerSnapshot, PreAdmissionRejection, RetainedBoundary,
 };
 use super::turn::{Disposition, OwnerCoordinator, ReceiveClass, Selected, TurnOutcome, TurnPlan};
 use super::{
@@ -40,9 +40,7 @@ use super::{
     RetainedStreamInput, SessionState, ShutdownReason, StagedWrite, TransientFaultRun,
     TransmissionMeta,
 };
-use crate::runtime::engine::{
-    Effect, EngineTurn, IgnoreReason, RawPrefixEvidence, RequestId, TransportKind,
-};
+use crate::runtime::engine::{Effect, EngineTurn, IgnoreReason, RawPrefixEvidence, TransportKind};
 
 /// One event an owner shell selected.
 ///
@@ -109,11 +107,10 @@ pub(super) struct Resume(Continuation);
 #[derive(Debug)]
 enum Continuation {
     Done(TurnOutcome),
-    Pause(ReceivePause, TurnOutcome),
     /// Answer a cancellation once its input has been driven, so the answer
     /// reflects any conclusion the drive reached.
     ConcludeCancellation {
-        id: RequestId,
+        answer: Result<(), Error>,
         reply: flume::Sender<Result<(), Error>>,
     },
     /// Feed the next frame of an input turn.
@@ -169,8 +166,7 @@ pub(super) struct OwnerShellCore {
     /// shutdown acceptance have one lifecycle linearization point.
     lifecycle: Arc<OwnerLifecycle>,
     faults: TransientFaultRun,
-    /// Consecutive receives that carried no data (an idle read timeout, or a
-    /// driver that reports "no data" immediately). Escalates a cooperative
+    /// Consecutive eager receives that carried no data. Escalates a cooperative
     /// pause so an immediately-returning idle read cannot hot-spin the owner,
     /// without recording a transport fault or spending any retry budget (#675).
     idle_receives: IdleReceiveRun,
@@ -295,7 +291,7 @@ impl OwnerShellCore {
                 // `NoData`: it consumed no bytes. A genuine transient fault
                 // cannot prove there is no ready stale frame behind it.
                 class: match result {
-                    Ok(OwnerReceive::NoData) => ReceiveClass::NoInput,
+                    Ok(OwnerReceive::NoData | OwnerReceive::IdleTimeout) => ReceiveClass::NoInput,
                     Ok(OwnerReceive::Fault(error)) if super::receive_reported_no_data(error) => {
                         ReceiveClass::NoInput
                     }
@@ -400,13 +396,10 @@ impl OwnerShellCore {
                 }
             }
             OwnerEvent::Cancellation(CancellationBoundary::Cancel { request, reply }) => {
-                let id = request.id;
-                match self.state.begin_cancellation(request) {
-                    Some(input) => TurnStep::Drive {
-                        effects: self.state.input(input, selected_at),
-                        then: Resume(Continuation::ConcludeCancellation { id, reply }),
-                    },
-                    None => self.conclude_cancellation(id, &reply),
+                let (effects, answer) = self.state.begin_cancellation(request, selected_at);
+                TurnStep::Drive {
+                    effects,
+                    then: Resume(Continuation::ConcludeCancellation { answer, reply }),
                 }
             }
             OwnerEvent::Control(control) => {
@@ -432,8 +425,12 @@ impl OwnerShellCore {
                 // boundary run before another idle read (#625). A driver that
                 // returns NoData immediately would otherwise spin the owner, so
                 // pace the idle-read rate (#675).
-                self.idle_receive(driver, received_at)
+                self.idle_receive(driver, received_at, true)
             }
+            OwnerEvent::Receive {
+                result: Ok(OwnerReceive::IdleTimeout),
+                received_at,
+            } => self.idle_receive(driver, received_at, false),
             OwnerEvent::Receive {
                 result: Ok(OwnerReceive::Frames(frames)),
                 received_at,
@@ -457,9 +454,9 @@ impl OwnerShellCore {
     ) -> TurnStep {
         match then.0 {
             Continuation::Done(outcome) => TurnStep::Done(outcome),
-            Continuation::Pause(pause, outcome) => TurnStep::Pace { pause, outcome },
-            Continuation::ConcludeCancellation { id, reply } => {
-                self.conclude_cancellation(id, &reply)
+            Continuation::ConcludeCancellation { answer, reply } => {
+                let _ = reply.try_send(answer);
+                TurnStep::Done(TurnOutcome::Continue)
             }
             Continuation::NextFrame(frames) => self.next_frame(frames, driver),
             Continuation::Discard { error, received_at } => {
@@ -557,6 +554,9 @@ impl OwnerShellCore {
         finished_at: Instant,
         effects: &mut VecDeque<Effect>,
     ) {
+        if result.is_ok() {
+            self.idle_receives.reset();
+        }
         let Some(turn) = turn else {
             return self.finish_transmit_outside_turn(staged, result, finished_at, effects);
         };
@@ -671,21 +671,22 @@ impl OwnerShellCore {
         }
     }
 
-    /// A receive that carried no data made no protocol progress, so yield the
-    /// next selection to the boundary sources after pacing the idle-read rate:
-    /// a transport that returns "no data" immediately (rather than after its
-    /// read timeout) would otherwise spin the owner at hundreds of thousands
-    /// of reads a second (#675).
+    /// Eager no-data reads yield to boundaries after pacing the idle-read
+    /// rate (#675). A read that waited its full timeout already yielded while
+    /// blocked; keep receive first so its next reply can beat an equal timer.
     fn idle_receive(
         &mut self,
         driver: &mut impl RetainedStreamInput,
         received_at: Instant,
+        eager: bool,
     ) -> TurnStep {
         match driver.has_buffered_stream_input() {
-            Ok(buffered) => TurnStep::Pace {
+            Ok(buffered) if eager => TurnStep::Pace {
                 pause: ReceivePause::Idle,
                 outcome: Self::receive_outcome(buffered),
             },
+            Ok(true) => TurnStep::Done(TurnOutcome::ContinueBuffered),
+            Ok(false) => TurnStep::Done(TurnOutcome::Continue),
             Err(error) => self.discard_undecodable_receive(&error, received_at),
         }
     }
@@ -792,7 +793,7 @@ impl OwnerShellCore {
             // bytes arrived". Normalizing here as well as at the adapter keeps
             // every driver on one contract (#637), and paces the idle-read
             // rate so it cannot hot-spin (#675).
-            return self.idle_receive(driver, received_at);
+            return self.idle_receive(driver, received_at, true);
         }
         if !super::receive_fault_is_transient(&error) {
             return self.terminate(
@@ -839,12 +840,12 @@ impl OwnerShellCore {
         } else {
             self.state.input(Input::ReceiveFault { error }, received_at)
         };
+        // Arm before the effects are driven: a staged write must end this
+        // pause rather than have its invited reply delayed by a later re-arm.
+        self.pace_receive(ReceivePause::Fault { run: length }, received_at);
         TurnStep::Drive {
             effects,
-            then: Resume(Continuation::Pause(
-                ReceivePause::Fault { run: length },
-                Self::receive_outcome(buffered),
-            )),
+            then: Resume::done(Self::receive_outcome(buffered)),
         }
     }
 
@@ -937,17 +938,15 @@ impl OwnerShellCore {
         admission: &mut AdmissionBoundary,
         now: Instant,
     ) -> bool {
-        if admission.validity_claimed {
-            return true;
-        }
+        let validity = match &admission.claim {
+            AdmissionBoundaryClaim::Unbounded | AdmissionBoundaryClaim::Claimed => return true,
+            AdmissionBoundaryClaim::Pending(validity) => validity,
+        };
         let target = admission.request.context().target;
         let lane = admission.request.lane();
-        let Some(validity) = admission.validity.as_ref() else {
-            return true;
-        };
         match validity.claim_for_admission(now) {
             AdmissionClaim::Claimed => {
-                admission.validity_claimed = true;
+                admission.claim = AdmissionBoundaryClaim::Claimed;
                 true
             }
             AdmissionClaim::ExpiredHere => {
@@ -984,18 +983,6 @@ impl OwnerShellCore {
             effects: self.state.input(input, accepted_at),
             then: Resume::done(TurnOutcome::Continue),
         }
-    }
-
-    /// Answer a cancellation. A refusal leaves the original request
-    /// scheduled; the caller keeps its handle and the operation's terminal
-    /// slot (#612, #777).
-    fn conclude_cancellation(
-        &mut self,
-        id: RequestId,
-        reply: &flume::Sender<Result<(), Error>>,
-    ) -> TurnStep {
-        let _ = reply.try_send(self.state.conclude_cancellation(id));
-        TurnStep::Done(TurnOutcome::Continue)
     }
 
     /// Merges handle-side, pre-boundary rejection telemetry into owner-held
@@ -1045,10 +1032,20 @@ impl OwnerShellCore {
                 let _ = reply.try_send(self.snapshot());
             }
             ControlBoundary::Metrics(reply) => {
-                let _ = reply.try_send(Ok(self.state.metrics_snapshot()));
+                let pending =
+                    self.receivers
+                        .admissions
+                        .len()
+                        .saturating_add(usize::from(matches!(
+                            self.coordinator.retained(),
+                            Some(RetainedBoundary::Admission(_))
+                        )));
+                let _ = reply.try_send(Ok(self.state.metrics_snapshot(pending)));
             }
             ControlBoundary::SubscribeDiagnostics { capacity, reply } => {
-                let result = self.state.subscribe_diagnostics(capacity);
+                let result = self
+                    .state
+                    .subscribe_diagnostics(capacity, Arc::clone(&self.lifecycle));
                 let _ = reply.try_send(result);
             }
             ControlBoundary::Reconfigure {
@@ -1187,7 +1184,7 @@ mod tests {
     use super::super::OwnerPolicy;
     use super::*;
     use crate::runtime::engine::{CancellationPolicy, EnvelopeKind, ProtocolPolicy, TargetPolicy};
-    use crate::CameraId;
+    use crate::target::TargetSlot;
 
     /// A datagram driver: it never retains stream input.
     struct Datagrams;
@@ -1212,7 +1209,7 @@ mod tests {
                 raw_release_grace: Duration::from_millis(100),
                 strict_unconfirmed_poison: false,
             },
-            CameraId::CAMERA_1,
+            TargetSlot::CAMERA_1,
             TargetPolicy {
                 command_sockets: 2,
                 cancellation: CancellationPolicy::Supported,
@@ -1253,7 +1250,7 @@ mod tests {
                 }),
                 submission_order: 0,
                 dispatch_deadline: None,
-                target: CameraId::CAMERA_1,
+                target: TargetSlot::CAMERA_1,
                 timeout: TimeoutPolicy {
                     ack: Duration::from_secs(1),
                     completion: Duration::from_secs(1),
@@ -1338,7 +1335,7 @@ mod tests {
             .cancellations
             .send(CancellationBoundary::Halt(HaltBoundary {
                 prepared: crate::prepared::PreparedHalt {
-                    target: CameraId::CAMERA_1,
+                    target: TargetSlot::CAMERA_1,
                     axes: Some(crate::AffectedAxes::ZOOM),
                     requests: [None, Some(Ok(declared_request(true))), None],
                     budget: Duration::from_secs(1),
@@ -1456,12 +1453,12 @@ mod tests {
     }
 
     #[test]
-    fn a_transient_fault_is_driven_before_its_pause_grows_with_the_run() {
+    fn a_transient_fault_arms_its_pause_before_effects_are_driven() {
         let (_handle, mut core) = owner();
         let start = Instant::now();
-        for (offset, run, expected) in [
-            (Duration::ZERO, 1, Duration::from_millis(10)),
-            (Duration::from_millis(1), 2, Duration::from_millis(20)),
+        for (offset, expected) in [
+            (Duration::ZERO, Duration::from_millis(10)),
+            (Duration::from_millis(1), Duration::from_millis(20)),
         ] {
             let at = start + offset;
             let fault = Error::TransportError("transient receive fault".into());
@@ -1472,14 +1469,69 @@ mod tests {
                 false,
             );
             assert!(matches!(step, TurnStep::Drive { .. }));
-            let TurnStep::Pace { pause, outcome } = run_turn(&mut core, step) else {
-                panic!("a transient fault pauses after its input is driven");
-            };
-            assert_eq!(pause, ReceivePause::Fault { run });
-            assert_eq!(outcome, TurnOutcome::YieldBoundaries);
-            assert_eq!(core.receive_pause(pause, at), expected);
+            assert_eq!(
+                core.coordinator.receive_not_before(),
+                Some(at + expected),
+                "the fault pause exists before any write can clear it"
+            );
+            assert!(matches!(
+                run_turn(&mut core, step),
+                TurnStep::Done(TurnOutcome::YieldBoundaries)
+            ));
         }
         assert!(core.is_running());
+    }
+
+    #[test]
+    fn a_full_idle_timeout_needs_no_additional_pause() {
+        let (_handle, mut core) = owner();
+        let now = Instant::now();
+        let step = core.handle(
+            receive(Ok(OwnerReceive::IdleTimeout), now),
+            &mut Datagrams,
+            now,
+            false,
+        );
+        assert!(matches!(step, TurnStep::Done(TurnOutcome::Continue)));
+        assert_eq!(core.idle_receives.length(), 0);
+        assert_eq!(core.coordinator.receive_not_before(), None);
+    }
+
+    #[test]
+    fn a_successful_write_resets_idle_pacing_and_ends_a_fault_pause() {
+        let (handle, mut core) = owner();
+        let now = Instant::now();
+        for _ in 0..5 {
+            core.idle_receives.record();
+        }
+        let (_completion, admission) = handle
+            .enqueue_admission(declared_request(false), None)
+            .unwrap();
+        let boundary = core.receivers.admissions.recv().unwrap();
+        let TurnStep::Drive { mut effects, .. } = core.handle(
+            OwnerEvent::Admission(Ok(boundary)),
+            &mut Datagrams,
+            now,
+            false,
+        ) else {
+            panic!("admission drives a write")
+        };
+        core.pace_receive(ReceivePause::Fault { run: 1 }, now);
+        let staged = core.next_transmit(&mut effects, now).unwrap();
+        assert_eq!(core.coordinator.receive_not_before(), None);
+        core.finish_transmit(
+            None,
+            &staged,
+            Ok(TransmissionMeta { sequence: None }),
+            now,
+            &mut effects,
+        );
+        assert!(admission.recv().unwrap().is_ok());
+        assert_eq!(core.idle_receives.length(), 0);
+        assert_eq!(
+            core.receive_pause(ReceivePause::Idle, now),
+            Duration::from_millis(10)
+        );
     }
 
     #[test]

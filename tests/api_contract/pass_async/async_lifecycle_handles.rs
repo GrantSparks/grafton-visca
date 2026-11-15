@@ -98,3 +98,8 @@ fn borrowing_waits() {
 fn contract() {}
 
 fn main() {}
+
+/// Menu navigation starts physical pan/tilt movement if the menu is closed.
+async fn menu_navigation(camera: &grafton_visca::Camera<grafton_visca::profiles::PtzOpticsG2>) -> Result<Operation<AppliedOnly>, Error> {
+    camera.menu().navigate(grafton_visca::command::MenuDirection::Up).await
+}

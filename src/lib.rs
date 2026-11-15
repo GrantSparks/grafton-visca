@@ -946,6 +946,13 @@ pub use grafton_visca_macros::{ViscaEnum, ViscaInquiry, ViscaValue};
 /// crate renames dependencies or does not depend on them directly.
 #[doc(hidden)]
 pub mod __macro_support {
+    /// Classifies a derived inquiry's decoded value at the same reply boundary
+    /// as the built-in inquiry table.
+    #[doc(hidden)]
+    pub fn inquiry_reply_error(error: crate::Error, payload: &[u8]) -> crate::Error {
+        crate::command::inquiry_structs::reply_value_error(error, payload)
+    }
+
     #[doc(hidden)]
     pub use crate::command::bytes::constants::INQUIRY;
     #[doc(hidden)]
@@ -1076,6 +1083,7 @@ pub use state_cache::StateCache;
 pub use state_cache::{PanTiltLimitUpdate, StateEntry, StateKey, StateValue};
 
 mod session_config;
+mod target;
 pub use session_config::{SessionConfig, DEFAULT_ADMISSION_CAPACITY};
 
 mod outcome;

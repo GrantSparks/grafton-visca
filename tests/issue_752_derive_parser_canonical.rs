@@ -219,7 +219,7 @@ fn every_parser_selector_uses_the_response_kind_decoder() {
     assert_canonical_decode!(SharpnessModeInquiry, &[0x02]);
     assert_canonical_decode!(GammaInquiry, &[0x04]);
     assert_canonical_decode!(AutoWbSensitivityInquiry, &[0x00]);
-    assert_canonical_decode!(NdFilterInquiry, &[0x00]);
+    assert_canonical_decode!(NdFilterInquiry, &[0x00, 0x00, 0x00, 0x00]);
     assert_canonical_decode!(PictureEffectInquiry, &[0x00]);
     assert_canonical_decode!(DefogLevelInquiry, &[0x05]);
     assert_canonical_decode!(FocusRangeInquiry, &[0x00]);
@@ -241,16 +241,24 @@ fn digital_on_is_03_is_true_on_both_public_decode_paths() {
 }
 
 #[test]
-fn extended_zoom_position_is_accepted_on_both_public_decode_paths() {
+fn undocumented_extended_zoom_position_is_rejected_on_both_public_decode_paths() {
     let payload = [0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07];
     assert_canonical_decode!(PositionInquiry, &payload);
     assert!(matches!(
         PositionInquiry.parse_response(&payload),
-        Ok(InquiryData::ZoomPosition { position: 0x0123 })
+        Err(Error::InvalidResponseLength {
+            expected: 4,
+            actual: 8,
+            ..
+        })
     ));
     assert!(matches!(
         decoded_inquiry(&PositionInquiry, &payload),
-        Ok(InquiryData::ZoomPosition { position: 0x0123 })
+        Err(Error::InvalidResponseLength {
+            expected: 4,
+            actual: 8,
+            ..
+        })
     ));
 }
 

@@ -168,8 +168,9 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
     const GRACE: Duration = Duration::from_millis(100);
     // One probe arms the raw gate, one maps it to the grace, and the shared
     // 10/20/40/30 ms idle slices may each re-poll the eager transport. Keep
-    // slack for the fairness handoff, but make a zero-pause spin unmistakable.
-    const POLL_BOUND: u64 = 12;
+    // one input probe at the grace deadline (#838), plus slack for the
+    // fairness handoff, but make a zero-pause spin unmistakable.
+    const POLL_BOUND: u64 = 13;
 
     let initial = Instant::now();
     let (runtime, sleeps) = ManualRuntime::with_polling_sleeps_and_sleep_barrier(initial);
@@ -240,7 +241,7 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
 
     // The retained source-only prefix gets one 100 ms engine grace. Each
     // immediate idle receive is paced by a positive slice of that deadline;
-    // after the final slice, the boundary-first grace Wake discards it.
+    // after the final slice, one receive probe precedes the grace Wake.
     let mut elapsed = Duration::ZERO;
     while elapsed < GRACE {
         let pause = next_selection_sleep(&sleeps).await;
@@ -344,7 +345,7 @@ async fn raw_tombstone_timeout_verdict() -> RawReleaseObserverDeadlineVerdict {
 
     let (_predecessor_completion, predecessor_admitted) = handle
         .core
-        .enqueue_admission(no_reply_command_for(CameraId::CAMERA_1, HOLD), None)
+        .enqueue_admission(no_reply_command_for(TargetSlot::CAMERA_1, HOLD), None)
         .unwrap();
     let predecessor_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
@@ -478,7 +479,10 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
 
     let (_c_completion, c_admitted) = handle
         .core
-        .enqueue_admission(no_reply_command_for(CameraId::CAMERA_2, SECOND_HOLD), None)
+        .enqueue_admission(
+            no_reply_command_for(TargetSlot::CAMERA_2, SECOND_HOLD),
+            None,
+        )
         .unwrap();
     let c_boundary = actor.core.receivers.admissions.try_recv().unwrap();
     actor
@@ -1075,7 +1079,7 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
             sent,
         },
         &profile,
-        CameraId::CAMERA_1,
+        TargetSlot::CAMERA_1,
     )
     .unwrap();
     let mut actor_policy = adapter.policy().clone();
@@ -1148,7 +1152,7 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
                 sent,
             },
             &profile,
-            CameraId::CAMERA_1,
+            TargetSlot::CAMERA_1,
         )
         .unwrap();
         let mut actor_policy = adapter.policy().clone();
@@ -1234,7 +1238,7 @@ async fn production_raw_s1_split_tail_precedes_same_target_s2_release() {
             sent,
         },
         &profile,
-        CameraId::CAMERA_1,
+        TargetSlot::CAMERA_1,
     )
     .unwrap();
     let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime.clone()).unwrap();
@@ -1287,7 +1291,7 @@ async fn production_raw_live_s1_prefix_survives_same_target_s2_release() {
             sent,
         },
         &profile,
-        CameraId::CAMERA_1,
+        TargetSlot::CAMERA_1,
     )
     .unwrap();
     let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime.clone()).unwrap();
@@ -1333,7 +1337,7 @@ async fn production_raw_stale_s2_prefix_is_discarded_before_successor_write() {
             sent,
         },
         &profile,
-        CameraId::CAMERA_1,
+        TargetSlot::CAMERA_1,
     )
     .unwrap();
     let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime.clone()).unwrap();
@@ -1394,8 +1398,8 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
             sent,
         },
         &[
-            (CameraId::CAMERA_1, &profile),
-            (CameraId::CAMERA_3, &profile),
+            (TargetSlot::CAMERA_1, &profile),
+            (TargetSlot::CAMERA_3, &profile),
         ],
         crate::OperationalTuning::new(),
         std::num::NonZeroUsize::new(4).unwrap(),
@@ -1406,7 +1410,7 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let predecessor = handle
-        .submit(inquiry_for(CameraId::CAMERA_1))
+        .submit(inquiry_for(TargetSlot::CAMERA_1))
         .await
         .unwrap();
     let _ = sent_rx.recv_async().await.unwrap();
@@ -1421,12 +1425,12 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
     .await;
 
     let camera_c = handle
-        .submit(inquiry_for(CameraId::CAMERA_3))
+        .submit(inquiry_for(TargetSlot::CAMERA_3))
         .await
         .unwrap();
     let _ = sent_rx.recv_async().await.unwrap();
     let successor = handle
-        .submit(inquiry_for(CameraId::CAMERA_1))
+        .submit(inquiry_for(TargetSlot::CAMERA_1))
         .await
         .unwrap();
     // A's inquiry lane is independent from C's live inquiry, so the successor
@@ -1495,8 +1499,8 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
             sent,
         },
         &[
-            (CameraId::CAMERA_1, &profile),
-            (CameraId::CAMERA_3, &profile),
+            (TargetSlot::CAMERA_1, &profile),
+            (TargetSlot::CAMERA_3, &profile),
         ],
         crate::OperationalTuning::new(),
         std::num::NonZeroUsize::new(4).unwrap(),
@@ -1508,7 +1512,7 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let predecessor = handle
-        .submit(inquiry_for(CameraId::CAMERA_1))
+        .submit(inquiry_for(TargetSlot::CAMERA_1))
         .await
         .unwrap();
     let _ = sent_rx.recv_async().await.unwrap();
@@ -1526,12 +1530,12 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
     ));
 
     let camera_c = handle
-        .submit(inquiry_for(CameraId::CAMERA_3))
+        .submit(inquiry_for(TargetSlot::CAMERA_3))
         .await
         .unwrap();
     let _ = sent_rx.recv_async().await.unwrap();
     let successor = handle
-        .submit(inquiry_for(CameraId::CAMERA_1))
+        .submit(inquiry_for(TargetSlot::CAMERA_1))
         .await
         .unwrap();
     // A's per-target inquiry lane is independent from C's, so this write is
@@ -1598,7 +1602,7 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
             sent,
         },
         &profile,
-        CameraId::CAMERA_1,
+        TargetSlot::CAMERA_1,
     )
     .unwrap();
     let mut actor_policy = adapter.policy().clone();
@@ -1723,7 +1727,7 @@ async fn stream_reply_split_across_two_reads_keeps_the_session_running() {
             sent,
         },
         &profile,
-        CameraId::CAMERA_1,
+        TargetSlot::CAMERA_1,
     )
     .unwrap();
     assert_eq!(adapter.policy().protocol.transport, TransportKind::Stream);
@@ -1905,7 +1909,7 @@ async fn raw_stream_owed_prefix_at_window_end_latches_instead_of_releasing() {
     assert!(matches!(
         terminal_within_test_deadline(&successor, "B fails at the latch").await,
         RuntimeOutcome::Failed(Error::InquiryCorrelationLost { camera })
-            if camera == CameraId::CAMERA_1
+            if camera == TargetSlot::CAMERA_1.camera()
     ));
     runtime.advance(Duration::from_secs(5));
     let snapshot = within(handle.snapshot(), "the actor answers a snapshot")
@@ -2053,7 +2057,7 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
             sent,
         },
         &profile,
-        CameraId::CAMERA_1,
+        TargetSlot::CAMERA_1,
     )
     .unwrap();
     let mut actor_policy = adapter.policy().clone();

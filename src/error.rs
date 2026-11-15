@@ -25,7 +25,9 @@
 //! | Raw command/cancellation uncertainty under strict policy | Raw | Datagram or stream | [`Error::StreamPoisoned`] | `true` | Replace the session, re-query state, and restore deliberately. |
 //! | An inquiry (or user `CompletionOnly` raw command) to a camera whose earlier inquiry ended unanswered after its bytes entered the stream (that one is written once and fails at its reply deadline with the `Terminal`/`FailedConclusively` timeout above), once its owed reply has still not arrived when the profile's ambiguity window ends — a stalled connection, a camera that never answers that inquiry, or an absent address | Raw | Stream | [`Error::InquiryCorrelationLost`] (stage `Terminal`, certainty `NotAccepted`; not written, not retryable) | `false` | Inquiries to that camera cannot be correlated until the owed reply arrives or a later answer from the camera proves it never will; close and reopen the session to recover them sooner. A raw `CompletionOnly` command left unanswered holds inquiries back the same way, until its completion arrives. Other cameras and the session keep working, and commands and stops to that camera are still sent; settlement polling, `is_moving`, and `wait_until_idle` on it fail. Frames are resolved in write order (#795): the owed reply (data or a socketless rejection) settles the lane, and so does the ACK or rejection of any command written after the inquiry, since the camera answers in order — a camera that never answers that inquiry reopens its inquiries with its next command answer. |
 //! | An ordinary ACK-bearing, `CompletionOnly`, or `NoReply` command to a camera whose earlier command ended [`Error::UnsequencedCommandUnconfirmed`] before its ACK (or completion) after its bytes entered the stream, once that owed answer has still not arrived when the owing command's ambiguity window ends; or a `CompletionOnly` command to a camera that has not answered anything since a `NoReply` command whose ambiguity window has ended | Raw | Stream | [`Error::CommandCorrelationLost`] (stage `Terminal`, certainty `NotAccepted`; not written, not retryable) | `false` | Commands to that camera cannot be correlated until the owed answer arrives or a later answer from the camera proves it never will (the reply to a later inquiry, or the answer to a later STOP); close and reopen the session to recover them sooner. Within the window such commands wait; a late answer is discarded and never acknowledges or completes a later command. A `CompletionOnly` command's owed completion is settled only by itself: if it never comes — a camera that drops it, or a socketless error that it or a STOP behind it could have sent that was in fact its rejection but that the ledger could not prove so within three hand-offs — ordinary commands to that camera stay latched until the session is reopened. STOPs (including the owner halt), inquiries, other cameras, and the session keep working (#795). |
-//! | Request or cancellation send fails | Any | Datagram | The transport error (a terminal-looking custom error is normalized to [`Error::TransportError`]) | `false` | Treat it as this transmission's failure; the receive side remains the authority on session death. |
+//! | Request send fails | Any | Datagram | The transport error (a terminal-looking custom error is normalized to [`Error::TransportError`]) | `false` | Treat it as this transmission's failure; the receive side remains the authority on session death. |
+//! | A recorded cancellation's write or observation fails while its operation continues | Any | Datagram | [`Error::CancellationObservationFailed`] for an otherwise retryable cause; already nonretryable verdicts remain exact | `false` | The handle caches this intent's failure and cannot retry it. Observe the operation's outcome or stop the axis. |
+//! | A cancellation observation reaches a deadline while its operation continues | Any | Any | [`Error::Timeout`] (stage `CancellationAttempt`, certainty `StillLive`) | `false` | Wait for the operation or stop the axis; `is_retryable()` is `false`. |
 //! | Request or cancellation send fails after unknown stream progress | Any | Stream | [`Error::StreamPoisoned`] | `true` | Replace the session; stream position may be unknowable. |
 //! | Fatal receive closure, including EOF/reset/broken pipe | Any | Datagram or stream | [`Error::ConnectionClosed`] | `true` | Replace the session and re-query state. |
 //! | Transient receive fault or an idle/no-data read | Any | Datagram or stream | No immediate public failure; request policy/deadlines continue | n/a | Keep driving the session; use a bounded application heartbeat for silent peers. |
@@ -148,8 +150,8 @@ pub enum ErrorKind {
 ///
 /// ## Terminal Session Failures
 /// A third category ends the session outright: the peer closed the connection,
-/// the byte-stream position became unknowable, or the application shut the
-/// runtime down. A fatal receive closure is normalized to
+/// the byte-stream position became unknowable, the owner terminated
+/// unexpectedly, or the application shut the runtime down. A fatal receive closure is normalized to
 /// [`Error::ConnectionClosed`] (with the transport cause retained in its
 /// reason); [`Error::StreamPoisoned`] is reserved for an unknowable stream
 /// framing or write position. Use [`Error::requires_new_session()`] to tell
@@ -172,23 +174,29 @@ pub enum ErrorKind {
 ///
 /// # Example
 ///
-/// ```rust
-/// use grafton_visca::Error;
-/// use std::time::Duration;
+/// Resubmission needs replay-safe certainty as well as a retryable condition.
+/// See the [recovery table](https://github.com/GrantSparks/grafton-visca/blob/main/docs/observability_and_recovery.md).
 ///
-/// fn handle_camera_error(error: Error) -> Result<(), Error> {
-///     if error.is_retryable() {
-///         if let Some(delay) = error.suggested_retry_delay() {
-///             println!("Retrying after {:?}", delay);
-///             std::thread::sleep(delay);
-///             // Retry the operation...
+/// ```rust
+/// use grafton_visca::{Certainty, Error, FailureStage};
+///
+/// fn should_resubmit(error: &Error) -> bool {
+///     match error.failure_context().map(|context| context.certainty) {
+///         Some(Certainty::NotAccepted | Certainty::FailedConclusively) => {
+///             error.is_retryable()
 ///         }
-///     } else {
-///         // Handle permanent error
-///         return Err(error);
+///         Some(Certainty::StillLive) => false, // Wait on the original handle.
+///         Some(Certainty::Unconfirmed) => false, // Reconcile camera state first.
+///         _ => false, // Missing certainty never establishes replay safety.
 ///     }
-///     Ok(())
 /// }
+///
+/// assert!(!should_resubmit(&Error::timeout(
+///     FailureStage::Terminal, Certainty::Unconfirmed,
+/// )));
+/// assert!(!should_resubmit(&Error::timeout(
+///     FailureStage::CancellationAttempt, Certainty::StillLive,
+/// )));
 /// ```
 #[derive(ThisError, Debug, Clone)]
 #[non_exhaustive]
@@ -433,6 +441,19 @@ pub enum Error {
         source: Box<Error>,
     },
 
+    /// A recorded cancellation intent failed with an otherwise retryable cause.
+    /// A repeated `cancel()` observes
+    /// this cached answer and cannot send another cancellation for the intent.
+    /// The underlying condition remains available as the error source; the
+    /// operation's own outcome must still be observed separately.
+    #[error("Could not resolve the recorded cancellation intent: {source}")]
+    #[non_exhaustive]
+    CancellationObservationFailed {
+        /// The exact cancellation write or observation failure.
+        #[source]
+        source: Box<Error>,
+    },
+
     /// Maximum retry attempts exceeded.
     #[error("Maximum retries exceeded")]
     MaxRetriesExceeded,
@@ -448,6 +469,22 @@ pub enum Error {
     /// Runtime has been shutdown.
     #[error("Runtime has been shutdown")]
     RuntimeShutdown,
+
+    /// The owner stopped without publishing a terminal result, for example
+    /// because its worker or task panicked. The session cannot make progress
+    /// and must be replaced.
+    #[error("Session owner terminated without publishing a terminal result")]
+    OwnerTerminated,
+
+    /// The session already has its maximum number of diagnostic subscribers.
+    /// Dropping a subscription makes room; request-admission capacity does not
+    /// affect this limit.
+    #[error("Diagnostic subscriber limit reached ({capacity} subscribers)")]
+    #[non_exhaustive]
+    DiagnosticSubscriberLimit {
+        /// Maximum simultaneous diagnostic subscriptions for this session.
+        capacity: usize,
+    },
 
     /// Cancellation intent was recorded after transmission, but the engine could
     /// not prove either original completion or protocol cancellation before the
@@ -903,6 +940,18 @@ impl Error {
         }
     }
 
+    /// Makes a cached cancellation failure nonretryable while preserving
+    /// already nonretryable canonical verdicts and their exact context.
+    #[cfg(any(feature = "async", feature = "blocking", test))]
+    pub(crate) fn cancellation_observation_failed(source: Error) -> Self {
+        if !source.is_retryable() {
+            return source;
+        }
+        Self::CancellationObservationFailed {
+            source: Box::new(source),
+        }
+    }
+
     /// Reports a camera whose raw inquiries cannot be correlated on this
     /// session.
     #[must_use]
@@ -1013,9 +1062,10 @@ impl Error {
             | Self::CommandCorrelationLost { .. } => ErrorKind::NotExecutable,
 
             // IoClosed: connection/transport no longer usable
-            Self::ConnectionClosed { .. } | Self::RuntimeShutdown | Self::StreamPoisoned { .. } => {
-                ErrorKind::IoClosed
-            }
+            Self::ConnectionClosed { .. }
+            | Self::RuntimeShutdown
+            | Self::StreamPoisoned { .. }
+            | Self::OwnerTerminated => ErrorKind::IoClosed,
 
             // Transport: one failed operation on a live session.
             Self::TransportError(..) => ErrorKind::Transport,
@@ -1058,12 +1108,14 @@ impl Error {
             Self::CommandPending => ErrorKind::Busy,
 
             // Other: truly uncategorizable
-            Self::RuntimeIdentityExhausted => ErrorKind::Other,
+            Self::RuntimeIdentityExhausted | Self::DiagnosticSubscriberLimit { .. } => {
+                ErrorKind::Other
+            }
 
             // Delegated: unwrap context wrapper
-            Self::WithContext { source, .. } | Self::SettlementObservationFailed { source, .. } => {
-                source.kind()
-            }
+            Self::WithContext { source, .. }
+            | Self::SettlementObservationFailed { source, .. }
+            | Self::CancellationObservationFailed { source, .. } => source.kind(),
             Self::MotionSuperseded { .. } | Self::SettlementSuperseded { .. } => {
                 ErrorKind::Cancelled
             }
@@ -1085,15 +1137,16 @@ impl Error {
     /// Reports whether the session that produced this error is permanently
     /// unusable, so recovery must construct a replacement session.
     ///
-    /// Transport close, explicit shutdown, and poison are given distinct
-    /// terminal errors, but they all share [`ErrorKind::IoClosed`]. Matching on
+    /// Transport close, owner termination, explicit shutdown, and poison have
+    /// distinct terminal errors, but they all share [`ErrorKind::IoClosed`]. Matching on
     /// the kind therefore cannot separate "the camera dropped the connection"
     /// from "this application asked the runtime to stop". This predicate draws
     /// exactly that line without exposing implementation details:
     ///
-    /// - `true` — the transport died underneath the session: the peer closed
-    ///   the connection ([`Error::ConnectionClosed`]) or the byte-stream
-    ///   position became unknowable ([`Error::StreamPoisoned`]). A poisoned
+    /// - `true` — the session lost its transport or owner: the peer closed
+    ///   the connection ([`Error::ConnectionClosed`]), the byte-stream
+    ///   position became unknowable ([`Error::StreamPoisoned`]), or the owner
+    ///   stopped without publishing a terminal result ([`Error::OwnerTerminated`]). A poisoned
     ///   session is terminal and is never revived; every retained and
     ///   subsequently attempted operation keeps reporting its exact terminal
     ///   session error. Fatal receive closure is always normalized to
@@ -1146,16 +1199,18 @@ impl Error {
             // Terminal session death that the application did not ask for. The
             // engine and both owners report exactly these variants when a
             // session stops being usable because of the transport.
-            Self::ConnectionClosed { .. } | Self::StreamPoisoned { .. } => true,
+            Self::ConnectionClosed { .. } | Self::StreamPoisoned { .. } | Self::OwnerTerminated => {
+                true
+            }
 
             // Deliberate shutdown. The session is over because the application
             // ended it, so reconnecting is a policy decision, not a repair.
             Self::RuntimeShutdown => false,
 
             // Delegated: an added context string never changes the condition.
-            Self::WithContext { source, .. } | Self::SettlementObservationFailed { source, .. } => {
-                source.requires_new_session()
-            }
+            Self::WithContext { source, .. }
+            | Self::SettlementObservationFailed { source, .. }
+            | Self::CancellationObservationFailed { source, .. } => source.requires_new_session(),
 
             // Everything else is either a per-request outcome or a condition
             // the session survives. `Io` and `TransportError` stay here on
@@ -1201,6 +1256,7 @@ impl Error {
             | Self::CommandCorrelationLost { .. }
             | Self::CommandFailedAfterAck { .. }
             | Self::RuntimeIdentityExhausted
+            | Self::DiagnosticSubscriberLimit { .. }
             | Self::RuntimeQueueFull { .. }
             | Self::ControlReserveExhausted { .. }
             | Self::InvalidCameraId { .. }
@@ -1271,7 +1327,8 @@ impl Error {
     ///
     /// Returns `Some(Duration)` with a recommended delay before retrying the
     /// operation, or `None` if the error is not retryable. The delay depends
-    /// only on [`Self::kind()`]:
+    /// on [`Self::kind()`], apart from the nonretryable observation and
+    /// exhausted-budget exceptions below:
     ///
     /// - [`ErrorKind::Busy`] and [`ErrorKind::Transport`]: 50 ms, for camera
     ///   contention or one failed transport operation on a live session.
@@ -1279,11 +1336,13 @@ impl Error {
     ///   free up.
     /// - [`ErrorKind::Timeout`]: 2 s, to allow more time.
     ///
-    /// Three errors of a retryable kind have no delay, because a new attempt
-    /// would loop or duplicate a live request: [`Self::MaxRetriesExceeded`]
-    /// (the retry budget is already spent), [`Self::ObservationTimeout`] and
-    /// [`Self::SettlementObservationFailed`] (the request is still running or
-    /// already applied). [`Self::WithContext`] reports its source's delay.
+    /// A new attempt must not loop or duplicate a live request. Therefore
+    /// [`Self::MaxRetriesExceeded`], [`Self::ObservationTimeout`], every
+    /// [`Self::Timeout`] with [`Certainty::StillLive`],
+    /// [`Self::CancellationObservationFailed`] (the intent's answer is cached),
+    /// and [`Self::SettlementObservationFailed`] have no delay even when their
+    /// kind ordinarily permits retries. [`Self::WithContext`] reports its
+    /// source's delay.
     ///
     /// # Example
     ///
@@ -1313,6 +1372,14 @@ impl Error {
             // live request.
             Self::MaxRetriesExceeded
             | Self::ObservationTimeout { .. }
+            | Self::Timeout {
+                context:
+                    FailureContext {
+                        certainty: Certainty::StillLive,
+                        ..
+                    },
+            }
+            | Self::CancellationObservationFailed { .. }
             | Self::SettlementObservationFailed { .. } => None,
             _ => match self.kind() {
                 ErrorKind::Busy | ErrorKind::Transport => Some(CONTENTION_RETRY_DELAY),
@@ -1338,7 +1405,9 @@ impl Error {
     /// [`Self::ObservationTimeout`]), for the unconfirmed outcomes
     /// ([`Self::UnsequencedCommandUnconfirmed`],
     /// [`Self::CancellationUnconfirmed`], and settlement observation
-    /// failures), and for [`Self::MotionSuperseded`], which carries the
+    /// failures), for [`Self::CancellationObservationFailed`] (its source's
+    /// context, or `CancellationAttempt`/`StillLive` when none was supplied),
+    /// and for [`Self::MotionSuperseded`], which carries the
     /// context recorded when the halt superseded it (`NotAccepted` when it
     /// never reached the camera); `None` otherwise. [`Self::WithContext`] is
     /// looked through. [`Self::SettlementObservationFailed`] reports
@@ -1390,6 +1459,12 @@ impl Error {
                 FailureStage::Terminal,
                 Certainty::Unconfirmed,
             )),
+            Self::CancellationObservationFailed { source, .. } => {
+                source.failure_context().or(Some(FailureContext::new(
+                    FailureStage::CancellationAttempt,
+                    Certainty::StillLive,
+                )))
+            }
             Self::WithContext { source, .. } => source.failure_context(),
             _ => None,
         }
@@ -1779,6 +1854,105 @@ mod tests {
     }
 
     #[test]
+    fn cached_cancellation_failure_preserves_its_source_without_retrying() {
+        use std::error::Error as _;
+        let error = Error::cancellation_observation_failed(Error::TransportError(
+            "cancel send failed".into(),
+        ));
+        assert_eq!(error.kind(), ErrorKind::Transport);
+        assert!(!error.is_retryable());
+        assert_eq!(error.suggested_retry_delay(), None);
+        assert_eq!(
+            error.failure_context(),
+            Some(FailureContext::new(
+                FailureStage::CancellationAttempt,
+                Certainty::StillLive
+            ))
+        );
+        let Some(source) = error.source() else {
+            panic!("source must be retained");
+        };
+        assert_eq!(source.to_string(), "Transport error: cancel send failed");
+        assert!(!error.with_context("cancel zoom").is_retryable());
+
+        let cause = Error::TransportError("cancel send failed".into()).with_context("cancel write");
+        assert!(cause.is_retryable());
+        let expected = format!("{cause:?}");
+        let contextual = Error::cancellation_observation_failed(cause);
+        assert!(!contextual.is_retryable());
+        assert_eq!(
+            contextual.failure_context(),
+            Some(FailureContext::new(
+                FailureStage::CancellationAttempt,
+                Certainty::StillLive
+            ))
+        );
+        assert!(matches!(
+            contextual,
+            Error::CancellationObservationFailed { source }
+                if matches!(source.as_ref(), Error::WithContext { .. })
+                    && format!("{source:?}") == expected
+        ));
+    }
+
+    #[test]
+    fn cached_cancellation_keeps_nonretryable_verdicts_exact() {
+        let mut verdicts = vec![
+            Error::CancellationUnconfirmed,
+            Error::UnsequencedCommandUnconfirmed,
+            Error::NotSupported,
+            Error::InquiryNotCancelable,
+            Error::OwnerTerminated,
+            Error::RuntimeShutdown,
+            Error::CancellationUnconfirmed.with_context("cancel zoom"),
+            Error::cancellation_observation_failed(Error::TransportError(
+                "cancel write failed".into(),
+            )),
+        ];
+        for stage in [
+            FailureStage::PreAdmission,
+            FailureStage::Session,
+            FailureStage::CancellationAttempt,
+            FailureStage::Observation,
+            FailureStage::Terminal,
+        ] {
+            let timeout = Error::timeout(stage, Certainty::StillLive);
+            verdicts.push(timeout.clone());
+            verdicts.push(timeout.with_context("cancel zoom"));
+        }
+        for verdict in verdicts {
+            assert!(!verdict.is_retryable());
+            let expected = format!("{verdict:?}");
+            let context = verdict.failure_context();
+            let kind = verdict.kind();
+            let requires_new_session = verdict.requires_new_session();
+            let observed = Error::cancellation_observation_failed(verdict);
+            assert_eq!(format!("{observed:?}"), expected);
+            assert_eq!(observed.failure_context(), context);
+            assert_eq!(observed.kind(), kind);
+            assert_eq!(observed.requires_new_session(), requires_new_session);
+            assert!(!observed.is_retryable());
+        }
+    }
+
+    #[test]
+    fn owner_death_and_subscriber_limit_have_distinct_recovery_policies() {
+        let stopped = Error::OwnerTerminated;
+        assert_eq!(stopped.kind(), ErrorKind::IoClosed);
+        assert!(stopped.requires_new_session());
+        assert!(!stopped.is_retryable());
+        assert!(stopped
+            .with_context("waiting for an owner")
+            .requires_new_session());
+
+        let limit = Error::DiagnosticSubscriberLimit { capacity: 4 };
+        assert_eq!(limit.kind(), ErrorKind::Other);
+        assert!(!limit.requires_new_session());
+        assert!(!limit.is_retryable());
+        assert!(limit.to_string().contains("4 subscribers"));
+    }
+
+    #[test]
     fn retry_helpers_agree_for_public_error_classifications() {
         let cases = [
             (
@@ -1988,6 +2162,40 @@ mod tests {
                 None,
             ),
         ];
+
+        for stage in [
+            FailureStage::PreAdmission,
+            FailureStage::Observation,
+            FailureStage::Terminal,
+            FailureStage::CancellationAttempt,
+            FailureStage::Session,
+        ] {
+            for certainty in [
+                Certainty::NotAccepted,
+                Certainty::StillLive,
+                Certainty::FailedConclusively,
+                Certainty::Unconfirmed,
+            ] {
+                let expected =
+                    (certainty != Certainty::StillLive).then_some(Duration::from_secs(2));
+                let error = Error::timeout(stage, certainty);
+                assert_eq!(error.kind(), ErrorKind::Timeout);
+                assert_eq!(
+                    error.failure_context(),
+                    Some(FailureContext::new(stage, certainty))
+                );
+                assert_eq!(
+                    error.suggested_retry_delay(),
+                    expected,
+                    "{stage:?} {certainty:?}"
+                );
+                assert_eq!(error.is_retryable(), expected.is_some());
+                assert_eq!(
+                    error.with_context("nested timeout").suggested_retry_delay(),
+                    expected
+                );
+            }
+        }
 
         for (name, error, expected_kind, expected_delay) in cases {
             assert_eq!(error.kind(), expected_kind, "{name} has the wrong kind");

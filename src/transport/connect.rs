@@ -23,6 +23,8 @@
 //!
 //! - Invalid configuration: [`Error::InvalidRequest`]; malformed endpoint or
 //!   failed resolution: [`Error::InvalidAddress`].
+//!   IP connectors require [`AddressingMode::Ip`]; a serial preset is rejected
+//!   before name resolution or socket creation.
 //! - The budget expired: [`Error::Timeout`] (stage `Session`, certainty
 //!   `NotAccepted`).
 //! - Every address refused: [`Error::ConnectionFailed`] naming the endpoint
@@ -35,13 +37,19 @@ use std::{
 
 use crate::{
     timeout::Deadline,
-    transport::{address::canonicalize_endpoint, builder::TransportConfig},
+    transport::{address::canonicalize_endpoint, builder::TransportConfig, AddressingMode},
     Error, Result,
 };
 
 /// Validate `config` and canonicalize `address` before any connector I/O.
 pub(crate) fn preflight(address: &str, config: &TransportConfig) -> Result<String> {
     config.validate()?;
+    if config.addressing != AddressingMode::Ip {
+        return Err(Error::InvalidRequest(
+            "IP connectors require IP addressing; use TransportConfig::for_tcp() or for_udp()"
+                .into(),
+        ));
+    }
     canonicalize_endpoint(address, None)
 }
 

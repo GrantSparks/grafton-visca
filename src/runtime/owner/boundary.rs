@@ -16,7 +16,10 @@ use std::{
     time::Instant,
 };
 
-use crate::Error;
+use crate::{
+    target::{PerTarget, TargetSlot},
+    Error,
+};
 
 #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
 use super::SessionState;
@@ -139,7 +142,7 @@ pub(super) type AdmissionReply = flume::Receiver<Result<Admitted, Error>>;
 #[derive(Debug)]
 pub(super) struct AdmissionExpiry {
     validity: AdmissionValidity,
-    target: crate::CameraId,
+    target: TargetSlot,
     lane: Lane,
 }
 
@@ -149,7 +152,6 @@ pub(super) struct AdmissionExpiry {
 /// receipts the same way and differ only in how they wait for the reply.
 #[derive(Debug)]
 pub(super) struct PendingAdmission {
-    target: crate::CameraId,
     completion: TerminalObserver,
     reply: AdmissionReply,
     expiry: Option<AdmissionExpiry>,
@@ -180,7 +182,6 @@ impl PendingAdmission {
     ) -> Result<super::ReceiptCore, Error> {
         Ok(super::ReceiptCore::admitted(
             reply??,
-            self.target,
             self.completion,
             configured_timeout,
         ))
@@ -193,21 +194,25 @@ pub(super) struct AdmissionBoundary {
     pub(super) permit: AdmissionPermit,
     pub(super) observer: Arc<ObserverCell<RuntimeOutcome>>,
     pub(super) reply: flume::Sender<Result<Admitted, Error>>,
-    /// Present only for a caller deadline that applies before admission.
-    pub(super) validity: Option<AdmissionValidity>,
-    /// The owner has already won the caller's pre-admission deadline race,
-    /// but a raw-correlation release gate has retained this boundary until it
-    /// can safely enter the engine.  Keeping that one-way answer on the
-    /// boundary preserves the caller's established admission promise without
-    /// letting the retained admission run a due/dispatch turn early.
-    pub(super) validity_claimed: bool,
+    pub(super) claim: AdmissionBoundaryClaim,
+}
+
+/// The owner's one-way answer to the pre-admission deadline race.
+#[derive(Debug)]
+pub(super) enum AdmissionBoundaryClaim {
+    /// No caller deadline constrains admission.
+    Unbounded,
+    /// The owner has not yet claimed the caller's bounded admission.
+    Pending(AdmissionValidity),
+    /// The owner won the race before retaining the boundary behind raw input.
+    Claimed,
 }
 
 /// A rejection that happened before a handle could allocate any owner-owned
 /// admission state.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct PreAdmissionRejection {
-    pub(super) target: crate::CameraId,
+    pub(super) target: TargetSlot,
     pub(super) lane: Lane,
     pub(super) error: crate::ErrorKind,
 }
@@ -457,7 +462,7 @@ impl OwnerLifecycle {
     pub(super) fn fence_order(
         &self,
         motion: &Arc<super::motion::MotionRegistry>,
-        target: crate::CameraId,
+        target: TargetSlot,
         axes: Option<crate::AffectedAxes>,
     ) -> Result<u64, Error> {
         let _guard = self.lock_open()?;
@@ -483,7 +488,7 @@ impl OwnerLifecycle {
     }
 
     /// The published terminal error, if the owner has ended.
-    fn terminal(&self) -> Option<Error> {
+    pub(super) fn terminal(&self) -> Option<Error> {
         self.lock_terminal().clone()
     }
 
@@ -550,7 +555,7 @@ impl OwnerLifecycle {
 /// The error for an owner that disappeared without publishing its terminal
 /// result, which only an unwind can cause.
 pub(super) fn missing_terminal_error() -> Error {
-    Error::InvalidState("owner actor disconnected without publishing a terminal result".into())
+    Error::OwnerTerminated
 }
 
 /// The owner's ends of the bounded boundary lanes, one per source the
@@ -590,7 +595,7 @@ pub(super) struct OwnerHandleCore {
     /// Nothing is ever sent on it.
     pub(super) actor_alive: flume::Receiver<()>,
     lifecycle: Arc<OwnerLifecycle>,
-    state_cache: Arc<[Mutex<TargetStateCache>; 9]>,
+    state_cache: Arc<PerTarget<Mutex<TargetStateCache>>>,
     /// The owner's live operational tuning (#631). Reading it is a lock and a
     /// copy, so preparation never has to round-trip through the owner.
     tuning: LiveTuning,
@@ -659,7 +664,7 @@ impl OwnerHandleCore {
         }
     }
 
-    pub(super) fn state_cache(&self, target: crate::CameraId) -> crate::state_cache::StateCache {
+    pub(super) fn state_cache(&self, target: TargetSlot) -> crate::state_cache::StateCache {
         crate::state_cache::StateCache::from_registry(Arc::clone(&self.state_cache), target)
     }
 
@@ -761,8 +766,10 @@ impl OwnerHandleCore {
             permit,
             observer,
             reply,
-            validity,
-            validity_claimed: false,
+            claim: validity.map_or(
+                AdmissionBoundaryClaim::Unbounded,
+                AdmissionBoundaryClaim::Pending,
+            ),
         };
         match self.admissions.try_send(boundary) {
             Ok(()) => Ok((completion, admission)),
@@ -783,10 +790,8 @@ impl OwnerHandleCore {
     /// [`enqueue_admission`](Self::enqueue_admission) as a
     /// [`PendingAdmission`].
     pub(super) fn admit(&self, request: RuntimeRequest) -> Result<PendingAdmission, Error> {
-        let target = request.context().target;
         let (completion, reply) = self.enqueue_admission(request, None)?;
         Ok(PendingAdmission {
-            target,
             completion,
             reply,
             expiry: None,
@@ -812,7 +817,6 @@ impl OwnerHandleCore {
         let validity = AdmissionValidity::until(deadline);
         let (completion, reply) = self.enqueue_admission(request, Some(validity.clone()))?;
         Ok(PendingAdmission {
-            target,
             completion,
             reply,
             expiry: Some(AdmissionExpiry {
@@ -850,7 +854,7 @@ impl OwnerHandleCore {
     /// until that owner drops.
     pub(super) fn record_pre_admission_rejection(
         &self,
-        target: crate::CameraId,
+        target: TargetSlot,
         lane: Lane,
         error: &Error,
     ) {
@@ -884,13 +888,12 @@ impl OwnerHandleCore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::CameraId;
 
     #[test]
     fn admission_rejection_ingress_total_saturates() {
         let ingress = AdmissionRejectionIngress::new(2);
         let rejection = PreAdmissionRejection {
-            target: CameraId::CAMERA_1,
+            target: TargetSlot::CAMERA_1,
             lane: Lane::Command,
             error: crate::ErrorKind::BufferFull,
         };

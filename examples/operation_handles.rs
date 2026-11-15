@@ -62,8 +62,8 @@ impl Drop for StopPanTiltOnExit<'_> {
 
 fn movement(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
     // Targeted movement exposes profile-selected protocol settlement;
-    // applied-only movement has no settled state and is observed only at protocol application. Both
-    // waits consume the handle, so neither adds a stop of its own.
+    // applied-only movement has no settled state and is observed only at protocol application.
+    // Both waits borrow the handle; neither adds a stop of its own.
     camera.pan_tilt().home()?.settled()?;
     camera.zoom().tele()?.applied()?;
     camera.zoom().stop()?.applied()?;

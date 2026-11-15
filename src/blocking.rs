@@ -3,8 +3,10 @@
 //! A [`Session`] owns exactly one native owner worker thread and the transport
 //! moved into it (D24). [`Camera`] values are inexpensive target views:
 //! cloning one only clones the owner handle and its immutable target/profile
-//! facts. Every handle is `Clone + Send + Sync`, and calls from any number of
-//! threads are serialized by the worker rather than by the caller. These
+//! facts. Session and camera handles are `Clone + Send + Sync`; operation
+//! handles are `Send + Sync` and may move between threads. Calls from any
+//! number of threads are serialized by the worker rather than by the caller.
+//! These
 //! handles are deliberately mode-native: they expose direct [`Result`]s and
 //! never create or return a future. Dropping a non-final handle leaves the
 //! shared owner running; dropping the final one stops the worker and releases
@@ -23,6 +25,7 @@ use crate::{
     runtime::owner::{
         BlockingOperationReceipt, BlockingOwnerHandle, BlockingTransportAdapter, Clock,
     },
+    target::TargetSlot,
     CameraId, CancellationOutcome, CompileTimeProfile, DiagnosticSubscription, Error, Inquiry,
     MetricsSnapshot, OperationCommand, OperationalTuning, PlainCommand, ProfileSpec, Result,
     StateCache, SubmissionClass,
@@ -258,10 +261,10 @@ pub use construction::{CameraConfig, Connect};
 /// One blocking owner session.
 ///
 /// The transport is moved into one native owner worker thread at
-/// construction (D24). The session, the [`Camera`] views taken from it, and
-/// the [`Operation`] handles they return are all `Clone + Send + Sync` and
-/// borrow nothing, so they may be shared freely between threads: the worker
-/// serializes every call, and one thread waiting on an operation never blocks
+/// construction (D24). The session and its [`Camera`] views are
+/// `Clone + Send + Sync`. An [`Operation`] handle is `Send + Sync`, borrows
+/// nothing, and can move to another thread; its waits borrow that handle.
+/// The worker serializes every call, and one thread waiting on an operation never blocks
 /// another thread's submit, cancel, or STOP. Timers, reads, and correlation
 /// cleanup progress on the worker even while no caller is inside the session.
 ///
@@ -351,12 +354,13 @@ impl Session {
     where
         P: CompileTimeProfile,
     {
+        let target = TargetSlot::try_from(target)?;
         let profile = self.config.registered_profile_for::<P>(target)?;
         Ok(Camera::from_core(self.core(target, profile)))
     }
 
     /// The erased view of `target`, registered with `profile`.
-    fn core(&self, target: CameraId, profile: Arc<ProfileSpec>) -> BlockingCameraCore {
+    fn core(&self, target: TargetSlot, profile: Arc<ProfileSpec>) -> BlockingCameraCore {
         BlockingCameraCore {
             owner: self.owner.clone(),
             target,
@@ -434,6 +438,7 @@ impl Session {
         &self,
         target: CameraId,
     ) -> Result<crate::dynapi::BlockingDynSessionCamera, Error> {
+        let target = TargetSlot::try_from(target)?;
         let profile = self.config.registered_profile(target)?;
         Ok(crate::dynapi::BlockingDynSessionCamera::new(
             self.core(target, profile),
@@ -513,7 +518,7 @@ impl Session {
     /// explicit shutdown returns `Ok(())`, while a transport close or stream
     /// poison that won the race is returned unchanged. If sending this call's
     /// shutdown signal fails immediately, that error is preserved. A worker
-    /// that panicked is reported as [`Error::InvalidState`].
+    /// that panicked is reported as [`Error::OwnerTerminated`].
     /// A custom transport calling this from its own worker requests shutdown
     /// but receives [`Error::InvalidState`] immediately: it cannot wait for
     /// its own teardown. A caller on another thread can still close and join.
@@ -580,6 +585,7 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     /// from this exact `P`. That is what makes the bind structural instead of
     /// a runtime profile comparison.
     pub(crate) fn from_session(session: Session, target: CameraId) -> Result<Self, Error> {
+        let target = TargetSlot::try_from(target)?;
         let profile = session.config.registered_profile(target)?;
         let camera = Camera::from_core(session.core(target, profile));
         Ok(Self { session, camera })
@@ -693,7 +699,7 @@ impl<P: CompileTimeProfile> CameraSession<P> {
 #[derive(Clone)]
 pub(crate) struct BlockingCameraCore {
     owner: BlockingOwnerHandle,
-    target: CameraId,
+    target: TargetSlot,
     profile: Arc<ProfileSpec>,
     class: ClassSelection,
 }
@@ -702,7 +708,7 @@ impl fmt::Debug for BlockingCameraCore {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Camera")
-            .field("target", &self.target)
+            .field("target", &self.target.camera())
             .field("profile", &self.profile)
             .finish_non_exhaustive()
     }
@@ -720,7 +726,7 @@ impl BlockingCameraCore {
 
     /// Returns this view's fixed camera target.
     pub(crate) const fn target(&self) -> CameraId {
-        self.target
+        self.target.camera()
     }
 
     /// Returns this view's validated profile facts.
@@ -869,7 +875,7 @@ impl<P: CompileTimeProfile> fmt::Debug for Camera<P> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Camera")
-            .field("target", &self.core.target)
+            .field("target", &self.core.target.camera())
             .field("profile", &self.core.profile)
             .finish_non_exhaustive()
     }
@@ -1060,9 +1066,9 @@ mod tests {
     fn partial_motion_core(session: &Session) -> BlockingCameraCore {
         let profile = session
             .config
-            .registered_profile(CameraId::CAMERA_1)
+            .registered_profile(TargetSlot::CAMERA_1)
             .expect("registered partial motion profile");
-        session.core(CameraId::CAMERA_1, profile)
+        session.core(TargetSlot::CAMERA_1, profile)
     }
 
     /// Two views taken from the same session drive its one owned transport,

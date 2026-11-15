@@ -15,7 +15,7 @@ use crate::{
         ProtocolPolicy, ReplyShape, RequestContext, RequestId, RetryPolicy, RuntimeRequest,
         TargetPolicy, TimeoutPolicy,
     },
-    CameraId, ViscaSocket,
+    ViscaSocket,
 };
 
 #[cfg(feature = "runtime-tokio")]
@@ -40,17 +40,26 @@ use super::super::boundary::{CancellationBoundary, ControlBoundary};
 use super::super::ReceiptCore;
 use super::super::RuntimeOutcome;
 use super::*;
+#[cfg(feature = "runtime-tokio")]
+use crate::target::PerTarget;
+use crate::target::TargetSlot;
 use crate::{completion, CancellationOutcome};
 
+#[cfg(feature = "runtime-tokio")]
+mod deadline_pacing;
 mod fairness;
 mod faults;
 #[cfg(feature = "runtime-tokio")]
 mod lifecycle;
+#[cfg(feature = "runtime-tokio")]
+mod observability;
 mod receipts;
 #[cfg(feature = "runtime-tokio")]
 mod release_boundary;
 #[cfg(feature = "runtime-tokio")]
 mod retained_boundary;
+#[cfg(feature = "runtime-tokio")]
+mod retry_budget;
 
 #[cfg(feature = "runtime-tokio")]
 #[derive(Clone)]
@@ -237,7 +246,7 @@ fn policy(capacity: usize) -> OwnerPolicy {
             raw_inquiry_release_hold: Duration::from_secs(1),
             ..ProtocolPolicy::test_default()
         },
-        CameraId::CAMERA_1,
+        TargetSlot::CAMERA_1,
         TargetPolicy::test_default(),
     )
     .unwrap()
@@ -278,14 +287,14 @@ fn two_target_raw_policy(transport: TransportKind) -> OwnerPolicy {
         ..ProtocolPolicy::test_default()
     };
     let target = TargetPolicy::test_default();
-    let mut targets = [None; 9];
-    targets[usize::from(CameraId::CAMERA_1.id())] = Some(target);
-    targets[usize::from(CameraId::CAMERA_2.id())] = Some(target);
+    let mut targets = PerTarget::default();
+    targets[TargetSlot::CAMERA_1] = Some(target);
+    targets[TargetSlot::CAMERA_2] = Some(target);
     OwnerPolicy::with_targets(protocol, targets).unwrap()
 }
 
 fn command() -> RuntimeRequest {
-    command_for(CameraId::CAMERA_1)
+    command_for(TargetSlot::CAMERA_1)
 }
 
 /// Owner-core stand-in for a typed stop: public raw requests cannot forge the
@@ -318,7 +327,7 @@ fn urgent_stop_command() -> RuntimeRequest {
 /// A target-local raw fire-and-forget command used to create an independent
 /// broad correlation hold at an exact, test-controlled ambiguity deadline.
 #[cfg(feature = "runtime-tokio")]
-fn no_reply_command_for(target: CameraId, ambiguity: Duration) -> RuntimeRequest {
+fn no_reply_command_for(target: TargetSlot, ambiguity: Duration) -> RuntimeRequest {
     let mut request = command_for(target);
     let RuntimeRequest::Command { context, .. } = &mut request else {
         unreachable!("command helper always builds a command request");
@@ -338,11 +347,17 @@ fn command_with_ack_timeout(timeout: Duration) -> RuntimeRequest {
     request
 }
 
-fn command_for(target: CameraId) -> RuntimeRequest {
+fn command_for(target: TargetSlot) -> RuntimeRequest {
     RuntimeRequest::Command {
         wire: Arc::new(
-            EncodedMessage::new(&[0x80_u8.saturating_add(target.id()), 0x01, 0x04, 0x00, 0xff])
-                .unwrap(),
+            EncodedMessage::new(&[
+                0x80_u8.saturating_add(target.camera().id()),
+                0x01,
+                0x04,
+                0x00,
+                0xff,
+            ])
+            .unwrap(),
         ),
         context: RequestContext {
             motion: None,
@@ -374,7 +389,7 @@ fn command_with_short_deadlines() -> RuntimeRequest {
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
-            target: CameraId::CAMERA_1,
+            target: TargetSlot::CAMERA_1,
             timeout: TimeoutPolicy {
                 ack: Duration::from_millis(100),
                 completion: Duration::from_millis(100),
@@ -403,7 +418,7 @@ fn raw_command_with_completion_deadline(marker: u8, completion: Duration) -> Run
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
-            target: CameraId::CAMERA_1,
+            target: TargetSlot::CAMERA_1,
             timeout: TimeoutPolicy {
                 ack: Duration::from_secs(5),
                 completion,
@@ -421,7 +436,7 @@ fn raw_command_with_completion_deadline(marker: u8, completion: Duration) -> Run
 }
 
 fn inquiry() -> RuntimeRequest {
-    inquiry_for(CameraId::CAMERA_1)
+    inquiry_for(TargetSlot::CAMERA_1)
 }
 
 /// An inquiry whose successful write immediately reaches its response
@@ -454,7 +469,7 @@ fn timed_out_inquiry() -> RuntimeRequest {
 #[cfg(feature = "runtime-tokio")]
 fn raw_inquiry_rejection() -> DecodedFrame {
     DecodedFrame {
-        target: CameraId::CAMERA_1,
+        target: TargetSlot::CAMERA_1,
         sequence: None,
         response: DecodedResponse::Error {
             socket: None,
@@ -491,11 +506,17 @@ async fn reject_raw_stream_predecessor<D: AsyncOwnerDriver>(
         .await;
 }
 
-fn inquiry_for(target: CameraId) -> RuntimeRequest {
+fn inquiry_for(target: TargetSlot) -> RuntimeRequest {
     RuntimeRequest::Inquiry {
         wire: Arc::new(
-            EncodedMessage::new(&[0x80_u8.saturating_add(target.id()), 0x09, 0x04, 0x00, 0xff])
-                .unwrap(),
+            EncodedMessage::new(&[
+                0x80_u8.saturating_add(target.camera().id()),
+                0x09,
+                0x04,
+                0x00,
+                0xff,
+            ])
+            .unwrap(),
         ),
         context: RequestContext {
             motion: None,
@@ -525,7 +546,7 @@ fn batch(frames: Vec<DecodedFrame>) -> Result<OwnerReceive, Error> {
 
 fn ack(socket: ViscaSocket) -> DecodedFrame {
     DecodedFrame {
-        target: CameraId::CAMERA_1,
+        target: TargetSlot::CAMERA_1,
         sequence: None,
         response: DecodedResponse::Ack {
             socket: Some(socket),
@@ -535,7 +556,7 @@ fn ack(socket: ViscaSocket) -> DecodedFrame {
 
 fn completion(socket: ViscaSocket) -> DecodedFrame {
     DecodedFrame {
-        target: CameraId::CAMERA_1,
+        target: TargetSlot::CAMERA_1,
         sequence: None,
         response: DecodedResponse::Completion {
             socket: Some(socket),
@@ -546,7 +567,7 @@ fn completion(socket: ViscaSocket) -> DecodedFrame {
 #[cfg(feature = "runtime-tokio")]
 fn sequenced(sequence: u32, response: DecodedResponse) -> DecodedFrame {
     DecodedFrame {
-        target: CameraId::CAMERA_1,
+        target: TargetSlot::CAMERA_1,
         sequence: Some(EnvelopeSequence {
             value: sequence,
             width: SequenceWidth::Full32,
@@ -730,7 +751,7 @@ fn harness() -> Harness {
 fn prepared_focus(profile: &crate::ProfileSpec) -> crate::prepared::PreparedCommand {
     crate::prepared::prepare_command(
         &crate::request::builtin::FocusModeCommand::Manual,
-        CameraId::CAMERA_1,
+        TargetSlot::CAMERA_1,
         profile,
         crate::OperationalTuning::new(),
         crate::prepared::ClassSelection::Request,
@@ -743,7 +764,7 @@ fn prepared_zoom(
 ) -> crate::prepared::PreparedOperation<completion::Targeted> {
     crate::prepared::prepare_operation::<completion::Targeted, _>(
         &crate::request::builtin::ZoomTarget::new(crate::types::ZoomPosition::new(0x0100).unwrap()),
-        CameraId::CAMERA_1,
+        TargetSlot::CAMERA_1,
         profile,
         crate::OperationalTuning::new(),
         crate::prepared::ClassSelection::Request,
@@ -802,7 +823,7 @@ where
             .unwrap();
         frames
             .send_async(batch(vec![DecodedFrame {
-                target: CameraId::CAMERA_1,
+                target: TargetSlot::CAMERA_1,
                 sequence: None,
                 response: DecodedResponse::Error {
                     socket: Some(ViscaSocket::S1),
@@ -922,7 +943,7 @@ where
                     .unwrap();
                 frames
                     .send_async(batch(vec![DecodedFrame {
-                        target: CameraId::CAMERA_1,
+                        target: TargetSlot::CAMERA_1,
                         sequence: None,
                         response: DecodedResponse::InquiryReply {
                             route: None,
@@ -1129,7 +1150,7 @@ impl RetainedStreamInput for ScriptedRawDriver {
     ) -> Result<Option<crate::runtime::engine::RawPrefixEvidence>, Error> {
         Ok(self.buffered.load(Ordering::Acquire).then_some(
             crate::runtime::engine::RawPrefixEvidence::Incomplete {
-                target: CameraId::CAMERA_1,
+                target: TargetSlot::CAMERA_1,
                 // The fixture defaults to an exact named terminal, keeping
                 // its original stale-prefix tests about discard mechanics.
                 // A focused actor test may override this with ambiguous
@@ -1151,7 +1172,7 @@ impl RetainedStreamInput for ScriptedRawDriver {
 #[cfg(feature = "runtime-tokio")]
 fn raw_inquiry_reply(payload: u8) -> DecodedFrame {
     DecodedFrame {
-        target: CameraId::CAMERA_1,
+        target: TargetSlot::CAMERA_1,
         sequence: None,
         response: DecodedResponse::InquiryReply {
             route: None,
@@ -1572,7 +1593,7 @@ async fn assert_parked_cross_target_write_returns_to_raw_coordinator(policy: Own
     // no receive can consume A before C's `finish_write` executes at H.
     runtime.advance(Duration::from_millis(999));
     let parked = handle
-        .submit(command_for(CameraId::CAMERA_2))
+        .submit(command_for(TargetSlot::CAMERA_2))
         .await
         .unwrap();
     assert_eq!(harness.writes.recv_async().await.unwrap(), parked.id);
@@ -2120,7 +2141,7 @@ impl AsyncOwnerDriver for BabblingDriver {
     ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         async {
             Ok(OwnerReceive::Frames(vec![DecodedFrame {
-                target: CameraId::CAMERA_1,
+                target: TargetSlot::CAMERA_1,
                 sequence: None,
                 response: DecodedResponse::Unknown,
             }]))
@@ -2154,7 +2175,7 @@ impl AsyncOwnerDriver for BufferedBabblingDriver {
     ) -> impl Future<Output = Result<OwnerReceive, Error>> + Send {
         async {
             Ok(OwnerReceive::Frames(vec![DecodedFrame {
-                target: CameraId::CAMERA_1,
+                target: TargetSlot::CAMERA_1,
                 sequence: None,
                 response: DecodedResponse::Unknown,
             }]))
@@ -2204,7 +2225,7 @@ impl AsyncOwnerDriver for CountingBabblingDriver {
                 Ok(OwnerReceive::Frames(Vec::new()))
             } else {
                 Ok(OwnerReceive::Frames(vec![DecodedFrame {
-                    target: CameraId::CAMERA_1,
+                    target: TargetSlot::CAMERA_1,
                     sequence: None,
                     response: DecodedResponse::Unknown,
                 }]))
@@ -2428,7 +2449,7 @@ impl RetainedStreamInput for RawBufferedFloodDriver {
     ) -> Result<Option<crate::runtime::engine::RawPrefixEvidence>, Error> {
         Ok(self.buffered.load(Ordering::Acquire).then_some(
             crate::runtime::engine::RawPrefixEvidence::Incomplete {
-                target: CameraId::CAMERA_1,
+                target: TargetSlot::CAMERA_1,
                 kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
             },
         ))
@@ -2495,7 +2516,7 @@ impl RetainedStreamInput for ImmediateRawGraceDriver {
     ) -> Result<Option<crate::runtime::engine::RawPrefixEvidence>, Error> {
         Ok(self.buffered.load(Ordering::Acquire).then_some(
             crate::runtime::engine::RawPrefixEvidence::Incomplete {
-                target: CameraId::CAMERA_1,
+                target: TargetSlot::CAMERA_1,
                 kind: crate::protocol::framer::RawIncompletePrefix::SourceOnly,
             },
         ))

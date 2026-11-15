@@ -240,6 +240,77 @@ async fn dynamic_unsupported_gate_rejects_before_transport_io<E: Executor>(execu
     session.shutdown().expect("shutdown");
 }
 
+/// A refining tally marker must never grant the typed noun's base surface.
+/// This is a valid custom spec: it has tally metadata but deliberately omits
+/// typed Tally permission while retaining both vendor refinements.
+async fn dynamic_tally_refinements_require_the_typed_noun_header<E: Executor>(executor: E) {
+    use grafton_visca::{capabilities::TypedSupportSet, profiles::SonyFR7};
+
+    let source = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7");
+    let mut capabilities = source.capabilities().clone();
+    capabilities.profile_id = None;
+    capabilities.typed_support = capabilities
+        .typed_support
+        .without(TypedSupportSurface::Tally)
+        .union(TypedSupportSet::from_surfaces(&[
+            TypedSupportSurface::TallyBrightness,
+            TypedSupportSurface::PtzOpticsTally,
+        ]));
+    let coordinates = source.pan_tilt_coordinates().expect("FR7 coordinate facts");
+    let profile = ProfileSpec::builder(capabilities)
+        .pan_tilt_coordinates(
+            coordinates.coordinate_system(),
+            coordinates.pan_degrees_to_units(),
+            coordinates.tilt_degrees_to_units(),
+        )
+        .pan_tilt_wire_codec(coordinates.wire_codec())
+        .transports(source.transports())
+        .envelope(source.envelope())
+        .timing(source.timing())
+        .maximum_command_sockets(source.maximum_command_sockets())
+        .supports_operation_complete(source.supports_operation_complete())
+        .supports_command_cancel(source.supports_command_cancel())
+        .preset_recall_axes(source.preset_recall_axes())
+        .position_inquiries(source.position_inquiries())
+        .build()
+        .expect("refinements without the typed Tally grant are representable");
+    assert!(profile.capabilities().has_tally);
+    assert!(!profile
+        .capabilities()
+        .supports_typed(TypedSupportSurface::Tally));
+
+    let (fake, transport) = probe(AddressingMode::Ip, true);
+    let session = open_session(transport, SessionConfig::new(profile), executor).await;
+    let camera = session.camera_dyn().expect("dynamic camera");
+    let tally = camera.tally();
+    for result in [
+        tally.red_on().await,
+        tally.red_off().await,
+        tally.green_on().await,
+        tally.green_off().await,
+        tally.bright_lo().await,
+        tally.bright_hi().await,
+        tally.flash().await,
+        tally.on().await,
+        tally.off().await,
+        tally.status().await.map(|_| ()),
+        tally.red_status().await.map(|_| ()),
+        tally.green_status().await.map(|_| ()),
+        tally.auto_adjust_enabled().await.map(|_| ()),
+    ] {
+        assert!(
+            matches!(result, Err(Error::FeatureNotSupported { .. })),
+            "{result:?}"
+        );
+    }
+    assert_eq!(
+        fake.write_count(),
+        0,
+        "all tally rows reject before transport I/O"
+    );
+    session.shutdown().expect("shutdown");
+}
+
 async fn dynamic_cache_views_share_state_and_isolate_targets<E: Executor>(executor: E) {
     let (_, transport) = probe(AddressingMode::Serial, true);
     let mut config = SessionConfig::new(profile());
@@ -491,6 +562,7 @@ async fn dynamic_cache_views_share_and_isolate_owner_state<E: Executor>(executor
 runtime_matrix!(
     dynamic_nouns_preserve_targeted_applied_and_custom_lifecycles,
     dynamic_unsupported_gate_rejects_before_transport_io,
+    dynamic_tally_refinements_require_the_typed_noun_header,
     dynamic_cache_views_share_state_and_isolate_targets,
     dynamic_target_selection_rejects_implicit_multi_target_view,
     dynamic_queued_targeted_cancel_is_owner_local,

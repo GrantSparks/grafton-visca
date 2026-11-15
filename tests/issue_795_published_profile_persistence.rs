@@ -28,7 +28,10 @@
 
 use grafton_visca::{
     capabilities::TypedSupportSurface,
-    profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
+    profiles::{
+        GenericVisca, NearusBRC300, ProfileId, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
+        SonyBRCH900, SonyEVIH100, SonyFR7,
+    },
     Error, ProfileSpec,
 };
 
@@ -108,6 +111,95 @@ fn a_current_spec_missing_a_current_field_is_refused() {
             "{field}: {error}"
         );
         assert_regeneration_instruction(&error);
+    }
+}
+
+fn all_current_specs() -> Vec<ProfileSpec> {
+    let mut specs = vec![
+        ProfileSpec::from_compile_time::<GenericVisca>().expect("GenericVisca"),
+        ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("PtzOpticsG2"),
+        ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("PtzOpticsG3"),
+        ProfileSpec::from_compile_time::<PtzOptics30X>().expect("PtzOptics30X"),
+        ProfileSpec::from_compile_time::<SonyEVIH100>().expect("SonyEVIH100"),
+        ProfileSpec::from_compile_time::<SonyBRC300>().expect("SonyBRC300"),
+        ProfileSpec::from_compile_time::<NearusBRC300>().expect("NearusBRC300"),
+        ProfileSpec::from_compile_time::<SonyBRCH900>().expect("SonyBRCH900"),
+        ProfileSpec::from_compile_time::<SonyFR7>().expect("SonyFR7"),
+    ];
+    let covered: std::collections::HashSet<_> = specs
+        .iter()
+        .map(|spec| spec.capabilities().profile_id.expect("builtin identity"))
+        .collect();
+    assert_eq!(covered.len(), ProfileId::all().len());
+    assert!(ProfileId::all().iter().all(|id| covered.contains(id)));
+
+    // Both custom fixtures retain the complete current persisted shape,
+    // including explicit nulls, with independent Raw and Sony facts.
+    for (index, name) in [(1, "Custom raw camera"), (8, "Custom Sony camera")] {
+        let mut custom = serde_json::to_value(&specs[index]).expect("serialize fixture");
+        custom["capabilities"]["profile_id"] = serde_json::Value::Null;
+        custom["capabilities"]["model_name"] = name.into();
+        specs.push(serde_json::from_value(custom).expect("current custom fixture"));
+    }
+    specs
+}
+
+/// Enumerate every object key, including nested structs inside arrays.
+/// The parent is a JSON pointer; the key is kept unescaped for removal.
+fn current_key_paths(value: &serde_json::Value, parent: &str, paths: &mut Vec<(String, String)>) {
+    match value {
+        serde_json::Value::Object(fields) => {
+            for (key, child) in fields {
+                paths.push((parent.into(), key.clone()));
+                let escaped = key.replace('~', "~0").replace('/', "~1");
+                current_key_paths(child, &format!("{parent}/{escaped}"), paths);
+            }
+        }
+        serde_json::Value::Array(values) => {
+            for (index, child) in values.iter().enumerate() {
+                current_key_paths(child, &format!("{parent}/{index}"), paths);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[test]
+fn removing_any_current_key_is_refused_for_every_builtin_and_custom_spec() {
+    for spec in all_current_specs() {
+        let original = serde_json::to_value(&spec).expect("serialize current spec");
+        let mut paths = Vec::new();
+        current_key_paths(&original, "", &mut paths);
+        assert!(paths.len() > 100, "walk all nested current facts");
+        for (parent, key) in paths {
+            let mut shortened = original.clone();
+            shortened
+                .pointer_mut(&parent)
+                .and_then(serde_json::Value::as_object_mut)
+                .expect("enumerated object parent")
+                .remove(&key)
+                .expect("enumerated current key");
+            let error = refusal(&shortened.to_string());
+            assert!(
+                error.contains("missing field"),
+                "{} {parent}/{key}: {error}",
+                spec.name()
+            );
+            assert_regeneration_instruction(&error);
+        }
+    }
+}
+
+#[test]
+fn explicit_null_optional_facts_still_round_trip() {
+    for spec in all_current_specs() {
+        let json = serde_json::to_string(&spec).expect("serialize current spec");
+        assert!(
+            json.contains("null"),
+            "fixture must exercise declared absence"
+        );
+        let restored: ProfileSpec = serde_json::from_str(&json).expect("explicit null is present");
+        assert_eq!(restored, spec, "{}", spec.name());
     }
 }
 

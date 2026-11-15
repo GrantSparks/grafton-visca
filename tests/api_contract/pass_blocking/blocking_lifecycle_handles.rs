@@ -68,3 +68,8 @@ fn generic_free_handles() {
 fn main() {
     generic_free_handles();
 }
+
+/// Menu navigation starts physical pan/tilt movement if the menu is closed.
+fn menu_navigation(camera: &grafton_visca::blocking::Camera<grafton_visca::profiles::PtzOpticsG2>) -> Result<Operation<AppliedOnly>, Error> {
+    camera.menu().navigate(grafton_visca::command::MenuDirection::Up)
+}

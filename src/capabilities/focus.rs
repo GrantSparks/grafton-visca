@@ -80,9 +80,11 @@ pub trait FocusExt: Focus {
 
     /// Convert a normalized focus position to VISCA units.
     fn normalized_to_focus_units(&self, normalized: UnitInterval) -> Result<u16, ValidationError> {
-        let range = Self::FOCUS_FAR_LIMIT - Self::FOCUS_NEAR_LIMIT;
-        let position = Self::FOCUS_NEAR_LIMIT + (normalized.value() * range as f32) as u16;
-        Ok(position)
+        let range =
+            const { CapabilityRange::<u16>::new(Self::FOCUS_NEAR_LIMIT, Self::FOCUS_FAR_LIMIT) };
+        let span = range.max() - range.min();
+        let position = range.min() + (normalized.value() * f32::from(span)).round() as u16;
+        self.validate_focus_position(position)
     }
 
     /// Convert VISCA units to a normalized focus position.
@@ -126,6 +128,32 @@ mod tests {
         const FOCUS_FAR_LIMIT: u16 = 0xF000;
         const SUPPORTS_AUTO_FOCUS: bool = true;
         const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
+    }
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn every_builtin_focus_position_round_trips_through_normalized_units() {
+        fn check<P: Focus + Default>() {
+            let camera = P::default();
+            for position in P::FOCUS_NEAR_LIMIT..=P::FOCUS_FAR_LIMIT {
+                let normalized = camera.focus_units_to_normalized(position).unwrap();
+                assert_eq!(
+                    camera.normalized_to_focus_units(normalized).unwrap(),
+                    position,
+                    "{} focus position {position:#06x}",
+                    core::any::type_name::<P>()
+                );
+            }
+        }
+        check::<crate::profiles::GenericVisca>();
+        check::<crate::profiles::PtzOpticsG2>();
+        check::<crate::profiles::PtzOpticsG3>();
+        check::<crate::profiles::PtzOptics30X>();
+        check::<crate::profiles::SonyFR7>();
+        check::<crate::profiles::SonyBRCH900>();
+        check::<crate::profiles::SonyEVIH100>();
+        check::<crate::profiles::SonyBRC300>();
+        check::<crate::profiles::NearusBRC300>();
     }
 
     #[test]

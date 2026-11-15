@@ -64,7 +64,7 @@ async fn ready_frame_is_observed_before_explicit_shutdown() {
     let frames = harness.frames.clone();
     frames
         .send_async(batch(vec![DecodedFrame {
-            target: CameraId::CAMERA_1,
+            target: crate::target::TargetSlot::CAMERA_1,
             sequence: None,
             response: DecodedResponse::Unknown,
         }]))
@@ -204,19 +204,11 @@ async fn actor_disconnect_without_terminal_result_fails_closed() {
         .await
         .expect("liveness must observe the panicking actor")
         .unwrap_err();
-    assert!(matches!(
-        error,
-        Error::InvalidState(message)
-            if message.contains("without publishing a terminal result")
-    ));
+    assert!(matches!(error, Error::OwnerTerminated));
     assert!(actor_task.await.is_err(), "the test driver must panic");
 
     let error = handle.shutdown().unwrap_err();
-    assert!(matches!(
-        error,
-        Error::InvalidState(message)
-            if message.contains("without publishing a terminal result")
-    ));
+    assert!(matches!(error, Error::OwnerTerminated));
 }
 /// A boundary admission queued before an actor panic is answered by the
 /// same fail-closed terminal result observed by later handle calls, and
@@ -240,11 +232,7 @@ async fn queued_admission_actor_disconnect_fails_closed_and_releases_capacity() 
     assert!(actor_task.await.is_err(), "the test driver must panic");
 
     let queued_error = queued.await.unwrap_err();
-    assert!(matches!(
-        &queued_error,
-        Error::InvalidState(message)
-            if message.contains("without publishing a terminal result")
-    ));
+    assert!(matches!(&queued_error, Error::OwnerTerminated));
     let published = handle.shutdown().unwrap_err();
     assert_eq!(queued_error.to_string(), published.to_string());
     assert_eq!(
@@ -283,11 +271,7 @@ async fn active_receipt_actor_disconnect_fails_closed() {
     .await
     .expect("receipt wait must observe the actor disappearance")
     .unwrap_err();
-    assert!(matches!(
-        error,
-        Error::InvalidState(message)
-            if message.contains("without publishing a terminal result")
-    ));
+    assert!(matches!(error, Error::OwnerTerminated));
     assert!(actor_task.await.is_err(), "the test driver must panic");
 }
 #[cfg(feature = "runtime-tokio")]
@@ -320,11 +304,7 @@ async fn active_cancellation_actor_disconnect_fails_closed() {
     .await
     .expect("cancellation wait must observe the actor disappearance")
     .unwrap_err();
-    assert!(matches!(
-        error,
-        Error::InvalidState(message)
-            if message.contains("without publishing a terminal result")
-    ));
+    assert!(matches!(error, Error::OwnerTerminated));
     assert!(actor_task.await.is_err(), "the test driver must panic");
     // The dead owner dropped the intent's cell unresolved, which disconnects
     // the slot: a wait on it ends instead of hanging (#777).

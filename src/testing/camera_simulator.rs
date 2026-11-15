@@ -9,21 +9,27 @@
 #![allow(clippy::expect_used)]
 
 use tokio::{
-    sync::{broadcast, RwLock},
-    time::sleep,
+    sync::{broadcast, Mutex, Notify, RwLock},
+    task::AbortHandle,
+    time::{sleep_until, Instant},
 };
 
 use std::{
-    collections::{hash_map::DefaultHasher, HashMap},
-    hash::{Hash, Hasher},
-    sync::Arc,
-    time::{Duration, Instant, SystemTime},
+    collections::{HashMap, VecDeque},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex as StdMutex,
+    },
+    time::Duration,
 };
 
 use super::frames;
 use crate::{
     command::bytes::VISCA_TERMINATOR,
-    transport::{builder::TransportConfig, AsyncTransport, HasTransportConfig, ReceiveOutcome},
+    transport::{
+        builder::TransportConfig, AddressingMode, AsyncTransport, HasTransportConfig,
+        ReceiveOutcome, SendSemantics,
+    },
     Error,
 };
 
@@ -33,7 +39,11 @@ enum SocketState {
     /// Socket is free and can accept commands
     Free,
     /// Socket has accepted a command and is executing it
-    Executing { completion_time: Instant },
+    Executing {
+        ack_at: Instant,
+        completion_at: Instant,
+        ack_pending: bool,
+    },
 }
 
 /// Command type categorization for execution timing
@@ -61,10 +71,19 @@ pub enum CommandType {
 /// emit the standard signed 4+4-nibble reply form. This type has no profile or
 /// codec selector and does not model Sony BRC-300's profile-owned 5+4 position
 /// codec.
+///
+/// Construction does not require a runtime. Sending and receiving require a
+/// Tokio runtime with its time driver enabled. Replies use datagram semantics
+/// and retain their camera source, so one simulator may serve an addressed
+/// multi-camera session. Each address has its own command sockets.
+///
+/// Loss, busy responses and jitter use a fixed seed, making the same sequence
+/// of sends reproducible. Loss omits replies; it never fails a local write.
+/// The event-driven response task stops when the last simulator clone drops.
 pub struct ViscaCameraSimulator {
     inner: Arc<SimulatorInner>,
     // Each clone gets its own receiver to avoid missing broadcasts
-    receiver: Option<Arc<tokio::sync::Mutex<broadcast::Receiver<Vec<u8>>>>>,
+    receiver: Option<Arc<Mutex<broadcast::Receiver<Vec<u8>>>>>,
     transport_config: TransportConfig,
 }
 
@@ -74,7 +93,7 @@ impl Clone for ViscaCameraSimulator {
         let rx = self.inner.response_broadcaster.subscribe();
         Self {
             inner: self.inner.clone(),
-            receiver: Some(Arc::new(tokio::sync::Mutex::new(rx))),
+            receiver: Some(Arc::new(Mutex::new(rx))),
             transport_config: self.transport_config,
         }
     }
@@ -178,8 +197,8 @@ impl Default for CameraState {
 }
 
 struct SimulatorInner {
-    // Socket management
-    socket_states: RwLock<Vec<SocketState>>,
+    state: Mutex<SimulatorState>,
+    processing: Mutex<()>,
 
     // Response management
     response_broadcaster: broadcast::Sender<Vec<u8>>,
@@ -192,6 +211,31 @@ struct SimulatorInner {
 
     // Camera state
     camera_state: RwLock<CameraState>,
+
+    changed: Arc<Notify>,
+    processor: StdMutex<Option<AbortHandle>>,
+    random: AtomicU64,
+}
+
+/// Inquiry/error replies have the same bounded capacity as the broadcast lane.
+const RESPONSE_CAPACITY: usize = 100;
+
+struct ScheduledReply {
+    at: Instant,
+    frame: Vec<u8>,
+}
+
+struct SimulatorState {
+    socket_states: [Vec<SocketState>; 7],
+    replies: VecDeque<ScheduledReply>,
+}
+
+impl Drop for SimulatorInner {
+    fn drop(&mut self) {
+        if let Some(processor) = self.processor.get_mut().expect("processor lock").take() {
+            processor.abort();
+        }
+    }
 }
 
 /// Configuration for [`ViscaCameraSimulator`]'s Standard VISCA behavior.
@@ -252,31 +296,35 @@ impl ViscaCameraSimulator {
         Self::with_config(SimulatorConfig::default())
     }
 
-    /// Create a simulator with custom configuration
-    pub fn with_config(config: SimulatorConfig) -> Self {
-        let (tx, rx) = broadcast::channel(100);
+    /// Create a simulator with custom configuration.
+    ///
+    /// This creates no tasks and may be called outside a Tokio runtime.
+    pub fn with_config(mut config: SimulatorConfig) -> Self {
+        config.max_sockets = config.max_sockets.clamp(1, 2);
+        let (tx, rx) = broadcast::channel(RESPONSE_CAPACITY);
 
         let inner = Arc::new(SimulatorInner {
-            socket_states: RwLock::new(vec![SocketState::Free; config.max_sockets]),
+            state: Mutex::new(SimulatorState {
+                socket_states: std::array::from_fn(|_| vec![SocketState::Free; config.max_sockets]),
+                replies: VecDeque::new(),
+            }),
+            processing: Mutex::new(()),
             response_broadcaster: tx,
             config,
             stats: RwLock::new(SimulatorStats::default()),
             camera_state: RwLock::new(CameraState::default()),
-        });
-
-        // Start the background response processor
-        let processor_inner = inner.clone();
-        tokio::spawn(async move {
-            loop {
-                sleep(Duration::from_millis(1)).await;
-                Self::process_responses(processor_inner.clone()).await;
-            }
+            changed: Arc::new(Notify::new()),
+            processor: StdMutex::new(None),
+            random: AtomicU64::new(0x517c_c1b7_2722_0a95),
         });
 
         Self {
             inner,
-            receiver: Some(Arc::new(tokio::sync::Mutex::new(rx))),
-            transport_config: TransportConfig::default(),
+            receiver: Some(Arc::new(Mutex::new(rx))),
+            transport_config: TransportConfig {
+                addressing: AddressingMode::Serial,
+                ..TransportConfig::default()
+            },
         }
     }
 
@@ -285,34 +333,95 @@ impl ViscaCameraSimulator {
         SimulatorBuilder::default()
     }
 
-    /// Process pending responses and socket state transitions
-    async fn process_responses(inner: Arc<SimulatorInner>) {
+    /// Starts one processor lazily. Its weak reference never owns the simulator
+    /// while waiting, and the final transport drop aborts its idle wait.
+    fn start_processor(&self) {
+        let mut processor = self.inner.processor.lock().expect("processor lock");
+        if processor.is_some() {
+            return;
+        }
+        let weak = Arc::downgrade(&self.inner);
+        let task = tokio::spawn(async move {
+            loop {
+                let Some(inner) = weak.upgrade() else {
+                    return;
+                };
+                let changed = Arc::clone(&inner.changed);
+                let notified = changed.notified();
+                let deadline = Self::process_responses(&inner).await;
+                drop(inner);
+                match deadline {
+                    Some(deadline) => {
+                        tokio::select! {
+                            () = sleep_until(deadline) => {},
+                            () = notified => {},
+                        }
+                    }
+                    None => notified.await,
+                }
+            }
+        });
+        *processor = Some(task.abort_handle());
+    }
+
+    /// Process only due events and return the next deadline; no polling timer
+    /// or lock is retained while sleeping.
+    async fn process_responses(inner: &SimulatorInner) -> Option<Instant> {
+        let _processing = inner.processing.lock().await;
         let now = Instant::now();
-
-        // Check for completed commands
+        let mut due = Vec::new();
+        let mut next = None;
+        let mut completed = 0;
         {
-            let mut socket_states = inner.socket_states.write().await;
-            for (socket_idx, state) in socket_states.iter_mut().enumerate() {
-                if let SocketState::Executing { completion_time } = state {
-                    if now >= *completion_time {
-                        // Send completion response
-                        let socket_num = (socket_idx + 1) as u8;
-                        let completion = frames::complete(socket_num);
-
-                        // Add a small delay to ensure ACK is received first
-                        sleep(Duration::from_millis(1)).await;
-                        let _ = inner.response_broadcaster.send(completion.clone());
-
-                        // Free the socket
-                        *state = SocketState::Free;
-
-                        // Update stats
-                        let mut stats = inner.stats.write().await;
-                        stats.commands_executed += 1;
+            let mut state = inner.state.lock().await;
+            for (camera_idx, sockets) in state.socket_states.iter_mut().enumerate() {
+                let camera = u8::try_from(camera_idx + 1).expect("seven camera addresses");
+                for (socket_idx, socket) in sockets.iter_mut().enumerate() {
+                    if let SocketState::Executing {
+                        ack_at,
+                        completion_at,
+                        ack_pending,
+                    } = socket
+                    {
+                        let number = u8::try_from(socket_idx + 1).expect("two VISCA sockets");
+                        if *ack_pending {
+                            if now >= *ack_at {
+                                due.push((*ack_at, frames::ack_from(camera, number)));
+                                *ack_pending = false;
+                            } else {
+                                keep_earliest(&mut next, *ack_at);
+                            }
+                        }
+                        if now >= *completion_at {
+                            due.push((*completion_at, addressed(camera, frames::complete(number))));
+                            *socket = SocketState::Free;
+                            completed += 1;
+                        } else {
+                            keep_earliest(&mut next, *completion_at);
+                        }
                     }
                 }
             }
+            state.replies.retain(|reply| {
+                if now >= reply.at {
+                    due.push((reply.at, reply.frame.clone()));
+                    false
+                } else {
+                    keep_earliest(&mut next, reply.at);
+                    true
+                }
+            });
         }
+        inner.stats.write().await.commands_executed += completed;
+        due.sort_by_key(|(at, _)| *at);
+        for (_, response) in due {
+            if inner.chance(inner.config.packet_loss_rate) {
+                inner.stats.write().await.packets_dropped += 1;
+            } else {
+                let _ = inner.response_broadcaster.send(response);
+            }
+        }
+        next
     }
 
     /// Parse command type from VISCA command bytes
@@ -616,187 +725,182 @@ impl ViscaCameraSimulator {
         }
     }
 
-    /// Allocate a socket for a command
-    async fn allocate_socket(&self) -> Option<u8> {
-        let mut socket_states = self.inner.socket_states.write().await;
-
-        for (idx, state) in socket_states.iter_mut().enumerate() {
-            if matches!(state, SocketState::Free) {
-                return Some((idx + 1) as u8);
-            }
+    async fn queue_reply(&self, camera: u8, frame: Vec<u8>, delay: Duration) -> Result<(), Error> {
+        let at = response_deadline(Instant::now(), delay.saturating_add(self.inner.jitter()))?;
+        let mut state = self.inner.state.lock().await;
+        if state.replies.len() == RESPONSE_CAPACITY {
+            state.replies.pop_front();
         }
+        state.replies.push_back(ScheduledReply {
+            at,
+            frame: addressed(camera, frame),
+        });
+        drop(state);
+        self.inner.changed.notify_one();
+        Ok(())
+    }
+}
 
-        None
+impl SimulatorInner {
+    /// SplitMix64 with a fixed initial seed: no clock or platform entropy enters
+    /// option behavior. Each configured random decision advances the stream.
+    fn random(&self) -> u64 {
+        let mut value = self
+            .random
+            .fetch_add(0x9e37_79b9_7f4a_7c15, Ordering::Relaxed);
+        value = (value ^ (value >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        value = (value ^ (value >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        value ^ (value >> 31)
     }
 
-    /// Should drop packet based on configured loss rate
-    fn should_drop_packet(&self) -> bool {
-        if self.inner.config.packet_loss_rate == 0.0 {
+    fn chance(&self, probability: f32) -> bool {
+        if probability <= 0.0 || probability.is_nan() {
             return false;
         }
-
-        let mut hasher = DefaultHasher::new();
-        SystemTime::now().hash(&mut hasher);
-        let hash = hasher.finish();
-        let random = (hash % 1000) as f32 / 1000.0;
-
-        random < self.inner.config.packet_loss_rate
-    }
-
-    /// Calculate network jitter
-    fn calculate_jitter(&self) -> Duration {
-        if self.inner.config.network_jitter_ms == 0 {
-            return Duration::from_millis(0);
+        if probability >= 1.0 {
+            return true;
         }
-
-        let mut hasher = DefaultHasher::new();
-        SystemTime::now().hash(&mut hasher);
-        let hash = hasher.finish();
-        let jitter = hash % (self.inner.config.network_jitter_ms as u64);
-
-        Duration::from_millis(jitter)
+        let sample = (self.random() >> 40) as f32 / 16_777_216.0;
+        sample < probability
     }
+
+    fn jitter(&self) -> Duration {
+        let limit = u64::from(self.config.network_jitter_ms);
+        if limit == 0 {
+            Duration::ZERO
+        } else {
+            Duration::from_millis(self.random() % (limit + 1))
+        }
+    }
+}
+
+fn addressed(camera: u8, mut frame: Vec<u8>) -> Vec<u8> {
+    frame[0] = frames::reply_address(camera);
+    frame
+}
+
+fn keep_earliest(next: &mut Option<Instant>, at: Instant) {
+    *next = Some(next.map_or(at, |previous| previous.min(at)));
+}
+
+fn response_deadline(now: Instant, delay: Duration) -> Result<Instant, Error> {
+    now.checked_add(delay).ok_or_else(|| {
+        Error::InvalidRequest("simulator response delay cannot be represented by the clock".into())
+    })
 }
 
 impl AsyncTransport for ViscaCameraSimulator {
     async fn send(&mut self, data: &[u8]) -> Result<(), Error> {
-        let data_vec = data.to_vec();
-        let inner = self.inner.clone();
-        let receiver = self.receiver.clone();
+        self.start_processor();
+        self.inner.stats.write().await.commands_received += 1;
+        Self::process_responses(&self.inner).await;
 
-        // Create a simulator instance for method calls
-        let simulator = ViscaCameraSimulator {
-            inner: inner.clone(),
-            receiver: receiver.clone(),
-            transport_config: TransportConfig::default(),
+        let camera = match data.first() {
+            Some(address @ 0x81..=0x87) => address & 0x07,
+            _ => {
+                return Err(Error::InvalidRequest(
+                    "the simulator requires an individual VISCA camera address (1 through 7)"
+                        .into(),
+                ));
+            }
         };
-
-        // Update stats
-        {
-            let mut stats = inner.stats.write().await;
-            stats.commands_received += 1;
+        if data.last() != Some(&VISCA_TERMINATOR) || data.len() < 3 {
+            return self
+                .queue_reply(camera, frames::syntax_error(), Duration::ZERO)
+                .await;
         }
 
-        tracing::trace!("Simulator received command: {:02X?}", data_vec);
-
-        // Simulate packet loss
-        if ViscaCameraSimulator::should_drop_packet(&ViscaCameraSimulator {
-            inner: inner.clone(),
-            receiver: None,
-            transport_config: TransportConfig::default(),
-        }) {
-            let mut stats = inner.stats.write().await;
-            stats.packets_dropped += 1;
-            return Err(Error::io_timeout());
-        }
-
-        // Check if this is an inquiry command
-        let cmd_type = ViscaCameraSimulator::parse_command_type(&data_vec);
-        if cmd_type == CommandType::Inquiry {
-            // Handle inquiry immediately - generate and broadcast Data Reply
-            if let Some(response) = simulator.generate_inquiry_response(&data_vec).await {
-                // Add a small delay to ensure receivers are ready
-                // This simulates real network latency and prevents race conditions in tests
-                sleep(Duration::from_millis(10)).await;
-
-                // Broadcast inquiry response immediately (no ACK for inquiries)
-                tracing::debug!("Broadcasting inquiry response: {:02X?}", response);
-                match inner.response_broadcaster.send(response.clone()) {
-                    Ok(count) => {
-                        tracing::debug!("Inquiry response broadcast to {} receivers", count);
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to broadcast inquiry response: {:?}", e);
-                    }
-                }
-                return Ok(());
+        if let [_, cancel @ 0x20..=0x2f, VISCA_TERMINATOR] = data {
+            let number = cancel & 0x0f;
+            let mut state = self.inner.state.lock().await;
+            let socket = number.checked_sub(1).and_then(|index| {
+                state.socket_states[usize::from(camera - 1)].get_mut(usize::from(index))
+            });
+            let reply = if let Some(socket @ SocketState::Executing { .. }) = socket {
+                *socket = SocketState::Free;
+                frames::canceled(number)
             } else {
-                tracing::warn!(
-                    "No response generated for inquiry command: {:02X?}",
-                    data_vec
-                );
-            }
+                frames::no_socket(number)
+            };
+            drop(state);
+            return self.queue_reply(camera, reply, Duration::ZERO).await;
         }
 
-        // Try to allocate a socket for non-inquiry commands
-        let socket_num = {
-            let simulator = ViscaCameraSimulator {
-                inner: inner.clone(),
-                receiver: None,
-                transport_config: TransportConfig::default(),
-            };
-            simulator.allocate_socket().await
-        };
+        let command_type = Self::parse_command_type(data);
+        let duration = self
+            .inner
+            .config
+            .command_execution_times
+            .get(&command_type)
+            .copied()
+            .unwrap_or(Duration::from_millis(50));
+        if command_type == CommandType::Inquiry {
+            let reply = self
+                .generate_inquiry_response(data)
+                .await
+                .unwrap_or_else(frames::syntax_error);
+            return self.queue_reply(camera, reply, duration).await;
+        }
 
-        if let Some(socket_num) = socket_num {
-            // Socket allocated - send ACK and schedule completion
-            let default_duration = Duration::from_millis(50);
-            let execution_time = inner
+        let now = Instant::now();
+        let ack_at = response_deadline(
+            now,
+            self.inner
                 .config
-                .command_execution_times
-                .get(&cmd_type)
-                .unwrap_or(&default_duration);
-
-            // Mark socket as executing
-            {
-                let mut socket_states = inner.socket_states.write().await;
-                let socket_idx = (socket_num - 1) as usize;
-                socket_states[socket_idx] = SocketState::Executing {
-                    completion_time: Instant::now() + *execution_time,
+                .ack_delay
+                .saturating_add(self.inner.jitter()),
+        )?;
+        let completion_at =
+            response_deadline(ack_at, duration.saturating_add(self.inner.jitter()))?;
+        let mut state = self.inner.state.lock().await;
+        let sockets = &mut state.socket_states[usize::from(camera - 1)];
+        let available = sockets
+            .iter_mut()
+            .find(|socket| matches!(socket, SocketState::Free));
+        match (
+            self.inner.chance(self.inner.config.busy_probability),
+            available,
+        ) {
+            (false, Some(socket)) => {
+                *socket = SocketState::Executing {
+                    ack_at,
+                    completion_at,
+                    ack_pending: true,
                 };
+                drop(state);
+                self.inner.changed.notify_one();
+                Ok(())
             }
-
-            // Send ACK immediately
-            let ack = frames::ack(socket_num);
-            let _ = inner.response_broadcaster.send(ack);
-
-            Ok(())
-        } else {
-            // All sockets busy - send busy response
-            let mut stats = inner.stats.write().await;
-            stats.busy_responses_sent += 1;
-
-            let busy = frames::buffer_full();
-            let _ = inner.response_broadcaster.send(busy);
-
-            Ok(())
+            (true, _) | (false, None) => {
+                drop(state);
+                self.inner.stats.write().await.busy_responses_sent += 1;
+                self.queue_reply(camera, frames::buffer_full(), Duration::ZERO)
+                    .await
+            }
         }
     }
 
     async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
-        let inner = self.inner.clone();
-        let receiver = self.receiver.clone();
-        let jitter = self.calculate_jitter();
-
-        // Add network jitter
-        if jitter > Duration::from_millis(0) {
-            sleep(jitter).await;
+        self.start_processor();
+        let receiver = self.receiver.get_or_insert_with(|| {
+            Arc::new(Mutex::new(self.inner.response_broadcaster.subscribe()))
+        });
+        let mut receiver = receiver.lock().await;
+        match tokio::time::timeout(Duration::from_secs(30), receiver.recv()).await {
+            Ok(Ok(response)) => Ok(ReceiveOutcome::copy_message(&response, dst)),
+            Ok(Err(broadcast::error::RecvError::Closed)) => Err(Error::ConnectionClosed {
+                reason: Some("simulator response lane closed".into()),
+            }),
+            Ok(Err(broadcast::error::RecvError::Lagged(_))) | Err(_) => Err(Error::io_timeout()),
         }
+    }
 
-        // Use persistent receiver if available
-        let response = if let Some(ref receiver) = receiver {
-            let receiver = receiver.clone();
-            let mut rx = receiver.lock().await;
+    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
+        Some(self.transport_config.addressing)
+    }
 
-            // Wait for response with timeout
-            match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
-                Ok(Ok(response)) => response,
-                Ok(Err(_)) => return Err(Error::io_timeout()),
-                Err(_) => return Err(Error::io_timeout()),
-            }
-        } else {
-            // Fallback: create a new subscriber
-            let mut rx = inner.response_broadcaster.subscribe();
-
-            // Wait for response with timeout
-            match tokio::time::timeout(Duration::from_secs(30), rx.recv()).await {
-                Ok(Ok(response)) => response,
-                Ok(Err(_)) => return Err(Error::io_timeout()),
-                Err(_) => return Err(Error::io_timeout()),
-            }
-        };
-
-        Ok(ReceiveOutcome::copy_message(&response, dst))
+    fn send_semantics(&self) -> SendSemantics {
+        SendSemantics::Datagram
     }
 }
 
@@ -813,19 +917,23 @@ pub struct SimulatorBuilder {
 }
 
 impl SimulatorBuilder {
-    /// Set the number of sockets (default: 2)
+    /// Set the number of sockets per camera (default: 2), clamped to `1..=2`.
     pub fn with_socket_count(mut self, count: usize) -> Self {
-        self.config.max_sockets = count;
+        self.config.max_sockets = count.clamp(1, 2);
         self
     }
 
-    /// Set ACK delay (default: 5ms)
+    /// Set the delay before an ACK becomes available (default: 5 ms).
+    ///
+    /// Command execution starts after this delay, so completion never overtakes ACK.
     pub fn with_ack_delay(mut self, delay: Duration) -> Self {
         self.config.ack_delay = delay;
         self
     }
 
-    /// Set execution time for a specific command type
+    /// Set the time from ACK to completion for a command type.
+    ///
+    /// For inquiries this is the delay before their single data/error reply.
     pub fn with_command_execution_time(
         mut self,
         cmd_type: CommandType,
@@ -837,19 +945,28 @@ impl SimulatorBuilder {
         self
     }
 
-    /// Set packet loss rate (0.0 to 1.0)
+    /// Set the fraction of reply frames omitted, clamped to `0.0..=1.0`.
+    ///
+    /// A lost reply does not fail `send` or prevent command execution.
+    /// The fixed-seed decision sequence is reproducible; NaN disables loss.
     pub fn with_packet_loss(mut self, rate: f32) -> Self {
         self.config.packet_loss_rate = rate.clamp(0.0, 1.0);
         self
     }
 
-    /// Set probability of busy responses (0.0 to 1.0)
+    /// Set the probability a command is refused as Buffer Full.
+    ///
+    /// Values are clamped to `0.0..=1.0`; NaN disables random refusals.
+    /// Inquiries and socket cancellation remain available while busy.
     pub fn with_busy_probability(mut self, prob: f32) -> Self {
         self.config.busy_probability = prob.clamp(0.0, 1.0);
         self
     }
 
-    /// Set network jitter in milliseconds
+    /// Set maximum added reply latency in milliseconds (inclusive).
+    ///
+    /// Each scheduled reply receives deterministic jitter once. Cancelling and
+    /// resuming a receive does not restart its delay.
     pub fn with_network_jitter(mut self, jitter_ms: u32) -> Self {
         self.config.network_jitter_ms = jitter_ms;
         self
@@ -892,6 +1009,85 @@ fn encode_signed_position(value: i16) -> [u8; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn construction_needs_no_runtime_and_socket_counts_are_bounded() {
+        for (requested, expected) in [(0, 1), (1, 1), (2, 2), (256, 2), (usize::MAX, 2)] {
+            let simulator = ViscaCameraSimulator::builder()
+                .with_socket_count(requested)
+                .build();
+            assert!(simulator
+                .inner
+                .processor
+                .lock()
+                .expect("processor lock")
+                .is_none());
+            assert!(simulator
+                .inner
+                .state
+                .blocking_lock()
+                .socket_states
+                .iter()
+                .all(|sockets| sockets.len() == expected));
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn final_clone_drop_stops_the_response_processor() {
+        let mut simulator = ViscaCameraSimulator::new();
+        let clone = simulator.clone();
+        let weak = Arc::downgrade(&simulator.inner);
+        simulator
+            .send(&[0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR])
+            .await
+            .expect("inquiry sent");
+        tokio::task::yield_now().await;
+        let processor = simulator
+            .inner
+            .processor
+            .lock()
+            .expect("processor lock")
+            .clone()
+            .expect("processor started");
+        drop(simulator);
+        assert!(
+            weak.upgrade().is_some(),
+            "one clone still owns the simulator"
+        );
+        assert!(!processor.is_finished());
+        drop(clone);
+        tokio::task::yield_now().await;
+        assert!(
+            weak.upgrade().is_none(),
+            "the task owns no simulator reference"
+        );
+        assert!(processor.is_finished());
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn idle_cancel_names_its_socket_and_camera_without_allocating_one() {
+        let mut simulator = ViscaCameraSimulator::new();
+        simulator
+            .send(&[0x83, 0x22, VISCA_TERMINATOR])
+            .await
+            .expect("cancel sent");
+        let mut response = [0; 16];
+        let count = simulator
+            .recv_into(&mut response)
+            .await
+            .expect("No Socket reply")
+            .copied_len();
+        assert_eq!(&response[..count], &[0xb0, 0x62, 0x05, 0xff]);
+        assert!(simulator
+            .inner
+            .state
+            .lock()
+            .await
+            .socket_states
+            .iter()
+            .flatten()
+            .all(|socket| matches!(socket, SocketState::Free)));
+    }
 
     #[test]
     fn test_command_type_parsing() {
@@ -956,7 +1152,7 @@ mod tests {
         assert_eq!(response[1] & 0xF0, 0x40); // ACK response
 
         // Wait a bit for completion to be generated
-        sleep(Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
 
         // Should eventually receive completion
         let response = rx.recv().await.expect("should receive completion");

@@ -28,6 +28,102 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `StateCache` and `DiagnosticSubscription`, which only a running session can
   produce, are now available only with `blocking` or `async`, alongside the
   sessions that return them. Builds with a facade are unchanged.
+- **BREAKING** (#839): `menu().navigate()` returns an applied-only pan/tilt
+  operation handle on blocking, async and dynamic cameras. Navigation is now
+  tracked and fenced by halt; with the on-screen menu closed it is continuous
+  physical movement and needs an explicit pan/tilt STOP.
+- **BREAKING** (#846): `ViscaInquiry` rejects decoder attributes that its
+  selected parser would ignore, unsupported Mode/Nibble `data_variant`
+  overrides, and `FF` in `opcode`/`subcode`. Use the selector-specific keys
+  documented in the macro README. Standard boolean reply polarity is `02` for
+  on; the opposite convention is register-specific.
+
+- **BREAKING** (#844): Typed image inquiries separate sourced vertical
+  `image().flip()` (`09 04 66`, with `horizontal: false`) from combined
+  `image().flip_mode()` (`09 04 A4`, requiring `HasCombinedImageFlip`). Ten
+  unsourced typed inquiry families and guessed profile-less `FStop` wire
+  conversions are removed. FR7 ND readback uses `09 7E 04 42` and returns
+  `NdFilterValue` variable density, replacing a discrete preset position.
+- **BREAKING** (#845): Indexed `Nibbles::{byte, u16_quad, i16_quad}` accessors
+  return `Option`; `Nibbles::from_array` and `Payload::assert_nibbles` return
+  `Result` and validate all builds. The unsourced `Nibbles4Or8` zoom leniency
+  helper is removed.
+- **BREAKING** (#854): `raw::Inquiry::new` no longer takes a `TimeoutClass`
+  argument: its class is always `Inquiry`. Explicit-policy and convenience
+  inquiry constructors retain their signatures and check that class; raw
+  commands and operations reject inquiry timeout classes at construction.
+- Engine entries store one closed lifecycle with legal phase-local cancellation
+  and attempt facts. Raced replies and attempt records cannot outlive their
+  phases; duplicated socket/deadline state and manual latch resets are removed.
+  Public API and canonical owner traces are unchanged (#836).
+- Private per-target state uses one validated individual-camera key and fixed
+  seven-slot tables across the engine, ledger, owners and caches. Broadcast
+  maintenance stays outside those tables; public target APIs are unchanged
+  (#853).
+- Settlement plans, owner cancellation intents and admission claims use closed
+  internal types instead of contradictory optional fields. Cancellation
+  refusals return from the same synchronous engine input (#854).
+
+### Fixed
+
+- Raw completion-only commands refuse cancellation with `NotSupported` after a
+  successful write and retain their own completion deadline. Cancellation
+  requested during the write is refused when it succeeds. Unconfirmed raw
+  cancellation terminals retain a future hold with the correct phase scope,
+  preventing late replies from applying a successor (#835).
+- Strictly late raw-stream candidates retire before the ledger consumes their
+  first answer. A raced ACK retains its socket evidence even when the write
+  result outlives the total budget (#837).
+- Owner receive pacing preserves input already available at a response or
+  release deadline. Only eager idle reads gain an extra pause; full-timeout
+  reads stay receive-first, and successful writes clear fault pauses and reset
+  idle escalation (#838).
+- Awaiting `SmolExecutor` and `SmolRuntime` joins now retains the receive future
+  and its waker across polls. Dropping a join still detaches the task (#840).
+- Every `StillLive` timeout and cached cancellation failure is nonretryable.
+  `CancellationObservationFailed` retains otherwise retryable causes while
+  stopping futile retry loops. Already nonretryable verdicts keep their exact
+  variant and context. Retry guidance and examples distinguish waiting,
+  conclusive failure, and uncertain effects, refining #783 (#841).
+- Retry and observer budgets cover a full ACK-plus-completion attempt under a
+  longer valid ACK override, so healthy executing commands are not ended by a
+  completion-only budget calculation. Untuned built-in budgets are unchanged
+  (#842).
+- Windows UDP port-unreachable receives (`WSAECONNRESET`) are transient faults
+  rather than session death. Stream connection resets remain fatal (#843).
+- Socket options, buffer limits, and admission/reserve/ledger arithmetic are
+  validated before I/O. Keepalive values use whole seconds in `1..=32767`,
+  TTL uses `1..=255`, receive buffers are at most 65,535 bytes, and configured
+  `max_buffer_size` is at most 1,048,576 bytes (#847).
+- Oversized raw stream frames ending in `FF` are counted and discarded while
+  the session keeps running. Cumulative retention overflow and an oversized
+  Sony declaration remain terminal. The retention bound is consistently
+  documented as `max_buffer_size + recv_buffer_size` (#848).
+- Direct IP connectors reject serial addressing before socket creation;
+  blocking stream reads handle zero and unrepresentable timeout budgets
+  consistently, and Address Set immediately reports a chain longer than seven
+  cameras (#849).
+- `test-utils` simulator options now schedule deterministic ACK/execution
+  delays, busy responses, jitter, and dropped datagram replies through real
+  sessions. Socket cancellation, unknown inquiries, reply sources, and
+  per-camera socket bounds follow VISCA. Construction needs no runtime, and
+  the lazy response task stops when the last clone drops (#850).
+- Diagnostic subscriptions preserve the owner's terminal cause. Owner panics
+  report nonretryable `OwnerTerminated`, which requires a new session;
+  subscriber exhaustion reports `DiagnosticSubscriberLimit`. `pending`
+  counts queued and retained admissions, and both facades document that
+  `metrics()` returns the terminal error once the owner ends (#851, #852).
+- Reply decoders reject nonzero padding and undocumented eight-nibble zoom
+  payloads, and report camera-side numeric range failures as protocol errors.
+  Focus conversions round through profile ranges, and floating-point input
+  errors retain the exact value (#845).
+- Persisted profiles reject missing optional-fact keys with the regeneration
+  instruction while accepting explicit `null`. Dynamic typed noun refinements
+  retain their header gate, preventing tally refinements from bypassing
+  `HasTally` (#855).
+- Engine invariant auditing checks terminated-session emptiness, both Sony
+  sequence indexes with retained retry evidence, and inquiry/transmission/
+  dispute bounds; intentionally corrupted states prove the new checks (#856).
 
 ## [2.0.0-rc.3] - 2026-10-07
 

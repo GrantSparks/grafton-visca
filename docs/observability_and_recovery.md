@@ -34,15 +34,15 @@ without granting control over the protocol engine.
 | `dropped_applied_events` | Applied-state events dropped by full subscriber queues. |
 | `dropped_boundary_work` | Boundary messages discarded during owner termination. |
 | `active` | Admitted, non-terminal requests currently retained. |
-| `pending` | Requests staged at the owner boundary but not admitted. |
-| `session` | `Running`, `Closed`, `Shutdown`, or `Poisoned`. |
+| `pending` | Queued admissions plus one retained admission, if present; retained cancellations are not pending requests. |
+| `session` | `Running` in snapshots returned by `metrics()`; terminal calls return the terminal error. |
 
 The counter fields saturate at `u64::MAX`; queue and active counts remain
-bounded by owner policy. Async `metrics()` is a separate bounded control
-request. Blocking `metrics()` returns a shared snapshot published after each
-owner turn, so it remains observable while another thread is in a bounded
-transport wait. Neither facade clones the diagnostic ring, subscriber queues,
-wire buffers, or state registry.
+bounded by owner policy. Both facades obtain `metrics()` through a separate
+bounded control request answered by the owner. Once the owner terminates,
+`metrics()` returns its published terminal error rather than a final snapshot;
+the `session` field is therefore `Running` in a successful call. Neither facade
+clones the diagnostic ring, subscriber queues, wire buffers, or state registry.
 
 `busy_errors` counts the codes the scheduler itself treats as transient
 camera-side backpressure — command buffer full (`0x03`), no socket (`0x05`),
@@ -61,8 +61,10 @@ own ACK deadline — so it does not increment this retry path.
 Both facades expose `subscribe_diagnostics(capacity)`. An async subscription
 is read with `DiagnosticSubscription::{try_recv,recv}`, a blocking one with
 `try_recv` and `recv_timeout`. A subscription capacity must be `1..=128`, and
-one owner retains at most four live subscriptions. The owner ring retains at
-most 128 events.
+one owner retains at most four live subscriptions. A fifth subscription fails
+with nonretryable `DiagnosticSubscriberLimit { capacity }`; drop an existing
+subscription to make room. Request-admission capacity does not change this
+subscriber limit. The owner ring retains at most 128 events.
 
 `DiagnosticEvent` is a bounded, `#[non_exhaustive]` enum containing only
 sanitized categories: admission, frame category, protocol phase transition,
@@ -82,7 +84,10 @@ subscriber never delays command admission, pacing, transport I/O, retries, or
 shutdown. A full subscriber queue increments `dropped_diagnostic_events` and
 affects only that subscriber. Disconnected subscribers are reclaimed when the
 owner records or creates subscriptions. This design has no callbacks and no
-unbounded channel.
+unbounded channel. After queued events drain, a disconnected subscription
+returns the owner's published terminal cause: `ConnectionClosed`,
+`StreamPoisoned`, `OwnerTerminated`, or deliberate `RuntimeShutdown`. A dropped
+final diagnostic event does not replace that cause with `RuntimeShutdown`.
 
 ## Shutdown and close
 
@@ -117,7 +122,10 @@ path, a `Drop` guard, or a supervisor that keys its rebuild on the result of
 `shutdown()`/`close()` itself: it still sees `requires_new_session() == true`
 and rebuilds, instead of treating the dead session as one that ended on purpose.
 `set_tuning` observes the same terminal boundary and returns the session's
-terminal error rather than silently succeeding (#690).
+terminal error rather than silently succeeding (#690). An owner panic is
+`OwnerTerminated`, which is nonretryable and positively requires a new session.
+It is distinct from live-session `InvalidState` misuse such as closing from the
+worker thread (#851).
 
 ## StateCache
 
@@ -159,9 +167,10 @@ depends on the class: it is transient for movement and preset work, where the
 camera is reporting a state that passes, and terminal everywhere else, where
 it is the camera's verdict on the command.
 
-For Sony-encapsulated traffic, a lost ACK or post-ACK completion timeout may be
-retried with the same sequence number, preserving the logical request's
-identity. Raw VISCA has no such key. After a raw command was successfully sent,
+For Sony-encapsulated traffic, a lost ACK may be retried within policy with
+the same sequence number, preserving the logical request's identity. Once an
+ACK proves acceptance, neither a completion timeout nor a later camera error
+replays that command (#795). Raw VISCA has no sequence key. After a raw command was successfully sent,
 an ACK/completion/cancellation result that cannot be correlated is never replayed
 blindly. By default only that request fails and the evidence still at stake is
 quarantined; callers reconcile its camera effect while the session continues.
@@ -170,18 +179,17 @@ The exact phases, quarantine scopes, transient-fault behavior, and
 [Raw unconfirmed outcomes and strict recovery](architecture_2_0.md#raw-unconfirmed-outcomes-and-strict-recovery).
 
 Raw inquiry replies are unkeyed too. The production Raw adapter admits one live
-inquiry per target, so a reply, terminal error/timeout, or retry release/requeue
-holds that target's response correlation for the profile ambiguity timeout
-before same-target response-bearing successor work can send. The hold does not
-ignore every same-target frame: it filters stale unkeyed inquiry reply/data and
-socketless-error evidence, while an already-live attributable ACK or completion
-(including a uniquely attributable socketless completion) and a named exact
-socket error remain eligible for the ordinary resolver. At the exact deadline,
-complete input is still processed before the due pass releases a successor;
-retained partial evidence follows the [byte-stream ambiguity-expiry
-rule](architecture_2_0.md#engine-transition-and-ordering). This bounded
-single-flight policy does not claim that a wider raw FIFO can identify duplicate
-replies.
+inquiry per target. A matched reply releases that lane immediately, without a
+hold. An uncertain datagram release (terminal error/timeout or retry requeue)
+retains only the profile's `raw_inquiry_reply_skew`, bounded by minimum inquiry
+spacing. ACK-bearing commands, including STOPs, remain independently eligible.
+The hold filters stale unkeyed inquiry data and socketless errors while exact
+attributable command evidence remains eligible. On a raw stream a written,
+unanswered inquiry is never resent: its first reply deadline fails it, and the
+ledger keeps owing the reply. That debt can latch the camera's inquiry lane;
+it never blocks STOP delivery or ends the session (#712/#795). At an exact
+response or skew deadline, complete input wins before due work; retained partial
+bytes follow the [byte-stream ambiguity rule](architecture_2_0.md#engine-transition-and-ordering).
 
 `0x02` (`SyntaxError`) is retried on one narrow path: an inquiry issued through
 this crate's own built-in typed inquiry surface. Cameras answer a built-in
@@ -213,10 +221,13 @@ noncancelled attempt phase — backoff, ready, send, ACK, execution, and reply �
 so an active attempt cannot silently extend the total. A cancellation or
 per-request unconfirmed quarantine is separate, governed by its own ambiguity
 deadline, and is never shortened by budget expiry. That wall-clock budget is
-the largest of ten seconds, twice the request's own governing deadline
-(its completion deadline for a command, its reply deadline for an inquiry —
-doubling it always leaves room for one further full-length attempt), and the
-profile's busy timeout. Whichever bound is reached first produces the terminal
+the largest of ten seconds, twice the request's response deadline
+(completion for a command, reply for an inquiry), and the profile's busy timeout.
+For an ACK-bearing command it is also at least one full ACK-plus-completion
+attempt. This additional floor permits a longer valid ACK override without
+ending a healthy executing command; untuned built-in budgets are unchanged
+(#842). Completion-only commands and inquiries keep one governing response
+window. Whichever bound is reached first produces the terminal
 error, and a request that runs out of wall-clock time reports the error that
 caused its last retry rather than an incidental later timeout. If that expiry
 catches a successfully sent raw command in an ambiguous phase, the per-request
@@ -225,8 +236,9 @@ unsequenced rule above governs it: the one command fails
 strict opt-in, poisons the session) rather than finishing with the retained
 last error.
 
-The default observer attached to a prepared typed inquiry lasts for the larger
-of its reply deadline and its admission-to-terminal retry budget. That keeps a
+Default observers cover the prepared request's whole governing attempt and
+admission-to-terminal retry budget. For a typed inquiry that is the larger of
+its reply deadline and retry budget. That keeps a
 crate-authorized replay — including its bounded raw correlation hold —
 observable by default. An explicit observation or settlement deadline remains
 the caller's exact bound and is not widened.
@@ -248,7 +260,14 @@ scheduling.
 A timeout says *which* deadline expired and *what is known* about the request
 it concerns. Read both with `Error::failure_context()`, which returns a
 `FailureContext { stage, certainty }` for every timeout and for the two
-unconfirmed outcomes (D20, #783). `is_retryable()` classifies the condition as
+unconfirmed outcomes (D20, #783). Every `StillLive` timeout is nonretryable,
+including a cancellation-attempt timeout: wait for the existing operation or
+stop the axis. An otherwise retryable cancellation write or observation
+failure becomes `CancellationObservationFailed { source }`; its exact source
+remains available. Already nonretryable verdicts, including
+`CancellationUnconfirmed` and `StillLive` timeouts, retain their original
+variant and context. The cached one-intent result is never retryable (#841). For other errors,
+`is_retryable()` classifies the condition as
 temporary; it is not a replay-safety answer. Submitting the same request again
 is safe only after `Certainty::NotAccepted` or `Certainty::FailedConclusively`:
 in both, the request had no effect.
@@ -266,7 +285,7 @@ in both, the request had no effect.
 | `Terminal` or `PreAdmission` | `MotionSuperseded { axes, context }` | `NotAccepted` or `Unconfirmed` | An owner halt superseded this motion. `NotAccepted` when it never reached the camera; `Unconfirmed` when an earlier attempt may have (#795). | Resubmit only on `NotAccepted`; otherwise reconcile. |
 | `Terminal` | `Timeout` | `NotAccepted` | A command's retry budget ran out before its first write. | Submit it again if it is still wanted. |
 | `Terminal` | `UnsequencedCommandUnconfirmed` | `Unconfirmed` | A raw command's correlation was lost. | Reconcile; never replay blindly. |
-| `CancellationAttempt` | `Timeout` | `StillLive` | An accepted cancellation did not resolve in time; the operation keeps running. | Wait on the operation's own outcome, or stop the axis. |
+| `CancellationAttempt` | `Timeout` | `StillLive` | An accepted cancellation did not resolve in time; the operation keeps running. Never retryable. | Wait on the operation's own outcome, or stop the axis. |
 | `CancellationAttempt` | `CancellationUnconfirmed` | `Unconfirmed` | A cancellation's outcome is unknowable, and so is the operation's. | Reconcile the original command. |
 | `Session` | `Timeout` | `NotAccepted` | Connecting or handshaking timed out. | Open the session again. |
 | `Session` | `Timeout` | `Unconfirmed` | One transport read or write timed out (`Error::io_timeout()`). Owners read an idle read as "no data". | Usually invisible; a write that timed out may or may not have left. |
@@ -305,10 +324,14 @@ Not every transport failure ends a session. A receive that fails without
 proving the connection is gone — the classic case is a UDP `recv` reporting
 ECONNREFUSED after an ICMP port-unreachable for an earlier datagram — may retry
 a sequenced Sony command still waiting for its ACK under that command's bounded
-policy. A raw command has no sequence to replay; its complete transient-fault
+policy. On Windows UDP, Winsock `WSAECONNRESET` (10054) reports that earlier
+ICMP error and is normalized to transient `ConnectionRefused`, preserving its
+original source; [Microsoft documents this UDP receive behavior](https://learn.microsoft.com/windows/win32/api/winsock/nf-winsock-recv).
+A stream `ConnectionReset` still proves closure (#843). A raw command has no
+sequence to replay; its complete transient-fault
 decision is the architecture guide's
 [raw recovery rule](architecture_2_0.md#raw-unconfirmed-outcomes-and-strict-recovery).
-When no such raw command is awaiting ACK, a read that proves the connection is
+A read that proves the connection is
 gone (`ConnectionClosed`, or an `Io` failure whose kind is `TimedOut`,
 `ConnectionReset`, `ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`, or
 `NotConnected`), or an `Io(InvalidInput)` reports a live transport contract
@@ -526,7 +549,7 @@ restart in place:
 
 0. Classify the failure with `Error::requires_new_session()`. It returns `true`
    for transport-level session death (`ConnectionClosed` or `StreamPoisoned`)
-   and `false` for deliberate `RuntimeShutdown` and the default per-request
+   and owner death (`OwnerTerminated`), and `false` for deliberate `RuntimeShutdown` and the default per-request
    `UnsequencedCommandUnconfirmed` result. The latter now has
    `ErrorKind::Unconfirmed`; the terminal errors still share
    `ErrorKind::IoClosed`, so use the predicate for the reconnect decision.

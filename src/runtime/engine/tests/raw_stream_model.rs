@@ -126,6 +126,8 @@ struct Kind {
     lost_completion_only: u64,
     /// Percent of requests left unanswered (outside the assumptions).
     dropped: u64,
+    /// Deliberately miss timer turns so strictly late frames precede due work.
+    due_interval: u128,
 }
 
 impl Kind {
@@ -151,10 +153,11 @@ const fn kind(name: &'static str, seeds: u64, link: Link) -> Kind {
         named_completions: 100,
         lost_completion_only: 0,
         dropped: 0,
+        due_interval: 1,
     }
 }
 
-const KINDS: [Kind; 6] = [
+const KINDS: [Kind; 7] = [
     kind("names sockets, hostile link", 96, HOSTILE),
     kind("names sockets, G2-like link", 96, REALISTIC),
     Kind {
@@ -172,6 +175,10 @@ const KINDS: [Kind; 6] = [
     Kind {
         dropped: 3,
         ..kind("drops requests", 48, HOSTILE)
+    },
+    Kind {
+        due_interval: 17,
+        ..kind("late frames before delayed due turns", 48, HOSTILE)
     },
 ];
 
@@ -480,6 +487,7 @@ struct Camera {
 }
 
 struct Session {
+    start: Instant,
     kind: Kind,
     seed: u64,
     misbehaving: bool,
@@ -537,6 +545,7 @@ impl Session {
                 .unwrap();
         }
         let mut session = Self {
+            start,
             kind,
             seed,
             misbehaving: kind.dropped > 0 || kind.lost_completion_only > 0,
@@ -608,12 +617,12 @@ impl Session {
                     if !session.owes_only_completions(target) {
                         let now = session.now;
                         session.admit(
-                            inquiry(target.id(), InquiryRoute::UNKNOWN),
+                            inquiry(target.camera().id(), InquiryRoute::UNKNOWN),
                             AdmissionSlot::Ordinary,
                         );
                         session.admit(
                             stop(
-                                target.id(),
+                                target.camera().id(),
                                 now,
                                 session.kind.link.stop_budget,
                                 session.ticket + 1,
@@ -667,8 +676,15 @@ impl Session {
         if self.now >= self.stalled_until {
             self.deliver_all();
         }
-        let effects = self.engine.advance(self.now);
-        self.apply(effects);
+        if self
+            .now
+            .duration_since(self.start)
+            .as_millis()
+            .is_multiple_of(self.kind.due_interval)
+        {
+            let effects = self.engine.advance(self.now);
+            self.apply(effects);
+        }
         self.check();
     }
 
@@ -695,7 +711,7 @@ impl Session {
 
     /// Whether `target` owes a `CompletionOnly` or `NoReply` command's answer
     /// that may still be a rejection.
-    fn unproven(&self, target: CameraId) -> bool {
+    fn unproven(&self, target: TargetSlot) -> bool {
         self.engine.ledger.entries().any(|(owner, entry)| {
             owner == target && matches!(entry.owes, Owes::Completion | Owes::Rejection)
         })
@@ -804,7 +820,7 @@ impl Session {
                         kind,
                     } => {
                         let entry = self.engine.entry(request).expect("written request");
-                        let target = entry.request.context().target.id();
+                        let target = entry.request.context().target.camera().id();
                         let job = match kind {
                             Transmission::Request { .. } => {
                                 assert!(
@@ -846,7 +862,7 @@ impl Session {
                                 let bound = (timeout.ack + timeout.ambiguity)
                                     .min((*deadline - admitted) / 2);
                                 assert!(
-                                    wait <= bound + Duration::from_millis(1),
+                                    wait <= bound + Duration::from_millis(u64::try_from(self.kind.due_interval).unwrap()),
                                     "seed {}: STOP {request:?} waited {wait:?}, past its bound {bound:?}",
                                     self.seed
                                 );
@@ -887,7 +903,7 @@ impl Session {
                     }
                     Effect::Transition {
                         id,
-                        to: Phase::Executing { .. },
+                        to: Lifecycle::Executing { .. },
                         ..
                     } => {
                         self.acknowledged.insert(id);
@@ -1142,7 +1158,7 @@ impl Session {
             let late = self
                 .engine
                 .entry(originator)
-                .and_then(correlated_response_deadline)
+                .and_then(Entry::correlated_response_deadline)
                 .is_some_and(|deadline| deadline < self.now);
             let effects = self.engine.handle_turn(
                 frame(target, None, response.clone()),
@@ -1260,7 +1276,7 @@ impl Session {
         }
     }
 
-    fn accepted_completions(&self, target: CameraId) -> usize {
+    fn accepted_completions(&self, target: TargetSlot) -> usize {
         self.engine
             .ledger
             .entries()
@@ -1325,7 +1341,7 @@ impl Session {
 
     /// Whether `target` owes nothing but `CompletionOnly` completions: the
     /// documented endgame of one that never comes is a latched command lane.
-    fn owes_only_completions(&self, target: CameraId) -> bool {
+    fn owes_only_completions(&self, target: TargetSlot) -> bool {
         self.engine.ledger.entries().all(|(owner, entry)| {
             owner != target
                 || (entry.is_debt()

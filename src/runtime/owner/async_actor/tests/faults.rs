@@ -18,7 +18,7 @@ async fn zero_length_stream_read_still_closes_the_session() {
             sent,
         },
         &profile,
-        CameraId::CAMERA_1,
+        TargetSlot::CAMERA_1,
     )
     .unwrap();
     let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
@@ -516,7 +516,7 @@ async fn consumed_truncated_datagrams_reset_the_async_fault_run() {
             truncated: Arc::clone(&truncated),
         },
         &profile,
-        CameraId::CAMERA_1,
+        TargetSlot::CAMERA_1,
     )
     .unwrap();
     assert_eq!(adapter.policy().protocol.transport, TransportKind::Datagram);
@@ -578,7 +578,7 @@ async fn a_malformed_datagram_does_not_kill_the_async_session() {
             sent,
         },
         &profile,
-        CameraId::CAMERA_1,
+        TargetSlot::CAMERA_1,
     )
     .unwrap();
     assert_eq!(adapter.policy().protocol.transport, TransportKind::Datagram);
@@ -646,7 +646,7 @@ async fn a_malformed_stream_frame_is_discarded_and_keeps_the_session() {
             sent,
         },
         &profile,
-        CameraId::CAMERA_1,
+        TargetSlot::CAMERA_1,
     )
     .unwrap();
     assert_eq!(adapter.policy().protocol.transport, TransportKind::Stream);
@@ -715,7 +715,7 @@ async fn a_stream_burst_over_the_frame_limit_keeps_the_session() {
             sent,
         },
         &profile,
-        CameraId::CAMERA_1,
+        TargetSlot::CAMERA_1,
     )
     .unwrap();
     assert_eq!(adapter.policy().protocol.transport, TransportKind::Stream);
@@ -767,7 +767,7 @@ async fn a_single_target_ip_chain_address_reply_settles_the_command() {
             sent,
         },
         &profile,
-        CameraId::CAMERA_1,
+        TargetSlot::CAMERA_1,
     )
     .unwrap();
     let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
@@ -802,7 +802,7 @@ async fn a_datagram_send_failure_never_demands_a_new_session() {
             config: crate::transport::builder::TransportConfig::default(),
         },
         &profile,
-        CameraId::CAMERA_1,
+        TargetSlot::CAMERA_1,
     )
     .unwrap();
     assert_eq!(adapter.policy().protocol.transport, TransportKind::Datagram);

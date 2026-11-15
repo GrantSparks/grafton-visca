@@ -651,11 +651,27 @@ where
     where
         D: AsyncOwnerDriver,
     {
-        let idle_after_timeout = async {
-            Executor::sleep(runtime, read_timeout).await;
-            Ok(OwnerReceive::NoData)
-        };
-        future::or(driver.receive(buffers, frame_limit), idle_after_timeout).await
+        let mut receive = pin!(driver.receive(buffers, frame_limit));
+        let mut idle_after_timeout = pin!(Executor::sleep(runtime, read_timeout));
+        future::poll_fn(|context| match receive.as_mut().poll(context) {
+            Poll::Ready(result) => {
+                let no_input = matches!(result, Ok(OwnerReceive::NoData))
+                    || matches!(&result, Ok(OwnerReceive::Fault(error)) if super::receive_reported_no_data(error));
+                // A custom transport may enforce the same timeout itself.
+                // Its left-biased idle answer then wins the race, but it has
+                // already waited the full bound and needs no extra pause.
+                if no_input && idle_after_timeout.as_mut().poll(context).is_ready() {
+                    Poll::Ready(Ok(OwnerReceive::IdleTimeout))
+                } else {
+                    Poll::Ready(result)
+                }
+            }
+            Poll::Pending => idle_after_timeout
+                .as_mut()
+                .poll(context)
+                .map(|()| Ok(OwnerReceive::IdleTimeout)),
+        })
+        .await
     }
 
     /// Run one transport write under the session's write timeout so a stalled

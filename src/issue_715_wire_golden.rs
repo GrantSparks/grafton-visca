@@ -1,7 +1,7 @@
 //! Exhaustive built-in encoder snapshot for issue #715.
 //!
 //! The fixture is the reviewed current wire inventory: one row per generated
-//! case, 476 rows, covering every built-in command encoder, every generated
+//! case, 466 rows, covering every built-in command encoder, every generated
 //! inquiry and the camera-address variants. Each row was reviewed against the
 //! source register in `docs/visca_reference.md` when it entered the fixture,
 //! including the source-backed 2.0 corrections ratified in D5 (#808, #819),
@@ -926,20 +926,15 @@ pub(crate) fn rows() -> Vec<String> {
     macro_rules! inq { ($($t:ident),* $(,)?) => { $( row!(o, stringify!($t), $t); )* } }
     inq!(
         AutoFocusSensitivityInquiry,
-        AutoTraceInquiry,
         AutoWhiteBalanceSensitivityInquiry,
         BacklightInquiry,
         BlueGainInquiry,
         BlueTuningInquiry,
         BrightnessInquiry,
-        BroadcastDomainInquiry,
         ColorTemperatureInquiry,
         ContrastInquiry,
         DefogLevelInquiry,
         DefogModeInquiry,
-        DigitalInquiry,
-        DigitalPtzInquiry,
-        DynamicRangeInquiry,
         ExposureCompensationInquiry,
         ExposureCompensationModeInquiry,
         ExposureCompensationPositionInquiry,
@@ -949,8 +944,6 @@ pub(crate) fn rows() -> Vec<String> {
         FocusModeInquiry,
         FocusNearLimitInquiry,
         FocusPositionInquiry,
-        FocusRangeInquiry,
-        FocusUnlockInquiry,
         FocusZoneInquiry,
         GainInquiry,
         GainLimitInquiry,
@@ -965,7 +958,6 @@ pub(crate) fn rows() -> Vec<String> {
         MotionSyncPresetInquiry,
         NdFilterInquiry,
         NdFilterPresetInquiry,
-        NightDayModeInquiry,
         NoiseReduction2DInquiry,
         NoiseReduction3DInquiry,
         PanTiltPositionInquiry,
@@ -977,12 +969,10 @@ pub(crate) fn rows() -> Vec<String> {
         SharpnessModeInquiry,
         SharpnessPositionInquiry,
         ShutterInquiry,
-        StandbyInquiry,
         TallyAutoAdjustInquiry,
         TallyGreenInquiry,
         TallyRedInquiry,
         TallyStatusInquiry,
-        TwoToneModeInquiry,
         UsbAudioInquiry,
         VersionInquiry,
         WhiteBalanceModeInquiry,

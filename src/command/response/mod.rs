@@ -12,7 +12,7 @@ mod types;
 pub(crate) use self::lift::lift_inquiry;
 pub use self::{
     lift::parse_inquiry_payload,
-    payload::{BoolConvention, Nibbles, Nibbles4Or8, Payload},
+    payload::{BoolConvention, Nibbles, Payload},
     types::{RawInquiryPayload, Response},
 };
 
@@ -618,15 +618,12 @@ mod tests {
         // Test DefogLevel out of range (6) - should fail
         let response_bytes = &[0x90, 0x50, 0x06, VISCA_TERMINATOR];
         let response = Response::parse_with_type(response_bytes, &InquiryKind::DefogLevel);
-        assert!(matches!(
-            response,
-            Err(Error::ParameterOutOfRange {
-                parameter: "DefogLevel",
-                value: 6,
-                min: 0,
-                max: 5,
-            })
-        ));
+        let error = response.err();
+        assert_eq!(
+            error.as_ref().map(Error::kind),
+            Some(crate::ErrorKind::Protocol)
+        );
+        assert!(matches!(error, Some(Error::InvalidResponse { .. })));
     }
 
     #[test]
@@ -673,15 +670,12 @@ mod tests {
         // Test BroadcastDomain out of range (4) - should fail
         let response_bytes = &[0x90, 0x50, 0x04, VISCA_TERMINATOR];
         let response = Response::parse_with_type(response_bytes, &InquiryKind::BroadcastDomain);
-        assert!(matches!(
-            response,
-            Err(Error::ParameterOutOfRange {
-                parameter: "BroadcastDomain",
-                value: 4,
-                min: 0,
-                max: 3,
-            })
-        ));
+        let error = response.err();
+        assert_eq!(
+            error.as_ref().map(Error::kind),
+            Some(crate::ErrorKind::Protocol)
+        );
+        assert!(matches!(error, Some(Error::InvalidResponse { .. })));
     }
 
     #[test]

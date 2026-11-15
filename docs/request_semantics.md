@@ -78,7 +78,8 @@ the profile's exact preset axes.  It must not substitute all axes.
 | Tally | `TallyBrightLow`, `TallyBrightHigh` | Plain | Set `TallyBrightness` |
 | Tally | `TallyFlash` | Plain | Invalidate `TallyMode` |
 | Tally | `TallyOn`, `TallyOff` | Plain | Set `TallyMode` |
-| Menu | `MenuDisplay`, `MenuNavigate`, `MenuSelect`, `MenuCancel`, `DirectMenu` | Plain | — |
+| Menu | `MenuNavigate` | Applied-only — `PanTilt` | — |
+| Menu | `MenuDisplay`, `MenuSelect`, `MenuCancel`, `DirectMenu` | Plain | — |
 | Streaming | `MulticastStreamingOn`, `MulticastStreamingOff`, `NdiQuality` | Plain | Set corresponding state |
 | Streaming | `UsbAudioOn`, `UsbAudioOff` | Plain | — (USB audio inquiry exists) |
 | System | `SettingsSave` | Plain | — |
@@ -114,11 +115,13 @@ not assume every command follows the ACK-then-completion shape. The axis is
   unacknowledged-ACK gate, so a missing ACK can neither fail nor poison it; it
   terminates on the completion frame or a bounded completion deadline. Because it
   can never be socket-correlated, a completion-only command holds the target's
-  command channel exclusively for its lifetime: nothing else dispatches to the
-  target while it is in flight, and it does not start until the target is idle.
-  Its successful terminal leaves a bounded target response/correlation
-  quarantine before same-target response-bearing raw command or inquiry work
-  may start, so a duplicate completion or error cannot bind to that successor.
+  command channel exclusively for ordinary work and starts only when its target
+  is idle. An urgent STOP may cross that exclusion on a raw stream, where the
+  ledger keeps its first answer distinct (#795). A successful raw datagram
+  terminal leaves a bounded `AllResponses` hold before ordinary same-target
+  response-bearing work starts; a raw stream accounts for the answer in its
+  ledger instead. Cancellation after the write is refused with `NotSupported`
+  because this command can never own a cancellable socket (#835).
 - `NoReply` — a plain-command-only fire-and-forget shape. Its `execute()`
   result proves only that the local transport write succeeded; it does **not**
   prove camera acceptance or protocol application, so raw targeted and
@@ -178,7 +181,7 @@ knowledge the protocol does not provide. The preset contents are outside the
 write-only cache by design.
 
 Calibration and configuration commands (one-push white balance, focus/ND
-mode selection, motion-sync and variable-speed setup, menu actions, settings
+mode selection, motion-sync and variable-speed setup, menu display/selection, settings
 save, address/interface setup, and similar vendor controls) are plain. They
 may change internal calibration or future command behavior, but they do not
 carry a recoverable target state and their protocol completion is the only
@@ -189,7 +192,7 @@ silently promoting the existing row to an operation.
 ### Why the non-PTZ rows are not operations
 
 Power transitions, one-push white balance, spotlight, auto slow shutter,
-tally/flash, flip/mirror, menu navigation, streaming, motion-sync mode,
+tally/flash, flip/mirror, menu display/selection, streaming, motion-sync mode,
 variable-speed mode, digital-zoom enablement, white-balance, and color/image
 controls edit a mode, state register, or output policy.  They do not expose a
 cancelable camera-axis movement with a useful exact protocol cancellation, so
@@ -201,6 +204,12 @@ or filter, VISCA cancellation applies to the in-flight actuation, and the
 result has a meaningful finite end state.  They are targeted on their own
 axes.  Push-AF press/release starts/stops focus actuation but has no requested
 focus target, so it is applied-only on `Focus`.
+
+`MenuNavigate` is an exception to menu configuration: with the on-screen menu
+closed, its wire command is a continuous physical pan/tilt drive. It is therefore
+an applied-only `PAN_TILT` operation, participates in halt fences and motion
+tracking, and returns a handle on every facade. Observe it with `applied()`;
+end physical movement with a pan/tilt STOP or `stop_all_motion()` (#839).
 
 ### Applied-state effects
 

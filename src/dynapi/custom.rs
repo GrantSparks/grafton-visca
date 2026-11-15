@@ -449,7 +449,7 @@ mod tests {
         let targeted_adapter = OperationAdapter::<Targeted, _>::new(targeted);
         let targeted_prepared = crate::prepared::prepare_operation::<Targeted, _>(
             &targeted_adapter,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &profile,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
@@ -471,7 +471,7 @@ mod tests {
             matches!(
                 crate::prepared::prepare_operation::<AppliedOnly, _>(
                     &applied_adapter,
-                    CameraId::CAMERA_1,
+                    crate::target::TargetSlot::CAMERA_1,
                     &profile,
                     OperationalTuning::new(),
                     crate::prepared::ClassSelection::Request,
@@ -490,7 +490,7 @@ mod tests {
         let targeted = OversizedTargeted;
         let static_targeted = crate::prepared::prepare_operation::<Targeted, _>(
             &targeted,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &profile,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
@@ -504,7 +504,7 @@ mod tests {
         let targeted_adapter = OperationAdapter::<Targeted, _>::new(erased_targeted);
         let dynamic_targeted = crate::prepared::prepare_operation::<Targeted, _>(
             &targeted_adapter,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &profile,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
@@ -517,7 +517,7 @@ mod tests {
         let applied = OversizedApplied;
         let static_applied = crate::prepared::prepare_operation::<AppliedOnly, _>(
             &applied,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &profile,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
@@ -531,7 +531,7 @@ mod tests {
         let adapter = OperationAdapter::<AppliedOnly, _>::new(erased);
         let dynamic_applied = crate::prepared::prepare_operation::<AppliedOnly, _>(
             &adapter,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &profile,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
@@ -552,7 +552,7 @@ mod tests {
         let adapter = OperationAdapter::<AppliedOnly, _>::new(erased);
         let downstream_result = crate::prepared::prepare_operation::<AppliedOnly, _>(
             &adapter,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &profile,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
@@ -567,7 +567,7 @@ mod tests {
         let stop_adapter = OperationAdapter::<AppliedOnly, _>::new(erased_stop);
         let prepared = crate::prepared::prepare_operation::<AppliedOnly, _>(
             &stop_adapter,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &profile,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Handle(SubmissionClass::Background),

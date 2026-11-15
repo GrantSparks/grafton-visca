@@ -3027,7 +3027,7 @@ macro_rules! builtin_profile_registry {
                         ("tally", "Sony professional profile metadata and typed controls expose tally for FR7."),
                         ("color_temperature", "FR7 uses ATW/manual WB surfaces; built-in typed color-temperature control remains unavailable."),
                         ("iris", "The FR7 command list documents vendor-relative iris Up/Down commands under 7E 04 4B and an Auto Iris inquiry under 05 34, but not the shared 04 39 AE-mode commands/inquiry, standard absolute iris-direct command, or 09 04 4B position inquiry; keep those shared typed surfaces absent until the distinct protocol families have their own models."),
-                        ("nd_filter", "The FR7 registry is the only built-in entry with variable-ND metadata, typed ND controls, and the exact 0x64 position inquiry documented in the Sony command table."),
+                        ("nd_filter", "R7 Sony ILME-FR7/FR7K VISCA Command List v4.00 p.21 documents variable-ND inquiry 8x 09 7E 04 42 FF with y0 50 00 00 0p 0p FF; p.25 codes 00..14 mean density 1/4..1/128. The legacy 09 04 64 row is not a sourced FR7 inquiry."),
                         ("brightness", "The FR7 model command list does not establish the exposure-brightness control or inquiry; retain no brightness range or typed marker."),
                         ("focus_zone", "The FR7 model command list does not establish focus-zone selection or its inquiry; keep both typed surfaces absent."),
                         ("af_sensitivity", "The FR7 command list R7 documents Push AF/MF under `7E 04 58`, but not the shared `04 58` autofocus-sensitivity command or inquiry; keep the shared metadata and typed surface absent."),

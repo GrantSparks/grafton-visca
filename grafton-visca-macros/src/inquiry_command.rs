@@ -80,6 +80,54 @@ enum ParserStrategy {
     Custom,
 }
 
+/// Optional decoder keys. A selector must consume every key it accepts.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum ParserKey {
+    Field,
+    ValueType,
+    ParseWith,
+    Convention,
+    DataVariant,
+}
+
+impl ParserKey {
+    fn name(self) -> &'static str {
+        match self {
+            Self::Field => "field",
+            Self::ValueType => "value_type",
+            Self::ParseWith => "parse_with",
+            Self::Convention => "convention",
+            Self::DataVariant => "data_variant",
+        }
+    }
+}
+
+impl ParserStrategy {
+    fn consumes(self, key: ParserKey) -> bool {
+        use ParserKey::{Convention, DataVariant, Field, ParseWith, ValueType};
+        match self {
+            Self::Custom => matches!(key, ParseWith | DataVariant),
+            Self::BoolConvention => matches!(key, Field | Convention | DataVariant),
+            Self::ExtendedNibble | Self::Nibble => key == Field,
+            Self::Mode | Self::ModeEnum => key == ValueType,
+            Self::LastNibble => matches!(key, Field | DataVariant),
+            Self::PictureEffect | Self::DefogLevel | Self::FocusRange => key == DataVariant,
+            Self::Bool
+            | Self::DirectByte
+            | Self::Byte
+            | Self::Position
+            | Self::Flags
+            | Self::BitFlags
+            | Self::PanTilt
+            | Self::TallyStatus
+            | Self::SharpnessMode
+            | Self::Gamma
+            | Self::AutoWbSensitivity
+            | Self::NdFilter => false,
+        }
+    }
+}
+
 /// How a typed response is built from the destructured inquiry fields.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum TypedConstructor {
@@ -138,7 +186,6 @@ enum PayloadDecoder {
     LastNibble {
         field: Ident,
     },
-    NdFilter,
     PictureEffect,
     DefogLevel,
     FocusRange,
@@ -208,10 +255,10 @@ impl RawAttributes {
         if path.is_ident("typed_is_tuple") {
             self.typed_is_tuple.set(ATTRIBUTE, meta, ())
         } else if path.is_ident("opcode") {
-            let byte = parse_u8_literal(&meta.value()?.parse::<LitInt>()?, "`opcode`")?;
+            let byte = parse_inquiry_byte(&meta.value()?.parse::<LitInt>()?, "opcode")?;
             self.opcode.set(ATTRIBUTE, meta, byte)
         } else if path.is_ident("subcode") {
-            let byte = parse_u8_literal(&meta.value()?.parse::<LitInt>()?, "`subcode`")?;
+            let byte = parse_inquiry_byte(&meta.value()?.parse::<LitInt>()?, "subcode")?;
             self.subcode.set(ATTRIBUTE, meta, byte)
         } else if path.is_ident("response") {
             let response = parse_ident_value(meta.value()?, "response")?;
@@ -282,6 +329,57 @@ impl RawAttributes {
             .ok_or_else(|| error("visca attribute must have an opcode value"));
         let parser = parser.into_entry();
         let typed_response = typed_response.into_entry();
+        let typed_is_tuple = typed_is_tuple.into_entry();
+        let field = field.into_entry();
+        let value_type = value_type.into_entry();
+        let parse_with = parse_with.into_entry();
+        let convention = convention.into_entry();
+        let data_variant = data_variant.into_entry();
+
+        let mut parser_keys = Ok(());
+        if let (None, Some(((), span))) = (&typed_response, typed_is_tuple) {
+            parser_keys = Err(at(span, "typed_is_tuple requires typed_response"));
+        }
+        for (key, span) in [
+            (ParserKey::Field, field.as_ref().map(|(_, span)| *span)),
+            (
+                ParserKey::ValueType,
+                value_type.as_ref().map(|(_, span)| *span),
+            ),
+            (
+                ParserKey::ParseWith,
+                parse_with.as_ref().map(|(_, span)| *span),
+            ),
+            (
+                ParserKey::Convention,
+                convention.as_ref().map(|(_, span)| *span),
+            ),
+            (
+                ParserKey::DataVariant,
+                data_variant.as_ref().map(|(_, span)| *span),
+            ),
+        ] {
+            let Some(span) = span else { continue };
+            let accepted = match parser {
+                Some((parser, _)) => {
+                    parser.consumes(key)
+                        && !(parser == ParserStrategy::Custom
+                            && key == ParserKey::DataVariant
+                            && typed_response.is_none())
+                }
+                None => false,
+            };
+            if !accepted {
+                let message = match parser {
+                    Some((parser, _)) => {
+                        format!("`{}` has no effect with `parser = {parser:?}`", key.name())
+                    }
+                    None => format!("`{}` requires a parser that consumes it", key.name()),
+                };
+                parser_keys =
+                    both(parser_keys, Err::<(), _>(at(span, &message))).map(|((), ())| ());
+            }
+        }
 
         let raw = response.as_ref().is_ok_and(|response| response == "Raw");
         let raw_conflict = match (raw, response_span) {
@@ -293,7 +391,7 @@ impl RawAttributes {
             _ => Ok(()),
         };
 
-        let field = field.into_value();
+        let field = field.map(|(field, _)| field);
         let parser_span = parser.as_ref().map(|(_, span)| *span);
         let parser = parser.map(|(parser, _)| parser);
         let decoder = parser
@@ -303,7 +401,7 @@ impl RawAttributes {
                 Ok(match parser {
                     ParserStrategy::Custom => PayloadDecoder::Custom(
                         parse_with
-                            .into_value()
+                            .map(|(parse_with, _)| parse_with)
                             .ok_or_else(|| error("custom parser requires parse_with"))?,
                     ),
                     ParserStrategy::BoolConvention => {
@@ -312,7 +410,7 @@ impl RawAttributes {
                                 .clone()
                                 .ok_or_else(|| error("bool_convention parser requires field")),
                             convention
-                                .into_value()
+                                .map(|(convention, _)| convention)
                                 .ok_or_else(|| error("bool_convention parser requires convention")),
                         )?;
                         PayloadDecoder::BoolConvention { field, convention }
@@ -324,7 +422,7 @@ impl RawAttributes {
                     }
                     ParserStrategy::Mode | ParserStrategy::ModeEnum => PayloadDecoder::Mode {
                         value_type: value_type
-                            .into_value()
+                            .map(|(value_type, _)| value_type)
                             .ok_or_else(|| error("mode parser requires value_type"))?,
                     },
                     ParserStrategy::LastNibble => PayloadDecoder::LastNibble {
@@ -332,7 +430,6 @@ impl RawAttributes {
                             .clone()
                             .ok_or_else(|| error("last_nibble parser requires field"))?,
                     },
-                    ParserStrategy::NdFilter => PayloadDecoder::NdFilter,
                     ParserStrategy::PictureEffect => PayloadDecoder::PictureEffect,
                     ParserStrategy::DefogLevel => PayloadDecoder::DefogLevel,
                     ParserStrategy::FocusRange => PayloadDecoder::FocusRange,
@@ -346,7 +443,8 @@ impl RawAttributes {
                     | ParserStrategy::TallyStatus
                     | ParserStrategy::SharpnessMode
                     | ParserStrategy::Gamma
-                    | ParserStrategy::AutoWbSensitivity => PayloadDecoder::Canonical,
+                    | ParserStrategy::AutoWbSensitivity
+                    | ParserStrategy::NdFilter => PayloadDecoder::Canonical,
                 })
             })
             .transpose();
@@ -374,7 +472,7 @@ impl RawAttributes {
                         ty,
                         fields,
                         constructor,
-                        is_tuple: typed_is_tuple.get().is_some(),
+                        is_tuple: typed_is_tuple.is_some(),
                     })
                 })
                 }
@@ -394,9 +492,12 @@ impl RawAttributes {
                 .map(|_| None),
             };
 
-        let ((((response, opcode), decoder), typed), ()) = both(
-            both(both(both(response, opcode), decoder), typed),
-            raw_conflict,
+        let (((((response, opcode), decoder), typed), ()), ()) = both(
+            both(
+                both(both(both(response, opcode), decoder), typed),
+                raw_conflict,
+            ),
+            parser_keys,
         )?;
         let subcode = subcode.into_value().unwrap_or(0x04);
         if raw {
@@ -407,7 +508,7 @@ impl RawAttributes {
             });
         }
         let variant = parser
-            .and(data_variant.into_value())
+            .and(data_variant.map(|(variant, _)| variant))
             .unwrap_or_else(|| response.clone());
         Ok(InquirySpec {
             opcode,
@@ -420,6 +521,17 @@ impl RawAttributes {
             })),
         })
     }
+}
+
+fn parse_inquiry_byte(literal: &LitInt, key: &str) -> syn::Result<u8> {
+    let byte = parse_u8_literal(literal, &format!("`{key}`"))?;
+    if byte == 0xFF {
+        return Err(syn::Error::new_spanned(
+            literal,
+            format!("`{key}` must not be the VISCA terminator 0xFF"),
+        ));
+    }
+    Ok(byte)
 }
 
 fn parse_ident_value(input: ParseStream<'_>, name: &str) -> syn::Result<Ident> {
@@ -577,7 +689,11 @@ fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -
                     fn __grafton_visca_decode_payload(
                         payload: &[u8],
                     ) -> ::core::result::Result<#crate_path::command::Response, #crate_path::Error> {
-                        #decode_body
+                        (|| -> ::core::result::Result<
+                            #crate_path::command::Response, #crate_path::Error
+                        > { #decode_body })().map_err(|error| {
+                            #crate_path::__macro_support::inquiry_reply_error(error, payload)
+                        })
                     }
 
                     #parse_response
@@ -600,7 +716,9 @@ fn generate(struct_name: &Ident, spec: &InquirySpec, crate_path: &TokenStream) -
                             ) -> ::core::result::Result<#response_type, #crate_path::Error> {
                                 <#struct_name as #crate_path::command::ResponseParser>::from_response(
                                     #struct_name::__grafton_visca_decode_payload(payload)?,
-                                )
+                                ).map_err(|error| {
+                                    #crate_path::__macro_support::inquiry_reply_error(error, payload)
+                                })
                             }
                             #crate_path::ResponseDecoder::from_fn(decode)
                         },
@@ -766,15 +884,6 @@ fn selector_decode_body(
                 )
             }
         },
-        PayloadDecoder::NdFilter => quote! {
-            {
-                #single_byte
-                let position = #crate_path::command::NdFilterPosition::from_byte(byte);
-                ::core::result::Result::Ok(
-                    #crate_path::command::InquiryData::#variant { position }
-                )
-            }
-        },
         PayloadDecoder::PictureEffect => quote! {
             {
                 #single_byte
@@ -787,7 +896,7 @@ fn selector_decode_body(
         PayloadDecoder::DefogLevel => quote! {
             {
                 #single_byte
-                let level = #crate_path::types::DefogLevel::new(byte)?;
+                let level = #crate_path::types::DefogLevel::new(byte).map_err(|error| #crate_path::Error::invalid_response(error.to_string(), payload.to_vec()))?;
                 ::core::result::Result::Ok(
                     #crate_path::command::InquiryData::#variant { level }
                 )
@@ -850,11 +959,13 @@ fn generate_typed_impl(
             fn from_response(
                 resp: #crate_path::command::Response,
             ) -> ::core::result::Result<Self::Response, #crate_path::Error> {
-                match resp {
+                (match resp {
                     #crate_path::command::Response::Inquiry(#destructure) => #construction,
                     #crate_path::command::Response::Error(e) => ::core::result::Result::Err(e),
                     _ => ::core::result::Result::Err(#crate_path::Error::UnexpectedResponseType),
-                }
+                }).map_err(|error| {
+                    #crate_path::__macro_support::inquiry_reply_error(error, &[])
+                })
             }
         }
     }
@@ -1109,6 +1220,20 @@ mod tests {
             ),
             (
                 syn::parse_quote! {
+                    #[visca(opcode = 0x00, response = Power, typed_is_tuple)]
+                    struct UnusedTypedTupleInquiry;
+                },
+                "typed_is_tuple requires typed_response",
+            ),
+            (
+                syn::parse_quote! {
+                    #[visca(opcode = 0x00, response = Raw, typed_is_tuple)]
+                    struct UnusedRawTupleInquiry;
+                },
+                "typed_is_tuple requires typed_response",
+            ),
+            (
+                syn::parse_quote! {
                     #[visca(
                         opcode = 0x00,
                         response = Power,
@@ -1169,6 +1294,114 @@ mod tests {
                 tokens.contains("__grafton_visca_decode_payload"),
                 "both public decode paths must use one generated helper: {tokens}"
             );
+        }
+    }
+
+    #[test]
+    fn every_selector_rejects_keys_it_does_not_consume() {
+        let strategies = [
+            ParserStrategy::Bool,
+            ParserStrategy::DirectByte,
+            ParserStrategy::Byte,
+            ParserStrategy::Position,
+            ParserStrategy::ExtendedNibble,
+            ParserStrategy::Nibble,
+            ParserStrategy::Flags,
+            ParserStrategy::BitFlags,
+            ParserStrategy::Mode,
+            ParserStrategy::ModeEnum,
+            ParserStrategy::PanTilt,
+            ParserStrategy::BoolConvention,
+            ParserStrategy::LastNibble,
+            ParserStrategy::TallyStatus,
+            ParserStrategy::SharpnessMode,
+            ParserStrategy::Gamma,
+            ParserStrategy::AutoWbSensitivity,
+            ParserStrategy::NdFilter,
+            ParserStrategy::PictureEffect,
+            ParserStrategy::DefogLevel,
+            ParserStrategy::FocusRange,
+            ParserStrategy::Custom,
+        ];
+        for parser in strategies {
+            let required = match parser {
+                ParserStrategy::BoolConvention => ", field = on, convention = OnIs02",
+                ParserStrategy::Mode | ParserStrategy::ModeEnum => ", value_type = ExposureMode",
+                ParserStrategy::LastNibble => ", field = hue",
+                ParserStrategy::Custom => ", parse_with = crate::decode",
+                _ => "",
+            };
+            for (key, value) in [
+                (ParserKey::Field, "on"),
+                (ParserKey::ValueType, "bool"),
+                (ParserKey::ParseWith, "this::path::does::not::exist"),
+                (ParserKey::Convention, "OnIs03"),
+                (ParserKey::DataVariant, "Digital"),
+            ] {
+                if parser.consumes(key) {
+                    continue;
+                }
+                let input = syn::parse_str(&format!(
+                    "#[visca(opcode = 0x00, response = Power, parser = {parser:?}{required},                      {} = {value})] struct Probe;", key.name()
+                )).unwrap();
+                let tokens = expanded(input);
+                let diagnostic =
+                    format!("`{}` has no effect with `parser = {parser:?}`", key.name());
+                assert!(tokens.contains(&diagnostic), "{diagnostic}: {tokens}");
+            }
+        }
+    }
+
+    #[test]
+    fn decoder_keys_require_a_selector_and_custom_variants_require_a_typed_response() {
+        for (options, diagnostic) in [
+            (
+                "convention = OnIs03",
+                "`convention` requires a parser that consumes it",
+            ),
+            (
+                "parse_with = missing::decode",
+                "`parse_with` requires a parser that consumes it",
+            ),
+            (
+                "value_type = bool",
+                "`value_type` requires a parser that consumes it",
+            ),
+            (
+                "data_variant = Digital",
+                "`data_variant` requires a parser that consumes it",
+            ),
+            (
+                "parser = Custom, parse_with = decode, data_variant = Digital",
+                "`data_variant` has no effect with `parser = Custom`",
+            ),
+        ] {
+            let input = syn::parse_str(&format!(
+                "#[visca(opcode = 0x00, response = Power, {options})] struct Probe;"
+            ))
+            .unwrap();
+            let tokens = expanded(input);
+            assert!(tokens.contains(diagnostic), "{diagnostic}: {tokens}");
+        }
+    }
+
+    #[test]
+    fn embedded_terminators_are_rejected_in_every_literal_radix() {
+        for key in ["opcode", "subcode"] {
+            for byte in ["0xFF", "255", "0o377", "0b1111_1111"] {
+                let options = if key == "opcode" {
+                    format!("opcode = {byte}")
+                } else {
+                    format!("opcode = 0x00, subcode = {byte}")
+                };
+                let input = syn::parse_str(&format!(
+                    "#[visca({options}, response = Power)] struct Probe;"
+                ))
+                .unwrap();
+                let tokens = expanded(input);
+                let diagnostic = format!("`{key}` must not be the VISCA terminator 0xFF");
+                assert!(tokens.contains(&diagnostic), "{diagnostic}: {tokens}");
+            }
         }
     }
 

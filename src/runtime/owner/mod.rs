@@ -58,7 +58,6 @@ use turn::{
 };
 
 use std::{
-    array,
     collections::{BTreeMap, VecDeque},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -71,18 +70,22 @@ use bytes::BytesMut;
 
 use crate::{
     command::{encode::WireEncode, system::CommandCancelCommand},
+    target::{PerTarget, TargetSlot},
     StateKey,
 };
-use crate::{raw::MAX_BYTES, CameraId, CancellationOutcome, Error, ErrorKind, ViscaSocket};
+use crate::{raw::MAX_BYTES, CancellationOutcome, Error, ErrorKind, ViscaSocket};
 
 use super::engine::{
-    AdmissionSlot, AdmissionTicket, AppliedStateEffect, AppliedStateProjection, CancelState,
+    AdmissionSlot, AdmissionTicket, AppliedStateEffect, AppliedStateProjection,
     CancellationObservation, CancellationPolicy, ControlClass, DeadlineKind, DecodedFrame,
     DecodedResponse, Effect, EngineTurn, EnvelopeKind, EnvelopeSequence, IgnoreReason, Input,
-    InputTurn, Lane, Phase, ProtocolEngine, ProtocolPolicy, RequestContext, RequestId, RetryPolicy,
-    RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy,
-    Transmission, TransmissionId, TransmissionMeta,
+    InputTurn, Lane, Lifecycle, ProtocolEngine, ProtocolPolicy, RequestContext, RequestId,
+    RetryPolicy, RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason, TargetPolicy,
+    TimeoutPolicy, Transmission, TransmissionId, TransmissionMeta,
 };
+
+#[cfg(test)]
+use super::engine::{CancelState, Phase};
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 use super::engine::{RawCorrelationReleaseSet, RawPrefixEvidence, RawReleaseGateAction};
@@ -145,26 +148,29 @@ pub(crate) fn canonical_owner_trace(
         .into_iter()
         .filter_map(|event| match event {
             DiagnosticEvent::Admitted { .. } => Some(CanonicalOwnerStep::Admitted),
-            DiagnosticEvent::Transition {
-                to: Phase::Sending { .. },
-                ..
-            } => Some(CanonicalOwnerStep::Sending),
+            DiagnosticEvent::Transition { to, .. }
+                if matches!(to.phase(), Phase::Sending { .. }) =>
+            {
+                Some(CanonicalOwnerStep::Sending)
+            }
             DiagnosticEvent::WriteFinished {
                 cancellation: false,
                 ..
             } => Some(CanonicalOwnerStep::RequestWrite),
-            DiagnosticEvent::Transition {
-                to: Phase::AwaitingAck { .. },
-                ..
-            } => Some(CanonicalOwnerStep::AwaitingAck),
+            DiagnosticEvent::Transition { to, .. }
+                if matches!(to.phase(), Phase::AwaitingAck { .. }) =>
+            {
+                Some(CanonicalOwnerStep::AwaitingAck)
+            }
             DiagnosticEvent::FrameReceived {
                 response: ResponseDiagnostic::Ack(_),
                 ..
             } => Some(CanonicalOwnerStep::Ack),
-            DiagnosticEvent::Transition {
-                to: Phase::Executing { .. },
-                ..
-            } => Some(CanonicalOwnerStep::Executing),
+            DiagnosticEvent::Transition { to, .. }
+                if matches!(to.phase(), Phase::Executing { .. }) =>
+            {
+                Some(CanonicalOwnerStep::Executing)
+            }
             DiagnosticEvent::FrameReceived {
                 response: ResponseDiagnostic::Completion(_),
                 ..
@@ -220,7 +226,7 @@ impl Default for OwnerLimits {
 pub(crate) struct TuningBaseline {
     pub(crate) command_spacing: Duration,
     pub(crate) inquiry_spacing: Duration,
-    pub(crate) command_sockets: [Option<u8>; 9],
+    pub(crate) command_sockets: PerTarget<Option<u8>>,
 }
 
 /// Construction policy. Target registration cannot change after the owner
@@ -230,7 +236,7 @@ pub(crate) struct TuningBaseline {
 #[derive(Debug, Clone)]
 pub(crate) struct OwnerPolicy {
     pub(crate) protocol: ProtocolPolicy,
-    pub(crate) targets: [Option<TargetPolicy>; 9],
+    pub(crate) targets: PerTarget<Option<TargetPolicy>>,
     pub(crate) limits: OwnerLimits,
     pub(crate) tuning: crate::OperationalTuning,
     pub(crate) baseline: TuningBaseline,
@@ -256,19 +262,9 @@ impl OwnerPolicy {
     /// Creates one immutable policy from target-local protocol facts.
     pub(crate) fn with_targets(
         protocol: ProtocolPolicy,
-        targets: [Option<TargetPolicy>; 9],
+        targets: PerTarget<Option<TargetPolicy>>,
     ) -> Result<Self, Error> {
-        if targets[0].is_some() {
-            return Err(Error::InvalidRequest(
-                "owner target registry cannot contain camera zero".into(),
-            ));
-        }
-        if targets[8].is_some() {
-            return Err(Error::InvalidRequest(
-                "owner target registry cannot contain broadcast".into(),
-            ));
-        }
-        if targets[1..8].iter().all(Option::is_none) {
+        if targets.iter().all(|(_, target)| target.is_none()) {
             return Err(Error::InvalidRequest(
                 "owner target registry must contain at least one camera".into(),
             ));
@@ -285,8 +281,8 @@ impl OwnerPolicy {
             baseline: TuningBaseline {
                 command_spacing: protocol.command_spacing,
                 inquiry_spacing: protocol.inquiry_spacing,
-                command_sockets: array::from_fn(|index| {
-                    targets[index].map(|policy| policy.command_sockets)
+                command_sockets: PerTarget::from_fn(|target| {
+                    targets[target].map(|policy| policy.command_sockets)
                 }),
             },
             read_timeout: transport.read_timeout,
@@ -299,16 +295,11 @@ impl OwnerPolicy {
     #[cfg(test)]
     pub(crate) fn single_target(
         protocol: ProtocolPolicy,
-        target: CameraId,
+        target: TargetSlot,
         target_policy: TargetPolicy,
     ) -> Result<Self, Error> {
-        if !(1..=7).contains(&target.id()) {
-            return Err(Error::InvalidRequest(
-                "owner target must be an individual camera (1 through 7)".into(),
-            ));
-        }
-        let mut targets = [None; 9];
-        targets[usize::from(target.id())] = Some(target_policy);
+        let mut targets = PerTarget::default();
+        targets[target] = Some(target_policy);
         Self::with_targets(protocol, targets)
     }
 }
@@ -402,7 +393,7 @@ pub(crate) enum CancellationDiagnostic {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RequestSummary {
-    target: CameraId,
+    target: TargetSlot,
     lane: Lane,
     timeout: TimeoutPolicy,
     retry: RetryPolicy,
@@ -430,7 +421,7 @@ impl RequestSummary {
 pub(crate) enum DiagnosticEvent {
     Admitted {
         id: RequestId,
-        target: CameraId,
+        target: TargetSlot,
         lane: Lane,
         timeout: TimeoutPolicy,
         retry: RetryPolicy,
@@ -438,26 +429,25 @@ pub(crate) enum DiagnosticEvent {
         cancellation: CancellationPolicy,
     },
     AdmissionRejected {
-        target: CameraId,
+        target: TargetSlot,
         lane: Lane,
         error: ErrorKind,
     },
     FrameReceived {
-        target: CameraId,
+        target: TargetSlot,
         sequence: Option<EnvelopeSequence>,
         response: ResponseDiagnostic,
     },
     Transition {
         id: RequestId,
-        target: CameraId,
-        from: Phase,
-        to: Phase,
-        cancellation: CancelState,
+        target: TargetSlot,
+        from: Lifecycle,
+        to: Lifecycle,
     },
     WriteFinished {
         id: RequestId,
         transmission: TransmissionId,
-        target: CameraId,
+        target: TargetSlot,
         cancellation: bool,
         envelope: EnvelopeKind,
         sequence: Option<u32>,
@@ -465,7 +455,7 @@ pub(crate) enum DiagnosticEvent {
     },
     RetryScheduled {
         id: RequestId,
-        target: CameraId,
+        target: TargetSlot,
         attempt: u32,
         ready_at: Instant,
     },
@@ -474,27 +464,27 @@ pub(crate) enum DiagnosticEvent {
     /// `Transition` and the absence of a `RetryScheduled`.
     DeadlineExpired {
         id: RequestId,
-        target: CameraId,
+        target: TargetSlot,
         deadline: DeadlineKind,
         will_retry: bool,
     },
     CancellationRecorded {
         id: RequestId,
-        target: CameraId,
+        target: TargetSlot,
     },
     CancellationObserved {
         id: RequestId,
-        target: CameraId,
+        target: TargetSlot,
         observation: CancellationDiagnostic,
     },
     AppliedState {
         id: RequestId,
-        target: CameraId,
+        target: TargetSlot,
         key: StateKey,
     },
     Terminal {
         id: RequestId,
-        target: CameraId,
+        target: TargetSlot,
         outcome: OutcomeDiagnostic,
     },
     SessionChanged {
@@ -605,7 +595,7 @@ impl TargetStateCache {
 struct PermitPoolInner {
     available: Mutex<PermitCounts>,
     capacity: usize,
-    reserves: [u8; 9],
+    reserves: PerTarget<u8>,
 }
 
 /// Free admission slots: the ordinary budget, and each target's control
@@ -613,7 +603,7 @@ struct PermitPoolInner {
 #[derive(Debug)]
 struct PermitCounts {
     ordinary: usize,
-    reserve: [u8; 9],
+    reserve: PerTarget<u8>,
 }
 
 /// The admission limit covering boundary work and authoritative engine
@@ -628,7 +618,7 @@ struct PermitCounts {
 pub(crate) struct AdmissionPermitPool(Arc<PermitPoolInner>);
 
 impl AdmissionPermitPool {
-    fn new(capacity: usize, reserves: [u8; 9]) -> Self {
+    fn new(capacity: usize, reserves: PerTarget<u8>) -> Self {
         Self(Arc::new(PermitPoolInner {
             available: Mutex::new(PermitCounts {
                 ordinary: capacity,
@@ -652,7 +642,7 @@ impl AdmissionPermitPool {
         self.0
             .reserves
             .iter()
-            .fold(self.0.capacity, |total, reserve| {
+            .fold(self.0.capacity, |total, (_, reserve)| {
                 total.saturating_add(usize::from(*reserve))
             })
     }
@@ -665,19 +655,18 @@ impl AdmissionPermitPool {
     /// [`Error::ControlReserveExhausted`].
     pub(crate) fn try_acquire(&self, context: &RequestContext) -> Result<AdmissionPermit, Error> {
         let target = context.target;
-        let index = usize::from(target.id());
         let mut available = self.0.available.lock().unwrap_or_else(|p| p.into_inner());
-        let slot = if context.control.class == ControlClass::Urgent && available.reserve[index] > 0
+        let slot = if context.control.class == ControlClass::Urgent && available.reserve[target] > 0
         {
-            available.reserve[index] -= 1;
+            available.reserve[target] -= 1;
             AdmissionSlot::ControlReserve
         } else if available.ordinary > 0 {
             available.ordinary -= 1;
             AdmissionSlot::Ordinary
         } else if context.control.class == ControlClass::Urgent {
             return Err(Error::ControlReserveExhausted {
-                target,
-                reserve: usize::from(self.0.reserves[index]),
+                target: target.camera(),
+                reserve: usize::from(self.0.reserves[target]),
             });
         } else {
             return Err(Error::RuntimeQueueFull {
@@ -687,7 +676,7 @@ impl AdmissionPermitPool {
         Ok(AdmissionPermit {
             pool: Arc::clone(&self.0),
             slot,
-            target: index,
+            target,
             released: false,
         })
     }
@@ -705,7 +694,7 @@ impl AdmissionPermitPool {
         Ok(AdmissionPermit {
             pool: Arc::clone(&self.0),
             slot: AdmissionSlot::Ordinary,
-            target: 1,
+            target: TargetSlot::ALL[0],
             released: false,
         })
     }
@@ -725,7 +714,7 @@ impl AdmissionPermitPool {
 pub(crate) struct AdmissionPermit {
     pool: Arc<PermitPoolInner>,
     slot: AdmissionSlot,
-    target: usize,
+    target: TargetSlot,
     released: bool,
 }
 
@@ -782,6 +771,9 @@ pub(crate) enum OwnerReceive {
     /// was consumed and nothing failed: the owner keeps the session, keeps the
     /// framing state, and does not touch any request's retry budget (#625).
     NoData,
+    /// No bytes arrived during the full requested read timeout. Unlike an
+    /// eager `NoData`, this read already paced the owner and needs no pause.
+    IdleTimeout,
     /// The transport read itself failed and consumed nothing, so framing state
     /// is intact. The owner classifies the error: a transient fault retries
     /// in-flight work and keeps the session, a fatal one ends it.
@@ -979,33 +971,21 @@ pub(crate) struct CancellationRequest {
 pub(crate) struct ReceiptCore {
     motion: Option<MotionStamp>,
     pub(crate) id: RequestId,
-    pub(crate) target: CameraId,
     pub(crate) completion: TerminalObserver,
     pub(crate) configured_timeout: Duration,
 }
 
 impl ReceiptCore {
-    fn admitted(
-        admitted: Admitted,
-        target: CameraId,
-        completion: TerminalObserver,
-        timeout: Duration,
-    ) -> Self {
-        let mut core = Self::new(admitted.id, target, completion, timeout);
+    fn admitted(admitted: Admitted, completion: TerminalObserver, timeout: Duration) -> Self {
+        let mut core = Self::new(admitted.id, completion, timeout);
         core.motion = admitted.motion;
         core
     }
 
-    fn new(
-        id: RequestId,
-        target: CameraId,
-        completion: TerminalObserver,
-        configured_timeout: Duration,
-    ) -> Self {
+    fn new(id: RequestId, completion: TerminalObserver, configured_timeout: Duration) -> Self {
         Self {
             motion: None,
             id,
-            target,
             completion,
             configured_timeout,
         }
@@ -1013,10 +993,6 @@ impl ReceiptCore {
 
     const fn id(&self) -> RequestId {
         self.id
-    }
-
-    const fn target(&self) -> CameraId {
-        self.target
     }
 
     const fn configured_timeout(&self) -> Duration {
@@ -1117,9 +1093,9 @@ struct ActiveRequest {
 }
 
 #[derive(Debug)]
-struct CancellationIntent {
-    observer: Arc<ObserverCell<Error>>,
-    recorded: bool,
+enum CancellationIntent {
+    Requested(Arc<ObserverCell<Error>>),
+    Recorded(Arc<ObserverCell<Error>>),
 }
 
 /// What a cancellation tells its caller once the operation's terminal outcome
@@ -1171,10 +1147,6 @@ impl OperationObservation {
 
     pub(crate) const fn id(&self) -> RequestId {
         self.core.id()
-    }
-
-    pub(crate) const fn target(&self) -> CameraId {
-        self.core.target()
     }
 
     /// The configured observer deadline for application.
@@ -1323,13 +1295,14 @@ impl AppliedStateSubscription {
 
 #[derive(Debug)]
 struct AppliedSubscriber {
-    target: Option<CameraId>,
+    target: Option<TargetSlot>,
     sender: flume::Sender<AppliedStateEvent>,
 }
 
 #[derive(Debug)]
 pub(crate) struct DiagnosticSubscription {
     receiver: flume::Receiver<DiagnosticEvent>,
+    lifecycle: Arc<boundary::OwnerLifecycle>,
 }
 
 impl DiagnosticSubscription {
@@ -1342,7 +1315,13 @@ impl DiagnosticSubscription {
         self.receiver
             .recv_async()
             .await
-            .map_err(|_| Error::RuntimeShutdown)
+            .map_err(|_| self.disconnected_error())
+    }
+
+    fn disconnected_error(&self) -> Error {
+        self.lifecycle
+            .terminal()
+            .unwrap_or_else(boundary::missing_terminal_error)
     }
 
     #[cfg(feature = "blocking")]
@@ -1350,7 +1329,7 @@ impl DiagnosticSubscription {
         match self.receiver.recv_timeout(timeout) {
             Ok(event) => Ok(Some(event)),
             Err(flume::RecvTimeoutError::Timeout) => Ok(None),
-            Err(flume::RecvTimeoutError::Disconnected) => Err(Error::RuntimeShutdown),
+            Err(flume::RecvTimeoutError::Disconnected) => Err(self.disconnected_error()),
         }
     }
 }
@@ -1437,7 +1416,7 @@ impl OwnerBuffers {
                 }
                 self.send.resize(max_size, 0);
                 let command = CommandCancelCommand::new(*socket);
-                let len = command.write_into(*target, &mut self.send)?;
+                let len = command.write_into(target.camera(), &mut self.send)?;
                 self.send.truncate(len);
             }
         }
@@ -1533,7 +1512,7 @@ pub(crate) struct StagedWrite {
 pub(crate) struct OwnerInputTurn(InputTurn, Instant);
 
 impl StagedWrite {
-    fn target(&self) -> CameraId {
+    fn target(&self) -> TargetSlot {
         match self.kind {
             Transmission::Request { target, .. } | Transmission::Cancel { target, .. } => target,
         }
@@ -1631,11 +1610,8 @@ pub(crate) struct OwnerState {
     permits: AdmissionPermitPool,
     pending: BTreeMap<AdmissionTicket, PendingAdmission>,
     active: BTreeMap<RequestId, ActiveRequest>,
-    /// A cancellation the engine refused while handling the request that is
-    /// being driven right now; read back by `conclude_cancellation`.
-    cancellation_refusal: Option<(RequestId, Error)>,
     motion: Arc<MotionRegistry>,
-    target_cache: Arc<[Mutex<TargetStateCache>; 9]>,
+    target_cache: Arc<PerTarget<Mutex<TargetStateCache>>>,
     subscribers: BTreeMap<u64, AppliedSubscriber>,
     diagnostic_subscribers: BTreeMap<u64, DiagnosticSubscriber>,
     // Read only by `subscribe_applied`, whose consumers are feature-gated
@@ -1667,28 +1643,17 @@ impl OwnerState {
                 "owner collection bounds must be non-zero".into(),
             ));
         }
-        if policy.targets[0].is_some() {
-            return Err(Error::InvalidRequest(
-                "owner target registry cannot contain camera zero".into(),
-            ));
-        }
-        if policy.targets[8].is_some() {
-            return Err(Error::InvalidRequest(
-                "owner target registry cannot contain broadcast".into(),
-            ));
-        }
         let mut engine = ProtocolEngine::new(policy.protocol)?;
-        for (index, target_policy) in policy.targets.iter().copied().enumerate().skip(1).take(7) {
+        for (target, target_policy) in policy.targets.iter() {
             if let Some(target_policy) = target_policy {
-                let target = CameraId::new(index as u8)?;
-                engine.register_target(target, target_policy)?;
+                engine.register_target(target, *target_policy)?;
             }
         }
         let permits = AdmissionPermitPool::new(
             policy.protocol.capacity,
-            policy
-                .targets
-                .map(|target| target.map_or(0, |target| target.control_reserve)),
+            PerTarget::from_fn(|target| {
+                policy.targets[target].map_or(0, |policy| policy.control_reserve)
+            }),
         );
         let buffers = OwnerBuffers::new(policy.limits)?;
         let tuning = LiveTuning::new(policy.tuning);
@@ -1700,9 +1665,10 @@ impl OwnerState {
             permits,
             pending: BTreeMap::new(),
             active: BTreeMap::new(),
-            cancellation_refusal: None,
             motion: Arc::new(MotionRegistry::default()),
-            target_cache: Arc::new(array::from_fn(|_| Mutex::new(TargetStateCache::default()))),
+            target_cache: Arc::new(PerTarget::from_fn(|_| {
+                Mutex::new(TargetStateCache::default())
+            })),
             subscribers: BTreeMap::new(),
             diagnostic_subscribers: BTreeMap::new(),
             #[cfg(test)]
@@ -1760,8 +1726,8 @@ impl OwnerState {
         let inquiry_spacing = tuning
             .inquiry_spacing_override()
             .unwrap_or(baseline.inquiry_spacing);
-        let command_sockets: [Option<u8>; 9] = array::from_fn(|index| {
-            baseline.command_sockets[index].map(|profile_sockets| {
+        let command_sockets: PerTarget<Option<u8>> = PerTarget::from_fn(|target| {
+            baseline.command_sockets[target].map(|profile_sockets| {
                 tuning
                     .maximum_command_sockets_override()
                     .unwrap_or(profile_sockets)
@@ -1771,9 +1737,9 @@ impl OwnerState {
             .retune(command_spacing, inquiry_spacing, command_sockets)?;
         self.policy.protocol.command_spacing = command_spacing;
         self.policy.protocol.inquiry_spacing = inquiry_spacing;
-        for (slot, sockets) in self.policy.targets.iter_mut().zip(command_sockets.iter()) {
-            if let (Some(policy), Some(sockets)) = (slot.as_mut(), sockets) {
-                policy.command_sockets = *sockets;
+        for (target, slot) in self.policy.targets.iter_mut() {
+            if let (Some(policy), Some(sockets)) = (slot.as_mut(), command_sockets[target]) {
+                policy.command_sockets = sockets;
             }
         }
         self.policy.tuning = tuning;
@@ -1808,11 +1774,11 @@ impl OwnerState {
         self.metrics
     }
 
-    pub(crate) fn metrics_snapshot(&self) -> crate::observability::MetricsSnapshot {
+    pub(crate) fn metrics_snapshot(&self, pending: usize) -> crate::observability::MetricsSnapshot {
         crate::observability::metrics_snapshot(
             self.metrics,
             self.active.len(),
-            self.pending.len(),
+            pending,
             self.state(),
         )
     }
@@ -1820,7 +1786,7 @@ impl OwnerState {
     /// Records one request rejection before authoritative engine admission.
     pub(crate) fn record_admission_rejection(
         &mut self,
-        target: CameraId,
+        target: TargetSlot,
         lane: Lane,
         error: &Error,
     ) {
@@ -1854,7 +1820,7 @@ impl OwnerState {
     /// callers coalesce their wake-up into one bounded actor notification.
     pub(crate) fn record_admission_rejection_diagnostic(
         &mut self,
-        target: CameraId,
+        target: TargetSlot,
         lane: Lane,
         error: ErrorKind,
     ) {
@@ -1872,7 +1838,7 @@ impl OwnerState {
         self.metrics.dropped_diagnostics = self.metrics.dropped_diagnostics.saturating_add(count);
     }
 
-    pub(crate) fn state_cache_registry(&self) -> Arc<[Mutex<TargetStateCache>; 9]> {
+    pub(crate) fn state_cache_registry(&self) -> Arc<PerTarget<Mutex<TargetStateCache>>> {
         Arc::clone(&self.target_cache)
     }
 
@@ -2163,7 +2129,9 @@ impl OwnerState {
             .get_mut(&id)
             .and_then(|active| active.cancellation.as_mut())
         {
-            intent.recorded = true;
+            if let CancellationIntent::Requested(observer) = intent {
+                *intent = CancellationIntent::Recorded(Arc::clone(observer));
+            }
         }
     }
 
@@ -2178,19 +2146,19 @@ impl OwnerState {
             return;
         };
         match &active.cancellation {
-            Some(intent) if intent.recorded => {
+            Some(CancellationIntent::Recorded(observer)) => {
                 if matches!(
-                    intent.observer.resolve_at(error, self.observed_at),
+                    observer.resolve_at(
+                        Error::cancellation_observation_failed(error),
+                        self.observed_at
+                    ),
                     ObserverResolution::ReceiverLost
                 ) {
                     self.metrics.dropped_observer_events =
                         self.metrics.dropped_observer_events.saturating_add(1);
                 }
             }
-            Some(_) => {
-                active.cancellation = None;
-                self.cancellation_refusal = Some((id, error));
-            }
+            Some(CancellationIntent::Requested(_)) => active.cancellation = None,
             None => {}
         }
     }
@@ -2206,33 +2174,32 @@ impl OwnerState {
         }
     }
 
-    /// Installs a handle's cancellation intent and returns the engine input to
-    /// drive, or `None` when there is nothing to send (#777):
-    ///
-    /// - the request is no longer active, so its terminal outcome has already
-    ///   been delivered to the handle;
-    /// - the handle's intent is already installed, so cancelling again
-    ///   observes it instead of sending a second cancellation.
-    pub(crate) fn begin_cancellation(&mut self, request: CancellationRequest) -> Option<Input> {
-        self.cancellation_refusal = None;
-        let active = self.active.get_mut(&request.id)?;
+    /// Installs the handle's one intent and returns the engine's synchronous
+    /// refusal alongside the effects to drive. A missing or already-recorded
+    /// request needs no new engine input.
+    pub(crate) fn begin_cancellation(
+        &mut self,
+        request: CancellationRequest,
+        now: Instant,
+    ) -> (VecDeque<Effect>, Result<(), Error>) {
+        let Some(active) = self.active.get_mut(&request.id) else {
+            return (VecDeque::new(), Ok(()));
+        };
         if active.cancellation.is_some() {
-            return None;
+            return (VecDeque::new(), Ok(()));
         }
-        active.cancellation = Some(CancellationIntent {
-            observer: request.observer,
-            recorded: false,
-        });
-        Some(Input::Cancel { id: request.id })
-    }
-
-    /// The answer to a cancellation request once its input has been driven:
-    /// the engine's refusal, if it refused, else success.
-    pub(crate) fn conclude_cancellation(&mut self, id: RequestId) -> Result<(), Error> {
-        match self.cancellation_refusal.take() {
-            Some((refused, error)) if refused == id => Err(error),
-            _ => Ok(()),
+        active.cancellation = Some(CancellationIntent::Requested(request.observer));
+        self.observed_at = now;
+        let turn = self.engine.begin_input_turn(now);
+        let (mut effects, answer) = self.engine.cancel_in_turn(&turn, request.id);
+        if answer.is_err() {
+            // A refusal records no intent; the original operation stays live.
+            if let Some(active) = self.active.get_mut(&request.id) {
+                active.cancellation = None;
+            }
         }
+        effects.extend(self.engine.finish_input_turn(turn, EngineTurn::COMPLETE));
+        (effects.into(), answer)
     }
 
     // Consumed by the async actor's `Subscribe` control arm and the owner
@@ -2240,7 +2207,7 @@ impl OwnerState {
     #[cfg(test)]
     pub(crate) fn subscribe_applied(
         &mut self,
-        target: Option<CameraId>,
+        target: Option<TargetSlot>,
         event_capacity: usize,
     ) -> Result<AppliedStateSubscription, Error> {
         if event_capacity == 0
@@ -2265,9 +2232,10 @@ impl OwnerState {
     }
 
     #[cfg(any(feature = "async", feature = "blocking", test))]
-    pub(crate) fn subscribe_diagnostics(
+    fn subscribe_diagnostics(
         &mut self,
         event_capacity: usize,
+        lifecycle: Arc<boundary::OwnerLifecycle>,
     ) -> Result<DiagnosticSubscription, Error> {
         if event_capacity == 0
             || event_capacity > self.policy.limits.diagnostic_events_per_subscription
@@ -2279,7 +2247,7 @@ impl OwnerState {
         self.diagnostic_subscribers
             .retain(|_, value| !value.sender.is_disconnected());
         if self.diagnostic_subscribers.len() >= self.policy.limits.diagnostic_subscribers {
-            return Err(Error::RuntimeQueueFull {
+            return Err(Error::DiagnosticSubscriberLimit {
                 capacity: self.policy.limits.diagnostic_subscribers,
             });
         }
@@ -2290,7 +2258,10 @@ impl OwnerState {
         let (sender, receiver) = flume::bounded(event_capacity);
         self.diagnostic_subscribers
             .insert(id, DiagnosticSubscriber { sender });
-        Ok(DiagnosticSubscription { receiver })
+        Ok(DiagnosticSubscription {
+            receiver,
+            lifecycle,
+        })
     }
 
     pub(crate) fn validate_frame_batch(&self, frames: &[DecodedFrame]) -> Result<(), Error> {
@@ -2438,19 +2409,13 @@ impl OwnerState {
                     AppliedEffect::None
                 }
             }
-            Effect::Transition {
-                id,
-                from,
-                to,
-                cancellation,
-            } => {
+            Effect::Transition { id, from, to } => {
                 if let Some(target) = self.active.get(&id).map(|active| active.summary.target) {
                     self.record(DiagnosticEvent::Transition {
                         id,
                         target,
                         from,
                         to,
-                        cancellation,
                     });
                 }
                 AppliedEffect::None
@@ -2548,10 +2513,8 @@ impl OwnerState {
             Effect::AppliedState { effect } => {
                 // Cache mutation is observer-independent and always precedes
                 // best-effort subscriber delivery.
-                if let Some(slot) = self.target_cache.get(usize::from(effect.target.id())) {
-                    if let Ok(mut cache) = slot.lock() {
-                        cache.apply(effect.projection, self.policy.limits.state_keys_per_target);
-                    }
+                if let Ok(mut cache) = self.target_cache[effect.target].lock() {
+                    cache.apply(effect.projection, self.policy.limits.state_keys_per_target);
                 }
                 self.metrics.cache_updates = self.metrics.cache_updates.saturating_add(1);
                 self.record(DiagnosticEvent::AppliedState {
@@ -2747,10 +2710,9 @@ fn boundary_error_for_input(input: &Input) -> Option<Error> {
         Input::Admit { .. }
         | Input::TransmissionFinished { .. }
         | Input::Frame(_)
-        | Input::Cancel { .. }
         | Input::ReceiveFault { .. } => None,
         #[cfg(test)]
-        Input::Wake => None,
+        Input::Wake | Input::Cancel { .. } => None,
     }
 }
 

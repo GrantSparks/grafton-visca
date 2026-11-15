@@ -542,6 +542,31 @@ mod tests {
     }
 
     #[test]
+    fn excessive_buffer_sizes_fail_before_serial_device_open() {
+        for (recv_buffer_size, max_buffer_size) in [
+            (
+                BufferConfig::MAX_RECV_BUFFER_SIZE + 1,
+                BufferConfig::MAX_RETENTION_SIZE,
+            ),
+            (
+                BufferConfig::MIN_RECV_BUFFER_SIZE,
+                BufferConfig::MAX_RETENTION_SIZE + 1,
+            ),
+            (usize::MAX, usize::MAX),
+        ] {
+            let config = SerialConfig::new("grafton-visca-invalid-buffer-bounds-serial-device")
+                .buffer_config(BufferConfig {
+                    recv_buffer_size,
+                    max_buffer_size,
+                });
+            assert!(matches!(
+                SerialTransport::new(config),
+                Err(Error::InvalidRequest(_))
+            ));
+        }
+    }
+
+    #[test]
     fn zero_io_timeouts_fail_before_serial_device_open() {
         for (config, message) in [
             (
