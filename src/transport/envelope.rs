@@ -398,7 +398,7 @@ pub(crate) enum MalformedFrame {
     #[cfg(any(feature = "blocking", feature = "async"))]
     UnclassifiedResponse,
     SonyHeaderTooShort,
-    SonyHeader,
+    InvalidSonyHeader,
     SonyLengthMismatch {
         declared: u16,
         actual: usize,
@@ -422,7 +422,7 @@ impl MalformedFrame {
     fn into_public_error(self) -> Error {
         let message = match self {
             Self::SonyHeaderTooShort => Cow::Borrowed("Sony response too short for header"),
-            Self::SonyHeader => Cow::Borrowed("Invalid Sony header format"),
+            Self::InvalidSonyHeader => Cow::Borrowed("Invalid Sony header format"),
             Self::SonyLengthMismatch { declared, actual } => Cow::Owned(format!(
                 "Sony header length mismatch: header says {declared}, actual payload is {actual}")),
             Self::SonyPayloadType(kind) => Cow::Owned(format!(
@@ -468,7 +468,7 @@ fn decode_sony_response_parts(framed: &[u8]) -> Result<(SonyHeader, &[u8]), Malf
         return Err(MalformedFrame::SonyHeaderTooShort);
     }
     let header =
-        SonyHeader::decode(&framed[..SonyHeader::SIZE]).ok_or(MalformedFrame::SonyHeader)?;
+        SonyHeader::decode(&framed[..SonyHeader::SIZE]).ok_or(MalformedFrame::InvalidSonyHeader)?;
     let actual = framed.len() - SonyHeader::SIZE;
     if usize::from(header.payload_length) != actual {
         return Err(MalformedFrame::SonyLengthMismatch {
