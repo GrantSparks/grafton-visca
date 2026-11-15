@@ -349,6 +349,8 @@ fn built_in_command_and_inquiry_preparation_stay_inline() {
         profiles::PtzOpticsG2, testing::preparation, OperationalTuning, ProfileSpec,
     };
     let profile = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
+    let target = grafton_visca::TargetRegistration::new(CameraId::CAMERA_1, profile)
+        .expect("target registration");
     let tuning = OperationalTuning::new();
     let raw = grafton_visca::raw::Plain::new(
         [0x81, 1, 4, 0, 2, 0xff],
@@ -358,17 +360,11 @@ fn built_in_command_and_inquiry_preparation_stay_inline() {
     )
     .expect("inline raw request");
     let allocations = allocations_during(|| {
-        preparation::check_command(&raw, CameraId::CAMERA_1, &profile, tuning)
+        preparation::check_command(&raw, &target, tuning)
             .expect("an owned inline raw frame stays inline in preparation");
-        preparation::check_command(
-            &grafton_visca::command::PowerOn::new(),
-            CameraId::CAMERA_1,
-            &profile,
-            tuning,
-        )
-        .expect("power command prepares");
-        preparation::check_inquiry(&PowerInquiry, CameraId::CAMERA_1, &profile, tuning)
-            .expect("power inquiry prepares");
+        preparation::check_command(&grafton_visca::command::PowerOn::new(), &target, tuning)
+            .expect("power command prepares");
+        preparation::check_inquiry(&PowerInquiry, &target, tuning).expect("power inquiry prepares");
     });
     assert_eq!(allocations, 0, "pure built-in preparation allocated");
 }

@@ -679,7 +679,6 @@ fn prepare_command_with_state<C>(
 where
     C: PlainCommand + ?Sized,
 {
-    let target = registration.slot();
     let profile = registration.profile();
     profile.validate_tuning(tuning)?;
     validate_timeout_class(command.timeout_class(), false)?;
@@ -739,7 +738,6 @@ fn prepare_inquiry_with_policy<Q>(
 where
     Q: Inquiry + ?Sized,
 {
-    let target = registration.slot();
     let profile = registration.profile();
     // An inquiry has exactly one protocol lifecycle: its reply is the
     // terminal evidence. Do not merely ignore a downstream override here;
@@ -828,7 +826,6 @@ where
     K: completion::Kind,
     O: OperationCommand<K> + ?Sized,
 {
-    let target = registration.slot();
     let profile = registration.profile();
     // An operation handle's `applied()` is a protocol-evidence promise. A
     // no-reply command can prove only a successful local write, so keep that
