@@ -359,8 +359,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (#853).
 
 - Settlement plans, owner cancellation intents and admission claims use closed
-  internal types instead of contradictory optional fields. Cancellation
-  refusals return from the same synchronous engine input (#854).
+  internal types instead of contradictory optional fields. Admission and
+  cancellation verdicts return synchronously from engine input. Motion
+  generations are locked only across admission and stamping; halt builds
+  receipts directly without per-STOP reply channels (#854, #902).
 
 ### Removed
 

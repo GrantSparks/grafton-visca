@@ -1004,7 +1004,7 @@ The [entry-table audit record](issue_859_entry_table.md) explains each of the
 
 | Input / state | Transition or result |
 | --- | --- |
-| Admit while `Running`, within capacity, target registered, policy compatible | Allocate a non-colliding `RequestId`, create one `Ready` lifecycle with no cancellation substate, enqueue it, and emit `Admitted`. No write happens here. |
+| Admit while `Running`, within capacity, target registered, policy compatible | Allocate a non-colliding `RequestId`, create one `Ready` lifecycle with no cancellation substate, enqueue it, and return its `RequestId` directly. No write happens here. |
 | Admit over ordinary capacity | Reject with `Error::RuntimeQueueFull`; no id, entry, observer, or queue slot is created. |
 | Admit an urgent typed STOP into its target's control reserve | Admit while that target's reserved entries are below its reserve (one per supported typed STOP); otherwise reject with `Error::ControlReserveExhausted`. Only an urgent request may hold a reserved slot (D26, #778). |
 | Admit with the id/generation space exhausted | Reject with `Error::RuntimeIdentityExhausted`. |
