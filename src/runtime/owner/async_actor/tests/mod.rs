@@ -6,6 +6,8 @@
     unused_qualifications
 )]
 
+#[cfg(feature = "runtime-tokio")]
+use std::sync::atomic::AtomicUsize;
 use std::sync::{atomic::Ordering, Mutex};
 
 use crate::runtime::Runtime;
@@ -78,6 +80,7 @@ struct ManualRuntime {
     sleep_started: Option<flume::Sender<Duration>>,
     advance_after_next_now: Arc<Mutex<Option<Duration>>>,
     polling_sleeps: bool,
+    timer_creations: Arc<AtomicUsize>,
 }
 
 #[cfg(feature = "runtime-tokio")]
@@ -111,6 +114,7 @@ impl ManualRuntime {
             sleep_started: None,
             advance_after_next_now: Arc::new(Mutex::new(None)),
             polling_sleeps,
+            timer_creations: Arc::new(AtomicUsize::new(0)),
         }
     }
 
@@ -156,6 +160,7 @@ impl crate::executor::Executor for ManualRuntime {
     type Timer = manual_timer::ManualTimer;
 
     fn timer(&self, deadline: Instant) -> Self::Timer {
+        self.timer_creations.fetch_add(1, Ordering::Relaxed);
         manual_timer::ManualTimer::new(self.clone(), deadline)
     }
 

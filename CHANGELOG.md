@@ -41,7 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resettable `Timer` and an absolute-deadline `timer` factory. Tokio and smol
   timers retain their allocation across resets and use the executor clock.
   `ManualClockExecutor` uses an owned `ManualClockTimer` that replaces its
-  virtual registration on reset and can be rearmed after completion.
+  virtual registration on reset and can be rearmed after completion. Async
+  owners retain four pinned timers for read bounds, engine/release wakes,
+  receive pacing and write bounds; turns reset them without constructing
+  another timer future.
+
 - **BREAKING** (#877): ND metadata exposes only the implemented `None` and
   `Variable` modes. Unsourced fixed/stepped variants, step-count facts and
   helpers are removed. Profile validation refuses preset speeds outside the

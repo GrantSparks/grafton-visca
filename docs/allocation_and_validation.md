@@ -22,8 +22,11 @@ The following boundaries are release gates:
   awaiting ACK, or after active retry-budget expiry in `Sending`, `AwaitingAck`,
   `AwaitingCompletion`, or `Executing`; ambiguity is never converted into a
   replay merely to preserve this allocation property.
+* Async owners retain their four read, write, pacing and wake timers for the
+  actor lifetime. A turn resets an existing timer instead of constructing a
+  fresh timer future.
 * Lifecycle storage is bounded by owner admission, completion observers,
-  cancellation waiters, and the diagnostic/applied-state queue limits.
+  cancellation waiters, and bounded diagnostic staging and subscriber queues.
 * Private request, transmission, and correlation-generation identifiers are
   monotonic within a session and are never reused. Exhausting a 64-bit identity
   space fails admission/transmission with `RuntimeIdentityExhausted` instead of
@@ -47,6 +50,7 @@ The stable test boundaries are:
 | Profile-aware position preparation and decoder cloning | `tests/issue_548_allocation_baselines.rs::profiled_position_inquiry_preparation_and_decoder_clones_stay_inline`, for G2, BRC-300 and FR7 |
 | Warmed raw/Sony framing reuse | `tests/issue_548_allocation_baselines.rs`, framing test near the end of the file |
 | Safe retry encoded-command reuse | `runtime::engine` unit test `inert_wire_is_inline_and_reused_across_retry_without_reallocation`, plus `runtime::owner` unit test `warmed_raw_and_sony_retries_reuse_owner_buffers`; raw coverage must be limited to conclusive rejection, never ambiguity or active-budget expiry |
+| Warmed owner-thread executor timer reset | `tests/issue_548_allocation_baselines.rs::{warmed_tokio_timer_resets_do_not_allocate,warmed_smol_timer_resets_do_not_allocate}`; owner test `owner_turns_reuse_the_same_four_manual_timers` pins four factories across forty applied commands and idle turns |
 | Bounded submission and completion observers | `tests/issue_561_blocking_queue.rs` and the `runtime::owner` unit tests |
 | Dynamic/static future construction | `tests/dyn_api_integration_test.rs`, `tokio_dynamic_future_construction_matches_one_explicit_static_box` |
 | Downstream derive encoding | `tests/issue_517_inquiry_encoding` coverage |

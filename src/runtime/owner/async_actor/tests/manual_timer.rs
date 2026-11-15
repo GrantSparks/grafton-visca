@@ -67,3 +67,39 @@ async fn manual_actor_timer_can_be_reset_after_completion() {
     runtime.advance(Duration::from_millis(10));
     assert_eq!(future::poll_once(timer.as_mut()).await, Some(()));
 }
+
+#[tokio::test]
+async fn owner_turns_reuse_the_same_four_manual_timers() {
+    let runtime = ManualRuntime::with_polling_sleeps(Instant::now());
+    let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime.clone()).unwrap();
+    assert_eq!(runtime.timer_creations.load(Ordering::Relaxed), 4);
+    let (frames, receives) = flume::bounded(1);
+    let task = tokio::spawn(actor.run(UngatedDriver { receives }));
+    for _ in 0..40 {
+        let receipt = handle.submit(command()).await.unwrap();
+        frames
+            .send_async(batch(vec![
+                ack(ViscaSocket::S1),
+                completion(ViscaSocket::S1),
+            ]))
+            .await
+            .unwrap();
+        assert!(matches!(
+            receipt.terminal().await.unwrap(),
+            RuntimeOutcome::Applied
+        ));
+        handle.metrics().await.unwrap();
+        assert_eq!(runtime.timer_creations.load(Ordering::Relaxed), 4);
+    }
+    // A read deadline and a pending paced receive both keep control live
+    // while reusing the timers the actor constructed at startup.
+    runtime.advance(Duration::from_secs(1));
+    frames.send_async(Ok(OwnerReceive::NoData)).await.unwrap();
+    handle.metrics().await.unwrap();
+    runtime.advance(Duration::from_millis(250));
+    handle.metrics().await.unwrap();
+    assert_eq!(runtime.timer_creations.load(Ordering::Relaxed), 4);
+    handle.shutdown().unwrap();
+    task.await.unwrap();
+    assert_eq!(runtime.timer_creations.load(Ordering::Relaxed), 4);
+}

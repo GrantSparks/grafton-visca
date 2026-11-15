@@ -177,6 +177,7 @@ async fn a_transports_own_full_timeout_is_not_eager_idle() {
                 1,
                 &runtime,
                 timeout,
+                actor.timers.read.as_mut(),
             ));
             let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
             assert!(receive.as_mut().poll(&mut cx).is_pending());

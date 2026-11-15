@@ -11,7 +11,10 @@ use std::{
 
 use futures_lite::future;
 
-use crate::{executor::Executor, Error};
+use crate::{
+    executor::{Executor, ResettableTimer},
+    Error,
+};
 
 use super::boundary::{BoundaryReceivers, OwnerHandleCore, OwnerSnapshot};
 use super::receipt::{ObservationWake, OperationReceipt};
@@ -125,19 +128,6 @@ where
         timer,
     )
     .await
-}
-
-/// Map the shared engine-owned retained-prefix deadline onto one async wake.
-///
-/// This is deliberately a separate future from transport receive: selection
-/// still polls both ordered sources, so an eagerly-idle custom transport
-/// cannot prevent the grace timer from becoming ready.
-async fn raw_release_wake<R: Executor>(runtime: &R, deadline: Instant, now: Instant) -> OwnerEvent {
-    let remaining = deadline.saturating_duration_since(now);
-    if !remaining.is_zero() {
-        Executor::sleep(runtime, remaining).await;
-    }
-    OwnerEvent::Wake
 }
 
 /// Yield one poll to the current executor without depending on a runtime.
@@ -465,15 +455,45 @@ impl CommandReceipt<AsyncOwnerHandle> {
     }
 }
 
+/// Each actor owns four pinned timers for its lifetime. Re-arming a timer
+/// never constructs another future, even when a selection loses its race.
+struct ActorTimers<T> {
+    read: Pin<Box<T>>,
+    wake: Pin<Box<T>>,
+    pace: Pin<Box<T>>,
+    write: Pin<Box<T>>,
+}
+
+impl<T: ResettableTimer> ActorTimers<T> {
+    fn new(runtime: &impl Executor<Timer = T>) -> Self {
+        let initial = Executor::now(runtime);
+        Self {
+            read: Box::pin(runtime.timer(initial)),
+            wake: Box::pin(runtime.timer(initial)),
+            pace: Box::pin(runtime.timer(initial)),
+            write: Box::pin(runtime.timer(initial)),
+        }
+    }
+}
+
 /// The async owner shell: an executor-driven I/O dispatcher over the shared
 /// [`OwnerShellCore`], which makes every arbitration and turn decision.
-#[derive(Debug)]
 pub(crate) struct AsyncOwnerActor<R>
 where
     R: Executor,
 {
     core: OwnerShellCore,
     runtime: Arc<R>,
+    timers: ActorTimers<R::Timer>,
+}
+
+impl<R: Executor> std::fmt::Debug for AsyncOwnerActor<R> {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("AsyncOwnerActor")
+            .field("core", &self.core)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<R> AsyncOwnerActor<R>
@@ -483,6 +503,7 @@ where
     pub(crate) fn new(policy: OwnerPolicy, runtime: R) -> Result<(AsyncOwnerHandle, Self), Error> {
         let state = OwnerState::new(policy)?;
         let runtime = Arc::new(runtime);
+        let timers = ActorTimers::new(runtime.as_ref());
         let (core, ends) = OwnerHandleCore::new(&state);
         Ok((
             AsyncOwnerHandle {
@@ -492,6 +513,7 @@ where
             Self {
                 core: OwnerShellCore::new(state, ends),
                 runtime,
+                timers,
             },
         ))
     }
@@ -532,11 +554,8 @@ where
                             // An idle or faulted read paces the next one; the
                             // other sources stay live while this one waits.
                             ReceiveArm::Paced { until } => {
-                                Executor::sleep(
-                                    runtime.as_ref(),
-                                    until.saturating_duration_since(now),
-                                )
-                                .await;
+                                self.timers.pace.as_mut().reset(until);
+                                self.timers.pace.as_mut().await;
                             }
                             ReceiveArm::Poll => {}
                         }
@@ -546,6 +565,7 @@ where
                             frame_limit,
                             runtime.as_ref(),
                             read_timeout,
+                            self.timers.read.as_mut(),
                         )
                         .await;
                         OwnerEvent::Receive {
@@ -556,7 +576,11 @@ where
                     let wake = async {
                         match selection.timer {
                             TimerArm::Grace { until } => {
-                                raw_release_wake(runtime.as_ref(), until, now).await
+                                if until > now {
+                                    self.timers.wake.as_mut().reset(until);
+                                    self.timers.wake.as_mut().await;
+                                }
+                                OwnerEvent::Wake
                             }
                             TimerArm::Engine { at, due } => {
                                 // Do not rely on a zero-duration executor
@@ -565,10 +589,13 @@ where
                                 // due, and `OwnerEvent::Wake` remains the only
                                 // path that advances engine time.
                                 if !due {
-                                    let delay = at.map_or(Duration::from_secs(86_400), |wake| {
-                                        wake.saturating_duration_since(now)
-                                    });
-                                    Executor::sleep(runtime.as_ref(), delay).await;
+                                    match at {
+                                        Some(deadline) => {
+                                            self.timers.wake.as_mut().reset(deadline);
+                                            self.timers.wake.as_mut().await;
+                                        }
+                                        None => future::pending::<()>().await,
+                                    }
                                 }
                                 OwnerEvent::Wake
                             }
@@ -661,12 +688,15 @@ where
         frame_limit: usize,
         runtime: &R,
         read_timeout: Duration,
+        mut idle_after_timeout: Pin<&mut R::Timer>,
     ) -> Result<OwnerReceive, Error>
     where
         D: AsyncOwnerDriver,
     {
         let mut receive = pin!(driver.receive(buffers, frame_limit));
-        let mut idle_after_timeout = pin!(Executor::sleep(runtime, read_timeout));
+        let deadline =
+            crate::timeout::instant_after(Executor::now(runtime), read_timeout, "read_timeout")?;
+        idle_after_timeout.as_mut().reset(deadline);
         future::poll_fn(|context| match receive.as_mut().poll(context) {
             Poll::Ready(result) => {
                 let no_input = matches!(result, Ok(OwnerReceive::NoData))
@@ -700,6 +730,7 @@ where
         write: WireWrite<'_>,
         runtime: &R,
         write_timeout: Duration,
+        mut timeout: Pin<&mut R::Timer>,
     ) -> Result<TransmissionMeta, Error>
     where
         D: AsyncOwnerDriver,
@@ -711,8 +742,11 @@ where
         // `Send` for any lifetime (the trait's `timeout` return type binds the
         // wrapped future to the executor borrow's lifetime, which a spawn cannot
         // prove generally); both are executor-neutral and behave identically.
+        let deadline =
+            crate::timeout::instant_after(Executor::now(runtime), write_timeout, "write_timeout")?;
+        timeout.as_mut().reset(deadline);
         let timed_out = async {
-            Executor::sleep(runtime, write_timeout).await;
+            timeout.as_mut().await;
             Err(Error::transport_error(Error::io_timeout().with_context(
                 format!("transport write did not complete within {write_timeout:?}"),
             )))
@@ -738,7 +772,16 @@ where
             .next_transmit(&mut effects, OwnerClock::now(&self.runtime))
         {
             let result = match self.core.state.prepare_write(&staged) {
-                Ok(write) => Self::write_frame(driver, write, runtime, write_timeout).await,
+                Ok(write) => {
+                    Self::write_frame(
+                        driver,
+                        write,
+                        runtime,
+                        write_timeout,
+                        self.timers.write.as_mut(),
+                    )
+                    .await
+                }
                 Err(error) => Err(error),
             };
             self.core

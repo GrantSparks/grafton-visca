@@ -403,3 +403,39 @@ fn profiled_position_inquiry_preparation_and_decoder_clones_stay_inline() {
         assert_eq!(allocations, 0, "profiled position preparation allocated");
     }
 }
+
+#[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
+// Counts allocations on the owner thread. External reactor bookkeeping is
+// outside this boundary; the actor regression separately pins timer factories.
+fn assert_timer_reset_does_not_allocate(runtime: &impl grafton_visca::Executor) {
+    use grafton_visca::ResettableTimer;
+    use std::{future::Future, task::Context, time::Duration};
+    let initial = runtime.now();
+    let mut timer = Box::pin(runtime.timer(initial + Duration::from_secs(60)));
+    let mut context = Context::from_waker(std::task::Waker::noop());
+    assert!(timer.as_mut().poll(&mut context).is_pending());
+    let allocations = allocations_during(|| {
+        for seconds in 61..=160 {
+            timer.as_mut().reset(initial + Duration::from_secs(seconds));
+            assert!(timer.as_mut().poll(&mut context).is_pending());
+        }
+    });
+    assert_eq!(allocations, 0, "rearming a warmed owner timer allocated");
+}
+
+#[cfg(feature = "runtime-tokio")]
+#[test]
+fn warmed_tokio_timer_resets_do_not_allocate() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let executor = grafton_visca::TokioExecutor::from_handle(runtime.handle().clone());
+    assert_timer_reset_does_not_allocate(&executor);
+}
+
+#[cfg(feature = "runtime-smol")]
+#[test]
+fn warmed_smol_timer_resets_do_not_allocate() {
+    assert_timer_reset_does_not_allocate(&grafton_visca::SmolExecutor::new());
+}
