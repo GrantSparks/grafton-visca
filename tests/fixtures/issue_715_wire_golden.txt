@@ -15,7 +15,7 @@ PanTilt::Move[Stop,18,14]	81 01 06 01 18 14 03 03 FF
 PanTilt::Move[Up,00,00]	81 01 06 01 00 00 03 01 FF
 PanTilt::Move[Up,01,01]	81 01 06 01 01 01 03 01 FF
 PanTilt::Move[Up,18,18]	81 01 06 01 18 18 03 01 FF
-PanTilt::Move[Up,19,14]	CTOR_ERR(ParameterOutOfRange { parameter: "PanSpeed", value: 25, min: 0, max: 24 })
+PanTilt::Move[Up,19,14]	81 01 06 01 19 14 03 01 FF
 PanTilt::Move[Up,18,15]	81 01 06 01 18 15 03 01 FF
 PanTilt::AbsolutePosition[144,-72]	81 01 06 02 0A 05 00 00 09 00 0F 0F 0B 08 FF
 PanTilt::RelativePosition[144,-72]	81 01 06 03 0A 05 00 00 09 00 0F 0F 0B 08 FF
@@ -221,9 +221,9 @@ Gain::SetValue[05]	81 01 04 4C 00 00 00 05 FF
 GainLimit[05]	81 01 04 2C 05 FF
 Gain::SetValue[0F]	81 01 04 4C 00 00 00 0F FF
 GainLimit[0F]	81 01 04 2C 0F FF
-Gain::SetValue[10]	CTOR_ERR(ParameterOutOfRange { parameter: "GainLevel", value: 16, min: 0, max: 15 })
+Gain::SetValue[10]	81 01 04 4C 00 00 01 00 FF
 GainLimit[10]	CTOR_ERR(ParameterOutOfRange { parameter: "GainLimit", value: 16, min: 0, max: 15 })
-Gain::SetValue[FF]	CTOR_ERR(ParameterOutOfRange { parameter: "GainLevel", value: 255, min: 0, max: 15 })
+Gain::SetValue[FF]	CTOR_ERR(ParameterOutOfRange { parameter: "GainLevel", value: 255, min: 0, max: 25 })
 GainLimit[FF]	CTOR_ERR(ParameterOutOfRange { parameter: "GainLimit", value: 255, min: 0, max: 15 })
 WhiteBalance[Auto]	81 01 04 35 00 FF
 WhiteBalance[Indoor]	81 01 04 35 01 FF
@@ -321,25 +321,25 @@ Sharpness::SetLevel[FF]	CTOR_ERR(ParameterOutOfRange { parameter: "SharpnessLeve
 Backlight[on]	81 01 04 33 02 FF
 Backlight[off]	81 01 04 33 03 FF
 NR2D::off	81 01 04 53 00 FF
-NR2D[0]	81 01 04 53 00 FF
+NR2D[0]	CTOR_ERR(ParameterOutOfRange { parameter: "NoiseReduction2DLevel", value: 0, min: 1, max: 5 })
 NR2D[1]	81 01 04 53 01 FF
 NR2D[5]	81 01 04 53 05 FF
-NR2D[6]	CTOR_ERR(ParameterOutOfRange { parameter: "NoiseReduction2DLevel", value: 6, min: 0, max: 5 })
-NR2D[255]	CTOR_ERR(ParameterOutOfRange { parameter: "NoiseReduction2DLevel", value: 255, min: 0, max: 5 })
+NR2D[6]	CTOR_ERR(ParameterOutOfRange { parameter: "NoiseReduction2DLevel", value: 6, min: 1, max: 5 })
+NR2D[255]	CTOR_ERR(ParameterOutOfRange { parameter: "NoiseReduction2DLevel", value: 255, min: 1, max: 5 })
 NR3D::off	81 01 04 54 00 FF
-NR3D[0]	81 01 04 54 00 FF
+NR3D[0]	CTOR_ERR(ParameterOutOfRange { parameter: "NoiseReduction3DLevel", value: 0, min: 1, max: 8 })
 NR3D[1]	81 01 04 54 01 FF
 NR3D[5]	81 01 04 54 05 FF
 NR3D[8]	81 01 04 54 08 FF
-NR3D[9]	CTOR_ERR(ParameterOutOfRange { parameter: "NoiseReduction3DLevel", value: 9, min: 0, max: 8 })
-NR3D[255]	CTOR_ERR(ParameterOutOfRange { parameter: "NoiseReduction3DLevel", value: 255, min: 0, max: 8 })
+NR3D[9]	CTOR_ERR(ParameterOutOfRange { parameter: "NoiseReduction3DLevel", value: 9, min: 1, max: 8 })
+NR3D[255]	CTOR_ERR(ParameterOutOfRange { parameter: "NoiseReduction3DLevel", value: 255, min: 1, max: 8 })
 ImageFlipCombined[Off]	81 01 04 A4 00 FF
 ImageFlipCombined[Horizontal]	81 01 04 A4 01 FF
 ImageFlipCombined[Vertical]	81 01 04 A4 02 FF
 ImageFlipCombined[Both]	81 01 04 A4 03 FF
 PictureEffect[Off]	81 01 04 63 00 FF
 PictureEffect[BW]	81 01 04 63 04 FF
-PictureEffect[Unknown 0x02]	81 01 04 63 02 FF
+PictureEffect[Unknown 0x05]	81 01 04 63 05 FF
 ImageFlip[On]	81 01 04 66 02 FF
 ImageFlip[Off]	81 01 04 66 03 FF
 HorizontalFlip[on]	81 01 04 61 02 FF
@@ -375,11 +375,11 @@ MenuNavigate[Right]	81 01 06 01 0E 0E 02 03 FF
 MenuAction[Select]	81 01 06 06 05 FF
 MenuAction[Cancel]	81 01 06 06 04 FF
 DirectMenu[00,01]	81 01 7E 04 72 00 01 FF
-DirectMenu[00,FF]	81 01 7E 04 72 00 FF FF
-DirectMenu[FF,00]	81 01 7E 04 72 FF 00 FF
-DirectMenu[FF,FF]	81 01 7E 04 72 FF FF FF
-DirectMenu[FF,81]	CTOR_ERR(InvalidRequest("direct menu control cannot contain 0xFF followed by a VISCA address; it would encode as a second frame"))
-DirectMenu[81,01]	81 01 7E 04 72 81 01 FF
+DirectMenu[00,FF]	CTOR_ERR(InvalidResponse { expected: "0x00 (Release) or 0x01 (Press)", actual: [255] })
+DirectMenu[FF,00]	CTOR_ERR(InvalidResponse { expected: "0x00 (NdFilter), 0x01 (Iris), 0x02 (IsoGain), 0x03 (Shutter), 0x04 (AeLevelMode), or 0x7F (Exit)", actual: [255] })
+DirectMenu[FF,FF]	CTOR_ERR(InvalidResponse { expected: "0x00 (NdFilter), 0x01 (Iris), 0x02 (IsoGain), 0x03 (Shutter), 0x04 (AeLevelMode), or 0x7F (Exit)", actual: [255] })
+DirectMenu[FF,81]	CTOR_ERR(InvalidResponse { expected: "0x00 (NdFilter), 0x01 (Iris), 0x02 (IsoGain), 0x03 (Shutter), 0x04 (AeLevelMode), or 0x7F (Exit)", actual: [255] })
+DirectMenu[81,01]	CTOR_ERR(InvalidResponse { expected: "0x00 (NdFilter), 0x01 (Iris), 0x02 (IsoGain), 0x03 (Shutter), 0x04 (AeLevelMode), or 0x7F (Exit)", actual: [129] })
 Multicast::On	81 0B 01 23 01 FF
 Multicast::Off	81 0B 01 23 02 FF
 NdiQuality[High]	81 0B 01 01 01 FF
@@ -408,6 +408,84 @@ MotionSyncPreset[24]	81 0A 11 14 18 FF
 MotionSyncPreset[255]	CTOR_ERR(ParameterOutOfRange { parameter: "MotionSyncSpeed", value: 255, min: 1, max: 24 })
 VariableSpeed[Standard24]	81 01 06 45 08 FF
 VariableSpeed[Fine50]	81 01 06 45 18 FF
+Fr7AeLevelUp[R7]	81 01 04 0E 02 FF
+Fr7AeLevelDown[R7]	81 01 04 0E 03 FF
+Fr7AutoGain[R7]	81 01 7E 01 75 02 FF
+Fr7AutoShutter[R7]	81 01 05 35 02 FF
+Fr7AutoIris[R7]	81 01 05 34 02 FF
+Fr7IrisUp[R7]	81 01 7E 04 4B 02 0F 0F FF
+Fr7IrisDown[R7]	81 01 7E 04 4B 03 0F 0F FF
+Fr7WhiteBalanceSet[R7]	81 01 04 10 05 FF
+Fr7PresetWhiteUp[R7]	81 01 05 03 02 01 0F 0F FF
+Fr7PresetWhiteDown[R7]	81 01 05 03 03 01 0F 0F FF
+Fr7PresetWhiteDirect[R7]	81 01 05 43 01 03 0A 09 08 FF
+Fr7MemoryColorTemperatureUp[R7]	81 01 05 03 02 02 01 0E FF
+Fr7MemoryColorTemperatureDown[R7]	81 01 05 03 03 02 01 0E FF
+Fr7MemoryColorTemperatureDirect[R7]	81 01 05 43 02 03 0A 09 08 FF
+Fr7MemoryRedGainUp[R7]	81 01 7E 01 63 02 02 0F 0F FF
+Fr7MemoryRedGainDown[R7]	81 01 7E 01 63 03 02 0F 0F FF
+Fr7MemoryRedGainDirect[R7]	81 01 7E 04 46 02 00 07 0B 0C FF
+Fr7MemoryBlueGainUp[R7]	81 01 7E 01 64 02 02 0F 0F FF
+Fr7MemoryBlueGainDown[R7]	81 01 7E 01 64 03 02 0F 0F FF
+Fr7MemoryBlueGainDirect[R7]	81 01 7E 04 56 02 00 07 0B 0C FF
+Fr7MemoryTintUp[R7]	81 01 05 04 02 02 0F 0F FF
+Fr7MemoryTintDown[R7]	81 01 05 04 03 02 0F 0F FF
+Fr7MemoryTintDirect[R7]	81 01 05 44 02 00 00 0C 06 FF
+Fr7AtwColorTemperatureOffsetUp[R7]	81 01 05 05 02 00 0F 0F FF
+Fr7AtwColorTemperatureOffsetDown[R7]	81 01 05 05 03 00 0F 0F FF
+Fr7AtwColorTemperatureOffsetDirect[R7]	81 01 05 45 00 00 00 0C 06 FF
+Fr7AtwTintOffsetUp[R7]	81 01 05 06 02 00 0F 0F FF
+Fr7AtwTintOffsetDown[R7]	81 01 05 06 03 00 0F 0F FF
+Fr7AtwTintOffsetDirect[R7]	81 01 05 46 00 00 00 0C 06 FF
+Fr7MasterBlackUp[R7]	81 01 05 18 02 0F 0F FF
+Fr7MasterBlackDown[R7]	81 01 05 18 03 0F 0F FF
+Fr7MasterBlackDirect[R7]	81 01 05 48 00 07 0B 0C FF
+Fr7RedBlackUp[R7]	81 01 7E 01 65 02 0F 0F FF
+Fr7RedBlackDown[R7]	81 01 7E 01 65 03 0F 0F FF
+Fr7RedBlackDirect[R7]	81 01 7E 04 43 00 07 0B 0C FF
+Fr7BlueBlackUp[R7]	81 01 7E 01 66 02 0F 0F FF
+Fr7BlueBlackDown[R7]	81 01 7E 01 66 03 0F 0F FF
+Fr7BlueBlackDirect[R7]	81 01 7E 04 44 00 07 0B 0C FF
+Fr7DetailSetting[R7]	81 01 7E 01 60 02 FF
+Fr7KneeSetting[R7]	81 01 7E 01 6D 02 FF
+Fr7SetKneeMode[R7]	81 01 7E 01 54 04 FF
+Fr7SetKneeSlope[R7]	81 01 7E 01 6F 0C 06 FF
+Fr7SetKneePoint[R7]	81 01 7E 01 6E 02 02 FF
+Fr7ZoomHighResolutionTele[R7]	81 01 7E 04 17 02 07 0F 0F 0E FF
+Fr7ZoomHighResolutionWide[R7]	81 01 7E 04 17 03 07 0F 0F 0E FF
+Fr7ZoomHighResolutionStop[R7]	81 01 7E 04 17 00 00 00 00 00 FF
+Fr7SetPresetSpeedSelection[R7]	81 01 7E 04 1B 02 FF
+Fr7SetCommonPresetSpeed[R7]	81 01 7E 04 1C 03 02 FF
+Fr7SetSeparatePresetMode[R7]	81 01 7E 04 27 63 01 FF
+Fr7SetSeparatePresetSpeed[R7]	81 01 7E 01 0B 63 32 FF
+Fr7SetSeparatePresetDuration[R7]	81 01 7E 04 67 63 03 0D 0E FF
+WhiteBalancePreset[R7]	81 01 04 35 0A FF
+Fr7AeLevelInquiry	81 09 04 4E FF
+Fr7AutoGainInquiry	81 09 7E 01 75 FF
+Fr7AutoShutterInquiry	81 09 05 35 FF
+Fr7AutoIrisInquiry	81 09 05 34 FF
+Fr7PresetWhiteInquiry	81 09 05 43 01 FF
+Fr7MemoryColorTemperatureInquiry	81 09 05 43 02 FF
+Fr7MemoryRedGainInquiry	81 09 7E 04 46 02 FF
+Fr7MemoryBlueGainInquiry	81 09 7E 04 56 02 FF
+Fr7MemoryTintInquiry	81 09 05 44 02 FF
+Fr7AtwColorTemperatureOffsetInquiry	81 09 05 45 00 FF
+Fr7AtwTintOffsetInquiry	81 09 05 46 00 FF
+Fr7MasterBlackInquiry	81 09 05 48 FF
+Fr7RedBlackInquiry	81 09 7E 04 43 FF
+Fr7BlueBlackInquiry	81 09 7E 04 44 FF
+Fr7DetailInquiry	81 09 7E 01 60 FF
+Fr7KneeInquiry	81 09 7E 01 6D FF
+Fr7KneeModeInquiry	81 09 7E 01 54 FF
+Fr7KneeSlopeInquiry	81 09 7E 01 6F FF
+Fr7KneePointInquiry	81 09 7E 01 6E FF
+Fr7KneePermissionInquiry	81 09 7E 04 6D 00 FF
+Fr7ClearImageZoomPositionInquiry	81 09 04 47 FF
+Fr7PresetSpeedSelectionInquiry	81 09 7E 04 1B FF
+Fr7CommonPresetSpeedInquiry	81 09 7E 04 1C FF
+Fr7SeparatePresetModeInquiry	81 09 7E 04 27 00 FF
+Fr7SeparatePresetSpeedInquiry	81 09 7E 01 0B 00 FF
+Fr7SeparatePresetDurationInquiry	81 09 7E 04 67 00 FF
 AutoFocusSensitivityInquiry	81 09 04 58 FF
 AutoWhiteBalanceSensitivityInquiry	81 09 04 A9 FF
 BacklightInquiry	81 09 04 33 FF
@@ -416,8 +494,6 @@ BlueTuningInquiry	81 09 04 44 FF
 BrightnessInquiry	81 09 04 4D FF
 ColorTemperatureInquiry	81 09 04 20 FF
 ContrastInquiry	81 09 04 A2 FF
-DefogLevelInquiry	81 09 04 A0 FF
-DefogModeInquiry	81 09 04 37 FF
 ExposureCompensationInquiry	81 09 04 4E FF
 ExposureCompensationModeInquiry	81 09 04 3E FF
 ExposureCompensationPositionInquiry	81 09 04 4E FF
@@ -433,7 +509,6 @@ GainLimitInquiry	81 09 04 2C FF
 GammaInquiry	81 09 04 5B FF
 HueInquiry	81 09 04 4F FF
 ImageFlipInquiry	81 09 04 66 FF
-IrisControlInquiry	81 09 04 2B FF
 IrisInquiry	81 09 04 4B FF
 LuminanceInquiry	81 09 04 A1 FF
 MenuOpenCloseInquiry	81 09 06 06 FF
@@ -452,10 +527,8 @@ SaturationInquiry	81 09 04 49 FF
 SharpnessModeInquiry	81 09 04 05 FF
 SharpnessPositionInquiry	81 09 04 42 FF
 ShutterInquiry	81 09 04 4A FF
-TallyAutoAdjustInquiry	81 09 04 A9 FF
 TallyGreenInquiry	81 09 7E 04 1A FF
 TallyRedInquiry	81 09 7E 01 0A FF
-TallyStatusInquiry	81 09 04 A8 FF
 UsbAudioInquiry	81 2A 02 A0 04 FF
 VersionInquiry	81 09 00 02 FF
 WhiteBalanceModeInquiry	81 09 04 35 FF
@@ -464,3 +537,28 @@ PowerInquiry@cam7	87 09 04 00 FF
 NR2DMode[Auto]	81 01 04 50 02 FF
 NR2DMode[Manual]	81 01 04 50 03 FF
 NoiseReduction2DModeInquiry	81 09 04 50 FF
+FR7[Desktop,ABS,+170,+195]	81 01 06 02 09 05 0F 06 03 05 09 00 0B 03 0B 00 FF
+FR7[Desktop,ABS,-170,-30]	81 01 06 02 09 05 00 09 0C 0A 07 0F 0E 04 05 0B FF
+FR7[Desktop,REL,+200,0]	81 01 06 03 09 05 0F 04 07 0B 04 00 00 00 00 00 FF
+FR7[Desktop,REL,0,-35]	81 01 06 03 09 05 00 00 00 00 00 0F 0D 0F 0B 0F FF
+FR7[Desktop,ABS,+200,0,refused]	REJECT(InvalidParameter)
+FR7[Desktop,ABS,0,-35,refused]	REJECT(InvalidParameter)
+FR7[Desktop,LimitSet,UpRight]	81 01 06 07 00 01 0F 06 03 05 09 00 0B 03 0B 00 FF
+FR7[Desktop,LimitSet,DownLeft]	81 01 06 07 00 00 00 09 0C 0A 07 0F 0E 04 05 0B FF
+FR7[LimitClear,UpRight]	81 01 06 07 01 01 07 0F 0F 0F 0F 07 0F 0F 0F 0F FF
+FR7[LimitClear,DownLeft]	81 01 06 07 01 00 07 0F 0F 0F 0F 07 0F 0F 0F 0F FF
+FR7[Ceiling,ABS,0,+15]	81 01 06 02 09 05 00 00 00 00 00 00 00 0D 0D 02 FF
+FR7[Ceiling,ABS,0,-210]	81 01 06 02 09 05 00 00 00 00 00 0F 03 0E 07 0D FF
+FR7[Ceiling,ABS,0,+80,refused]	REJECT(InvalidParameter)
+G2[REL,0,-45]	81 01 06 03 09 07 00 00 00 00 0F 0D 07 08 FF
+G2[ABS,0,-45,refused]	REJECT(InvalidParameter)
+G2[ABS,+45,+15,paired-speed]	81 01 06 02 09 07 00 02 08 08 00 00 0D 08 FF
+G2[ABS,-45,-15,paired-speed]	81 01 06 02 09 07 0F 0D 07 08 0F 0F 02 08 FF
+BRC300[ABS,+45,+15,single-speed]	81 01 06 02 09 00 0F 0D 0B 07 00 00 0C 03 00 FF
+BRC300[ABS,-45,-15,single-speed]	81 01 06 02 09 00 00 02 04 09 00 0F 03 0D 00 FF
+BRC300[REL,+45,+15,single-speed]	81 01 06 03 09 00 0F 0D 0B 07 00 00 0C 03 00 FF
+BRC300[REL,-45,-15,single-speed]	81 01 06 03 09 00 00 02 04 09 00 0F 03 0D 00 FF
+BRC300[ABS,unequal-speeds,refused]	REJECT(InvalidParameter)
+Unsigned[ABS,zero,bias]	81 01 06 02 09 07 08 00 00 00 08 00 00 00 FF
+Unsigned[REL,zero,no-bias]	81 01 06 03 09 07 00 00 00 00 00 00 00 00 FF
+H900[PowerInquiry,target-aware]	81 09 7E 04 00 FF
