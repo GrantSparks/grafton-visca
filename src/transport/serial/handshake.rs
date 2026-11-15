@@ -103,10 +103,15 @@ enum Operation {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Phase {
+enum AddressPhase {
     Write,
     Read,
     Pause,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ClearPhase {
+    Write,
     Settle,
 }
 
@@ -116,12 +121,16 @@ enum State {
     Next,
     /// Begin Address Set attempt `attempt` (1-based) at the next clock sample.
     AttemptStart { attempt: u8 },
-    /// Inside one operation (or Address Set attempt) bounded by `deadline`.
-    Running {
-        operation: Operation,
+    /// One Address Set attempt; its counter never belongs to I/F Clear.
+    AddressSet {
         attempt: u8,
         deadline: Deadline,
-        phase: Phase,
+        phase: AddressPhase,
+    },
+    /// One bounded I/F Clear write and settle delay.
+    InterfaceClear {
+        deadline: Deadline,
+        phase: ClearPhase,
     },
     /// Waiting before the next Address Set attempt.
     RetryDelay { next_attempt: u8 },
@@ -220,18 +229,27 @@ impl SerialStartup {
                 State::Next => match self.operations.next() {
                     None if self.performed_io => self.state = State::Discard,
                     None => self.state = State::Finished(Ok(())),
-                    Some(Operation::AddressSet) => {
-                        self.state = State::AttemptStart { attempt: 1 };
-                    }
+                    Some(Operation::AddressSet) => self.state = State::AttemptStart { attempt: 1 },
                     Some(Operation::InterfaceClear) => {
                         debug!("Sending I/F Clear");
-                        self.start(Operation::InterfaceClear, 1, now);
+                        self.begin(now, self.timing.if_clear_operation, |deadline| {
+                            State::InterfaceClear {
+                                deadline,
+                                phase: ClearPhase::Write,
+                            }
+                        });
                     }
                 },
                 State::AttemptStart { attempt } => {
                     debug!("Address Set attempt {attempt}");
                     self.framer.clear();
-                    self.start(Operation::AddressSet, attempt, now);
+                    self.begin(now, self.timing.address_set_attempt, |deadline| {
+                        State::AddressSet {
+                            attempt,
+                            deadline,
+                            phase: AddressPhase::Write,
+                        }
+                    });
                 }
                 State::RetryDelay { next_attempt } => {
                     self.state = State::AttemptStart {
@@ -244,32 +262,51 @@ impl SerialStartup {
                     return Action::DiscardInput;
                 }
                 State::Finished(ref result) => return Action::Done(result.clone()),
-                State::Running {
-                    operation,
+                State::AddressSet {
                     attempt,
                     deadline,
                     phase,
                 } => {
                     let remaining = deadline.remaining_at(now);
-                    match (operation, phase) {
-                        (_, Phase::Write) if remaining.is_zero() => {
-                            self.expired(operation, attempt)
-                        }
-                        (Operation::AddressSet, Phase::Write) => {
+                    if remaining.is_zero() {
+                        self.expire_address_set(attempt);
+                        continue;
+                    }
+                    match phase {
+                        AddressPhase::Write => {
                             return Action::Write {
                                 frame: self.address_set.as_slice(),
                                 timeout: self.write_timeout.min(remaining),
-                            };
+                            }
                         }
-                        (Operation::InterfaceClear, Phase::Write) => {
+                        AddressPhase::Read => {
+                            return Action::Read {
+                                timeout: self.read_timeout.min(remaining),
+                            }
+                        }
+                        AddressPhase::Pause => {
+                            self.state = State::AddressSet {
+                                attempt,
+                                deadline,
+                                phase: AddressPhase::Read,
+                            };
+                            return Action::Sleep(self.timing.idle_pause.min(remaining));
+                        }
+                    }
+                }
+                State::InterfaceClear { deadline, phase } => {
+                    let remaining = deadline.remaining_at(now);
+                    match phase {
+                        ClearPhase::Write if remaining.is_zero() => {
+                            self.fail(Error::connect_timeout())
+                        }
+                        ClearPhase::Write => {
                             return Action::Write {
                                 frame: self.if_clear.as_slice(),
                                 timeout: self.write_timeout.min(remaining),
-                            };
+                            }
                         }
-                        (Operation::InterfaceClear, Phase::Settle) => {
-                            // The settle delay belongs to the same bounded
-                            // operation: a stalled write cannot consume it.
+                        ClearPhase::Settle => {
                             if remaining < self.timing.if_clear_settle {
                                 self.fail(Error::connect_timeout());
                             } else {
@@ -277,64 +314,71 @@ impl SerialStartup {
                                 return Action::Sleep(self.timing.if_clear_settle);
                             }
                         }
-                        (Operation::AddressSet, _) if remaining.is_zero() => {
-                            self.expired(operation, attempt);
-                        }
-                        (Operation::AddressSet, Phase::Read) => {
-                            return Action::Read {
-                                timeout: self.read_timeout.min(remaining),
-                            };
-                        }
-                        (Operation::AddressSet, Phase::Pause) => {
-                            self.set_phase(Phase::Read);
-                            return Action::Sleep(self.timing.idle_pause.min(remaining));
-                        }
-                        (Operation::AddressSet, Phase::Settle)
-                        | (Operation::InterfaceClear, Phase::Read | Phase::Pause) => {
-                            unreachable!("phase {phase:?} is never entered by {operation:?}")
-                        }
                     }
                 }
             }
         }
     }
 
-    /// Report the result of an [`Action::Write`].
-    ///
-    /// A failed or timed-out write ends startup: how much of the broadcast
-    /// reached the bus is unknowable, and resending after a partial frame
-    /// would put a malformed concatenation on the daisy chain.
+    /// Report the result of the last requested write.
+    /// A failed write is never retried because its partial bus progress is unknown.
     pub(crate) fn wrote(&mut self, result: Result<()>) {
         match (result, &self.state) {
             (Err(error), _) => self.fail(error),
             (
                 Ok(()),
-                State::Running {
-                    operation: Operation::InterfaceClear,
-                    ..
+                State::AddressSet {
+                    attempt,
+                    deadline,
+                    phase: AddressPhase::Write,
                 },
-            ) => self.set_phase(Phase::Settle),
-            (Ok(()), _) => self.set_phase(Phase::Read),
+            ) => {
+                self.state = State::AddressSet {
+                    attempt: *attempt,
+                    deadline: *deadline,
+                    phase: AddressPhase::Read,
+                };
+            }
+            (
+                Ok(()),
+                State::InterfaceClear {
+                    deadline,
+                    phase: ClearPhase::Write,
+                },
+            ) => {
+                self.state = State::InterfaceClear {
+                    deadline: *deadline,
+                    phase: ClearPhase::Settle,
+                };
+            }
+            (Ok(()), _) => self.fail(Error::InvalidState(
+                "serial startup received a write result without a pending write".into(),
+            )),
         }
     }
 
-    /// Report the result of an [`Action::Read`].
-    ///
-    /// An idle read (a timeout, `WouldBlock`, `Interrupted`, or no bytes) and
-    /// a chunk that completes no reply pause within the attempt; any other
-    /// read error ends startup with that error unchanged.
+    /// Report the result of the last requested Address Set read.
+    /// Idle reads pause within the same attempt; all other I/O errors stay exact.
     pub(crate) fn read(&mut self, result: Result<&[u8]>) {
+        let State::AddressSet {
+            attempt,
+            deadline,
+            phase: AddressPhase::Read,
+        } = self.state
+        else {
+            self.fail(Error::InvalidState(
+                "serial startup received a read result without a pending read".into(),
+            ));
+            return;
+        };
         let chunk = match result {
             Ok(chunk) if !chunk.is_empty() => chunk,
-            Ok(_) => {
-                self.set_phase(Phase::Pause);
-                return;
-            }
-            // The driver already classified an idle read (an armed timeout
-            // or interruption on a device, an executor timeout in async) as
-            // `Error::Timeout`; every other error is a real read failure.
-            Err(Error::Timeout { .. }) => {
-                self.set_phase(Phase::Pause);
+            Ok(_) | Err(Error::Timeout { .. }) => {
+                self.state = State::AddressSet {
+                    attempt,
+                    deadline,
+                    phase: AddressPhase::Pause,
+                };
                 return;
             }
             Err(error) => {
@@ -349,15 +393,16 @@ impl SerialStartup {
                 self.addressed_cameras = Some(camera_count);
                 self.state = State::Next;
             }
-            Ok(None) => self.set_phase(Phase::Pause),
-            // The framer could not resynchronize within its bounds: this
-            // attempt's input is unusable, but the frame was fully written,
-            // so another attempt is safe.
+            Ok(None) => {
+                self.state = State::AddressSet {
+                    attempt,
+                    deadline,
+                    phase: AddressPhase::Pause,
+                }
+            }
             Err(error @ Error::ResponseTooLarge { .. }) => {
                 warn!(?error, "Address Set attempt discarded unframeable input");
-                if let State::Running { attempt, .. } = self.state {
-                    self.expired(Operation::AddressSet, attempt);
-                }
+                self.expire_address_set(attempt);
             }
             Err(error) => self.fail(error),
         }
@@ -365,7 +410,7 @@ impl SerialStartup {
 
     /// Feed one chunk through the bounded raw framer.
     fn process_chunk(&mut self, chunk: &[u8]) -> Result<Option<u8>> {
-        self.framer.push_slice_with_resync(chunk)?;
+        self.framer.push_slice(chunk)?;
         for frame in self.framer.drain_frames() {
             match frame {
                 Ok(frame) => {
@@ -393,50 +438,27 @@ impl SerialStartup {
         Ok(None)
     }
 
-    /// An attempt's budget is spent without a completed operation.
-    ///
-    /// A fully written Address Set that received no reply may be retried; once
-    /// every attempt is spent startup fails with
-    /// [`Error::MaxRetriesExceeded`]. An expired I/F Clear fails at once.
-    fn expired(&mut self, operation: Operation, attempt: u8) {
-        match operation {
-            Operation::AddressSet if attempt < self.timing.address_set_attempts => {
-                warn!(attempt, "Address Set attempt got no reply, retrying");
-                self.state = State::RetryDelay {
-                    next_attempt: attempt + 1,
-                };
-            }
-            Operation::AddressSet => {
-                debug!("Address Set got no reply after {attempt} attempts");
-                self.fail(Error::MaxRetriesExceeded);
-            }
-            Operation::InterfaceClear => self.fail(Error::connect_timeout()),
+    /// Retry only a fully written Address Set whose bounded reply was absent.
+    fn expire_address_set(&mut self, attempt: u8) {
+        if attempt < self.timing.address_set_attempts {
+            warn!(attempt, "Address Set attempt got no reply, retrying");
+            self.state = State::RetryDelay {
+                next_attempt: attempt + 1,
+            };
+        } else {
+            debug!("Address Set got no reply after {attempt} attempts");
+            self.fail(Error::MaxRetriesExceeded);
         }
     }
 
-    /// Begin one bounded operation (or Address Set attempt) at `now`.
-    fn start(&mut self, operation: Operation, attempt: u8, now: Instant) {
-        let budget = match operation {
-            Operation::AddressSet => self.timing.address_set_attempt,
-            Operation::InterfaceClear => self.timing.if_clear_operation,
-        };
+    /// Construct the operation-specific write state only after its deadline is valid.
+    fn begin(&mut self, now: Instant, budget: Duration, running: impl FnOnce(Deadline) -> State) {
         match Deadline::after(now, budget, "serial startup budget") {
             Ok(deadline) => {
                 self.performed_io = true;
-                self.state = State::Running {
-                    operation,
-                    attempt,
-                    deadline,
-                    phase: Phase::Write,
-                };
+                self.state = running(deadline);
             }
             Err(error) => self.fail(error),
-        }
-    }
-
-    fn set_phase(&mut self, next: Phase) {
-        if let State::Running { ref mut phase, .. } = self.state {
-            *phase = next;
         }
     }
 
@@ -533,6 +555,34 @@ mod tests {
                 if message.contains(&format!("reports {} devices", next_address - 1)))
             );
         }
+    }
+
+    #[test]
+    fn overflow_retries_the_entire_attempt_without_salvaging_its_suffix() {
+        let config = Config::new("/dev/test")
+            .startup(Startup::default().with_address_set(true))
+            .buffer_config(BufferConfig {
+                recv_buffer_size: BufferConfig::MIN_RECV_BUFFER_SIZE,
+                max_buffer_size: 64,
+            });
+        let capacity = config.buffer_config.framer_capacity();
+        let mut startup = startup(config);
+        let now = Instant::now();
+        assert!(matches!(startup.next(now), Action::Write { .. }));
+        startup.wrote(Ok(()));
+        assert!(matches!(startup.next(now), Action::Read { .. }));
+        let mut overflowing = vec![0x55; capacity];
+        overflowing.extend_from_slice(&[0x88, 0x30, 0x02, VISCA_TERMINATOR]);
+        startup.read(Ok(&overflowing));
+        assert_eq!(startup.addressed_cameras(), None);
+        assert!(matches!(startup.next(now), Action::Sleep(_)));
+        assert!(matches!(startup.next(now), Action::Write { .. }));
+        startup.wrote(Ok(()));
+        assert!(matches!(startup.next(now), Action::Read { .. }));
+        startup.read(Ok(&[0x88, 0x30, 0x04, VISCA_TERMINATOR]));
+        assert!(matches!(startup.next(now), Action::DiscardInput));
+        assert!(matches!(startup.next(now), Action::Done(Ok(()))));
+        assert_eq!(startup.addressed_cameras(), Some(3));
     }
 }
 
