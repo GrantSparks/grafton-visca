@@ -8,11 +8,11 @@ use grafton_visca::{
     command::{
         HueCommand, HueInquiry, NoiseReduction2D, NoiseReduction2DInquiry, NoiseReduction2DMode,
         NoiseReduction2DModeCommand, NoiseReduction2DModeInquiry, PictureEffectCommand,
-        PictureEffectInquiry, PictureEffectMode, SaturationCommand, SaturationInquiry,
-        SharpnessModeInquiry,
+        PictureEffectInquiry, PictureEffectMode, SaturationCommand, SaturationInquiry, Sharpness,
+        SharpnessMode, SharpnessModeInquiry, SharpnessPositionInquiry,
     },
     profiles::SonyEVIH100,
-    types::{HueLevel, SaturationLevel},
+    types::{HueLevel, SaturationLevel, SharpnessLevel},
     CameraId, Error, ProfileSpec, Request,
 };
 
@@ -137,7 +137,7 @@ fn r8_color_gain_and_hue_are_the_saturation_and_hue_controls() {
 }
 
 #[test]
-fn r8_aperture_and_picture_effect_are_metadata_only() {
+fn r8_aperture_levels_are_typed_without_a_sharpness_mode_grant() {
     let profile = profile();
     let capabilities = profile.capabilities();
     assert_eq!(
@@ -149,22 +149,59 @@ fn r8_aperture_and_picture_effect_are_metadata_only() {
             .map(|range| range.as_inclusive()),
         Some(0x00..=0x0F)
     );
-    assert!(capabilities.has_picture_effect());
-    assert!(!capabilities.supports_typed(TypedSupportSurface::SharpnessControl));
-    assert!(!capabilities.supports_typed(TypedSupportSurface::PictureEffect));
+    assert!(capabilities.supports_typed(TypedSupportSurface::SharpnessControl));
+    assert!(!capabilities.supports_typed(TypedSupportSurface::SharpnessMode));
 
-    // The typed sharpness surface also sends the `04 05` mode R8 lacks, and
-    // the typed picture-effect inquiry reads R8's Neg.Art `02` as Off.
+    let target = grafton_visca::TargetRegistration::new(CameraId::CAMERA_1, profile)
+        .expect("target registration");
+    // R8 CAM_Aperture Direct: `8x 01 04 42 00 00 00 0p FF`, 0h..Fh.
+    for level in 0..=0x0f {
+        let command = Sharpness::SetLevel {
+            value: SharpnessLevel::new(level).expect("R8 aperture level"),
+        };
+        command
+            .validate_for_target(&target)
+            .expect("sourced aperture direct");
+        assert_eq!(wire(&command), [0x81, 1, 4, 0x42, 0, 0, 0, level, 0xff]);
+    }
+    assert!(SharpnessLevel::new(0x10).is_err());
+    for (command, operation) in [
+        (Sharpness::Reset, 0),
+        (Sharpness::Up, 2),
+        (Sharpness::Down, 3),
+    ] {
+        command
+            .validate_for_target(&target)
+            .expect("sourced aperture adjustment");
+        assert_eq!(wire(&command), [0x81, 1, 4, 2, operation, 0xff]);
+    }
+    SharpnessPositionInquiry
+        .validate_for_target(&target)
+        .expect("sourced aperture inquiry");
+    assert_eq!(wire(&SharpnessPositionInquiry), [0x81, 9, 4, 0x42, 0xff]);
+
+    // R8's aperture level family does not establish `04 05`/`09 04 05` mode.
+    for mode in [SharpnessMode::Auto, SharpnessMode::Manual] {
+        assert!(matches!(
+            Sharpness::Mode(mode).validate_for_target(&target),
+            Err(Error::FeatureNotSupported { .. })
+        ));
+    }
     assert!(matches!(
-        SharpnessModeInquiry.validate_for_target(
-            &grafton_visca::TargetRegistration::new(
-                grafton_visca::CameraId::CAMERA_1,
-                profile.clone()
-            )
-            .expect("target registration")
-        ),
+        SharpnessModeInquiry.validate_for_target(&target),
         Err(Error::FeatureNotSupported { .. })
     ));
+}
+
+#[test]
+fn r8_picture_effect_is_metadata_only() {
+    let profile = profile();
+    assert!(profile.capabilities().has_picture_effect());
+    assert!(!profile
+        .capabilities()
+        .supports_typed(TypedSupportSurface::PictureEffect));
+
+    // The typed picture-effect inquiry reads R8's Neg.Art `02` as Off.
     assert!(matches!(
         PictureEffectCommand::new(PictureEffectMode::BlackAndWhite).validate_for_target(
             &grafton_visca::TargetRegistration::new(
