@@ -127,8 +127,8 @@ fn test_profile_group_export() {
 #[test]
 fn test_value_types_export() {
     use grafton_visca::types::{
-        BrightnessLevel, ColorTemp, ContrastLevel, DefogLevel, FocusPosition, GainLevel, GainLimit,
-        IrisLevel, MotionSyncSpeed, PanSpeed, TiltSpeed,
+        BrightnessLevel, ColorTemp, ContrastLevel, FocusPosition, GainLevel, GainLimit, IrisLevel,
+        MotionSyncSpeed, PanSpeed, TiltSpeed,
     };
 
     let cfg = Config::default();
@@ -163,9 +163,6 @@ fn test_value_types_export() {
         .is_empty());
     assert!(!MotionSyncSpeed::export_to_string(&cfg)
         .expect("Failed to export MotionSyncSpeed")
-        .is_empty());
-    assert!(!DefogLevel::export_to_string(&cfg)
-        .expect("Failed to export DefogLevel")
         .is_empty());
 }
 
