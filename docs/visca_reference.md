@@ -1324,7 +1324,7 @@ This appendix keeps product/spec data consolidated without expanding the main VI
 | R7 | Sony ILME‑FR7 / FR7K VISCA Command List, Version 4.00 | https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf | Sony VISCA-over-IP UDP `52381`, 8-byte header, payload types, sequence number, socket behavior, errors, retransmission guidance; FR7 vendor-relative `7E 04 4B` iris Up/Down, `05 34` Auto Iris inquiry, variable-ND controls/inquiries, and fixed `04 3A` spotlight controls. The Version 4.00 PDF was downloaded and checked on 2026-11-15: ND variable inquiry on p. 21 and density-code table on p. 25 establish the current typed readback in §9.4. It does not establish the shared `04 39` AE-mode command/inquiry family, absolute iris direct control, shared `04 58` autofocus sensitivity, shared `04 50`/`04 53`/`04 54` noise reduction, or a `09 04 4B` position inquiry. `CAM_VersionInq` (`8X 09 00 02 FF` → `Y0 50 GG GG HH HH JJ JJ KK FF`): vendor ID `0001` (Sony), model ID `051E` (ILME-FR7/FR7K), ROM revision, maximum socket `02`; read on 2026-10-05 from the indexed text of the Version 2.00 edition (https://pro.sony/s3/2022/09/14131603/VISCA-Command-List-Version-2.00.pdf) because both editions refused direct download (HTTP 403). The shutter table has not been transcribed into the checked profile inventory, so `SonyFR7` still advertises no shutter codes. |
 | R8 | Sony EVI‑H100S/H100V Technical Manual | https://www.sony.com/electronics/support/res/manuals/AE4U/AE4U1001M.pdf | Bright Direct `04 4D`, Gamma `04 5B`, digital zoom inquiry, and fixed `04 5A` automatic slow-shutter commands. Line items checked on 2026-10-05 against a distributor copy of the same manual (A-E4U-100-11(1)), https://www.daitron.com/documents/evih100s_manual.pdf: command list (2/4) `CAM_AE` Full Auto/Manual/Shutter Priority/Iris Priority/Bright `8x 01 04 39 00/03/0A/0B/0D FF`, `CAM_Iris` reset/up/down `8x 01 04 0B 00/02/03 FF` and direct `8x 01 04 4B 00 00 0p 0q FF`; inquiry list (1/3) `CAM_AEModeInq` `8x 09 04 39 FF`, `CAM_IrisPosInq` `8x 09 04 4B FF`, `CAM_FocusNearLimitInq` `8x 09 04 28 FF`; iris table (p. 44) `00` CLOSE and `05`..`11` (F14..F1.6); focus position `1000` (far) to `F000` (near); `CAM_WB` Auto/Indoor/Outdoor/One Push/Manual with the `04 10 05` trigger and no color-temperature mode or `04 20` command; `CAM_RGain`/`CAM_BGain` `04 03`/`04 04` and direct `04 43`/`04 44` R/B gain `00..FF` with `09 04 43`/`44` inquiries (absolute gain, not signed tuning); `CAM_ExpComp` `04 3E`/`04 0E`/`04 4E` with `09 04 3E`/`4E` (`00`..`0E` = −7..+7); `CAM_Bright` `04 0D`/`04 4D` with `09 04 4D` (`00`, `05`..`1F`); `CAM_WD` `04 3D` (not the `04 25` dynamic-range command); gain `00` (−3 dB) to `0F` (+28 dB); the official manual inquiry list p. 35, rechecked 2026-11-15, gives `CAM_GainPosInq` `8x 09 04 4C FF` with reply `y0 50 00 00 0p 0q FF`; no `04 61`/`04 66` flip/mirror command (image flip is a rear switch); `8x 2p FF` command cancel; command list (4/4) pan `E1E5`..`1E1B` (−170..+170°), tilt `FC75`..`0FF0` (−20..+90°, IMAGE FLIP off), pan speed `01`..`18`, tilt speed `01`..`17`; `CAM_Memory` p = 0..5; command list note 4: after a `CAM_Memory` recall completion, a following command may be answered `Command not executable` for at most 240 ms and should be sent again. `CAM_VersionInq` (`8X 09 00 02 FF` → `Y0 50 GG GG HH HH JJ JJ KK FF`): vendor ID `0001` (Sony), model ID `050E` (EVI-H100V) / `050F` (EVI-H100S), ROM revision, maximum socket `02`. Also: VISCA over RS-232C/RS-422 only (9,600 or 38,400 bps; no IP transport); shutter table (exposure control 1/2, 60/30 mode) `00` 1/1 s through `15` 1/10000 s (`05` 1/30, `0F` 1/1000); `CAM_Focus` One Push Trigger `04 18 01`; `CAM_DZoom` `04 06 02/03` with `09 04 06`; digital zoom positions `4000`..`7AC0`; AF sensitivity Normal `04 58 02` and Low `03` only; command list (3/4) `CAM_NR` `8x 01 04 53 0p FF` (0 off, 1–5) with `CAM_NRInq` `09 04 53` → `y0 50 0p FF`, `CAM_ColorGain` `04 49 00 00 00 0p` and `CAM_ColorHue` `04 4F 00 00 00 0p` (`0h`..`Eh`) with `09 04 49`/`4F` inquiries, `CAM_Aperture` reset/up/down `04 02` and direct `04 42 00 00 0p 0q` (level `00`..`0F`) with `09 04 42`, `CAM_PictureEffect` Off/Neg.Art/B&W `04 63 00/02/04` with `CAM_PictureEffectModeInq` replies `00`/`02`/`04`; no `04 50` NR mode, `04 54` 3D NR or `04 05` aperture mode; limit table UpRight pan `0001`..`1E1B`, tilt `0001`..`0FF0` (increasing raw pan is right, increasing raw tilt is up). |
 | R9 | Sony EVI‑H100S support/manuals page | https://www.sony.com.au/electronics/support/network-camera-systems-ptz-cameras/evi-h100s/manuals | Official support page that links the Technical Manual. |
-| R11 | Sony BRC-H900 VISCA Command List | https://pro.sony/s3/cms-static-content/uploadfile/59/1237493025759.pdf | BRC-H900 shared `04 39` Full Auto/Manual/Shutter-priority/Iris-priority commands (lines 706–717; Bright is not listed), standard `04 0B`/`04 4B` iris controls, `09 04 39` exposure inquiry (line 1003), and `09 04 4B` iris-position inquiry (line 1012); fixed `04 3A` spotlight commands. It does not establish the fixed `04 5A` automatic-slow-shutter, shared brightness, shared noise-reduction, or picture-effect families. `CAM_VersionInq` (`8X 09 00 02 FF` → `Y0 50 GG GG HH HH JJ JJ KK FF`): vendor ID `0001` (Sony), model ID `050B` (BRC-H900), ROM revision, maximum socket `02`; read on 2026-10-05 from the indexed text of the Command List Version 1.00 (A-E99-100-11) because direct downloads were refused. Its shutter table has not been read (downloads refused), so `SonyBRCH900` advertises no shutter codes. |
+| R11 | Sony BRC-H900 VISCA Command List, Version 2.20, A-E99-100-14(1) | https://pro.sony/s3/cms-static-content/uploadfile/59/1237493025759.pdf | The current indexed Version 2.20 edition was checked on 2026-11-15; direct downloads and PDF screenshots were unavailable. Its pp. 14–17 and 20–22 establish shared `04 39` Full Auto/Manual/Shutter-priority/Iris-priority commands, standard `04 0B`/`04 4B` iris controls, matching exposure/iris queries, and the extended `09 7E 04 00` power-status query. Position commands use five-nibble pan, four-nibble tilt and one speed; the position reply has nine nibbles. The `CAM_BackLight` and spotlight text extraction shows the On setter, but does not positively establish Off; an inquiry reply pair alone does not establish both setters. This edition supersedes the earlier Version 1.00 transcription where stated; it does not make missing or contradictory rows positive evidence. It does not establish the fixed `04 5A` automatic-slow-shutter, shared brightness, shared noise-reduction, or picture-effect families. `CAM_VersionInq` (`8X 09 00 02 FF` → `Y0 50 GG GG HH HH JJ JJ KK FF`): vendor ID `0001` (Sony), model ID `050B` (BRC-H900), ROM revision, maximum socket `02`; read on 2026-10-05 from the indexed text of the Command List Version 1.00 (A-E99-100-11) because direct downloads were refused. Its full shutter table has not been transcribed into the profile inventory, so `SonyBRCH900` advertises no shutter codes. The lens-block inquiry contains zoom/focus positions, but the checked individual inquiry list does not establish `09 04 47` or `09 04 48`; those packets cannot be granted from the block layout alone. |
 | R12 | Sony BRC-300 Technical Manual | https://www.sony.jp/aii/contents/smojsdmk/b2b_index/manual_pdf/remote_camera/AC1Y100131.pdf | BRC-300 shared `04 39` exposure-mode and standard `04 0B`/`04 4B` iris controls (lines 440–454), matching `09 04 39`/`09 04 4B` inquiries (lines 609–617), and the exact paired `CAM_BackLight` rows: control `8x 01 04 33 02/03 FF` (manual p. 11; source text lines 404–405) and inquiry `8x 09 04 33 FF` with `y0 50 02/03 FF` replies (manual p. 14; source text lines 539–540). It also documents fixed `04 5A` automatic-slow-shutter commands and the `VV 00` one-speed position grammar with five-nibble signed pan/four-nibble signed tilt commands, limits, inquiries, and endpoints (manual pp. 12 and 22). `CAM_WB` lists One Push WB `8x 01 04 35 03 FF` and the One Push trigger `8x 01 04 10 05 FF`, and the iris table lists `00` CLOSE through `11` F1.6; `CAM_ImgFlip` `04 66 02/03` with `09 04 66` (no `04 61` mirror); `CAM_RGain`/`CAM_BGain` `04 43`/`04 44` `00..FF`; `CAM_ExpComp` `04 3E`/`04 4E` (−7..+7); `CAM_Bright` `04 4D` (`00`..`17`); gain `0`..`7` (checked 2026-10-05). It does not establish the fixed `04 3A` spotlight, the `04 28` focus near-limit command or inquiry, or a broad image-processing family. `CAM_VersionInq`: vendor ID `0001` (Sony), model ID `040F` (BRC-300) / `0410` (BRU-300), ROM revision, maximum socket `02`. Also: VISCA over RS-232C/RS-422 only; shutter table `02` 1/4 s through `15` 1/10000 s (BRC-300 column); x12 lens, optical zoom `0000`..`4000` and digital `4000`..`7F00` (x4) via `CAM_Zoom` Direct `04 47`; `CAM_DZoom` on/off `04 06 02/03` with `CAM_DZoomModeInq` `09 04 06`; `CAM_Focus` One Push Trigger `04 18 01`. |
 
 ## C.4 Supplemental explanatory source
@@ -1357,3 +1357,275 @@ R21 is the Nearus model source for the Nearus BRC-300 profile.
 | U2 | `PTZOptics-NDI-HX-Gen2-Specs(1).md` | Consolidated PT12X/PT20X/PT30X specs, streaming tables, interface details, dimensions, package contents, and cross-document PTZOptics validation notes. |
 | U3 | `axis_visca-interface-api-description(2).md` | Patched Axis API text including corrected absolute zoom command, Axis-only ranges, focus-near-limit table, red/blue gain, exposure/shutter rows, shutter-speed table, and Axis inquiries. |
 | U4 | `visca_unified_reference(2).md` | Broad unified guide; used only as background except where cross-validated. Non-PTZOptics/non-Axis sections remain unvalidated unless supported by primary sources. |
+
+## Checked positive source evidence
+
+This table is the exact positive lookup used by the source invariant tests.
+A custom profile has caller-owned protocol authority and does not acquire a
+vendor-verified claim from this built-in catalog.
+
+<!-- BEGIN CHECKED SOURCE EVIDENCE -->
+
+| Evidence key | Source | Models | Subject | Packet | Boolean reply | Location |
+|---|---|---|---|---|---|---|
+| r1-ptzopticsg2-power-query | R1 | PtzOpticsG2 | PowerInquiry | 09 04 00 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-power-query | R14 | PtzOpticsG3 | PowerInquiry | 09 04 00 | - | Queries page; current model scope |
+| r1-ptzoptics30x-power-query | R1 | PtzOptics30X | PowerInquiry | 09 04 00 | - | §7.10; command inquiry list |
+| r7-sonyfr7-power-query | R7 | SonyFr7 | PowerInquiry | 09 04 00 | - | FR7 inquiry command list |
+| r11-sonybrch900-power-query | R11 | SonyBrcH900 | PowerInquiry | 09 7E 04 00 | - | Version 2.20 pp.20–22 |
+| r8-sonyevih100-power-query | R8 | SonyEviH100 | PowerInquiry | 09 04 00 | - | Technical Manual inquiry list |
+| r12-sonybrc300-power-query | R12 | SonyBrc300 | PowerInquiry | 09 04 00 | - | Technical Manual inquiry list |
+| r21-nearusbrc300-power-query | R21 | NearusBrc300 | PowerInquiry | 09 04 00 | - | Command List inquiry list |
+| r8-genericvisca-power-query | R8 | GenericVisca | PowerInquiry | 09 04 00 | - | Technical Manual inquiry list |
+| r12-genericvisca-power-query | R12 | GenericVisca | PowerInquiry | 09 04 00 | - | Technical Manual inquiry list |
+| r21-genericvisca-power-query | R21 | GenericVisca | PowerInquiry | 09 04 00 | - | Command List inquiry list |
+| r7-sonyfr7-version-query | R7 | SonyFr7 | VersionInquiry | 09 00 02 | - | FR7 inquiry command list |
+| r11-sonybrch900-version-query | R11 | SonyBrcH900 | VersionInquiry | 09 00 02 | - | Version 2.20 pp.20–22 |
+| r8-sonyevih100-version-query | R8 | SonyEviH100 | VersionInquiry | 09 00 02 | - | Technical Manual inquiry list |
+| r12-sonybrc300-version-query | R12 | SonyBrc300 | VersionInquiry | 09 00 02 | - | Technical Manual inquiry list |
+| r21-nearusbrc300-version-query | R21 | NearusBrc300 | VersionInquiry | 09 00 02 | - | Command List inquiry list |
+| r8-genericvisca-version-query | R8 | GenericVisca | VersionInquiry | 09 00 02 | - | Technical Manual inquiry list |
+| r12-genericvisca-version-query | R12 | GenericVisca | VersionInquiry | 09 00 02 | - | Technical Manual inquiry list |
+| r21-genericvisca-version-query | R21 | GenericVisca | VersionInquiry | 09 00 02 | - | Command List inquiry list |
+| r1-ptzopticsg2-pantiltposition-query | R1 | PtzOpticsG2 | PanTiltPositionInquiry | 09 06 12 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-pantiltposition-query | R14 | PtzOpticsG3 | PanTiltPositionInquiry | 09 06 12 | - | Queries page; current model scope |
+| r1-ptzoptics30x-pantiltposition-query | R1 | PtzOptics30X | PanTiltPositionInquiry | 09 06 12 | - | §7.10; command inquiry list |
+| r7-sonyfr7-pantiltposition-query | R7 | SonyFr7 | PanTiltPositionInquiry | 09 06 12 | - | FR7 inquiry command list |
+| r11-sonybrch900-pantiltposition-query | R11 | SonyBrcH900 | PanTiltPositionInquiry | 09 06 12 | - | Version 2.20 pp.20–22 |
+| r8-sonyevih100-pantiltposition-query | R8 | SonyEviH100 | PanTiltPositionInquiry | 09 06 12 | - | Technical Manual inquiry list |
+| r12-sonybrc300-pantiltposition-query | R12 | SonyBrc300 | PanTiltPositionInquiry | 09 06 12 | - | Technical Manual inquiry list |
+| r21-nearusbrc300-pantiltposition-query | R21 | NearusBrc300 | PanTiltPositionInquiry | 09 06 12 | - | Command List inquiry list |
+| r8-genericvisca-pantiltposition-query | R8 | GenericVisca | PanTiltPositionInquiry | 09 06 12 | - | Technical Manual inquiry list |
+| r12-genericvisca-pantiltposition-query | R12 | GenericVisca | PanTiltPositionInquiry | 09 06 12 | - | Technical Manual inquiry list |
+| r21-genericvisca-pantiltposition-query | R21 | GenericVisca | PanTiltPositionInquiry | 09 06 12 | - | Command List inquiry list |
+| r1-ptzopticsg2-zoomposition-query | R1 | PtzOpticsG2 | ZoomPositionInquiry | 09 04 47 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-zoomposition-query | R14 | PtzOpticsG3 | ZoomPositionInquiry | 09 04 47 | - | Queries page; current model scope |
+| r1-ptzoptics30x-zoomposition-query | R1 | PtzOptics30X | ZoomPositionInquiry | 09 04 47 | - | §7.10; command inquiry list |
+| r7-sonyfr7-zoomposition-query | R7 | SonyFr7 | ZoomPositionInquiry | 09 04 47 | - | FR7 inquiry command list |
+| r8-sonyevih100-zoomposition-query | R8 | SonyEviH100 | ZoomPositionInquiry | 09 04 47 | - | Technical Manual inquiry list |
+| r12-sonybrc300-zoomposition-query | R12 | SonyBrc300 | ZoomPositionInquiry | 09 04 47 | - | Technical Manual inquiry list |
+| r21-nearusbrc300-zoomposition-query | R21 | NearusBrc300 | ZoomPositionInquiry | 09 04 47 | - | Command List inquiry list |
+| r8-genericvisca-zoomposition-query | R8 | GenericVisca | ZoomPositionInquiry | 09 04 47 | - | Technical Manual inquiry list |
+| r12-genericvisca-zoomposition-query | R12 | GenericVisca | ZoomPositionInquiry | 09 04 47 | - | Technical Manual inquiry list |
+| r21-genericvisca-zoomposition-query | R21 | GenericVisca | ZoomPositionInquiry | 09 04 47 | - | Command List inquiry list |
+| r1-ptzopticsg2-focusposition-query | R1 | PtzOpticsG2 | FocusPositionInquiry | 09 04 48 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-focusposition-query | R14 | PtzOpticsG3 | FocusPositionInquiry | 09 04 48 | - | Queries page; current model scope |
+| r1-ptzoptics30x-focusposition-query | R1 | PtzOptics30X | FocusPositionInquiry | 09 04 48 | - | §7.10; command inquiry list |
+| r7-sonyfr7-focusposition-query | R7 | SonyFr7 | FocusPositionInquiry | 09 04 48 | - | FR7 inquiry command list |
+| r8-sonyevih100-focusposition-query | R8 | SonyEviH100 | FocusPositionInquiry | 09 04 48 | - | Technical Manual inquiry list |
+| r12-sonybrc300-focusposition-query | R12 | SonyBrc300 | FocusPositionInquiry | 09 04 48 | - | Technical Manual inquiry list |
+| r21-nearusbrc300-focusposition-query | R21 | NearusBrc300 | FocusPositionInquiry | 09 04 48 | - | Command List inquiry list |
+| r8-genericvisca-focusposition-query | R8 | GenericVisca | FocusPositionInquiry | 09 04 48 | - | Technical Manual inquiry list |
+| r12-genericvisca-focusposition-query | R12 | GenericVisca | FocusPositionInquiry | 09 04 48 | - | Technical Manual inquiry list |
+| r21-genericvisca-focusposition-query | R21 | GenericVisca | FocusPositionInquiry | 09 04 48 | - | Command List inquiry list |
+| r1-ptzopticsg2-exposuremode-query | R1 | PtzOpticsG2 | ExposureModeInquiry | 09 04 39 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-exposuremode-query | R14 | PtzOpticsG3 | ExposureModeInquiry | 09 04 39 | - | Queries page; current model scope |
+| r1-ptzoptics30x-exposuremode-query | R1 | PtzOptics30X | ExposureModeInquiry | 09 04 39 | - | §7.10; command inquiry list |
+| r11-sonybrch900-exposuremode-query | R11 | SonyBrcH900 | ExposureModeInquiry | 09 04 39 | - | Version 2.20 pp.20–22 |
+| r8-sonyevih100-exposuremode-query | R8 | SonyEviH100 | ExposureModeInquiry | 09 04 39 | - | Technical Manual inquiry list |
+| r12-sonybrc300-exposuremode-query | R12 | SonyBrc300 | ExposureModeInquiry | 09 04 39 | - | Technical Manual inquiry list |
+| r21-nearusbrc300-exposuremode-query | R21 | NearusBrc300 | ExposureModeInquiry | 09 04 39 | - | Command List inquiry list |
+| r8-genericvisca-exposuremode-query | R8 | GenericVisca | ExposureModeInquiry | 09 04 39 | - | Technical Manual inquiry list |
+| r12-genericvisca-exposuremode-query | R12 | GenericVisca | ExposureModeInquiry | 09 04 39 | - | Technical Manual inquiry list |
+| r21-genericvisca-exposuremode-query | R21 | GenericVisca | ExposureModeInquiry | 09 04 39 | - | Command List inquiry list |
+| r1-ptzopticsg2-exposurecompensation-query | R1 | PtzOpticsG2 | ExposureCompensationInquiry | 09 04 4E | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-exposurecompensation-query | R14 | PtzOpticsG3 | ExposureCompensationInquiry | 09 04 4E | - | Queries page; current model scope |
+| r1-ptzoptics30x-exposurecompensation-query | R1 | PtzOptics30X | ExposureCompensationInquiry | 09 04 4E | - | §7.10; command inquiry list |
+| r8-sonyevih100-exposurecompensation-query | R8 | SonyEviH100 | ExposureCompensationInquiry | 09 04 4E | - | Technical Manual inquiry list |
+| r12-sonybrc300-exposurecompensation-query | R12 | SonyBrc300 | ExposureCompensationInquiry | 09 04 4E | - | Technical Manual inquiry list |
+| r21-nearusbrc300-exposurecompensation-query | R21 | NearusBrc300 | ExposureCompensationInquiry | 09 04 4E | - | Command List inquiry list |
+| r8-genericvisca-exposurecompensation-query | R8 | GenericVisca | ExposureCompensationInquiry | 09 04 4E | - | Technical Manual inquiry list |
+| r12-genericvisca-exposurecompensation-query | R12 | GenericVisca | ExposureCompensationInquiry | 09 04 4E | - | Technical Manual inquiry list |
+| r21-genericvisca-exposurecompensation-query | R21 | GenericVisca | ExposureCompensationInquiry | 09 04 4E | - | Command List inquiry list |
+| r1-ptzopticsg2-exposurecompensationmode-query | R1 | PtzOpticsG2 | ExposureCompensationModeInquiry | 09 04 3E | 02=on;03=off | §7.10; command inquiry list |
+| r14-ptzopticsg3-exposurecompensationmode-query | R14 | PtzOpticsG3 | ExposureCompensationModeInquiry | 09 04 3E | 02=on;03=off | Queries page; current model scope |
+| r1-ptzoptics30x-exposurecompensationmode-query | R1 | PtzOptics30X | ExposureCompensationModeInquiry | 09 04 3E | 02=on;03=off | §7.10; command inquiry list |
+| r8-sonyevih100-exposurecompensationmode-query | R8 | SonyEviH100 | ExposureCompensationModeInquiry | 09 04 3E | 02=on;03=off | Technical Manual inquiry list |
+| r12-sonybrc300-exposurecompensationmode-query | R12 | SonyBrc300 | ExposureCompensationModeInquiry | 09 04 3E | 02=on;03=off | Technical Manual inquiry list |
+| r21-nearusbrc300-exposurecompensationmode-query | R21 | NearusBrc300 | ExposureCompensationModeInquiry | 09 04 3E | 02=on;03=off | Command List inquiry list |
+| r8-genericvisca-exposurecompensationmode-query | R8 | GenericVisca | ExposureCompensationModeInquiry | 09 04 3E | 02=on;03=off | Technical Manual inquiry list |
+| r12-genericvisca-exposurecompensationmode-query | R12 | GenericVisca | ExposureCompensationModeInquiry | 09 04 3E | 02=on;03=off | Technical Manual inquiry list |
+| r21-genericvisca-exposurecompensationmode-query | R21 | GenericVisca | ExposureCompensationModeInquiry | 09 04 3E | 02=on;03=off | Command List inquiry list |
+| r1-ptzopticsg2-iris-query | R1 | PtzOpticsG2 | IrisInquiry | 09 04 4B | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-iris-query | R14 | PtzOpticsG3 | IrisInquiry | 09 04 4B | - | Queries page; current model scope |
+| r1-ptzoptics30x-iris-query | R1 | PtzOptics30X | IrisInquiry | 09 04 4B | - | §7.10; command inquiry list |
+| r11-sonybrch900-iris-query | R11 | SonyBrcH900 | IrisInquiry | 09 04 4B | - | Version 2.20 pp.20–22 |
+| r8-sonyevih100-iris-query | R8 | SonyEviH100 | IrisInquiry | 09 04 4B | - | Technical Manual inquiry list |
+| r12-sonybrc300-iris-query | R12 | SonyBrc300 | IrisInquiry | 09 04 4B | - | Technical Manual inquiry list |
+| r21-nearusbrc300-iris-query | R21 | NearusBrc300 | IrisInquiry | 09 04 4B | - | Command List inquiry list |
+| r8-genericvisca-iris-query | R8 | GenericVisca | IrisInquiry | 09 04 4B | - | Technical Manual inquiry list |
+| r12-genericvisca-iris-query | R12 | GenericVisca | IrisInquiry | 09 04 4B | - | Technical Manual inquiry list |
+| r21-genericvisca-iris-query | R21 | GenericVisca | IrisInquiry | 09 04 4B | - | Command List inquiry list |
+| r1-ptzopticsg2-shutter-query | R1 | PtzOpticsG2 | ShutterInquiry | 09 04 4A | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-shutter-query | R14 | PtzOpticsG3 | ShutterInquiry | 09 04 4A | - | Queries page; current model scope |
+| r1-ptzoptics30x-shutter-query | R1 | PtzOptics30X | ShutterInquiry | 09 04 4A | - | §7.10; command inquiry list |
+| r11-sonybrch900-shutter-query | R11 | SonyBrcH900 | ShutterInquiry | 09 04 4A | - | Version 2.20 pp.20–22 |
+| r8-sonyevih100-shutter-query | R8 | SonyEviH100 | ShutterInquiry | 09 04 4A | - | Technical Manual inquiry list |
+| r12-sonybrc300-shutter-query | R12 | SonyBrc300 | ShutterInquiry | 09 04 4A | - | Technical Manual inquiry list |
+| r21-nearusbrc300-shutter-query | R21 | NearusBrc300 | ShutterInquiry | 09 04 4A | - | Command List inquiry list |
+| r8-genericvisca-shutter-query | R8 | GenericVisca | ShutterInquiry | 09 04 4A | - | Technical Manual inquiry list |
+| r12-genericvisca-shutter-query | R12 | GenericVisca | ShutterInquiry | 09 04 4A | - | Technical Manual inquiry list |
+| r21-genericvisca-shutter-query | R21 | GenericVisca | ShutterInquiry | 09 04 4A | - | Command List inquiry list |
+| r1-ptzopticsg2-brightness-query | R1 | PtzOpticsG2 | BrightnessInquiry | 09 04 4D | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-brightness-query | R14 | PtzOpticsG3 | BrightnessInquiry | 09 04 4D | - | Queries page; current model scope |
+| r1-ptzoptics30x-brightness-query | R1 | PtzOptics30X | BrightnessInquiry | 09 04 4D | - | §7.10; command inquiry list |
+| r8-sonyevih100-brightness-query | R8 | SonyEviH100 | BrightnessInquiry | 09 04 4D | - | Technical Manual inquiry list |
+| r12-sonybrc300-brightness-query | R12 | SonyBrc300 | BrightnessInquiry | 09 04 4D | - | Technical Manual inquiry list |
+| r21-nearusbrc300-brightness-query | R21 | NearusBrc300 | BrightnessInquiry | 09 04 4D | - | Command List inquiry list |
+| r8-genericvisca-brightness-query | R8 | GenericVisca | BrightnessInquiry | 09 04 4D | - | Technical Manual inquiry list |
+| r12-genericvisca-brightness-query | R12 | GenericVisca | BrightnessInquiry | 09 04 4D | - | Technical Manual inquiry list |
+| r21-genericvisca-brightness-query | R21 | GenericVisca | BrightnessInquiry | 09 04 4D | - | Command List inquiry list |
+| r1-ptzopticsg2-whitebalancemode-query | R1 | PtzOpticsG2 | WhiteBalanceModeInquiry | 09 04 35 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-whitebalancemode-query | R14 | PtzOpticsG3 | WhiteBalanceModeInquiry | 09 04 35 | - | Queries page; current model scope |
+| r1-ptzoptics30x-whitebalancemode-query | R1 | PtzOptics30X | WhiteBalanceModeInquiry | 09 04 35 | - | §7.10; command inquiry list |
+| r7-sonyfr7-whitebalancemode-query | R7 | SonyFr7 | WhiteBalanceModeInquiry | 09 04 35 | - | FR7 inquiry command list |
+| r11-sonybrch900-whitebalancemode-query | R11 | SonyBrcH900 | WhiteBalanceModeInquiry | 09 04 35 | - | Version 2.20 pp.20–22 |
+| r8-sonyevih100-whitebalancemode-query | R8 | SonyEviH100 | WhiteBalanceModeInquiry | 09 04 35 | - | Technical Manual inquiry list |
+| r12-sonybrc300-whitebalancemode-query | R12 | SonyBrc300 | WhiteBalanceModeInquiry | 09 04 35 | - | Technical Manual inquiry list |
+| r21-nearusbrc300-whitebalancemode-query | R21 | NearusBrc300 | WhiteBalanceModeInquiry | 09 04 35 | - | Command List inquiry list |
+| r8-genericvisca-whitebalancemode-query | R8 | GenericVisca | WhiteBalanceModeInquiry | 09 04 35 | - | Technical Manual inquiry list |
+| r12-genericvisca-whitebalancemode-query | R12 | GenericVisca | WhiteBalanceModeInquiry | 09 04 35 | - | Technical Manual inquiry list |
+| r21-genericvisca-whitebalancemode-query | R21 | GenericVisca | WhiteBalanceModeInquiry | 09 04 35 | - | Command List inquiry list |
+| r1-ptzopticsg2-colortemperature-query | R1 | PtzOpticsG2 | ColorTemperatureInquiry | 09 04 20 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-colortemperature-query | R14 | PtzOpticsG3 | ColorTemperatureInquiry | 09 04 20 | - | Queries page; current model scope |
+| r1-ptzoptics30x-colortemperature-query | R1 | PtzOptics30X | ColorTemperatureInquiry | 09 04 20 | - | §7.10; command inquiry list |
+| r1-ptzopticsg2-redgain-query | R1 | PtzOpticsG2 | RedGainInquiry | 09 04 43 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-redgain-query | R14 | PtzOpticsG3 | RedGainInquiry | 09 04 43 | - | Queries page; current model scope |
+| r1-ptzoptics30x-redgain-query | R1 | PtzOptics30X | RedGainInquiry | 09 04 43 | - | §7.10; command inquiry list |
+| r8-sonyevih100-redgain-query | R8 | SonyEviH100 | RedGainInquiry | 09 04 43 | - | Technical Manual inquiry list |
+| r12-sonybrc300-redgain-query | R12 | SonyBrc300 | RedGainInquiry | 09 04 43 | - | Technical Manual inquiry list |
+| r21-nearusbrc300-redgain-query | R21 | NearusBrc300 | RedGainInquiry | 09 04 43 | - | Command List inquiry list |
+| r8-genericvisca-redgain-query | R8 | GenericVisca | RedGainInquiry | 09 04 43 | - | Technical Manual inquiry list |
+| r12-genericvisca-redgain-query | R12 | GenericVisca | RedGainInquiry | 09 04 43 | - | Technical Manual inquiry list |
+| r21-genericvisca-redgain-query | R21 | GenericVisca | RedGainInquiry | 09 04 43 | - | Command List inquiry list |
+| r1-ptzopticsg2-bluegain-query | R1 | PtzOpticsG2 | BlueGainInquiry | 09 04 44 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-bluegain-query | R14 | PtzOpticsG3 | BlueGainInquiry | 09 04 44 | - | Queries page; current model scope |
+| r1-ptzoptics30x-bluegain-query | R1 | PtzOptics30X | BlueGainInquiry | 09 04 44 | - | §7.10; command inquiry list |
+| r8-sonyevih100-bluegain-query | R8 | SonyEviH100 | BlueGainInquiry | 09 04 44 | - | Technical Manual inquiry list |
+| r12-sonybrc300-bluegain-query | R12 | SonyBrc300 | BlueGainInquiry | 09 04 44 | - | Technical Manual inquiry list |
+| r21-nearusbrc300-bluegain-query | R21 | NearusBrc300 | BlueGainInquiry | 09 04 44 | - | Command List inquiry list |
+| r8-genericvisca-bluegain-query | R8 | GenericVisca | BlueGainInquiry | 09 04 44 | - | Technical Manual inquiry list |
+| r12-genericvisca-bluegain-query | R12 | GenericVisca | BlueGainInquiry | 09 04 44 | - | Technical Manual inquiry list |
+| r21-genericvisca-bluegain-query | R21 | GenericVisca | BlueGainInquiry | 09 04 44 | - | Command List inquiry list |
+| r1-ptzopticsg2-sharpnessmode-query | R1 | PtzOpticsG2 | SharpnessModeInquiry | 09 04 05 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-sharpnessmode-query | R14 | PtzOpticsG3 | SharpnessModeInquiry | 09 04 05 | - | Queries page; current model scope |
+| r1-ptzoptics30x-sharpnessmode-query | R1 | PtzOptics30X | SharpnessModeInquiry | 09 04 05 | - | §7.10; command inquiry list |
+| r1-ptzopticsg2-saturation-query | R1 | PtzOpticsG2 | SaturationInquiry | 09 04 49 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-saturation-query | R14 | PtzOpticsG3 | SaturationInquiry | 09 04 49 | - | Queries page; current model scope |
+| r1-ptzoptics30x-saturation-query | R1 | PtzOptics30X | SaturationInquiry | 09 04 49 | - | §7.10; command inquiry list |
+| r8-sonyevih100-saturation-query | R8 | SonyEviH100 | SaturationInquiry | 09 04 49 | - | Technical Manual inquiry list |
+| r1-ptzopticsg2-hue-query | R1 | PtzOpticsG2 | HueInquiry | 09 04 4F | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-hue-query | R14 | PtzOpticsG3 | HueInquiry | 09 04 4F | - | Queries page; current model scope |
+| r1-ptzoptics30x-hue-query | R1 | PtzOptics30X | HueInquiry | 09 04 4F | - | §7.10; command inquiry list |
+| r8-sonyevih100-hue-query | R8 | SonyEviH100 | HueInquiry | 09 04 4F | - | Technical Manual inquiry list |
+| r1-ptzopticsg2-gain-query | R1 | PtzOpticsG2 | GainInquiry | 09 04 4C | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-gain-query | R14 | PtzOpticsG3 | GainInquiry | 09 04 4C | - | Queries page; current model scope |
+| r1-ptzoptics30x-gain-query | R1 | PtzOptics30X | GainInquiry | 09 04 4C | - | §7.10; command inquiry list |
+| r11-sonybrch900-gain-query | R11 | SonyBrcH900 | GainInquiry | 09 04 4C | - | Version 2.20 pp.20–22 |
+| r8-sonyevih100-gain-query | R8 | SonyEviH100 | GainInquiry | 09 04 4C | - | Technical Manual inquiry list |
+| r12-sonybrc300-gain-query | R12 | SonyBrc300 | GainInquiry | 09 04 4C | - | Technical Manual inquiry list |
+| r21-nearusbrc300-gain-query | R21 | NearusBrc300 | GainInquiry | 09 04 4C | - | Command List inquiry list |
+| r8-genericvisca-gain-query | R8 | GenericVisca | GainInquiry | 09 04 4C | - | Technical Manual inquiry list |
+| r12-genericvisca-gain-query | R12 | GenericVisca | GainInquiry | 09 04 4C | - | Technical Manual inquiry list |
+| r21-genericvisca-gain-query | R21 | GenericVisca | GainInquiry | 09 04 4C | - | Command List inquiry list |
+| r1-ptzopticsg2-gainlimit-query | R1 | PtzOpticsG2 | GainLimitInquiry | 09 04 2C | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-gainlimit-query | R14 | PtzOpticsG3 | GainLimitInquiry | 09 04 2C | - | Queries page; current model scope |
+| r1-ptzoptics30x-gainlimit-query | R1 | PtzOptics30X | GainLimitInquiry | 09 04 2C | - | §7.10; command inquiry list |
+| r1-ptzopticsg2-backlight-query | R1 | PtzOpticsG2 | BacklightInquiry | 09 04 33 | 02=on;03=off | §7.10; command inquiry list |
+| r14-ptzopticsg3-backlight-query | R14 | PtzOpticsG3 | BacklightInquiry | 09 04 33 | 02=on;03=off | Queries page; current model scope |
+| r1-ptzoptics30x-backlight-query | R1 | PtzOptics30X | BacklightInquiry | 09 04 33 | 02=on;03=off | §7.10; command inquiry list |
+| r7-sonyfr7-backlight-query | R7 | SonyFr7 | BacklightInquiry | 09 04 33 | 02=on;03=off | FR7 inquiry command list |
+| r11-sonybrch900-backlight-query | R11 | SonyBrcH900 | BacklightInquiry | 09 04 33 | 02=on;03=off | Version 2.20 pp.20–22 |
+| r8-sonyevih100-backlight-query | R8 | SonyEviH100 | BacklightInquiry | 09 04 33 | 02=on;03=off | Technical Manual inquiry list |
+| r12-sonybrc300-backlight-query | R12 | SonyBrc300 | BacklightInquiry | 09 04 33 | 02=on;03=off | Technical Manual inquiry list |
+| r21-nearusbrc300-backlight-query | R21 | NearusBrc300 | BacklightInquiry | 09 04 33 | 02=on;03=off | Command List inquiry list |
+| r8-genericvisca-backlight-query | R8 | GenericVisca | BacklightInquiry | 09 04 33 | 02=on;03=off | Technical Manual inquiry list |
+| r12-genericvisca-backlight-query | R12 | GenericVisca | BacklightInquiry | 09 04 33 | 02=on;03=off | Technical Manual inquiry list |
+| r21-genericvisca-backlight-query | R21 | GenericVisca | BacklightInquiry | 09 04 33 | 02=on;03=off | Command List inquiry list |
+| r1-ptzopticsg2-imageflip-query | R1 | PtzOpticsG2 | ImageFlipInquiry | 09 04 66 | 02=on;03=off | §7.10; command inquiry list |
+| r14-ptzopticsg3-imageflip-query | R14 | PtzOpticsG3 | ImageFlipInquiry | 09 04 66 | 02=on;03=off | Queries page; current model scope |
+| r1-ptzoptics30x-imageflip-query | R1 | PtzOptics30X | ImageFlipInquiry | 09 04 66 | 02=on;03=off | §7.10; command inquiry list |
+| r12-sonybrc300-imageflip-query | R12 | SonyBrc300 | ImageFlipInquiry | 09 04 66 | 02=on;03=off | Technical Manual inquiry list |
+| r21-nearusbrc300-imageflip-query | R21 | NearusBrc300 | ImageFlipInquiry | 09 04 66 | 02=on;03=off | Command List inquiry list |
+| r1-ptzopticsg2-flipstate-query | R1 | PtzOpticsG2 | FlipStateInquiry | 09 04 A4 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-flipstate-query | R14 | PtzOpticsG3 | FlipStateInquiry | 09 04 A4 | - | Queries page; current model scope |
+| r1-ptzoptics30x-flipstate-query | R1 | PtzOptics30X | FlipStateInquiry | 09 04 A4 | - | §7.10; command inquiry list |
+| r1-ptzopticsg2-noisereduction2dmode-query | R1 | PtzOpticsG2 | NoiseReduction2DModeInquiry | 09 04 50 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-noisereduction2dmode-query | R14 | PtzOpticsG3 | NoiseReduction2DModeInquiry | 09 04 50 | - | Queries page; current model scope |
+| r1-ptzoptics30x-noisereduction2dmode-query | R1 | PtzOptics30X | NoiseReduction2DModeInquiry | 09 04 50 | - | §7.10; command inquiry list |
+| r1-ptzopticsg2-noisereduction2d-query | R1 | PtzOpticsG2 | NoiseReduction2DInquiry | 09 04 53 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-noisereduction2d-query | R14 | PtzOpticsG3 | NoiseReduction2DInquiry | 09 04 53 | - | Queries page; current model scope |
+| r1-ptzoptics30x-noisereduction2d-query | R1 | PtzOptics30X | NoiseReduction2DInquiry | 09 04 53 | - | §7.10; command inquiry list |
+| r8-sonyevih100-noisereduction2d-query | R8 | SonyEviH100 | NoiseReduction2DInquiry | 09 04 53 | - | Technical Manual inquiry list |
+| r1-ptzopticsg2-noisereduction3d-query | R1 | PtzOpticsG2 | NoiseReduction3DInquiry | 09 04 54 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-noisereduction3d-query | R14 | PtzOpticsG3 | NoiseReduction3DInquiry | 09 04 54 | - | Queries page; current model scope |
+| r1-ptzoptics30x-noisereduction3d-query | R1 | PtzOptics30X | NoiseReduction3DInquiry | 09 04 54 | - | §7.10; command inquiry list |
+| b1-ptzopticsg2-focuszone-query | B1 | PtzOpticsG2 | FocusZoneInquiry | 09 04 AA | - | §7.13 read/set/readback |
+| b1-ptzoptics30x-focuszone-query | B1 | PtzOptics30X | FocusZoneInquiry | 09 04 AA | - | §7.13 read/set/readback |
+| r1-ptzopticsg2-autofocussensitivity-query | R1 | PtzOpticsG2 | AutoFocusSensitivityInquiry | 09 04 58 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-autofocussensitivity-query | R14 | PtzOpticsG3 | AutoFocusSensitivityInquiry | 09 04 58 | - | Queries page; current model scope |
+| r1-ptzoptics30x-autofocussensitivity-query | R1 | PtzOptics30X | AutoFocusSensitivityInquiry | 09 04 58 | - | §7.10; command inquiry list |
+| r8-sonyevih100-autofocussensitivity-query | R8 | SonyEviH100 | AutoFocusSensitivityInquiry | 09 04 58 | - | Technical Manual inquiry list |
+| r8-sonyevih100-focusnearlimit-query | R8 | SonyEviH100 | FocusNearLimitInquiry | 09 04 28 | - | Technical Manual inquiry list |
+| r1-ptzopticsg2-focusmode-query | R1 | PtzOpticsG2 | FocusModeInquiry | 09 04 38 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-focusmode-query | R14 | PtzOpticsG3 | FocusModeInquiry | 09 04 38 | - | Queries page; current model scope |
+| r1-ptzoptics30x-focusmode-query | R1 | PtzOptics30X | FocusModeInquiry | 09 04 38 | - | §7.10; command inquiry list |
+| r7-sonyfr7-focusmode-query | R7 | SonyFr7 | FocusModeInquiry | 09 04 38 | - | FR7 inquiry command list |
+| r11-sonybrch900-focusmode-query | R11 | SonyBrcH900 | FocusModeInquiry | 09 04 38 | - | Version 2.20 pp.20–22 |
+| r8-sonyevih100-focusmode-query | R8 | SonyEviH100 | FocusModeInquiry | 09 04 38 | - | Technical Manual inquiry list |
+| r12-sonybrc300-focusmode-query | R12 | SonyBrc300 | FocusModeInquiry | 09 04 38 | - | Technical Manual inquiry list |
+| r21-nearusbrc300-focusmode-query | R21 | NearusBrc300 | FocusModeInquiry | 09 04 38 | - | Command List inquiry list |
+| r8-genericvisca-focusmode-query | R8 | GenericVisca | FocusModeInquiry | 09 04 38 | - | Technical Manual inquiry list |
+| r12-genericvisca-focusmode-query | R12 | GenericVisca | FocusModeInquiry | 09 04 38 | - | Technical Manual inquiry list |
+| r21-genericvisca-focusmode-query | R21 | GenericVisca | FocusModeInquiry | 09 04 38 | - | Command List inquiry list |
+| r1-ptzopticsg2-menuopenclose-query | R1 | PtzOpticsG2 | MenuOpenCloseInquiry | 09 06 06 | 02=on;03=off | §7.10; command inquiry list |
+| r14-ptzopticsg3-menuopenclose-query | R14 | PtzOpticsG3 | MenuOpenCloseInquiry | 09 06 06 | 02=on;03=off | Queries page; current model scope |
+| r1-ptzoptics30x-menuopenclose-query | R1 | PtzOptics30X | MenuOpenCloseInquiry | 09 06 06 | 02=on;03=off | §7.10; command inquiry list |
+| r7-sonyfr7-menuopenclose-query | R7 | SonyFr7 | MenuOpenCloseInquiry | 09 06 06 | 02=on;03=off | FR7 inquiry command list |
+| r7-sonyfr7-ndfilter-query | R7 | SonyFr7 | NdFilterInquiry | 09 7E 04 42 | - | FR7 inquiry command list |
+| r1-ptzopticsg2-pictureeffect-query | R1 | PtzOpticsG2 | PictureEffectInquiry | 09 04 63 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-pictureeffect-query | R14 | PtzOpticsG3 | PictureEffectInquiry | 09 04 63 | - | Queries page; current model scope |
+| r1-ptzoptics30x-pictureeffect-query | R1 | PtzOptics30X | PictureEffectInquiry | 09 04 63 | - | §7.10; command inquiry list |
+| r1-ptzopticsg2-autowhitebalancesensitivity-query | R1 | PtzOpticsG2 | AutoWhiteBalanceSensitivityInquiry | 09 04 A9 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-autowhitebalancesensitivity-query | R14 | PtzOpticsG3 | AutoWhiteBalanceSensitivityInquiry | 09 04 A9 | - | Queries page; current model scope |
+| r1-ptzoptics30x-autowhitebalancesensitivity-query | R1 | PtzOptics30X | AutoWhiteBalanceSensitivityInquiry | 09 04 A9 | - | §7.10; command inquiry list |
+| r1-ptzopticsg2-exposurecompensationposition-query | R1 | PtzOpticsG2 | ExposureCompensationPositionInquiry | 09 04 4E | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-exposurecompensationposition-query | R14 | PtzOpticsG3 | ExposureCompensationPositionInquiry | 09 04 4E | - | Queries page; current model scope |
+| r1-ptzoptics30x-exposurecompensationposition-query | R1 | PtzOptics30X | ExposureCompensationPositionInquiry | 09 04 4E | - | §7.10; command inquiry list |
+| r8-sonyevih100-exposurecompensationposition-query | R8 | SonyEviH100 | ExposureCompensationPositionInquiry | 09 04 4E | - | Technical Manual inquiry list |
+| r12-sonybrc300-exposurecompensationposition-query | R12 | SonyBrc300 | ExposureCompensationPositionInquiry | 09 04 4E | - | Technical Manual inquiry list |
+| r21-nearusbrc300-exposurecompensationposition-query | R21 | NearusBrc300 | ExposureCompensationPositionInquiry | 09 04 4E | - | Command List inquiry list |
+| r8-genericvisca-exposurecompensationposition-query | R8 | GenericVisca | ExposureCompensationPositionInquiry | 09 04 4E | - | Technical Manual inquiry list |
+| r12-genericvisca-exposurecompensationposition-query | R12 | GenericVisca | ExposureCompensationPositionInquiry | 09 04 4E | - | Technical Manual inquiry list |
+| r21-genericvisca-exposurecompensationposition-query | R21 | GenericVisca | ExposureCompensationPositionInquiry | 09 04 4E | - | Command List inquiry list |
+| r1-ptzopticsg2-redtuning-query | R1 | PtzOpticsG2 | RedTuningInquiry | 09 04 43 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-redtuning-query | R14 | PtzOpticsG3 | RedTuningInquiry | 09 04 43 | - | Queries page; current model scope |
+| r1-ptzoptics30x-redtuning-query | R1 | PtzOptics30X | RedTuningInquiry | 09 04 43 | - | §7.10; command inquiry list |
+| r1-ptzopticsg2-bluetuning-query | R1 | PtzOpticsG2 | BlueTuningInquiry | 09 04 44 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-bluetuning-query | R14 | PtzOpticsG3 | BlueTuningInquiry | 09 04 44 | - | Queries page; current model scope |
+| r1-ptzoptics30x-bluetuning-query | R1 | PtzOptics30X | BlueTuningInquiry | 09 04 44 | - | §7.10; command inquiry list |
+| r1-ptzopticsg2-gamma-query | R1 | PtzOpticsG2 | GammaInquiry | 09 04 5B | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-gamma-query | R14 | PtzOpticsG3 | GammaInquiry | 09 04 5B | - | Queries page; current model scope |
+| r1-ptzoptics30x-gamma-query | R1 | PtzOptics30X | GammaInquiry | 09 04 5B | - | §7.10; command inquiry list |
+| r8-sonyevih100-gamma-query | R8 | SonyEviH100 | GammaInquiry | 09 04 5B | - | Technical Manual inquiry list |
+| r1-ptzopticsg2-sharpnessposition-query | R1 | PtzOpticsG2 | SharpnessPositionInquiry | 09 04 42 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-sharpnessposition-query | R14 | PtzOpticsG3 | SharpnessPositionInquiry | 09 04 42 | - | Queries page; current model scope |
+| r1-ptzoptics30x-sharpnessposition-query | R1 | PtzOptics30X | SharpnessPositionInquiry | 09 04 42 | - | §7.10; command inquiry list |
+| r7-sonyfr7-sharpnessposition-query | R7 | SonyFr7 | SharpnessPositionInquiry | 09 04 42 | - | FR7 inquiry command list |
+| r8-sonyevih100-sharpnessposition-query | R8 | SonyEviH100 | SharpnessPositionInquiry | 09 04 42 | - | Technical Manual inquiry list |
+| r1-ptzopticsg2-usbaudio-query | R1 | PtzOpticsG2 | UsbAudioInquiry | 2A 02 A0 04 | 02=on;03=off | §7.10; command inquiry list |
+| r1-ptzoptics30x-usbaudio-query | R1 | PtzOptics30X | UsbAudioInquiry | 2A 02 A0 04 | 02=on;03=off | §7.10; command inquiry list |
+| r7-sonyfr7-ndfilterpreset-query | R7 | SonyFr7 | NdFilterPresetInquiry | 09 7E 01 53 | - | FR7 inquiry command list |
+| r7-sonyfr7-tallyred-query | R7 | SonyFr7 | TallyRedInquiry | 09 7E 01 0A | 02=on;03=off | FR7 inquiry command list |
+| r7-sonyfr7-tallygreen-query | R7 | SonyFr7 | TallyGreenInquiry | 09 7E 04 1A | 02=on;03=off | FR7 inquiry command list |
+| r1-ptzopticsg2-flickermode-query | R1 | PtzOpticsG2 | FlickerModeInquiry | 09 04 55 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-flickermode-query | R14 | PtzOpticsG3 | FlickerModeInquiry | 09 04 55 | - | Queries page; current model scope |
+| r1-ptzoptics30x-flickermode-query | R1 | PtzOptics30X | FlickerModeInquiry | 09 04 55 | - | §7.10; command inquiry list |
+| r1-ptzopticsg2-contrast-query | R1 | PtzOpticsG2 | ContrastInquiry | 09 04 A2 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-contrast-query | R14 | PtzOpticsG3 | ContrastInquiry | 09 04 A2 | - | Queries page; current model scope |
+| r1-ptzoptics30x-contrast-query | R1 | PtzOptics30X | ContrastInquiry | 09 04 A2 | - | §7.10; command inquiry list |
+| r1-ptzopticsg2-luminance-query | R1 | PtzOpticsG2 | LuminanceInquiry | 09 04 A1 | - | §7.10; command inquiry list |
+| r14-ptzopticsg3-luminance-query | R14 | PtzOpticsG3 | LuminanceInquiry | 09 04 A1 | - | Queries page; current model scope |
+| r1-ptzoptics30x-luminance-query | R1 | PtzOptics30X | LuminanceInquiry | 09 04 A1 | - | §7.10; command inquiry list |
+
+<!-- END CHECKED SOURCE EVIDENCE -->

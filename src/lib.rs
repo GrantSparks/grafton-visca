@@ -1094,6 +1094,7 @@ pub use state_cache::{KnownState, PanTiltLimitUpdate, StateEntry, StateKey};
 mod session_config;
 mod target;
 pub use session_config::{SessionConfig, DEFAULT_ADMISSION_CAPACITY};
+mod source_evidence;
 mod target_registration;
 pub use target_registration::{MountPosition, TargetRegistration};
 

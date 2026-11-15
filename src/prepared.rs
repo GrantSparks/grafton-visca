@@ -759,7 +759,7 @@ where
         ));
     }
     let message = EncodedMessage::encode(capacity, |bytes| {
-        let written = match request.write_into(target.camera(), bytes) {
+        let written = match crate::requests::write_for_target(request, registration, bytes) {
             Err(Error::BufferTooSmall { required, .. }) if required > capacity => {
                 return Err(Error::InvalidRequest(
                 format!("encoded request needs {required} bytes, exceeding MAX_SIZE ({declared_max}) or raw::MAX_BYTES ({MAX_BYTES})").into(),

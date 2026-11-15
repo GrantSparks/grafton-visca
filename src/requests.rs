@@ -733,6 +733,21 @@ pub trait Request: Send + Sync {
     /// succeeds.
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize>;
 
+    /// Encodes a reviewed built-in request against the selected target.
+    ///
+    /// The private authority reserves profile-dependent packet selection for
+    /// crate-owned requests. Downstream requests retain their explicit bytes.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn write_for_target(
+        &self,
+        target: &crate::TargetRegistration,
+        buffer: &mut [u8],
+        _authority: RequestContractAuthority,
+    ) -> Result<usize> {
+        self.write_into(target.target(), buffer)
+    }
+
     /// Validates target-specific capability, range and installation facts before encoding.
     ///
     /// Every request submitted through a direct generic or noun path reaches
@@ -792,6 +807,15 @@ pub(crate) fn applied_state_projection<R: Request + ?Sized>(
     request: &R,
 ) -> Option<crate::runtime::engine::AppliedStateProjection> {
     request.applied_state_projection(AppliedStateAuthority::new())
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) fn write_for_target<R: Request + ?Sized>(
+    request: &R,
+    target: &crate::TargetRegistration,
+    buffer: &mut [u8],
+) -> Result<usize> {
+    request.write_for_target(target, buffer, RequestContractAuthority::new())
 }
 
 #[cfg(any(feature = "blocking", feature = "async"))]

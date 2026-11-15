@@ -64,7 +64,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **BREAKING** (#878): Unsourced built-in inquiries and legacy decode-only
   response kinds are removed, including combined tally, defog and iris
   auto/manual status. Custom requests and decoders remain the explicit path
-  for caller-owned protocol extensions.
+  for caller-owned protocol extensions. Built-in inquiry admission resolves exact
+  source/model facts before encoding, and BRC-H900 power status uses its
+  documented extended query category.
 
 - **BREAKING** (#872): Settlement tuning below every built-in targeted retry
   budget is refused. Default `settled()` waits use the larger of the override
