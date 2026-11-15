@@ -13,7 +13,7 @@ use smallvec::SmallVec;
 
 use super::{
     AdmissionSlot, CorrelationKind, CorrelationOwner, Entry, GenerationTicket, Lane, Lifecycle,
-    Phase, RequestId, RuntimeRequest, SequenceRecord, TargetSlot, TransmissionMeta, ViscaSocket,
+    RequestId, RuntimeRequest, SequenceRecord, TargetSlot, TransmissionMeta, ViscaSocket,
     MAX_SEQUENCE_HISTORY,
 };
 use crate::target::PerTarget;
@@ -133,7 +133,7 @@ struct IndexFacts {
 impl IndexFacts {
     fn of(entry: &Entry) -> Self {
         Self {
-            ready: matches!(entry.lifecycle().phase(), Phase::Ready).then(|| {
+            ready: entry.lifecycle().is_ready().then(|| {
                 (
                     entry.request.lane(),
                     entry.request.context().control.class.priority_index(),
@@ -178,15 +178,24 @@ impl EntryTable {
     pub(super) fn get(&self, id: &RequestId) -> Option<&Entry> {
         self.entries.get(id)
     }
+    #[cfg(not(all(test, debug_assertions)))]
     pub(super) fn iter(&self) -> btree_map::Iter<'_, RequestId, Entry> {
         self.entries.iter()
     }
+    #[cfg(all(test, debug_assertions))]
+    pub(super) fn iter(&self) -> CountingIter<btree_map::Iter<'_, RequestId, Entry>> {
+        CountingIter(self.entries.iter())
+    }
+    #[cfg(not(all(test, debug_assertions)))]
     pub(super) fn values(&self) -> btree_map::Values<'_, RequestId, Entry> {
         self.entries.values()
     }
+    #[cfg(all(test, debug_assertions))]
+    pub(super) fn values(&self) -> CountingIter<btree_map::Values<'_, RequestId, Entry>> {
+        CountingIter(self.entries.values())
+    }
     pub(super) fn active_entries(&self) -> impl Iterator<Item = (&RequestId, &Entry)> {
-        self.entries
-            .iter()
+        self.iter()
             .filter(|(_, entry)| entry.lifecycle.active().is_some())
     }
     pub(super) fn ready(&self, lane: Lane, priority: usize) -> &VecDeque<RequestId> {
@@ -429,7 +438,10 @@ impl EntryTable {
 
 impl<'a> IntoIterator for &'a EntryTable {
     type Item = (&'a RequestId, &'a Entry);
+    #[cfg(not(all(test, debug_assertions)))]
     type IntoIter = btree_map::Iter<'a, RequestId, Entry>;
+    #[cfg(all(test, debug_assertions))]
+    type IntoIter = CountingIter<btree_map::Iter<'a, RequestId, Entry>>;
     fn into_iter(self) -> Self::IntoIter {
         self.iter()
     }
@@ -455,3 +467,52 @@ mod tests {
         assert_eq!(slots[ViscaSocket::S2], Some(2));
     }
 }
+
+#[cfg(all(test, debug_assertions))]
+thread_local! {
+    static ENTRY_VISITS: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+#[cfg(all(test, debug_assertions))]
+fn record_entry_visit() {
+    ENTRY_VISITS.with(|visits| visits.set(visits.get() + 1));
+}
+#[cfg(all(test, debug_assertions))]
+pub(super) fn reset_entry_visits() {
+    ENTRY_VISITS.with(|visits| visits.set(0));
+}
+#[cfg(all(test, debug_assertions))]
+pub(super) fn entry_visits() -> usize {
+    ENTRY_VISITS.with(std::cell::Cell::get)
+}
+
+// Debug count tests instrument every full-table iterator. Release timing uses
+// the exact production iterators, with no counter or TLS branch in the hot path.
+#[cfg(all(test, debug_assertions))]
+#[derive(Clone)]
+pub(super) struct CountingIter<I>(I);
+#[cfg(all(test, debug_assertions))]
+impl<I: Iterator> Iterator for CountingIter<I> {
+    type Item = I::Item;
+    fn next(&mut self) -> Option<Self::Item> {
+        let next = self.0.next();
+        if next.is_some() {
+            record_entry_visit();
+        }
+        next
+    }
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        self.0.size_hint()
+    }
+}
+#[cfg(all(test, debug_assertions))]
+impl<I: DoubleEndedIterator> DoubleEndedIterator for CountingIter<I> {
+    fn next_back(&mut self) -> Option<Self::Item> {
+        let next = self.0.next_back();
+        if next.is_some() {
+            record_entry_visit();
+        }
+        next
+    }
+}
+#[cfg(all(test, debug_assertions))]
+impl<I: ExactSizeIterator> ExactSizeIterator for CountingIter<I> {}
