@@ -987,12 +987,12 @@ pub use crate::{
     visca_socket::ViscaSocket,
 };
 
-#[cfg(all(feature = "async", feature = "runtime-smol"))]
-pub use crate::executor::SmolExecutor;
-#[cfg(all(feature = "async", feature = "runtime-tokio"))]
-pub use crate::executor::TokioExecutor;
 #[cfg(feature = "async")]
-pub use crate::executor::{ExecError, Executor};
+pub use crate::executor::{ExecError, Executor, ResettableTimer};
+#[cfg(all(feature = "async", feature = "runtime-smol"))]
+pub use crate::executor::{SmolExecutor, SmolTimer};
+#[cfg(all(feature = "async", feature = "runtime-tokio"))]
+pub use crate::executor::{TokioExecutor, TokioTimer};
 
 #[cfg(all(feature = "async", feature = "runtime-smol"))]
 pub use crate::runtime::SmolRuntime;

@@ -24,6 +24,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING** (#866): Custom `Executor` implementations provide an associated
+  resettable `Timer` and an absolute-deadline `timer` factory. Tokio and smol
+  timers retain their allocation across resets and use the executor clock.
+
 - Request preparation writes directly into owned inline storage. Engine admission
   and reusable polling templates share the inert message only when needed;
   ordinary preparation no longer allocates an `Arc` or copies a scratch frame

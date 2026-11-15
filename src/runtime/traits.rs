@@ -275,6 +275,12 @@ macro_rules! delegate_executor {
 
             type Detach = <$executor as Executor>::Detach;
 
+            type Timer = <$executor as Executor>::Timer;
+
+            fn timer(&self, deadline: Instant) -> Self::Timer {
+                self.executor.timer(deadline)
+            }
+
             fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
             where
                 F: Future + Send + 'static,

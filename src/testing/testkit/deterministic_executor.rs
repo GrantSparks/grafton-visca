@@ -161,7 +161,7 @@ impl VirtualClock {
 }
 
 /// A future that completes when the virtual clock reaches a specific time.
-struct SleepFuture {
+pub struct SleepFuture {
     clock: Arc<Mutex<VirtualClockInner>>,
     deadline: Instant,
     id: Option<u64>,
@@ -213,6 +213,36 @@ impl Future for SleepFuture {
         }
 
         Poll::Pending
+    }
+}
+
+impl crate::ResettableTimer for SleepFuture {
+    fn reset(self: Pin<&mut Self>, deadline: Instant) {
+        let this = self.get_mut();
+        let mut inner = this.clock.lock().expect("VirtualClock mutex poisoned");
+        this.deadline = deadline;
+        let now = inner.now;
+        let wake = if let Some(index) = this
+            .id
+            .and_then(|id| inner.sleepers.iter().position(|entry| entry.id == id))
+        {
+            if deadline <= now {
+                this.id = None;
+                this.registered = false;
+                inner.sleepers.remove(index).waker
+            } else {
+                inner.sleepers[index].at = deadline;
+                None
+            }
+        } else {
+            this.id = None;
+            this.registered = false;
+            None
+        };
+        drop(inner);
+        if let Some(waker) = wake {
+            waker.wake();
+        }
     }
 }
 
@@ -766,6 +796,17 @@ impl Executor for DeterministicExecutor {
         T: Send + 'static;
 
     type Detach = DetachmentHandle;
+
+    type Timer = SleepFuture;
+
+    fn timer(&self, deadline: Instant) -> Self::Timer {
+        SleepFuture {
+            clock: Arc::clone(&self.clock.inner),
+            deadline,
+            id: None,
+            registered: false,
+        }
+    }
 
     fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
     where

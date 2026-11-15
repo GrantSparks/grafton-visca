@@ -235,6 +235,12 @@ mod async_single_camera {
             T: Send + 'static;
         type Detach = E::Detach;
 
+        type Timer = E::Timer;
+
+        fn timer(&self, deadline: std::time::Instant) -> Self::Timer {
+            self.inner.timer(deadline)
+        }
+
         fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
         where
             F: Future + Send + 'static,

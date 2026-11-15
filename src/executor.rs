@@ -29,6 +29,17 @@ impl From<ExecError> for Error {
     }
 }
 
+/// A timer that can be re-armed without allocating another future.
+///
+/// Deadlines use the same clock as [`Executor::now`]. Resetting cancels the
+/// previous deadline, including after completion. The next poll observes the
+/// new deadline; a pending timer wakes its most recently registered task.
+#[cfg(feature = "async")]
+pub trait ResettableTimer: Future<Output = ()> + Send + 'static {
+    /// Cancel the previous deadline and arm this timer for `deadline`.
+    fn reset(self: std::pin::Pin<&mut Self>, deadline: Instant);
+}
+
 /// Unified executor trait that combines spawning and timing operations.
 ///
 /// This trait represents the complete execution context required by the library,
@@ -51,6 +62,14 @@ pub trait Executor: Clone + Send + Sync + 'static {
     /// Set to `()` if dropping the join handle detaches the task (e.g., Tokio),
     /// or a detachment token type otherwise (e.g., DeterministicExecutor).
     type Detach: Send + 'static;
+
+    /// Reusable timer driven by this executor's clock.
+    type Timer: ResettableTimer;
+
+    /// Create a timer at an absolute deadline on [`Self::now`]'s clock.
+    ///
+    /// Owners create their timers once and reset them for subsequent turns.
+    fn timer(&self, deadline: Instant) -> Self::Timer;
 
     /// Spawn a future and return both join handle and optional detachment token.
     ///
@@ -140,6 +159,12 @@ where
 
     type Detach = <E as Executor>::Detach;
 
+    type Timer = E::Timer;
+
+    fn timer(&self, deadline: Instant) -> Self::Timer {
+        (**self).timer(deadline)
+    }
+
     fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
     where
         F: Future + Send + 'static,
@@ -223,6 +248,31 @@ mod tokio_impl {
         }
     }
 
+    /// A reusable timer bound to the Tokio runtime selected by its executor.
+    #[derive(Debug)]
+    pub struct TokioTimer {
+        inner: TokioBoundFuture<tokio::time::Sleep>,
+    }
+
+    impl Future for TokioTimer {
+        type Output = ();
+
+        fn poll(self: Pin<&mut Self>, context: &mut std::task::Context<'_>) -> std::task::Poll<()> {
+            Pin::new(&mut self.get_mut().inner).poll(context)
+        }
+    }
+
+    impl ResettableTimer for TokioTimer {
+        fn reset(self: Pin<&mut Self>, deadline: Instant) {
+            let inner = &mut self.get_mut().inner;
+            let _entered = inner.handle.enter();
+            inner
+                .inner
+                .as_mut()
+                .reset(tokio::time::Instant::from_std(deadline));
+        }
+    }
+
     /// Tokio-based executor implementation.
     #[derive(Debug, Clone)]
     pub struct TokioExecutor {
@@ -286,6 +336,17 @@ mod tokio_impl {
 
         type Detach = ();
 
+        type Timer = TokioTimer;
+
+        fn timer(&self, deadline: Instant) -> Self::Timer {
+            let sleep = self.in_selected_context(|| {
+                tokio::time::sleep_until(tokio::time::Instant::from_std(deadline))
+            });
+            TokioTimer {
+                inner: TokioBoundFuture::new(self.handle.clone(), sleep),
+            }
+        }
+
         fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
         where
             F: Future + Send + 'static,
@@ -338,7 +399,7 @@ mod tokio_impl {
 #[cfg(all(feature = "runtime-tokio", feature = "transport-serial-tokio"))]
 pub(crate) use tokio_impl::TokioBoundFuture;
 #[cfg(feature = "runtime-tokio")]
-pub use tokio_impl::TokioExecutor;
+pub use tokio_impl::{TokioExecutor, TokioTimer};
 
 // smol executor implementation
 #[cfg(feature = "runtime-smol")]
@@ -346,6 +407,24 @@ mod smol_impl {
     use std::{pin::Pin, sync::Mutex, time::Duration};
 
     use super::*;
+
+    /// A reusable timer driven by smol's async-io clock.
+    #[derive(Debug)]
+    pub struct SmolTimer(smol::Timer);
+
+    impl Future for SmolTimer {
+        type Output = ();
+
+        fn poll(self: Pin<&mut Self>, context: &mut std::task::Context<'_>) -> std::task::Poll<()> {
+            Pin::new(&mut self.get_mut().0).poll(context).map(|_| ())
+        }
+    }
+
+    impl ResettableTimer for SmolTimer {
+        fn reset(self: Pin<&mut Self>, deadline: Instant) {
+            self.get_mut().0.set_at(deadline);
+        }
+    }
 
     /// smol-based executor implementation.
     #[derive(Debug, Clone, Copy)]
@@ -420,6 +499,12 @@ mod smol_impl {
             T: Send + 'static;
 
         type Detach = ();
+
+        type Timer = SmolTimer;
+
+        fn timer(&self, deadline: Instant) -> Self::Timer {
+            SmolTimer(smol::Timer::at(deadline))
+        }
 
         fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
         where
@@ -504,7 +589,7 @@ mod smol_impl {
 }
 
 #[cfg(feature = "runtime-smol")]
-pub use smol_impl::SmolExecutor;
+pub use smol_impl::{SmolExecutor, SmolTimer};
 
 #[cfg(all(test, any(feature = "runtime-smol", feature = "runtime-tokio")))]
 mod spawn_tests {
