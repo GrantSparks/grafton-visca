@@ -64,7 +64,7 @@ async fn ready_frame_is_observed_before_explicit_shutdown() {
     let frames = harness.frames.clone();
     frames
         .send_async(batch(vec![DecodedFrame {
-            target: CameraId::CAMERA_1,
+            target: crate::target::TargetSlot::CAMERA_1,
             sequence: None,
             response: DecodedResponse::Unknown,
         }]))

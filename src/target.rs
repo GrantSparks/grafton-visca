@@ -30,6 +30,27 @@ impl TargetSlot {
         Self(6),
     ];
 
+    #[cfg(test)]
+    pub(crate) const CAMERA_1: Self = Self::ALL[0];
+
+    #[cfg(test)]
+    pub(crate) const CAMERA_2: Self = Self::ALL[1];
+
+    #[cfg(test)]
+    pub(crate) const CAMERA_3: Self = Self::ALL[2];
+
+    #[cfg(test)]
+    pub(crate) const CAMERA_4: Self = Self::ALL[3];
+
+    #[cfg(test)]
+    pub(crate) const CAMERA_5: Self = Self::ALL[4];
+
+    #[cfg(test)]
+    pub(crate) const CAMERA_6: Self = Self::ALL[5];
+
+    #[cfg(test)]
+    pub(crate) const CAMERA_7: Self = Self::ALL[6];
+
     /// The corresponding wire camera address.
     pub(crate) const fn camera(self) -> CameraId {
         const CAMERAS: [CameraId; TargetSlot::COUNT] = [

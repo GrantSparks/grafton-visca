@@ -15,7 +15,9 @@ fn set(targets: &[u8]) -> RawCorrelationReleaseSet {
     targets
         .iter()
         .fold(RawCorrelationReleaseSet::default(), |set, target| {
-            set.with_terminal_for_test(CameraId::new(*target).unwrap())
+            set.with_terminal_for_test(
+                crate::target::TargetSlot::try_from(CameraId::new(*target).unwrap()).unwrap(),
+            )
         })
 }
 

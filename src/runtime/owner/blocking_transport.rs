@@ -549,7 +549,7 @@ mod tests {
         assert_eq!(
             adapter.buffered_raw_prefix_evidence().unwrap(),
             Some(RawPrefixEvidence::Incomplete {
-                target: CameraId::CAMERA_1,
+                target: crate::target::TargetSlot::CAMERA_1,
                 kind: RawIncompletePrefix::SocketlessCompletion,
             })
         );

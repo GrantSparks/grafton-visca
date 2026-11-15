@@ -898,7 +898,7 @@ mod tests {
     fn admission_rejection_ingress_total_saturates() {
         let ingress = AdmissionRejectionIngress::new(2);
         let rejection = PreAdmissionRejection {
-            target: TargetSlot::ALL[0],
+            target: TargetSlot::CAMERA_1,
             lane: Lane::Command,
             error: crate::ErrorKind::BufferFull,
         };

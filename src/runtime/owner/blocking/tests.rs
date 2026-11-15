@@ -327,7 +327,7 @@ fn sony_reply_to(request: &[u8], payload: &[u8]) -> Vec<u8> {
 fn await_pan_tilt_limits(owner: &BlockingOwnerHandle) {
     let deadline = Instant::now() + PROMPTLY;
     while owner
-        .state_cache(CameraId::CAMERA_1)
+        .state_cache(crate::target::TargetSlot::CAMERA_1)
         .pan_tilt_limits()
         .is_none()
     {
@@ -358,7 +358,7 @@ fn raw_inquiry(inquiry: Duration) -> RuntimeRequest {
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
-            target: CameraId::CAMERA_1,
+            target: crate::target::TargetSlot::CAMERA_1,
             timeout: TimeoutPolicy {
                 ack: Duration::from_secs(1),
                 completion: Duration::from_secs(1),

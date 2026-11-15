@@ -344,9 +344,7 @@ impl SessionConfig {
     pub(crate) fn profile_registry(&self) -> Vec<(TargetSlot, &ProfileSpec)> {
         self.targets
             .iter()
-            .filter_map(|(target, profile)| {
-                profile.as_deref().map(|profile| (target, profile))
-            })
+            .filter_map(|(target, profile)| profile.as_deref().map(|profile| (target, profile)))
             .collect()
     }
 

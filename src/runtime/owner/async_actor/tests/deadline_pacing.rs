@@ -43,7 +43,7 @@ async fn full_idle_read_timeouts_do_not_delay_the_next_reply() {
             runtime.advance(Duration::from_millis(reply_ms - 200));
             frames
                 .send(Ok(OwnerReceive::Frames(vec![DecodedFrame {
-                    target: CameraId::CAMERA_1,
+                    target: crate::target::TargetSlot::CAMERA_1,
                     sequence: None,
                     response: DecodedResponse::InquiryReply {
                         route: None,
@@ -116,7 +116,7 @@ async fn a_paced_receive_at_its_response_deadline_wins_the_timer_race() {
     runtime.advance(Duration::from_millis(5));
     frames
         .send(Ok(OwnerReceive::Frames(vec![DecodedFrame {
-            target: CameraId::CAMERA_1,
+            target: crate::target::TargetSlot::CAMERA_1,
             sequence: None,
             response: DecodedResponse::InquiryReply {
                 route: None,

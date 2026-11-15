@@ -490,7 +490,7 @@ where
     pub(crate) fn new(
         transport: T,
         profile: &ProfileSpec,
-        target: TargetSlot,
+        target: CameraId,
     ) -> Result<Self, Error> {
         Self::new_with_tuning(transport, profile, target, OperationalTuning::new())
     }
@@ -500,12 +500,12 @@ where
     pub(crate) fn new_with_tuning(
         transport: T,
         profile: &ProfileSpec,
-        target: TargetSlot,
+        target: CameraId,
         tuning: OperationalTuning,
     ) -> Result<Self, Error> {
         Self::new_with_targets(
             transport,
-            &[(target, profile)],
+            &[(TargetSlot::try_from(target)?, profile)],
             tuning,
             crate::DEFAULT_ADMISSION_CAPACITY,
             false,
@@ -1199,13 +1199,13 @@ mod tests {
 
     fn all_targets() -> TargetRegistry {
         TargetRegistry::from_targets(&[
-            TargetSlot::ALL[0],
-            TargetSlot::ALL[1],
-            TargetSlot::ALL[2],
-            TargetSlot::ALL[3],
-            TargetSlot::ALL[4],
-            TargetSlot::ALL[5],
-            TargetSlot::ALL[6],
+            TargetSlot::CAMERA_1,
+            TargetSlot::CAMERA_2,
+            TargetSlot::CAMERA_3,
+            TargetSlot::CAMERA_4,
+            TargetSlot::CAMERA_5,
+            TargetSlot::CAMERA_6,
+            TargetSlot::CAMERA_7,
         ])
         .unwrap()
     }
@@ -1214,13 +1214,13 @@ mod tests {
     fn serial_source_bytes_map_exactly_to_all_seven_targets() {
         let routing = RoutingState::new(AddressingMode::Serial, all_targets());
         for (source, expected) in [
-            (0x90, TargetSlot::ALL[0]),
-            (0xa0, TargetSlot::ALL[1]),
-            (0xb0, TargetSlot::ALL[2]),
-            (0xc0, TargetSlot::ALL[3]),
-            (0xd0, TargetSlot::ALL[4]),
-            (0xe0, TargetSlot::ALL[5]),
-            (0xf0, TargetSlot::ALL[6]),
+            (0x90, TargetSlot::CAMERA_1),
+            (0xa0, TargetSlot::CAMERA_2),
+            (0xb0, TargetSlot::CAMERA_3),
+            (0xc0, TargetSlot::CAMERA_4),
+            (0xd0, TargetSlot::CAMERA_5),
+            (0xe0, TargetSlot::CAMERA_6),
+            (0xf0, TargetSlot::CAMERA_7),
         ] {
             assert!(matches!(
                 decode_response_target(routing, &[source]),
@@ -1246,7 +1246,7 @@ mod tests {
         let envelope = OwnerEnvelope::Sony(SonyEncapsulated::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
+            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         let framed = Bytes::from_static(&[
             0x02, 0x01, // control reply
@@ -1258,7 +1258,7 @@ mod tests {
         let decoded = decode_frame(&envelope, routing, framed)
             .expect("valid Sony control reply")
             .expect("sole-target Sony reply");
-        assert_eq!(decoded.target, TargetSlot::ALL[0]);
+        assert_eq!(decoded.target, TargetSlot::CAMERA_1);
         assert_eq!(decoded.sequence, None);
         assert_eq!(
             decoded.response,
@@ -1284,7 +1284,7 @@ mod tests {
         let ack = decode_frame(&envelope, routing, Bytes::from_static(&[0xa0, 0x42, 0xff]))
             .unwrap()
             .unwrap();
-        assert_eq!(ack.target, TargetSlot::ALL[1]);
+        assert_eq!(ack.target, TargetSlot::CAMERA_2);
         assert!(matches!(
             ack.response,
             DecodedResponse::Ack {
@@ -1299,7 +1299,7 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_eq!(error.target, TargetSlot::ALL[1]);
+        assert_eq!(error.target, TargetSlot::CAMERA_2);
         assert!(matches!(
             error.response,
             DecodedResponse::Error {
@@ -1321,14 +1321,14 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::ALL[1]).unwrap(),
+            TargetRegistry::single(TargetSlot::CAMERA_2).unwrap(),
         );
         // The default `0x90` reply attributes to the sole target.
         let default_source =
             decode_frame(&envelope, routing, Bytes::from_static(&[0x90, 0x42, 0xff]))
                 .unwrap()
                 .unwrap();
-        assert_eq!(default_source.target, TargetSlot::ALL[1]);
+        assert_eq!(default_source.target, TargetSlot::CAMERA_2);
         // A camera answering with its chain address `0xA0` still attributes to
         // the sole target, and its ACK still classifies (socket S2).
         let chain_source =
@@ -1337,7 +1337,7 @@ mod tests {
                     "a chain-address reply on a single-target IP session is not a decode failure",
                 )
                 .expect("a single-target IP session attributes any reply source");
-        assert_eq!(chain_source.target, TargetSlot::ALL[1]);
+        assert_eq!(chain_source.target, TargetSlot::CAMERA_2);
         assert!(matches!(
             chain_source.response,
             DecodedResponse::Ack {
@@ -1358,7 +1358,7 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::from_targets(&[TargetSlot::ALL[0], TargetSlot::ALL[1]]).unwrap(),
+            TargetRegistry::from_targets(&[TargetSlot::CAMERA_1, TargetSlot::CAMERA_2]).unwrap(),
         );
         // A bare `0x90` reply is ambiguous across the registered targets: it is
         // dropped (Ok(None)) rather than attributed to a guessed target.
@@ -1376,12 +1376,12 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Serial));
         let routing = RoutingState::new(
             AddressingMode::Serial,
-            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
+            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         let frame = decode_frame(&envelope, routing, Bytes::from_static(&[0xa0, 0x42, 0xff]))
             .unwrap()
             .unwrap();
-        assert_eq!(frame.target, TargetSlot::ALL[1]);
+        assert_eq!(frame.target, TargetSlot::CAMERA_2);
         assert!(matches!(frame.response, DecodedResponse::Unknown));
     }
 
@@ -1393,12 +1393,12 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
+            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         let ack = decode_frame(&envelope, routing, Bytes::from_static(&[0x90, 0x40, 0xff]))
             .expect("a socketless ACK is not a decode failure")
             .expect("a socketless ACK is attributable");
-        assert_eq!(ack.target, TargetSlot::ALL[0]);
+        assert_eq!(ack.target, TargetSlot::CAMERA_1);
         assert!(matches!(
             ack.response,
             DecodedResponse::Ack { socket: None }
@@ -1431,7 +1431,7 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
+            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         for frame in [
             // Too short to be any VISCA response.
@@ -1453,7 +1453,7 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
+            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         let mut framer =
             ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
@@ -1494,7 +1494,7 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
+            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         let mut framer =
             ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
@@ -1538,7 +1538,7 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
+            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         let mut framer = ProtocolFramer::new_with_limits_and_mode(8, 32, 5, FramingMode::RawVisca);
         let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
@@ -1580,7 +1580,7 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
+            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         let mut framer =
             ProtocolFramer::new_with_limits_and_mode(64, 64, 64, FramingMode::RawVisca);
@@ -1622,7 +1622,7 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
+            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         let mut framer =
             ProtocolFramer::new_with_limits_and_mode(64, 64, 64, FramingMode::RawVisca);
@@ -1653,7 +1653,7 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
+            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         let mut framer =
             ProtocolFramer::new_with_limits_and_mode(64, 64, 64, FramingMode::RawVisca);
@@ -1703,7 +1703,7 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
+            TargetRegistry::single(TargetSlot::CAMERA_1).unwrap(),
         );
         let mut framer =
             ProtocolFramer::new_with_limits_and_mode(64, 64, 64, FramingMode::RawVisca);
@@ -1729,16 +1729,16 @@ mod tests {
     fn multi_target_policy_retains_target_local_facts_and_shared_bounds() {
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         let profiles = [
-            (TargetSlot::ALL[0], &profile),
-            (TargetSlot::ALL[1], &profile),
+            (TargetSlot::CAMERA_1, &profile),
+            (TargetSlot::CAMERA_2, &profile),
         ];
         let config = TransportConfig {
             addressing: AddressingMode::Serial,
             ..TransportConfig::default()
         };
         let policy = owner_policy_for_targets(&profiles, &config, SendSemantics::Stream).unwrap();
-        assert!(policy.targets[1].is_some());
-        assert!(policy.targets[2].is_some());
+        assert!(policy.targets[TargetSlot::CAMERA_1].is_some());
+        assert!(policy.targets[TargetSlot::CAMERA_2].is_some());
         assert_eq!(policy.protocol.inquiry_capacity, 1);
         assert_eq!(
             policy.protocol.command_spacing,
@@ -1754,8 +1754,8 @@ mod tests {
     fn production_raw_policy_is_single_flight_while_sony_uses_admission_capacity() {
         let raw = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         let sony = ProfileSpec::from_compile_time::<SonyFR7>().unwrap();
-        let raw_profiles = [(TargetSlot::ALL[0], &raw)];
-        let sony_profiles = [(TargetSlot::ALL[0], &sony)];
+        let raw_profiles = [(TargetSlot::CAMERA_1, &raw)];
+        let sony_profiles = [(TargetSlot::CAMERA_1, &sony)];
         let capacity = NonZeroUsize::new(3).unwrap();
         let config = TransportConfig::default();
 
@@ -1793,8 +1793,8 @@ mod tests {
         let relaxed = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         let strict = ProfileSpec::from_compile_time::<PtzOpticsG2>().unwrap();
         let profiles = [
-            (TargetSlot::ALL[0], &relaxed),
-            (TargetSlot::ALL[1], &strict),
+            (TargetSlot::CAMERA_1, &relaxed),
+            (TargetSlot::CAMERA_2, &strict),
         ];
         let config = TransportConfig {
             addressing: AddressingMode::Serial,
@@ -1814,7 +1814,7 @@ mod tests {
     #[test]
     fn buffer_policy_accepts_equal_receive_and_maximum_sizes() {
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
-        let profiles = [(TargetSlot::ALL[0], &profile)];
+        let profiles = [(TargetSlot::CAMERA_1, &profile)];
         let config = TransportConfig {
             buffer_config: crate::transport::BufferConfig {
                 recv_buffer_size: 64,
@@ -1834,7 +1834,7 @@ mod tests {
     #[test]
     fn buffer_policy_rejects_receive_size_larger_than_maximum() {
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
-        let profiles = [(TargetSlot::ALL[0], &profile)];
+        let profiles = [(TargetSlot::CAMERA_1, &profile)];
         let config = TransportConfig {
             buffer_config: crate::transport::BufferConfig {
                 recv_buffer_size: 65,

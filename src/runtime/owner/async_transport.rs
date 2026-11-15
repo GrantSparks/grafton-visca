@@ -379,7 +379,7 @@ mod tests {
             assert_eq!(
                 adapter.buffered_raw_prefix_evidence().unwrap(),
                 Some(RawPrefixEvidence::Incomplete {
-                    target: CameraId::CAMERA_1,
+                    target: crate::target::TargetSlot::CAMERA_1,
                     kind: expected_kind,
                 }),
                 "{case}",
@@ -494,6 +494,11 @@ mod tests {
             adapter.policy().protocol.inquiry_spacing,
             tuning.inquiry_spacing_override().unwrap()
         );
-        assert_eq!(adapter.policy().targets[1].unwrap().command_sockets, 1);
+        assert_eq!(
+            adapter.policy().targets[crate::target::TargetSlot::CAMERA_1]
+                .unwrap()
+                .command_sockets,
+            1
+        );
     }
 }

@@ -15,7 +15,7 @@ async fn async_prepared_retry_budget_covers_a_late_ack_and_completion() {
         let initial = Instant::now();
         let runtime = ManualRuntime::with_polling_sleeps(initial);
         let mut owner_policy = if sony { sony_policy(2) } else { policy(2) };
-        owner_policy.targets[usize::from(CameraId::CAMERA_1.id())]
+        owner_policy.targets[crate::target::TargetSlot::CAMERA_1]
             .as_mut()
             .unwrap()
             .cancellation = if profile.supports_command_cancel() {
