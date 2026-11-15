@@ -86,7 +86,7 @@ mod private {
         }
 
         fn declared_max_size(&self) -> usize {
-            T::MAX_SIZE
+            crate::requests::declared_max_size(self)
         }
 
         fn reply_shape(&self) -> RawReplyShape {
@@ -513,6 +513,21 @@ mod tests {
         let Some(profile) = profile() else {
             return;
         };
+        let raw = crate::raw::AppliedOnly::new(
+            [0x81, 1, 4, 7, 0, 0xff],
+            AffectedAxes::ZOOM,
+            TimeoutClass::Movement,
+            RetryClass::Movement,
+            ControlClass::User,
+        )
+        .expect("bounded raw operation");
+        let erased_raw: &dyn DynAppliedRequest = &raw;
+        let raw_adapter = OperationAdapter::<AppliedOnly, _>::new(erased_raw);
+        assert_eq!(
+            crate::requests::declared_max_size(&raw_adapter),
+            raw.bytes().len(),
+            "erasure preserves a raw value's tighter validated storage bound"
+        );
         let targeted = OversizedTargeted;
         let static_targeted = crate::prepared::test_support::prepare_operation::<Targeted, _>(
             &targeted,
