@@ -309,10 +309,6 @@ pub(crate) struct RequestContext {
     pub(crate) retry: RetryPolicy,
     pub(crate) control: ControlPolicy,
     pub(crate) cancellation: CancellationPolicy,
-    /// The reply protocol this command declared. Inquiry preparation admits
-    /// only the default shape because inquiries always await a reply; commands
-    /// honor their declared shape in the lifecycle state machine.
-    pub(crate) reply_shape: ReplyShape,
 }
 
 /// Maximum number of scalar values carried by one applied-state effect.
@@ -430,6 +426,7 @@ pub(crate) enum RuntimeRequest {
     Command {
         wire: Arc<EncodedMessage>,
         context: RequestContext,
+        reply_shape: ReplyShape,
         applied_state: Option<AppliedStateProjection>,
     },
     Inquiry {
@@ -875,6 +872,9 @@ pub(crate) enum SessionState {
 }
 
 /// Ordered boundary inputs to the pure state machine.
+// Admission owns the complete bounded request. Keep this synchronous engine
+// input inline instead of allocating every admitted request for enum size.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub(crate) enum Input {
     Admit {

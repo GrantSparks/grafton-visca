@@ -66,16 +66,33 @@ fn completion_only_unconfirmed_still_holds_all_responses() {
 }
 
 #[test]
-fn sending_completion_only_cancel_is_refused_when_write_lands() {
-    let now = Instant::now();
-    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let (write, id) = admit(&mut engine, 1, completion_only(), now);
-    engine.handle(Input::Cancel { id }, now);
-    let result = send_ok(&mut engine, &write, None, now);
-    assert!(refused(&result, id));
-    assert_eq!(engine.entry(id).unwrap().cancellation(), CancelState::None);
-    assert!(!engine.entry(id).unwrap().cancellation_observation_open());
-    engine.assert_invariants().unwrap();
+fn sending_command_cannot_record_cancellation_intent() {
+    for shape in [
+        ReplyShape::AckThenCompletion,
+        ReplyShape::CompletionOnly,
+        ReplyShape::NoReply,
+    ] {
+        let now = Instant::now();
+        let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+        let (write, id) = admit(
+            &mut engine,
+            1,
+            command_with_reply_shape(1, CancellationPolicy::Supported, shape),
+            now,
+        );
+        assert!(engine.assert_input_boundary().is_err());
+        let mut effects = Vec::new();
+        assert!(matches!(
+            engine.cancel(id, now, &mut effects),
+            Err(Error::NotSupported)
+        ));
+        assert!(!effects
+            .iter()
+            .any(|effect| matches!(effect, Effect::CancellationRecorded { .. })));
+        assert!(!engine.entry(id).unwrap().cancellation_observation_open());
+        send_ok(&mut engine, &write, None, now);
+        assert!(engine.assert_input_boundary().is_ok());
+    }
 }
 
 #[test]

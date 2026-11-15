@@ -471,15 +471,21 @@ mod tests {
         let Ok(targeted_prepared) = targeted_prepared else {
             return;
         };
-        let targeted_context = targeted_prepared.admit_with(|request, _, _, _| {
+        let targeted_request = targeted_prepared.admit_with(|request, _, _, _| {
             assert_eq!(
                 request.wire().as_bytes(),
                 &[0x81, 0x01, 0x02, 0xff],
                 "erasure preserves the shorter frame's actual written length"
             );
-            *request.context()
+            request
         });
-        assert_eq!(targeted_context.reply_shape, ReplyShape::CompletionOnly);
+        assert!(matches!(
+            targeted_request,
+            crate::runtime::engine::RuntimeRequest::Command {
+                reply_shape: ReplyShape::CompletionOnly,
+                ..
+            }
+        ));
 
         let applied = NoReplyApplied;
         let applied: &dyn DynAppliedRequest = &applied;

@@ -562,6 +562,7 @@ fn snapshots_moved(
 pub(crate) struct PreparedCommand {
     wire: PreparedWire,
     context: RequestContext,
+    reply_shape: ReplyShape,
     applied_state: Option<AppliedStateProjection>,
 }
 
@@ -581,6 +582,7 @@ where
 {
     wire: PreparedWire,
     context: RequestContext,
+    reply_shape: ReplyShape,
     affected_axes: AffectedAxes,
     settlement: completion::Settlement<K>,
     applied_state: Option<AppliedStateProjection>,
@@ -688,6 +690,7 @@ where
     Ok(PreparedCommand {
         wire,
         context,
+        reply_shape: lower_reply_shape(command.reply_shape()),
         applied_state,
     })
 }
@@ -868,6 +871,7 @@ where
     Ok(PreparedOperation {
         wire,
         context,
+        reply_shape: lower_reply_shape(operation.reply_shape()),
         affected_axes,
         settlement,
         applied_state,
@@ -1032,12 +1036,6 @@ where
         } else {
             CancellationPolicy::Unsupported
         },
-        // The reply shape is a caller-declared protocol fact, lowered here from
-        // the request rather than inferred from the wire bytes. Inquiry
-        // preparation has already rejected every non-default shape, so an
-        // inquiry's value is the protocol it actually awaits rather than an
-        // override the engine silently ignores.
-        reply_shape,
     })
 }
 
@@ -1156,9 +1154,10 @@ impl PreparedCommand {
     pub(crate) fn admit_with<T>(self, admit: impl FnOnce(RuntimeRequest, Duration) -> T) -> T {
         let timeout = observation_timeout(
             &self.context,
-            command_attempt_timeout(&self.context.timeout, self.context.reply_shape),
+            command_attempt_timeout(&self.context.timeout, self.reply_shape),
         );
         let request = RuntimeRequest::Command {
+            reply_shape: self.reply_shape,
             wire: self.wire.into_shared(),
             context: self.context,
             applied_state: self.applied_state,
@@ -1237,7 +1236,7 @@ where
     ) -> T {
         let applied = observation_timeout(
             &self.context,
-            command_attempt_timeout(&self.context.timeout, self.context.reply_shape),
+            command_attempt_timeout(&self.context.timeout, self.reply_shape),
         );
         // Once cancellation is requested, the engine concludes the operation
         // within its cancellation ambiguity window plus the cancellation
@@ -1250,6 +1249,7 @@ where
                 .saturating_add(self.context.timeout.cancellation),
         );
         let request = RuntimeRequest::Command {
+            reply_shape: self.reply_shape,
             wire: self.wire.into_shared(),
             context: self.context,
             applied_state: self.applied_state,
@@ -4414,7 +4414,7 @@ mod tests {
                 ClassSelection::Request,
             )
             .expect("prepares");
-            assert_eq!(prepared.context.reply_shape, expected);
+            assert_eq!(prepared.reply_shape, expected);
         }
 
         // A raw command built with no explicit shape — and, by the same trait
@@ -4434,7 +4434,7 @@ mod tests {
             ClassSelection::Request,
         )
         .expect("prepares");
-        assert_eq!(prepared.context.reply_shape, ReplyShape::AckThenCompletion);
+        assert_eq!(prepared.reply_shape, ReplyShape::AckThenCompletion);
     }
 
     #[test]

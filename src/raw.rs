@@ -61,8 +61,9 @@ pub use crate::{AffectedAxes, ControlClass, ResponseDecoder, RetryClass, Timeout
 
 use crate::{
     command::bytes::{constants::system, VISCA_TERMINATOR},
-    completion, request, CameraId, Error, Inquiry as InquiryRequest, OperationCommand, Request,
-    Result,
+    completion, request,
+    timeout::CommandCategory,
+    CameraId, Error, Inquiry as InquiryRequest, OperationCommand, Request, Result,
 };
 
 /// Number of raw frame bytes retained inline without a heap allocation.
@@ -809,7 +810,7 @@ raw_operation! {
 }
 
 fn validate_timeout_class(timeout: TimeoutClass, inquiry: bool) -> Result<()> {
-    if matches!(timeout, TimeoutClass::Inquiry) == inquiry {
+    if CommandCategory::of(timeout).is_none() == inquiry {
         Ok(())
     } else {
         Err(Error::InvalidRequest(Cow::Borrowed(

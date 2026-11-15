@@ -240,7 +240,7 @@ fn observer_resolution_distinguishes_receiver_loss_from_duplicate_delivery() {
 /// D26 (#778): the permit pool's two budgets.
 mod control_reserve {
     use super::*;
-    use crate::runtime::engine::{ControlPolicy, ReplyShape, RetryPolicy, TimeoutPolicy};
+    use crate::runtime::engine::{ControlPolicy, RetryPolicy, TimeoutPolicy};
 
     fn context(target: u8, class: ControlClass) -> RequestContext {
         RequestContext {
@@ -262,7 +262,6 @@ mod control_reserve {
                 ..ControlPolicy::default()
             },
             cancellation: CancellationPolicy::Supported,
-            reply_shape: ReplyShape::AckThenCompletion,
         }
     }
 
@@ -434,7 +433,6 @@ mod metrics {
             retry,
             control: ControlPolicy::default(),
             cancellation: CancellationPolicy::Supported,
-            reply_shape: ReplyShape::AckThenCompletion,
         }
     }
 
@@ -444,6 +442,7 @@ mod metrics {
 
     fn command(retry: RetryPolicy) -> RuntimeRequest {
         RuntimeRequest::Command {
+            reply_shape: ReplyShape::AckThenCompletion,
             wire: wire(),
             context: request_context(retry),
             applied_state: None,
@@ -1515,6 +1514,7 @@ mod lifecycle_trace {
         ack: Duration,
     ) -> RuntimeRequest {
         RuntimeRequest::Command {
+            reply_shape: ReplyShape::AckThenCompletion,
             wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
             context: RequestContext {
                 requires_extended_pan_tilt_speed: false,
@@ -1532,7 +1532,6 @@ mod lifecycle_trace {
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
                 cancellation,
-                reply_shape: ReplyShape::AckThenCompletion,
             },
             // Fixtures observe this exact write-only effect through StateCache.
             applied_state: Some(AppliedStateProjection::set(StateKey::Spotlight, &[1]).unwrap()),
@@ -1563,7 +1562,6 @@ mod lifecycle_trace {
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
                 cancellation,
-                reply_shape: ReplyShape::AckThenCompletion,
             },
         }
     }

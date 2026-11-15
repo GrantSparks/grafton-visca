@@ -190,15 +190,16 @@ const EXPECTED: [[Expected; 9]; 8] = [
     ],
 ];
 
-/// The architecture's sixteen admissible flattened pairs, independently of
+/// The architecture's fifteen admissible flattened pairs, independently of
 /// which combinations the stored lifecycle type can represent.
 fn pair_is_admissible(phase: Phase, cancellation: CancelState) -> bool {
     match phase {
         Phase::Ready { .. }
+        | Phase::Sending { .. }
         | Phase::Backoff { .. }
         | Phase::AwaitingReply { .. }
         | Phase::AwaitingCompletion { .. } => matches!(cancellation, CancelState::None),
-        Phase::Sending { .. } | Phase::AwaitingAck { .. } => {
+        Phase::AwaitingAck { .. } => {
             matches!(
                 cancellation,
                 CancelState::None | CancelState::Requested { .. }
@@ -452,6 +453,9 @@ fn every_lifecycle_state_matches_the_architecture_input_table() {
     let mut cells = 0;
     for (row, state) in State::ALL.into_iter().enumerate() {
         for (column, action) in Action::ALL.into_iter().enumerate() {
+            if state == Sending && !matches!(action, Action::WriteOk | Action::WriteFailed) {
+                continue; // A write result precedes every unrelated boundary input.
+            }
             let mut fixture = Fixture::new(state);
             let effects = fixture.apply(action);
             assert_expected(&fixture, &effects, EXPECTED[row][column]);
@@ -463,7 +467,8 @@ fn every_lifecycle_state_matches_the_architecture_input_table() {
 
             if action == Action::Cancel {
                 match state {
-                    Sending | AwaitingAck => assert!(matches!(
+                    Sending => unreachable!("Sending accepts only its write result"),
+                    AwaitingAck => assert!(matches!(
                         fixture.engine.entry(fixture.id).unwrap().cancellation(),
                         CancelState::Requested { .. }
                     )),
@@ -514,34 +519,14 @@ fn every_lifecycle_state_matches_the_architecture_input_table() {
                     Ready | Backoff => assert!(cancel_transmit_optional(&effects).is_none()),
                 }
             }
-            if action == Action::Ack && state == Sending {
-                // A raced ACK is latched, not merely ignored: confirming its
-                // write must use it immediately and establish the socket.
-                checked_input(
-                    &mut fixture.engine,
-                    Input::TransmissionFinished {
-                        transmission: fixture.transmission,
-                        result: Ok(TransmissionMeta { sequence: None }),
-                    },
-                    fixture.now,
-                );
-                assert_eq!(
-                    State::of(fixture.engine.entry(fixture.id).unwrap().phase()),
-                    Executing
-                );
-                assert_eq!(
-                    fixture.engine.socket_owner(camera(1), ViscaSocket::S1),
-                    Some(fixture.id)
-                );
-            }
             cells += 1;
         }
     }
-    assert_eq!(cells, 72);
+    assert_eq!(cells, 65);
 }
 
 #[test]
-fn flattened_pair_oracle_has_exactly_the_sixteen_documented_pairs() {
+fn flattened_pair_oracle_has_exactly_the_fifteen_documented_pairs() {
     let now = Instant::now();
     let transmission = TransmissionId::from_nonzero(NonZeroU64::new(999_999).unwrap());
     let cancellations = [
@@ -571,5 +556,5 @@ fn flattened_pair_oracle_has_exactly_the_sixteen_documented_pairs() {
             legal += usize::from(pair_is_admissible(phase, cancellation));
         }
     }
-    assert_eq!(legal, 16, "the documented pair set changed");
+    assert_eq!(legal, 15, "the documented pair set changed");
 }

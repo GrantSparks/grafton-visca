@@ -176,10 +176,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   category to `Inquiry`; `from_fn` and `with_context` no longer accept a timeout
   argument. `with_policy` validates that category, and raw commands and
   operations reject inquiry timeout classes at construction.
-- Engine entries store one closed lifecycle with legal phase-local cancellation
-  and attempt facts. Raced replies and attempt records cannot outlive their
-  phases; duplicated socket/deadline state and manual latch resets are removed.
-  Public API and canonical owner traces are unchanged (#836).
+- Engine entries store one closed lifecycle with legal cancellation and attempt
+  facts. Both owners complete each immediate write before another input or due
+  pass; sending states carry no raced replies or cancellation intent. Active
+  lifecycles determine response families, and only command requests carry a
+  command reply shape. Retry waiting retains its written attempt for exact
+  late Sony acceptance (#836, #858, #860).
 - Private per-target state uses one validated individual-camera key and fixed
   seven-slot tables across the engine, ledger, owners and caches. Broadcast
   maintenance stays outside those tables; public target APIs are unchanged
@@ -230,8 +232,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   encode as their signed two's-complement words (#888).
 
 - Raw completion-only commands refuse cancellation with `NotSupported` after a
-  successful write and retain their own completion deadline. Cancellation
-  requested during the write is refused when it succeeds. Unconfirmed raw
+  successful write and retain their own completion deadline. Unconfirmed raw
   cancellation terminals retain a future hold with the correct phase scope,
   preventing late replies from applying a successor (#835).
 - Strictly late correlated frames retire their owner before accounting the
@@ -240,8 +241,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   raw socketless completions release their retired owner's hold instead of
   stranding subsequent commands. Ambiguous socketless terminals retain bounded
   candidate evidence and resolve only when their count proves every candidate
-  ended. A raced ACK retains socket evidence when its write result outlives
-  the total budget (#837, #858).
+  ended. A successful stream write remains owed when its result outlives the
+  total budget (#837, #858).
 - Owner receive pacing preserves input already available at a response or
   release deadline. Only eager idle reads gain an extra pause; full-timeout
   reads stay receive-first, and successful writes clear fault pauses and reset

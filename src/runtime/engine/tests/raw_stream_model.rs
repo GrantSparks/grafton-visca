@@ -838,9 +838,14 @@ impl Session {
                                 if entry.request.is_inquiry() {
                                     Job::Inquiry(request)
                                 } else {
+                                    let RuntimeRequest::Command { reply_shape, .. } =
+                                        &entry.request
+                                    else {
+                                        unreachable!("the inquiry branch was handled above")
+                                    };
                                     Job::Command {
                                         id: request,
-                                        shape: entry.request.context().reply_shape,
+                                        shape: *reply_shape,
                                     }
                                 }
                             }
@@ -900,13 +905,17 @@ impl Session {
                         self.written_order.entry(request).or_insert(self.writes);
                         self.coverage.written += 1;
                         self.unread.push_back((target, job));
-                        next.extend(self.engine.handle(
+                        next.extend(self.engine.handle_turn(
                             Input::TransmissionFinished {
                                 transmission,
                                 result: Ok(TransmissionMeta { sequence: None }),
                             },
                             self.now,
+                            EngineTurn::INPUT_ONLY,
                         ));
+                        if self.engine.assert_input_boundary().is_ok() {
+                            next.extend(self.engine.advance(self.now));
+                        }
                     }
                     Effect::Transition {
                         id,

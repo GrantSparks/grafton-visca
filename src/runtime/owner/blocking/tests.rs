@@ -416,7 +416,6 @@ fn raw_inquiry(inquiry: Duration) -> RuntimeRequest {
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
             cancellation: CancellationPolicy::Supported,
-            reply_shape: ReplyShape::AckThenCompletion,
         },
     }
 }
@@ -1161,6 +1160,7 @@ fn a_stream_completion_after_a_long_idle_read_wins_before_its_deadline() {
     let mut context = *raw_inquiry(Duration::from_secs(1)).context();
     context.timeout.completion = Duration::from_secs(6);
     let request = RuntimeRequest::Command {
+        reply_shape: ReplyShape::AckThenCompletion,
         wire: Arc::new(EncodedMessage::new(ZOOM_STOP).unwrap()),
         context,
         applied_state: None,

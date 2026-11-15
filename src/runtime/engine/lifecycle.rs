@@ -2,9 +2,7 @@
 
 #[cfg(test)]
 use super::CancelState;
-use super::{
-    add_duration, DeferredAck, DeferredCompletion, Phase, QueueTicket, ReplyShape, TransmissionId,
-};
+use super::{add_duration, Phase, QueueTicket, ReplyShape, RuntimeRequest, TransmissionId};
 use crate::ViscaSocket;
 use std::time::{Duration, Instant};
 
@@ -44,48 +42,24 @@ pub(crate) struct SendingCancellation {
     pub(crate) observer_open: bool,
 }
 
-/// A sending inquiry has no cancellation or raced command-response latch.
-/// Command latches are selected by their declared reply shape.
+/// The response family selected before an immediate transport write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum SendingReply {
     Inquiry,
-    AckThenCompletion {
-        deferred: Option<DeferredAck>,
-        cancellation: Option<RequestedCancellation>,
-    },
-    CompletionOnly {
-        deferred: Option<DeferredCompletion>,
-        cancellation: Option<RequestedCancellation>,
-    },
-    NoReply {
-        cancellation: Option<RequestedCancellation>,
-    },
+    AckThenCompletion,
+    CompletionOnly,
+    NoReply,
 }
 
 impl SendingReply {
-    pub(crate) const fn new(inquiry: bool, shape: ReplyShape) -> Self {
-        if inquiry {
-            return Self::Inquiry;
-        }
-        match shape {
-            ReplyShape::AckThenCompletion => Self::AckThenCompletion {
-                deferred: None,
-                cancellation: None,
+    pub(crate) const fn new(request: &RuntimeRequest) -> Self {
+        match request {
+            RuntimeRequest::Inquiry { .. } => Self::Inquiry,
+            RuntimeRequest::Command { reply_shape, .. } => match reply_shape {
+                ReplyShape::AckThenCompletion => Self::AckThenCompletion,
+                ReplyShape::CompletionOnly => Self::CompletionOnly,
+                ReplyShape::NoReply => Self::NoReply,
             },
-            ReplyShape::CompletionOnly => Self::CompletionOnly {
-                deferred: None,
-                cancellation: None,
-            },
-            ReplyShape::NoReply => Self::NoReply { cancellation: None },
-        }
-    }
-
-    const fn cancellation(self) -> Option<RequestedCancellation> {
-        match self {
-            Self::Inquiry => None,
-            Self::AckThenCompletion { cancellation, .. }
-            | Self::CompletionOnly { cancellation, .. }
-            | Self::NoReply { cancellation } => cancellation,
         }
     }
 }
@@ -116,7 +90,7 @@ pub(crate) enum ResolvingCancellation {
 }
 
 /// Stored lifecycle authority. Socket identity belongs to its enclosing phase,
-/// never a cancellation substate; latches exist only while their write races.
+/// never a cancellation substate; the write is completed before further input.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Lifecycle {
     Ready {
@@ -218,16 +192,23 @@ impl Lifecycle {
         }
     }
 
+    /// Dispatched phases determine their complete response family.
+    pub(crate) const fn reply_family(self) -> Option<SendingReply> {
+        Some(match self {
+            Self::Ready { .. } | Self::Backoff { .. } => return None,
+            Self::Sending { reply, .. } => reply,
+            Self::AwaitingReply { .. } => SendingReply::Inquiry,
+            Self::AwaitingCompletion { .. } => SendingReply::CompletionOnly,
+            Self::AwaitingAck { .. }
+            | Self::Executing { .. }
+            | Self::AwaitingCancellationResolution { .. } => SendingReply::AckThenCompletion,
+        })
+    }
+
     /// The old flattened view is useful to independent transition oracles.
     #[cfg(test)]
     pub(crate) const fn cancellation(self) -> CancelState {
         match self {
-            Self::Sending { reply, .. } => match reply.cancellation() {
-                Some(request) => CancelState::Requested {
-                    ambiguity_deadline: request.ambiguity_deadline,
-                },
-                None => CancelState::None,
-            },
             Self::AwaitingAck { cancellation, .. } => match cancellation {
                 Some(request) => CancelState::Requested {
                     ambiguity_deadline: request.ambiguity_deadline,
@@ -283,7 +264,8 @@ impl Lifecycle {
                     }
                 }
             },
-            Self::Ready { .. }
+            Self::Sending { .. }
+            | Self::Ready { .. }
             | Self::Backoff { .. }
             | Self::AwaitingCompletion { .. }
             | Self::AwaitingReply { .. } => CancelState::None,
@@ -325,9 +307,9 @@ impl Lifecycle {
             Self::Sending { attempt, reply, .. }
                 if matches!(
                     reply,
-                    SendingReply::Inquiry | SendingReply::AckThenCompletion { .. }
+                    SendingReply::Inquiry | SendingReply::AckThenCompletion
                 ) || (replayable_completion
-                    && matches!(reply, SendingReply::CompletionOnly { .. })) =>
+                    && matches!(reply, SendingReply::CompletionOnly)) =>
             {
                 attempt
             }
@@ -336,59 +318,8 @@ impl Lifecycle {
         Some(RetryEligibility { attempt })
     }
 
-    pub(crate) const fn deferred_ack(self) -> Option<DeferredAck> {
-        match self {
-            Self::Sending {
-                reply: SendingReply::AckThenCompletion { deferred, .. },
-                ..
-            } => deferred,
-            Self::Sending {
-                reply:
-                    SendingReply::Inquiry
-                    | SendingReply::CompletionOnly { .. }
-                    | SendingReply::NoReply { .. },
-                ..
-            }
-            | Self::Ready { .. }
-            | Self::Backoff { .. }
-            | Self::AwaitingAck { .. }
-            | Self::AwaitingCompletion { .. }
-            | Self::Executing { .. }
-            | Self::AwaitingReply { .. }
-            | Self::AwaitingCancellationResolution { .. } => None,
-        }
-    }
-
-    #[cfg(test)]
-    pub(crate) const fn deferred_completion(self) -> Option<DeferredCompletion> {
-        match self {
-            Self::Sending {
-                reply: SendingReply::CompletionOnly { deferred, .. },
-                ..
-            } => deferred,
-            Self::Sending {
-                reply:
-                    SendingReply::Inquiry
-                    | SendingReply::AckThenCompletion { .. }
-                    | SendingReply::NoReply { .. },
-                ..
-            }
-            | Self::Ready { .. }
-            | Self::Backoff { .. }
-            | Self::AwaitingAck { .. }
-            | Self::AwaitingCompletion { .. }
-            | Self::Executing { .. }
-            | Self::AwaitingReply { .. }
-            | Self::AwaitingCancellationResolution { .. } => None,
-        }
-    }
-
     pub(crate) const fn observer_open(self) -> bool {
         match self {
-            Self::Sending { reply, .. } => match reply.cancellation() {
-                Some(request) => request.observer_open,
-                None => false,
-            },
             Self::AwaitingAck { cancellation, .. } => match cancellation {
                 Some(request) => request.observer_open,
                 None => false,
@@ -406,7 +337,8 @@ impl Lifecycle {
                 ResolvingCancellation::AwaitingTerminal { observer_open, .. } => observer_open,
                 ResolvingCancellation::ObservationFailed { .. } => false,
             },
-            Self::Ready { .. }
+            Self::Sending { .. }
+            | Self::Ready { .. }
             | Self::Backoff { .. }
             | Self::AwaitingCompletion { .. }
             | Self::AwaitingReply { .. } => false,
@@ -415,16 +347,6 @@ impl Lifecycle {
 
     pub(crate) fn close_observer(&mut self) {
         match self {
-            Self::Sending { reply, .. } => match reply {
-                SendingReply::Inquiry => {}
-                SendingReply::AckThenCompletion { cancellation, .. }
-                | SendingReply::CompletionOnly { cancellation, .. }
-                | SendingReply::NoReply { cancellation } => {
-                    if let Some(request) = cancellation {
-                        request.observer_open = false;
-                    }
-                }
-            },
             Self::AwaitingAck { cancellation, .. } => {
                 if let Some(request) = cancellation {
                     request.observer_open = false;
@@ -443,7 +365,8 @@ impl Lifecycle {
                 }
                 ResolvingCancellation::ObservationFailed { .. } => {}
             },
-            Self::Ready { .. }
+            Self::Sending { .. }
+            | Self::Ready { .. }
             | Self::Backoff { .. }
             | Self::AwaitingCompletion { .. }
             | Self::AwaitingReply { .. } => {}
@@ -485,10 +408,6 @@ impl Lifecycle {
 
     pub(crate) const fn cancellation_ambiguity(self) -> Option<Instant> {
         match self {
-            Self::Sending { reply, .. } => match reply.cancellation() {
-                Some(request) => Some(request.ambiguity_deadline),
-                None => None,
-            },
             Self::AwaitingAck { cancellation, .. } => match cancellation {
                 Some(request) => Some(request.ambiguity_deadline),
                 None => None,
@@ -511,7 +430,8 @@ impl Lifecycle {
                     ambiguity_deadline
                 }
             }),
-            Self::Ready { .. }
+            Self::Sending { .. }
+            | Self::Ready { .. }
             | Self::Backoff { .. }
             | Self::AwaitingCompletion { .. }
             | Self::AwaitingReply { .. } => None,
@@ -635,66 +555,10 @@ impl Lifecycle {
             }
             Self::AwaitingCancellationResolution { .. } => CancellationDecision::Duplicate,
             Self::Sending {
-                transmission,
-                started_at,
-                attempt,
-                reply,
-            } => {
-                let reply = match reply {
-                    SendingReply::Inquiry => {
-                        return CancellationDecision::Refused(crate::Error::InquiryNotCancelable)
-                    }
-                    SendingReply::AckThenCompletion {
-                        cancellation: Some(_),
-                        ..
-                    }
-                    | SendingReply::CompletionOnly {
-                        cancellation: Some(_),
-                        ..
-                    }
-                    | SendingReply::NoReply {
-                        cancellation: Some(_),
-                    } => return CancellationDecision::Duplicate,
-                    SendingReply::AckThenCompletion {
-                        deferred,
-                        cancellation: None,
-                    } => {
-                        if !supported {
-                            return refused();
-                        }
-                        SendingReply::AckThenCompletion {
-                            deferred,
-                            cancellation: Some(requested),
-                        }
-                    }
-                    SendingReply::CompletionOnly {
-                        deferred,
-                        cancellation: None,
-                    } => {
-                        if !supported {
-                            return refused();
-                        }
-                        SendingReply::CompletionOnly {
-                            deferred,
-                            cancellation: Some(requested),
-                        }
-                    }
-                    SendingReply::NoReply { cancellation: None } => {
-                        if !supported {
-                            return refused();
-                        }
-                        SendingReply::NoReply {
-                            cancellation: Some(requested),
-                        }
-                    }
-                };
-                CancellationDecision::Record(Self::Sending {
-                    transmission,
-                    started_at,
-                    attempt,
-                    reply,
-                })
-            }
+                reply: SendingReply::Inquiry,
+                ..
+            } => CancellationDecision::Refused(crate::Error::InquiryNotCancelable),
+            Self::Sending { .. } => refused(),
             Self::AwaitingAck {
                 cancellation: Some(_),
                 ..

@@ -69,33 +69,6 @@ struct TransmissionOwner {
     requested_sequence: Option<u32>,
 }
 
-/// A camera ACK that reached the engine before the write result for the very
-/// frame it answers.
-///
-/// Issue #297: an owner whose reader and writer are not strictly ordered can
-/// deliver the ACK first. The engine latches it on the entry instead of
-/// dropping it, and applies it verbatim as soon as the transmission is
-/// confirmed, so the race cannot silently reopen.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct DeferredAck {
-    socket: Option<ViscaSocket>,
-}
-
-/// A camera completion that reached the engine before the write result for the
-/// very frame it answers, for a completion-only raw command.
-///
-/// The mirror of [`DeferredAck`] for [`ReplyShape::CompletionOnly`]: a
-/// completion-only command receives no ACK, so its terminal frame is the
-/// completion. An owner whose reader is not strictly ordered behind its writer
-/// can deliver that completion first; the engine latches it on the entry while
-/// the write is still `Sending` and applies it as soon as the send is confirmed,
-/// so the race cannot silently drop the completion and strand the command until
-/// its completion deadline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct DeferredCompletion {
-    socket: Option<ViscaSocket>,
-}
-
 /// One raw-VISCA correlation scope retained after its live owner can no longer
 /// safely consume unsequenced input.
 ///
@@ -221,6 +194,12 @@ pub(crate) struct Entry {
 }
 
 impl Entry {
+    fn reply_family(&self) -> SendingReply {
+        self.lifecycle
+            .reply_family()
+            .unwrap_or_else(|| SendingReply::new(&self.request))
+    }
+
     fn retry_budget_deadline(&self) -> Option<Instant> {
         self.lifecycle
             .retry_budget_deadline(self.submitted_at, self.request.context().retry.total_budget)
@@ -228,13 +207,6 @@ impl Entry {
     fn correlated_response_deadline(&self) -> Option<Instant> {
         self.lifecycle
             .correlated_response_deadline(self.retry_budget_deadline())
-    }
-    fn deferred_ack(&self) -> Option<DeferredAck> {
-        self.lifecycle.deferred_ack()
-    }
-    #[cfg(test)]
-    fn deferred_completion(&self) -> Option<DeferredCompletion> {
-        self.lifecycle.deferred_completion()
     }
     fn dispatched_socket_capacity(&self) -> Option<u8> {
         self.lifecycle
@@ -563,11 +535,9 @@ impl ProtocolEngine {
     /// and every engine-initiated verdict alike (deadline expiry, the strict
     /// `strict_unconfirmed_poison` opt-in, a stream/framing self-poison) — is
     /// funneled through [`Self::terminate_session`], which stamps this field
-    /// before emitting [`Effect::SessionChanged`]. The effect itself carries no
-    /// payload, so the owner reads this to learn the true terminal cause and
-    /// latch it into its own `session_error` (issue #680); without it an
-    /// engine-initiated poison is invisible to `shutdown()`/`close()` and the
-    /// documented recovery loop re-latches `RuntimeShutdown` instead.
+    /// before emitting [`Effect::SessionChanged`]. Owners read this retained
+    /// cause directly, including engine-initiated poison, rather than deriving
+    /// a second verdict from the input boundary.
     pub(crate) fn terminal_error(&self) -> Option<Error> {
         self.terminal_error.clone()
     }
@@ -602,6 +572,26 @@ impl ProtocolEngine {
         );
     }
 
+    /// A returned transmit is performed immediately. Its identified result is
+    /// the only permitted input until that write has finished.
+    pub(crate) fn assert_input_boundary(&self) -> Result<(), Box<str>> {
+        if self
+            .entries
+            .values()
+            .any(|entry| matches!(entry.lifecycle, Lifecycle::Sending { .. }))
+        {
+            return Err("no entry may be Sending at an input boundary".into());
+        }
+        Ok(())
+    }
+
+    fn debug_assert_input_boundary(&self) {
+        debug_assert!(
+            self.assert_input_boundary().is_ok(),
+            "no entry may be Sending at an input boundary"
+        );
+    }
+
     /// Applies one ordered external input first, then all work due at `now`.
     pub(crate) fn handle(&mut self, input: Input, now: Instant) -> Vec<Effect> {
         self.handle_turn(input, now, EngineTurn::COMPLETE)
@@ -612,6 +602,9 @@ impl ProtocolEngine {
     /// This is the single runtime-neutral entry point for the scheduler
     /// boundaries needed by both owner shells. The ordinary [`Self::handle`]
     /// convenience path selects [`EngineTurn::COMPLETE`].
+    /// Every returned transmit must be written and completed before applying
+    /// another input or running due work; both owners share this write-first
+    /// contract.
     pub(crate) fn handle_turn(
         &mut self,
         input: Input,
@@ -642,6 +635,9 @@ impl ProtocolEngine {
     /// remain in the exact order produced by this input; the owner drains them
     /// before passing the next wire frame.
     pub(crate) fn handle_in_turn(&mut self, turn: &InputTurn, input: Input) -> Vec<Effect> {
+        if !matches!(input, Input::TransmissionFinished { .. }) {
+            self.debug_assert_input_boundary();
+        }
         #[cfg(test)]
         if let Input::Cancel { id } = input {
             return self.cancel_in_turn(turn, id).0;
@@ -659,6 +655,7 @@ impl ProtocolEngine {
         turn: &InputTurn,
         id: RequestId,
     ) -> (Vec<Effect>, Result<(), Error>) {
+        self.debug_assert_input_boundary();
         self.turn_at = Some(turn.now);
         let mut effects = Vec::new();
         let result = self.cancel(id, turn.now, &mut effects);
@@ -1258,11 +1255,12 @@ impl ProtocolEngine {
         let generation = entry.generation;
         let attempt = entry.attempt;
         let target = entry.request.context().target;
-        let dispatched_socket_capacity = (!entry.request.is_inquiry()).then(|| {
-            self.targets[target]
-                .policy
-                .map_or(1, |policy| policy.command_sockets)
-        });
+        let dispatched_socket_capacity =
+            (entry.reply_family() != SendingReply::Inquiry).then(|| {
+                self.targets[target]
+                    .policy
+                    .map_or(1, |policy| policy.command_sockets)
+            });
         let wire = Arc::clone(entry.request.wire());
         let owes = self.ledger_owes(entry);
         let requested_sequence = if self.policy.envelope == EnvelopeKind::Sony {
@@ -1279,10 +1277,7 @@ impl ProtocolEngine {
                 socket_capacity: dispatched_socket_capacity,
                 stream_order,
             },
-            reply: SendingReply::new(
-                entry.request.is_inquiry(),
-                entry.request.context().reply_shape,
-            ),
+            reply: SendingReply::new(&entry.request),
         };
         self.transition(ticket.request, lifecycle, effects);
         self.transmissions.insert(
@@ -1357,7 +1352,7 @@ impl ProtocolEngine {
         // Urgent controls retain command-to-command physical pacing, but an
         // inquiry does not start their safety-lane clock (#712). Ordinary work
         // keeps the established session-wide pacing floor.
-        let last_spacing_write = if !entry.request.is_inquiry()
+        let last_spacing_write = if entry.reply_family() != SendingReply::Inquiry
             && entry.request.context().control.class == ControlClass::Urgent
         {
             self.last_command_sent
@@ -1367,7 +1362,7 @@ impl ProtocolEngine {
         let mut at = last_spacing_write.map_or(entry.submitted_at, |last| {
             add_duration(last, request_spacing)
         });
-        if entry.request.is_inquiry() {
+        if entry.reply_family() == SendingReply::Inquiry {
             if let Some(last) = self.last_inquiry_sent {
                 at = at.max(add_duration(last, self.policy.inquiry_spacing));
             }
@@ -1395,7 +1390,7 @@ impl ProtocolEngine {
         self.entries
             .values()
             .filter(|entry| {
-                entry.request.is_inquiry()
+                entry.reply_family() == SendingReply::Inquiry
                     && (self.policy.envelope != EnvelopeKind::Raw
                         || entry.request.context().target == target)
                     && matches!(
@@ -1410,7 +1405,7 @@ impl ProtocolEngine {
         self.entries
             .values()
             .filter(|entry| {
-                !entry.request.is_inquiry()
+                entry.reply_family() != SendingReply::Inquiry
                     && entry.request.context().target == target
                     && matches!(
                         entry.lifecycle.phase(),
@@ -1484,10 +1479,14 @@ impl ProtocolEngine {
     /// `target` is in flight.
     fn uncorrelated_write_in_flight(&self, target: TargetSlot) -> bool {
         self.entries.values().any(|entry| {
-            !entry.request.is_inquiry()
-                && entry.request.context().target == target
-                && entry.request.context().reply_shape != ReplyShape::AckThenCompletion
-                && matches!(entry.lifecycle.phase(), Phase::Sending { .. })
+            entry.request.context().target == target
+                && matches!(
+                    entry.lifecycle,
+                    Lifecycle::Sending {
+                        reply: SendingReply::CompletionOnly | SendingReply::NoReply,
+                        ..
+                    }
+                )
         })
     }
 
@@ -1538,8 +1537,7 @@ impl ProtocolEngine {
         if self.policy.envelope != EnvelopeKind::Raw {
             return None;
         }
-        let response_bearing = entry.request.is_inquiry()
-            || entry.request.context().reply_shape != ReplyShape::NoReply;
+        let response_bearing = entry.reply_family() != SendingReply::NoReply;
         // A STOP is never held back by a hold (#795): a frame it makes
         // ambiguous binds to neither request.
         let stop = urgent_stop(entry);
@@ -1556,7 +1554,7 @@ impl ProtocolEngine {
             .then(|| self.raw_hold(target, RawHoldScope::InquiryUnkeyed))
             .flatten()
             .map(|hold| hold.until);
-        let pre_ack = (!entry.request.is_inquiry()
+        let pre_ack = (entry.reply_family() != SendingReply::Inquiry
             && !self.raw_preack_hold_bypass_available(entry, target))
         .then(|| self.raw_hold(target, RawHoldScope::PreAck))
         .flatten()
@@ -1564,16 +1562,17 @@ impl ProtocolEngine {
         // Exact socket holds consume physical command capacity. If live work
         // alone still leaves room, the earliest held socket release is the
         // deterministic point at which this request can be reconsidered.
-        let socket_capacity = if entry.request.is_inquiry() || self.raw_stream() || stop {
-            None
-        } else {
-            let capacity = self.command_sockets(target);
-            let live = self.commands_inflight(target);
-            let held = self.raw_socket_hold_count(target);
-            (live < capacity && live.saturating_add(held) >= capacity)
-                .then(|| self.raw_socket_hold_wake(target))
-                .flatten()
-        };
+        let socket_capacity =
+            if entry.reply_family() == SendingReply::Inquiry || self.raw_stream() || stop {
+                None
+            } else {
+                let capacity = self.command_sockets(target);
+                let live = self.commands_inflight(target);
+                let held = self.raw_socket_hold_count(target);
+                (live < capacity && live.saturating_add(held) >= capacity)
+                    .then(|| self.raw_socket_hold_wake(target))
+                    .flatten()
+            };
         all_responses
             .into_iter()
             .chain(inquiry_unkeyed)
@@ -1583,9 +1582,8 @@ impl ProtocolEngine {
     }
 
     fn raw_preack_hold_bypass_available(&self, entry: &Entry, target: TargetSlot) -> bool {
-        !entry.request.is_inquiry()
+        entry.reply_family() == SendingReply::AckThenCompletion
             && entry.request.context().control.class == ControlClass::Urgent
-            && entry.request.context().reply_shape == ReplyShape::AckThenCompletion
             && self.raw_unacknowledged_command_count(target) == 0
     }
 
@@ -1672,7 +1670,7 @@ impl ProtocolEngine {
     /// A third candidate is never admitted through this exception.
     fn raw_urgent_gate_bypass_available(&self, entry: &Entry, target: TargetSlot) -> bool {
         self.policy.envelope == EnvelopeKind::Raw
-            && !entry.request.is_inquiry()
+            && entry.reply_family() != SendingReply::Inquiry
             && entry.request.context().control.class == ControlClass::Urgent
             && self.raw_unacknowledged_command_count(target) == 1
             // A disputed STOP's own answer must stay decisive, and behind a
@@ -1688,8 +1686,8 @@ impl ProtocolEngine {
                 candidate.request.context().target != target
                     || !raw_unacknowledged_command_candidate(candidate)
                     || (self.raw_stream()
-                        && candidate.request.context().reply_shape == ReplyShape::CompletionOnly)
-                    || (candidate.request.context().reply_shape == ReplyShape::AckThenCompletion
+                        && candidate.reply_family() == SendingReply::CompletionOnly)
+                    || (candidate.reply_family() == SendingReply::AckThenCompletion
                         // Sibling STOPs in one halt may dispatch after ACK,
                         // without awaiting completion. Crossing each other's
                         // pre-ACK window would destroy raw attribution.
@@ -1723,17 +1721,17 @@ impl ProtocolEngine {
     fn raw_uncorrelated_command_inflight(&self, target: TargetSlot) -> bool {
         self.policy.envelope == EnvelopeKind::Raw
             && self.entries.values().any(|entry| {
-                !entry.request.is_inquiry()
+                entry.reply_family() != SendingReply::Inquiry
                     && entry.request.context().target == target
-                    && match entry.request.context().reply_shape {
-                        ReplyShape::NoReply => {
+                    && match entry.reply_family() {
+                        SendingReply::NoReply => {
                             matches!(entry.lifecycle.phase(), Phase::Sending { .. })
                         }
-                        ReplyShape::CompletionOnly => matches!(
+                        SendingReply::CompletionOnly => matches!(
                             entry.lifecycle.phase(),
                             Phase::Sending { .. } | Phase::AwaitingCompletion { .. }
                         ),
-                        ReplyShape::AckThenCompletion => false,
+                        SendingReply::Inquiry | SendingReply::AckThenCompletion => false,
                     }
             })
     }
@@ -1760,14 +1758,14 @@ impl ProtocolEngine {
         if self.policy.envelope != EnvelopeKind::Raw {
             return false;
         }
-        if entry.request.is_inquiry() {
+        if entry.reply_family() == SendingReply::Inquiry {
             return self.raw_uncorrelated_command_inflight(target);
         }
-        match entry.request.context().reply_shape {
-            ReplyShape::NoReply => {
+        match entry.reply_family() {
+            SendingReply::NoReply => {
                 self.command_capacity_used(target) > 0 || self.raw_inquiry_inflight(target)
             }
-            ReplyShape::CompletionOnly => {
+            SendingReply::CompletionOnly => {
                 self.command_capacity_used(target) > 0
                     || self.raw_inquiry_inflight(target)
                     || self.raw_target_hold_active(target)
@@ -1776,7 +1774,7 @@ impl ProtocolEngine {
                         && !(self.raw_stream()
                             && self.targets[target].completion_sockets == CompletionSockets::Named))
             }
-            ReplyShape::AckThenCompletion => false,
+            SendingReply::Inquiry | SendingReply::AckThenCompletion => false,
         }
     }
 
@@ -1848,8 +1846,7 @@ impl ProtocolEngine {
     /// result sampled strictly later is outside the request's total budget.
     /// This ordering covers `Ok` and datagram `Err`: once the result is late, a
     /// raw command write can no longer prove whether the camera observed the
-    /// frame, while a Sony write must not register a sequence or consume a
-    /// deferred response. A compatible stream `Err` is handled first by
+    /// frame, while a Sony write must not register a sequence. A compatible stream `Err` is handled first by
     /// [`Self::failed_transmission`], because no per-request boundary can make
     /// an unknowable stream position safe. Cancellation writes deliberately
     /// bypass this guard because their ambiguity window, rather than the
@@ -1871,7 +1868,7 @@ impl ProtocolEngine {
                     (
                         deadline,
                         self.policy.envelope == EnvelopeKind::Raw
-                            && !entry.request.is_inquiry()
+                            && entry.reply_family() != SendingReply::Inquiry
                             && matches!(entry.lifecycle.phase(), Phase::Sending { .. }),
                         entry
                             .last_error
@@ -1891,9 +1888,7 @@ impl ProtocolEngine {
         }
 
         if raw_active_command {
-            // This also removes the active transmission and clears any ACK or
-            // completion latch that raced the write, then retains raw
-            // correlation through its ambiguity window (or poisons in strict
+            // Remove the active transmission and retain raw correlation through its ambiguity window (or poisons in strict
             // recovery mode).
             self.terminate_unconfirmed_raw(owner.request, now, effects);
         } else {
@@ -1980,34 +1975,19 @@ impl ProtocolEngine {
                             );
                         }
                     }
-                    SendingReply::AckThenCompletion {
-                        deferred,
-                        cancellation,
-                    } => {
+                    SendingReply::AckThenCompletion => {
                         self.transition(
                             owner.request,
                             Lifecycle::AwaitingAck {
                                 sent_at: now,
                                 deadline: add_duration(now, context.timeout.ack),
                                 attempt,
-                                cancellation,
+                                cancellation: None,
                             },
                             effects,
                         );
-                        if let Some(deferred) = deferred {
-                            self.ack(owner.request, deferred.socket, now, effects);
-                        }
                     }
-                    SendingReply::CompletionOnly {
-                        deferred,
-                        cancellation,
-                    } => {
-                        if cancellation.is_some() {
-                            effects.push(Effect::CancellationObservation {
-                                id: owner.request,
-                                observation: CancellationObservation::Failed(Error::NotSupported),
-                            });
-                        }
+                    SendingReply::CompletionOnly => {
                         self.transition(
                             owner.request,
                             Lifecycle::AwaitingCompletion {
@@ -2017,11 +1997,8 @@ impl ProtocolEngine {
                             },
                             effects,
                         );
-                        if let Some(deferred) = deferred {
-                            self.completion(owner.request, deferred.socket, now, effects);
-                        }
                     }
-                    SendingReply::NoReply { .. } => {
+                    SendingReply::NoReply => {
                         self.quarantine_raw_terminal(owner.request, now);
                         self.finish(owner.request, RuntimeOutcome::Written, effects);
                     }
@@ -2243,7 +2220,7 @@ impl ProtocolEngine {
             .entries
             .iter()
             .filter_map(|(id, entry)| {
-                if entry.request.is_inquiry()
+                if entry.reply_family() == SendingReply::Inquiry
                     || !matches!(entry.lifecycle.phase(), Phase::AwaitingAck { .. })
                     || entry.lifecycle.cancellation_ambiguity().is_some()
                 {
@@ -2427,9 +2404,8 @@ impl ProtocolEngine {
         // every unsequenced frame (#795). On a raw datagram transport, an
         // unsequenced terminal response cannot identify which released
         // correlation it answers: check the fixed-size tombstones before the
-        // ordinary raw resolver, which could otherwise latch an ACK on a
-        // successor that is still Sending, advance a successor awaiting its
-        // ACK, finish a successor inquiry with stale payload, or fail/retry
+        // ordinary raw resolver, which could otherwise advance a successor
+        // awaiting its ACK, finish a successor inquiry with stale payload, or fail/retry
         // either on a socketless error.
         if self.policy.envelope == EnvelopeKind::Raw
             && frame.sequence.is_none()
@@ -2705,7 +2681,7 @@ impl ProtocolEngine {
     /// socketless error ambiguous with an unacknowledged command.
     fn raw_inquiry_inflight(&self, target: TargetSlot) -> bool {
         self.entries.values().any(|entry| {
-            entry.request.is_inquiry()
+            entry.reply_family() == SendingReply::Inquiry
                 && entry.request.context().target == target
                 && matches!(
                     entry.lifecycle.phase(),
@@ -2746,22 +2722,14 @@ impl ProtocolEngine {
     /// Issue #714 permits one intrinsically Urgent command to cross one open
     /// positional candidate. This resolver is the safety boundary for that
     /// explicit two-candidate state: it returns `None` and never turns
-    /// admission order or recency into an ACK/error guess. The
-    /// `Sending` phase is included for the deferred-ACK latch. Only an
-    /// `AckThenCompletion` command is eligible: `NoReply` has no response
-    /// lifecycle, and `CompletionOnly` deliberately has no ACK/socket
-    /// lifecycle, so either shape must keep an ACK racing its local write inert.
+    /// admission order or recency into an ACK/error guess. `AwaitingAck` is
+    /// the only phase eligible for a new socket assignment.
     fn unique_raw_command_candidate(&self, target: TargetSlot) -> Option<RequestId> {
         let mut sole = None;
         for (id, entry) in &self.entries {
             if self.policy.envelope != EnvelopeKind::Raw
-                || entry.request.is_inquiry()
                 || entry.request.context().target != target
-                || entry.request.context().reply_shape != ReplyShape::AckThenCompletion
-                || !matches!(
-                    entry.lifecycle.phase(),
-                    Phase::Sending { .. } | Phase::AwaitingAck { .. }
-                )
+                || !matches!(entry.lifecycle, Lifecycle::AwaitingAck { .. })
             {
                 continue;
             }
@@ -2779,21 +2747,14 @@ impl ProtocolEngine {
     /// A completion-only command owns no socket, so a completion for it cannot be
     /// resolved by [`Self::socket_owner`]/[`Self::sole_socket_holder`]. It is the
     /// sole in-flight command on its target (the dispatch gate guarantees it), so
-    /// its completion is unambiguous. [`Phase::Sending`] is included so a
-    /// completion that races ahead of the write result can be latched and applied
-    /// once the send is confirmed, mirroring the deferred-ACK latch. Fails closed
-    /// (returns `None`) if a second candidate is ever present, so it never guesses.
+    /// its completion is unambiguous. It fails closed if a second candidate
+    /// exists; `AwaitingCompletion` itself proves the command's reply family.
     fn completion_only_candidate(&self, target: TargetSlot) -> Option<RequestId> {
         let mut sole = None;
         for (id, entry) in &self.entries {
             if self.policy.envelope != EnvelopeKind::Raw
-                || entry.request.is_inquiry()
                 || entry.request.context().target != target
-                || entry.request.context().reply_shape != ReplyShape::CompletionOnly
-                || !matches!(
-                    entry.lifecycle.phase(),
-                    Phase::Sending { .. } | Phase::AwaitingCompletion { .. }
-                )
+                || !matches!(entry.lifecycle, Lifecycle::AwaitingCompletion { .. })
             {
                 continue;
             }
@@ -2820,20 +2781,15 @@ impl ProtocolEngine {
         let mut sole = None;
         for (id, entry) in &self.entries {
             if self.policy.envelope != EnvelopeKind::Raw
-                || entry.request.is_inquiry()
+                || entry.reply_family() == SendingReply::Inquiry
                 || entry.request.context().target != target
             {
                 continue;
             }
-            let ack_lifecycle = matches!(
-                entry.lifecycle.phase(),
-                Phase::Sending { .. } | Phase::AwaitingAck { .. }
-            );
-            let is_candidate = entry.request.context().reply_shape != ReplyShape::NoReply
-                && (ack_lifecycle
-                    || (entry.request.context().reply_shape == ReplyShape::CompletionOnly
-                        && matches!(entry.lifecycle.phase(), Phase::AwaitingCompletion { .. })));
-            if !is_candidate {
+            if !matches!(
+                entry.lifecycle,
+                Lifecycle::AwaitingAck { .. } | Lifecycle::AwaitingCompletion { .. }
+            ) {
                 continue;
             }
             if sole.is_some() {
@@ -3023,44 +2979,12 @@ impl ProtocolEngine {
                 previous_attempt: attempt,
                 ..
             } if self.policy.envelope == EnvelopeKind::Sony
-                && !entry.request.is_inquiry()
-                && entry.request.context().reply_shape == ReplyShape::AckThenCompletion
+                && entry.reply_family() == SendingReply::AckThenCompletion
                 && entry.current_sequence.is_some() =>
             {
                 (attempt, None)
             }
-            Lifecycle::Sending {
-                transmission,
-                started_at,
-                attempt,
-                reply:
-                    SendingReply::AckThenCompletion {
-                        deferred,
-                        cancellation,
-                    },
-            } => {
-                if deferred.is_some() {
-                    effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
-                } else if let Some(entry) = self.entries.get_mut(&id) {
-                    entry.lifecycle = Lifecycle::Sending {
-                        transmission,
-                        started_at,
-                        attempt,
-                        reply: SendingReply::AckThenCompletion {
-                            deferred: Some(DeferredAck { socket }),
-                            cancellation,
-                        },
-                    };
-                }
-                return;
-            }
-            Lifecycle::Sending {
-                reply:
-                    SendingReply::Inquiry
-                    | SendingReply::CompletionOnly { .. }
-                    | SendingReply::NoReply { .. },
-                ..
-            }
+            Lifecycle::Sending { .. }
             | Lifecycle::Ready { .. }
             | Lifecycle::Backoff { .. }
             | Lifecycle::AwaitingCompletion { .. }
@@ -3142,44 +3066,13 @@ impl ProtocolEngine {
             }
             | Lifecycle::Backoff { .. }
                 if self.policy.envelope == EnvelopeKind::Sony
-                    && !entry.request.is_inquiry()
+                    && entry.reply_family() != SendingReply::Inquiry
                     && entry.current_sequence.is_some() =>
             {
                 true
             }
             Lifecycle::AwaitingCompletion { .. } => true,
-            Lifecycle::Sending {
-                transmission,
-                started_at,
-                attempt,
-                reply:
-                    SendingReply::CompletionOnly {
-                        deferred,
-                        cancellation,
-                    },
-            } => {
-                if deferred.is_some() {
-                    effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
-                } else if let Some(entry) = self.entries.get_mut(&id) {
-                    entry.lifecycle = Lifecycle::Sending {
-                        transmission,
-                        started_at,
-                        attempt,
-                        reply: SendingReply::CompletionOnly {
-                            deferred: Some(DeferredCompletion { socket }),
-                            cancellation,
-                        },
-                    };
-                }
-                return;
-            }
-            Lifecycle::Sending {
-                reply:
-                    SendingReply::Inquiry
-                    | SendingReply::AckThenCompletion { .. }
-                    | SendingReply::NoReply { .. },
-                ..
-            }
+            Lifecycle::Sending { .. }
             | Lifecycle::Ready { .. }
             | Lifecycle::Backoff { .. }
             | Lifecycle::AwaitingReply { .. } => false,
@@ -3205,12 +3098,11 @@ impl ProtocolEngine {
     /// so it leaves no hold (#795).
     fn quarantine_raw_terminal(&mut self, id: RequestId, now: Instant) {
         let Some((target, ambiguity)) = self.entries.get(&id).and_then(|entry| {
-            let uncorrelatable_command = !entry.request.is_inquiry()
-                && match entry.request.context().reply_shape {
-                    ReplyShape::NoReply => true,
-                    ReplyShape::CompletionOnly => !self.raw_stream(),
-                    ReplyShape::AckThenCompletion => false,
-                };
+            let uncorrelatable_command = match entry.reply_family() {
+                SendingReply::NoReply => true,
+                SendingReply::CompletionOnly => !self.raw_stream(),
+                SendingReply::Inquiry | SendingReply::AckThenCompletion => false,
+            };
             (self.policy.envelope == EnvelopeKind::Raw && uncorrelatable_command).then_some((
                 entry.request.context().target,
                 entry.request.context().timeout.ambiguity,
@@ -3238,7 +3130,7 @@ impl ProtocolEngine {
         let Some(target) = self.entries.get(&id).and_then(|entry| {
             (self.policy.envelope == EnvelopeKind::Raw
                 && self.policy.inquiry_capacity == 1
-                && entry.request.is_inquiry()
+                && entry.reply_family() == SendingReply::Inquiry
                 && matches!(
                     entry.lifecycle.phase(),
                     Phase::Sending { .. } | Phase::AwaitingReply { .. }
@@ -3268,7 +3160,9 @@ impl ProtocolEngine {
     /// only multiply late replies, so the inquiry retry policy never resends
     /// it on a reply timeout.
     fn raw_stream_single_flight_inquiry(&self, entry: &Entry) -> bool {
-        self.raw_stream() && self.policy.inquiry_capacity == 1 && entry.request.is_inquiry()
+        self.raw_stream()
+            && self.policy.inquiry_capacity == 1
+            && entry.reply_family() == SendingReply::Inquiry
     }
 
     /// The first answer `entry`'s write will be owed, when it is written on a
@@ -3278,13 +3172,11 @@ impl ProtocolEngine {
         if !self.raw_stream() {
             return None;
         }
-        if entry.request.is_inquiry() {
-            return Some(Owes::Reply);
-        }
-        match entry.request.context().reply_shape {
-            ReplyShape::AckThenCompletion => Some(Owes::Ack),
-            ReplyShape::CompletionOnly => Some(Owes::Completion),
-            ReplyShape::NoReply => Some(Owes::Rejection),
+        match entry.reply_family() {
+            SendingReply::Inquiry => Some(Owes::Reply),
+            SendingReply::AckThenCompletion => Some(Owes::Ack),
+            SendingReply::CompletionOnly => Some(Owes::Completion),
+            SendingReply::NoReply => Some(Owes::Rejection),
         }
     }
 
@@ -3495,11 +3387,6 @@ impl ProtocolEngine {
             });
             if !stale {
                 continue;
-            }
-            // A sole ACK is proof that the staged request reached the camera,
-            // even when the writer has not yet reported its result (#297).
-            if matches!(answer, Some(Answer::Ack)) && candidates[1].is_none() {
-                self.mark_stream_answer_written(id, false);
             }
             self.retire_stale_correlated_request(id, now, effects);
         }
@@ -4108,7 +3995,8 @@ impl ProtocolEngine {
     fn latched_raw_lane_error(&self, request: &RuntimeRequest) -> Option<Error> {
         let context = request.context();
         let target = context.target;
-        let completion_only = context.reply_shape == ReplyShape::CompletionOnly;
+        let family = SendingReply::new(request);
+        let completion_only = family == SendingReply::CompletionOnly;
         if (request.is_inquiry() || completion_only)
             && self.ledger.lane_state(target, Lane::Inquiry) == LaneState::Latched
         {
@@ -4119,7 +4007,7 @@ impl ProtocolEngine {
         // from the owed answer (nor, at the debt cap, be owed at all).
         let command_lane = !request.is_inquiry()
             && (completion_only
-                || context.reply_shape == ReplyShape::NoReply
+                || family == SendingReply::NoReply
                 || context.control.class != ControlClass::Urgent);
         // A `CompletionOnly` command's socketless rejection could not be told
         // from a `NoReply` command's still owed past its window.
@@ -4154,7 +4042,7 @@ impl ProtocolEngine {
 
     fn inquiry_reply(&mut self, id: RequestId, reply: RuntimeOutcome, effects: &mut Vec<Effect>) {
         let compatible = self.entries.get(&id).is_some_and(|entry| {
-            entry.request.is_inquiry()
+            entry.reply_family() == SendingReply::Inquiry
                 && matches!(entry.lifecycle.phase(), Phase::AwaitingReply { .. })
         });
         if !compatible {
@@ -4282,7 +4170,7 @@ impl ProtocolEngine {
         match code {
             0x03 | 0x05 => retry.buffer_full,
             0x41 => retry.movement_not_executable,
-            0x02 => entry.request.is_inquiry() && retry.builtin_inquiry_syntax,
+            0x02 => entry.reply_family() == SendingReply::Inquiry && retry.builtin_inquiry_syntax,
             _ => false,
         }
     }
@@ -4311,7 +4199,7 @@ impl ProtocolEngine {
         };
         // Inquiry refusal is request-kind authority; a queued inquiry must not
         // take the local command-cancellation path.
-        let queued_inquiry = entry.request.is_inquiry()
+        let queued_inquiry = entry.reply_family() == SendingReply::Inquiry
             && matches!(
                 entry.lifecycle.phase(),
                 Phase::Ready { .. } | Phase::Backoff { .. }
@@ -4521,7 +4409,8 @@ impl ProtocolEngine {
             ready_at,
         });
         if self.entries.get(&id).is_some_and(|entry| {
-            entry.request.is_inquiry() && matches!(entry.last_error, Some(Error::SyntaxError))
+            entry.reply_family() == SendingReply::Inquiry
+                && matches!(entry.last_error, Some(Error::SyntaxError))
         }) {
             let cooldown = add_duration(now, self.policy.inquiry_cooldown.max(delay));
             self.inquiry_cooldown_until = Some(
@@ -4552,6 +4441,7 @@ impl ProtocolEngine {
     }
 
     fn run_due(&mut self, now: Instant, effects: &mut Vec<Effect>) {
+        self.debug_assert_input_boundary();
         self.turn_at = Some(now);
         // A frame delivered at the exact deadline is still processed before
         // this function by an input turn, so it is conservatively ignored by
@@ -4651,7 +4541,7 @@ impl ProtocolEngine {
             return;
         };
         let target = entry.request.context().target;
-        let reply_shape = entry.request.context().reply_shape;
+        let reply_shape = entry.reply_family();
         // A cancellation can end before its original protocol window. Keep
         // every response from that attempt away from successors through both
         // windows and a fresh ambiguity interval, even if due work was delayed.
@@ -4683,10 +4573,13 @@ impl ProtocolEngine {
             // narrower response identity, so their hold covers every response
             // class on the target.
             Phase::AwaitingCompletion { .. } => Some(RawHoldScope::AllResponses),
-            Phase::Sending { .. } => Some(match reply_shape {
-                ReplyShape::AckThenCompletion => RawHoldScope::PreAck,
-                ReplyShape::CompletionOnly | ReplyShape::NoReply => RawHoldScope::AllResponses,
-            }),
+            Phase::Sending { .. } => match reply_shape {
+                SendingReply::AckThenCompletion => Some(RawHoldScope::PreAck),
+                SendingReply::CompletionOnly | SendingReply::NoReply => {
+                    Some(RawHoldScope::AllResponses)
+                }
+                SendingReply::Inquiry => None,
+            },
             Phase::Ready { .. } | Phase::AwaitingReply { .. } | Phase::Backoff { .. } => None,
         };
         // On a byte stream the ledger owes a pre-ACK command's answer, and a
@@ -4694,46 +4587,18 @@ impl ProtocolEngine {
         // (`retire_stream_answers`), so no time-bounded `PreAck` or
         // `AllResponses` hold is needed for them; and a staged write that
         // never left reached nothing.
-        let raced_ack = self.raw_stream().then_some(entry.deferred_ack()).flatten();
-        let raced_completion = entry.request.context().timeout.completion;
         let scope = if self.raw_stream() {
             let staged_only = matches!(entry.lifecycle.phase(), Phase::Sending { .. })
-                && raced_ack.is_none()
                 && !self.ledger.live(target, id).any(|entry| entry.written);
             let owed = |scope: &RawHoldScope| {
                 *scope == RawHoldScope::PreAck
                     || (*scope == RawHoldScope::AllResponses
-                        && reply_shape == ReplyShape::CompletionOnly)
+                        && reply_shape == SendingReply::CompletionOnly)
             };
             scope.filter(|scope| !owed(scope) && !staged_only)
         } else {
             scope
         };
-        if let Some(ack) = raced_ack {
-            let socket = ack.socket.or_else(|| {
-                [ViscaSocket::S1, ViscaSocket::S2]
-                    .into_iter()
-                    .take(self.assignment_socket_count(target, id))
-                    .find(|socket| self.socket_available(target, *socket, id))
-            });
-            if let Some(socket) = socket {
-                // A latched ACK proves reuse just like an ordinary ACK. End
-                // the predecessor before retaining this command's completion
-                // debt; its late completion must never apply the predecessor.
-                if let Some(stale) = self
-                    .socket_owner(target, socket)
-                    .filter(|owner| *owner != id)
-                {
-                    self.quarantine_displaced_raw_socket_owner(stale, now, effects);
-                }
-                self.extend_raw_hold(
-                    target,
-                    RawHoldScope::Socket(socket),
-                    add_duration(now, raced_completion),
-                    Some(id),
-                );
-            }
-        }
         if let Some(scope) = scope {
             self.extend_raw_hold(target, scope, ambiguity_deadline, Some(id));
         }
@@ -4802,7 +4667,7 @@ impl ProtocolEngine {
                 .clone()
                 .unwrap_or_else(|| terminal_timeout(entry));
             let raw_active_command = self.policy.envelope == EnvelopeKind::Raw
-                && !entry.request.is_inquiry()
+                && entry.reply_family() != SendingReply::Inquiry
                 && matches!(
                     phase,
                     Phase::Sending { .. }
@@ -5530,7 +5395,7 @@ impl ProtocolEngine {
                     };
                     if entry.generation != ticket.generation
                         || entry.queue_generation != ticket.queue_generation
-                        || entry.request.is_inquiry() != inquiry
+                        || (entry.reply_family() == SendingReply::Inquiry) != inquiry
                         || entry.request.context().control.class.priority_index() != priority
                         || !matches!(entry.lifecycle.phase(), Phase::Ready { ticket: active } if active == *ticket)
                     {
@@ -5828,10 +5693,10 @@ impl ProtocolEngine {
                 if entry.request.context().control.class == ControlClass::Urgent {
                     urgent[target] = urgent[target].saturating_add(1);
                 }
-                if entry.request.context().reply_shape != ReplyShape::AckThenCompletion {
+                if entry.reply_family() != SendingReply::AckThenCompletion {
                     uncorrelatable[target] = uncorrelatable[target].saturating_add(1);
                 }
-                if entry.request.context().reply_shape == ReplyShape::NoReply {
+                if entry.reply_family() == SendingReply::NoReply {
                     no_reply[target] = no_reply[target].saturating_add(1);
                 }
                 // On a byte stream the ledger binds every frame by write
@@ -5897,11 +5762,16 @@ fn add_duration(at: Instant, duration: Duration) -> Instant {
 /// predicate, so extending one cannot leave the other with a divergent phase
 /// list.
 fn raw_unacknowledged_command_candidate(entry: &Entry) -> bool {
-    !entry.request.is_inquiry()
-        && matches!(
-            entry.lifecycle.phase(),
-            Phase::Sending { .. } | Phase::AwaitingAck { .. } | Phase::AwaitingCompletion { .. }
-        )
+    matches!(
+        entry.lifecycle,
+        Lifecycle::Sending {
+            reply: SendingReply::AckThenCompletion
+                | SendingReply::CompletionOnly
+                | SendingReply::NoReply,
+            ..
+        } | Lifecycle::AwaitingAck { .. }
+            | Lifecycle::AwaitingCompletion { .. }
+    )
 }
 
 /// The error for a request whose protocol lifecycle reached a terminal
@@ -5916,7 +5786,7 @@ fn raw_unacknowledged_command_candidate(entry: &Entry) -> bool {
 /// unconfirmed. A command still waiting for its first write was never
 /// accepted.
 fn terminal_timeout(entry: &Entry) -> Error {
-    let certainty = if entry.request.is_inquiry() {
+    let certainty = if entry.reply_family() == SendingReply::Inquiry {
         Certainty::FailedConclusively
     } else if matches!(entry.lifecycle.phase(), Phase::Ready { .. }) && entry.last_error.is_none() {
         Certainty::NotAccepted
@@ -5974,9 +5844,9 @@ const fn conclusive_camera_rejection(error: &Error) -> bool {
 /// Whether `entry` is an urgent ACK-bearing command (a STOP), which no hold
 /// keeps from being written (#795).
 fn urgent_stop(entry: &Entry) -> bool {
-    !entry.request.is_inquiry()
+    entry.reply_family() != SendingReply::Inquiry
         && entry.request.context().control.class == ControlClass::Urgent
-        && entry.request.context().reply_shape == ReplyShape::AckThenCompletion
+        && entry.reply_family() == SendingReply::AckThenCompletion
 }
 
 /// Records one expired request deadline ahead of whatever the expiry produced.
@@ -6152,18 +6022,12 @@ fn correlation_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
             Phase::Ready { .. } | Phase::Backoff { .. } => {
                 entry.attempt > 0 && entry.current_sequence.is_some()
             }
-            Phase::Sending { .. } => true,
-            Phase::AwaitingReply { .. } => entry.request.is_inquiry(),
-            Phase::AwaitingAck { .. }
+            Phase::Sending { .. }
+            | Phase::AwaitingReply { .. }
+            | Phase::AwaitingAck { .. }
             | Phase::Executing { .. }
-            | Phase::AwaitingCancellationResolution { .. } => {
-                !entry.request.is_inquiry()
-                    && entry.request.context().reply_shape == ReplyShape::AckThenCompletion
-            }
-            Phase::AwaitingCompletion { .. } => {
-                !entry.request.is_inquiry()
-                    && entry.request.context().reply_shape == ReplyShape::CompletionOnly
-            }
+            | Phase::AwaitingCancellationResolution { .. }
+            | Phase::AwaitingCompletion { .. } => true,
         },
         CorrelationKind::Cancellation => entry.lifecycle.awaiting_cancellation_answer(),
     }
@@ -6181,18 +6045,14 @@ fn correlation_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
 /// while its transmission/terminal window is open.
 fn camera_error_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
     match kind {
-        CorrelationKind::Request if entry.request.is_inquiry() => {
-            matches!(entry.lifecycle.phase(), Phase::AwaitingReply { .. })
-        }
-        CorrelationKind::Request => {
-            matches!(
-                entry.lifecycle.phase(),
-                Phase::AwaitingAck { .. }
-                    | Phase::Executing { .. }
-                    | Phase::AwaitingCancellationResolution { .. }
-            ) || (entry.request.context().reply_shape == ReplyShape::CompletionOnly
-                && matches!(entry.lifecycle.phase(), Phase::AwaitingCompletion { .. }))
-        }
+        CorrelationKind::Request => matches!(
+            entry.lifecycle,
+            Lifecycle::AwaitingReply { .. }
+                | Lifecycle::AwaitingAck { .. }
+                | Lifecycle::AwaitingCompletion { .. }
+                | Lifecycle::Executing { .. }
+                | Lifecycle::AwaitingCancellationResolution { .. }
+        ),
         CorrelationKind::Cancellation => entry.lifecycle.awaiting_cancellation_answer(),
     }
 }
@@ -6266,7 +6126,6 @@ mod cancellation_regression_tests {
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
             cancellation: CancellationPolicy::Supported,
-            reply_shape: ReplyShape::AckThenCompletion,
         }
     }
 
@@ -6283,9 +6142,10 @@ mod cancellation_regression_tests {
 
     fn command_with(reply_shape: ReplyShape, retry: RetryPolicy) -> RuntimeRequest {
         let mut request_context = context();
-        request_context.reply_shape = reply_shape;
+
         request_context.retry = retry;
         RuntimeRequest::Command {
+            reply_shape,
             wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0xff]).expect("test wire")),
             context: request_context,
             applied_state: None,

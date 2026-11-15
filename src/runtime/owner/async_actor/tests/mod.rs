@@ -344,10 +344,15 @@ fn urgent_stop_command() -> RuntimeRequest {
 #[cfg(feature = "runtime-tokio")]
 fn no_reply_command_for(target: TargetSlot, ambiguity: Duration) -> RuntimeRequest {
     let mut request = command_for(target);
-    let RuntimeRequest::Command { context, .. } = &mut request else {
+    let RuntimeRequest::Command {
+        context,
+        reply_shape,
+        ..
+    } = &mut request
+    else {
         unreachable!("command helper always builds a command request");
     };
-    context.reply_shape = ReplyShape::NoReply;
+    *reply_shape = ReplyShape::NoReply;
     context.timeout.ambiguity = ambiguity;
     request
 }
@@ -364,6 +369,7 @@ fn command_with_ack_timeout(timeout: Duration) -> RuntimeRequest {
 
 fn command_for(target: TargetSlot) -> RuntimeRequest {
     RuntimeRequest::Command {
+        reply_shape: ReplyShape::AckThenCompletion,
         wire: Arc::new(
             EncodedMessage::new(&[
                 0x80_u8.saturating_add(target.camera().id()),
@@ -390,7 +396,6 @@ fn command_for(target: TargetSlot) -> RuntimeRequest {
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
             cancellation: CancellationPolicy::Supported,
-            reply_shape: ReplyShape::AckThenCompletion,
         },
         applied_state: None,
     }
@@ -400,6 +405,7 @@ fn command_for(target: TargetSlot) -> RuntimeRequest {
 /// in flight settles quickly on the fix's success path (#675).
 fn command_with_short_deadlines() -> RuntimeRequest {
     RuntimeRequest::Command {
+        reply_shape: ReplyShape::AckThenCompletion,
         wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, 0x00, 0xff]).unwrap()),
         context: RequestContext {
             requires_extended_pan_tilt_speed: false,
@@ -417,7 +423,6 @@ fn command_with_short_deadlines() -> RuntimeRequest {
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
             cancellation: CancellationPolicy::Supported,
-            reply_shape: ReplyShape::AckThenCompletion,
         },
         applied_state: None,
     }
@@ -430,6 +435,7 @@ fn command_with_short_deadlines() -> RuntimeRequest {
 #[cfg(feature = "runtime-tokio")]
 fn raw_command_with_completion_deadline(marker: u8, completion: Duration) -> RuntimeRequest {
     RuntimeRequest::Command {
+        reply_shape: ReplyShape::AckThenCompletion,
         wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, marker, 0xff]).unwrap()),
         context: RequestContext {
             requires_extended_pan_tilt_speed: false,
@@ -447,7 +453,6 @@ fn raw_command_with_completion_deadline(marker: u8, completion: Duration) -> Run
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
             cancellation: CancellationPolicy::Supported,
-            reply_shape: ReplyShape::AckThenCompletion,
         },
         applied_state: None,
     }
@@ -552,7 +557,6 @@ fn inquiry_for(target: TargetSlot) -> RuntimeRequest {
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
             cancellation: CancellationPolicy::Supported,
-            reply_shape: ReplyShape::AckThenCompletion,
         },
     }
 }

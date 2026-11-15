@@ -74,7 +74,7 @@ fn collection_bounds_are_independent_auditor_rules() {
 }
 
 #[test]
-fn sequence_owners_need_target_and_reply_phase_compatibility() {
+fn sequence_owners_need_matching_targets() {
     for lower_only in [false, true] {
         let start = Instant::now();
         let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
@@ -112,25 +112,14 @@ fn sequence_owners_need_target_and_reply_phase_compatibility() {
             .request
             .context_mut()
             .target = camera(1);
-        engine.entries.get_mut(&id).unwrap().lifecycle = Lifecycle::AwaitingReply {
-            sent_at: start,
-            deadline: start + Duration::from_secs(1),
-            attempt: AttemptFacts {
-                socket_capacity: None,
-                stream_order: None,
-            },
-        };
-        assert_eq!(
-            engine.assert_invariants().unwrap_err().as_ref(),
-            expected,
-            "reply phase mismatch"
-        );
     }
 }
 
 #[test]
 fn representation_size_baseline() {
-    assert!(size_of::<Entry>() <= 560);
+    // Command-only reply shape costs one aligned word in the request variant;
+    // inquiry contexts no longer carry a meaningless command shape.
+    assert!(size_of::<Entry>() <= 568, "Entry={}", size_of::<Entry>());
     assert!(size_of::<ProtocolEngine>() <= 3880);
     eprintln!(
         "Entry size={} ProtocolEngine size={}",
@@ -180,7 +169,7 @@ fn expire_unwritten_halt_runs_the_hook_even_on_an_unknown_transmission() {
 }
 
 #[test]
-fn ready_and_backoff_have_no_active_attempt_or_raced_latches() {
+fn ready_and_backoff_have_no_active_attempt() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
     let (write, id) = admit(
@@ -215,8 +204,6 @@ fn ready_and_backoff_have_no_active_attempt_or_raced_latches() {
         assert!(entry.lifecycle.previous_attempt().is_some());
         assert!(entry.dispatched_socket_capacity().is_none());
         assert!(entry.stream_order().is_none());
-        assert!(entry.deferred_ack().is_none());
-        assert!(entry.deferred_completion().is_none());
         engine.assert_invariants().unwrap();
     }
 }
@@ -227,4 +214,19 @@ fn ready_and_backoff_have_no_active_attempt_or_raced_latches() {
 fn raw_release_gate_runs_the_hook_even_when_no_input_is_retained() {
     let mut engine = corrupt_dispatch_index();
     engine.resolve_raw_release_gate(Instant::now(), None);
+}
+
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "no entry may be Sending at an input boundary")]
+fn unrelated_input_cannot_cross_an_unfinished_write() {
+    let now = Instant::now();
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (_, id) = admit(
+        &mut engine,
+        1,
+        command(1, CancellationPolicy::Supported),
+        now,
+    );
+    engine.handle(Input::Cancel { id }, now);
 }

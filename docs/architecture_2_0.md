@@ -121,9 +121,11 @@ identity, raw debt, or socket hold. Stream candidates retire before any
 side-effecting ledger resolution. A late ACK can prove acceptance and cancel
 a pending Sony retry; a late raw completion can release the socket hold that
 retirement just installed. Deadlines never erase that evidence (#858). A
-raced ACK also proves that a staged write left, so its socket remains held even
-when the successful write result outlives the budget (#837). A frame for an
-unrelated live request keeps that request's own response deadline.
+write result is applied before any frame, cancellation or due work: neither
+owner interleaves inputs while its immediate write is outstanding. A successful
+raw stream write sampled after its budget still owes its unanswered first
+answer (#837, #860). A frame for an unrelated request keeps that request's own
+deadline.
 
 ## Target registry and preflight
 
@@ -823,8 +825,8 @@ miss an event without losing an already-applied state update.
 ## Engine phases and the transition table
 
 The engine keeps exactly one authoritative entry per admitted request. Its
-single stored `Lifecycle` value owns the phase-local attempt facts,
-raced-response latch and legal cancellation substate
+single stored `Lifecycle` value owns the phase-local attempt facts and legal
+cancellation substate
 (`src/runtime/engine/lifecycle.rs`, #836). `Phase` and `CancelState` are
 flattened read-only diagnostic/test projections, never independently stored
 entry fields. The public diagnostic phase vocabulary is unchanged.
@@ -864,18 +866,19 @@ timeout poisons the session.
 
 | `Lifecycle` variant | Phase-local facts | Legal cancellation |
 | --- | --- | --- |
-| `Ready` | Lazy-deletion queue ticket. | None; cancelling removes the entry. |
-| `Sending` | Transmission, start time, attempt facts, and `SendingReply`. ACK-then-completion stores only its raced ACK; completion-only stores only its raced completion. | None or requested for commands; none for inquiries. |
+| `Ready` | Queue ticket and, on retry, the previous written attempt. | None; cancelling removes the entry. |
+| `Sending` | Transmission, start time, attempt facts, and the closed `SendingReply` family. Its result precedes every unrelated input or due pass. | None; commands refuse cancellation with `NotSupported`. |
 | `AwaitingAck` | Send time, ACK deadline and attempt facts. | None or requested. |
 | `AwaitingCompletion` | Send time, completion deadline and attempt facts. No socket. | None; cancellation is refused with `NotSupported` (#835). |
 | `Executing` | Socket, start time, original completion deadline and attempt facts. | `ExecutingCancellation`: none, requested, sending, or observation-failed. |
 | `AwaitingReply` | Send time, inquiry deadline and attempt facts. | None; inquiries are not cancellable. |
-| `Backoff` | Ready-at time and queue generation. No stale attempt record or raced-reply latch. | None. |
+| `Backoff` | Ready-at time, queue generation and the previous written attempt retained for exact Sony acceptance. | None. |
 | `AwaitingCancellationResolution` | Socket, original deadline and attempt facts. | `ResolvingCancellation`: requested, sending, awaiting-terminal, or observation-failed; never none. |
 
-`AttemptFacts` holds dispatch-time socket capacity and stream write order only
-while an attempt is active. Raced replies belong to the `SendingReply` variant
-that can produce them; retrying cannot carry them into `Backoff` or `Ready`.
+`AttemptFacts` holds dispatch-time socket capacity and stream write order.
+Retry waiting retains the last written attempt so a late exact-sequence ACK
+honors that attempt's capacity. `SendingReply` carries only its response
+family: it contains no reply latch or cancellation intent (#858, #860).
 The original completion deadline and cancellation ambiguity deadline each have
 one home; lifecycle methods derive an effective maximum where the protocol
 requires it. A transition accepts one lifecycle value, and named due kinds
@@ -892,14 +895,14 @@ substates repeats the socket: only the enclosing socketed lifecycle owns it.
 Whether cancellation was attempted is derived from the substate, rather than a
 separate latch (#836).
 
-These types admit 16 flattened `(phase, cancellation)` combinations. The
+These types admit 15 flattened `(phase, cancellation)` combinations. The
 transition/property tests independently check that table. The closed state
 representation replaces the former phase-local latch and cancellation checks.
-Relations to the immutable request kind or reply shape are still enforced by
-preparation and transition selection, with behavior tests; the lifecycle enum
-does not by itself prove those cross-field relations. Cross-index audits remain,
-and both halt entry points run the debug invariant hook on every return path
-(#836/#856).
+Only command requests carry `ReplyShape`; inquiry contexts carry none. Active
+phases derive their response family from the lifecycle. Queued and retry work
+consult the immutable request when selecting the next lifecycle. Cross-index
+audits remain, and both halt entry points run the debug invariant hook on every
+return path (#836, #856, #860).
 
 ### Transition table
 
@@ -914,14 +917,13 @@ and both halt entry points run the debug invariant hook on every return path
 | Ordinary dispatch behind a live raw `AwaitingAck` candidate or inert `PreAck` hold | Queue to the evidence boundary: the candidate's ACK or the hold's deadline; the old terminal request cannot be rescued (#714/#723/#724). |
 | `Urgent` raw command behind one positional candidate | Cross the single-candidate gate after command pacing when socket capacity remains. This is the sole two-candidate exception (#714). |
 | Successful command send (`AckThenCompletion`, the default) | Record any Sony sequence and transition to `AwaitingAck`. |
-| Successful command send (`CompletionOnly`, issue #700) | Transition straight to `AwaitingCompletion` (no ACK phase, no socket); apply any completion that raced the write result and drop any spurious raced ACK. |
+| Successful command send (`CompletionOnly`, issue #700) | Transition straight to `AwaitingCompletion` (no ACK phase, no socket). |
 | Successful command send (`NoReply`, plain raw only) | Finish the plain `execute()` after the local write succeeds; this is not protocol application and cannot create an operation handle. Retain the bounded broad `AllResponses` hold before same-target raw response-bearing command or inquiry work may start; a STOP is never held by it (#795). Another `NoReply` may write and extend that key. |
 | Successful inquiry send | Record any Sony sequence, transition to `AwaitingReply`, and take a per-target FIFO position for a raw inquiry. Production Raw policy has one live inquiry per target, the precondition for its unkeyed-reply hold; a socket-owned command may coexist. |
 | Failed command send, datagram transport | Terminally fail that one request with the exact transport error; every other entry keeps running. |
 | Failed command send, stream transport | Poison the session (`Error::StreamPoisoned`) and resolve every active entry. |
 | Compatible failed stream write sampled after the request's total budget | Poison before applying per-request late-result policy: the stream seam cannot prove that no partial frame reached the wire (#724). |
-| Request still `Sending` when its total retry budget expires | Raw active command: immediately fail unconfirmed and install the applicable keyed hold (or strict-poison); raw single-flight inquiry: install its target-only reply-skew hold and fail (nothing is owed even on a stream: no write is in progress during the due pass, so the staged transmission is dropped); Sony: fail without registering late sequence metadata. A write result sampled exactly at the deadline remains input-first. |
-| Request write result sampled strictly after its total retry budget | Retire the expired request before the result can register correlation, consume a deferred frame as a success, report `Written`, or replace a retained retry cause. A successful raw-stream write retains any unanswered first answer as a ledger debt. A deferred ACK proves the write left: retain its socket hold using the attempt's dispatch-time socket capacity, and quarantine any displaced predecessor before holding the new assignment, so this command's completion cannot apply that predecessor. Results at equality remain input-first; an ACK for a still-live `Sending` request can still latch. Cancellation writes use their separate ambiguity lifecycle (#837; `raw_evidence::latched_ack_proves_socket_assignment_when_write_result_outlives_budget`; `raw_evidence::raced_ack_after_budget_does_not_apply_a_displaced_socket_owner`; `raw_evidence::raced_socketless_ack_after_budget_keeps_dispatched_capacity_on_retune`). |
+| Request write result sampled strictly after its total retry budget | Retire the expired request before the result can register correlation, report `Written`, or replace a retained retry cause. A successful raw-stream write retains its unanswered first answer as a ledger debt. Results at equality remain input-first; cancellation writes use their separate ambiguity lifecycle (#837, #860). |
 | ACK in `AwaitingAck` with a free socket | Assign the socket and transition to `Executing`; if cancellation was requested on a supported target, emit one socket cancellation. ACK evidence passes an `AllResponses` hold; a `PreAck` hold without a live predecessor permits the unique live candidate. Neither can resurrect a terminal owner (#723/#744; `urgent_ack_binds_when_its_preack_hold_has_no_live_predecessor`). |
 | Strictly late correlated frame, either envelope | Retire its overdue owner before accounting the frame against retained identity, debt or hold. Input at equality still wins; unrelated requests keep their own deadlines. A raw datagram hold continues to discard the late frame (#858). |
 | Exact-sequence Sony ACK/completion after an ACK deadline or during `Backoff`/`Ready` with a retained written attempt | The due lifecycle runs first if needed. An ACK cancels the pending retry and enters `Executing`, preserving the written attempt's socket capacity; a completion finishes `Applied`. A duplicate camera error cannot spend another retry. Expired total budgets remain terminal (#858). |
@@ -932,12 +934,12 @@ and both halt entry points run the debug invariant hook on every return path
 | Unsequenced frame on a raw byte stream | Resolve it through the correlation ledger: the oldest entry that can legally produce it (see "The raw byte-stream correlation ledger"); a live entry's request receives it, a debt discards it. A completion or error naming a live owner's socket is that owner's; one naming a held socket releases the hold (#795). |
 | Raw stream socketless completion for a sole socket holder | Retire a strictly overdue holder first, then release its resulting socket hold. With two possible socket identities, retain the frame until a complete terminal count proves both ended; socket reuse never assigns it to the successor (#858). |
 | Written raw byte-stream request ends without its first answer | Its ledger entry becomes a debt for its ambiguity window (an inquiry's is at least the reply skew); a staged write that never left leaves no entry. An owed inquiry reply retains the `InquiryUnkeyed` hold; a pre-ACK command installs no `PreAck` hold (#795). |
-| Ledger debt paid | Before side-effecting raw-stream ledger resolution, retire candidates whose response deadline is strictly earlier than the sampled frame; input at equality still wins, and an ACK for a still-live `Sending` request can still latch. Resolve the frame against the resulting debt and discard it. An owed ACK displaces a stale owner of its named socket and holds that socket (or the first free eligible one) through its command's completion window; an owed reply leaves the ordinary reply skew from now (#795/#837; `raw_evidence::late_first_answers_are_order_independent`; `raw_evidence::late_ack_preserves_its_socket_against_successor_errors_and_socketless_completion`). |
+| Ledger debt paid | Before side-effecting raw-stream ledger resolution, retire candidates whose response deadline is strictly earlier than the sampled frame; input at equality still wins. Resolve the frame against the resulting debt and discard it. An owed ACK displaces a stale owner of its named socket and holds that socket (or the first free eligible one) through its command's completion window; an owed reply leaves the ordinary reply skew from now (#795/#837; `raw_evidence::late_first_answers_are_order_independent`; `raw_evidence::late_ack_preserves_its_socket_against_successor_errors_and_socketless_completion`). |
 | Ordinary command or inquiry dispatch while its lane owes an answer inside its window | Queue; an `Urgent` ACK-bearing STOP may still write when no command is unacknowledged (#795). |
 | Ledger debt unpaid when the due pass reaches its window end | Latch that lane: fail its queued `Ready`/`Backoff` work and reject new work, unwritten, with `InquiryCorrelationLost` (inquiries, `CompletionOnly`) or `CommandCorrelationLost` (ordinary ACK-bearing, `CompletionOnly`, `NoReply`), `Terminal`/`NotAccepted`. The latch neither expires nor wakes the owner; STOPs, other targets, and the session are unaffected; the debt's answer, or a later first answer that settles it, reopens the lane (#795). |
 | Disputed raw stream frame (a socketless error behind a `CompletionOnly` entry that may still be rejected or a `NoReply` command's owed entry, or any frame behind a disputed waiting request, with another candidate behind it) | Bind to neither; keep the union of the debts either explanation leaves: the `CompletionOnly` command owes only its completion, the other candidate keeps owing and is disputed (never crossed; settled by its own answer or by write order) (#795). |
 | Sequenced Sony ACK naming a busy socket | Use the target's other free socket when available for #620/#682 compatibility; otherwise report `Ignored(SocketConflict)` and finish `CommandFailedAfterAck`. The exact sequence proved acceptance even when local ownership cannot safely track its socket, so replay is forbidden (#858). |
-| ACK while still `Sending` | Latch it once as a deferred ACK, applied when the send result lands. |
+| Unrelated input or due work while a request is `Sending` | Forbidden by the immediate-write contract. Both owners apply the identified result first; the input-boundary auditor rejects a violation in debug and test builds (#860). |
 | Completion in `Executing`, including after cancellation ambiguity elapsed | `finish` with `RuntimeOutcome::Applied`; exact socket ownership keeps it attributable through the completion deadline, and a retained cancellation observer maps this to `Completed` (#724). |
 | Exact completion in `AwaitingCancellationResolution` before its phase deadline | `finish` with `RuntimeOutcome::Applied`; the request is still open while its owned socket is retained. |
 | Completion in `AwaitingCompletion` (issue #700) | `finish` with `RuntimeOutcome::Applied`, regardless of a vendor socket nibble on a datagram; on a raw byte stream only a socketless completion resolves to this request (#795). A raw datagram retains the bounded `AllResponses` hold before ordinary same-target response-bearing work starts. A raw stream accounts for the answer in its ledger instead of installing that broad hold (`completion_only_terminal_quarantine_blocks_successor_then_restores_liveness`; `raw_evidence::stream_owed_completion_only_answer_holds_back_ordinary_work`). |
@@ -960,7 +962,7 @@ and both halt entry points run the debug invariant hook on every return path
 | Retry becomes eligible (`Backoff` → ready) | Return to `Ready` and dispatch through the ordinary capacity and pacing gates. |
 | Owner halt fence over a `Ready` or `Backoff` request, a retry decision for a fenced request, or admission of a fenced submission | `finish` (or reject admission) with `Error::MotionSuperseded`. Its context is `PreAdmission`/`NotAccepted` for a rejected submission; otherwise `Terminal`, with `NotAccepted` when no written attempt can have taken effect (never written, or every written attempt rejected before ACK) and `Unconfirmed` when an earlier attempt lost its ACK, completion, or receive path (#795). |
 | Cancel in `Ready` or `Backoff` | Remove without I/O; emit `CancellationRecorded`, then `finish` with `Cancelled`. |
-| Cancel in `Sending` (supported target) | Record requested intent; the send result drives the next state. A successful `CompletionOnly` write refuses that intent with `NotSupported` and leaves the request under its own completion deadline (#835; `cancellation_holds::sending_completion_only_cancel_is_refused_when_write_lands`). |
+| Cancellation decision for a `Sending` command | Refuse with `NotSupported`; this state cannot record intent. A public cancellation arriving during a transport write is processed only after its result, under the resulting lifecycle (#860). |
 | Cancel in `AwaitingAck` (supported target) | Record requested intent, suppress retries, and wait for socket assignment or the later of the ACK and cancellation ambiguity deadlines (#835). |
 | Cancel in `AwaitingCompletion` | Refuse the cancellation observation with `NotSupported`, record no intent, and preserve the completion-only command's original completion deadline. Its own completion can still apply it; an unconfirmed raw datagram expiry retains `AllResponses` (#835; `cancellation_holds::completion_only_cancel_preserves_window_and_late_completion_cannot_apply_successor`). |
 | Cancel after a raw request has terminalized into a keyed hold | Return `Ignored(UnknownRequest)`. The hold is inert correlation state, not a cancellable request, and its deadline is unchanged. |

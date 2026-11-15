@@ -1241,6 +1241,7 @@ mod tests {
     fn declared_request(stop: bool) -> crate::runtime::engine::RuntimeRequest {
         use crate::runtime::engine::*;
         RuntimeRequest::Command {
+            reply_shape: ReplyShape::AckThenCompletion,
             wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0x04, 0x07, 0x00, 0xff]).unwrap()),
             context: RequestContext {
                 requires_extended_pan_tilt_speed: false,
@@ -1268,7 +1269,6 @@ mod tests {
                     ..ControlPolicy::default()
                 },
                 cancellation: CancellationPolicy::Supported,
-                reply_shape: ReplyShape::AckThenCompletion,
             },
             applied_state: None,
         }
@@ -1276,49 +1276,33 @@ mod tests {
 
     #[test]
     fn staged_halt_stop_cannot_cross_shell_write_deadline_or_reappear_after_expiry() {
-        for expire_before_drain in [false, true] {
-            let now = Instant::now();
-            let deadline = now + Duration::from_millis(10);
-            let (handle, mut core) = owner();
-            let mut request = declared_request(true);
-            request.context_mut().dispatch_deadline = Some(deadline);
-            request.context_mut().retry.total_budget = Duration::from_millis(10);
-            let (completion, admission) = handle.enqueue_admission(request, None).unwrap();
-            let boundary = core.receivers.admissions.recv().unwrap();
-            let TurnStep::Drive { mut effects, .. } = core.handle(
-                OwnerEvent::Admission(Ok(boundary)),
-                &mut Datagrams,
-                now,
-                false,
-            ) else {
-                panic!("admission drives effects");
-            };
-            if expire_before_drain {
-                // First publish admission, but keep its staged Transmit in
-                // the drain while another effect advances owner time.
-                let mut retained = VecDeque::new();
-                while let Some(effect) = effects.pop_front() {
-                    if matches!(effect, Effect::Transmit { .. }) {
-                        retained.push_back(effect);
-                    } else {
-                        let _ = core.state.apply_effect(effect);
-                    }
-                }
-                effects = retained;
-                for effect in core.state.advance(deadline) {
-                    let _ = core.state.apply_effect(effect);
-                }
-            }
-            assert!(core.next_transmit(&mut effects, deadline).is_none());
-            assert!(admission.recv().unwrap().is_ok());
-            assert!(matches!(
-                completion.try_observed().map(|event| event.value),
-                Some(super::super::RuntimeOutcome::Failed(_))
-            ));
-            assert!(completion.try_observed().is_none(), "exactly one terminal");
-            assert_eq!(handle.permits.available(), 1);
-            assert_eq!(core.state.state(), SessionState::Running);
-        }
+        let now = Instant::now();
+        let deadline = now + Duration::from_millis(10);
+        let (handle, mut core) = owner();
+        let mut request = declared_request(true);
+        request.context_mut().dispatch_deadline = Some(deadline);
+        request.context_mut().retry.total_budget = Duration::from_millis(10);
+        let (completion, admission) = handle.enqueue_admission(request, None).unwrap();
+        let boundary = core.receivers.admissions.recv().unwrap();
+        let TurnStep::Drive { mut effects, .. } = core.handle(
+            OwnerEvent::Admission(Ok(boundary)),
+            &mut Datagrams,
+            now,
+            false,
+        ) else {
+            panic!("admission drives effects");
+        };
+        // Time may pass before the immediate write starts, but due work never
+        // runs between staging it and this explicit pre-write expiry check.
+        assert!(core.next_transmit(&mut effects, deadline).is_none());
+        assert!(admission.recv().unwrap().is_ok());
+        assert!(matches!(
+            completion.try_observed().map(|event| event.value),
+            Some(super::super::RuntimeOutcome::Failed(_))
+        ));
+        assert!(completion.try_observed().is_none(), "exactly one terminal");
+        assert_eq!(handle.permits.available(), 1);
+        assert_eq!(core.state.state(), SessionState::Running);
     }
 
     #[test]
@@ -1350,7 +1334,19 @@ mod tests {
             .enqueue_admission(declared_request(false), None)
             .unwrap();
         let halt = core.receivers.cancellations.recv().unwrap();
-        let _step = core.handle(OwnerEvent::Cancellation(halt), &mut Datagrams, now, false);
+        let mut step = core.handle(OwnerEvent::Cancellation(halt), &mut Datagrams, now, false);
+        while let TurnStep::Drive { mut effects, then } = step {
+            while let Some(staged) = core.next_transmit(&mut effects, now) {
+                core.finish_transmit(
+                    None,
+                    &staged,
+                    Ok(TransmissionMeta { sequence: None }),
+                    now,
+                    &mut effects,
+                );
+            }
+            step = core.resume(then, &mut Datagrams);
+        }
         let halt = receipt.recv().unwrap().unwrap();
         assert!(matches!(halt.slots[1], Some(Ok(_))));
         for reply in [first, second] {
