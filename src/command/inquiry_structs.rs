@@ -22,6 +22,7 @@ use super::focus::{AutoFocusSensitivity, FocusMode, FocusRange, FocusZone};
 use super::image::{ImageFlipMode, NoiseReduction2DMode, SharpnessMode};
 use super::nd_filter::NdFilterValue;
 use super::pan_tilt::PanTiltFraming;
+use super::power::PowerStatus;
 use super::resolution::PictureEffectMode;
 use super::response::{BoolConvention, Nibbles, Payload, Response};
 use super::system::{MotionSyncMode, MotionSyncPreset};
@@ -571,16 +572,16 @@ define_builtin_inquiries! {
     queryable {
         /// The current power state of the camera.
         Power {
-            /// Whether the camera is powered on.
-            on: bool,
+            /// The power status, including a reported internal circuit error.
+            status: PowerStatus,
         } => |payload| Ok(InquiryData::Power {
-            on: payload.parse_bool("power_status", BoolConvention::OnIs02)?,
+            status: decode_enum(&payload)?,
         });
         commands [
             /// Inquiry command to get the current power state of the camera.
             PowerInquiry {
                 bytes: power::STATE_INQUIRY,
-                typed: (bool, { on } => Ok(on)),
+                typed: (PowerStatus, { status } => Ok(status)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: false,
                 rationale: None,
@@ -2740,7 +2741,9 @@ mod wire_decoder_regression_tests {
         let power = dispatch_with_framing(InquiryKind::Power, Payload::new(&[0x02]), brc);
         assert!(matches!(
             power,
-            Ok(Response::Inquiry(InquiryData::Power { on: true }))
+            Ok(Response::Inquiry(InquiryData::Power {
+                status: PowerStatus::On
+            }))
         ));
     }
 }

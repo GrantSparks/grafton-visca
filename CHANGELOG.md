@@ -33,6 +33,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the worker. This supersedes the rc.1 `TransportBusy` re-entry rule removed
   by #780; self-`close` still requests shutdown and leaves joining to an
   external caller (#862).
+- **BREAKING** (#880): `power().state()` and `PowerInquiry` return `PowerStatus`
+  (`On`, `Standby`, `CircuitError`) rather than a boolean. A documented internal
+  power circuit error is a status value; `is_on()` provides a boolean view.
+  The unused `capabilities::power::PowerState` is removed. Public response
+  parsers preserve network-change notifications as `Response::NetworkChange`;
+  `into_result()` rejects them as `UnexpectedResponseType` because they do not
+  complete a command.
+
 - **BREAKING** (#829): The minimum supported Rust version is now 1.98 (was 1.88 in
   2.0.0-rc.3). The project builds and tests on one stable toolchain, 1.98.0;
   CI no longer runs a separate MSRV job or Miri.

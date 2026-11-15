@@ -101,7 +101,7 @@ async fn main() -> Result<(), Error> {
             .state()
             .await
             .map_err(|error| error.with_context("serial power inquiry failed"))?;
-        println!("Power: {}", if power { "on" } else { "standby" });
+        println!("Power: {power:?}");
 
         Ok::<(), Error>(())
     }

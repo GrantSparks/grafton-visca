@@ -77,7 +77,8 @@ fn response_counter_distinguishes_silence_from_positive_liveness() {
         .expect("camera")
         .power()
         .state()
-        .expect("power reply"));
+        .expect("power reply")
+        .is_on());
     let after = answering.metrics().expect("metrics after probe");
     assert_eq!(after.received_frames, before.received_frames + 1);
     answering.close().expect("close answering session");

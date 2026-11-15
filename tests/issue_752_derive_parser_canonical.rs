@@ -147,7 +147,11 @@ struct FocusRangeInquiry;
 
 fn custom_parser(payload: &[u8]) -> Result<InquiryData, Error> {
     Ok(InquiryData::Power {
-        on: payload == [0xA5],
+        status: if payload == [0xA5] {
+            grafton_visca::PowerStatus::On
+        } else {
+            grafton_visca::PowerStatus::Standby
+        },
     })
 }
 
@@ -166,8 +170,8 @@ struct CustomInquiry;
     response = Power,
     parser = Custom,
     parse_with = custom_parser,
-    typed_response = bool,
-    typed_field = on
+    typed_response = ::grafton_visca::PowerStatus,
+    typed_field = status
 )]
 struct CustomTypedInquiry;
 
@@ -268,20 +272,27 @@ fn explicit_selector_overrides_are_shared_by_both_public_decode_paths() {
     assert_canonical_decode!(CustomInquiry, &custom_payload);
     assert!(matches!(
         CustomInquiry.parse_response(&custom_payload),
-        Ok(InquiryData::Power { on: true })
+        Ok(InquiryData::Power {
+            status: grafton_visca::PowerStatus::On
+        })
     ));
     assert!(matches!(
         decoded_inquiry(&CustomInquiry, &custom_payload),
-        Ok(InquiryData::Power { on: true })
+        Ok(InquiryData::Power {
+            status: grafton_visca::PowerStatus::On
+        })
     ));
     assert!(matches!(
         CustomTypedInquiry.parse_response(&custom_payload),
-        Ok(InquiryData::Power { on: true })
+        Ok(InquiryData::Power {
+            status: grafton_visca::PowerStatus::On
+        })
     ));
     assert!(CustomTypedInquiry
         .decoder()
         .decode(&custom_payload)
-        .expect("the typed decoder must receive Custom's shared response"),);
+        .expect("the typed decoder must receive Custom's shared response")
+        .is_on());
 
     let convention_payload = [0x02];
     assert_canonical_decode!(BoolConventionDataVariantInquiry, &convention_payload);

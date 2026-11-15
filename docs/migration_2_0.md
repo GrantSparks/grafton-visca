@@ -26,6 +26,18 @@ physical-rest observation. `settled()` returns `Settlement`: either exact
 profile-declared completion evidence or stable position samples over a reported
 window and tolerance. Stable samples do not prove arrival at the requested endpoint.
 
+## Power inquiry status (#880)
+
+| 1.x pattern | 2.0 pattern |
+| --- | --- |
+| `camera.power().state()?` returns `bool` | Returns `PowerStatus::{On, Standby, CircuitError}`. Match the status to surface a camera fault, or call `.is_on()` for a boolean view. |
+| `capabilities::power::PowerState` | Use `PowerStatus`, the status actually reported by the power inquiry. |
+
+A documented internal power circuit error (`90 50 04 FF`) is a successful
+status read. Unknown reply bytes still produce a protocol error. The public
+response parser preserves `90 38 FF` as `Response::NetworkChange`, a notification
+whose `into_result()` returns `UnexpectedResponseType`.
+
 ## Extensible public payloads (#788)
 
 Public configuration records and named error, diagnostic, response, transport

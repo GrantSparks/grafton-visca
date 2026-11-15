@@ -115,10 +115,7 @@ async fn connect_and_query(address: &str) -> Result<(), Error> {
     let camera = session.camera();
     let inquiry_result = camera.power().state().await;
     match &inquiry_result {
-        Ok(is_on) => println!(
-            "  Connected. Power is {}.",
-            if *is_on { "on" } else { "off" }
-        ),
+        Ok(status) => println!("  Connected. Power status is {status:?}."),
         Err(error) => println!("  Connected, but power inquiry failed: {error}"),
     }
     let close_result = session.close().await;

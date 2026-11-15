@@ -77,8 +77,8 @@ fn test_parse_power_inquiry_responses() {
     );
 
     match result.unwrap() {
-        Response::Inquiry(InquiryData::Power { on }) => {
-            assert!(on, "Power should be on");
+        Response::Inquiry(InquiryData::Power { status }) => {
+            assert!(status.is_on(), "Power should be on");
         }
         _ => panic!("Unexpected response type"),
     }
@@ -93,8 +93,8 @@ fn test_parse_power_inquiry_responses() {
     );
 
     match result.unwrap() {
-        Response::Inquiry(InquiryData::Power { on }) => {
-            assert!(!on, "Power should be off");
+        Response::Inquiry(InquiryData::Power { status }) => {
+            assert!(!status.is_on(), "Power should be off");
         }
         _ => panic!("Unexpected response type"),
     }

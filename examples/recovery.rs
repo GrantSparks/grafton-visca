@@ -137,7 +137,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     match probe {
         Ok(state) if received_a_frame => {
             session.close()?;
-            println!("first session healthy (power {state}); nothing to recover");
+            println!("first session healthy (power {state:?}); nothing to recover");
         }
         Err(error) if error.requires_new_session() => {
             let _ = session.close();
@@ -194,11 +194,11 @@ fn requery_and_restore(session: &Session) -> Result<(), Error> {
         ));
     }
     println!(
-        "recovered: power={power}, zoom=0x{:04X}, pan/tilt={pan_tilt:?}, response_frames={}",
+        "recovered: power={power:?}, zoom=0x{:04X}, pan/tilt={pan_tilt:?}, response_frames={}",
         zoom.value(),
         frames_after - frames_before
     );
-    if !power {
+    if power == grafton_visca::PowerStatus::Standby {
         camera.power().on()?;
         println!("restored desired power-on state after the fresh re-query");
     }

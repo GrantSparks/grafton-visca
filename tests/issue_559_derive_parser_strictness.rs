@@ -95,7 +95,9 @@ struct StrictExtendedInquiry;
 fn generated_parser_selectors_use_the_canonical_wire_lengths() {
     assert!(matches!(
         StrictBoolInquiry.parse_response(&[0x02]),
-        ::core::result::Result::Ok(InquiryData::Power { on: true })
+        ::core::result::Result::Ok(InquiryData::Power {
+            status: grafton_visca::PowerStatus::On
+        })
     ));
     assert!(StrictBoolInquiry.parse_response(&[0x02, 0x00]).is_err());
 

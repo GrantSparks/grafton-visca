@@ -37,7 +37,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let session = config.open()?;
     let camera = session.camera();
     let state = camera.power().state()?;
-    println!("Power: {}", if state { "on" } else { "off" });
+    println!("Power: {state:?}");
     session.close()?;
     Ok(())
 }

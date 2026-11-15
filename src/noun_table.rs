@@ -128,8 +128,9 @@ macro_rules! noun_table {
                 gate: [domain HasPower],
                 doc: "Power commands and the power-state inquiry.",
             };
-            /// Returns the camera's current power state.
-            inquiry [] state() -> bool = [command::PowerInquiry];
+            /// Returns the camera's power status, including an internal circuit error.
+            /// Use [`PowerStatus::is_on`](crate::PowerStatus::is_on) for a boolean view.
+            inquiry [] state() -> command::PowerStatus = [command::PowerInquiry];
             /// Powers the camera on.
             plain [PowerOn] on() -> command::PowerOn = [command::PowerOn::new()];
             /// Places the camera in standby.

@@ -246,7 +246,7 @@ mod blocking_surface {
         let (session, fake) = open();
         let camera = session.camera::<SonyFR7>().expect("camera");
 
-        assert!(camera.power().state().expect("power inquiry"));
+        assert!(camera.power().state().expect("power inquiry").is_on());
         assert_eq!(fake.take_only_payload(), POWER_INQUIRY);
         assert!(!camera.menu().status().expect("menu inquiry"));
         assert_eq!(fake.take_only_payload(), MENU_STATUS_INQUIRY);
@@ -615,7 +615,7 @@ mod async_surface {
         .await;
         let camera = session.camera::<SonyFR7>().expect("camera");
 
-        assert!(camera.power().state().await.expect("power inquiry"));
+        assert!(camera.power().state().await.expect("power inquiry").is_on());
         assert_eq!(fake.take_only_payload(), POWER_INQUIRY);
         assert!(!camera.menu().status().await.expect("menu inquiry"));
         assert_eq!(fake.take_only_payload(), MENU_STATUS_INQUIRY);

@@ -287,7 +287,7 @@ facade_matrix! {
             "a stale power reply must never be returned as the focus mode: {mode:?}"
         );
         // The owed reply was absorbed; the session keeps serving correct data.
-        assert!(wait!(camera.power().state()).expect("power after recovery"));
+        assert!(wait!(camera.power().state()).expect("power after recovery").is_on());
         assert!(matches!(wait!(camera.focus().mode()), Ok(FocusMode::Manual)));
         session.shutdown().expect("shutdown");
     }
@@ -299,7 +299,7 @@ facade_matrix! {
         let bench = Bench::new(SendSemantics::Stream);
         let session = open!(bench, bench.config()).expect("session");
         let camera = session.camera::<PtzOpticsG2>().expect("camera");
-        assert!(wait!(camera.power().state()).expect("pre-fault inquiry"));
+        assert!(wait!(camera.power().state()).expect("pre-fault inquiry").is_on());
 
         bench.start_fault();
         let started = now!();
@@ -378,7 +378,7 @@ facade_matrix! {
             .expect("STOP admitted")
             .applied())
         .expect("STOP to the latched camera still applies");
-        assert!(wait!(second.power().state()).expect("other camera unaffected"));
+        assert!(wait!(second.power().state()).expect("other camera unaffected").is_on());
         assert!(matches!(wait!(second.focus().mode()), Ok(FocusMode::Manual)));
         session.shutdown().expect("session was never poisoned");
     }
@@ -445,7 +445,7 @@ facade_matrix! {
             pause!(Duration::from_millis(50));
         };
         assert!(matches!(mode, Ok(FocusMode::Manual)), "{mode:?}");
-        assert!(wait!(camera.power().state()).expect("power after recovery"));
+        assert!(wait!(camera.power().state()).expect("power after recovery").is_on());
         session.shutdown().expect("shutdown");
     }
 
@@ -461,7 +461,7 @@ facade_matrix! {
         assert!(conclusive_timeout(&power), "{power:?}");
         assert_eq!(bench.count(1, &POWER_INQUIRY), 6);
         after!(RETRANSMIT_AFTER, bench.lift_fault());
-        assert!(wait!(camera.power().state()).expect("datagram recovers"));
+        assert!(wait!(camera.power().state()).expect("datagram recovers").is_on());
         session.shutdown().expect("shutdown");
     }
 

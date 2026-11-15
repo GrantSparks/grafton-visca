@@ -91,7 +91,7 @@ mod tests {
         let response = vec![0x90, 0x50, 0x02, VISCA_TERMINATOR];
         let result = Response::parse_with_type(&response, &InquiryKind::Power).unwrap();
         match result {
-            Response::Inquiry(InquiryData::Power { on }) => assert!(on),
+            Response::Inquiry(InquiryData::Power { status }) => assert!(status.is_on()),
             _ => panic!("Expected Power inquiry response"),
         }
 
@@ -99,7 +99,7 @@ mod tests {
         let response = vec![0x90, 0x50, 0x03, VISCA_TERMINATOR];
         let result = Response::parse_with_type(&response, &InquiryKind::Power).unwrap();
         match result {
-            Response::Inquiry(InquiryData::Power { on }) => assert!(!on),
+            Response::Inquiry(InquiryData::Power { status }) => assert!(!status.is_on()),
             _ => panic!("Expected Power inquiry response"),
         }
     }

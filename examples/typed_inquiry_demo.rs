@@ -15,7 +15,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let power = camera.power().state()?;
         let zoom = camera.zoom().position()?;
         let mode = camera.exposure().mode()?;
-        println!("Power: {}", if power { "on" } else { "off" });
+        println!("Power: {power:?}");
         println!("Zoom: 0x{:04X}", zoom.value());
         println!("Exposure mode: {mode:?}");
         Ok::<(), Error>(())

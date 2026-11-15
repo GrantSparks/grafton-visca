@@ -499,7 +499,7 @@ mod tests {
         let lifted = lift_inquiry(&basic, Some(&InquiryKind::Power), PanTiltFraming::STANDARD)
             .expect("Failed to lift Power inquiry");
         match lifted {
-            Response::Inquiry(InquiryData::Power { on }) => assert!(on),
+            Response::Inquiry(InquiryData::Power { status }) => assert!(status.is_on()),
             _ => panic!("Expected Power inquiry response"),
         }
     }

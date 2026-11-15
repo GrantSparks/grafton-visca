@@ -18,8 +18,8 @@ fn test_power_inquiry_on() {
     );
 
     match result.unwrap() {
-        Response::Inquiry(InquiryData::Power { on }) => {
-            assert!(on, "Power should be on");
+        Response::Inquiry(InquiryData::Power { status }) => {
+            assert!(status.is_on(), "Power should be on");
         }
         _ => panic!("ViscaResponse type mismatch"),
     }
@@ -38,8 +38,8 @@ fn test_power_inquiry_off() {
     );
 
     match result.unwrap() {
-        Response::Inquiry(InquiryData::Power { on }) => {
-            assert!(!on, "Power should be off");
+        Response::Inquiry(InquiryData::Power { status }) => {
+            assert!(!status.is_on(), "Power should be off");
         }
         _ => panic!("ViscaResponse type mismatch"),
     }

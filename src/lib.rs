@@ -414,9 +414,9 @@
 //!     let camera = session.camera();
 //!
 //!     // Quick starts are read-only by default.
-//!     let is_on = camera.power().state()?;
+//!     let power_status = camera.power().state()?;
 //!     let zoom = camera.zoom().position()?;
-//!     println!("Power: {is_on}, zoom: 0x{:04X}", zoom.value());
+//!     println!("Power: {power_status:?}, zoom: 0x{:04X}", zoom.value());
 //!
 //!     session.close()
 //! }
@@ -433,9 +433,9 @@
 //!     let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
 //!     let camera = session.camera();
 //!
-//!     let is_on = camera.power().state().await?;
+//!     let power_status = camera.power().state().await?;
 //!     let zoom = camera.zoom().position().await?;
-//!     println!("Power: {is_on}, zoom: 0x{:04X}", zoom.value());
+//!     println!("Power: {power_status:?}, zoom: 0x{:04X}", zoom.value());
 //!
 //!     session.close().await
 //! }
@@ -461,8 +461,8 @@
 //!             Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
 //!         let camera = session.camera();
 //!
-//!         let is_on = camera.power().state().await?;
-//!         println!("Power: {is_on}");
+//!         let power_status = camera.power().state().await?;
+//!         println!("Power: {power_status:?}");
 //!
 //!         session.close().await
 //!     })
@@ -487,8 +487,8 @@
 //!         let session = config.open_async(SmolRuntime::new()).await?;
 //!         let camera = session.camera();
 //!
-//!         let is_on = camera.power().state().await?;
-//!         println!("Power: {is_on}");
+//!         let power_status = camera.power().state().await?;
+//!         println!("Power: {power_status:?}");
 //!
 //!         session.close().await
 //!     })
@@ -978,7 +978,7 @@ pub use crate::{
     command::{
         AutoFocusSensitivity, AutoWhiteBalanceSensitivity, ExposureMode, FocusMode, MotionSyncMode,
         MotionSyncPreset, NdFilterMode, NdFilterPosition, PanTiltDirection, PanTiltLimitCorner,
-        PictureEffectMode, PresetNumber, WhiteBalanceMode,
+        PictureEffectMode, PowerStatus, PresetNumber, WhiteBalanceMode,
     },
     error::{Certainty, Error, ErrorKind, FailureContext, FailureStage, Result},
     inquiry_conversions::{zoom_from_normalized, PanTiltPositionDeg, ZoomDomain},

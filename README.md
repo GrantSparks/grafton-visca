@@ -275,9 +275,9 @@ fn quick_start() -> Result<(), grafton_visca::Error> {
     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
     let camera = session.camera();
 
-    let power_is_on = camera.power().state()?;
+    let power_status = camera.power().state()?;
     let zoom = camera.zoom().position()?;
-    println!("Power: {}", if power_is_on { "on" } else { "off" });
+    println!("Power: {power_status:?}");
     println!("Zoom position: 0x{:04X}", zoom.value());
 
     session.close()
@@ -299,9 +299,9 @@ async fn quick_start() -> Result<(), grafton_visca::Error> {
     let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
     let camera = session.camera();
 
-    let power_is_on = camera.power().state().await?;
+    let power_status = camera.power().state().await?;
     let zoom = camera.zoom().position().await?;
-    println!("Power: {}", if power_is_on { "on" } else { "off" });
+    println!("Power: {power_status:?}");
     println!("Zoom position: 0x{:04X}", zoom.value());
 
     session.close().await

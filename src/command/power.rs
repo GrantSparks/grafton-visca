@@ -2,7 +2,40 @@
 //!
 //! This module provides commands for controlling camera power state.
 
+use grafton_visca_macros::ViscaEnum;
+
 use crate::{command::bytes::constants::power, visca_command};
+
+/// The status reported by a camera's power inquiry.
+///
+/// A circuit error is a documented camera status, not a malformed reply.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub enum PowerStatus {
+    /// The camera is powered on (`02`).
+    On = 0x02,
+    /// The camera is in standby (`03`).
+    Standby = 0x03,
+    /// The camera reports an internal power circuit error (`04`).
+    CircuitError = 0x04,
+}
+
+impl PowerStatus {
+    /// Returns whether the camera reports that it is powered on.
+    ///
+    /// ```
+    /// use grafton_visca::PowerStatus;
+    /// assert!(PowerStatus::On.is_on());
+    /// assert!(!PowerStatus::CircuitError.is_on());
+    /// ```
+    #[must_use]
+    pub const fn is_on(self) -> bool {
+        matches!(self, Self::On)
+    }
+}
 
 visca_command! {
     /// Power on command.
