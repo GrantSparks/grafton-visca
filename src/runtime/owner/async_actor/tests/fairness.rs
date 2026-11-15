@@ -296,7 +296,7 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
     // The actor's bounded control lane is intentionally full before it
     // starts, making this a deterministic chain rather than a scheduler
     // race between the caller and the ready timer.
-    owner_policy.limits.applied_subscribers = CONTROL_CHAIN;
+    owner_policy.limits.control_requests = CONTROL_CHAIN;
     let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
     let (_frames, receives) = flume::bounded(1);
     let mut driver = UngatedDriver { receives };
@@ -387,7 +387,7 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
 async fn parked_future_wake_charges_the_first_ready_control() {
     let runtime = ManualRuntime::with_polling_sleeps(Instant::now());
     let mut owner_policy = policy(1);
-    owner_policy.limits.applied_subscribers = 2;
+    owner_policy.limits.control_requests = 2;
     // Keep the receive timeout after the inquiry deadline so the parked
     // receive arm cannot become the source that wakes this test.
     owner_policy.read_timeout = Duration::from_secs(10);

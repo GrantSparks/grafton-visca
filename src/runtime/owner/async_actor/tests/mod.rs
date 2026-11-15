@@ -63,6 +63,12 @@ mod retained_boundary;
 #[cfg(feature = "runtime-tokio")]
 mod retry_budget;
 
+use crate::runtime::owner::tests::DiagnosticRecorder;
+
+fn observe_diagnostics<R: Executor>(actor: &mut AsyncOwnerActor<R>) -> DiagnosticRecorder {
+    DiagnosticRecorder::new(&mut actor.core.state)
+}
+
 #[cfg(feature = "runtime-tokio")]
 #[derive(Clone)]
 struct ManualRuntime {
@@ -1347,7 +1353,8 @@ async fn assert_raw_release_probe_precedes_stale_frame_after_idle_sleep(policy: 
     let transport = policy.protocol.transport;
     let initial = Instant::now();
     let (runtime, sleeps) = ManualRuntime::with_polling_sleeps_and_sleep_barrier(initial);
-    let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let mut harness = raw_release_probe_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
     let successor =
@@ -1408,8 +1415,8 @@ async fn assert_raw_release_probe_precedes_stale_frame_after_idle_sleep(policy: 
         successor.id,
         "only the post-A due pass may dispatch B"
     );
-    let snapshot = handle.snapshot().await.unwrap();
-    assert!(snapshot.diagnostics.iter().any(|event| matches!(
+    handle.metrics().await.unwrap();
+    assert!(diagnostics.events().iter().any(|event| matches!(
         event,
         DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
     )));
@@ -1437,7 +1444,8 @@ async fn assert_pre_h_idle_read_resumed_at_h_requires_fresh_probe(policy: OwnerP
     let transport = policy.protocol.transport;
     let initial = Instant::now();
     let runtime = ManualRuntime::with_polling_sleeps(initial);
-    let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let mut harness = raw_release_probe_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
     let successor =
@@ -1488,16 +1496,15 @@ async fn assert_pre_h_idle_read_resumed_at_h_requires_fresh_probe(policy: OwnerP
         "a pre-H NoData resumed at H must not fence the stale-frame probe"
     );
     assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id);
-    assert!(handle
-        .snapshot()
-        .await
-        .unwrap()
-        .diagnostics
-        .iter()
-        .any(|event| matches!(
-            event,
-            DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
-        )));
+    assert!({
+        let _ = handle.snapshot().await.unwrap();
+        diagnostics.events()
+    }
+    .iter()
+    .any(|event| matches!(
+        event,
+        DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
+    )));
 
     harness
         .reads
@@ -1584,7 +1591,8 @@ async fn assert_parked_cross_target_write_returns_to_raw_coordinator(policy: Own
     let transport = policy.protocol.transport;
     let initial = Instant::now();
     let runtime = ManualRuntime::with_polling_sleeps(initial);
-    let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let mut harness = parked_write_raw_release_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
 
@@ -1635,16 +1643,15 @@ async fn assert_parked_cross_target_write_returns_to_raw_coordinator(policy: Own
         "a parked write completion crossing H must return to the raw receive probe before B writes"
     );
     assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id);
-    assert!(handle
-        .snapshot()
-        .await
-        .unwrap()
-        .diagnostics
-        .iter()
-        .any(|event| matches!(
-            event,
-            DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
-        )));
+    assert!({
+        let _ = handle.snapshot().await.unwrap();
+        diagnostics.events()
+    }
+    .iter()
+    .any(|event| matches!(
+        event,
+        DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
+    )));
 
     harness
         .reads
@@ -1670,7 +1677,8 @@ async fn assert_raw_release_fault_then_stale_frame_stays_input_first(policy: Own
     let transport = policy.protocol.transport;
     let initial = Instant::now();
     let runtime = ManualRuntime::with_polling_sleeps(initial);
-    let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let mut harness = raw_release_probe_harness();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
     let successor =
@@ -1727,8 +1735,8 @@ async fn assert_raw_release_fault_then_stale_frame_stays_input_first(policy: Own
         );
     }
     assert_eq!(harness.writes.recv_async().await.unwrap(), successor.id);
-    let snapshot = handle.snapshot().await.unwrap();
-    assert!(snapshot.diagnostics.iter().any(|event| matches!(
+    handle.metrics().await.unwrap();
+    assert!(diagnostics.events().iter().any(|event| matches!(
         event,
         DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
     )));

@@ -4,8 +4,8 @@
 //! projection contains no wire bytes, timestamps, socket/transmission
 //! authority, sequence numbers, arbitrary strings, or publicly usable
 //! lifecycle numbers. All queues are bounded by the owner policy: the
-//! diagnostic ring retains at most 128 events and an owner retains at most
-//! four diagnostic subscribers, each with capacity at most 128.
+//! pre-admission staging retains at most 128 events and an owner retains at
+//! most four diagnostic subscribers, each with capacity at most 128.
 
 use std::fmt;
 
@@ -32,7 +32,7 @@ pub enum SessionStatus {
 ///
 /// Counters saturate at `u64::MAX`; `active` and `pending` are bounded by the
 /// immutable session admission policy.  A snapshot contains only scalar data
-/// and therefore does not clone the diagnostic ring or any subscriber queue.
+/// and therefore does not clone any subscriber queue.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct MetricsSnapshot {
@@ -104,15 +104,13 @@ pub struct MetricsSnapshot {
     /// counts. A steady trickle is normal on noisy serial/RS-485 links; a rising
     /// count points at a mis-wired or misconfigured device.
     pub ignored_malformed_frames: u64,
-    /// Diagnostic observations evicted before or from the bounded owner ring.
-    pub dropped_diagnostics: u64,
+    /// Diagnostic events evicted from pre-admission staging before delivery.
+    pub dropped_staged_diagnostics: u64,
     /// Diagnostic events dropped because a subscriber queue was full.
     pub dropped_diagnostic_events: u64,
     /// Operation-observer events — terminal outcomes and cancellation
     /// failures — dropped because their handle was already gone.
     pub dropped_observer_events: u64,
-    /// Applied-state events dropped because a subscriber queue was full.
-    pub dropped_applied_events: u64,
     /// Boundary messages discarded while the owner terminated.
     pub dropped_boundary_work: u64,
     /// Requests currently admitted and not terminal.
@@ -695,10 +693,9 @@ pub(crate) fn metrics_snapshot(
         received_frames: metrics.received_frames,
         ignored_unmatched_sequenced_replies: metrics.ignored_unmatched_sequenced_replies,
         ignored_malformed_frames: metrics.ignored_malformed_frames,
-        dropped_diagnostics: metrics.dropped_diagnostics,
+        dropped_staged_diagnostics: metrics.dropped_staged_diagnostics,
         dropped_diagnostic_events: metrics.dropped_diagnostic_events,
         dropped_observer_events: metrics.dropped_observer_events,
-        dropped_applied_events: metrics.dropped_applied_events,
         dropped_boundary_work: metrics.dropped_boundary_work,
         active,
         pending,

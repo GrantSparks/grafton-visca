@@ -179,7 +179,7 @@ pub(super) struct OwnerShellCore {
 
 impl OwnerShellCore {
     pub(super) fn new(state: OwnerState, ends: OwnerEnds) -> Self {
-        let rejection_capacity = state.policy().limits.diagnostics;
+        let rejection_capacity = state.policy().limits.staged_diagnostics;
         let mut coordinator = OwnerCoordinator::default();
         // #542's deterministic source order keeps valid protocol input first:
         // an already-buffered ACK/completion settles state before concurrent
@@ -993,7 +993,7 @@ impl OwnerShellCore {
     /// issued immediately after a fail-fast rejection observe that rejection
     /// without relying on scheduler timing.
     pub(super) fn flush_pre_admission_rejections(&mut self, consumed_wake: bool) {
-        let dropped_diagnostics = self
+        let dropped_staged_diagnostics = self
             .admission_rejections
             .drain_into(&mut self.admission_rejection_scratch, consumed_wake);
         // Load after the ingress lock is released. A reporter that raced this
@@ -1011,8 +1011,9 @@ impl OwnerShellCore {
             self.observed_pre_admission_rejections = total;
             self.observed_control_reserve_rejections = control_reserve;
         }
-        if dropped_diagnostics != 0 {
-            self.state.record_dropped_diagnostics(dropped_diagnostics);
+        if dropped_staged_diagnostics != 0 {
+            self.state
+                .record_dropped_staged_diagnostics(dropped_staged_diagnostics);
         }
         while let Some(rejection) = self.admission_rejection_scratch.pop_front() {
             self.state.record_admission_rejection_diagnostic(
@@ -1140,8 +1141,6 @@ impl OwnerShellCore {
         OwnerSnapshot {
             #[cfg(feature = "runtime-tokio")]
             metrics: self.state.metrics(),
-            #[cfg(feature = "runtime-tokio")]
-            diagnostics: self.state.diagnostics().copied().collect(),
             state: self.state.state(),
             active: self.state.active_len(),
         }

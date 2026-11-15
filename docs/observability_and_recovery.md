@@ -28,10 +28,9 @@ without granting control over the protocol engine.
 | `received_frames` | Valid decoded VISCA response frames received from the camera; compare snapshots around an application heartbeat for positive liveness evidence. |
 | `ignored_unmatched_sequenced_replies` | Sequenced replies matching no request. |
 | `ignored_malformed_frames` | Delimited frames, and consumed oversized/malformed datagrams rejected before framing, discarded because they did not classify as a valid VISCA response. |
-| `dropped_diagnostics` | Events evicted from bounded diagnostic staging or the owner diagnostic ring. |
+| `dropped_staged_diagnostics` | Events evicted from bounded pre-admission staging before any subscriber could receive them. |
 | `dropped_diagnostic_events` | Events dropped because a subscriber queue was full. |
 | `dropped_observer_events` | Operation-observer events (terminal outcomes and cancellation failures) dropped because their handle was already detached or dropped. |
-| `dropped_applied_events` | Applied-state events dropped by full subscriber queues. |
 | `dropped_boundary_work` | Boundary messages discarded during owner termination. |
 | `active` | Admitted, non-terminal requests currently retained. |
 | `pending` | Queued admissions plus one retained admission, if present; retained cancellations are not pending requests. |
@@ -42,7 +41,7 @@ bounded by owner policy. Both facades obtain `metrics()` through a separate
 bounded control request answered by the owner. Once the owner terminates,
 `metrics()` returns its published terminal error rather than a final snapshot;
 the `session` field is therefore `Running` in a successful call. Neither facade
-clones the diagnostic ring, subscriber queues, wire buffers, or state registry.
+clones subscriber queues, wire buffers, or the state registry.
 
 `busy_errors` counts the codes the scheduler itself treats as transient
 camera-side backpressure — command buffer full (`0x03`), no socket (`0x05`),
@@ -64,7 +63,8 @@ is read with `DiagnosticSubscription::{try_recv,recv}`, a blocking one with
 one owner retains at most four live subscriptions. A fifth subscription fails
 with nonretryable `DiagnosticSubscriberLimit { capacity }`; drop an existing
 subscription to make room. Request-admission capacity does not change this
-subscriber limit. The owner ring retains at most 128 events.
+subscriber limit. Subscriptions receive events recorded after they are created;
+there is no retained diagnostic history or replay.
 
 `DiagnosticEvent` is a bounded, `#[non_exhaustive]` enum containing only
 sanitized categories: admission, frame category, protocol phase transition,
@@ -151,7 +151,7 @@ target index and a shared registry reference; cloning a view does not create a
 second map, worker, or queue.
 
 The cache changes only after an exact `AppliedStateEffect`. The owner commits
-that effect before notifying applied-state or diagnostic observers, and the
+that effect before delivering diagnostics or resolving the terminal outcome, and the
 commit does not depend on an observer remaining attached. Preparing a command,
 an ACK alone, a failed write, a timeout, or a pre-ACK error does not change the
 cache. A fresh session starts every target at `Unknown`; target 1 and target 2
@@ -579,7 +579,7 @@ values from the poisoned owner.
 
 ## Memory bounds
 
-The current owner policy is intentionally explicit. The first nine rows are
+The current owner policy is intentionally explicit. The first eight rows are
 fixed; the remaining four are caller-tunable bounds:
 
 | Resource | Bound | Caller-tunable |
@@ -587,11 +587,10 @@ fixed; the remaining four are caller-tunable bounds:
 | Registered targets | 7 | no |
 | State keys per target | 64 | no |
 | Scalars per state value | 4 | no |
-| Diagnostic history | 128 events | no |
+| Pre-admission diagnostic staging | 128 events | no |
+| Queued control requests | 16 | no |
 | Diagnostic subscribers | 4 | no |
 | Events per diagnostic subscriber | 128 | no |
-| Applied-state subscribers | 16 | no |
-| Events per applied subscriber | 64 | no |
 | Frames per receive batch | 64 | no |
 | Admitted request lifecycle entries (pending or active, including quarantine) | `SessionConfig::admission_capacity()` (64 by default) for ordinary work, plus each camera's control reserve (one slot per supported typed STOP, at most three) | yes — `SessionConfig::with_admission_capacity()`; the reserve is set by each profile |
 | Owner transport-read scratch / largest copied read | see below | yes — `BufferConfig::recv_buffer_size` |

@@ -5,6 +5,31 @@ use std::time::Duration;
 use super::*;
 use crate::{runtime::engine::CancellationPolicy, CameraId};
 
+/// Test history collected through the same bounded subscription production uses.
+pub(super) struct DiagnosticRecorder {
+    subscription: DiagnosticSubscription,
+    observed: std::cell::RefCell<Vec<DiagnosticEvent>>,
+}
+
+impl DiagnosticRecorder {
+    pub(super) fn new(state: &mut OwnerState) -> Self {
+        let (_, ends) = boundary::OwnerHandleCore::new(state);
+        let capacity = state.policy().limits.diagnostic_events_per_subscription;
+        Self {
+            subscription: state
+                .subscribe_diagnostics(capacity, ends.lifecycle)
+                .unwrap(),
+            observed: std::cell::RefCell::new(Vec::new()),
+        }
+    }
+
+    pub(super) fn events(&self) -> Vec<DiagnosticEvent> {
+        let mut observed = self.observed.borrow_mut();
+        observed.extend(std::iter::from_fn(|| self.subscription.try_recv()));
+        observed.clone()
+    }
+}
+
 fn policy_for_target_validation() -> ProtocolPolicy {
     ProtocolPolicy {
         capacity: 1,
@@ -42,6 +67,26 @@ fn with_targets_rejects_an_empty_registry_without_panicking() {
     assert!(
         OwnerPolicy::with_targets(policy_for_target_validation(), PerTarget::default()).is_err()
     );
+}
+
+#[test]
+fn control_lane_uses_its_own_named_nonzero_bound() {
+    let mut policy = OwnerPolicy::single_target(
+        policy_for_target_validation(),
+        TargetSlot::CAMERA_1,
+        TargetPolicy::test_default(),
+    )
+    .unwrap();
+    policy.limits.control_requests = 3;
+    policy.limits.staged_diagnostics = 7;
+    let state = OwnerState::new(policy.clone()).unwrap();
+    let (handle, _) = boundary::OwnerHandleCore::new(&state);
+    assert_eq!(handle.control.capacity(), Some(3));
+    policy.limits.control_requests = 0;
+    assert!(matches!(
+        OwnerState::new(policy),
+        Err(Error::InvalidRequest(_))
+    ));
 }
 
 /// Issue #631: the owner state used by the reconfiguration tests below.
@@ -322,6 +367,7 @@ fn pan_tilt_limit_cache_rejects_unknown_corner_discriminators() {
 /// against a retry constant, so the counts stay meaningful as retry policy
 /// changes underneath them.
 mod metrics {
+    use super::DiagnosticRecorder;
     use std::{
         collections::VecDeque,
         sync::Arc,
@@ -465,8 +511,12 @@ mod metrics {
         drain(state, effects, None, now);
     }
 
-    fn saw_deadline(state: &OwnerState, expected: DeadlineKind, retrying: bool) -> bool {
-        state.diagnostics().any(|event| {
+    fn saw_deadline(
+        diagnostics: &DiagnosticRecorder,
+        expected: DeadlineKind,
+        retrying: bool,
+    ) -> bool {
+        diagnostics.events().iter().any(|event| {
             matches!(
                 event,
                 DiagnosticEvent::DeadlineExpired { deadline, will_retry, .. }
@@ -479,6 +529,7 @@ mod metrics {
     fn expired_ack_deadline_counts_a_timeout_and_the_retry_it_scheduled_for_sony() {
         let start = Instant::now();
         let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony)).unwrap();
+        let diagnostics = DiagnosticRecorder::new(&mut state);
         let _observer = sent(&mut state, command(retrying()), Some(1), start);
         assert_eq!(state.metrics().ack_timeouts, 0);
         advance(&mut state, start + ACK);
@@ -487,25 +538,27 @@ mod metrics {
         assert_eq!(metrics.retries_scheduled, 1);
         assert_eq!(metrics.completion_timeouts, 0);
         assert_eq!(metrics.inquiry_timeouts, 0);
-        assert!(saw_deadline(&state, DeadlineKind::Ack, true));
+        assert!(saw_deadline(&diagnostics, DeadlineKind::Ack, true));
     }
 
     #[test]
     fn expired_ack_deadline_without_a_retry_reports_the_decision_directly() {
         let start = Instant::now();
         let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let diagnostics = DiagnosticRecorder::new(&mut state);
         let _observer = sent(&mut state, command(RetryPolicy::NEVER), None, start);
         advance(&mut state, start + ACK);
         let metrics = state.metrics();
         assert_eq!(metrics.ack_timeouts, 1);
         assert_eq!(metrics.retries_scheduled, 0);
-        assert!(saw_deadline(&state, DeadlineKind::Ack, false));
+        assert!(saw_deadline(&diagnostics, DeadlineKind::Ack, false));
     }
 
     #[test]
     fn expired_completion_deadline_counts_separately_from_the_ack_deadline_for_sony() {
         let start = Instant::now();
         let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony)).unwrap();
+        let diagnostics = DiagnosticRecorder::new(&mut state);
         let _observer = sent(&mut state, command(retrying()), Some(1), start);
         apply(
             &mut state,
@@ -524,20 +577,21 @@ mod metrics {
         // #795: an acknowledged Sony command is never rewritten, so its
         // completion deadline is reported without a retry.
         assert_eq!(metrics.retries_scheduled, 0);
-        assert!(saw_deadline(&state, DeadlineKind::Completion, false));
+        assert!(saw_deadline(&diagnostics, DeadlineKind::Completion, false));
     }
 
     #[test]
     fn expired_inquiry_deadline_counts_as_an_inquiry_timeout() {
         let start = Instant::now();
         let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let diagnostics = DiagnosticRecorder::new(&mut state);
         let _observer = sent(&mut state, inquiry(retrying()), None, start);
         advance(&mut state, start + INQUIRY);
         let metrics = state.metrics();
         assert_eq!(metrics.inquiry_timeouts, 1);
         assert_eq!(metrics.ack_timeouts, 0);
         assert_eq!(metrics.completion_timeouts, 0);
-        assert!(saw_deadline(&state, DeadlineKind::InquiryReply, true));
+        assert!(saw_deadline(&diagnostics, DeadlineKind::InquiryReply, true));
     }
 
     #[test]
@@ -626,6 +680,7 @@ mod metrics {
     fn sony_control_reply_is_observable_without_affecting_request_state() {
         let start = Instant::now();
         let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony)).unwrap();
+        let diagnostics = DiagnosticRecorder::new(&mut state);
 
         apply(
             &mut state,
@@ -636,7 +691,7 @@ mod metrics {
         assert_eq!(state.metrics().received_frames, 1);
         assert_eq!(state.metrics().protocol_errors, 0);
         assert_eq!(state.metrics().terminal, 0);
-        assert!(state.diagnostics().any(|event| matches!(
+        assert!(diagnostics.events().iter().any(|event| matches!(
             event,
             DiagnosticEvent::FrameReceived {
                 target: TargetSlot::CAMERA_1,
@@ -644,7 +699,7 @@ mod metrics {
                 response: ResponseDiagnostic::SonyControl { code: 0x0F01 },
             }
         )));
-        assert!(state.diagnostics().any(|event| matches!(
+        assert!(diagnostics.events().iter().any(|event| matches!(
             event,
             DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
         )));
@@ -679,7 +734,7 @@ mod metrics {
         const fn assert_copy<T: Copy>() {}
         assert_copy::<OwnerMetrics>();
         assert_copy::<DiagnosticEvent>();
-        assert_eq!(size_of::<OwnerMetrics>(), 23 * size_of::<u64>());
+        assert_eq!(size_of::<OwnerMetrics>(), 22 * size_of::<u64>());
     }
     fn admit_observation(
         state: &mut OwnerState,
@@ -1173,7 +1228,7 @@ fn a_datagram_send_failure_is_normalized_to_a_per_request_error() {
 /// The replay below is deliberately *not* a model of the runtime. It drives the
 /// real [`OwnerState`] — which owns the real protocol engine, the real
 /// admission permit pool, the real terminal observers and the real
-/// applied-state subscribers — and renders what production actually produced
+/// target-local state cache — and renders what production actually produced
 /// back into the fixture's own record language. Every fixture record is then
 /// compared against that rendering, so an engine or owner behavior change fails
 /// the fixture instead of a hand-written simulator.
@@ -1431,8 +1486,7 @@ mod lifecycle_trace {
                 cancellation,
                 reply_shape: ReplyShape::AckThenCompletion,
             },
-            // Applied-state delivery is one of the normative observations, and
-            // an unsubscribed fixture simply produces no subscriber record.
+            // Fixtures observe this exact write-only effect through StateCache.
             applied_state: Some(AppliedStateProjection::set(StateKey::Spotlight, &[1]).unwrap()),
         }
     }
@@ -1475,7 +1529,8 @@ mod lifecycle_trace {
         scheduler_dispatch: BTreeMap<String, u64>,
         labels: BTreeMap<String, RequestId>,
         observers: BTreeMap<RequestId, ObserverSlot>,
-        subscribers: Vec<(String, AppliedStateSubscription)>,
+        cache_observers: Vec<(String, TargetSlot)>,
+        diagnostics: Option<super::DiagnosticRecorder>,
         pending: Option<Pending>,
         write_label: String,
         cancel_phase: Option<Phase>,
@@ -1495,7 +1550,8 @@ mod lifecycle_trace {
                 scheduler_dispatch,
                 labels: BTreeMap::new(),
                 observers: BTreeMap::new(),
-                subscribers: Vec::new(),
+                cache_observers: Vec::new(),
+                diagnostics: None,
                 pending: None,
                 write_label: "ok".to_owned(),
                 cancel_phase: None,
@@ -1525,7 +1581,7 @@ mod lifecycle_trace {
             let mut out = Vec::new();
             match input[2] {
                 "session" => self.session(input, &mut out),
-                "subscribe-applied" => self.subscribe_applied(input, &mut out),
+                "observe-state" => self.observe_state(input, &mut out),
                 "admit" => self.admit(input, &mut out),
                 "blocking-submit" => self.blocking_submit(input, &mut out),
                 "dispatch" => self.dispatch(self.id(input[3]), required(input, "result"), &mut out),
@@ -1559,11 +1615,13 @@ mod lifecycle_trace {
             self.cancellation = cancellation;
             self.labels.clear();
             self.observers.clear();
-            self.subscribers.clear();
+            self.cache_observers.clear();
             self.pending = None;
             self.next_transmission = 0;
             self.cancel_transmissions = 0;
-            let state = OwnerState::new(owner_policy(transport, capacity, cancellation)).unwrap();
+            let mut state =
+                OwnerState::new(owner_policy(transport, capacity, cancellation)).unwrap();
+            self.diagnostics = Some(super::DiagnosticRecorder::new(&mut state));
             let registered =
                 state.policy().targets[TargetSlot::CAMERA_1].expect("camera one is registered");
             out.push(format!(
@@ -1577,19 +1635,15 @@ mod lifecycle_trace {
             self.state = Some(state);
         }
 
-        fn subscribe_applied(&mut self, input: &[&str], out: &mut Vec<String>) {
+        fn observe_state(&mut self, input: &[&str], out: &mut Vec<String>) {
             let name = input[3].to_owned();
             let target = TargetSlot::try_from(
                 CameraId::new(required(input, "target").parse().unwrap()).unwrap(),
             )
             .unwrap();
-            let subscription = self
-                .state_mut()
-                .subscribe_applied(Some(target), 8)
-                .expect("applied-state subscription");
-            self.subscribers.push((name.clone(), subscription));
+            self.cache_observers.push((name.clone(), target));
             out.push(format!(
-                "{} effect subscriber-added observer={name} target={}",
+                "{} effect cache-observer-added observer={name} target={}",
                 self.at,
                 target.camera().id()
             ));
@@ -1980,20 +2034,22 @@ mod lifecycle_trace {
                     Effect::AppliedState { effect: projection } => {
                         self.state_mut()
                             .apply_effect(Effect::AppliedState { effect: projection });
-                        for (name, subscription) in &self.subscribers {
-                            if let Some(AppliedStateEvent(delivered)) = subscription.try_recv() {
+                        let entry = self.state().target_cache[projection.target]
+                            .lock()
+                            .unwrap()
+                            .entry(projection.projection.state());
+                        let known = !matches!(entry, crate::StateEntry::Unknown);
+                        assert_eq!(known, projection.projection.is_known());
+                        for (name, target) in &self.cache_observers {
+                            if *target == projection.target {
                                 applied.push((
                                     projection.request,
                                     format!(
                                         "{} outcome applied-state observer={name} target={} id={} state={}",
                                         self.at,
-                                        delivered.target.camera().id(),
-                                        delivered.request.get(),
-                                        if delivered.projection.is_known() {
-                                            "applied"
-                                        } else {
-                                            "invalidated"
-                                        }
+                                        target.camera().id(),
+                                        projection.request.get(),
+                                        if known { "applied" } else { "invalidated" }
                                     ),
                                 ));
                             }
@@ -2070,8 +2126,11 @@ mod lifecycle_trace {
             let pending = self.pending.take().expect("a staged admission");
             self.state_mut().apply_effect(effect);
             let target = self
-                .state()
-                .diagnostics()
+                .diagnostics
+                .as_ref()
+                .unwrap()
+                .events()
+                .iter()
                 .filter_map(|event| match event {
                     DiagnosticEvent::Admitted {
                         id: recorded,
@@ -2080,7 +2139,7 @@ mod lifecycle_trace {
                     } if *recorded == id => Some(*target),
                     _ => None,
                 })
-                .last()
+                .next_back()
                 .expect("owner records every admission");
             let (phase, _) = self
                 .state()

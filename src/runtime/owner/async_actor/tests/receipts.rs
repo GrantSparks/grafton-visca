@@ -71,7 +71,8 @@ async fn async_manual_clock_rejects_settlement_query_at_deadline() {
 async fn async_urgent_stop_binds_its_ack_under_a_preack_hold() {
     let start = Instant::now();
     let (runtime, sleep_started) = ManualRuntime::with_polling_sleeps_and_sleep_barrier(start);
-    let (handle, actor) = AsyncOwnerActor::new(policy(2), runtime.clone()).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(policy(2), runtime.clone()).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let harness = harness();
     let started = harness.started.clone();
     let gates = harness.gates.clone();
@@ -134,9 +135,9 @@ async fn async_urgent_stop_binds_its_ack_under_a_preack_hold() {
         terminal_within_test_deadline(&stop, "the urgent stop owns its ACK and completion").await,
         RuntimeOutcome::Applied
     ));
-    let snapshot = handle.snapshot().await.unwrap();
+    handle.metrics().await.unwrap();
     assert!(
-        !snapshot.diagnostics.iter().any(|event| matches!(
+        !diagnostics.events().iter().any(|event| matches!(
             event,
             DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
         )),
@@ -155,7 +156,8 @@ async fn async_urgent_stop_binds_its_ack_under_a_preack_hold() {
 #[tokio::test(start_paused = true)]
 async fn expired_pre_admission_boundary_never_writes_and_releases_capacity() {
     let runtime = TokioRuntime::from_current().unwrap();
-    let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let deadline = handle.deadline_after(Duration::from_millis(1)).unwrap();
     let expiring_handle = handle.clone();
     let expiring = tokio::spawn(async move {
@@ -190,7 +192,7 @@ async fn expired_pre_admission_boundary_never_writes_and_releases_capacity() {
     assert_eq!(snapshot.metrics.writes, 0);
     assert_eq!(snapshot.active, 0);
     assert_eq!(
-        snapshot.diagnostics,
+        diagnostics.events(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: crate::target::TargetSlot::CAMERA_1,
             lane: crate::runtime::engine::Lane::Inquiry,
@@ -230,6 +232,7 @@ async fn expired_pre_admission_boundary_never_writes_and_releases_capacity() {
 async fn immediate_pre_admission_deadline_is_telemetrized() {
     let runtime = TokioRuntime::from_current().unwrap();
     let (handle, mut actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let error = handle
         .submit_with_timeout_until(inquiry(), Duration::from_secs(1), handle.now())
         .await
@@ -244,7 +247,7 @@ async fn immediate_pre_admission_deadline_is_telemetrized() {
     assert_eq!(metrics.pending, 0);
     assert_eq!(metrics.writes, 0);
     assert_eq!(
-        actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
+        diagnostics.events(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: crate::target::TargetSlot::CAMERA_1,
             lane: crate::runtime::engine::Lane::Inquiry,
@@ -260,6 +263,7 @@ async fn immediate_pre_admission_deadline_is_telemetrized() {
 async fn actor_expired_pre_admission_boundary_is_telemetrized_once() {
     let runtime = TokioRuntime::from_current().unwrap();
     let (handle, mut actor) = AsyncOwnerActor::new(policy(1), runtime.clone()).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let deadline = handle.deadline_after(Duration::from_millis(1)).unwrap();
     let validity = crate::runtime::owner::boundary::AdmissionValidity::until(deadline);
     let (completion, reply) = handle
@@ -300,7 +304,7 @@ async fn actor_expired_pre_admission_boundary_is_telemetrized_once() {
     assert_eq!(metrics.writes, 0);
     assert!(writes.lock().unwrap().is_empty());
     assert_eq!(
-        actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
+        diagnostics.events(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: crate::target::TargetSlot::CAMERA_1,
             lane: crate::runtime::engine::Lane::Inquiry,
@@ -353,7 +357,8 @@ fn smol_targeted_settlement_uses_ordinary_prepared_inquiries() {
 #[tokio::test]
 async fn async_admission_precedes_write_and_matches_blocking_terminal_trace() {
     let runtime = TokioRuntime::from_current().unwrap();
-    let (handle, actor) = AsyncOwnerActor::new(policy(2), runtime).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(policy(2), runtime).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let harness = harness();
     let started = harness.started.clone();
     let gates = harness.gates.clone();
@@ -390,7 +395,7 @@ async fn async_admission_precedes_write_and_matches_blocking_terminal_trace() {
     assert_eq!(snapshot.state, SessionState::Shutdown);
     assert_eq!(snapshot.active, 0);
     assert_eq!(
-        canonical_owner_trace(snapshot.diagnostics.iter().copied()),
+        canonical_owner_trace(diagnostics.events().iter().copied()),
         CANONICAL_OWNER_TRACE
     );
 }
@@ -555,6 +560,7 @@ async fn fail_fast_capacity_rejection_records_metrics_and_diagnostic() {
 #[test]
 fn smol_fail_fast_capacity_rejection_records_telemetry() {
     let (handle, mut actor) = AsyncOwnerActor::new(policy(1), SmolRuntime::new()).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let held = handle
         .core
         .permits
@@ -575,7 +581,7 @@ fn smol_fail_fast_capacity_rejection_records_telemetry() {
     assert_eq!(metrics.pending, 0);
     assert_eq!(metrics.writes, 0);
     assert_eq!(
-        actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
+        diagnostics.events(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: crate::target::TargetSlot::CAMERA_1,
             lane: crate::runtime::engine::Lane::Inquiry,
@@ -586,15 +592,16 @@ fn smol_fail_fast_capacity_rejection_records_telemetry() {
 }
 /// The ingress is deliberately bounded. If a burst outruns its one-slot
 /// diagnostic staging queue, metrics keep the exact rejection total and
-/// the already-public dropped-diagnostics counter makes the evicted event
-/// visible instead of silently inventing another loss class.
+/// the staging-loss counter distinguishes the evicted event from a full
+/// subscriber queue.
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn pre_admission_rejection_ingress_reports_bounded_diagnostic_loss() {
     let runtime = TokioRuntime::from_current().unwrap();
     let mut owner_policy = policy(1);
-    owner_policy.limits.diagnostics = 1;
+    owner_policy.limits.staged_diagnostics = 1;
     let (_handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let first = PreAdmissionRejection {
         target: crate::target::TargetSlot::CAMERA_1,
         lane: crate::runtime::engine::Lane::Command,
@@ -615,9 +622,10 @@ async fn pre_admission_rejection_ingress_reports_bounded_diagnostic_loss() {
 
     let metrics = actor.core.state.metrics();
     assert_eq!(metrics.admission_rejected, 2);
-    assert_eq!(metrics.dropped_diagnostics, 1);
+    assert_eq!(metrics.dropped_staged_diagnostics, 1);
+    assert_eq!(metrics.dropped_diagnostic_events, 0);
     assert_eq!(
-        actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
+        diagnostics.events(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: crate::target::TargetSlot::CAMERA_1,
             lane: crate::runtime::engine::Lane::Inquiry,
@@ -635,6 +643,7 @@ async fn pre_admission_rejection_ingress_reports_bounded_diagnostic_loss() {
 async fn disconnected_pre_boundary_admission_is_telemetrized() {
     let runtime = TokioRuntime::from_current().unwrap();
     let (handle, mut actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let (replacement_sender, replacement_receiver) = flume::bounded(1);
     drop(replacement_sender);
     let original_receiver =
@@ -650,7 +659,7 @@ async fn disconnected_pre_boundary_admission_is_telemetrized() {
     actor.core.flush_pre_admission_rejections(true);
     assert_eq!(actor.core.state.metrics().admission_rejected, 1);
     assert_eq!(
-        actor.core.state.diagnostics().copied().collect::<Vec<_>>(),
+        diagnostics.events(),
         vec![DiagnosticEvent::AdmissionRejected {
             target: crate::target::TargetSlot::CAMERA_1,
             lane: crate::runtime::engine::Lane::Command,

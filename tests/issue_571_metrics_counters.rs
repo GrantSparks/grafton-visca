@@ -91,7 +91,7 @@ fn an_unanswered_command_counts_ack_timeouts_and_reports_each_retry_decision() {
     let metrics = session.metrics().expect("metrics");
     let events: Vec<_> = std::iter::from_fn(|| diagnostics.try_recv()).collect();
     assert_eq!(
-        metrics.dropped_diagnostics, 0,
+        metrics.dropped_diagnostic_events, 0,
         "the scenario must fit the diagnostic subscription for the pairing below to hold"
     );
 
@@ -171,7 +171,7 @@ fn a_caller_configured_retry_budget_is_visible_in_the_scheduled_retry_counter() 
     let metrics = session.metrics().expect("metrics");
     let events: Vec<_> = std::iter::from_fn(|| diagnostics.try_recv()).collect();
     assert_eq!(
-        metrics.dropped_diagnostics, 0,
+        metrics.dropped_diagnostic_events, 0,
         "the scenario must fit the diagnostic subscription for the pairing below to hold"
     );
 

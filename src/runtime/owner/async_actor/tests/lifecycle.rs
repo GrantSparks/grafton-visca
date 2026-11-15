@@ -3,7 +3,8 @@ use super::*;
 #[tokio::test]
 async fn ready_transport_close_precedes_shutdown_and_queued_admission() {
     let runtime = TokioRuntime::from_current().unwrap();
-    let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let harness = harness();
     let frames = harness.frames.clone();
     let admission = handle.try_submit(command()).unwrap();
@@ -15,8 +16,8 @@ async fn ready_transport_close_precedes_shutdown_and_queued_admission() {
         admission.await.unwrap_err(),
         Error::ConnectionClosed { .. }
     ));
-    let frame_or_close = snapshot
-        .diagnostics
+    let frame_or_close = diagnostics
+        .events()
         .iter()
         .position(|event| matches!(event, DiagnosticEvent::SessionChanged { .. }))
         .unwrap();
@@ -59,7 +60,8 @@ async fn terminal_stop_is_published_before_shutdown_can_enter_the_live_lane() {
 #[tokio::test]
 async fn ready_frame_is_observed_before_explicit_shutdown() {
     let runtime = TokioRuntime::from_current().unwrap();
-    let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(policy(1), runtime).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let harness = harness();
     let frames = harness.frames.clone();
     frames
@@ -72,13 +74,13 @@ async fn ready_frame_is_observed_before_explicit_shutdown() {
         .unwrap();
     handle.shutdown().unwrap();
     let snapshot = actor.run(harness.driver).await;
-    let frame = snapshot
-        .diagnostics
+    let frame = diagnostics
+        .events()
         .iter()
         .position(|event| matches!(event, DiagnosticEvent::FrameReceived { .. }))
         .unwrap();
-    let shutdown = snapshot
-        .diagnostics
+    let shutdown = diagnostics
+        .events()
         .iter()
         .position(|event| matches!(event, DiagnosticEvent::SessionChanged { .. }))
         .unwrap();

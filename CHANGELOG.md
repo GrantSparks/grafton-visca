@@ -40,6 +40,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   removed. Oversized raw input returns `InvalidRequest` with kind
   `InvalidParameter`, rather than the inbound `ResponseTooLarge` protocol error.
 
+- **BREAKING** (#863): `MetricsSnapshot::dropped_diagnostics` is replaced by
+  `dropped_staged_diagnostics`, counting only pre-admission staging overflow.
+  `dropped_applied_events` and unused applied-state subscriptions are removed.
+  Diagnostic history is no longer retained; subscriber queue loss remains
+  `dropped_diagnostic_events`. Control requests have their own bounded queue.
 - Blocking owner re-entry returns `InvalidState` for calls that would wait on
   the worker. This supersedes the rc.1 `TransportBusy` re-entry rule removed
   by #780; self-`close` still requests shutdown and leaves joining to an

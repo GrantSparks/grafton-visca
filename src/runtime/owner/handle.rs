@@ -262,7 +262,7 @@ macro_rules! owner_handle_methods {
             }
 
             /// Reads scalar owner metrics through a dedicated bounded control
-            /// request. This path never clones the diagnostic ring.
+            /// request. This path reads only bounded scalar counters.
             pub(crate) $($async)* fn metrics(
                 &self,
             ) -> Result<crate::observability::MetricsSnapshot, crate::Error> {
@@ -418,7 +418,8 @@ macro_rules! owner_handle_methods {
             }
 
             /// One position inquiry, admitted and answered strictly before
-            /// `deadline`. Any failure is reported as the query timing out.
+            /// `deadline`. Caller-deadline failures become query timeouts;
+            /// other failures retain their exact verdict.
             $($async)* fn sample<R>(
                 &self,
                 query: &crate::prepared::PreparedInquiryTemplate<R>,

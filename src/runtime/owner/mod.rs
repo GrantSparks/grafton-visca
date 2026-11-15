@@ -76,12 +76,12 @@ use crate::{
 use crate::{raw::MAX_BYTES, CancellationOutcome, Error, ErrorKind, ViscaSocket};
 
 use super::engine::{
-    AdmissionSlot, AdmissionTicket, AppliedStateEffect, AppliedStateProjection,
-    CancellationObservation, CancellationPolicy, ControlClass, DeadlineKind, DecodedFrame,
-    DecodedResponse, Effect, EngineTurn, EnvelopeKind, EnvelopeSequence, IgnoreReason, Input,
-    InputTurn, Lane, Lifecycle, ProtocolEngine, ProtocolPolicy, RequestContext, RequestId,
-    RetryPolicy, RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason, TargetPolicy,
-    TimeoutPolicy, Transmission, TransmissionId, TransmissionMeta,
+    AdmissionSlot, AdmissionTicket, AppliedStateProjection, CancellationObservation,
+    CancellationPolicy, ControlClass, DeadlineKind, DecodedFrame, DecodedResponse, Effect,
+    EngineTurn, EnvelopeKind, EnvelopeSequence, IgnoreReason, Input, InputTurn, Lane, Lifecycle,
+    ProtocolEngine, ProtocolPolicy, RequestContext, RequestId, RetryPolicy, RuntimeOutcome,
+    RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy, Transmission,
+    TransmissionId, TransmissionMeta,
 };
 
 #[cfg(test)]
@@ -187,12 +187,11 @@ pub(crate) fn canonical_owner_trace(
 /// Bounds for every owner-side collection and reusable byte store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct OwnerLimits {
-    pub(crate) diagnostics: usize,
+    pub(crate) staged_diagnostics: usize,
+    pub(crate) control_requests: usize,
     pub(crate) diagnostic_subscribers: usize,
     pub(crate) diagnostic_events_per_subscription: usize,
     pub(crate) state_keys_per_target: usize,
-    pub(crate) applied_subscribers: usize,
-    pub(crate) applied_events_per_subscription: usize,
     pub(crate) frames_per_receive: usize,
     pub(crate) receive_bytes: usize,
     pub(crate) framing_bytes: usize,
@@ -201,12 +200,11 @@ pub(crate) struct OwnerLimits {
 impl Default for OwnerLimits {
     fn default() -> Self {
         Self {
-            diagnostics: 128,
+            staged_diagnostics: 128,
+            control_requests: 16,
             diagnostic_subscribers: 4,
             diagnostic_events_per_subscription: 128,
             state_keys_per_target: 64,
-            applied_subscribers: 16,
-            applied_events_per_subscription: 64,
             frames_per_receive: 64,
             receive_bytes: 4_096,
             framing_bytes: 8_192,
@@ -332,10 +330,9 @@ pub(crate) struct OwnerMetrics {
     /// Running (#672). The session continues past these frames; this counter makes
     /// the otherwise lossy-diagnostics-only signal a durable metric.
     pub(crate) ignored_malformed_frames: u64,
-    pub(crate) dropped_diagnostics: u64,
+    pub(crate) dropped_staged_diagnostics: u64,
     pub(crate) dropped_diagnostic_events: u64,
     pub(crate) dropped_observer_events: u64,
-    pub(crate) dropped_applied_events: u64,
     pub(crate) dropped_boundary_work: u64,
 }
 
@@ -1276,29 +1273,6 @@ impl OperationObservation {
     }
 }
 
-/// Bounded applied-state event delivered after the target-local cache changes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct AppliedStateEvent(pub(crate) AppliedStateEffect);
-
-#[cfg(test)]
-#[derive(Debug)]
-pub(crate) struct AppliedStateSubscription {
-    receiver: flume::Receiver<AppliedStateEvent>,
-}
-
-#[cfg(test)]
-impl AppliedStateSubscription {
-    pub(crate) fn try_recv(&self) -> Option<AppliedStateEvent> {
-        self.receiver.try_recv().ok()
-    }
-}
-
-#[derive(Debug)]
-struct AppliedSubscriber {
-    target: Option<TargetSlot>,
-    sender: flume::Sender<AppliedStateEvent>,
-}
-
 #[derive(Debug)]
 pub(crate) struct DiagnosticSubscription {
     receiver: flume::Receiver<DiagnosticEvent>,
@@ -1628,18 +1602,12 @@ pub(crate) struct OwnerState {
     active: BTreeMap<RequestId, ActiveRequest>,
     motion: Arc<MotionRegistry>,
     target_cache: Arc<PerTarget<Mutex<TargetStateCache>>>,
-    subscribers: BTreeMap<u64, AppliedSubscriber>,
     diagnostic_subscribers: BTreeMap<u64, DiagnosticSubscriber>,
-    // Read only by `subscribe_applied`, whose consumers are feature-gated
-    // (#636).
-    #[cfg(test)]
-    next_subscription: u64,
     // Read only by `subscribe_diagnostics`, whose consumers are feature-gated
     // (#636).
     #[cfg(any(feature = "async", feature = "blocking", test))]
     next_diagnostic_subscription: u64,
     next_ticket: u64,
-    diagnostics: VecDeque<DiagnosticEvent>,
     metrics: OwnerMetrics,
     buffers: OwnerBuffers,
     session_error: Option<Error>,
@@ -1647,12 +1615,11 @@ pub(crate) struct OwnerState {
 
 impl OwnerState {
     pub(crate) fn new(policy: OwnerPolicy) -> Result<Self, Error> {
-        if policy.limits.diagnostics == 0
+        if policy.limits.staged_diagnostics == 0
             || policy.limits.diagnostic_subscribers == 0
             || policy.limits.diagnostic_events_per_subscription == 0
             || policy.limits.state_keys_per_target == 0
-            || policy.limits.applied_subscribers == 0
-            || policy.limits.applied_events_per_subscription == 0
+            || policy.limits.control_requests == 0
             || policy.limits.frames_per_receive == 0
         {
             return Err(Error::InvalidRequest(
@@ -1685,14 +1652,10 @@ impl OwnerState {
             target_cache: Arc::new(PerTarget::from_fn(|_| {
                 Mutex::new(TargetStateCache::default())
             })),
-            subscribers: BTreeMap::new(),
             diagnostic_subscribers: BTreeMap::new(),
-            #[cfg(test)]
-            next_subscription: 1,
             #[cfg(any(feature = "async", feature = "blocking", test))]
             next_diagnostic_subscription: 1,
             next_ticket: 1,
-            diagnostics: VecDeque::new(),
             metrics: OwnerMetrics::default(),
             buffers,
             session_error: None,
@@ -1848,20 +1811,17 @@ impl OwnerState {
     }
 
     /// Accounts for a bounded diagnostic ingress evicting an older event before
-    /// the owner can place it in its public diagnostic ring.
+    /// the owner can deliver it to diagnostic subscribers.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn record_dropped_diagnostics(&mut self, count: u64) {
-        self.metrics.dropped_diagnostics = self.metrics.dropped_diagnostics.saturating_add(count);
+    pub(crate) fn record_dropped_staged_diagnostics(&mut self, count: u64) {
+        self.metrics.dropped_staged_diagnostics = self
+            .metrics
+            .dropped_staged_diagnostics
+            .saturating_add(count);
     }
 
     pub(crate) fn state_cache_registry(&self) -> Arc<PerTarget<Mutex<TargetStateCache>>> {
         Arc::clone(&self.target_cache)
-    }
-
-    // Used by owner tests and the test-only async snapshot helper (#636).
-    #[cfg(test)]
-    pub(crate) fn diagnostics(&self) -> impl Iterator<Item = &DiagnosticEvent> {
-        self.diagnostics.iter()
     }
 
     pub(crate) fn next_wake(&self) -> Option<Instant> {
@@ -2218,35 +2178,6 @@ impl OwnerState {
         (effects.into(), answer)
     }
 
-    // Consumed by the async actor's `Subscribe` control arm and the owner
-    // lifecycle fixture (#636).
-    #[cfg(test)]
-    pub(crate) fn subscribe_applied(
-        &mut self,
-        target: Option<TargetSlot>,
-        event_capacity: usize,
-    ) -> Result<AppliedStateSubscription, Error> {
-        if event_capacity == 0
-            || event_capacity > self.policy.limits.applied_events_per_subscription
-        {
-            return Err(Error::InvalidRequest(
-                "applied-state subscription capacity is outside owner bounds".into(),
-            ));
-        }
-        self.subscribers
-            .retain(|_, value| !value.sender.is_disconnected());
-        if self.subscribers.len() >= self.policy.limits.applied_subscribers {
-            return Err(Error::RuntimeQueueFull {
-                capacity: self.policy.limits.applied_subscribers,
-            });
-        }
-        let id = allocate_subscription_id(&mut self.next_subscription, &self.subscribers);
-        let (sender, receiver) = flume::bounded(event_capacity);
-        self.subscribers
-            .insert(id, AppliedSubscriber { target, sender });
-        Ok(AppliedStateSubscription { receiver })
-    }
-
     #[cfg(any(feature = "async", feature = "blocking", test))]
     fn subscribe_diagnostics(
         &mut self,
@@ -2529,8 +2460,8 @@ impl OwnerState {
                 AppliedEffect::None
             }
             Effect::AppliedState { effect } => {
-                // Cache mutation is observer-independent and always precedes
-                // best-effort subscriber delivery.
+                // Cache mutation precedes terminal observation and diagnostic
+                // delivery, independently of any observer staying attached.
                 if let Ok(mut cache) = self.target_cache[effect.target].lock() {
                     cache.apply(effect.projection, self.policy.limits.state_keys_per_target);
                 }
@@ -2539,26 +2470,6 @@ impl OwnerState {
                     id: effect.request,
                     target: effect.target,
                     key: effect.projection.state(),
-                });
-                let event = AppliedStateEvent(effect);
-                self.subscribers.retain(|_, subscriber| {
-                    if subscriber.sender.is_disconnected() {
-                        return false;
-                    }
-                    if subscriber
-                        .target
-                        .is_none_or(|target| target == effect.target)
-                    {
-                        match subscriber.sender.try_send(event) {
-                            Ok(()) => {}
-                            Err(flume::TrySendError::Full(_)) => {
-                                self.metrics.dropped_applied_events =
-                                    self.metrics.dropped_applied_events.saturating_add(1);
-                            }
-                            Err(flume::TrySendError::Disconnected(_)) => return false,
-                        }
-                    }
-                    true
                 });
                 AppliedEffect::None
             }
@@ -2637,11 +2548,6 @@ impl OwnerState {
     }
 
     fn record(&mut self, event: DiagnosticEvent) {
-        if self.diagnostics.len() == self.policy.limits.diagnostics {
-            self.diagnostics.pop_front();
-            self.metrics.dropped_diagnostics = self.metrics.dropped_diagnostics.saturating_add(1);
-        }
-        self.diagnostics.push_back(event);
         self.diagnostic_subscribers.retain(|_, subscriber| {
             if subscriber.sender.is_disconnected() {
                 return false;

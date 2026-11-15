@@ -66,7 +66,8 @@ async fn async_receive_batch_precedes_a_completion_deadline_at_equality() {
 #[tokio::test]
 async fn async_receive_batch_rejects_an_overdue_completion() {
     let runtime = ManualRuntime::new(Instant::now());
-    let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime.clone()).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(policy(1), runtime.clone()).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let harness = harness();
     let started = harness.started.clone();
     let gates = harness.gates.clone();
@@ -95,7 +96,7 @@ async fn async_receive_batch_rejects_an_overdue_completion() {
         snapshot.active, 0,
         "a correlation hold is not a live request"
     );
-    assert!(snapshot.diagnostics.iter().any(|event| matches!(
+    assert!(diagnostics.events().iter().any(|event| matches!(
         event,
         DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
     )));
@@ -1085,7 +1086,8 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
     let mut actor_policy = adapter.policy().clone();
     actor_policy.limits.frames_per_receive = 1;
     actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
-    let (handle, actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let predecessor = handle.submit(inquiry()).await.unwrap();
@@ -1111,8 +1113,8 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
     chunk_tx.send_async(vec![0xa1, 0xff]).await.unwrap();
 
     let _ = sent_rx.recv_async().await.unwrap();
-    let boundary_snapshot = handle.snapshot().await.unwrap();
-    assert!(boundary_snapshot.diagnostics.iter().any(|event| matches!(
+    handle.metrics().await.unwrap();
+    assert!(diagnostics.events().iter().any(|event| matches!(
         event,
         DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
     )));
@@ -1158,7 +1160,8 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
         let mut actor_policy = adapter.policy().clone();
         actor_policy.limits.frames_per_receive = 1;
         actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
-        let (handle, actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+        let (handle, mut actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+        let diagnostics = observe_diagnostics(&mut actor);
         let actor_task = tokio::spawn(actor.run(adapter));
 
         let predecessor = handle.submit(inquiry()).await.unwrap();
@@ -1196,7 +1199,7 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
 
         let snapshot = handle.snapshot().await.unwrap();
         assert_eq!(snapshot.state, SessionState::Running);
-        assert!(snapshot.diagnostics.iter().any(|event| matches!(
+        assert!(diagnostics.events().iter().any(|event| matches!(
             event,
             DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
         )));
@@ -1608,7 +1611,8 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
     let mut actor_policy = adapter.policy().clone();
     actor_policy.limits.frames_per_receive = 1;
     actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
-    let (handle, actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let predecessor = handle.submit(inquiry()).await.unwrap();
@@ -1660,8 +1664,8 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.state, SessionState::Shutdown);
     assert_eq!(
-        snapshot
-            .diagnostics
+        diagnostics
+            .events()
             .iter()
             .filter(|event| matches!(
                 event,
@@ -2063,7 +2067,8 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
     let mut actor_policy = adapter.policy().clone();
     actor_policy.limits.frames_per_receive = 1;
     actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
-    let (handle, actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let predecessor = within(handle.submit(timed_out_inquiry()), "A is admitted")
@@ -2100,7 +2105,7 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
         "the retained prefix released nothing"
     );
     assert!(
-        !snapshot.diagnostics.iter().any(|event| matches!(
+        !diagnostics.events().iter().any(|event| matches!(
             event,
             DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
         )),

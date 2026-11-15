@@ -582,7 +582,8 @@ async fn a_malformed_datagram_does_not_kill_the_async_session() {
     )
     .unwrap();
     assert_eq!(adapter.policy().protocol.transport, TransportKind::Datagram);
-    let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let receipt = handle.submit(command()).await.unwrap();
@@ -619,7 +620,7 @@ async fn a_malformed_datagram_does_not_kill_the_async_session() {
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.state, SessionState::Shutdown);
     assert!(
-        snapshot.diagnostics.iter().any(|event| matches!(
+        diagnostics.events().iter().any(|event| matches!(
             event,
             DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
         )),
@@ -650,7 +651,8 @@ async fn a_malformed_stream_frame_is_discarded_and_keeps_the_session() {
     )
     .unwrap();
     assert_eq!(adapter.policy().protocol.transport, TransportKind::Stream);
-    let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let receipt = handle.submit(command()).await.unwrap();
@@ -682,7 +684,7 @@ async fn a_malformed_stream_frame_is_discarded_and_keeps_the_session() {
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.state, SessionState::Shutdown);
     assert!(
-        snapshot.diagnostics.iter().any(|event| matches!(
+        diagnostics.events().iter().any(|event| matches!(
             event,
             DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
         )),
