@@ -71,3 +71,39 @@ fn heartbeat_policy_counts_every_nonfatal_failure_and_recognizes_new_activity() 
     assert_eq!(fake.write_count(), 3);
     session.close().expect("close");
 }
+
+#[test]
+fn a_closed_heartbeat_preserves_terminal_metrics_for_the_reopen_decision() {
+    let clock = ManualClock::new();
+    let participant = clock.enter();
+    let fake = FakeCamera::new(|_, answer| {
+        answer.fault(Error::connection_closed(None));
+    });
+    let session = clock
+        .open_blocking_session(
+            &participant,
+            fake.blocking_wire()
+                .with_semantics(SendSemantics::Stream)
+                .on_clock(&clock),
+            SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("profile")),
+        )
+        .expect("session");
+    let before = session.metrics().expect("running metrics");
+    let probe = session
+        .camera::<PtzOpticsG2>()
+        .expect("camera")
+        .power()
+        .state();
+    let after = session.metrics().expect("closed metrics");
+    assert_eq!(after.session, grafton_visca::SessionStatus::Closed);
+    assert_eq!(after.active, 0);
+    assert_eq!(after.pending, 0);
+    assert_eq!(after.received_frames, before.received_frames);
+    let error = probe.expect_err("the peer closed during the heartbeat");
+    assert_eq!(error.recovery(), Recovery::ReopenSession);
+    assert!(matches!(
+        session.clone().close(),
+        Err(Error::ConnectionClosed { .. })
+    ));
+    assert_eq!(session.metrics().expect("final metrics"), after);
+}

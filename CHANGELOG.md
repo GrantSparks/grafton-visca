@@ -59,6 +59,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING** (#898): `metrics()` supersedes the all-control terminal-error
+  rule from #680 and the metrics behavior documented by #851. A concluded
+  owner returns its final terminal snapshot with retained counters and zero
+  active/pending requests; snapshots are stable after `close()`. Acting calls
+  retain the exact terminal cause, and an owner that unwinds before conclusion
+  still reports `OwnerTerminated` from metrics.
+
 - Engine retry count, cause and possible effect form one optional history.
   Terminal certainty and state-cache invalidation share one evidence-aware
   rule: transport errors cannot impersonate camera rejection, and earlier
@@ -507,8 +514,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Diagnostic subscriptions preserve the owner's terminal cause. Owner panics
   report nonretryable `OwnerTerminated`, which requires a new session;
   subscriber exhaustion reports `DiagnosticSubscriberLimit`. `pending`
-  counts queued and retained admissions, and both facades document that
-  `metrics()` returns the terminal error once the owner ends (#851, #852).
+  counts queued and retained admissions (#851, #852).
 
 - Reply decoders reject nonzero padding and undocumented eight-nibble zoom
   payloads, and report camera-side numeric range failures as protocol errors.

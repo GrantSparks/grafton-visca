@@ -46,7 +46,18 @@ async fn async_diagnostic_subscriptions_keep_peer_close_and_poison_causes() {
             })
             .unwrap();
         let _ = actor.run(UngatedDriver { receives }).await;
-        let terminal = handle.metrics().await.unwrap_err();
+        let metrics = handle.metrics().await.unwrap();
+        assert_eq!(
+            metrics.session,
+            if poison {
+                crate::SessionStatus::Poisoned
+            } else {
+                crate::SessionStatus::Closed
+            }
+        );
+        assert_eq!(metrics.active, 0);
+        assert_eq!(metrics.pending, 0);
+        let terminal = handle.shutdown().unwrap_err();
         assert!(terminal.requires_new_session());
         let reported = loop {
             match subscription.recv_async().await {

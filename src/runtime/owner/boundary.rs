@@ -419,22 +419,38 @@ pub(crate) struct OwnerSnapshot {
     pub(crate) active: usize,
 }
 
+/// Metrics are trusted only once normal conclusion has drained boundary work.
+/// An unwind before that point cannot publish an engine snapshot.
+// One bounded scalar copy per owner stays inline, including during teardown.
+#[allow(clippy::large_enum_variant)]
+#[derive(Debug, Clone, Copy)]
+enum TerminalMetrics {
+    Pending,
+    Published(crate::observability::MetricsSnapshot),
+    Unavailable,
+}
+
 /// One handle-side lifecycle fact, including shutdown acceptance and the
-/// owner's authoritative terminal verdict.
+/// owner's authoritative terminal verdict and metrics.
 #[derive(Debug, Clone)]
 enum LifecycleState {
     Open,
     ShutdownAccepted,
     SignalFailed(Error),
-    ShutDown,
-    Terminated(Error),
+    ShutDown {
+        metrics: TerminalMetrics,
+    },
+    Terminated {
+        error: Error,
+        metrics: TerminalMetrics,
+    },
 }
 
 impl LifecycleState {
     fn terminal(&self) -> Option<Error> {
         match self {
-            Self::ShutDown => Some(Error::RuntimeShutdown),
-            Self::Terminated(error) => Some(error.clone()),
+            Self::ShutDown { .. } => Some(Error::RuntimeShutdown),
+            Self::Terminated { error, .. } => Some(error.clone()),
             Self::Open | Self::ShutdownAccepted | Self::SignalFailed(_) => None,
         }
     }
@@ -443,14 +459,58 @@ impl LifecycleState {
         self.terminal().unwrap_or_else(missing_terminal_error)
     }
 
+    fn metrics(&self) -> Option<Result<crate::observability::MetricsSnapshot, Error>> {
+        match self {
+            Self::ShutDown { metrics } | Self::Terminated { metrics, .. } => match metrics {
+                TerminalMetrics::Pending => None,
+                TerminalMetrics::Published(snapshot) => Some(Ok(*snapshot)),
+                TerminalMetrics::Unavailable => Some(Err(missing_terminal_error())),
+            },
+            Self::Open | Self::ShutdownAccepted | Self::SignalFailed(_) => None,
+        }
+    }
+
     /// Only an accepted explicit shutdown that actually completed preserves
     /// shutdown success. A terminal verdict is never replaced by teardown.
     fn publish(&mut self, error: Error) {
         *self = match (&*self, error) {
-            (Self::ShutDown | Self::Terminated(_), _) => return,
-            (Self::ShutdownAccepted, Error::RuntimeShutdown) => Self::ShutDown,
-            (_, error) => Self::Terminated(error),
+            (Self::ShutDown { .. } | Self::Terminated { .. }, _) => return,
+            (Self::ShutdownAccepted, Error::RuntimeShutdown) => Self::ShutDown {
+                metrics: TerminalMetrics::Pending,
+            },
+            (_, error) => Self::Terminated {
+                error,
+                metrics: TerminalMetrics::Pending,
+            },
         };
+    }
+
+    fn publish_metrics(
+        &mut self,
+        snapshot: crate::observability::MetricsSnapshot,
+    ) -> Result<crate::observability::MetricsSnapshot, Error> {
+        match self {
+            Self::ShutDown { metrics } | Self::Terminated { metrics, .. }
+                if !matches!(metrics, TerminalMetrics::Unavailable) =>
+            {
+                *metrics = TerminalMetrics::Published(snapshot);
+                Ok(snapshot)
+            }
+            _ => Err(missing_terminal_error()),
+        }
+    }
+
+    fn fail_closed(&mut self) -> Error {
+        self.publish(missing_terminal_error());
+        match self {
+            Self::ShutDown { metrics } | Self::Terminated { metrics, .. }
+                if matches!(metrics, TerminalMetrics::Pending) =>
+            {
+                *metrics = TerminalMetrics::Unavailable;
+            }
+            _ => {}
+        }
+        self.disconnected_error()
     }
 }
 
@@ -511,6 +571,17 @@ impl OwnerLifecycle {
         self.lock_state().terminal()
     }
 
+    fn metrics(&self) -> Option<Result<crate::observability::MetricsSnapshot, Error>> {
+        self.lock_state().metrics()
+    }
+
+    pub(super) fn publish_metrics(
+        &self,
+        snapshot: crate::observability::MetricsSnapshot,
+    ) -> Result<crate::observability::MetricsSnapshot, Error> {
+        self.lock_state().publish_metrics(snapshot)
+    }
+
     /// Hold the lifecycle lock while the session still accepts boundary work,
     /// or return the error that rejects it. Holding the returned guard across
     /// an enqueue keeps that enqueue ordered before any terminal publication.
@@ -518,10 +589,10 @@ impl OwnerLifecycle {
         let state = self.lock_state();
         match &*state {
             LifecycleState::Open => Ok(state),
-            LifecycleState::ShutdownAccepted | LifecycleState::ShutDown => {
+            LifecycleState::ShutdownAccepted | LifecycleState::ShutDown { .. } => {
                 Err(Error::RuntimeShutdown)
             }
-            LifecycleState::SignalFailed(error) | LifecycleState::Terminated(error) => {
+            LifecycleState::SignalFailed(error) | LifecycleState::Terminated { error, .. } => {
                 Err(error.clone())
             }
         }
@@ -547,9 +618,7 @@ impl OwnerLifecycle {
     /// concurrent shutdown observe rejection rather than accept a signal that
     /// no receiver can poll.
     pub(super) fn fail_closed(&self) -> Error {
-        let mut state = self.lock_state();
-        state.publish(missing_terminal_error());
-        state.disconnected_error()
+        self.lock_state().fail_closed()
     }
 }
 
@@ -659,12 +728,38 @@ impl OwnerHandleCore {
     /// transport failure).
     pub(super) fn closed_result(&self) -> Result<(), Error> {
         match &*self.lifecycle.lock_state() {
-            LifecycleState::ShutDown | LifecycleState::Terminated(Error::RuntimeShutdown) => Ok(()),
-            LifecycleState::Terminated(error) => Err(error.clone()),
+            LifecycleState::ShutDown { .. }
+            | LifecycleState::Terminated {
+                error: Error::RuntimeShutdown,
+                ..
+            } => Ok(()),
+            LifecycleState::Terminated { error, .. } => Err(error.clone()),
             LifecycleState::Open
             | LifecycleState::ShutdownAccepted
             | LifecycleState::SignalFailed(_) => Err(missing_terminal_error()),
         }
+    }
+
+    /// Terminal publication precedes normal conclusion's final drain. A
+    /// metrics caller at this point waits on the existing teardown barrier.
+    pub(super) fn metrics_concluding(&self) -> bool {
+        matches!(
+            &*self.lifecycle.lock_state(),
+            LifecycleState::ShutDown {
+                metrics: TerminalMetrics::Pending
+            } | LifecycleState::Terminated {
+                metrics: TerminalMetrics::Pending,
+                ..
+            }
+        )
+    }
+
+    /// A concluded owner's metrics, or `None` while the normal control path
+    /// must wait for the owner to finish its drain.
+    pub(super) fn terminal_metrics(
+        &self,
+    ) -> Option<Result<crate::observability::MetricsSnapshot, Error>> {
+        self.lifecycle.metrics()
     }
 
     pub(super) fn state_cache(&self, target: TargetSlot) -> crate::state_cache::StateCache {
@@ -687,8 +782,8 @@ impl OwnerHandleCore {
     pub(super) fn shutdown(&self) -> Result<(), Error> {
         let mut state = self.lifecycle.lock_state();
         match &*state {
-            LifecycleState::ShutdownAccepted | LifecycleState::ShutDown => Ok(()),
-            LifecycleState::SignalFailed(error) | LifecycleState::Terminated(error) => {
+            LifecycleState::ShutdownAccepted | LifecycleState::ShutDown { .. } => Ok(()),
+            LifecycleState::SignalFailed(error) | LifecycleState::Terminated { error, .. } => {
                 Err(error.clone())
             }
             LifecycleState::Open => match self.shutdown.try_send(()) {
@@ -961,7 +1056,9 @@ mod tests {
             None,
         );
         assert_lifecycle(
-            LifecycleState::ShutDown,
+            LifecycleState::ShutDown {
+                metrics: TerminalMetrics::Pending,
+            },
             None,
             None,
             Some(SHUTDOWN),
@@ -969,7 +1066,10 @@ mod tests {
             Some(SHUTDOWN),
         );
         assert_lifecycle(
-            LifecycleState::Terminated(Error::RuntimeShutdown),
+            LifecycleState::Terminated {
+                error: Error::RuntimeShutdown,
+                metrics: TerminalMetrics::Pending,
+            },
             Some(SHUTDOWN),
             None,
             Some(SHUTDOWN),
@@ -977,7 +1077,10 @@ mod tests {
             Some(SHUTDOWN),
         );
         assert_lifecycle(
-            LifecycleState::Terminated(Error::InvalidState("signal failed".into())),
+            LifecycleState::Terminated {
+                error: Error::InvalidState("signal failed".into()),
+                metrics: TerminalMetrics::Pending,
+            },
             Some(FAILED),
             Some(FAILED),
             Some(FAILED),
@@ -992,17 +1095,25 @@ mod tests {
             LifecycleState::Open,
             LifecycleState::ShutdownAccepted,
             LifecycleState::SignalFailed(Error::InvalidState("signal failed".into())),
-            LifecycleState::ShutDown,
-            LifecycleState::Terminated(Error::RuntimeShutdown),
-            LifecycleState::Terminated(Error::InvalidState("signal failed".into())),
+            LifecycleState::ShutDown {
+                metrics: TerminalMetrics::Pending,
+            },
+            LifecycleState::Terminated {
+                error: Error::RuntimeShutdown,
+                metrics: TerminalMetrics::Pending,
+            },
+            LifecycleState::Terminated {
+                error: Error::InvalidState("signal failed".into()),
+                metrics: TerminalMetrics::Pending,
+            },
         ];
         for initial in states {
             for explicit_shutdown in [false, true] {
                 let lifecycle = OwnerLifecycle::new();
                 *lifecycle.lock_state() = initial.clone();
                 let expected = match &initial {
-                    LifecycleState::ShutDown => None,
-                    LifecycleState::Terminated(error) => Some(format!("{error:?}")),
+                    LifecycleState::ShutDown { .. } => None,
+                    LifecycleState::Terminated { error, .. } => Some(format!("{error:?}")),
                     LifecycleState::ShutdownAccepted if explicit_shutdown => None,
                     _ if explicit_shutdown => Some("RuntimeShutdown".to_owned()),
                     _ => Some("OwnerTerminated".to_owned()),
@@ -1036,7 +1147,7 @@ mod tests {
                 format!("{:?}", lifecycle.fail_closed()),
                 format!("{expected_terminal:?}")
             );
-            let accepted = matches!(initial, LifecycleState::ShutDown);
+            let accepted = matches!(initial, LifecycleState::ShutDown { .. });
             let terminal = format!("{expected_terminal:?}");
             assert_lifecycle(
                 lifecycle.lock_state().clone(),

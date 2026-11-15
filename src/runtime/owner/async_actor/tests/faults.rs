@@ -229,7 +229,11 @@ async fn a_permanently_failing_transport_eventually_ends_the_session() {
         reads.load(Ordering::Relaxed) >= usize::try_from(TRANSIENT_RECEIVE_FAULT_LIMIT).unwrap(),
         "the session must survive a genuinely transient burst first"
     );
-    let error = handle.metrics().await.unwrap_err();
+    assert_eq!(
+        handle.metrics().await.unwrap().session,
+        crate::SessionStatus::Closed
+    );
+    let error = handle.shutdown().unwrap_err();
     let Error::ConnectionClosed {
         source: Some(source),
     } = error

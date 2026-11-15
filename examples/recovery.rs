@@ -17,8 +17,8 @@
 //! liveness") for the complete policy.
 //!
 //! This example uses an in-memory transport, so it runs with no hardware: the
-//! first transport stays open but never answers, and the factory's next
-//! transport answers the re-query inquiries. The demo disables retries
+//! two runs first demonstrate a silent open peer and then a closed peer. In
+//! each run the factory's next transport answers the re-query inquiries. The demo disables retries
 //! (`retry_limit(0)`), so the silent probe ends at the profile's own deadline;
 //! production supervisors should choose their own application silence
 //! threshold. Requires only the default `blocking` feature.
@@ -37,6 +37,7 @@ use grafton_visca::{
 #[derive(Debug, Clone, Copy)]
 enum Peer {
     Silent,
+    Closed,
     Answers,
 }
 
@@ -73,7 +74,7 @@ impl BlockingTransport for FakeCamera {
         _kind: CommandKind,
         _timeout: Duration,
     ) -> Result<(), Error> {
-        if matches!(self.peer, Peer::Silent) {
+        if matches!(self.peer, Peer::Silent | Peer::Closed) {
             return Ok(()); // accepted locally; the peer never answers
         }
         let reply = match (bytes.get(1), bytes.get(2), bytes.get(3)) {
@@ -100,6 +101,9 @@ impl BlockingTransport for FakeCamera {
         dst: &mut [u8],
         timeout: Duration,
     ) -> Result<ReceiveOutcome, Error> {
+        if matches!(self.peer, Peer::Closed) {
+            return Err(Error::connection_closed(None));
+        }
         if matches!(self.peer, Peer::Silent) {
             std::thread::sleep(timeout.min(Duration::from_millis(5)));
             return Err(Error::io_timeout());
@@ -110,6 +114,11 @@ impl BlockingTransport for FakeCamera {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    demonstrate(Peer::Silent)?;
+    demonstrate(Peer::Closed)
+}
+
+fn demonstrate(first_peer: Peer) -> Result<(), Box<dyn std::error::Error>> {
     let config = SessionConfig::new(ProfileSpec::from_compile_time::<PtzOpticsG2>()?)
         .with_tuning(OperationalTuning::new().retry_limit(0));
 
@@ -122,7 +131,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         Ok(FakeCamera::new(if attempt > 1 {
             Peer::Answers
         } else {
-            Peer::Silent
+            first_peer
         }))
     };
 
@@ -202,4 +211,15 @@ fn requery_and_restore(session: &Session) -> Result<(), Error> {
         println!("restored desired power-on state after the fresh re-query");
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn closed_peer_reaches_the_reopen_session_recovery_arm(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        demonstrate(Peer::Closed)
+    }
 }
