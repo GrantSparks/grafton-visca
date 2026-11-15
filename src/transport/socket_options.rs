@@ -4,10 +4,7 @@
 //! and smol socket converts into on Unix and Windows alike, so each option is
 //! written once.
 
-use crate::{
-    transport::builder::{TcpKeepaliveConfig, TransportConfig},
-    Error,
-};
+use crate::transport::builder::{TcpKeepaliveConfig, TransportConfig};
 
 /// The TCP projection of a [`TransportConfig`].
 #[derive(Debug, Clone, Copy)]
@@ -57,7 +54,7 @@ impl From<TransportConfig> for UdpSocketConfig {
 pub(crate) fn apply_tcp_socket_options(
     socket: socket2::SockRef<'_>,
     config: TcpConnectionConfig,
-) -> Result<(), Error> {
+) -> std::io::Result<()> {
     if let Some(nodelay) = config.nodelay {
         socket.set_tcp_nodelay(nodelay)?;
     }
@@ -74,7 +71,7 @@ pub(crate) fn apply_tcp_socket_options(
 pub(crate) fn apply_udp_socket_options(
     socket: socket2::SockRef<'_>,
     config: UdpSocketConfig,
-) -> Result<(), Error> {
+) -> std::io::Result<()> {
     if let Some(ttl) = config.ttl {
         socket.set_ttl_v4(ttl)?;
     }

@@ -38,6 +38,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the worker. This supersedes the rc.1 `TransportBusy` re-entry rule removed
   by #780; self-`close` still requests shutdown and leaves joining to an
   external caller (#862).
+- UDP connections deterministically select the first IPv4 address of a
+  dual-family hostname, while numeric addresses and single-family names retain
+  their family. Socket setup failures on UDP and TCP now consistently return
+  `ConnectionFailed` with the endpoint and original socket error; budget expiry
+  remains a session timeout (#890).
+
 - **BREAKING** (#880): `power().state()` and `PowerInquiry` return `PowerStatus`
   (`On`, `Standby`, `CircuitError`) rather than a boolean. A documented internal
   power circuit error is a status value; `is_on()` provides a boolean view.

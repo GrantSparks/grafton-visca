@@ -282,6 +282,10 @@ where
     /// `2001:db8::1:5678` are invalid, while `[2001:db8::1]` uses the default
     /// port and `[2001:db8::1]:5678` is an IPv6 address with port `5678`.
     ///
+    /// UDP uses a numeric address as given. A hostname resolving to both IPv4
+    /// and IPv6 selects its first IPv4 address; a single-family name selects
+    /// its first address. TCP tries each resolved address in order.
+    ///
     /// Examples:
     /// - IPv4: `"192.168.1.1"`, `"192.168.1.1:5678"`
     /// - IPv6: `"[::1]"`, `"[2001:db8::1]"`, `"[::1]:5678"`

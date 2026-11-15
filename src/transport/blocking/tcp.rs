@@ -13,7 +13,7 @@ use crate::{
         address::resolve_blocking,
         blocking::{read_once_bounded, write_all_bounded, TimedIo},
         builder::{AddressingMode, TransportConfig},
-        connect::{connect_deadline, preflight, TcpAttempts},
+        connect::{connect_deadline, preflight, socket_setup, TcpAttempts},
         socket_options::{apply_tcp_socket_options, TcpConnectionConfig},
         stream_read, BlockingTransport, HasTransportConfig, ReceiveOutcome,
     },
@@ -65,8 +65,11 @@ impl Tcp {
         while let Some((address, remaining)) = attempts.next_attempt(Instant::now()) {
             match TcpStream::connect_timeout(&address, remaining) {
                 Ok(stream) => {
-                    apply_tcp_socket_options(socket2::SockRef::from(&stream), options)?;
-                    let reader_stream = stream.try_clone()?;
+                    socket_setup(
+                        &endpoint,
+                        apply_tcp_socket_options(socket2::SockRef::from(&stream), options),
+                    )?;
+                    let reader_stream = socket_setup(&endpoint, stream.try_clone())?;
                     return Ok(Self {
                         reader: BufReader::new(reader_stream),
                         writer: stream,

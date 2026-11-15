@@ -14,8 +14,11 @@
 //! 4. TCP tries each resolved address in order ([`TcpAttempts`]), giving each
 //!    an equal share of the remaining budget (at least
 //!    [`MIN_ADDRESS_ATTEMPT`]) so an unroutable early address cannot starve
-//!    later ones. UDP binds the unspecified address of the first
-//!    resolved address's family and connects to it.
+//!    later ones. UDP uses a numeric address as given. For a name resolving
+//!    to both address families it selects the first IPv4 address; otherwise
+//!    it selects the first address. It binds the unspecified local address
+//!    of the selected family. UDP has no handshake, so setup never probes
+//!    reachability or falls back after a successful socket connect.
 //! 5. The shared socket options are applied
 //!    ([`socket_options`](crate::transport::socket_options)).
 //!
@@ -27,8 +30,9 @@
 //!   before name resolution or socket creation.
 //! - The budget expired: [`Error::Timeout`] (stage `Session`, certainty
 //!   `NotAccepted`).
-//! - Every address refused: [`Error::ConnectionFailed`] naming the endpoint
-//!   and carrying the last socket error.
+//! - Socket creation, binding, connection or socket-option setup failed:
+//!   [`Error::ConnectionFailed`] naming the endpoint and carrying the socket
+//!   error (the last attempt's error for TCP).
 
 use std::{
     net::SocketAddr,
@@ -61,6 +65,24 @@ pub(crate) fn connect_deadline(now: Instant, connect_timeout: Duration) -> Resul
 /// The error for a connector that could not reach `endpoint`.
 pub(crate) fn connection_failed(endpoint: &str, error: std::io::Error) -> Error {
     Error::connection_failed(endpoint.to_owned(), std::sync::Arc::new(error))
+}
+
+/// Select one UDP destination from a nonempty resolution result.
+///
+/// Literal endpoints resolve to one address. A mixed-family name consistently
+/// selects its first IPv4 address, independently of resolver family ordering.
+pub(crate) fn udp_target(addresses: &[SocketAddr]) -> Result<SocketAddr> {
+    addresses
+        .iter()
+        .copied()
+        .find(SocketAddr::is_ipv4)
+        .or_else(|| addresses.first().copied())
+        .ok_or_else(|| Error::invalid_address("No UDP destination addresses resolved"))
+}
+
+/// Attribute a socket-setup failure to the caller's endpoint.
+pub(crate) fn socket_setup<T>(endpoint: &str, result: std::io::Result<T>) -> Result<T> {
+    result.map_err(|error| connection_failed(endpoint, error))
 }
 
 /// The smallest share of the connect budget one resolved address receives
@@ -143,6 +165,41 @@ mod tests {
             "192.0.2.1:5678".parse().expect("address"),
             "192.0.2.2:5678".parse().expect("address"),
         ]
+    }
+
+    #[test]
+    fn udp_target_preserves_single_family_order_and_prefers_ipv4_for_mixed_names() {
+        let v4a: SocketAddr = "127.0.0.1:1259".parse().expect("test address");
+        let v4b: SocketAddr = "127.0.0.2:1259".parse().expect("test address");
+        let v6a: SocketAddr = "[::1]:1259".parse().expect("test address");
+        let v6b: SocketAddr = "[::2]:1259".parse().expect("test address");
+        for (addresses, expected) in [
+            (vec![v6a, v4a, v6b, v4b], v4a),
+            (vec![v4b, v6a, v4a], v4b),
+            (vec![v4a, v4b], v4a),
+            (vec![v6a, v6b], v6a),
+            (vec![v6a], v6a),
+        ] {
+            assert_eq!(udp_target(&addresses).expect("UDP target"), expected);
+        }
+        assert!(matches!(udp_target(&[]), Err(Error::InvalidAddress { .. })));
+    }
+
+    #[test]
+    fn socket_setup_keeps_the_endpoint_and_original_socket_error() {
+        let result = socket_setup::<()>(
+            "camera.local:1259",
+            Err(std::io::Error::new(
+                ErrorKind::PermissionDenied,
+                "setup refused",
+            )),
+        );
+        let Error::ConnectionFailed { addr, source } = result.expect_err("setup fails") else {
+            panic!("socket setup must use the documented connect error");
+        };
+        assert_eq!(addr, "camera.local:1259");
+        assert_eq!(source.kind(), ErrorKind::PermissionDenied);
+        assert_eq!(source.to_string(), "setup refused");
     }
 
     #[test]
