@@ -67,10 +67,15 @@ pub(crate) const DEFAULT_TCP_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(
 #[non_exhaustive]
 pub struct TcpKeepaliveConfig {
     /// Idle time before the first keepalive probe is sent.
+    ///
+    /// Must be a whole number of seconds in `1..=32_767`. The shared limit
+    /// is portable across the supported socket implementations and avoids
+    /// silently truncating subsecond values.
     pub idle: Duration,
     /// Optional spacing between subsequent keepalive probes.
     ///
     /// When `None`, the OS default is used.
+    /// Otherwise, must be a whole number of seconds in `1..=32_767`.
     pub interval: Option<Duration>,
 }
 
@@ -150,7 +155,8 @@ pub struct TransportConfig {
     ///
     /// `None` leaves the operating-system default in place.
     pub tcp_nodelay: Option<bool>,
-    /// IPv4 TTL (Time To Live) for packets. `None` keeps the OS default.
+    /// IPv4 TTL (Time To Live) for packets, in `1..=255`.
+    /// `None` keeps the OS default.
     pub ttl: Option<u32>,
     /// TCP keepalive policy. When set, enables OS-level probes that detect
     /// broken peers and may preserve idle network-path state. These probes do
@@ -240,6 +246,22 @@ impl TransportConfig {
             }
             crate::timeout::instant_after(now, timeout, parameter)?;
         }
+        if self.ttl.is_some_and(|ttl| !(1..=255).contains(&ttl)) {
+            return Err(Error::InvalidRequest(
+                "transport TTL must be in 1..=255".into(),
+            ));
+        }
+        if let Some(keepalive) = self.tcp_keepalive {
+            for (name, duration) in std::iter::once(("idle", keepalive.idle))
+                .chain(keepalive.interval.map(|interval| ("interval", interval)))
+            {
+                if duration.subsec_nanos() != 0 || !(1..=32_767).contains(&duration.as_secs()) {
+                    return Err(Error::InvalidRequest(
+                        format!("TCP keepalive {name} must be whole seconds in 1..=32767").into(),
+                    ));
+                }
+            }
+        }
         if self.buffer_config.recv_buffer_size < BufferConfig::MIN_RECV_BUFFER_SIZE {
             return Err(Error::InvalidRequest(
                 format!(
@@ -257,6 +279,16 @@ impl TransportConfig {
         if self.buffer_config.recv_buffer_size > self.buffer_config.max_buffer_size {
             return Err(Error::InvalidRequest(
                 "transport receive buffer cannot exceed maximum buffer".into(),
+            ));
+        }
+        if self.buffer_config.recv_buffer_size > BufferConfig::MAX_RECV_BUFFER_SIZE {
+            return Err(Error::InvalidRequest(
+                "transport receive buffer cannot exceed 65535 bytes".into(),
+            ));
+        }
+        if self.buffer_config.max_buffer_size > BufferConfig::MAX_RETENTION_SIZE {
+            return Err(Error::InvalidRequest(
+                "transport maximum buffer cannot exceed 1048576 bytes".into(),
             ));
         }
         Ok(())
@@ -422,12 +454,18 @@ impl NetTransportBuilder {
 
     /// Set the largest accepted reply frame (see
     /// [`BufferConfig::recv_buffer_size`]).
+    ///
+    /// Must be in `24..=65_535` and no greater than the retention bound.
+    /// Invalid limits fail before connecting.
     pub fn recv_buffer_size(mut self, size: usize) -> Self {
         self.config.buffer_config.recv_buffer_size = size;
         self
     }
 
     /// Set the stream retention bound (see [`BufferConfig::max_buffer_size`]).
+    ///
+    /// Must be at least the receive buffer size and at most 1,048,576 bytes.
+    /// Invalid limits fail before connecting.
     pub fn max_buffer_size(mut self, size: usize) -> Self {
         self.config.buffer_config.max_buffer_size = size;
         self

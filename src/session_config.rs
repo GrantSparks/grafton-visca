@@ -90,6 +90,9 @@ macro_rules! session_policy_accessors {
         /// The capacity is fixed when the session opens and is independent of
         /// transport buffers and per-camera VISCA socket capacity; changing a
         /// cloned configuration does not affect an already-open session.
+        /// Opening rejects capacities whose control reserves, channel
+        /// bookkeeping, or raw-stream correlation bounds cannot be represented
+        /// by `usize`, before any transport I/O.
         #[must_use]
         pub const fn with_admission_capacity(mut self, capacity: std::num::NonZeroUsize) -> Self {
             self.policy.admission_capacity = capacity;
@@ -285,14 +288,27 @@ impl SessionConfig {
                 "session requires at least one registered target".into(),
             ));
         }
-        // The async admission boundary is a flume channel. Its receive path
-        // temporarily accounts for one additional pending sender, so the
-        // representable maximum would overflow that channel's capacity
-        // arithmetic. Reject it before adapter or owner construction; every
-        // smaller non-zero value remains a valid caller-selected bound.
-        if self.policy.admission_capacity.get() == usize::MAX {
+        let capacity = self.policy.admission_capacity.get();
+        let invalid_capacity = || {
+            Error::InvalidRequest(
+                "session admission capacity overflows control-reserve or correlation bounds".into(),
+            )
+        };
+        let mut total_capacity = capacity;
+        for profile in self.targets.iter().flatten() {
+            let reserve = usize::from(profile.typed_stop_paths());
+            total_capacity = total_capacity
+                .checked_add(reserve)
+                .ok_or_else(invalid_capacity)?;
+            let admissible = capacity.checked_add(reserve).ok_or_else(invalid_capacity)?;
+            crate::runtime::engine::checked_stream_ledger_bound(admissible)
+                .ok_or_else(invalid_capacity)?;
+        }
+        // Flume's receive path temporarily accounts for one additional
+        // pending sender on top of ordinary and control-reserve capacity.
+        if total_capacity.checked_add(1).is_none() {
             return Err(Error::InvalidRequest(
-                "session admission capacity must be less than usize::MAX".into(),
+                "session admission capacity leaves no room for channel bookkeeping".into(),
             ));
         }
         if self.policy.sony_sequence_reset_on_connect

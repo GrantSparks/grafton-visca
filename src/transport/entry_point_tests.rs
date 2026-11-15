@@ -12,6 +12,71 @@
 use crate::transport::HasTransportConfig;
 use crate::transport::{AddressingMode, TransportConfig};
 
+#[cfg(feature = "blocking")]
+fn invalid_bound_configurations() -> Vec<TransportConfig> {
+    use crate::transport::{BufferConfig, TcpKeepaliveConfig};
+    use std::time::Duration;
+
+    let mut cases = Vec::new();
+    for duration in [
+        Duration::ZERO,
+        Duration::from_millis(500),
+        Duration::from_millis(1500),
+        Duration::from_secs(32_768),
+        Duration::MAX,
+    ] {
+        let mut idle = TransportConfig::for_tcp();
+        idle.tcp_keepalive = Some(TcpKeepaliveConfig::new(duration));
+        cases.push(idle);
+        let mut interval = TransportConfig::for_tcp();
+        interval.tcp_keepalive = Some(TcpKeepaliveConfig::default().with_interval(duration));
+        cases.push(interval);
+    }
+    for ttl in [0, 256, u32::MAX] {
+        let mut config = TransportConfig::for_tcp();
+        config.ttl = Some(ttl);
+        cases.push(config);
+    }
+    for (recv, max) in [
+        (
+            BufferConfig::MAX_RECV_BUFFER_SIZE + 1,
+            BufferConfig::MAX_RETENTION_SIZE,
+        ),
+        (
+            BufferConfig::MIN_RECV_BUFFER_SIZE,
+            BufferConfig::MAX_RETENTION_SIZE + 1,
+        ),
+        (usize::MAX, usize::MAX),
+    ] {
+        let mut config = TransportConfig::for_tcp();
+        config.buffer_config = BufferConfig {
+            recv_buffer_size: recv,
+            max_buffer_size: max,
+        };
+        cases.push(config);
+    }
+    cases
+}
+
+#[test]
+fn maximum_supported_transport_bounds_validate() {
+    use crate::transport::{BufferConfig, TcpKeepaliveConfig};
+    use std::time::Duration;
+    let mut config = TransportConfig::for_tcp();
+    config.buffer_config = BufferConfig {
+        recv_buffer_size: BufferConfig::MAX_RECV_BUFFER_SIZE,
+        max_buffer_size: BufferConfig::MAX_RETENTION_SIZE,
+    };
+    config.tcp_keepalive = Some(
+        TcpKeepaliveConfig::new(Duration::from_secs(32_767))
+            .with_interval(Duration::from_secs(32_767)),
+    );
+    for ttl in [1, 255] {
+        config.ttl = Some(ttl);
+        config.validate().expect("supported boundary values");
+    }
+}
+
 /// The two IP defaults differ only in their frame limit; both use IP
 /// addressing. Serial uses serial addressing and no TCP socket options.
 #[test]
@@ -103,6 +168,28 @@ mod blocking {
         transport::{BlockingTransport, Transport},
         Error,
     };
+
+    #[test]
+    fn invalid_configuration_fails_before_network_io() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        listener
+            .set_nonblocking(true)
+            .expect("nonblocking listener");
+        let address = listener.local_addr().expect("address").to_string();
+        for config in invalid_bound_configurations() {
+            for error in [
+                crate::transport::blocking::Tcp::connect_with_config(&address, config)
+                    .expect_err("invalid TCP config"),
+                crate::transport::blocking::Udp::connect_with_config(&address, config)
+                    .expect_err("invalid UDP config"),
+            ] {
+                assert!(matches!(error, Error::InvalidRequest(_)), "{error:?}");
+            }
+            assert!(
+                matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+            );
+        }
+    }
 
     #[test]
     fn built_transports_report_their_defaults_and_a_matching_hint() {
@@ -215,6 +302,38 @@ mod facades {
         transport::{AsyncTransport, Transport},
         Error,
     };
+
+    #[tokio::test]
+    async fn invalid_configuration_fails_before_io_on_every_runtime() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
+        listener
+            .set_nonblocking(true)
+            .expect("nonblocking listener");
+        let address = listener.local_addr().expect("address").to_string();
+        let tokio = TokioRuntime::from_current().expect("runtime");
+        let smol = SmolRuntime::new();
+        for config in invalid_bound_configurations() {
+            for error in [
+                tokio
+                    .connect_tcp(&address, config)
+                    .await
+                    .expect_err("invalid Tokio TCP config"),
+                tokio
+                    .connect_udp(&address, config)
+                    .await
+                    .expect_err("invalid Tokio UDP config"),
+                ::smol::block_on(smol.connect_tcp(&address, config))
+                    .expect_err("invalid smol TCP config"),
+                ::smol::block_on(smol.connect_udp(&address, config))
+                    .expect_err("invalid smol UDP config"),
+            ] {
+                assert!(matches!(error, Error::InvalidRequest(_)), "{error:?}");
+            }
+            assert!(
+                matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+            );
+        }
+    }
 
     #[tokio::test]
     async fn async_direct_connectors_use_the_transport_defaults() {
