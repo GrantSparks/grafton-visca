@@ -12,6 +12,7 @@ use smallvec::{smallvec, SmallVec};
 use super::*;
 use crate::FailureContext;
 
+mod cancellation_holds;
 mod raw_evidence;
 mod raw_stream_model;
 
@@ -13025,11 +13026,10 @@ fn pre_ack_cancellation_extends_correlation_before_due_work() {
     }
 }
 
-/// Completion-only commands have the same input-first deadline race as the
-/// pre-ACK path, but remain socketless. Their old completion deadline must not
-/// reject a completion that is still inside cancellation ambiguity.
+/// A completion-only command has no socket to cancel (#835). Refusing its
+/// cancellation leaves its ordinary completion deadline authoritative.
 #[test]
-fn pre_completion_cancellation_extends_correlation_before_due_work() {
+fn completion_only_refused_cancel_does_not_extend_correlation() {
     let start = Instant::now();
     for envelope in [EnvelopeKind::Raw, EnvelopeKind::Sony] {
         let mut engine = engine(envelope, TransportKind::Datagram);
@@ -13044,6 +13044,14 @@ fn pre_completion_cancellation_extends_correlation_before_due_work() {
 
         let requested = engine.handle(Input::Cancel { id }, start + Duration::from_millis(1));
         assert!(cancel_transmit_optional(&requested).is_none());
+        assert!(requested.iter().any(|effect| matches!(
+            effect,
+            Effect::CancellationObservation {
+                observation: CancellationObservation::Failed(Error::NotSupported),
+                ..
+            }
+        )));
+        assert_eq!(engine.entry(id).unwrap().cancellation(), CancelState::None);
 
         let completion = engine.handle(
             frame(
@@ -13053,11 +13061,8 @@ fn pre_completion_cancellation_extends_correlation_before_due_work() {
             ),
             start + Duration::from_millis(40) + Duration::from_nanos(1),
         );
-        assert!(
-            ignored_reasons(&completion).is_empty(),
-            "{envelope:?} completion inside cancellation ambiguity was rejected: {completion:?}"
-        );
-        assert!(matches!(
+        assert!(ignored_reasons(&completion).contains(&IgnoreReason::UnmatchedFrame));
+        assert!(!matches!(
             terminal_outcome(&completion, id),
             Some(RuntimeOutcome::Applied)
         ));

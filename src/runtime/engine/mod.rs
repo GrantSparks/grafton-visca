@@ -553,10 +553,27 @@ impl ProtocolEngine {
     /// remain in the exact order produced by this input; the owner drains them
     /// before passing the next wire frame.
     pub(crate) fn handle_in_turn(&mut self, turn: &InputTurn, input: Input) -> Vec<Effect> {
+        if let Input::Cancel { id } = input {
+            return self.cancel_in_turn(turn, id).0;
+        }
         let mut effects = Vec::new();
         self.apply_input(input, turn.now, &mut effects);
         self.debug_assert_invariants();
         effects
+    }
+
+    /// Applies cancellation in an input turn and returns synchronous refusal
+    /// directly, so the owner does not need a parallel refusal latch.
+    pub(crate) fn cancel_in_turn(
+        &mut self,
+        turn: &InputTurn,
+        id: RequestId,
+    ) -> (Vec<Effect>, Result<(), Error>) {
+        self.turn_at = Some(turn.now);
+        let mut effects = Vec::new();
+        let result = self.cancel(id, turn.now, &mut effects);
+        self.debug_assert_invariants();
+        (effects, result)
     }
 
     /// Ends an ordered input turn, then runs due work, pending cancellation,
@@ -595,7 +612,9 @@ impl ProtocolEngine {
                 result,
             } => self.transmission_finished(transmission, result, now, effects),
             Input::Frame(frame) => self.frame(frame, now, effects),
-            Input::Cancel { id } => self.cancel(id, now, effects),
+            Input::Cancel { id } => {
+                let _ = self.cancel(id, now, effects);
+            }
             Input::ReceiveFault { error } => self.receive_fault(&error, now, effects),
             Input::Shutdown(reason) => match reason {
                 ShutdownReason::Explicit => {
@@ -1897,6 +1916,21 @@ impl ProtocolEngine {
                             // and waits for its completion under the completion
                             // deadline. Any ACK that raced the write is spurious
                             // for this shape and is discarded with the latch.
+                            let cancellation =
+                                if matches!(cancellation, CancelState::Requested { .. }) {
+                                    if let Some(entry) = self.entries.get_mut(&owner.request) {
+                                        entry.cancellation_observation_open = false;
+                                    }
+                                    effects.push(Effect::CancellationObservation {
+                                        id: owner.request,
+                                        observation: CancellationObservation::Failed(
+                                            Error::NotSupported,
+                                        ),
+                                    });
+                                    CancelState::None
+                                } else {
+                                    cancellation
+                                };
                             let deadline = add_duration(now, context.timeout.completion);
                             self.transition(
                                 owner.request,
@@ -3922,21 +3956,26 @@ impl ProtocolEngine {
         self.finish(id, RuntimeOutcome::Cancelled, effects);
     }
 
-    fn cancel(&mut self, id: RequestId, now: Instant, effects: &mut Vec<Effect>) {
+    fn cancel(
+        &mut self,
+        id: RequestId,
+        now: Instant,
+        effects: &mut Vec<Effect>,
+    ) -> Result<(), Error> {
         let Some(entry) = self.entries.get(&id) else {
             effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
-            return;
+            return Ok(());
         };
         if entry.request.is_inquiry() {
             effects.push(Effect::CancellationObservation {
                 id,
                 observation: CancellationObservation::Failed(Error::InquiryNotCancelable),
             });
-            return;
+            return Err(Error::InquiryNotCancelable);
         }
         if !matches!(entry.cancellation, CancelState::None) {
             effects.push(Effect::Ignored(IgnoreReason::DuplicateCancellation));
-            return;
+            return Ok(());
         }
         let phase = entry.phase;
         match phase {
@@ -3947,9 +3986,18 @@ impl ProtocolEngine {
                 effects.push(Effect::CancellationRecorded { id });
                 self.finish(id, RuntimeOutcome::Cancelled, effects);
             }
+            Phase::AwaitingCompletion { .. } => {
+                // Completion-only commands never acquire a socket, so no
+                // cancellation can be emitted for them. Keep their original
+                // completion window and report the refusal immediately.
+                effects.push(Effect::CancellationObservation {
+                    id,
+                    observation: CancellationObservation::Failed(Error::NotSupported),
+                });
+                return Err(Error::NotSupported);
+            }
             Phase::Sending { .. }
             | Phase::AwaitingAck { .. }
-            | Phase::AwaitingCompletion { .. }
             | Phase::Executing { .. }
             | Phase::AwaitingCancellationResolution { .. }
             | Phase::AwaitingReply { .. } => {
@@ -3961,7 +4009,7 @@ impl ProtocolEngine {
                         id,
                         observation: CancellationObservation::Failed(Error::NotSupported),
                     });
-                    return;
+                    return Err(Error::NotSupported);
                 }
                 let ambiguity_deadline =
                     add_duration(now, entry.request.context().timeout.ambiguity);
@@ -3984,6 +4032,7 @@ impl ProtocolEngine {
                 }
             }
         }
+        Ok(())
     }
 
     fn emit_cancel(
@@ -4366,10 +4415,25 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
             return;
         };
-        debug_assert!(matches!(entry.cancellation, CancelState::None));
         let target = entry.request.context().target;
         let reply_shape = entry.request.context().reply_shape;
-        let ambiguity_deadline = add_duration(now, entry.request.context().timeout.ambiguity);
+        // A cancellation can end before its original protocol window. Keep
+        // every response from that attempt away from successors through both
+        // windows and a fresh ambiguity interval, even if due work was delayed.
+        let phase_deadline = match entry.phase {
+            Phase::AwaitingAck { deadline, .. }
+            | Phase::AwaitingCompletion { deadline, .. }
+            | Phase::Executing { deadline, .. }
+            | Phase::AwaitingReply { deadline, .. }
+            | Phase::AwaitingCancellationResolution { deadline, .. } => deadline,
+            Phase::Ready { .. } | Phase::Sending { .. } | Phase::Backoff { .. } => now,
+        };
+        let hold_base = if let Some(cancel_deadline) = cancellation_ambiguity(entry.cancellation) {
+            now.max(phase_deadline).max(cancel_deadline)
+        } else {
+            now
+        };
+        let ambiguity_deadline = add_duration(hold_base, entry.request.context().timeout.ambiguity);
         let scope = match entry.phase {
             // Exact socket identity remains unusable until its bounded stale
             // completion window closes.
@@ -4425,9 +4489,12 @@ impl ProtocolEngine {
         let ambiguity_due =
             active_cancellation_ambiguity(entry).is_some_and(|deadline| deadline <= now);
         if due.kind_order == 0 && ambiguity_due {
-            // The ambiguity window has already closed, so nothing further needs
-            // quarantining here: fail this one request (default) or poison the
-            // session (strict opt-in). Issue #671.
+            // Unconfirmed cancellation has the same late-response debt as an
+            // uncancelled command. Its terminal must retain the phase's scope.
+            if self.policy.envelope == EnvelopeKind::Raw {
+                self.terminate_unconfirmed_raw(due.request, now, effects);
+                return;
+            }
             let error = if self.policy.envelope == EnvelopeKind::Raw {
                 Error::UnsequencedCommandUnconfirmed
             } else {
@@ -4618,8 +4685,8 @@ impl ProtocolEngine {
                         } else {
                             Error::CancellationUnconfirmed
                         };
-                        if self.raw_unconfirmed_poison() {
-                            self.poison_strict_unconfirmed(effects);
+                        if self.policy.envelope == EnvelopeKind::Raw {
+                            self.terminate_unconfirmed_raw(due.request, now, effects);
                         } else {
                             self.finish(due.request, RuntimeOutcome::Failed(error), effects);
                         }
@@ -4653,8 +4720,8 @@ impl ProtocolEngine {
                 } else {
                     Error::CancellationUnconfirmed
                 };
-                if self.raw_unconfirmed_poison() {
-                    self.poison_strict_unconfirmed(effects);
+                if self.policy.envelope == EnvelopeKind::Raw {
+                    self.terminate_unconfirmed_raw(due.request, now, effects);
                 } else {
                     self.finish(due.request, RuntimeOutcome::Failed(error), effects);
                 }
@@ -5222,7 +5289,10 @@ impl ProtocolEngine {
             ) else {
                 continue;
             };
-            let admissible = self.policy.capacity + usize::from(policy.control_reserve);
+            let admissible = self
+                .policy
+                .capacity
+                .saturating_add(usize::from(policy.control_reserve));
             if self.ledger.len(target) > stream_ledger::max_entries_per_target(admissible) {
                 return Err("stream correlation ledger exceeds its bound".into());
             }
@@ -6276,7 +6346,7 @@ mod cancellation_regression_tests {
     }
 
     #[test]
-    fn raw_completion_only_requested_cancel_no_socket_is_cancelled() {
+    fn raw_completion_only_refused_cancel_keeps_no_socket_retryable() {
         let now = Instant::now();
         let mut engine = engine(EnvelopeKind::Raw, Duration::ZERO);
         let admitted_effects = engine.handle(
@@ -6312,7 +6382,7 @@ mod cancellation_regression_tests {
         }));
         assert!(matches!(
             engine.entry(id).map(Entry::cancellation),
-            Some(CancelState::Requested { .. })
+            Some(CancelState::None)
         ));
 
         let effects = engine.handle(
@@ -6326,24 +6396,12 @@ mod cancellation_regression_tests {
             }),
             now,
         );
-        assert!(effects.iter().any(|effect| {
-            matches!(
-                effect,
-                Effect::Terminal {
-                    id: terminal,
-                    outcome: RuntimeOutcome::Cancelled,
-                } if *terminal == id
-            )
-        }));
-        assert!(!effects.iter().any(|effect| {
-            matches!(
-                effect,
-                Effect::Terminal {
-                    id: terminal,
-                    outcome: RuntimeOutcome::Failed(Error::NoSocket),
-                } if *terminal == id
-            ) || matches!(effect, Effect::RetryScheduled { id: scheduled, .. } if *scheduled == id)
-        }));
+        assert!(cancel.iter().any(|effect| matches!(effect,
+            Effect::CancellationObservation { id: observed, observation: CancellationObservation::Failed(Error::NotSupported) } if *observed == id)));
+        assert!(effects.iter().any(|effect| matches!(effect,
+            Effect::RetryScheduled { id: scheduled, .. } if *scheduled == id)));
+        assert!(!effects.iter().any(|effect| matches!(effect,
+            Effect::Terminal { id: terminal, .. } if *terminal == id)));
         engine.assert_invariants().expect("engine invariants");
     }
 
