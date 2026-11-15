@@ -2797,10 +2797,29 @@ fn an_unwritten_step_of_an_accept_only_dispute_only_untracks_it() {
 // (#837), while exact-deadline input continues to win.
 #[test]
 fn late_first_answers_are_order_independent() {
+    fn terminal_outcomes(effects: &[Effect]) -> BTreeMap<RequestId, Vec<String>> {
+        let mut outcomes = BTreeMap::<RequestId, Vec<String>>::new();
+        for effect in effects {
+            if let Effect::Terminal { id, outcome } = effect {
+                // Preserve every emission, including duplicates, and compare
+                // the full outcome/cause rather than nonterminal bookkeeping.
+                outcomes
+                    .entry(*id)
+                    .or_default()
+                    .push(format!("{outcome:?}"));
+            }
+        }
+        outcomes
+    }
+
     let start = Instant::now();
     for class in 0..5 {
         let setup = || {
             let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+            // Production raw streams use a single inquiry flight. Its timeout
+            // is terminal, so every answer class exercises a nonempty outcome
+            // oracle rather than comparing two empty retry-only effect sets.
+            engine.policy.inquiry_capacity = 1;
             let request = if class == 2 {
                 inquiry(1, POWER)
             } else {
@@ -2853,10 +2872,35 @@ fn late_first_answers_are_order_independent() {
             ),
             _ => named_error(1, ViscaSocket::S1, 0x04),
         };
-        due_first.advance_turn(late, EngineTurn::COMPLETE);
-        due_first.handle_turn(input(), late, EngineTurn::INPUT_ONLY);
-        frame_first.handle_turn(input(), late, EngineTurn::INPUT_ONLY);
-        frame_first.advance_turn(late, EngineTurn::COMPLETE);
+        let mut due_first_effects = due_first.advance_turn(late, EngineTurn::COMPLETE);
+        due_first_effects.extend(due_first.handle_turn(input(), late, EngineTurn::INPUT_ONLY));
+        let mut frame_first_effects =
+            frame_first.handle_turn(input(), late, EngineTurn::INPUT_ONLY);
+        frame_first_effects.extend(frame_first.advance_turn(late, EngineTurn::COMPLETE));
+
+        let due_first_outcomes = terminal_outcomes(&due_first_effects);
+        let frame_first_outcomes = terminal_outcomes(&frame_first_effects);
+        assert_eq!(
+            due_first_outcomes, frame_first_outcomes,
+            "class {class}: terminal outcomes/counts"
+        );
+        let expected_error = if class == 2 {
+            Error::timeout(FailureStage::Terminal, Certainty::FailedConclusively)
+        } else {
+            Error::UnsequencedCommandUnconfirmed
+        };
+        let expected = BTreeMap::from([(
+            id,
+            vec![format!("{:?}", RuntimeOutcome::Failed(expected_error))],
+        )]);
+        assert_eq!(
+            due_first_outcomes, expected,
+            "class {class}: exactly one expected terminal outcome"
+        );
+        assert!(
+            due_first.entry(id).is_none() && frame_first.entry(id).is_none(),
+            "class {class}: terminal request remains live"
+        );
         assert_eq!(
             format!("{:?}", due_first.entry(id)),
             format!("{:?}", frame_first.entry(id)),
