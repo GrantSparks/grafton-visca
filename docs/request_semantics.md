@@ -38,6 +38,15 @@ inline storage capacity is an implementation detail. Inquiry decoders own the
 payload interpretation; a raw reply carries no caller-chosen route identifier.
 Affected-axis cardinality is reported by `AffectedAxes::axis_count`.
 
+An inquiry declares its structural reply evidence through `payload_shape()`.
+`PayloadShape::Bytes(n)` admits exactly `n` decoded data bytes;
+`Nibbles(n)` additionally requires every byte to be at most `0x0F`. The count
+excludes the VISCA address, reply header and terminator. Raw inquiries can use
+`with_payload_shape` to supply the shape their decoder accepts. Custom inquiries
+default to `Unknown`, which overlaps every shape. Known shapes overlap by
+length, pairwise: `Bytes(1)` and `Nibbles(4)` each overlap `Unknown` but do not
+overlap each other. Decoder value, padding and profile-range checks still apply.
+
 Every operation row contains a non-empty `BuiltinAxisSelection`.  Preset
 recall is the one profile-dependent case: preparation must validate and carry
 the profile's exact preset axes.  It must not substitute all axes.

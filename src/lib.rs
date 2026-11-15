@@ -1063,7 +1063,8 @@ pub mod raw;
 mod requests;
 pub use requests::{
     AffectedAxes, AffectedAxis, AffectedAxisIter, ControlClass, Inquiry, OperationCommand,
-    PlainCommand, Request, ResponseDecoder, RetryClass, SubmissionClass, TimeoutClass,
+    PayloadShape, PlainCommand, Request, ResponseDecoder, RetryClass, SubmissionClass,
+    TimeoutClass,
 };
 
 // Request preparation feeds only the owner, so like the engine it is compiled

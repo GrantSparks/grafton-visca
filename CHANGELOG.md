@@ -11,6 +11,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Serial startup has a bounded fuzz target for arbitrary bus input, I/O results
   and timing ticks, with reply/noise/echo seeds also exercised on stable (#887).
+- `PayloadShape` describes an inquiry's decoded data width and nibble
+  structure. `Inquiry::payload_shape` defaults to `Unknown`, and custom raw
+  inquiries can declare their decoder's shape with `with_payload_shape` (#892).
 
 - `test-utils` (#832): `testkit::ManualClock`, a virtual clock for owner deadline tests. A
   blocking session opened with `ManualClock::open_blocking_session` or

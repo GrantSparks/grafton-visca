@@ -828,10 +828,70 @@ pub trait PlainCommand: Request<Class = request::Plain> {}
 
 impl<T> PlainCommand for T where T: Request<Class = request::Plain> + ?Sized {}
 
+/// Structural evidence describing an inquiry's decoded data payload.
+///
+/// Lengths count data bytes, excluding the VISCA address, reply header and
+/// terminator. Shape constrains framing and nibble width; the response decoder
+/// remains responsible for documented values, padding and profile ranges.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum PayloadShape {
+    /// No declared structure. Admits every payload and overlaps every shape.
+    #[default]
+    Unknown,
+    /// Exactly this many data bytes, with unrestricted byte values.
+    Bytes(usize),
+    /// Exactly this many data bytes, each in `0x00..=0x0F`.
+    Nibbles(usize),
+}
+
+impl PayloadShape {
+    /// Returns whether decoded data satisfies this structural declaration.
+    #[must_use]
+    pub fn admits(self, payload: &[u8]) -> bool {
+        match self {
+            Self::Unknown => true,
+            Self::Bytes(length) => payload.len() == length,
+            Self::Nibbles(length) => {
+                payload.len() == length && payload.iter().all(|byte| *byte <= 0x0F)
+            }
+        }
+    }
+
+    /// Returns whether one payload could satisfy both shapes.
+    ///
+    /// Known shapes overlap exactly when their lengths agree. `Unknown`
+    /// overlaps every shape, so overlap is pairwise and is not transitive:
+    /// two different lengths each overlap `Unknown` without overlapping each other.
+    #[must_use]
+    pub const fn overlaps(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Unknown, _) | (_, Self::Unknown) => true,
+            (
+                Self::Bytes(left) | Self::Nibbles(left),
+                Self::Bytes(right) | Self::Nibbles(right),
+            ) => left == right,
+        }
+    }
+}
+
 /// A typed inquiry request.
 pub trait Inquiry: Request<Class = request::Inquiry> {
     /// Successfully decoded response value.
     type Response: Send + 'static;
+
+    /// Returns the structural shape accepted by this inquiry's decoder.
+    ///
+    /// Custom inquiries may declare a shape to supply correlation evidence for
+    /// raw VISCA replies. The default retains conservative positional behavior.
+    fn payload_shape(&self) -> PayloadShape {
+        PayloadShape::Unknown
+    }
+
+    /// Selects profile-dependent reply framing during pure preparation.
+    #[doc(hidden)]
+    fn payload_shape_for_profile(&self, _profile: &crate::ProfileSpec) -> PayloadShape {
+        self.payload_shape()
+    }
 
     /// Returns the owned response decoder.
     fn decoder(&self) -> ResponseDecoder<Self::Response>;
@@ -960,5 +1020,109 @@ mod affected_axes_tests {
             AffectedAxes::from_bits(AffectedAxes::MOVEMENT.bits()).expect("MOVEMENT is non-empty"),
             AffectedAxes::MOVEMENT
         );
+    }
+}
+
+#[cfg(test)]
+mod payload_shape_tests {
+    use super::{Inquiry, PayloadShape, Request, ResponseDecoder};
+
+    #[test]
+    fn payload_shape_admission_checks_exact_length_and_every_nibble() {
+        assert_eq!(PayloadShape::default(), PayloadShape::Unknown);
+        for payload in [vec![], vec![0], vec![0xFF; 32]] {
+            assert!(PayloadShape::Unknown.admits(&payload));
+        }
+        assert!(PayloadShape::Bytes(0).admits(&[]));
+        assert!(PayloadShape::Nibbles(0).admits(&[]));
+        assert!(PayloadShape::Bytes(4).admits(&[0xFF; 4]));
+        assert!(PayloadShape::Nibbles(4).admits(&[0, 1, 14, 15]));
+        for length in [0, 1, 3, 5, 10] {
+            assert!(!PayloadShape::Bytes(4).admits(&vec![0; length]));
+            assert!(!PayloadShape::Nibbles(4).admits(&vec![0; length]));
+        }
+        for index in 0..4 {
+            for byte in 0x10..=u8::MAX {
+                let mut payload = [0; 4];
+                payload[index] = byte;
+                assert!(!PayloadShape::Nibbles(4).admits(&payload));
+                assert!(PayloadShape::Bytes(4).admits(&payload));
+            }
+        }
+        assert!(!PayloadShape::Bytes(usize::MAX).admits(&[]));
+        assert!(!PayloadShape::Nibbles(usize::MAX).admits(&[]));
+    }
+
+    #[test]
+    fn payload_shape_overlap_is_symmetric_and_pairwise_not_transitive() {
+        use PayloadShape::{Bytes, Nibbles, Unknown};
+        let shapes = [
+            Unknown,
+            Bytes(0),
+            Nibbles(0),
+            Bytes(1),
+            Nibbles(1),
+            Bytes(4),
+            Nibbles(4),
+        ];
+        let expected = [
+            [true, true, true, true, true, true, true],
+            [true, true, true, false, false, false, false],
+            [true, true, true, false, false, false, false],
+            [true, false, false, true, true, false, false],
+            [true, false, false, true, true, false, false],
+            [true, false, false, false, false, true, true],
+            [true, false, false, false, false, true, true],
+        ];
+        for (left_index, left) in shapes.into_iter().enumerate() {
+            for (right_index, right) in shapes.into_iter().enumerate() {
+                assert_eq!(
+                    left.overlaps(right),
+                    expected[left_index][right_index],
+                    "{left:?} against {right:?}"
+                );
+                assert_eq!(left.overlaps(right), right.overlaps(left));
+            }
+        }
+        const UNKNOWN_OVERLAPS_BYTE: bool = Unknown.overlaps(Bytes(1));
+        assert_eq!(UNKNOWN_OVERLAPS_BYTE, shapes[0].overlaps(shapes[3]));
+        assert!(Bytes(usize::MAX).overlaps(Nibbles(usize::MAX)));
+        assert!(!Bytes(usize::MAX).overlaps(Bytes(1)));
+    }
+
+    struct UndeclaredInquiry;
+
+    impl Request for UndeclaredInquiry {
+        type Class = crate::request::Inquiry;
+        const MAX_SIZE: usize = 4;
+        const TIMEOUT_CLASS: crate::TimeoutClass = crate::TimeoutClass::Inquiry;
+        const RETRY_CLASS: crate::RetryClass = crate::RetryClass::Never;
+        const CONTROL_CLASS: crate::ControlClass = crate::ControlClass::Normal;
+        fn write_into(&self, target: crate::CameraId, buffer: &mut [u8]) -> crate::Result<usize> {
+            let available = buffer.len();
+            let frame = buffer
+                .get_mut(..4)
+                .ok_or_else(|| crate::Error::buffer_too_small(4, available))?;
+            frame.copy_from_slice(&[target.to_address_byte(), 0x09, 0x04, 0xFF]);
+            Ok(4)
+        }
+    }
+
+    impl Inquiry for UndeclaredInquiry {
+        type Response = usize;
+        fn decoder(&self) -> ResponseDecoder<usize> {
+            ResponseDecoder::from_fn(|payload| Ok(payload.len()))
+        }
+    }
+
+    #[test]
+    fn custom_inquiries_default_to_unknown_shape_with_and_without_a_profile() -> crate::Result<()> {
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()?;
+        assert_eq!(UndeclaredInquiry.payload_shape(), PayloadShape::Unknown);
+        assert_eq!(
+            UndeclaredInquiry.payload_shape_for_profile(&profile),
+            PayloadShape::Unknown
+        );
+        Ok(())
     }
 }

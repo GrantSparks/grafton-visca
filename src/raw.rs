@@ -669,6 +669,7 @@ pub struct Inquiry<R> {
     wire: Wire,
     decoder: ResponseDecoder<R>,
     policy: Policy,
+    payload_shape: crate::PayloadShape,
 }
 
 impl<R> Inquiry<R> {
@@ -709,6 +710,7 @@ impl<R> Inquiry<R> {
             wire: Wire::new(bytes)?,
             decoder,
             policy,
+            payload_shape: crate::PayloadShape::Unknown,
         })
     }
 
@@ -747,6 +749,18 @@ impl<R> Inquiry<R> {
         )
     }
 
+    /// Declares the decoded data shape accepted by this inquiry's decoder.
+    ///
+    /// Lengths exclude the address, reply header and terminator. A declared
+    /// shape supplies raw-reply correlation evidence; decoder value checks
+    /// still apply. The default [`crate::PayloadShape::Unknown`] overlaps all
+    /// shapes and preserves conservative positional correlation.
+    #[must_use]
+    pub const fn with_payload_shape(mut self, shape: crate::PayloadShape) -> Self {
+        self.payload_shape = shape;
+        self
+    }
+
     /// Returns the exact frame bytes retained by this value.
     #[must_use]
     pub fn bytes(&self) -> &[u8] {
@@ -763,6 +777,7 @@ impl<R> fmt::Debug for Inquiry<R> {
             .field("wire", &self.wire)
             .field("decoder", &self.decoder)
             .field("policy", &self.policy)
+            .field("payload_shape", &self.payload_shape)
             .finish()
     }
 }
@@ -773,6 +788,7 @@ impl<R> Clone for Inquiry<R> {
             wire: self.wire.clone(),
             decoder: self.decoder.clone(),
             policy: self.policy,
+            payload_shape: self.payload_shape,
         }
     }
 }
@@ -790,6 +806,10 @@ where
     R: Send + 'static,
 {
     type Response = R;
+
+    fn payload_shape(&self) -> crate::PayloadShape {
+        self.payload_shape
+    }
 
     fn decoder(&self) -> ResponseDecoder<Self::Response> {
         self.decoder.clone()
@@ -859,6 +879,71 @@ mod tests {
             .first()
             .copied()
             .ok_or_else(|| Error::InvalidRequest("empty test payload".into()))
+    }
+
+    #[test]
+    fn every_raw_inquiry_constructor_retains_its_optional_payload_shape() {
+        use crate::PayloadShape;
+        let bytes = [0x81, 0x09, 0x04, 0xFF];
+        let policy = Policy::new(
+            TimeoutClass::Inquiry,
+            RetryClass::Never,
+            ControlClass::Normal,
+        )
+        .expect("inquiry policy");
+        let queries = [
+            Inquiry::new(
+                bytes,
+                ResponseDecoder::from_fn(decode_first),
+                RetryClass::Never,
+                ControlClass::Normal,
+            )
+            .expect("owned decoder"),
+            Inquiry::with_policy(bytes, ResponseDecoder::from_fn(decode_first), policy)
+                .expect("explicit policy"),
+            Inquiry::from_fn(bytes, decode_first, RetryClass::Never, ControlClass::Normal)
+                .expect("function decoder"),
+            Inquiry::with_context(
+                bytes,
+                0_u8,
+                |context, payload| decode_first(payload).map(|byte| byte + *context),
+                RetryClass::Never,
+                ControlClass::Normal,
+            )
+            .expect("context decoder"),
+        ];
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("profile");
+        for inquiry in queries {
+            assert_eq!(inquiry.payload_shape(), PayloadShape::Unknown);
+            assert_eq!(
+                inquiry.payload_shape_for_profile(&profile),
+                PayloadShape::Unknown
+            );
+            let shaped = inquiry.with_payload_shape(PayloadShape::Nibbles(4));
+            let cloned = shaped.clone();
+            for query in [&shaped, &cloned] {
+                assert_eq!(query.payload_shape(), PayloadShape::Nibbles(4));
+                assert_eq!(
+                    query.payload_shape_for_profile(&profile),
+                    PayloadShape::Nibbles(4)
+                );
+                assert_eq!(query.bytes(), bytes);
+                assert_eq!(
+                    query
+                        .decoder()
+                        .decode(&[4, 3, 2, 1])
+                        .expect("decode unchanged"),
+                    4
+                );
+            }
+            assert_eq!(
+                cloned
+                    .with_payload_shape(PayloadShape::Bytes(7))
+                    .payload_shape(),
+                PayloadShape::Bytes(7)
+            );
+        }
     }
 
     #[test]
