@@ -29,7 +29,7 @@ CancellationObservationFailed	src/error.rs	Self::CancellationObservationFailed {
 ObservationTimeout	src/runtime/owner/mod.rs	Error::ObservationTimeout {
 ControlReserveExhausted	src/runtime/owner/mod.rs	return Err(Error::ControlReserveExhausted {
 MaxRetriesExceeded	src/transport/serial/handshake.rs	self.fail(Error::MaxRetriesExceeded);
-NotSupported	src/runtime/owner/adapter.rs	if config.addressing == AddressingMode::Ip && profiles.len() > 1 { return Err(Error::NotSupported);
+NotSupported	src/runtime/owner/adapter.rs	if identity.addressing() != AddressingMode::Serial { return Err(Error::NotSupported);
 InvalidState	src/runtime/owner/blocking.rs	return Err(Error::InvalidState(format!("blocking owner worker cannot call {call} on its own session").into(),));
 OwnerTerminated	src/runtime/owner/boundary.rs	fn missing_terminal_error() -> Error { Error::OwnerTerminated }
 DiagnosticSubscriberLimit	src/runtime/owner/mod.rs	return Err(Error::DiagnosticSubscriberLimit {

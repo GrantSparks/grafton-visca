@@ -22410,13 +22410,10 @@ pub grafton_visca::runtime::TransportHandle::Udp(<R as grafton_visca::Runtime>::
 impl<R: core::fmt::Debug + grafton_visca::Runtime> core::fmt::Debug for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::fmt::Debug, <R as grafton_visca::Runtime>::UdpTransport: core::fmt::Debug
 pub fn grafton_visca::TransportHandle<R>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<R: grafton_visca::Runtime> grafton_visca::transport::AsyncTransport for grafton_visca::TransportHandle<R>
-pub fn grafton_visca::TransportHandle<R>::addressing_mode_hint(&self) -> core::option::Option<grafton_visca::transport::AddressingMode>
 pub async fn grafton_visca::TransportHandle<R>::recv_into(&mut self, &mut [u8]) -> core::result::Result<grafton_visca::transport::ReceiveOutcome, grafton_visca::Error>
 pub async fn grafton_visca::TransportHandle<R>::send(&mut self, &[u8]) -> core::result::Result<(), grafton_visca::Error>
-pub fn grafton_visca::TransportHandle<R>::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 impl<R: grafton_visca::Runtime> grafton_visca::transport::HasTransportConfig for grafton_visca::TransportHandle<R>
-pub fn grafton_visca::TransportHandle<R>::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
-pub fn grafton_visca::TransportHandle<R>::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
+pub fn grafton_visca::TransportHandle<R>::identity(&self) -> grafton_visca::transport::TransportIdentity<'_>
 pub fn grafton_visca::TransportHandle<R>::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl<R> core::marker::Freeze for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Freeze, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Freeze
 impl<R> core::marker::Send for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Send, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Send
@@ -23370,6 +23367,35 @@ impl core::marker::Unpin for grafton_visca::transport::SendSemantics
 impl core::marker::UnsafeUnpin for grafton_visca::transport::SendSemantics
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::SendSemantics
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::SendSemantics
+#[non_exhaustive] pub enum grafton_visca::transport::TransportIdentity<'a>
+pub grafton_visca::transport::TransportIdentity::Custom
+pub grafton_visca::transport::TransportIdentity::Custom::addressing: grafton_visca::transport::AddressingMode
+pub grafton_visca::transport::TransportIdentity::Custom::semantics: grafton_visca::transport::SendSemantics
+pub grafton_visca::transport::TransportIdentity::Serial
+pub grafton_visca::transport::TransportIdentity::Serial::bus: core::option::Option<&'a grafton_visca::transport::AddressedBus>
+pub grafton_visca::transport::TransportIdentity::Tcp
+pub grafton_visca::transport::TransportIdentity::Udp
+impl<'a> grafton_visca::transport::TransportIdentity<'a>
+pub const fn grafton_visca::transport::TransportIdentity<'a>::addressed_bus(self) -> core::option::Option<&'a grafton_visca::transport::AddressedBus>
+pub const fn grafton_visca::transport::TransportIdentity<'a>::addressing(self) -> grafton_visca::transport::AddressingMode
+pub const fn grafton_visca::transport::TransportIdentity<'a>::send_semantics(self) -> grafton_visca::transport::SendSemantics
+pub const fn grafton_visca::transport::TransportIdentity<'a>::standard_transport_kind(self) -> core::option::Option<grafton_visca::camera::TransportKind>
+impl<'a> core::clone::Clone for grafton_visca::transport::TransportIdentity<'a>
+pub fn grafton_visca::transport::TransportIdentity<'a>::clone(&self) -> grafton_visca::transport::TransportIdentity<'a>
+impl<'a> core::cmp::Eq for grafton_visca::transport::TransportIdentity<'a>
+impl<'a> core::cmp::PartialEq for grafton_visca::transport::TransportIdentity<'a>
+pub fn grafton_visca::transport::TransportIdentity<'a>::eq(&self, &grafton_visca::transport::TransportIdentity<'a>) -> bool
+impl<'a> core::fmt::Debug for grafton_visca::transport::TransportIdentity<'a>
+pub fn grafton_visca::transport::TransportIdentity<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+impl<'a> core::marker::Copy for grafton_visca::transport::TransportIdentity<'a>
+impl<'a> core::marker::StructuralPartialEq for grafton_visca::transport::TransportIdentity<'a>
+impl<'a> core::marker::Freeze for grafton_visca::transport::TransportIdentity<'a>
+impl<'a> core::marker::Send for grafton_visca::transport::TransportIdentity<'a>
+impl<'a> core::marker::Sync for grafton_visca::transport::TransportIdentity<'a>
+impl<'a> core::marker::Unpin for grafton_visca::transport::TransportIdentity<'a>
+impl<'a> core::marker::UnsafeUnpin for grafton_visca::transport::TransportIdentity<'a>
+impl<'a> core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::TransportIdentity<'a>
+impl<'a> core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::TransportIdentity<'a>
 #[non_exhaustive] pub struct grafton_visca::transport::AddressedBus
 pub grafton_visca::transport::AddressedBus::cameras: u8
 pub grafton_visca::transport::AddressedBus::port: alloc::string::String
@@ -23479,7 +23505,6 @@ impl core::marker::UnsafeUnpin for grafton_visca::transport::TcpKeepaliveConfig
 impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::TcpKeepaliveConfig
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::TcpKeepaliveConfig
 #[non_exhaustive] pub struct grafton_visca::transport::TransportConfig
-pub grafton_visca::transport::TransportConfig::addressing: grafton_visca::transport::AddressingMode
 pub grafton_visca::transport::TransportConfig::buffer_config: grafton_visca::transport::BufferConfig
 pub grafton_visca::transport::TransportConfig::connect_timeout: core::time::Duration
 pub grafton_visca::transport::TransportConfig::read_timeout: core::time::Duration
@@ -23511,20 +23536,14 @@ impl core::panic::unwind_safe::RefUnwindSafe for grafton_visca::transport::Trans
 impl core::panic::unwind_safe::UnwindSafe for grafton_visca::transport::TransportConfig
 pub const grafton_visca::transport::FATAL_RECEIVE_IO_KINDS: &[core::io::error::ErrorKind]
 pub trait grafton_visca::transport::AsyncTransport: core::marker::Send
-pub fn grafton_visca::transport::AsyncTransport::addressing_mode_hint(&self) -> core::option::Option<grafton_visca::transport::AddressingMode>
 pub fn grafton_visca::transport::AsyncTransport::recv_into<'a>(&'a mut self, &'a mut [u8]) -> impl core::future::future::Future<Output = core::result::Result<grafton_visca::transport::ReceiveOutcome, grafton_visca::Error>> + core::marker::Send
 pub fn grafton_visca::transport::AsyncTransport::send(&mut self, &[u8]) -> impl core::future::future::Future<Output = core::result::Result<(), grafton_visca::Error>> + core::marker::Send
-pub fn grafton_visca::transport::AsyncTransport::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 impl<R: grafton_visca::Runtime> grafton_visca::transport::AsyncTransport for grafton_visca::TransportHandle<R>
-pub fn grafton_visca::TransportHandle<R>::addressing_mode_hint(&self) -> core::option::Option<grafton_visca::transport::AddressingMode>
 pub async fn grafton_visca::TransportHandle<R>::recv_into(&mut self, &mut [u8]) -> core::result::Result<grafton_visca::transport::ReceiveOutcome, grafton_visca::Error>
 pub async fn grafton_visca::TransportHandle<R>::send(&mut self, &[u8]) -> core::result::Result<(), grafton_visca::Error>
-pub fn grafton_visca::TransportHandle<R>::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 pub trait grafton_visca::transport::BlockingTransport: core::marker::Send
-pub fn grafton_visca::transport::BlockingTransport::addressing_mode_hint(&self) -> core::option::Option<grafton_visca::transport::AddressingMode>
 pub fn grafton_visca::transport::BlockingTransport::recv_into_with_timeout(&mut self, &mut [u8], core::time::Duration) -> core::result::Result<grafton_visca::transport::ReceiveOutcome, grafton_visca::Error>
-pub fn grafton_visca::transport::BlockingTransport::send_semantics(&self) -> grafton_visca::transport::SendSemantics
-pub fn grafton_visca::transport::BlockingTransport::send_with_timeout(&mut self, &[u8], grafton_visca::command::CommandKind, core::time::Duration) -> core::result::Result<(), grafton_visca::Error>
+pub fn grafton_visca::transport::BlockingTransport::send_with_timeout(&mut self, &[u8], core::time::Duration) -> core::result::Result<(), grafton_visca::Error>
 pub trait grafton_visca::transport::Envelope: grafton_visca::transport::envelope::private::Sealed + core::marker::Send + core::marker::Sync + 'static
 pub const grafton_visca::transport::Envelope::KIND: grafton_visca::profile::ProfileEnvelope
 pub fn grafton_visca::transport::Envelope::extract_response(&self, &[u8]) -> core::result::Result<bytes::bytes::Bytes, grafton_visca::Error>
@@ -23544,16 +23563,13 @@ pub fn grafton_visca::transport::SonyEncapsulated::extract_with_meta(&self, byte
 pub fn grafton_visca::transport::SonyEncapsulated::frame_into(&self, &[u8], grafton_visca::command::CommandKind, &mut bytes::bytes_mut::BytesMut) -> core::result::Result<grafton_visca::transport::FrameMeta, grafton_visca::Error>
 pub fn grafton_visca::transport::SonyEncapsulated::new(grafton_visca::transport::AddressingMode) -> Self
 pub trait grafton_visca::transport::HasTransportConfig
-pub fn grafton_visca::transport::HasTransportConfig::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
-pub fn grafton_visca::transport::HasTransportConfig::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
+pub fn grafton_visca::transport::HasTransportConfig::identity(&self) -> grafton_visca::transport::TransportIdentity<'_>
 pub fn grafton_visca::transport::HasTransportConfig::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl<R: grafton_visca::Runtime> grafton_visca::transport::HasTransportConfig for grafton_visca::TransportHandle<R>
-pub fn grafton_visca::TransportHandle<R>::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
-pub fn grafton_visca::TransportHandle<R>::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
+pub fn grafton_visca::TransportHandle<R>::identity(&self) -> grafton_visca::transport::TransportIdentity<'_>
 pub fn grafton_visca::TransportHandle<R>::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl<T: grafton_visca::transport::HasTransportConfig + ?core::marker::Sized> grafton_visca::transport::HasTransportConfig for &T
-pub fn &T::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
-pub fn &T::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
+pub fn &T::identity(&self) -> grafton_visca::transport::TransportIdentity<'_>
 pub fn &T::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 pub mod grafton_visca::types
 pub enum grafton_visca::types::FStop
@@ -26582,13 +26598,10 @@ pub grafton_visca::TransportHandle::Udp(<R as grafton_visca::Runtime>::UdpTransp
 impl<R: core::fmt::Debug + grafton_visca::Runtime> core::fmt::Debug for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::fmt::Debug, <R as grafton_visca::Runtime>::UdpTransport: core::fmt::Debug
 pub fn grafton_visca::TransportHandle<R>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 impl<R: grafton_visca::Runtime> grafton_visca::transport::AsyncTransport for grafton_visca::TransportHandle<R>
-pub fn grafton_visca::TransportHandle<R>::addressing_mode_hint(&self) -> core::option::Option<grafton_visca::transport::AddressingMode>
 pub async fn grafton_visca::TransportHandle<R>::recv_into(&mut self, &mut [u8]) -> core::result::Result<grafton_visca::transport::ReceiveOutcome, grafton_visca::Error>
 pub async fn grafton_visca::TransportHandle<R>::send(&mut self, &[u8]) -> core::result::Result<(), grafton_visca::Error>
-pub fn grafton_visca::TransportHandle<R>::send_semantics(&self) -> grafton_visca::transport::SendSemantics
 impl<R: grafton_visca::Runtime> grafton_visca::transport::HasTransportConfig for grafton_visca::TransportHandle<R>
-pub fn grafton_visca::TransportHandle<R>::addressed_bus(&self) -> core::option::Option<&grafton_visca::transport::AddressedBus>
-pub fn grafton_visca::TransportHandle<R>::standard_transport_kind(&self) -> core::option::Option<grafton_visca::camera::TransportKind>
+pub fn grafton_visca::TransportHandle<R>::identity(&self) -> grafton_visca::transport::TransportIdentity<'_>
 pub fn grafton_visca::TransportHandle<R>::transport_config(&self) -> &grafton_visca::transport::TransportConfig
 impl<R> core::marker::Freeze for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Freeze, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Freeze
 impl<R> core::marker::Send for grafton_visca::TransportHandle<R> where <R as grafton_visca::Runtime>::TcpTransport: core::marker::Send, <R as grafton_visca::Runtime>::UdpTransport: core::marker::Send

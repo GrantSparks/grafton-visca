@@ -59,6 +59,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING** (#899): Custom transports implement the required shared
+  `HasTransportConfig::identity()` descriptor, which fixes kind, send semantics
+  and addressing together. `TransportConfig::addressing`, the facade identity
+  methods and the `CommandKind` argument to blocking `send_with_timeout` are
+  removed. Wrappers forward one descriptor, including serial Address Set bus
+  evidence; topology is checked once before configuration or protocol I/O.
+
 - **BREAKING** (#898): `metrics()` supersedes the all-control terminal-error
   rule from #680 and the metrics behavior documented by #851. A concluded
   owner returns its final terminal snapshot with retained counters and zero
