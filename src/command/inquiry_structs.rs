@@ -231,25 +231,6 @@ fn decode_payload<C: GeneratedInquiry>(payload: &[u8]) -> Result<C::Response, Er
         .map_err(|error| reply_value_error(error, payload))
 }
 
-/// Decodes a payload as `C`'s response with a profile's pan/tilt framing.
-///
-/// `framing` is `None` only for a profile without a pan/tilt coordinate
-/// conversion, which cannot decode a position reply.
-fn decode_payload_with_framing<C: GeneratedInquiry>(
-    framing: &Option<PanTiltFraming>,
-    payload: &[u8],
-) -> Result<C::Response, Error> {
-    let framing = framing.ok_or(Error::FeatureNotSupported {
-        feature: "pan/tilt coordinate conversion",
-    })?;
-    C::lift(dispatch_with_framing(
-        C::KIND,
-        Payload::new(payload),
-        framing,
-    )?)
-    .map_err(|error| reply_value_error(error, payload))
-}
-
 /// The decoder a generated inquiry uses for a validated profile.
 ///
 /// Only the pan/tilt position reply depends on the profile, so every other
@@ -260,10 +241,7 @@ where
     C::Response: 'static,
 {
     if C::KIND == InquiryKind::PanTiltPosition {
-        let framing = profile
-            .pan_tilt_coordinates()
-            .map(PanTiltFraming::for_conversion);
-        crate::ResponseDecoder::with_context(framing, decode_payload_with_framing::<C>)
+        crate::ResponseDecoder::for_builtin_profile(C::KIND, profile, C::lift)
     } else {
         crate::ResponseDecoder::from_fn(decode_payload::<C>)
     }

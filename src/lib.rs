@@ -953,6 +953,16 @@ pub mod __macro_support {
         crate::command::inquiry_structs::reply_value_error(error, payload)
     }
 
+    /// Build the canonical profile-aware inquiry decoder without boxed context.
+    #[doc(hidden)]
+    pub fn inquiry_decoder<R>(
+        kind: crate::command::InquiryKind,
+        profile: &crate::ProfileSpec,
+        lift: fn(crate::command::Response) -> crate::Result<R>,
+    ) -> crate::ResponseDecoder<R> {
+        crate::ResponseDecoder::for_builtin_profile(kind, profile, lift)
+    }
+
     #[doc(hidden)]
     pub use crate::command::bytes::constants::INQUIRY;
     #[doc(hidden)]

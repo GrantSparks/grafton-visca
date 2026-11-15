@@ -32,8 +32,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Request preparation writes directly into owned inline storage. Engine admission
   and reusable polling templates share the inert message only when needed;
-  ordinary preparation no longer allocates an `Arc` or copies a scratch frame
-  (#866).
+  ordinary preparation no longer allocates an `Arc` or copies a scratch frame.
+  Profile-aware pan/tilt inquiry decoders also store their canonical decoding
+  facts inline, including when cloned (#866).
 
 - **BREAKING** (#873): `Request::MAX_SIZE` is an upper bound; preparation encodes
   once and uses the length returned by `write_into`. `Request::encoded_size` is

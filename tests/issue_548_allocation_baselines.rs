@@ -363,3 +363,35 @@ fn built_in_command_and_inquiry_preparation_stay_inline() {
     });
     assert_eq!(allocations, 0, "pure built-in preparation allocated");
 }
+
+#[cfg(all(feature = "test-utils", any(feature = "blocking", feature = "async")))]
+#[test]
+fn profiled_position_inquiry_preparation_and_decoder_clones_stay_inline() {
+    use grafton_visca::{
+        command::PanTiltPositionInquiry,
+        profiles::{PtzOpticsG2, SonyBRC300, SonyFR7},
+        testing::preparation,
+        Inquiry, OperationalTuning, ProfileSpec,
+    };
+    let profiles = [
+        ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2"),
+        ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC-300"),
+        ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7"),
+    ];
+    for profile in &profiles {
+        let allocations = allocations_during(|| {
+            for _ in 0..100 {
+                preparation::check_inquiry(
+                    &PanTiltPositionInquiry,
+                    CameraId::CAMERA_1,
+                    profile,
+                    OperationalTuning::new(),
+                )
+                .expect("position inquiry prepares");
+                let decoder = PanTiltPositionInquiry.decoder_for_profile(profile);
+                std::hint::black_box(decoder.clone());
+            }
+        });
+        assert_eq!(allocations, 0, "profiled position preparation allocated");
+    }
+}

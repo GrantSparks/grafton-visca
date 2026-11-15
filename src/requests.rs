@@ -530,13 +530,19 @@ type SharedDecoder<R> = dyn Fn(&[u8]) -> Result<R> + Send + Sync + 'static;
 
 enum DecoderInner<R> {
     Function(fn(&[u8]) -> Result<R>),
+    Builtin {
+        kind: crate::command::InquiryKind,
+        framing: Option<crate::command::pan_tilt::PanTiltFraming>,
+        lift: fn(crate::command::Response) -> Result<R>,
+    },
     Shared(Arc<SharedDecoder<R>>),
 }
 
 /// An owned typed inquiry decoder.
 ///
-/// Function decoders are stored without allocation. Context-bearing decoders
-/// use shared immutable storage so a prepared request remains movable.
+/// Function decoders and built-in profile decoding facts are stored inline.
+/// Custom context-bearing decoders use shared immutable storage so a prepared
+/// request remains movable.
 pub struct ResponseDecoder<R> {
     inner: DecoderInner<R>,
 }
@@ -547,6 +553,23 @@ impl<R> ResponseDecoder<R> {
     pub const fn from_fn(decode: fn(&[u8]) -> Result<R>) -> Self {
         Self {
             inner: DecoderInner::Function(decode),
+        }
+    }
+
+    /// Store the canonical table decoder and its profile framing inline.
+    pub(crate) fn for_builtin_profile(
+        kind: crate::command::InquiryKind,
+        profile: &crate::ProfileSpec,
+        lift: fn(crate::command::Response) -> Result<R>,
+    ) -> Self {
+        Self {
+            inner: DecoderInner::Builtin {
+                kind,
+                framing: profile
+                    .pan_tilt_coordinates()
+                    .map(crate::command::pan_tilt::PanTiltFraming::for_conversion),
+                lift,
+            },
         }
     }
 
@@ -566,6 +589,27 @@ impl<R> ResponseDecoder<R> {
     pub fn decode(&self, payload: &[u8]) -> Result<R> {
         match &self.inner {
             DecoderInner::Function(decode) => decode(payload),
+            DecoderInner::Builtin {
+                kind,
+                framing,
+                lift,
+            } => {
+                use crate::command::{
+                    inquiry_structs, pan_tilt::PanTiltFraming, InquiryKind, Payload,
+                };
+                let framing = match (kind, framing) {
+                    (InquiryKind::PanTiltPosition, None) => {
+                        return Err(Error::FeatureNotSupported {
+                            feature: "pan/tilt coordinate conversion",
+                        });
+                    }
+                    (_, Some(framing)) => *framing,
+                    _ => PanTiltFraming::STANDARD,
+                };
+                inquiry_structs::dispatch_with_framing(*kind, Payload::new(payload), framing)
+                    .and_then(lift)
+                    .map_err(|error| inquiry_structs::reply_value_error(error, payload))
+            }
             DecoderInner::Shared(decode) => decode(payload),
         }
     }
@@ -575,6 +619,15 @@ impl<R> Clone for ResponseDecoder<R> {
     fn clone(&self) -> Self {
         let inner = match &self.inner {
             DecoderInner::Function(decode) => DecoderInner::Function(*decode),
+            DecoderInner::Builtin {
+                kind,
+                framing,
+                lift,
+            } => DecoderInner::Builtin {
+                kind: *kind,
+                framing: *framing,
+                lift: *lift,
+            },
             DecoderInner::Shared(decode) => DecoderInner::Shared(Arc::clone(decode)),
         };
         Self { inner }
@@ -585,6 +638,7 @@ impl<R> fmt::Debug for ResponseDecoder<R> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let storage = match self.inner {
             DecoderInner::Function(_) => "function",
+            DecoderInner::Builtin { .. } => "inline-builtin",
             DecoderInner::Shared(_) => "shared-context",
         };
         formatter
