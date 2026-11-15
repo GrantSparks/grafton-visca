@@ -16,7 +16,10 @@ use std::{
     time::Instant,
 };
 
-use crate::Error;
+use crate::{
+    target::{PerTarget, TargetSlot},
+    Error,
+};
 
 #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
 use super::SessionState;
@@ -139,7 +142,7 @@ pub(super) type AdmissionReply = flume::Receiver<Result<Admitted, Error>>;
 #[derive(Debug)]
 pub(super) struct AdmissionExpiry {
     validity: AdmissionValidity,
-    target: crate::CameraId,
+    target: TargetSlot,
     lane: Lane,
 }
 
@@ -149,7 +152,7 @@ pub(super) struct AdmissionExpiry {
 /// receipts the same way and differ only in how they wait for the reply.
 #[derive(Debug)]
 pub(super) struct PendingAdmission {
-    target: crate::CameraId,
+    target: TargetSlot,
     completion: TerminalObserver,
     reply: AdmissionReply,
     expiry: Option<AdmissionExpiry>,
@@ -211,7 +214,7 @@ pub(super) enum AdmissionBoundaryClaim {
 /// admission state.
 #[derive(Debug, Clone, Copy)]
 pub(super) struct PreAdmissionRejection {
-    pub(super) target: crate::CameraId,
+    pub(super) target: TargetSlot,
     pub(super) lane: Lane,
     pub(super) error: crate::ErrorKind,
 }
@@ -461,7 +464,7 @@ impl OwnerLifecycle {
     pub(super) fn fence_order(
         &self,
         motion: &Arc<super::motion::MotionRegistry>,
-        target: crate::CameraId,
+        target: TargetSlot,
         axes: Option<crate::AffectedAxes>,
     ) -> Result<u64, Error> {
         let _guard = self.lock_open()?;
@@ -594,7 +597,7 @@ pub(super) struct OwnerHandleCore {
     /// Nothing is ever sent on it.
     pub(super) actor_alive: flume::Receiver<()>,
     lifecycle: Arc<OwnerLifecycle>,
-    state_cache: Arc<[Mutex<TargetStateCache>; 9]>,
+    state_cache: Arc<PerTarget<Mutex<TargetStateCache>>>,
     /// The owner's live operational tuning (#631). Reading it is a lock and a
     /// copy, so preparation never has to round-trip through the owner.
     tuning: LiveTuning,
@@ -663,7 +666,7 @@ impl OwnerHandleCore {
         }
     }
 
-    pub(super) fn state_cache(&self, target: crate::CameraId) -> crate::state_cache::StateCache {
+    pub(super) fn state_cache(&self, target: TargetSlot) -> crate::state_cache::StateCache {
         crate::state_cache::StateCache::from_registry(Arc::clone(&self.state_cache), target)
     }
 
@@ -856,7 +859,7 @@ impl OwnerHandleCore {
     /// until that owner drops.
     pub(super) fn record_pre_admission_rejection(
         &self,
-        target: crate::CameraId,
+        target: TargetSlot,
         lane: Lane,
         error: &Error,
     ) {
@@ -890,13 +893,12 @@ impl OwnerHandleCore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::CameraId;
 
     #[test]
     fn admission_rejection_ingress_total_saturates() {
         let ingress = AdmissionRejectionIngress::new(2);
         let rejection = PreAdmissionRejection {
-            target: CameraId::CAMERA_1,
+            target: TargetSlot::ALL[0],
             lane: Lane::Command,
             error: crate::ErrorKind::BufferFull,
         };

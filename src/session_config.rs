@@ -341,11 +341,11 @@ impl SessionConfig {
 
     /// Borrow all registrations in the shape consumed by the owner adapter.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn profile_registry(&self) -> Vec<(CameraId, &ProfileSpec)> {
+    pub(crate) fn profile_registry(&self) -> Vec<(TargetSlot, &ProfileSpec)> {
         self.targets
             .iter()
             .filter_map(|(target, profile)| {
-                profile.as_deref().map(|profile| (target.camera(), profile))
+                profile.as_deref().map(|profile| (target, profile))
             })
             .collect()
     }

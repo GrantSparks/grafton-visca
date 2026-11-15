@@ -549,7 +549,7 @@ impl DiagnosticEvent {
                 ..
             } => Self::Admitted {
                 id: DiagnosticId::from_owner(id.get()),
-                target,
+                target: target.camera(),
                 lane: lane(value),
             },
             OwnerEvent::AdmissionRejected {
@@ -557,7 +557,7 @@ impl DiagnosticEvent {
                 lane: value,
                 error,
             } => Self::AdmissionRejected {
-                target,
+                target: target.camera(),
                 lane: lane(value),
                 error,
             },
@@ -566,7 +566,7 @@ impl DiagnosticEvent {
                 response: value,
                 ..
             } => Self::FrameReceived {
-                target,
+                target: target.camera(),
                 response: response(value),
             },
             OwnerEvent::Transition {
@@ -577,7 +577,7 @@ impl DiagnosticEvent {
                 ..
             } => Self::Transition {
                 id: DiagnosticId::from_owner(id.get()),
-                target,
+                target: target.camera(),
                 from: phase(from),
                 to: phase(to),
             },
@@ -589,7 +589,7 @@ impl DiagnosticEvent {
                 ..
             } => Self::WriteFinished {
                 id: DiagnosticId::from_owner(id.get()),
-                target,
+                target: target.camera(),
                 cancellation,
                 success,
             },
@@ -600,7 +600,7 @@ impl DiagnosticEvent {
                 ..
             } => Self::RetryScheduled {
                 id: DiagnosticId::from_owner(id.get()),
-                target,
+                target: target.camera(),
                 attempt,
             },
             OwnerEvent::DeadlineExpired {
@@ -610,13 +610,13 @@ impl DiagnosticEvent {
                 will_retry,
             } => Self::DeadlineExpired {
                 id: DiagnosticId::from_owner(id.get()),
-                target,
+                target: target.camera(),
                 deadline: deadline(value),
                 will_retry,
             },
             OwnerEvent::CancellationRecorded { id, target } => Self::CancellationRecorded {
                 id: DiagnosticId::from_owner(id.get()),
-                target,
+                target: target.camera(),
             },
             OwnerEvent::CancellationObserved {
                 id,
@@ -624,12 +624,12 @@ impl DiagnosticEvent {
                 observation,
             } => Self::CancellationObserved {
                 id: DiagnosticId::from_owner(id.get()),
-                target,
+                target: target.camera(),
                 observation: cancellation(observation),
             },
             OwnerEvent::AppliedState { id, target, key } => Self::AppliedState {
                 id: DiagnosticId::from_owner(id.get()),
-                target,
+                target: target.camera(),
                 key,
             },
             OwnerEvent::Terminal {
@@ -638,7 +638,7 @@ impl DiagnosticEvent {
                 outcome: value,
             } => Self::Terminal {
                 id: DiagnosticId::from_owner(id.get()),
-                target,
+                target: target.camera(),
                 outcome: outcome(value),
             },
             OwnerEvent::SessionChanged { from, to, reason } => Self::SessionChanged {

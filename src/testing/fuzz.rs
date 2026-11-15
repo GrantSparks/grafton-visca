@@ -13,6 +13,7 @@ use crate::{
     },
     raw::Plain,
     runtime::owner::{decode_response_target, RoutingState, TargetRegistry},
+    target::TargetSlot,
     transport::{AddressingMode, BufferConfig, Envelope, SonyEncapsulated},
     CameraId, ControlClass, RetryClass, TimeoutClass,
 };
@@ -119,18 +120,10 @@ fn sequence_from(bytes: &[u8]) -> u32 {
 
 /// Exercise strict serial and bounded IP response-source routing.
 pub fn response_target(bytes: &[u8]) {
-    let Ok(all_targets) = TargetRegistry::from_targets(&[
-        CameraId::CAMERA_1,
-        CameraId::CAMERA_2,
-        CameraId::CAMERA_3,
-        CameraId::CAMERA_4,
-        CameraId::CAMERA_5,
-        CameraId::CAMERA_6,
-        CameraId::CAMERA_7,
-    ]) else {
+    let Ok(all_targets) = TargetRegistry::from_targets(&TargetSlot::ALL) else {
         return;
     };
-    let Ok(single_target) = TargetRegistry::from_targets(&[CameraId::CAMERA_1]) else {
+    let Ok(single_target) = TargetRegistry::from_targets(&TargetSlot::ALL[..1]) else {
         return;
     };
     let serial = RoutingState::new(AddressingMode::Serial, all_targets);

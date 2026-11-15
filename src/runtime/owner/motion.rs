@@ -1,18 +1,21 @@
 //! Bounded owner-ordered motion attribution, shared by halt and settlement.
-use crate::{AffectedAxes, CameraId, Error, OperationId, Settlement};
+use crate::{
+    target::{PerTarget, TargetSlot},
+    AffectedAxes, Error, OperationId, Settlement,
+};
 use std::sync::{Arc, Mutex};
 
 #[derive(Debug, Default)]
 pub(super) struct MotionRegistry {
     // One opaque generation token per registered target/axis. Tokens are the
     // unique ingress ordinals; equality, never numeric order, establishes attribution.
-    generations: Mutex<[[u64; 5]; 9]>,
+    generations: Mutex<PerTarget<[u64; 5]>>,
 }
 
 #[derive(Debug, Clone)]
 pub(crate) struct MotionStamp {
     registry: Arc<MotionRegistry>,
-    target: CameraId,
+    target: TargetSlot,
     axes: AffectedAxes,
     generations: [u64; 5],
 }
@@ -22,7 +25,7 @@ impl MotionRegistry {
     /// settlement commits, even before the owner drains the Admitted effect.
     pub(super) fn admit(
         self: &Arc<Self>,
-        target: CameraId,
+        target: TargetSlot,
         axes: AffectedAxes,
         token: u64,
         admit: impl FnOnce() -> Vec<super::Effect>,
@@ -36,7 +39,7 @@ impl MotionRegistry {
             .iter()
             .any(|effect| matches!(effect, super::Effect::Admitted { .. }))
             .then(|| {
-                let current = &mut bank[usize::from(target.id())];
+                let current = &mut bank[target];
                 for (index, value) in current.iter_mut().enumerate() {
                     if axes.bits() & (1 << index) != 0 {
                         *value = token;
@@ -54,7 +57,7 @@ impl MotionRegistry {
 
     pub(super) fn establish(
         self: &Arc<Self>,
-        target: CameraId,
+        target: TargetSlot,
         axes: AffectedAxes,
         token: u64,
     ) -> MotionStamp {
@@ -62,7 +65,7 @@ impl MotionRegistry {
             .generations
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let current = &mut bank[usize::from(target.id())];
+        let current = &mut bank[target];
         for (index, value) in current.iter_mut().enumerate() {
             if axes.bits() & (1 << index) != 0 {
                 *value = token;
@@ -91,7 +94,7 @@ impl MotionStamp {
             .generations
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let current = bank[usize::from(self.target.id())];
+        let current = bank[self.target];
         let superseded = current
             .iter()
             .zip(self.generations)
@@ -117,7 +120,7 @@ impl MotionStamp {
             .generations
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let current = bank[usize::from(self.target.id())];
+        let current = bank[self.target];
         if current
             .iter()
             .zip(self.generations)

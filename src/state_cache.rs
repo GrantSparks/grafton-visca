@@ -12,7 +12,10 @@
 use std::sync::{Arc, Mutex};
 
 #[cfg(any(feature = "blocking", feature = "async"))]
-use crate::CameraId;
+use crate::{
+    target::{PerTarget, TargetSlot},
+    CameraId,
+};
 
 const MAX_VALUES: usize = 4;
 
@@ -142,15 +145,15 @@ pub enum StateEntry {
 #[cfg(any(feature = "blocking", feature = "async"))]
 #[derive(Debug, Clone)]
 pub struct StateCache {
-    pub(crate) registry: Arc<[Mutex<crate::runtime::owner::TargetStateCache>; 9]>,
-    target: CameraId,
+    pub(crate) registry: Arc<PerTarget<Mutex<crate::runtime::owner::TargetStateCache>>>,
+    target: TargetSlot,
 }
 
 #[cfg(any(feature = "blocking", feature = "async"))]
 impl StateCache {
     pub(crate) fn from_registry(
-        registry: Arc<[Mutex<crate::runtime::owner::TargetStateCache>; 9]>,
-        target: CameraId,
+        registry: Arc<PerTarget<Mutex<crate::runtime::owner::TargetStateCache>>>,
+        target: TargetSlot,
     ) -> Self {
         Self { registry, target }
     }
@@ -158,7 +161,7 @@ impl StateCache {
     /// Returns the fixed target represented by this view.
     #[must_use]
     pub const fn target(&self) -> CameraId {
-        self.target
+        self.target.camera()
     }
 
     /// Reads one state key without allocating or mutating owner state.
@@ -167,10 +170,7 @@ impl StateCache {
     /// mutable recovery path through the public API.
     #[must_use]
     pub fn value(&self, key: StateKey) -> StateEntry {
-        let Some(slot) = self.registry.get(usize::from(self.target.id())) else {
-            return StateEntry::Unknown;
-        };
-        let Ok(cache) = slot.lock() else {
+        let Ok(cache) = self.registry[self.target].lock() else {
             return StateEntry::Unknown;
         };
         cache.entry(key)

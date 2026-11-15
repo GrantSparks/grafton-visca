@@ -58,7 +58,6 @@ use turn::{
 };
 
 use std::{
-    array,
     collections::{BTreeMap, VecDeque},
     sync::{
         atomic::{AtomicBool, Ordering},
@@ -71,6 +70,7 @@ use bytes::BytesMut;
 
 use crate::{
     command::{encode::WireEncode, system::CommandCancelCommand},
+    target::{PerTarget, TargetSlot},
     StateKey,
 };
 use crate::{raw::MAX_BYTES, CameraId, CancellationOutcome, Error, ErrorKind, ViscaSocket};
@@ -220,7 +220,7 @@ impl Default for OwnerLimits {
 pub(crate) struct TuningBaseline {
     pub(crate) command_spacing: Duration,
     pub(crate) inquiry_spacing: Duration,
-    pub(crate) command_sockets: [Option<u8>; 9],
+    pub(crate) command_sockets: PerTarget<Option<u8>>,
 }
 
 /// Construction policy. Target registration cannot change after the owner
@@ -230,7 +230,7 @@ pub(crate) struct TuningBaseline {
 #[derive(Debug, Clone)]
 pub(crate) struct OwnerPolicy {
     pub(crate) protocol: ProtocolPolicy,
-    pub(crate) targets: [Option<TargetPolicy>; 9],
+    pub(crate) targets: PerTarget<Option<TargetPolicy>>,
     pub(crate) limits: OwnerLimits,
     pub(crate) tuning: crate::OperationalTuning,
     pub(crate) baseline: TuningBaseline,
@@ -256,19 +256,9 @@ impl OwnerPolicy {
     /// Creates one immutable policy from target-local protocol facts.
     pub(crate) fn with_targets(
         protocol: ProtocolPolicy,
-        targets: [Option<TargetPolicy>; 9],
+        targets: PerTarget<Option<TargetPolicy>>,
     ) -> Result<Self, Error> {
-        if targets[0].is_some() {
-            return Err(Error::InvalidRequest(
-                "owner target registry cannot contain camera zero".into(),
-            ));
-        }
-        if targets[8].is_some() {
-            return Err(Error::InvalidRequest(
-                "owner target registry cannot contain broadcast".into(),
-            ));
-        }
-        if targets[1..8].iter().all(Option::is_none) {
+        if targets.iter().all(|(_, target)| target.is_none()) {
             return Err(Error::InvalidRequest(
                 "owner target registry must contain at least one camera".into(),
             ));
@@ -285,8 +275,8 @@ impl OwnerPolicy {
             baseline: TuningBaseline {
                 command_spacing: protocol.command_spacing,
                 inquiry_spacing: protocol.inquiry_spacing,
-                command_sockets: array::from_fn(|index| {
-                    targets[index].map(|policy| policy.command_sockets)
+                command_sockets: PerTarget::from_fn(|target| {
+                    targets[target].map(|policy| policy.command_sockets)
                 }),
             },
             read_timeout: transport.read_timeout,
@@ -299,16 +289,11 @@ impl OwnerPolicy {
     #[cfg(test)]
     pub(crate) fn single_target(
         protocol: ProtocolPolicy,
-        target: CameraId,
+        target: TargetSlot,
         target_policy: TargetPolicy,
     ) -> Result<Self, Error> {
-        if !(1..=7).contains(&target.id()) {
-            return Err(Error::InvalidRequest(
-                "owner target must be an individual camera (1 through 7)".into(),
-            ));
-        }
-        let mut targets = [None; 9];
-        targets[usize::from(target.id())] = Some(target_policy);
+        let mut targets = PerTarget::default();
+        targets[target] = Some(target_policy);
         Self::with_targets(protocol, targets)
     }
 }
@@ -402,7 +387,7 @@ pub(crate) enum CancellationDiagnostic {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RequestSummary {
-    target: CameraId,
+    target: TargetSlot,
     lane: Lane,
     timeout: TimeoutPolicy,
     retry: RetryPolicy,
@@ -430,7 +415,7 @@ impl RequestSummary {
 pub(crate) enum DiagnosticEvent {
     Admitted {
         id: RequestId,
-        target: CameraId,
+        target: TargetSlot,
         lane: Lane,
         timeout: TimeoutPolicy,
         retry: RetryPolicy,
@@ -438,18 +423,18 @@ pub(crate) enum DiagnosticEvent {
         cancellation: CancellationPolicy,
     },
     AdmissionRejected {
-        target: CameraId,
+        target: TargetSlot,
         lane: Lane,
         error: ErrorKind,
     },
     FrameReceived {
-        target: CameraId,
+        target: TargetSlot,
         sequence: Option<EnvelopeSequence>,
         response: ResponseDiagnostic,
     },
     Transition {
         id: RequestId,
-        target: CameraId,
+        target: TargetSlot,
         from: Phase,
         to: Phase,
         cancellation: CancelState,
@@ -457,7 +442,7 @@ pub(crate) enum DiagnosticEvent {
     WriteFinished {
         id: RequestId,
         transmission: TransmissionId,
-        target: CameraId,
+        target: TargetSlot,
         cancellation: bool,
         envelope: EnvelopeKind,
         sequence: Option<u32>,
@@ -465,7 +450,7 @@ pub(crate) enum DiagnosticEvent {
     },
     RetryScheduled {
         id: RequestId,
-        target: CameraId,
+        target: TargetSlot,
         attempt: u32,
         ready_at: Instant,
     },
@@ -474,27 +459,27 @@ pub(crate) enum DiagnosticEvent {
     /// `Transition` and the absence of a `RetryScheduled`.
     DeadlineExpired {
         id: RequestId,
-        target: CameraId,
+        target: TargetSlot,
         deadline: DeadlineKind,
         will_retry: bool,
     },
     CancellationRecorded {
         id: RequestId,
-        target: CameraId,
+        target: TargetSlot,
     },
     CancellationObserved {
         id: RequestId,
-        target: CameraId,
+        target: TargetSlot,
         observation: CancellationDiagnostic,
     },
     AppliedState {
         id: RequestId,
-        target: CameraId,
+        target: TargetSlot,
         key: StateKey,
     },
     Terminal {
         id: RequestId,
-        target: CameraId,
+        target: TargetSlot,
         outcome: OutcomeDiagnostic,
     },
     SessionChanged {
@@ -605,7 +590,7 @@ impl TargetStateCache {
 struct PermitPoolInner {
     available: Mutex<PermitCounts>,
     capacity: usize,
-    reserves: [u8; 9],
+    reserves: PerTarget<u8>,
 }
 
 /// Free admission slots: the ordinary budget, and each target's control
@@ -613,7 +598,7 @@ struct PermitPoolInner {
 #[derive(Debug)]
 struct PermitCounts {
     ordinary: usize,
-    reserve: [u8; 9],
+    reserve: PerTarget<u8>,
 }
 
 /// The admission limit covering boundary work and authoritative engine
@@ -628,7 +613,7 @@ struct PermitCounts {
 pub(crate) struct AdmissionPermitPool(Arc<PermitPoolInner>);
 
 impl AdmissionPermitPool {
-    fn new(capacity: usize, reserves: [u8; 9]) -> Self {
+    fn new(capacity: usize, reserves: PerTarget<u8>) -> Self {
         Self(Arc::new(PermitPoolInner {
             available: Mutex::new(PermitCounts {
                 ordinary: capacity,
@@ -652,7 +637,7 @@ impl AdmissionPermitPool {
         self.0
             .reserves
             .iter()
-            .fold(self.0.capacity, |total, reserve| {
+            .fold(self.0.capacity, |total, (_, reserve)| {
                 total.saturating_add(usize::from(*reserve))
             })
     }
@@ -665,19 +650,18 @@ impl AdmissionPermitPool {
     /// [`Error::ControlReserveExhausted`].
     pub(crate) fn try_acquire(&self, context: &RequestContext) -> Result<AdmissionPermit, Error> {
         let target = context.target;
-        let index = usize::from(target.id());
         let mut available = self.0.available.lock().unwrap_or_else(|p| p.into_inner());
-        let slot = if context.control.class == ControlClass::Urgent && available.reserve[index] > 0
+        let slot = if context.control.class == ControlClass::Urgent && available.reserve[target] > 0
         {
-            available.reserve[index] -= 1;
+            available.reserve[target] -= 1;
             AdmissionSlot::ControlReserve
         } else if available.ordinary > 0 {
             available.ordinary -= 1;
             AdmissionSlot::Ordinary
         } else if context.control.class == ControlClass::Urgent {
             return Err(Error::ControlReserveExhausted {
-                target,
-                reserve: usize::from(self.0.reserves[index]),
+                target: target.camera(),
+                reserve: usize::from(self.0.reserves[target]),
             });
         } else {
             return Err(Error::RuntimeQueueFull {
@@ -687,7 +671,7 @@ impl AdmissionPermitPool {
         Ok(AdmissionPermit {
             pool: Arc::clone(&self.0),
             slot,
-            target: index,
+            target,
             released: false,
         })
     }
@@ -705,7 +689,7 @@ impl AdmissionPermitPool {
         Ok(AdmissionPermit {
             pool: Arc::clone(&self.0),
             slot: AdmissionSlot::Ordinary,
-            target: 1,
+            target: TargetSlot::ALL[0],
             released: false,
         })
     }
@@ -725,7 +709,7 @@ impl AdmissionPermitPool {
 pub(crate) struct AdmissionPermit {
     pool: Arc<PermitPoolInner>,
     slot: AdmissionSlot,
-    target: usize,
+    target: TargetSlot,
     released: bool,
 }
 
@@ -982,7 +966,7 @@ pub(crate) struct CancellationRequest {
 pub(crate) struct ReceiptCore {
     motion: Option<MotionStamp>,
     pub(crate) id: RequestId,
-    pub(crate) target: CameraId,
+    pub(crate) target: TargetSlot,
     pub(crate) completion: TerminalObserver,
     pub(crate) configured_timeout: Duration,
 }
@@ -990,7 +974,7 @@ pub(crate) struct ReceiptCore {
 impl ReceiptCore {
     fn admitted(
         admitted: Admitted,
-        target: CameraId,
+        target: TargetSlot,
         completion: TerminalObserver,
         timeout: Duration,
     ) -> Self {
@@ -1001,7 +985,7 @@ impl ReceiptCore {
 
     fn new(
         id: RequestId,
-        target: CameraId,
+        target: TargetSlot,
         completion: TerminalObserver,
         configured_timeout: Duration,
     ) -> Self {
@@ -1019,7 +1003,7 @@ impl ReceiptCore {
     }
 
     const fn target(&self) -> CameraId {
-        self.target
+        self.target.camera()
     }
 
     const fn configured_timeout(&self) -> Duration {
@@ -1326,7 +1310,7 @@ impl AppliedStateSubscription {
 
 #[derive(Debug)]
 struct AppliedSubscriber {
-    target: Option<CameraId>,
+    target: Option<TargetSlot>,
     sender: flume::Sender<AppliedStateEvent>,
 }
 
@@ -1447,7 +1431,7 @@ impl OwnerBuffers {
                 }
                 self.send.resize(max_size, 0);
                 let command = CommandCancelCommand::new(*socket);
-                let len = command.write_into(*target, &mut self.send)?;
+                let len = command.write_into(target.camera(), &mut self.send)?;
                 self.send.truncate(len);
             }
         }
@@ -1543,7 +1527,7 @@ pub(crate) struct StagedWrite {
 pub(crate) struct OwnerInputTurn(InputTurn, Instant);
 
 impl StagedWrite {
-    fn target(&self) -> CameraId {
+    fn target(&self) -> TargetSlot {
         match self.kind {
             Transmission::Request { target, .. } | Transmission::Cancel { target, .. } => target,
         }
@@ -1642,7 +1626,7 @@ pub(crate) struct OwnerState {
     pending: BTreeMap<AdmissionTicket, PendingAdmission>,
     active: BTreeMap<RequestId, ActiveRequest>,
     motion: Arc<MotionRegistry>,
-    target_cache: Arc<[Mutex<TargetStateCache>; 9]>,
+    target_cache: Arc<PerTarget<Mutex<TargetStateCache>>>,
     subscribers: BTreeMap<u64, AppliedSubscriber>,
     diagnostic_subscribers: BTreeMap<u64, DiagnosticSubscriber>,
     // Read only by `subscribe_applied`, whose consumers are feature-gated
@@ -1674,28 +1658,17 @@ impl OwnerState {
                 "owner collection bounds must be non-zero".into(),
             ));
         }
-        if policy.targets[0].is_some() {
-            return Err(Error::InvalidRequest(
-                "owner target registry cannot contain camera zero".into(),
-            ));
-        }
-        if policy.targets[8].is_some() {
-            return Err(Error::InvalidRequest(
-                "owner target registry cannot contain broadcast".into(),
-            ));
-        }
         let mut engine = ProtocolEngine::new(policy.protocol)?;
-        for (index, target_policy) in policy.targets.iter().copied().enumerate().skip(1).take(7) {
+        for (target, target_policy) in policy.targets.iter() {
             if let Some(target_policy) = target_policy {
-                let target = CameraId::new(index as u8)?;
-                engine.register_target(target, target_policy)?;
+                engine.register_target(target, *target_policy)?;
             }
         }
         let permits = AdmissionPermitPool::new(
             policy.protocol.capacity,
-            policy
-                .targets
-                .map(|target| target.map_or(0, |target| target.control_reserve)),
+            PerTarget::from_fn(|target| {
+                policy.targets[target].map_or(0, |policy| policy.control_reserve)
+            }),
         );
         let buffers = OwnerBuffers::new(policy.limits)?;
         let tuning = LiveTuning::new(policy.tuning);
@@ -1708,7 +1681,9 @@ impl OwnerState {
             pending: BTreeMap::new(),
             active: BTreeMap::new(),
             motion: Arc::new(MotionRegistry::default()),
-            target_cache: Arc::new(array::from_fn(|_| Mutex::new(TargetStateCache::default()))),
+            target_cache: Arc::new(PerTarget::from_fn(|_| {
+                Mutex::new(TargetStateCache::default())
+            })),
             subscribers: BTreeMap::new(),
             diagnostic_subscribers: BTreeMap::new(),
             #[cfg(test)]
@@ -1766,8 +1741,8 @@ impl OwnerState {
         let inquiry_spacing = tuning
             .inquiry_spacing_override()
             .unwrap_or(baseline.inquiry_spacing);
-        let command_sockets: [Option<u8>; 9] = array::from_fn(|index| {
-            baseline.command_sockets[index].map(|profile_sockets| {
+        let command_sockets: PerTarget<Option<u8>> = PerTarget::from_fn(|target| {
+            baseline.command_sockets[target].map(|profile_sockets| {
                 tuning
                     .maximum_command_sockets_override()
                     .unwrap_or(profile_sockets)
@@ -1777,9 +1752,9 @@ impl OwnerState {
             .retune(command_spacing, inquiry_spacing, command_sockets)?;
         self.policy.protocol.command_spacing = command_spacing;
         self.policy.protocol.inquiry_spacing = inquiry_spacing;
-        for (slot, sockets) in self.policy.targets.iter_mut().zip(command_sockets.iter()) {
-            if let (Some(policy), Some(sockets)) = (slot.as_mut(), sockets) {
-                policy.command_sockets = *sockets;
+        for (target, slot) in self.policy.targets.iter_mut() {
+            if let (Some(policy), Some(sockets)) = (slot.as_mut(), command_sockets[target]) {
+                policy.command_sockets = sockets;
             }
         }
         self.policy.tuning = tuning;
@@ -1826,7 +1801,7 @@ impl OwnerState {
     /// Records one request rejection before authoritative engine admission.
     pub(crate) fn record_admission_rejection(
         &mut self,
-        target: CameraId,
+        target: TargetSlot,
         lane: Lane,
         error: &Error,
     ) {
@@ -1860,7 +1835,7 @@ impl OwnerState {
     /// callers coalesce their wake-up into one bounded actor notification.
     pub(crate) fn record_admission_rejection_diagnostic(
         &mut self,
-        target: CameraId,
+        target: TargetSlot,
         lane: Lane,
         error: ErrorKind,
     ) {
@@ -1878,7 +1853,7 @@ impl OwnerState {
         self.metrics.dropped_diagnostics = self.metrics.dropped_diagnostics.saturating_add(count);
     }
 
-    pub(crate) fn state_cache_registry(&self) -> Arc<[Mutex<TargetStateCache>; 9]> {
+    pub(crate) fn state_cache_registry(&self) -> Arc<PerTarget<Mutex<TargetStateCache>>> {
         Arc::clone(&self.target_cache)
     }
 
@@ -2247,7 +2222,7 @@ impl OwnerState {
     #[cfg(test)]
     pub(crate) fn subscribe_applied(
         &mut self,
-        target: Option<CameraId>,
+        target: Option<TargetSlot>,
         event_capacity: usize,
     ) -> Result<AppliedStateSubscription, Error> {
         if event_capacity == 0
@@ -2559,10 +2534,8 @@ impl OwnerState {
             Effect::AppliedState { effect } => {
                 // Cache mutation is observer-independent and always precedes
                 // best-effort subscriber delivery.
-                if let Some(slot) = self.target_cache.get(usize::from(effect.target.id())) {
-                    if let Ok(mut cache) = slot.lock() {
-                        cache.apply(effect.projection, self.policy.limits.state_keys_per_target);
-                    }
+                if let Ok(mut cache) = self.target_cache[effect.target].lock() {
+                    cache.apply(effect.projection, self.policy.limits.state_keys_per_target);
                 }
                 self.metrics.cache_updates = self.metrics.cache_updates.saturating_add(1);
                 self.record(DiagnosticEvent::AppliedState {

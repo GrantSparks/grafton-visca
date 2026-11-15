@@ -23,6 +23,7 @@ use crate::{
         CancellationPolicy, DecodedFrame, DecodedResponse, EnvelopeKind, EnvelopeSequence,
         ProtocolPolicy, SequenceWidth, TargetPolicy, TransportKind,
     },
+    target::{PerTarget, TargetSlot},
     transport::{
         builder::{AddressingMode, TransportConfig},
         envelope::{Envelope, FrameMeta, FrameSequence, RawVisca, SonyEncapsulated, SonyResponse},
@@ -71,14 +72,14 @@ enum OwnerResponse {
 /// configured default target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TargetRegistry {
-    registered: [bool; 9],
+    registered: PerTarget<bool>,
     count: u8,
 }
 
 impl TargetRegistry {
     /// Creates a registry from individual camera targets.
-    pub(crate) fn from_targets(targets: &[CameraId]) -> Result<Self, Error> {
-        let mut registered = [false; 9];
+    pub(crate) fn from_targets(targets: &[TargetSlot]) -> Result<Self, Error> {
+        let mut registered = PerTarget::default();
         let mut count = 0_u8;
         if targets.is_empty() {
             return Err(Error::InvalidRequest(
@@ -86,12 +87,7 @@ impl TargetRegistry {
             ));
         }
         for target in targets {
-            if !(1..=7).contains(&target.id()) {
-                return Err(Error::InvalidRequest(
-                    "owner target registry requires individual cameras (1 through 7)".into(),
-                ));
-            }
-            let slot = &mut registered[usize::from(target.id())];
+            let slot = &mut registered[*target];
             if *slot {
                 return Err(Error::InvalidRequest(
                     "owner target registry contains a duplicate camera".into(),
@@ -109,28 +105,21 @@ impl TargetRegistry {
     // routing tests build a registry that way today; production construction
     // goes through `from_targets` with the session's registered set (#636).
     #[cfg(test)]
-    pub(crate) fn single(target: CameraId) -> Result<Self, Error> {
+    pub(crate) fn single(target: TargetSlot) -> Result<Self, Error> {
         Self::from_targets(&[target])
     }
 
-    pub(crate) fn contains(self, target: CameraId) -> bool {
-        self.registered[target.id() as usize]
+    pub(crate) fn contains(self, target: TargetSlot) -> bool {
+        self.registered[target]
     }
 
-    pub(crate) fn sole_target(self) -> Option<CameraId> {
+    pub(crate) fn sole_target(self) -> Option<TargetSlot> {
         if self.count != 1 {
             return None;
         }
-        let mut id = 1_u8;
-        while id <= 7 {
-            if self.registered[id as usize] {
-                // The registry is built only through `CameraId`, so this
-                // conversion is guaranteed to succeed.
-                return CameraId::new(id).ok();
-            }
-            id += 1;
-        }
-        None
+        self.registered
+            .iter()
+            .find_map(|(target, registered)| registered.then_some(target))
     }
 }
 
@@ -239,7 +228,7 @@ impl OwnerEnvelope {
 // this module's own tests; session construction always supplies tuning (#636).
 #[cfg(test)]
 pub(crate) fn owner_policy_for_targets(
-    profiles: &[(CameraId, &ProfileSpec)],
+    profiles: &[(TargetSlot, &ProfileSpec)],
     config: &TransportConfig,
     semantics: SendSemantics,
 ) -> Result<OwnerPolicy, Error> {
@@ -257,7 +246,7 @@ pub(crate) fn owner_policy_for_targets(
 /// validated before any owner state is created, so registration is immutable
 /// for the lifetime of the resulting owner.
 pub(crate) fn owner_policy_for_targets_with_tuning(
-    profiles: &[(CameraId, &ProfileSpec)],
+    profiles: &[(TargetSlot, &ProfileSpec)],
     config: &TransportConfig,
     semantics: SendSemantics,
     tuning: OperationalTuning,
@@ -283,34 +272,28 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     if config.addressing == AddressingMode::Ip && profiles.len() > 1 {
         return Err(Error::NotSupported);
     }
-    let mut target_policies = [None; 9];
+    let mut target_policies = PerTarget::default();
     let mut command_spacing = std::time::Duration::ZERO;
     let mut inquiry_spacing = std::time::Duration::ZERO;
     let mut inquiry_cooldown = std::time::Duration::ZERO;
     let mut raw_inquiry_release_hold = std::time::Duration::ZERO;
-    let mut seen = [false; 9];
+    let mut seen = PerTarget::default();
     // The profile-only facts, kept alongside the tuned ones so a later runtime
     // reconfiguration can re-derive from the profile rather than ratcheting off
     // the value a previous override installed (#631).
     let mut baseline = super::TuningBaseline {
         command_spacing: std::time::Duration::ZERO,
         inquiry_spacing: std::time::Duration::ZERO,
-        command_sockets: [None; 9],
+        command_sockets: PerTarget::default(),
     };
 
     for (target, profile) in profiles {
-        if !(1..=7).contains(&target.id()) {
-            return Err(Error::InvalidRequest(
-                "owner target registry requires individual cameras (1 through 7)".into(),
-            ));
-        }
-        let index = usize::from(target.id());
-        if seen[index] {
+        if seen[*target] {
             return Err(Error::InvalidRequest(
                 "owner target registry contains a duplicate camera".into(),
             ));
         }
-        seen[index] = true;
+        seen[*target] = true;
         profile.validate_tuning(tuning)?;
         if profile.envelope() != first_profile.envelope() {
             return Err(Error::InvalidRequest(
@@ -325,7 +308,7 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
         baseline.inquiry_spacing = baseline
             .inquiry_spacing
             .max(timing.minimum_inquiry_spacing());
-        baseline.command_sockets[index] = Some(profile.maximum_command_sockets());
+        baseline.command_sockets[*target] = Some(profile.maximum_command_sockets());
         command_spacing = command_spacing.max(
             tuning
                 .command_spacing_override()
@@ -338,7 +321,7 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
         );
         inquiry_cooldown = inquiry_cooldown.max(timing.busy_timeout());
         raw_inquiry_release_hold = raw_inquiry_release_hold.max(timing.raw_inquiry_reply_skew());
-        target_policies[index] = Some(TargetPolicy {
+        target_policies[*target] = Some(TargetPolicy {
             command_sockets: tuning
                 .maximum_command_sockets_override()
                 .unwrap_or_else(|| profile.maximum_command_sockets()),
@@ -480,7 +463,7 @@ where
     /// operation occurs here.
     pub(crate) fn new_with_targets(
         transport: T,
-        profiles: &[(CameraId, &ProfileSpec)],
+        profiles: &[(TargetSlot, &ProfileSpec)],
         tuning: OperationalTuning,
         admission_capacity: NonZeroUsize,
         strict_unconfirmed_poison: bool,
@@ -507,7 +490,7 @@ where
     pub(crate) fn new(
         transport: T,
         profile: &ProfileSpec,
-        target: CameraId,
+        target: TargetSlot,
     ) -> Result<Self, Error> {
         Self::new_with_tuning(transport, profile, target, OperationalTuning::new())
     }
@@ -517,7 +500,7 @@ where
     pub(crate) fn new_with_tuning(
         transport: T,
         profile: &ProfileSpec,
-        target: CameraId,
+        target: TargetSlot,
         tuning: OperationalTuning,
     ) -> Result<Self, Error> {
         Self::new_with_targets(
@@ -634,7 +617,7 @@ impl AdapterFraming {
         transport: &T,
         addressing_hint: Option<AddressingMode>,
         semantics: SendSemantics,
-        profiles: &[(CameraId, &ProfileSpec)],
+        profiles: &[(TargetSlot, &ProfileSpec)],
         tuning: OperationalTuning,
         admission_capacity: NonZeroUsize,
         strict_unconfirmed_poison: bool,
@@ -980,8 +963,8 @@ fn decode_frame(
 /// Classify a VISCA response after the owner boundary has established its
 /// target. The shared parser borrows the original frame; no normalization copy
 /// or second source-address validation is required.
-fn decode_response(target: CameraId, payload: &[u8]) -> Result<DecodedResponse, Error> {
-    let Some(basic) = decode_basic_for_source(payload, target) else {
+fn decode_response(target: TargetSlot, payload: &[u8]) -> Result<DecodedResponse, Error> {
+    let Some(basic) = decode_basic_for_source(payload, target.camera()) else {
         return Err(Error::InvalidResponse {
             expected: Cow::Borrowed("valid VISCA response"),
             actual: payload.to_vec(),
@@ -1030,7 +1013,7 @@ fn decode_response(target: CameraId, payload: &[u8]) -> Result<DecodedResponse, 
 pub(crate) fn decode_response_target(
     routing: RoutingState,
     payload: &[u8],
-) -> Result<Option<CameraId>, Error> {
+) -> Result<Option<TargetSlot>, Error> {
     let Some(&source) = payload.first() else {
         return Err(invalid_source(payload));
     };
@@ -1050,7 +1033,7 @@ pub(crate) fn decode_response_target(
 pub(crate) fn response_target_for_raw_prefix(
     routing: RoutingState,
     source: u8,
-) -> Option<CameraId> {
+) -> Option<TargetSlot> {
     match classify_response_source(routing, source) {
         ResponseSource::Target(target) => Some(target),
         ResponseSource::Ambiguous | ResponseSource::Invalid => None,
@@ -1063,7 +1046,7 @@ pub(crate) fn response_target_for_raw_prefix(
 /// discard verdict before they escape the framer.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResponseSource {
-    Target(CameraId),
+    Target(TargetSlot),
     Ambiguous,
     Invalid,
 }
@@ -1078,10 +1061,9 @@ fn classify_response_source(routing: RoutingState, source: u8) -> ResponseSource
                 return ResponseSource::Invalid;
             }
             let id = (source >> 4).saturating_sub(8);
-            if !(1..=7).contains(&id) {
-                return ResponseSource::Invalid;
-            }
-            CameraId::new(id).map_or(ResponseSource::Invalid, ResponseSource::Target)
+            CameraId::new(id)
+                .and_then(TargetSlot::try_from)
+                .map_or(ResponseSource::Invalid, ResponseSource::Target)
         }
         AddressingMode::Ip => {
             // #590/#598/#681: an IP VISCA reply carries no routable camera source, so it is
@@ -1178,7 +1160,7 @@ pub(crate) fn validate_profile_transport(
 /// the conservative answer for an unknown/custom transport and therefore
 /// cannot authorize a multi-target registry.
 pub(crate) fn validate_profile_registry_topology(
-    profiles: &[(CameraId, &ProfileSpec)],
+    profiles: &[(TargetSlot, &ProfileSpec)],
     kind: Option<CameraTransportKind>,
     addressing: Option<AddressingMode>,
 ) -> Result<(), Error> {
@@ -1217,13 +1199,13 @@ mod tests {
 
     fn all_targets() -> TargetRegistry {
         TargetRegistry::from_targets(&[
-            CameraId::CAMERA_1,
-            CameraId::CAMERA_2,
-            CameraId::CAMERA_3,
-            CameraId::CAMERA_4,
-            CameraId::CAMERA_5,
-            CameraId::CAMERA_6,
-            CameraId::CAMERA_7,
+            TargetSlot::ALL[0],
+            TargetSlot::ALL[1],
+            TargetSlot::ALL[2],
+            TargetSlot::ALL[3],
+            TargetSlot::ALL[4],
+            TargetSlot::ALL[5],
+            TargetSlot::ALL[6],
         ])
         .unwrap()
     }
@@ -1232,13 +1214,13 @@ mod tests {
     fn serial_source_bytes_map_exactly_to_all_seven_targets() {
         let routing = RoutingState::new(AddressingMode::Serial, all_targets());
         for (source, expected) in [
-            (0x90, CameraId::CAMERA_1),
-            (0xa0, CameraId::CAMERA_2),
-            (0xb0, CameraId::CAMERA_3),
-            (0xc0, CameraId::CAMERA_4),
-            (0xd0, CameraId::CAMERA_5),
-            (0xe0, CameraId::CAMERA_6),
-            (0xf0, CameraId::CAMERA_7),
+            (0x90, TargetSlot::ALL[0]),
+            (0xa0, TargetSlot::ALL[1]),
+            (0xb0, TargetSlot::ALL[2]),
+            (0xc0, TargetSlot::ALL[3]),
+            (0xd0, TargetSlot::ALL[4]),
+            (0xe0, TargetSlot::ALL[5]),
+            (0xf0, TargetSlot::ALL[6]),
         ] {
             assert!(matches!(
                 decode_response_target(routing, &[source]),
@@ -1264,7 +1246,7 @@ mod tests {
         let envelope = OwnerEnvelope::Sony(SonyEncapsulated::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
         );
         let framed = Bytes::from_static(&[
             0x02, 0x01, // control reply
@@ -1276,7 +1258,7 @@ mod tests {
         let decoded = decode_frame(&envelope, routing, framed)
             .expect("valid Sony control reply")
             .expect("sole-target Sony reply");
-        assert_eq!(decoded.target, CameraId::CAMERA_1);
+        assert_eq!(decoded.target, TargetSlot::ALL[0]);
         assert_eq!(decoded.sequence, None);
         assert_eq!(
             decoded.response,
@@ -1302,7 +1284,7 @@ mod tests {
         let ack = decode_frame(&envelope, routing, Bytes::from_static(&[0xa0, 0x42, 0xff]))
             .unwrap()
             .unwrap();
-        assert_eq!(ack.target, CameraId::CAMERA_2);
+        assert_eq!(ack.target, TargetSlot::ALL[1]);
         assert!(matches!(
             ack.response,
             DecodedResponse::Ack {
@@ -1317,7 +1299,7 @@ mod tests {
         )
         .unwrap()
         .unwrap();
-        assert_eq!(error.target, CameraId::CAMERA_2);
+        assert_eq!(error.target, TargetSlot::ALL[1]);
         assert!(matches!(
             error.response,
             DecodedResponse::Error {
@@ -1339,14 +1321,14 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(CameraId::CAMERA_2).unwrap(),
+            TargetRegistry::single(TargetSlot::ALL[1]).unwrap(),
         );
         // The default `0x90` reply attributes to the sole target.
         let default_source =
             decode_frame(&envelope, routing, Bytes::from_static(&[0x90, 0x42, 0xff]))
                 .unwrap()
                 .unwrap();
-        assert_eq!(default_source.target, CameraId::CAMERA_2);
+        assert_eq!(default_source.target, TargetSlot::ALL[1]);
         // A camera answering with its chain address `0xA0` still attributes to
         // the sole target, and its ACK still classifies (socket S2).
         let chain_source =
@@ -1355,7 +1337,7 @@ mod tests {
                     "a chain-address reply on a single-target IP session is not a decode failure",
                 )
                 .expect("a single-target IP session attributes any reply source");
-        assert_eq!(chain_source.target, CameraId::CAMERA_2);
+        assert_eq!(chain_source.target, TargetSlot::ALL[1]);
         assert!(matches!(
             chain_source.response,
             DecodedResponse::Ack {
@@ -1376,7 +1358,7 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::from_targets(&[CameraId::CAMERA_1, CameraId::CAMERA_2]).unwrap(),
+            TargetRegistry::from_targets(&[TargetSlot::ALL[0], TargetSlot::ALL[1]]).unwrap(),
         );
         // A bare `0x90` reply is ambiguous across the registered targets: it is
         // dropped (Ok(None)) rather than attributed to a guessed target.
@@ -1394,12 +1376,12 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Serial));
         let routing = RoutingState::new(
             AddressingMode::Serial,
-            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
         );
         let frame = decode_frame(&envelope, routing, Bytes::from_static(&[0xa0, 0x42, 0xff]))
             .unwrap()
             .unwrap();
-        assert_eq!(frame.target, CameraId::CAMERA_2);
+        assert_eq!(frame.target, TargetSlot::ALL[1]);
         assert!(matches!(frame.response, DecodedResponse::Unknown));
     }
 
@@ -1411,12 +1393,12 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
         );
         let ack = decode_frame(&envelope, routing, Bytes::from_static(&[0x90, 0x40, 0xff]))
             .expect("a socketless ACK is not a decode failure")
             .expect("a socketless ACK is attributable");
-        assert_eq!(ack.target, CameraId::CAMERA_1);
+        assert_eq!(ack.target, TargetSlot::ALL[0]);
         assert!(matches!(
             ack.response,
             DecodedResponse::Ack { socket: None }
@@ -1449,7 +1431,7 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
         );
         for frame in [
             // Too short to be any VISCA response.
@@ -1471,7 +1453,7 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
         );
         let mut framer =
             ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
@@ -1512,7 +1494,7 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
         );
         let mut framer =
             ProtocolFramer::new_with_limits_and_mode(32, 32, 32, FramingMode::RawVisca);
@@ -1556,7 +1538,7 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
         );
         let mut framer = ProtocolFramer::new_with_limits_and_mode(8, 32, 5, FramingMode::RawVisca);
         let mut buffers = OwnerBuffers::new(OwnerLimits::default()).unwrap();
@@ -1598,7 +1580,7 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
         );
         let mut framer =
             ProtocolFramer::new_with_limits_and_mode(64, 64, 64, FramingMode::RawVisca);
@@ -1640,7 +1622,7 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
         );
         let mut framer =
             ProtocolFramer::new_with_limits_and_mode(64, 64, 64, FramingMode::RawVisca);
@@ -1671,7 +1653,7 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
         );
         let mut framer =
             ProtocolFramer::new_with_limits_and_mode(64, 64, 64, FramingMode::RawVisca);
@@ -1721,7 +1703,7 @@ mod tests {
         let envelope = OwnerEnvelope::Raw(RawVisca::new(AddressingMode::Ip));
         let routing = RoutingState::new(
             AddressingMode::Ip,
-            TargetRegistry::single(CameraId::CAMERA_1).unwrap(),
+            TargetRegistry::single(TargetSlot::ALL[0]).unwrap(),
         );
         let mut framer =
             ProtocolFramer::new_with_limits_and_mode(64, 64, 64, FramingMode::RawVisca);
@@ -1747,8 +1729,8 @@ mod tests {
     fn multi_target_policy_retains_target_local_facts_and_shared_bounds() {
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         let profiles = [
-            (CameraId::CAMERA_1, &profile),
-            (CameraId::CAMERA_2, &profile),
+            (TargetSlot::ALL[0], &profile),
+            (TargetSlot::ALL[1], &profile),
         ];
         let config = TransportConfig {
             addressing: AddressingMode::Serial,
@@ -1772,8 +1754,8 @@ mod tests {
     fn production_raw_policy_is_single_flight_while_sony_uses_admission_capacity() {
         let raw = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         let sony = ProfileSpec::from_compile_time::<SonyFR7>().unwrap();
-        let raw_profiles = [(CameraId::CAMERA_1, &raw)];
-        let sony_profiles = [(CameraId::CAMERA_1, &sony)];
+        let raw_profiles = [(TargetSlot::ALL[0], &raw)];
+        let sony_profiles = [(TargetSlot::ALL[0], &sony)];
         let capacity = NonZeroUsize::new(3).unwrap();
         let config = TransportConfig::default();
 
@@ -1811,8 +1793,8 @@ mod tests {
         let relaxed = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         let strict = ProfileSpec::from_compile_time::<PtzOpticsG2>().unwrap();
         let profiles = [
-            (CameraId::CAMERA_1, &relaxed),
-            (CameraId::CAMERA_2, &strict),
+            (TargetSlot::ALL[0], &relaxed),
+            (TargetSlot::ALL[1], &strict),
         ];
         let config = TransportConfig {
             addressing: AddressingMode::Serial,
@@ -1832,7 +1814,7 @@ mod tests {
     #[test]
     fn buffer_policy_accepts_equal_receive_and_maximum_sizes() {
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
-        let profiles = [(CameraId::CAMERA_1, &profile)];
+        let profiles = [(TargetSlot::ALL[0], &profile)];
         let config = TransportConfig {
             buffer_config: crate::transport::BufferConfig {
                 recv_buffer_size: 64,
@@ -1852,7 +1834,7 @@ mod tests {
     #[test]
     fn buffer_policy_rejects_receive_size_larger_than_maximum() {
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
-        let profiles = [(CameraId::CAMERA_1, &profile)];
+        let profiles = [(TargetSlot::ALL[0], &profile)];
         let config = TransportConfig {
             buffer_config: crate::transport::BufferConfig {
                 recv_buffer_size: 65,

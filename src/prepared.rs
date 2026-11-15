@@ -19,6 +19,7 @@ use crate::{
     },
     completion,
     profile::{RetryBounds, DEFAULT_RETRY_BASE},
+    target::TargetSlot,
     timeout::CommandCategory,
     types::{FocusPosition, IrisLevel, ZoomPosition},
     AffectedAxes, CameraId, ControlClass, Inquiry, InquiryRoute, OperationCommand,
@@ -735,11 +736,6 @@ where
                 .into(),
         ));
     }
-    if target.is_broadcast() {
-        return Err(Error::InvalidRequest(
-            "inquiries require an individual camera target".into(),
-        ));
-    }
     validate_timeout_class(inquiry.timeout_class(), true)?;
     profile.validate_tuning(tuning)?;
     if matches!(
@@ -818,11 +814,6 @@ where
     K: completion::Kind,
     O: OperationCommand<K> + ?Sized,
 {
-    if target.is_broadcast() {
-        return Err(Error::InvalidRequest(
-            "observable operations require an individual camera target".into(),
-        ));
-    }
     // An operation handle's `applied()` is a protocol-evidence promise. A
     // no-reply command can prove only a successful local write, so keep that
     // fire-and-forget shape on the plain-command path even for downstream or
@@ -987,7 +978,7 @@ where
         motion: None,
         submission_order: 0,
         dispatch_deadline: None,
-        target,
+        target: TargetSlot::try_from(target)?,
         timeout,
         retry: retry_policy(
             request.retry_class(),
@@ -4067,7 +4058,7 @@ mod tests {
 #[cfg(any(feature = "async", feature = "blocking"))]
 #[derive(Debug)]
 pub(crate) struct PreparedHalt {
-    pub(crate) target: CameraId,
+    pub(crate) target: TargetSlot,
     pub(crate) axes: Option<AffectedAxes>,
     pub(crate) requests: [Option<Result<RuntimeRequest>>; 3],
     pub(crate) budget: Duration,
@@ -4075,7 +4066,7 @@ pub(crate) struct PreparedHalt {
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 pub(crate) fn prepare_halt(
-    target: CameraId,
+    target: TargetSlot,
     profile: &ProfileSpec,
     tuning: OperationalTuning,
 ) -> PreparedHalt {
@@ -4092,14 +4083,20 @@ pub(crate) fn prepare_halt(
     let pan_tilt = profile.supports_axes(AffectedAxes::PAN_TILT).then(|| {
         lower(
             crate::stop_request::pan_tilt_stop_request(profile).and_then(|stop| {
-                prepare_operation(&stop, target, profile, tuning, ClassSelection::Request)
+                prepare_operation(
+                    &stop,
+                    target.camera(),
+                    profile,
+                    tuning,
+                    ClassSelection::Request,
+                )
             }),
         )
     });
     let zoom = profile.supports_axes(AffectedAxes::ZOOM).then(|| {
         lower(prepare_operation(
             &ZoomStop,
-            target,
+            target.camera(),
             profile,
             tuning,
             ClassSelection::Request,
@@ -4108,7 +4105,7 @@ pub(crate) fn prepare_halt(
     let focus = profile.supports_axes(AffectedAxes::FOCUS).then(|| {
         lower(prepare_operation(
             &FocusStop,
-            target,
+            target.camera(),
             profile,
             tuning,
             ClassSelection::Request,

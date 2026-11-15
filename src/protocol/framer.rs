@@ -11,7 +11,8 @@ use bytes::{Bytes, BytesMut};
 use crate::{
     command::bytes::VISCA_TERMINATOR,
     protocol::{response::decode_fixed_socket, sony::SonyHeader},
-    CameraId, Error, ViscaSocket,
+    target::TargetSlot,
+    Error, ViscaSocket,
 };
 
 #[cfg(test)]
@@ -97,7 +98,7 @@ pub(crate) enum RawBufferedInput {
     Malformed,
     /// An incomplete response-shaped input with its resolved target and class.
     Incomplete {
-        target: CameraId,
+        target: TargetSlot,
         kind: RawIncompletePrefix,
     },
 }
@@ -293,7 +294,7 @@ impl ProtocolFramer {
     /// An empty buffer and a non-raw framer have no raw-prefix evidence.
     pub(crate) fn buffered_raw_incomplete_prefix(
         &self,
-        mut target_for_source: impl FnMut(u8) -> Option<CameraId>,
+        mut target_for_source: impl FnMut(u8) -> Option<TargetSlot>,
     ) -> Option<RawBufferedInput> {
         if self.mode != FramingMode::RawVisca || self.buf.is_empty() {
             return None;
@@ -512,10 +513,10 @@ mod tests {
 
         assert_eq!(
             framer.buffered_raw_incomplete_prefix(|source| {
-                (source == 0x90).then_some(CameraId::CAMERA_1)
+                (source == 0x90).then_some(TargetSlot::ALL[0])
             }),
             Some(RawBufferedInput::Incomplete {
-                target: CameraId::CAMERA_1,
+                target: TargetSlot::CAMERA_1,
                 kind: RawIncompletePrefix::SourceOnly,
             })
         );
@@ -529,10 +530,10 @@ mod tests {
 
         assert_eq!(
             framer.buffered_raw_incomplete_prefix(|source| {
-                (source == 0x90).then_some(CameraId::CAMERA_1)
+                (source == 0x90).then_some(TargetSlot::ALL[0])
             }),
             Some(RawBufferedInput::Incomplete {
-                target: CameraId::CAMERA_1,
+                target: TargetSlot::CAMERA_1,
                 kind: RawIncompletePrefix::NamedCompletionOrError(ViscaSocket::S1),
             })
         );
@@ -563,10 +564,10 @@ mod tests {
             framer.push_slice(bytes).unwrap();
             assert_eq!(
                 framer.buffered_raw_incomplete_prefix(|source| {
-                    (source == 0x90).then_some(CameraId::CAMERA_1)
+                    (source == 0x90).then_some(TargetSlot::ALL[0])
                 }),
                 Some(RawBufferedInput::Incomplete {
-                    target: CameraId::CAMERA_1,
+                    target: TargetSlot::CAMERA_1,
                     kind: expected,
                 }),
                 "bytes {bytes:02x?}",
@@ -584,7 +585,7 @@ mod tests {
 
         assert_eq!(
             framer.buffered_raw_incomplete_prefix(|source| {
-                (source == 0x90).then_some(CameraId::CAMERA_1)
+                (source == 0x90).then_some(TargetSlot::ALL[0])
             }),
             Some(RawBufferedInput::Complete)
         );
@@ -600,7 +601,7 @@ mod tests {
 
         assert_eq!(
             framer.buffered_raw_incomplete_prefix(|source| {
-                (source == 0x90).then_some(CameraId::CAMERA_1)
+                (source == 0x90).then_some(TargetSlot::ALL[0])
             }),
             Some(RawBufferedInput::Complete)
         );
@@ -625,7 +626,7 @@ mod tests {
             framer.push_slice(bytes).unwrap();
             assert_eq!(
                 framer.buffered_raw_incomplete_prefix(|source| {
-                    (source == 0x90).then_some(CameraId::CAMERA_1)
+                    (source == 0x90).then_some(TargetSlot::ALL[0])
                 }),
                 Some(RawBufferedInput::Malformed),
                 "bytes {bytes:02x?}",
