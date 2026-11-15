@@ -20,7 +20,6 @@ use stream_ledger::{
 pub(crate) use types::*;
 
 use std::{
-    borrow::Cow,
     cmp::Ordering,
     collections::BTreeMap,
     num::NonZeroU64,
@@ -670,19 +669,15 @@ impl ProtocolEngine {
                     now,
                     effects,
                 ),
-                ShutdownReason::TransportClosed { reason } => self.terminate_session(
+                ShutdownReason::TransportClosed { cause } => self.terminate_session(
                     SessionState::Closed,
-                    Error::ConnectionClosed {
-                        reason: reason.map(|value| Cow::Owned(value.into())),
-                    },
+                    Error::connection_closed(cause),
                     now,
                     effects,
                 ),
-                ShutdownReason::FramingFailure { reason } => self.terminate_session(
+                ShutdownReason::FramingFailure { cause } => self.terminate_session(
                     SessionState::Poisoned,
-                    Error::StreamPoisoned {
-                        reason: Cow::Owned(reason.into()),
-                    },
+                    Error::stream_poisoned(cause),
                     now,
                     effects,
                 ),
@@ -2092,7 +2087,7 @@ impl ProtocolEngine {
     /// `WriteOutcome::NotSent` path and never enters this handler.
     ///
     /// The exact transport cause is never lost: it is carried in the poison
-    /// reason. The failed command is failed individually and the stream
+    /// source chain. The failed command is failed individually and the stream
     /// session is poisoned, because after an unconfirmed write the byte stream
     /// can no longer be trusted to be frame-aligned.
     fn failed_transmission(
@@ -2105,9 +2100,7 @@ impl ProtocolEngine {
         if self.policy.transport == TransportKind::Stream {
             self.terminate_session(
                 SessionState::Poisoned,
-                Error::StreamPoisoned {
-                    reason: Cow::Owned(error.to_string()),
-                },
+                Error::stream_poisoned(error),
                 now,
                 effects,
             );
@@ -4453,19 +4446,13 @@ impl ProtocolEngine {
     /// and to any later operation through the owner's boundary verdict — must
     /// answer [`Error::requires_new_session`](crate::Error::requires_new_session)
     /// with `true` so a caller rebuilds it. [`Error::UnsequencedCommandUnconfirmed`]
-    /// is deliberately *not* used here: it is now the per-request survivable
-    /// outcome (its `requires_new_session()` is `false`), and a live-vs-dead
-    /// session must never be reported by the same verdict. [`Error::StreamPoisoned`]
-    /// is the crate's session-poison error, and its recovery guidance already
-    /// covers a raw command whose completion is uncertain.
+    /// is the typed cause, while the outer [`Error::StreamPoisoned`] verdict
+    /// distinguishes session death from that survivable per-request outcome.
+    /// Its recovery guidance covers a raw command whose completion is uncertain.
     fn poison_strict_unconfirmed(&mut self, now: Instant, effects: &mut Decision) {
         self.terminate_session(
             SessionState::Poisoned,
-            Error::StreamPoisoned {
-                reason: Cow::Borrowed(
-                    "raw command outcome could not be confirmed (strict_unconfirmed_poison)",
-                ),
-            },
+            Error::stream_poisoned(Error::UnsequencedCommandUnconfirmed),
             now,
             effects,
         );

@@ -1146,7 +1146,10 @@ impl AsyncTransport for ViscaCameraSimulator {
         match tokio::time::timeout(Duration::from_secs(30), receiver.recv()).await {
             Ok(Ok(response)) => Ok(ReceiveOutcome::copy_message(&response, dst)),
             Ok(Err(broadcast::error::RecvError::Closed)) => Err(Error::ConnectionClosed {
-                reason: Some("simulator response lane closed".into()),
+                source: Some(Arc::new(Error::from(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "simulator response lane closed",
+                )))),
             }),
             Ok(Err(broadcast::error::RecvError::Lagged(_))) | Err(_) => Err(Error::io_timeout()),
         }

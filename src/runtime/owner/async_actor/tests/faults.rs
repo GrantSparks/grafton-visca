@@ -104,31 +104,35 @@ async fn transient_receive_fault_retries_and_keeps_the_session_running() {
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn fatal_receive_fault_closes_the_session() {
-    let runtime = TokioRuntime::from_current().unwrap();
-    let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime).unwrap();
-    let harness = harness();
-    let started = harness.started.clone();
-    let gates = harness.gates.clone();
-    let frames = harness.frames.clone();
-    let actor_task = tokio::spawn(actor.run(harness.driver));
+    for kind in [std::io::ErrorKind::BrokenPipe, std::io::ErrorKind::TimedOut] {
+        let runtime = TokioRuntime::from_current().unwrap();
+        let (handle, actor) = AsyncOwnerActor::new(stream_policy(1), runtime).unwrap();
+        let harness = harness();
+        let started = harness.started.clone();
+        let gates = harness.gates.clone();
+        let frames = harness.frames.clone();
+        let actor_task = tokio::spawn(actor.run(harness.driver));
 
-    let receipt = handle.submit(command()).await.unwrap();
-    assert_eq!(started.recv_async().await.unwrap(), receipt.id);
-    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
-    frames
-        .send_async(OwnerReceive::read_error(Error::Io(Arc::new(
-            std::io::Error::from(std::io::ErrorKind::BrokenPipe),
-        ))))
-        .await
-        .unwrap();
+        let receipt = handle.submit(command()).await.unwrap();
+        assert_eq!(started.recv_async().await.unwrap(), receipt.id);
+        gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
+        frames
+            .send_async(OwnerReceive::read_error(Error::Io(Arc::new(
+                std::io::Error::from(kind),
+            ))))
+            .await
+            .unwrap();
 
-    assert!(matches!(
-        receipt.terminal().await.unwrap(),
-        RuntimeOutcome::Failed(Error::ConnectionClosed { .. })
-    ));
-    let snapshot = actor_task.await.unwrap();
-    assert_eq!(snapshot.state, SessionState::Closed);
+        assert!(matches!(
+            receipt.terminal().await.unwrap(),
+            RuntimeOutcome::Failed(Error::ConnectionClosed { source: Some(source) })
+                if matches!(source.as_ref(), Error::Io(io) if io.kind() == kind)
+        ));
+        let snapshot = actor_task.await.unwrap();
+        assert_eq!(snapshot.state, SessionState::Closed);
+    }
 }
+
 /// Issue #625. A transport that fails every read keeps the receive branch
 /// of the left-biased race permanently ready. Before the fix that starved
 /// shutdown, admissions, cancellations and control forever: `submit` never
@@ -227,14 +231,15 @@ async fn a_permanently_failing_transport_eventually_ends_the_session() {
     );
     let error = handle.metrics().await.unwrap_err();
     let Error::ConnectionClosed {
-        reason: Some(reason),
+        source: Some(source),
     } = error
     else {
         panic!("the terminal error must name the transport cause: {error:?}");
     };
     assert!(
-        reason.contains("consecutive receive faults"),
-        "the reason must say why the fault run stopped counting as transient: {reason}"
+        matches!(source.as_ref(), Error::WithContext { context, source }
+            if context.contains("consecutive receive faults") && matches!(source.as_ref(), Error::Io(io) if io.kind() == std::io::ErrorKind::Other)),
+        "the typed cause must retain the fault-run context: {source}"
     );
 }
 /// A clean no-data receive is neither a transport fault nor proof that an

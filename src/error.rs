@@ -184,7 +184,7 @@ pub enum ErrorKind {
 /// the byte-stream position became unknowable, the owner terminated
 /// unexpectedly, or the application shut the runtime down. A fatal receive closure is normalized to
 /// [`Error::ConnectionClosed`] (with the transport cause retained in its
-/// reason); [`Error::StreamPoisoned`] is reserved for an unknowable stream
+/// source); [`Error::StreamPoisoned`] is reserved for an unknowable stream
 /// framing or write position. Use [`Error::requires_new_session()`] to tell
 /// transport death from deliberate shutdown. A per-request correlation failure
 /// for an unsequenced command on a raw-VISCA envelope is different:
@@ -240,14 +240,15 @@ pub enum Error {
     /// Connection to the camera was closed.
     ///
     /// Owners normalize a fatal receive-side closure to this variant and keep
-    /// the underlying transport cause in `reason`. A stream framing or write
+    /// the underlying transport cause in its `source()`. A stream framing or write
     /// failure whose byte position is unknowable is reported as
     /// [`Self::StreamPoisoned`] instead.
-    #[error("Connection closed{}", reason.as_ref().map(|r| format!(": {r}")).unwrap_or_default())]
+    #[error("Connection closed{}", source.as_ref().map(|cause| format!(": {cause}")).unwrap_or_default())]
     #[non_exhaustive]
     ConnectionClosed {
-        /// Optional reason for the connection closure.
-        reason: Option<Cow<'static, str>>,
+        /// Original typed cause of the connection closure, when one was reported.
+        #[source]
+        source: Option<Arc<Error>>,
     },
 
     /// Command has been acknowledged but is still pending completion.
@@ -754,11 +755,12 @@ pub enum Error {
     /// an unsequenced command on a raw-VISCA envelope may already have reached
     /// the camera before its outcome was lost, and the replacement session
     /// cannot prove otherwise.
-    #[error("Stream transport poisoned: {reason}")]
+    #[error("Stream transport poisoned: {source}")]
     #[non_exhaustive]
     StreamPoisoned {
-        /// Description of why the transport was poisoned.
-        reason: Cow<'static, str>,
+        /// Original typed framing, write, or protocol cause.
+        #[source]
+        source: Arc<Error>,
     },
 
     /// Invalid camera ID provided.
@@ -971,10 +973,18 @@ impl Error {
         }
     }
 
-    /// Reports a closed connection with an optional cause.
+    /// Reports a closed connection with an optional typed cause.
+    ///
+    /// An existing close verdict, including one beneath context wrappers, is
+    /// returned unchanged instead of adding another session-death wrapper.
     #[must_use]
-    pub const fn connection_closed(reason: Option<Cow<'static, str>>) -> Self {
-        Self::ConnectionClosed { reason }
+    pub fn connection_closed(source: Option<Arc<Error>>) -> Self {
+        match source {
+            Some(source) if matches!(source.without_context(), Self::ConnectionClosed { .. }) => {
+                source.as_ref().clone()
+            }
+            source => Self::ConnectionClosed { source },
+        }
     }
 
     /// Reports bytes that do not match the expected response.
@@ -1109,11 +1119,26 @@ impl Error {
     }
 
     /// Reports a stream whose framing or write position became unknowable.
+    ///
+    /// An existing poison verdict, including one beneath context wrappers, is
+    /// returned unchanged, preserving its typed cause.
     #[must_use]
-    pub fn stream_poisoned(reason: impl Into<Cow<'static, str>>) -> Self {
-        Self::StreamPoisoned {
-            reason: reason.into(),
+    pub fn stream_poisoned(source: impl Into<Arc<Error>>) -> Self {
+        let source = source.into();
+        if matches!(source.without_context(), Self::StreamPoisoned { .. }) {
+            source.as_ref().clone()
+        } else {
+            Self::StreamPoisoned { source }
         }
+    }
+
+    /// Context is descriptive and does not change a terminal cause's identity.
+    fn without_context(&self) -> &Self {
+        let mut error = self;
+        while let Self::WithContext { source, .. } = error {
+            error = source;
+        }
+        error
     }
 
     /// Reports an invalid VISCA camera address.
@@ -1276,7 +1301,7 @@ impl Error {
     ///   session is terminal and is never revived; every retained and
     ///   subsequently attempted operation keeps reporting its exact terminal
     ///   session error. Fatal receive closure is always normalized to
-    ///   `ConnectionClosed`, with the underlying cause in its reason. An
+    ///   `ConnectionClosed`, with the underlying cause in its source chain. An
     ///   unconfirmed unsequenced raw-VISCA command is not in this set by default: its
     ///   [`Error::UnsequencedCommandUnconfirmed`] result is per-request and
     ///   leaves the session running.
@@ -1898,6 +1923,66 @@ mod tests {
     use crate::command::bytes::VISCA_TERMINATOR;
 
     #[test]
+    fn session_death_preserves_typed_sources_and_normalizes_context_idempotently() {
+        let original = Arc::new(Error::from(io::Error::from_raw_os_error(104)));
+        for closed in [true, false] {
+            let terminal = if closed {
+                Error::connection_closed(Some(original.clone()))
+            } else {
+                Error::stream_poisoned(original.clone())
+            };
+            let Some(cause) = std::error::Error::source(&terminal)
+                .and_then(|source| source.downcast_ref::<Arc<Error>>())
+            else {
+                panic!("terminal verdict exposes its typed shared Error source");
+            };
+            assert!(matches!(cause.as_ref(), Error::Io(io) if io.raw_os_error() == Some(104)));
+            let clone = terminal.clone();
+            let retained = match &clone {
+                Error::ConnectionClosed {
+                    source: Some(source),
+                }
+                | Error::StreamPoisoned { source } => source,
+                _ => panic!("terminal source"),
+            };
+            assert!(Arc::ptr_eq(retained, &original));
+            for depth in 0..6 {
+                let mut contextual = terminal.clone();
+                for _ in 0..depth {
+                    contextual = contextual.with_context("receive context");
+                }
+                let expected = contextual.to_string();
+                let normalized = if closed {
+                    Error::connection_closed(Some(Arc::new(contextual)))
+                } else {
+                    Error::stream_poisoned(contextual)
+                };
+                assert_eq!(normalized.to_string(), expected);
+                assert_eq!(normalized.kind(), terminal.kind());
+                assert_eq!(normalized.recovery(), terminal.recovery());
+                assert_eq!(normalized.failure_context(), terminal.failure_context());
+                assert!(normalized.requires_new_session());
+                let mut cursor: &(dyn std::error::Error + 'static) = &normalized;
+                let mut verdicts = 0;
+                loop {
+                    if matches!(
+                        cursor
+                            .downcast_ref::<Error>()
+                            .or_else(|| cursor.downcast_ref::<Arc<Error>>().map(Arc::as_ref))
+                            .or_else(|| cursor.downcast_ref::<Box<Error>>().map(Box::as_ref)),
+                        Some(Error::ConnectionClosed { .. } | Error::StreamPoisoned { .. })
+                    ) {
+                        verdicts += 1;
+                    }
+                    let Some(source) = cursor.source() else { break };
+                    cursor = source;
+                }
+                assert_eq!(verdicts, 1);
+            }
+        }
+    }
+
+    #[test]
     fn transport_wrapper_preserves_source_chain_and_is_idempotent() {
         let error = Error::transport_error(io::Error::from_raw_os_error(111));
         assert_eq!(error.kind(), ErrorKind::Transport);
@@ -1928,7 +2013,7 @@ mod tests {
         let timeout = Error::io_timeout();
         let context = timeout.failure_context();
         assert_eq!(Error::transport_error(timeout).failure_context(), context);
-        let closed = Error::transport_error(Error::ConnectionClosed { reason: None });
+        let closed = Error::transport_error(Error::ConnectionClosed { source: None });
         assert_eq!(closed.kind(), ErrorKind::Transport);
         assert!(!closed.requires_new_session());
     }
@@ -2072,7 +2157,7 @@ mod tests {
 
         // IoClosed
         assert_eq!(
-            Error::ConnectionClosed { reason: None }.kind(),
+            Error::ConnectionClosed { source: None }.kind(),
             ErrorKind::IoClosed
         );
         assert_eq!(Error::RuntimeShutdown.kind(), ErrorKind::IoClosed);
@@ -2152,10 +2237,13 @@ mod tests {
         // Issue #564: `IoClosed` conflates the three distinct terminal session
         // errors, so the classification must not be derived from the kind.
         let dropped = Error::ConnectionClosed {
-            reason: Some(Cow::Borrowed("closed by peer")),
+            source: Some(Arc::new(Error::from(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "closed by peer",
+            )))),
         };
         let poisoned = Error::StreamPoisoned {
-            reason: Cow::Borrowed("partial write"),
+            source: Arc::new(Error::from(io::Error::other("partial write"))),
         };
         let shutdown = Error::RuntimeShutdown;
 
@@ -2178,9 +2266,9 @@ mod tests {
     #[test]
     fn requires_new_session_covers_every_unusable_transport_condition() {
         for error in [
-            Error::ConnectionClosed { reason: None },
+            Error::ConnectionClosed { source: None },
             Error::StreamPoisoned {
-                reason: Cow::Borrowed("framing failure"),
+                source: Arc::new(Error::from(io::Error::other("framing failure"))),
             },
         ] {
             assert!(
@@ -2224,7 +2312,7 @@ mod tests {
     #[test]
     fn requires_new_session_survives_added_context() {
         let error = Error::StreamPoisoned {
-            reason: Cow::Borrowed("partial write"),
+            source: Arc::new(Error::from(io::Error::other("partial write"))),
         }
         .with_context("recall preset 3")
         .with_context("restore show state");

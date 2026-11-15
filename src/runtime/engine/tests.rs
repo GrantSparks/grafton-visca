@@ -3376,7 +3376,10 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
     assert!(datagram_engine.entry(second_id).is_some());
     let closed = datagram_engine.handle(
         Input::Shutdown(ShutdownReason::TransportClosed {
-            reason: Some("peer closed".into()),
+            cause: Some(Arc::new(Error::from(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "peer closed",
+            )))),
         }),
         start,
     );
@@ -6213,7 +6216,7 @@ fn receive_fault_after_termination_is_inert() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     engine.handle(
-        Input::Shutdown(ShutdownReason::TransportClosed { reason: None }),
+        Input::Shutdown(ShutdownReason::TransportClosed { cause: None }),
         start,
     );
     let fault = engine.handle(
@@ -6234,7 +6237,7 @@ fn receive_fault_after_termination_is_inert() {
 /// reason names the exact transport cause, and every affected request reports
 /// the one error that classifies as needing a replacement session (#564).
 #[test]
-fn stream_write_failure_poisons_with_the_transport_cause_in_the_reason() {
+fn stream_write_failure_poisons_with_the_typed_transport_cause() {
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Stream);
     let first = engine.handle(
@@ -6281,13 +6284,15 @@ fn stream_write_failure_poisons_with_the_transport_cause_in_the_reason() {
         vec![first_id, second_id]
     );
     for (_, outcome) in &terminals {
-        let RuntimeOutcome::Failed(Error::StreamPoisoned { reason }) = outcome else {
+        let RuntimeOutcome::Failed(Error::StreamPoisoned { source }) = outcome else {
             panic!("every request on a poisoned stream reports the session verdict: {outcome:?}");
         };
-        assert!(
-            reason.contains("short write"),
-            "the exact transport cause must survive in the poison reason: {reason}"
-        );
+        assert!(matches!(source.as_ref(), Error::TransportError { source }
+            if matches!(source.as_ref(), Error::Io(io) if io.kind() == std::io::ErrorKind::Other)));
+        let RuntimeOutcome::Failed(error) = outcome else {
+            unreachable!()
+        };
+        assert!(std::error::Error::source(error).is_some());
     }
     assert_eq!(engine.state(), SessionState::Poisoned);
     engine.assert_invariants().unwrap();
@@ -8341,7 +8346,7 @@ fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
             )
         };
 
-        let expected_reason = Error::transport_error(std::io::Error::other(cause)).to_string();
+        let expected_source = Error::transport_error(std::io::Error::other(cause));
         let terminal_ids: Vec<_> = poisoned
             .iter()
             .filter_map(|effect| match effect {
@@ -8351,10 +8356,13 @@ fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
             .collect();
         assert_eq!(terminal_ids, vec![peer_id, failed_id]);
         for id in [peer_id, failed_id] {
-            let Some(Error::StreamPoisoned { reason }) = terminal_failure(&poisoned, id) else {
+            let Some(Error::StreamPoisoned { source }) = terminal_failure(&poisoned, id) else {
                 panic!("{envelope:?} stream failure must terminalize {id:?} with poison");
             };
-            assert_eq!(reason.as_ref(), expected_reason.as_str());
+            assert_eq!(source.to_string(), expected_source.to_string());
+            assert!(
+                matches!(source.as_ref(), Error::TransportError { source } if matches!(source.as_ref(), Error::Io(io) if io.kind() == std::io::ErrorKind::Other))
+            );
         }
         assert!(poisoned.iter().any(|effect| matches!(
             effect,
@@ -8365,10 +8373,13 @@ fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
         )));
         assert_eq!(engine.state(), SessionState::Poisoned);
         let terminal = engine.terminal_error().expect("stream poison verdict");
-        let Error::StreamPoisoned { reason } = &terminal else {
+        let Error::StreamPoisoned { source } = &terminal else {
             panic!("stream failure must retain a stream-poisoned terminal error: {terminal:?}");
         };
-        assert_eq!(reason.as_ref(), expected_reason.as_str());
+        assert_eq!(source.to_string(), expected_source.to_string());
+        assert!(
+            matches!(source.as_ref(), Error::TransportError { source } if matches!(source.as_ref(), Error::Io(io) if io.kind() == std::io::ErrorKind::Other))
+        );
         assert!(terminal.requires_new_session());
         assert_eq!(engine.active_len(), 0);
         assert!(engine.entries.is_empty());
@@ -8388,8 +8399,8 @@ fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
             effect,
             Effect::AdmissionRejected {
                 ticket: AdmissionTicket(3),
-                error: Error::StreamPoisoned { reason },
-            } if reason.as_ref() == expected_reason.as_str()
+                error: Error::StreamPoisoned { source },
+            } if source.to_string() == expected_source.to_string()
         )));
         engine.assert_invariants().unwrap();
     }
@@ -8962,7 +8973,7 @@ fn raw_active_retry_budget_expiry_poisons_under_strict_opt_in() {
     let expired = engine.advance(start + Duration::from_millis(21));
     assert!(matches!(
         terminal_failure(&expired, id),
-        Some(Error::StreamPoisoned { .. })
+        Some(Error::StreamPoisoned { source }) if matches!(source.as_ref(), Error::UnsequencedCommandUnconfirmed)
     ));
     assert_eq!(engine.state(), SessionState::Poisoned);
     assert!(

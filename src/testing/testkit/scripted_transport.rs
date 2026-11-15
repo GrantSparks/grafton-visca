@@ -440,7 +440,10 @@ impl<E> ScriptedTransport<E> {
                 async {
                     let _ = shutdown_rx.recv_async().await;
                     Err(Error::ConnectionClosed {
-                        reason: Some("Shutdown signal received".into()),
+                        source: Some(Arc::new(Error::from(std::io::Error::new(
+                            std::io::ErrorKind::UnexpectedEof,
+                            "Shutdown signal received",
+                        )))),
                     })
                 },
                 next,
@@ -836,7 +839,10 @@ pub mod helpers {
         /// Generate a connection lost error
         pub fn connection_lost() -> Step {
             Step::InjectError(Error::ConnectionClosed {
-                reason: Some("Test connection lost".into()),
+                source: Some(std::sync::Arc::new(Error::from(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "Test connection lost",
+                )))),
             })
         }
     }
@@ -1132,8 +1138,10 @@ mod tests {
 
     fn assert_connection_lost(result: Result<ReceiveOutcome>) {
         match result {
-            Err(Error::ConnectionClosed { reason }) => {
-                assert_eq!(reason.as_deref(), Some("Test connection lost"));
+            Err(Error::ConnectionClosed { source }) => {
+                assert!(
+                    matches!(source.as_deref(), Some(Error::Io(io)) if io.kind() == std::io::ErrorKind::UnexpectedEof)
+                );
             }
             other => panic!("expected the scripted ConnectionClosed, got {other:?}"),
         }

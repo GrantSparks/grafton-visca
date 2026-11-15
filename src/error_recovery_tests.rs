@@ -54,7 +54,7 @@ fn cases() -> Vec<Case> {
         case!(
             ConnectionClosed,
             "",
-            Error::ConnectionClosed { reason: None },
+            Error::ConnectionClosed { source: None },
             IoClosed,
             None,
             ReopenSession
@@ -449,7 +449,7 @@ fn cases() -> Vec<Case> {
         case!(
             StreamPoisoned,
             "",
-            Error::stream_poisoned("wire position"),
+            Error::stream_poisoned(Error::from(io::Error::other("wire position"))),
             IoClosed,
             None,
             ReopenSession

@@ -633,7 +633,7 @@ impl OwnerShellCore {
                 Err(error) => {
                     return self.terminate(
                         ShutdownReason::FramingFailure {
-                            reason: error.to_string().into_boxed_str(),
+                            cause: Arc::new(error),
                         },
                         now,
                     );
@@ -761,9 +761,9 @@ impl OwnerShellCore {
             // (#625).
             return self.terminate(
                 ShutdownReason::TransportClosed {
-                    reason: Some(
-                        format!("{length} consecutive receive faults: {error}").into_boxed_str(),
-                    ),
+                    cause: Some(Arc::new(
+                        error.with_context(format!("{length} consecutive receive faults")),
+                    )),
                 },
                 received_at,
             );
@@ -807,10 +807,10 @@ impl OwnerShellCore {
     fn receive_fatal(&mut self, fatal: super::ReceiveFatal, received_at: Instant) -> TurnStep {
         let reason = match fatal {
             super::ReceiveFatal::TransportClosed { cause } => ShutdownReason::TransportClosed {
-                reason: cause.as_ref().and_then(super::transport_close_reason),
+                cause: cause.map(Arc::new),
             },
             super::ReceiveFatal::FramingFailure { cause } => ShutdownReason::FramingFailure {
-                reason: cause.to_string().into_boxed_str(),
+                cause: Arc::new(cause),
             },
         };
         self.terminate(reason, received_at)

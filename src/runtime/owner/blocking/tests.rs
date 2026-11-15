@@ -685,6 +685,24 @@ fn a_zero_byte_stream_read_closes_the_session() {
     assert!(peer.transport_dropped());
 }
 
+/// A fatal read retains the precise OS error, including keepalive expiry.
+#[test]
+fn fatal_stream_reads_retain_the_typed_os_cause() {
+    for kind in [std::io::ErrorKind::BrokenPipe, std::io::ErrorKind::TimedOut] {
+        let (owner, peer) = Setup::stream().spawn();
+        let receipt = owner.submit_command(focus_manual()).unwrap();
+        peer.next_write();
+        peer.send(Read::Fail(Error::from(std::io::Error::from(kind))));
+        let error = receipt.wait().expect_err("fatal read closes the stream");
+        assert!(
+            matches!(&error, Error::ConnectionClosed { source: Some(source) }
+            if matches!(source.as_ref(), Error::Io(io) if io.kind() == kind))
+        );
+        assert!(std::error::Error::source(&error).is_some());
+        assert!(matches!(owner.close(), Err(Error::ConnectionClosed { .. })));
+    }
+}
+
 /// #625: a read that keeps failing transiently for long enough is a broken
 /// transport. The worker paces the run and then ends the session with the
 /// cause rather than retrying forever.
@@ -709,8 +727,9 @@ fn a_persistent_transient_fault_run_closes_the_session() {
         }
     };
     assert!(
-        matches!(&error, Error::ConnectionClosed { reason: Some(reason) }
-            if reason.contains("consecutive receive faults")),
+        matches!(&error, Error::ConnectionClosed { source: Some(source) }
+            if matches!(source.as_ref(), Error::WithContext { context, source }
+                if context.contains("consecutive receive faults") && matches!(source.as_ref(), Error::TransportError { .. }))),
         "{error:?}"
     );
     assert!(

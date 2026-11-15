@@ -2123,7 +2123,10 @@ impl crate::transport::HasTransportConfig for ClosedSendDatagramTransport {
 impl crate::transport::AsyncTransport for ClosedSendDatagramTransport {
     async fn send(&mut self, _bytes: &[u8]) -> Result<(), Error> {
         Err(Error::ConnectionClosed {
-            reason: Some("socket closed".into()),
+            source: Some(std::sync::Arc::new(Error::from(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "socket closed",
+            )))),
         })
     }
 

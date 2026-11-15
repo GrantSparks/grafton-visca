@@ -91,7 +91,10 @@ impl MockTcp {
     fn recv_into(&mut self, dst: &mut [u8]) -> Result<usize, Error> {
         match self.reader.read(dst) {
             Ok(0) => Err(Error::ConnectionClosed {
-                reason: Some("peer closed connection".into()),
+                source: Some(Arc::new(Error::from(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "peer closed connection",
+                )))),
             }),
             Ok(n) => Ok(n),
             Err(error) => Err(error.into()),

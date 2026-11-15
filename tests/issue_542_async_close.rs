@@ -146,7 +146,7 @@ async fn close_reports_transport_winner<E: Executor>(executor: E) {
     assert!(
         matches!(
             session.close().await,
-            Err(Error::ConnectionClosed { reason: None, .. })
+            Err(Error::ConnectionClosed { source: None, .. })
         ),
         "close must preserve the transport terminal result that already won"
     );

@@ -1,6 +1,6 @@
 # Variant	Production source	Unique construction expression (literal contents ignored)
 ConnectionFailed	src/transport/connect.rs	Error::connection_failed(endpoint.to_owned(), std::sync::Arc::new(error))
-ConnectionClosed	src/error.rs	Self::ConnectionClosed { reason }
+ConnectionClosed	src/error.rs	Self::ConnectionClosed { source }
 CommandPending	src/command/response/types.rs	Response::CmdAck { .. } => Err(Error::CommandPending)
 InvalidResponse	src/command/response/types.rs	Response::Unknown { data, .. } => Err(Error::InvalidResponse {
 FeatureNotSupported	src/prepared.rs	crate::capabilities::InquirySupport::None ) { return Err(Error::FeatureNotSupported {
@@ -41,7 +41,7 @@ CommandCorrelationLost	src/runtime/engine/mod.rs	.then(|| Error::command_correla
 CommandFailedAfterAck	src/runtime/engine/mod.rs	RuntimeOutcome::Failed(Error::command_failed_after_ack(error))
 RuntimeIdentityExhausted	src/runtime/engine/mod.rs	let Some(id) = self.allocate_request_id() else { effects.push(Effect::AdmissionRejected { ticket, error: Error::RuntimeIdentityExhausted,
 RuntimeQueueFull	src/runtime/engine/mod.rs	return Err(Error::RuntimeQueueFull {
-StreamPoisoned	src/runtime/engine/mod.rs	Error::StreamPoisoned { reason: Cow::Owned(reason.into()), }
+StreamPoisoned	src/error.rs	Self::StreamPoisoned { source }
 InvalidCameraId	src/camera_id.rs	_ => Err(Error::InvalidCameraId { id }),
 ResponseTooLarge	src/error.rs	Self::ResponseTooLarge { max_size }
 InquiryNotCancelable	src/runtime/engine/mod.rs	CancellationDecision::Refused(Error::InquiryNotCancelable)

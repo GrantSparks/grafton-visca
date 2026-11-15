@@ -101,7 +101,10 @@ mod tests {
     impl AsyncReadExt for FlushCountingIo {
         async fn read<'a>(&'a mut self, _buf: &'a mut [u8]) -> Result<usize, Error> {
             Err(Error::ConnectionClosed {
-                reason: Some("test read is unused".into()),
+                source: Some(std::sync::Arc::new(Error::from(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "test read is unused",
+                )))),
             })
         }
     }

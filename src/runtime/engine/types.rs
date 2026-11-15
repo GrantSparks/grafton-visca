@@ -942,8 +942,8 @@ pub(crate) enum CancellationObservation {
 #[derive(Debug, Clone)]
 pub(crate) enum ShutdownReason {
     Explicit,
-    TransportClosed { reason: Option<Box<str>> },
-    FramingFailure { reason: Box<str> },
+    TransportClosed { cause: Option<Arc<Error>> },
+    FramingFailure { cause: Arc<Error> },
 }
 
 /// Session state is terminal except for `Running`.
