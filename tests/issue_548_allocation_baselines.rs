@@ -80,7 +80,7 @@ macro_rules! assert_generated_inquiry_inventory {
         #[test]
         fn all_queryable_generated_inquiries_encode_without_heap_allocation() {
             const QUERYABLE_GENERATED_INQUIRY_COUNT: usize = [$(stringify!($inquiry)),+].len();
-            assert_eq!(QUERYABLE_GENERATED_INQUIRY_COUNT, 48);
+            assert_eq!(QUERYABLE_GENERATED_INQUIRY_COUNT, 74);
             $(
                 let inquiry = $inquiry;
                 assert_request_encoding_does_not_allocate($label, &inquiry);
