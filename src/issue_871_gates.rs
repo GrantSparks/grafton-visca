@@ -168,21 +168,19 @@ fn profiles() -> (ProfileSpec, ProfileSpec, ProfileSpec) {
     let no_typed = build(caps, &source, true);
     (full, none, no_typed)
 }
+fn target_for(profile: &ProfileSpec) -> crate::TargetRegistration {
+    crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
+        .expect("registered gate-test target")
+}
+
 macro_rules! prepare {
     (plain, $request:expr, $profile:expr) => {
-        prepare_builtin_command(
-            $request,
-            crate::target::TargetSlot::CAMERA_1,
-            $profile,
-            OperationalTuning::new(),
-        )
-        .map(drop)
+        prepare_builtin_command($request, &target_for($profile), OperationalTuning::new()).map(drop)
     };
     (applied, $request:expr, $profile:expr) => {
         prepare_builtin_operation::<crate::completion::AppliedOnly, _>(
             $request,
-            crate::target::TargetSlot::CAMERA_1,
-            $profile,
+            &target_for($profile),
             OperationalTuning::new(),
         )
         .map(drop)
@@ -190,8 +188,7 @@ macro_rules! prepare {
     (targeted, $request:expr, $profile:expr) => {
         prepare_builtin_operation::<crate::completion::Targeted, _>(
             $request,
-            crate::target::TargetSlot::CAMERA_1,
-            $profile,
+            &target_for($profile),
             OperationalTuning::new(),
         )
         .map(drop)
@@ -201,7 +198,8 @@ macro_rules! exercise_row {
     ([], $($rest:tt)*) => {};
     ([$row:ident], $kind:ident, $ret:ty, [$($request:tt)*], [$($arg:ident: $ty:ty),*], $full:ident, $none:ident, $no_typed:ident, $covered:ident) => {{
         $(let $arg = <$ty as Sample>::sample(&$full);)*
-        let request = crate::noun_facade::noun_request!(&$full; $ret; $($request)*).expect(stringify!($row));
+        let _registration = target_for(&$full);
+        let request = crate::noun_facade::noun_request!(&$full, &_registration; $ret; $($request)*).expect(stringify!($row));
         assert!(prepare!($kind, &request, &$full).is_ok(), "{:?}: positive preparation", BuiltinCommand::$row);
         $covered.insert(BuiltinCommand::$row);
         if !matches!(row_gate(BuiltinCommand::$row), RowGate::Always | RowGate::Domain(DomainGate::MenuControl)) {
@@ -235,16 +233,18 @@ macro_rules! agreement_row {
         let gate = <$($request)* as crate::command::surface::BuiltinInquiryGate>::GATE;
         if let RowGate::Typed(surfaces) = gate {
             let expected = surfaces.iter().all(|surface| $profile.capabilities().supports_typed(surface));
-            assert_eq!(crate::Request::validate_for_profile(&$($request)*, $profile).is_ok(), expected,
+            let registration = target_for($profile);
+            assert_eq!(crate::Request::validate_for_target(&$($request)*, &registration).is_ok(), expected,
                 "{} inquiry {}", $profile.name(), stringify!($($request)*));
         }
     }};
     ($kind:ident, [$row:ident], $ret:ty, [$($request:tt)*], [$($arg:ident: $ty:ty),*], $profile:ident) => {{
         if let RowGate::Typed(surfaces) = row_gate(BuiltinCommand::$row) {
             $(let $arg = <$ty as Sample>::sample($profile);)*
-            let request = crate::noun_facade::noun_request!($profile; $ret; $($request)*).expect(stringify!($row));
+            let registration = target_for($profile);
+            let request = crate::noun_facade::noun_request!($profile, &registration; $ret; $($request)*).expect(stringify!($row));
             let expected = surfaces.iter().all(|surface| $profile.capabilities().supports_typed(surface));
-            assert_eq!(crate::Request::validate_for_profile(&request, $profile).is_ok(), expected,
+            assert_eq!(crate::Request::validate_for_target(&request, &registration).is_ok(), expected,
                 "{} command {:?}", $profile.name(), BuiltinCommand::$row);
         }
     }};

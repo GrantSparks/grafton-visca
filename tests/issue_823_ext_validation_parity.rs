@@ -288,6 +288,9 @@ fn variable_nd_helper_matches_typed_request_at_and_beyond_both_boundaries() {
         capabilities::NdFilterMetadataExt, command::NdFilterValue, request::builtin::NdFilterDirect,
     };
     let spec = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7");
+    let registration =
+        grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, spec)
+            .expect("FR7 target");
     assert_parity(
         "ND density",
         Some(CapabilityRange::<u8>::new(0, 0x14)),
@@ -296,7 +299,7 @@ fn variable_nd_helper_matches_typed_request_at_and_beyond_both_boundaries() {
         |value| {
             NdFilterValue::new(u16::from(value)).is_ok_and(|value| {
                 NdFilterDirect::new(value)
-                    .validate_for_profile(&spec)
+                    .validate_for_target(&registration)
                     .is_ok()
             })
         },
