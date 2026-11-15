@@ -617,12 +617,12 @@ impl Session {
                     if !session.owes_only_completions(target) {
                         let now = session.now;
                         session.admit(
-                            inquiry(target.id(), InquiryRoute::UNKNOWN),
+                            inquiry(target.camera().id(), InquiryRoute::UNKNOWN),
                             AdmissionSlot::Ordinary,
                         );
                         session.admit(
                             stop(
-                                target.id(),
+                                target.camera().id(),
                                 now,
                                 session.kind.link.stop_budget,
                                 session.ticket + 1,
@@ -711,7 +711,7 @@ impl Session {
 
     /// Whether `target` owes a `CompletionOnly` or `NoReply` command's answer
     /// that may still be a rejection.
-    fn unproven(&self, target: CameraId) -> bool {
+    fn unproven(&self, target: TargetSlot) -> bool {
         self.engine.ledger.entries().any(|(owner, entry)| {
             owner == target && matches!(entry.owes, Owes::Completion | Owes::Rejection)
         })
@@ -820,7 +820,7 @@ impl Session {
                         kind,
                     } => {
                         let entry = self.engine.entry(request).expect("written request");
-                        let target = entry.request.context().target.id();
+                        let target = entry.request.context().target.camera().id();
                         let job = match kind {
                             Transmission::Request { .. } => {
                                 assert!(
@@ -1276,7 +1276,7 @@ impl Session {
         }
     }
 
-    fn accepted_completions(&self, target: CameraId) -> usize {
+    fn accepted_completions(&self, target: TargetSlot) -> usize {
         self.engine
             .ledger
             .entries()
@@ -1341,7 +1341,7 @@ impl Session {
 
     /// Whether `target` owes nothing but `CompletionOnly` completions: the
     /// documented endgame of one that never comes is a latched command lane.
-    fn owes_only_completions(&self, target: CameraId) -> bool {
+    fn owes_only_completions(&self, target: TargetSlot) -> bool {
         self.engine.ledger.entries().all(|(owner, entry)| {
             owner != target
                 || (entry.is_debt()

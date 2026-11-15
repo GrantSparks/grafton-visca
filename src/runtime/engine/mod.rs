@@ -26,7 +26,8 @@ use std::{
 use smallvec::SmallVec;
 
 use crate::protocol::framer::RawIncompletePrefix;
-use crate::{CameraId, Certainty, Error, FailureContext, FailureStage, ViscaSocket};
+use crate::target::{PerTarget, TargetSlot};
+use crate::{Certainty, Error, FailureContext, FailureStage, ViscaSocket};
 
 #[cfg(test)]
 mod tests;
@@ -48,7 +49,7 @@ struct CorrelationOwner {
 struct SequenceRecord {
     sequence: u32,
     kind: CorrelationKind,
-    target: CameraId,
+    target: TargetSlot,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -122,22 +123,23 @@ impl RawHoldScope {
 }
 
 /// Stable private ordering key without imposing ordering traits on the public
-/// `CameraId` or `ViscaSocket` API.
+/// `TargetSlot` or `ViscaSocket` API.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct RawHoldKey {
-    target: CameraId,
+    target: TargetSlot,
     scope: RawHoldScope,
 }
 
 impl RawHoldKey {
-    const fn new(target: CameraId, scope: RawHoldScope) -> Self {
+    const fn new(target: TargetSlot, scope: RawHoldScope) -> Self {
         Self { target, scope }
     }
 }
 
 impl Ord for RawHoldKey {
     fn cmp(&self, other: &Self) -> Ordering {
-        (self.target.id(), self.scope.order()).cmp(&(other.target.id(), other.scope.order()))
+        (self.target.camera().id(), self.scope.order())
+            .cmp(&(other.target.camera().id(), other.scope.order()))
     }
 }
 
@@ -349,19 +351,41 @@ impl DueWork {
     }
 }
 
+#[derive(Debug)]
+struct TargetState {
+    policy: Option<TargetPolicy>,
+    socket_owners: [Option<SocketOwner>; 2],
+    raw_inquiries: VecDeque<CorrelationOwner>,
+    completion_sockets: CompletionSockets,
+    unlearned_completions: u32,
+    retired_completion_only: u32,
+    motion_fences: [u64; 5],
+}
+impl Default for TargetState {
+    fn default() -> Self {
+        Self {
+            policy: None,
+            socket_owners: [None; 2],
+            raw_inquiries: VecDeque::new(),
+            completion_sockets: CompletionSockets::Unknown,
+            unlearned_completions: 0,
+            retired_completion_only: 0,
+            motion_fences: [0; 5],
+        }
+    }
+}
+
 /// Pure state machine implementing the issue #542 protocol boundary.
 #[derive(Debug)]
 pub(crate) struct ProtocolEngine {
     policy: ProtocolPolicy,
-    targets: [Option<TargetPolicy>; 9],
+    targets: PerTarget<TargetState>,
     entries: BTreeMap<RequestId, Entry>,
     command_queues: [VecDeque<QueueTicket>; 4],
     inquiry_queues: [VecDeque<QueueTicket>; 4],
     transmissions: BTreeMap<TransmissionId, TransmissionOwner>,
     sequences: BTreeMap<u32, SmallVec<[CorrelationOwner; 2]>>,
     lower_sequences: BTreeMap<u16, SmallVec<[CorrelationOwner; 2]>>,
-    socket_owners: [[Option<SocketOwner>; 2]; 9],
-    raw_inquiries: [VecDeque<CorrelationOwner>; 9],
     /// Every time-bounded raw correlation quarantine, keyed by target and
     /// protocol scope. Live correlation owners remain in their exact indexes;
     /// once ownership becomes unsafe it moves here instead of being encoded in
@@ -372,16 +396,6 @@ pub(crate) struct ProtocolEngine {
     /// target and in write order (#795). Always empty on a datagram transport
     /// or the Sony envelope.
     ledger: StreamLedger,
-    /// Per target, what its completions show about socket nibbles (#795).
-    completion_sockets: [CompletionSockets; 9],
-    /// Per target, socketless completions dropped as ambiguous while it was
-    /// unknown whether the camera names sockets in completions: each was a
-    /// `CompletionOnly` command's if it does, and pays that debt once known.
-    unlearned_completions: [u32; 9],
-    /// Per target, `CompletionOnly` entries a dispute proved rejected. A late
-    /// socketless completion with no `CompletionOnly` command outstanding
-    /// proves nothing while any is recent.
-    retired_completion_only: [u32; 9],
     /// Frames a proven dispute assigns to their requests, applied before the
     /// frame that proved it (#795).
     retro: SmallVec<[Retro; 4]>,
@@ -396,7 +410,6 @@ pub(crate) struct ProtocolEngine {
     next_transmission_id: IdAllocator,
     next_generation: IdAllocator,
     next_admission_order: u64,
-    motion_fences: [[u64; 5]; 9],
     jitter: Jitter,
     last_request_sent: Option<Instant>,
     last_command_sent: Option<Instant>,
@@ -416,21 +429,16 @@ impl ProtocolEngine {
         }
         Ok(Self {
             policy,
-            targets: [None; 9],
+            targets: PerTarget::default(),
             entries: BTreeMap::new(),
             command_queues: array::from_fn(|_| VecDeque::new()),
             inquiry_queues: array::from_fn(|_| VecDeque::new()),
             transmissions: BTreeMap::new(),
             sequences: BTreeMap::new(),
             lower_sequences: BTreeMap::new(),
-            socket_owners: [[None; 2]; 9],
-            raw_inquiries: array::from_fn(|_| VecDeque::new()),
             holds: BTreeMap::new(),
             raw_release_gate: None,
             ledger: StreamLedger::new(),
-            completion_sockets: [CompletionSockets::Unknown; 9],
-            unlearned_completions: [0; 9],
-            retired_completion_only: [0; 9],
             retro: SmallVec::new(),
             displaced_unseen: SmallVec::new(),
             turn_at: None,
@@ -438,7 +446,6 @@ impl ProtocolEngine {
             next_transmission_id: IdAllocator::new(),
             next_generation: IdAllocator::new(),
             next_admission_order: 0,
-            motion_fences: [[0; 5]; 9],
             jitter: Jitter::new(),
             last_request_sent: None,
             last_command_sent: None,
@@ -452,20 +459,15 @@ impl ProtocolEngine {
     /// Registers one target's socket and cancellation policy.
     pub(crate) fn register_target(
         &mut self,
-        target: CameraId,
+        target: TargetSlot,
         policy: TargetPolicy,
     ) -> Result<(), Error> {
-        if !(1..=7).contains(&target.id()) {
-            return Err(Error::InvalidRequest(
-                "engine target must be an individual camera (1 through 7)".into(),
-            ));
-        }
         if !(1..=2).contains(&policy.command_sockets) {
             return Err(Error::InvalidRequest(
                 "VISCA command socket capacity must be one or two".into(),
             ));
         }
-        let slot = &mut self.targets[target.id() as usize];
+        let slot = &mut self.targets[target].policy;
         match *slot {
             Some(existing) if existing != policy => Err(Error::InvalidState(
                 "target already has conflicting protocol policy".into(),
@@ -493,11 +495,11 @@ impl ProtocolEngine {
         &mut self,
         command_spacing: Duration,
         inquiry_spacing: Duration,
-        command_sockets: [Option<u8>; 9],
+        command_sockets: PerTarget<Option<u8>>,
     ) -> Result<(), Error> {
-        for (slot, sockets) in self.targets.iter().zip(command_sockets.iter()) {
-            if let (Some(_), Some(sockets)) = (slot, sockets) {
-                if !(1..=2).contains(sockets) {
+        for (target, slot) in self.targets.iter() {
+            if let (Some(_), Some(sockets)) = (slot.policy, command_sockets[target]) {
+                if !(1..=2).contains(&sockets) {
                     return Err(Error::InvalidRequest(
                         "VISCA command socket capacity must be one or two".into(),
                     ));
@@ -506,9 +508,9 @@ impl ProtocolEngine {
         }
         self.policy.command_spacing = command_spacing;
         self.policy.inquiry_spacing = inquiry_spacing;
-        for (slot, sockets) in self.targets.iter_mut().zip(command_sockets.iter()) {
-            if let (Some(policy), Some(sockets)) = (slot.as_mut(), sockets) {
-                policy.command_sockets = *sockets;
+        for (target, slot) in self.targets.iter_mut() {
+            if let (Some(policy), Some(sockets)) = (slot.policy.as_mut(), command_sockets[target]) {
+                policy.command_sockets = sockets;
             }
         }
         self.debug_assert_invariants();
@@ -714,7 +716,7 @@ impl ProtocolEngine {
 
     /// Entries holding `slot`, for `target` when the slot is a control
     /// reserve.
-    fn entries_holding(&self, slot: AdmissionSlot, target: CameraId) -> usize {
+    fn entries_holding(&self, slot: AdmissionSlot, target: TargetSlot) -> usize {
         self.entries
             .values()
             .filter(|entry| {
@@ -747,11 +749,12 @@ impl ProtocolEngine {
                         "only an urgent request may hold a control-reserve slot".into(),
                     ));
                 }
-                let reserve =
-                    self.targets[target.id() as usize].map_or(0, |policy| policy.control_reserve);
+                let reserve = self.targets[target]
+                    .policy
+                    .map_or(0, |policy| policy.control_reserve);
                 if self.entries_holding(slot, target) >= usize::from(reserve) {
                     return Err(Error::ControlReserveExhausted {
-                        target,
+                        target: target.camera(),
                         reserve: usize::from(reserve),
                     });
                 }
@@ -765,11 +768,11 @@ impl ProtocolEngine {
     /// future retry decisions consult the same bounded fence table.
     pub(crate) fn halt(
         &mut self,
-        target: CameraId,
+        target: TargetSlot,
         axes: crate::AffectedAxes,
         cutoff: u64,
     ) -> Vec<Effect> {
-        let fences = &mut self.motion_fences[usize::from(target.id())];
+        let fences = &mut self.targets[target].motion_fences;
         for (index, fence) in fences.iter_mut().enumerate() {
             if axes.bits() & (1 << index) != 0 {
                 *fence = (*fence).max(cutoff);
@@ -859,7 +862,7 @@ impl ProtocolEngine {
 
     fn motion_superseded(&self, context: &RequestContext) -> Option<crate::AffectedAxes> {
         let motion = context.motion.filter(|motion| !motion.stop)?;
-        let fences = self.motion_fences[usize::from(context.target.id())];
+        let fences = self.targets[context.target].motion_fences;
         fences
             .iter()
             .enumerate()
@@ -907,7 +910,7 @@ impl ProtocolEngine {
             effects.push(Effect::AdmissionRejected { ticket, error });
             return;
         }
-        let Some(target_policy) = self.targets[context.target.id() as usize] else {
+        let Some(target_policy) = self.targets[context.target].policy else {
             effects.push(Effect::AdmissionRejected {
                 ticket,
                 error: Error::InvalidState("target is not registered in this session".into()),
@@ -1209,8 +1212,11 @@ impl ProtocolEngine {
         let attempt = entry.attempt;
         let target = entry.request.context().target;
         let cancellation = entry.cancellation;
-        let dispatched_socket_capacity = (!entry.request.is_inquiry())
-            .then(|| self.targets[target.id() as usize].map_or(1, |policy| policy.command_sockets));
+        let dispatched_socket_capacity = (!entry.request.is_inquiry()).then(|| {
+            self.targets[target]
+                .policy
+                .map_or(1, |policy| policy.command_sockets)
+        });
         let wire = Arc::clone(entry.request.wire());
         let owes = self.ledger_owes(entry);
         let requested_sequence = if self.policy.envelope == EnvelopeKind::Sony {
@@ -1277,7 +1283,7 @@ impl ProtocolEngine {
                     || self.ledger.forbids_crossing(target)
             }
             Lane::Command => {
-                let Some(policy) = self.targets[target.id() as usize] else {
+                let Some(policy) = self.targets[target].policy else {
                     return true;
                 };
                 !self.stop_wait_ended(entry, now)
@@ -1338,7 +1344,7 @@ impl ProtocolEngine {
     /// correlation shares one transport namespace. Raw VISCA has no sequence
     /// field, but its response source identifies the camera, so independent
     /// targets have independent positional inquiry lanes.
-    fn inquiries_inflight_for(&self, target: CameraId) -> usize {
+    fn inquiries_inflight_for(&self, target: TargetSlot) -> usize {
         self.entries
             .values()
             .filter(|entry| {
@@ -1353,7 +1359,7 @@ impl ProtocolEngine {
             .count()
     }
 
-    fn commands_inflight(&self, target: CameraId) -> usize {
+    fn commands_inflight(&self, target: TargetSlot) -> usize {
         self.entries
             .values()
             .filter(|entry| {
@@ -1376,7 +1382,7 @@ impl ProtocolEngine {
     /// identifies a late answer; if the camera is still busy there it
     /// allocates another socket or answers buffer-full, so the hold takes no
     /// capacity.
-    fn command_capacity_used(&self, target: CameraId) -> usize {
+    fn command_capacity_used(&self, target: TargetSlot) -> usize {
         let held = if self.raw_stream() {
             0
         } else {
@@ -1388,7 +1394,7 @@ impl ProtocolEngine {
     /// The command capacity `entry` finds used: a STOP is never held back by
     /// a socket hold (the camera allocates a free socket or answers
     /// buffer-full).
-    fn command_capacity_used_by(&self, entry: &Entry, target: CameraId) -> usize {
+    fn command_capacity_used_by(&self, entry: &Entry, target: TargetSlot) -> usize {
         if urgent_stop(entry) {
             self.commands_inflight(target)
         } else {
@@ -1429,7 +1435,7 @@ impl ProtocolEngine {
 
     /// Whether a `NoReply` or `CompletionOnly` command's local write to
     /// `target` is in flight.
-    fn uncorrelated_write_in_flight(&self, target: CameraId) -> bool {
+    fn uncorrelated_write_in_flight(&self, target: TargetSlot) -> bool {
         self.entries.values().any(|entry| {
             !entry.request.is_inquiry()
                 && entry.request.context().target == target
@@ -1446,7 +1452,7 @@ impl ProtocolEngine {
             .is_some_and(|(bound, now)| now >= bound)
     }
 
-    fn raw_hold(&self, target: CameraId, scope: RawHoldScope) -> Option<RawHold> {
+    fn raw_hold(&self, target: TargetSlot, scope: RawHoldScope) -> Option<RawHold> {
         self.holds.get(&RawHoldKey::new(target, scope)).copied()
     }
 
@@ -1454,7 +1460,7 @@ impl ProtocolEngine {
     /// same key erase identity rather than choosing one by recency.
     fn extend_raw_hold(
         &mut self,
-        target: CameraId,
+        target: TargetSlot,
         scope: RawHoldScope,
         until: Instant,
         owner: Option<RequestId>,
@@ -1477,11 +1483,11 @@ impl ProtocolEngine {
     /// the narrow inquiry skew blocks only another inquiry. A second `NoReply`
     /// consumes no response at all, so it can safely write and extend a broad
     /// hold.
-    fn raw_hold_blocks_dispatch(&self, entry: &Entry, target: CameraId) -> bool {
+    fn raw_hold_blocks_dispatch(&self, entry: &Entry, target: TargetSlot) -> bool {
         self.raw_hold_dispatch_deadline_for(entry, target).is_some()
     }
 
-    fn raw_hold_dispatch_deadline_for(&self, entry: &Entry, target: CameraId) -> Option<Instant> {
+    fn raw_hold_dispatch_deadline_for(&self, entry: &Entry, target: TargetSlot) -> Option<Instant> {
         if self.policy.envelope != EnvelopeKind::Raw {
             return None;
         }
@@ -1529,14 +1535,14 @@ impl ProtocolEngine {
             .max()
     }
 
-    fn raw_preack_hold_bypass_available(&self, entry: &Entry, target: CameraId) -> bool {
+    fn raw_preack_hold_bypass_available(&self, entry: &Entry, target: TargetSlot) -> bool {
         !entry.request.is_inquiry()
             && entry.request.context().control.class == ControlClass::Urgent
             && entry.request.context().reply_shape == ReplyShape::AckThenCompletion
             && self.raw_unacknowledged_command_count(target) == 0
     }
 
-    fn raw_socket_hold_count(&self, target: CameraId) -> usize {
+    fn raw_socket_hold_count(&self, target: TargetSlot) -> usize {
         [ViscaSocket::S1, ViscaSocket::S2]
             .into_iter()
             .filter(|socket| {
@@ -1547,7 +1553,7 @@ impl ProtocolEngine {
     }
 
     /// Whether a socket hold on `target` is still within its deadline.
-    fn raw_socket_hold_running(&self, target: CameraId) -> bool {
+    fn raw_socket_hold_running(&self, target: TargetSlot) -> bool {
         [ViscaSocket::S1, ViscaSocket::S2]
             .into_iter()
             .any(|socket| {
@@ -1556,7 +1562,7 @@ impl ProtocolEngine {
             })
     }
 
-    fn raw_socket_hold_wake(&self, target: CameraId) -> Option<Instant> {
+    fn raw_socket_hold_wake(&self, target: TargetSlot) -> Option<Instant> {
         [ViscaSocket::S1, ViscaSocket::S2]
             .into_iter()
             .filter_map(|socket| {
@@ -1571,7 +1577,7 @@ impl ProtocolEngine {
     /// tombstone is incompatible: a socketless completion from the older
     /// command would otherwise be indistinguishable from this new command's
     /// terminal frame.
-    fn raw_target_hold_active(&self, target: CameraId) -> bool {
+    fn raw_target_hold_active(&self, target: TargetSlot) -> bool {
         if self.policy.envelope != EnvelopeKind::Raw {
             return false;
         }
@@ -1590,7 +1596,7 @@ impl ProtocolEngine {
     /// is included here: while it is in flight no other command may be
     /// dispatched to the target, which is what keeps its completion (and any
     /// socketless error) attributable to it alone.
-    fn raw_command_unacknowledged(&self, target: CameraId) -> bool {
+    fn raw_command_unacknowledged(&self, target: TargetSlot) -> bool {
         self.policy.envelope == EnvelopeKind::Raw
             && self.entries.values().any(|entry| {
                 entry.request.context().target == target
@@ -1598,7 +1604,7 @@ impl ProtocolEngine {
             })
     }
 
-    fn raw_unacknowledged_command_count(&self, target: CameraId) -> usize {
+    fn raw_unacknowledged_command_count(&self, target: TargetSlot) -> usize {
         if self.policy.envelope != EnvelopeKind::Raw {
             return 0;
         }
@@ -1617,7 +1623,7 @@ impl ProtocolEngine {
     /// candidate (#714). While both are open, the exact raw ACK/error resolvers
     /// see multiple candidates and bind to neither; no temporal guess is made.
     /// A third candidate is never admitted through this exception.
-    fn raw_urgent_gate_bypass_available(&self, entry: &Entry, target: CameraId) -> bool {
+    fn raw_urgent_gate_bypass_available(&self, entry: &Entry, target: TargetSlot) -> bool {
         self.policy.envelope == EnvelopeKind::Raw
             && !entry.request.is_inquiry()
             && entry.request.context().control.class == ControlClass::Urgent
@@ -1652,7 +1658,7 @@ impl ProtocolEngine {
     /// due pass, and must never be written in between. A `NoReply` command
     /// is no exception on a byte stream: its possible rejection is owed too,
     /// and could not be told from the owed answer.
-    fn raw_command_gate_blocks(&self, entry: &Entry, target: CameraId) -> bool {
+    fn raw_command_gate_blocks(&self, entry: &Entry, target: TargetSlot) -> bool {
         let owed = self.ledger.lane_state(target, Lane::Command) != LaneState::Clear;
         (self.raw_command_unacknowledged(target)
             && !self.raw_urgent_gate_bypass_available(entry, target))
@@ -1667,7 +1673,7 @@ impl ProtocolEngine {
     /// has none during its local write. Both must keep same-target work from
     /// starting: a socketless error received during either phase otherwise has
     /// two possible owners.
-    fn raw_uncorrelated_command_inflight(&self, target: CameraId) -> bool {
+    fn raw_uncorrelated_command_inflight(&self, target: TargetSlot) -> bool {
         self.policy.envelope == EnvelopeKind::Raw
             && self.entries.values().any(|entry| {
                 !entry.request.is_inquiry()
@@ -1701,7 +1707,7 @@ impl ProtocolEngine {
     /// the hold past its deadline for late frames naming the socket; it no
     /// longer delays work.) The rule is raw-only: Sony correlates by
     /// sequence, so these shapes need no exclusivity there.
-    fn uncorrelated_raw_shape_blocked(&self, entry: &Entry, target: CameraId) -> bool {
+    fn uncorrelated_raw_shape_blocked(&self, entry: &Entry, target: TargetSlot) -> bool {
         if self.policy.envelope != EnvelopeKind::Raw {
             return false;
         }
@@ -1719,8 +1725,7 @@ impl ProtocolEngine {
                     || self.ledger.owes_rejection(target)
                     || (self.raw_socket_hold_running(target)
                         && !(self.raw_stream()
-                            && self.completion_sockets[usize::from(target.id())]
-                                == CompletionSockets::Named))
+                            && self.targets[target].completion_sockets == CompletionSockets::Named))
             }
             ReplyShape::AckThenCompletion => false,
         }
@@ -1928,13 +1933,13 @@ impl ProtocolEngine {
                         effects,
                     );
                     if self.policy.envelope == EnvelopeKind::Raw {
-                        self.raw_inquiries[context.target.id() as usize].push_back(
-                            CorrelationOwner {
+                        self.targets[context.target]
+                            .raw_inquiries
+                            .push_back(CorrelationOwner {
                                 request: owner.request,
                                 generation,
                                 kind: CorrelationKind::Request,
-                            },
-                        );
+                            });
                     }
                 } else {
                     match context.reply_shape {
@@ -2299,7 +2304,7 @@ impl ProtocolEngine {
 
     fn resolve_sequence(
         &self,
-        target: CameraId,
+        target: TargetSlot,
         sequence: EnvelopeSequence,
     ) -> Result<(RequestId, CorrelationKind), IgnoreReason> {
         let exact_candidates = self
@@ -2339,7 +2344,7 @@ impl ProtocolEngine {
     fn valid_owners(
         &self,
         owners: &[CorrelationOwner],
-        target: Option<CameraId>,
+        target: Option<TargetSlot>,
     ) -> SmallVec<[CorrelationOwner; 4]> {
         owners
             .iter()
@@ -2354,7 +2359,7 @@ impl ProtocolEngine {
             .collect()
     }
 
-    fn owner_target(&self, owner: CorrelationOwner) -> Option<CameraId> {
+    fn owner_target(&self, owner: CorrelationOwner) -> Option<TargetSlot> {
         self.entries
             .get(&owner.request)
             .filter(|entry| entry.generation == owner.generation)
@@ -2640,7 +2645,7 @@ impl ProtocolEngine {
     /// On a byte stream [`Self::resolve_raw_stream`] decides instead (#795).
     fn resolve_raw_named_error(
         &self,
-        target: CameraId,
+        target: TargetSlot,
         socket: ViscaSocket,
         code: u8,
     ) -> Option<RequestId> {
@@ -2666,8 +2671,9 @@ impl ProtocolEngine {
         self.unique_raw_command_candidate(target)
     }
 
-    fn raw_inquiry_front(&self, target: CameraId) -> Option<RequestId> {
-        self.raw_inquiries[target.id() as usize]
+    fn raw_inquiry_front(&self, target: TargetSlot) -> Option<RequestId> {
+        self.targets[target]
+            .raw_inquiries
             .iter()
             .find(|owner| {
                 self.entries.get(&owner.request).is_some_and(|entry| {
@@ -2683,7 +2689,7 @@ impl ProtocolEngine {
     /// `target`.  `raw_inquiry_front` is the authoritative FIFO owner for
     /// routing, but a Sending inquiry is still live and must make a concurrent
     /// socketless error ambiguous with an unacknowledged command.
-    fn raw_inquiry_inflight(&self, target: CameraId) -> bool {
+    fn raw_inquiry_inflight(&self, target: TargetSlot) -> bool {
         self.entries.values().any(|entry| {
             entry.request.is_inquiry()
                 && entry.request.context().target == target
@@ -2694,8 +2700,8 @@ impl ProtocolEngine {
         })
     }
 
-    fn socket_owner(&self, target: CameraId, socket: ViscaSocket) -> Option<RequestId> {
-        let owner = self.socket_owners[target.id() as usize][socket.as_index()]?;
+    fn socket_owner(&self, target: TargetSlot, socket: ViscaSocket) -> Option<RequestId> {
+        let owner = self.targets[target].socket_owners[socket.as_index()]?;
         self.entries
             .get(&owner.request)
             .filter(|entry| {
@@ -2708,7 +2714,7 @@ impl ProtocolEngine {
 
     /// The single request currently holding a command socket on `target`, if
     /// exactly one does.
-    fn sole_socket_holder(&self, target: CameraId) -> Option<RequestId> {
+    fn sole_socket_holder(&self, target: TargetSlot) -> Option<RequestId> {
         match (
             self.socket_owner(target, ViscaSocket::S1),
             self.socket_owner(target, ViscaSocket::S2),
@@ -2731,7 +2737,7 @@ impl ProtocolEngine {
     /// `AckThenCompletion` command is eligible: `NoReply` has no response
     /// lifecycle, and `CompletionOnly` deliberately has no ACK/socket
     /// lifecycle, so either shape must keep an ACK racing its local write inert.
-    fn unique_raw_command_candidate(&self, target: CameraId) -> Option<RequestId> {
+    fn unique_raw_command_candidate(&self, target: TargetSlot) -> Option<RequestId> {
         let mut sole = None;
         for (id, entry) in &self.entries {
             if self.policy.envelope != EnvelopeKind::Raw
@@ -2763,7 +2769,7 @@ impl ProtocolEngine {
     /// completion that races ahead of the write result can be latched and applied
     /// once the send is confirmed, mirroring the deferred-ACK latch. Fails closed
     /// (returns `None`) if a second candidate is ever present, so it never guesses.
-    fn completion_only_candidate(&self, target: CameraId) -> Option<RequestId> {
+    fn completion_only_candidate(&self, target: TargetSlot) -> Option<RequestId> {
         let mut sole = None;
         for (id, entry) in &self.entries {
             if self.policy.envelope != EnvelopeKind::Raw
@@ -2796,7 +2802,7 @@ impl ProtocolEngine {
     /// the ordinary ACK candidate and its exclusivity rules remain unchanged.
     /// As with the ACK candidate, a second possible owner fails closed rather
     /// than allowing temporal recency to choose one.
-    fn unique_raw_error_candidate(&self, target: CameraId) -> Option<RequestId> {
+    fn unique_raw_error_candidate(&self, target: TargetSlot) -> Option<RequestId> {
         let mut sole = None;
         for (id, entry) in &self.entries {
             if self.policy.envelope != EnvelopeKind::Raw
@@ -2824,15 +2830,17 @@ impl ProtocolEngine {
         sole
     }
 
-    fn command_sockets(&self, target: CameraId) -> usize {
-        self.targets[target.id() as usize].map_or(1, |policy| usize::from(policy.command_sockets))
+    fn command_sockets(&self, target: TargetSlot) -> usize {
+        self.targets[target]
+            .policy
+            .map_or(1, |policy| usize::from(policy.command_sockets))
     }
 
     /// Socket assignment may need the capacity that was in force when this
     /// exact command attempt was dispatched. A live retune lowers admission
     /// capacity immediately, but it does not revoke the second physical socket
     /// from a pre-retune attempt already draining under the old capacity.
-    fn assignment_socket_count(&self, target: CameraId, id: RequestId) -> usize {
+    fn assignment_socket_count(&self, target: TargetSlot, id: RequestId) -> usize {
         let current = self.command_sockets(target);
         self.entries
             .get(&id)
@@ -2840,7 +2848,7 @@ impl ProtocolEngine {
             .map_or(current, |dispatched| current.max(usize::from(dispatched)))
     }
 
-    fn socket_available(&self, target: CameraId, socket: ViscaSocket, id: RequestId) -> bool {
+    fn socket_available(&self, target: TargetSlot, socket: ViscaSocket, id: RequestId) -> bool {
         self.raw_hold(target, RawHoldScope::Socket(socket))
             .is_none()
             && self
@@ -2861,7 +2869,7 @@ impl ProtocolEngine {
     /// next. `None` means no safe assignment exists.
     fn assign_socket(
         &self,
-        target: CameraId,
+        target: TargetSlot,
         requested: Option<ViscaSocket>,
         id: RequestId,
     ) -> Option<ViscaSocket> {
@@ -2896,7 +2904,7 @@ impl ProtocolEngine {
     /// disagree with the camera.
     fn assign_ack_socket(
         &mut self,
-        target: CameraId,
+        target: TargetSlot,
         requested: Option<ViscaSocket>,
         id: RequestId,
         now: Instant,
@@ -2925,7 +2933,7 @@ impl ProtocolEngine {
     /// window as an unkeyed `PreAck` hold, but never let the stale exact key
     /// reject the camera-named successor (#750). A byte stream needs no
     /// `PreAck` hold: the ledger owes every unanswered first answer (#795).
-    fn quarantine_displaced_raw_socket_hold(&mut self, target: CameraId, socket: ViscaSocket) {
+    fn quarantine_displaced_raw_socket_hold(&mut self, target: TargetSlot, socket: ViscaSocket) {
         let key = RawHoldKey::new(target, RawHoldScope::Socket(socket));
         let Some(hold) = self.holds.remove(&key) else {
             return;
@@ -3035,7 +3043,7 @@ impl ProtocolEngine {
         let generation = entry.generation;
         let cancellation = entry.cancellation;
         let deadline = add_duration(now, entry.request.context().timeout.completion);
-        self.socket_owners[target.id() as usize][socket.as_index()] = Some(SocketOwner {
+        self.targets[target].socket_owners[socket.as_index()] = Some(SocketOwner {
             request: id,
             generation,
         });
@@ -3444,7 +3452,7 @@ impl ProtocolEngine {
             DecodedResponse::Completion {
                 socket: Some(socket),
             } => {
-                let learned = &mut self.completion_sockets[usize::from(target.id())];
+                let learned = &mut self.targets[target].completion_sockets;
                 if *learned == CompletionSockets::Unknown {
                     *learned = CompletionSockets::Named;
                 }
@@ -3490,9 +3498,9 @@ impl ProtocolEngine {
                     // A `CompletionOnly` command's, unless an executing or
                     // quarantined command could have sent it.
                     if holders != 0 || !held.is_empty() {
-                        let index = usize::from(target.id());
-                        if self.completion_sockets[index] == CompletionSockets::Unknown {
-                            self.unlearned_completions[index] += 1;
+                        let index = target;
+                        if self.targets[index].completion_sockets == CompletionSockets::Unknown {
+                            self.targets[index].unlearned_completions += 1;
                         }
                         return None;
                     }
@@ -3552,8 +3560,8 @@ impl ProtocolEngine {
                 // so a rejection code that another command could have earned
                 // disputes that command instead of failing the owner.
                 if let Some(owner) = self.socket_owner(target, *socket) {
-                    let unseen_completions = self.completion_sockets[usize::from(target.id())]
-                        != CompletionSockets::Named;
+                    let unseen_completions =
+                        self.targets[target].completion_sockets != CompletionSockets::Named;
                     if unseen_completions
                         && is_rejection(*code)
                         && self.ledger.dispute(target, Answer::NamedRejection)
@@ -3665,28 +3673,23 @@ impl ProtocolEngine {
     /// its debt), and any left over are forgotten. Once the camera is known
     /// to omit them, they stay dropped.
     fn pay_unlearned_completions(&mut self, now: Instant, effects: &mut Vec<Effect>) {
-        for index in 0..self.unlearned_completions.len() {
-            if self.completion_sockets[index] == CompletionSockets::Omitted {
-                self.unlearned_completions[index] = 0;
+        for index in TargetSlot::ALL {
+            if self.targets[index].completion_sockets == CompletionSockets::Omitted {
+                self.targets[index].unlearned_completions = 0;
             }
-            if self.completion_sockets[index] != CompletionSockets::Named {
+            if self.targets[index].completion_sockets != CompletionSockets::Named {
                 continue;
             }
-            let Some(target) = u8::try_from(index)
-                .ok()
-                .and_then(|id| CameraId::new(id).ok())
-            else {
-                continue;
-            };
-            while self.unlearned_completions[index] > 0 {
+            let target = index;
+            while self.targets[index].unlearned_completions > 0 {
                 let Some((entry, answered)) = self.ledger.take_completion(target) else {
                     // The rest were not `CompletionOnly` commands' (a
                     // completion that omitted its socket): forgotten, they
                     // can never complete a later one.
-                    self.unlearned_completions[index] = 0;
+                    self.targets[index].unlearned_completions = 0;
                     break;
                 };
-                self.unlearned_completions[index] -= 1;
+                self.targets[index].unlearned_completions -= 1;
                 self.absorb_answered(target, &answered, now);
                 let awaiting = self.entries.get(&entry.request).is_some_and(|live| {
                     live.generation == entry.generation
@@ -3707,7 +3710,7 @@ impl ProtocolEngine {
     /// keeps only the ordinary reply skew from now before that lane reopens.
     fn take_stream_answer(
         &mut self,
-        target: CameraId,
+        target: TargetSlot,
         answer: Answer,
         evidence: Evidence,
         now: Instant,
@@ -3730,7 +3733,7 @@ impl ProtocolEngine {
     /// rejection naming it is then never taken for that command's error.
     fn end_command_a_late_cancel_reached(
         &mut self,
-        target: CameraId,
+        target: TargetSlot,
         socket: ViscaSocket,
         code: u8,
         cancel_order: u64,
@@ -3754,9 +3757,9 @@ impl ProtocolEngine {
     /// Applies what the ledger settled: retroactive dispute assignments, a
     /// `CompletionOnly` entry a dispute retired, and an owed inquiry reply
     /// paid or retired (which keeps only the ordinary reply skew from now).
-    fn absorb_answered(&mut self, target: CameraId, answered: &Answered, now: Instant) {
+    fn absorb_answered(&mut self, target: TargetSlot, answered: &Answered, now: Instant) {
         if answered.completion_only_retired {
-            self.retired_completion_only[usize::from(target.id())] += 1;
+            self.targets[target].retired_completion_only += 1;
         }
         self.retro.extend(answered.retro.iter().copied());
         if answered.reply_settled {
@@ -3774,7 +3777,7 @@ impl ProtocolEngine {
     /// executes there, follows `owner`'s first answer and so every first
     /// answer written before it (#795): whatever the stream still owes for
     /// those is settled, whatever time it is.
-    fn settle_before_owner(&mut self, target: CameraId, owner: RequestId, now: Instant) {
+    fn settle_before_owner(&mut self, target: TargetSlot, owner: RequestId, now: Instant) {
         let Some(order) = self
             .entries
             .get(&owner)
@@ -3790,7 +3793,7 @@ impl ProtocolEngine {
     /// another command there, so a command the engine still indexes there
     /// lost its completion and has ended (#721). It is released now and
     /// ended with the frame's other effects.
-    fn displace_stale_socket_owner(&mut self, target: CameraId, socket: Option<ViscaSocket>) {
+    fn displace_stale_socket_owner(&mut self, target: TargetSlot, socket: Option<ViscaSocket>) {
         if let Some(stale) = socket.and_then(|socket| self.socket_owner(target, socket)) {
             self.release_attempt_ownership(stale);
             self.displaced_unseen.push(stale);
@@ -3805,7 +3808,7 @@ impl ProtocolEngine {
     /// naming it.
     fn hold_disputed_command_socket(
         &mut self,
-        target: CameraId,
+        target: TargetSlot,
         socket: Option<ViscaSocket>,
         candidates: &[Outstanding; 2],
         now: Instant,
@@ -3841,7 +3844,7 @@ impl ProtocolEngine {
     /// socketless completion is not taken for a live successor's.
     fn hold_owed_command_socket(
         &mut self,
-        target: CameraId,
+        target: TargetSlot,
         requested: Option<ViscaSocket>,
         debt: Outstanding,
         now: Instant,
@@ -3874,18 +3877,18 @@ impl ProtocolEngine {
     /// and returns what is known: with no `CompletionOnly` command
     /// outstanding, it was a socketed command's, so the camera omits the
     /// socket nibble in completions for the rest of the session.
-    fn learn_socketless_completion(&mut self, target: CameraId) -> CompletionSockets {
-        let index = usize::from(target.id());
+    fn learn_socketless_completion(&mut self, target: TargetSlot) -> CompletionSockets {
+        let index = target;
         if !self.ledger.owes_completion(target) {
             // Unless it is the late completion of a `CompletionOnly` command
             // a dispute proved rejected (which proof it would contradict).
-            if self.retired_completion_only[index] > 0 {
-                self.retired_completion_only[index] -= 1;
+            if self.targets[index].retired_completion_only > 0 {
+                self.targets[index].retired_completion_only -= 1;
             } else {
-                self.completion_sockets[index] = CompletionSockets::Omitted;
+                self.targets[index].completion_sockets = CompletionSockets::Omitted;
             }
         }
-        self.completion_sockets[index]
+        self.targets[index].completion_sockets
     }
 
     /// The error a latched lane gives `request` instead of writing it, if its
@@ -3904,7 +3907,7 @@ impl ProtocolEngine {
         if (request.is_inquiry() || completion_only)
             && self.ledger.lane_state(target, Lane::Inquiry) == LaneState::Latched
         {
-            return Some(Error::inquiry_correlation_lost(target));
+            return Some(Error::inquiry_correlation_lost(target.camera()));
         }
         // A `NoReply` command is refused too: the ledger owes its possible
         // rejection until write order settles it, and that could not be told
@@ -3918,7 +3921,7 @@ impl ProtocolEngine {
         let rejection_latched = completion_only && self.ledger.rejection_latched(target);
         ((command_lane && self.ledger.lane_state(target, Lane::Command) == LaneState::Latched)
             || rejection_latched)
-            .then(|| Error::command_correlation_lost(target))
+            .then(|| Error::command_correlation_lost(target.camera()))
     }
 
     /// Fails every queued (`Ready`/`Backoff`) request that a latched target
@@ -4388,13 +4391,21 @@ impl ProtocolEngine {
     }
 
     fn release_attempt_ownership(&mut self, id: RequestId) {
-        for target in 1..self.socket_owners.len() {
+        if let Some(target) = self
+            .entries
+            .get(&id)
+            .map(|entry| entry.request.context().target)
+        {
             for socket in 0..2 {
-                if self.socket_owners[target][socket].is_some_and(|owner| owner.request == id) {
-                    self.socket_owners[target][socket] = None;
+                if self.targets[target].socket_owners[socket]
+                    .is_some_and(|owner| owner.request == id)
+                {
+                    self.targets[target].socket_owners[socket] = None;
                 }
             }
-            self.raw_inquiries[target].retain(|owner| owner.request != id);
+            self.targets[target]
+                .raw_inquiries
+                .retain(|owner| owner.request != id);
         }
         self.transmissions.retain(|_, owner| owner.request != id);
     }
@@ -4565,6 +4576,15 @@ impl ProtocolEngine {
                     .find(|socket| self.socket_owner(target, *socket).is_none())
             });
             if let Some(socket) = socket {
+                // A latched ACK proves reuse just like an ordinary ACK. End
+                // the predecessor before retaining this command's completion
+                // debt; its late completion must never apply the predecessor.
+                if let Some(stale) = self
+                    .socket_owner(target, socket)
+                    .filter(|owner| *owner != id)
+                {
+                    self.quarantine_displaced_raw_socket_owner(stale, now, effects);
+                }
                 self.extend_raw_hold(
                     target,
                     RawHoldScope::Socket(socket),
@@ -5141,15 +5161,17 @@ impl ProtocolEngine {
         for queue in &mut self.inquiry_queues {
             queue.retain(|ticket| !(ticket.request == id && ticket.generation == entry.generation));
         }
-        for target in 1..self.socket_owners.len() {
+        let target = entry.request.context().target;
+        {
             for socket in 0..2 {
-                if self.socket_owners[target][socket].is_some_and(|owner| {
+                if self.targets[target].socket_owners[socket].is_some_and(|owner| {
                     owner.request == id && owner.generation == entry.generation
                 }) {
-                    self.socket_owners[target][socket] = None;
+                    self.targets[target].socket_owners[socket] = None;
                 }
             }
-            self.raw_inquiries[target]
+            self.targets[target]
+                .raw_inquiries
                 .retain(|owner| !(owner.request == id && owner.generation == entry.generation));
         }
         self.transmissions
@@ -5204,15 +5226,13 @@ impl ProtocolEngine {
         self.transmissions.clear();
         self.sequences.clear();
         self.lower_sequences.clear();
-        self.socket_owners = [[None; 2]; 9];
-        for queue in &mut self.raw_inquiries {
-            queue.clear();
-        }
+        self.targets = PerTarget::from_fn(|target| TargetState {
+            policy: self.targets[target].policy,
+            ..TargetState::default()
+        });
         self.holds.clear();
+        self.raw_release_gate = None;
         self.ledger.clear();
-        self.completion_sockets = [CompletionSockets::Unknown; 9];
-        self.unlearned_completions = [0; 9];
-        self.retired_completion_only = [0; 9];
         self.retro.clear();
         self.displaced_unseen.clear();
         for queue in &mut self.command_queues {
@@ -5230,8 +5250,14 @@ impl ProtocolEngine {
                 || !self.transmissions.is_empty()
                 || !self.sequences.is_empty()
                 || !self.lower_sequences.is_empty()
-                || self.socket_owners.iter().flatten().any(Option::is_some)
-                || self.raw_inquiries.iter().any(|queue| !queue.is_empty())
+                || self
+                    .targets
+                    .iter()
+                    .any(|(_, state)| state.socket_owners.iter().any(Option::is_some))
+                || self
+                    .targets
+                    .iter()
+                    .any(|(_, state)| !state.raw_inquiries.is_empty())
                 || !self.holds.is_empty()
                 || !self.ledger.is_empty()
                 || self
@@ -5249,9 +5275,9 @@ impl ProtocolEngine {
             return Err("transmission bound exceeded".into());
         }
         if self
-            .raw_inquiries
+            .targets
             .iter()
-            .any(|queue| queue.len() > self.policy.inquiry_capacity)
+            .any(|(_, state)| state.raw_inquiries.len() > self.policy.inquiry_capacity)
         {
             return Err("raw inquiry FIFO bound exceeded".into());
         }
@@ -5269,13 +5295,14 @@ impl ProtocolEngine {
         if ordinary > self.policy.capacity {
             return Err("ordinary entry capacity exceeded".into());
         }
-        for (index, policy) in self.targets.iter().enumerate() {
+        for (index, state) in self.targets.iter() {
+            let policy = &state.policy;
             let reserved = self
                 .entries
                 .values()
                 .filter(|entry| {
                     entry.slot == AdmissionSlot::ControlReserve
-                        && usize::from(entry.request.context().target.id()) == index
+                        && entry.request.context().target == index
                 })
                 .count();
             if reserved > policy.map_or(0, |policy| usize::from(policy.control_reserve)) {
@@ -5333,7 +5360,8 @@ impl ProtocolEngine {
                 return Err("transmission is incompatible with authoritative state".into());
             }
         }
-        for (target, sockets) in self.socket_owners.iter().enumerate().skip(1) {
+        for (target, state) in self.targets.iter() {
+            let sockets = &state.socket_owners;
             for (index, owner) in sockets.iter().enumerate() {
                 let Some(owner) = owner else {
                     continue;
@@ -5345,7 +5373,7 @@ impl ProtocolEngine {
                     return Err("socket index is invalid".into());
                 };
                 if entry.generation != owner.generation
-                    || usize::from(entry.request.context().target.id()) != target
+                    || entry.request.context().target != target
                     || !phase_owns_socket(entry.phase, socket)
                 {
                     return Err("socket owner is stale or phase-incompatible".into());
@@ -5386,7 +5414,8 @@ impl ProtocolEngine {
                 }
             }
         }
-        for (target, queue) in self.raw_inquiries.iter().enumerate().skip(1) {
+        for (target, state) in self.targets.iter() {
+            let queue = &state.raw_inquiries;
             let mut seen = SmallVec::<[RequestId; 8]>::new();
             for owner in queue {
                 if seen.contains(&owner.request) {
@@ -5397,7 +5426,7 @@ impl ProtocolEngine {
                     return Err("raw inquiry FIFO refers to missing entry".into());
                 };
                 if entry.generation != owner.generation
-                    || usize::from(entry.request.context().target.id()) != target
+                    || entry.request.context().target != target
                     || !matches!(entry.phase, Phase::AwaitingReply { .. })
                 {
                     return Err("raw inquiry FIFO owner is stale".into());
@@ -5421,15 +5450,12 @@ impl ProtocolEngine {
         {
             return Err("pre-ACK hold on a raw byte stream, whose ledger owes the answer".into());
         }
-        for (index, policy) in self.targets.iter().enumerate() {
-            let (Some(policy), Some(target)) = (
-                policy,
-                u8::try_from(index)
-                    .ok()
-                    .and_then(|id| CameraId::new(id).ok()),
-            ) else {
+        for (index, state) in self.targets.iter() {
+            let policy = &state.policy;
+            let Some(policy) = policy else {
                 continue;
             };
+            let target = index;
             let admissible = self
                 .policy
                 .capacity
@@ -5476,12 +5502,12 @@ impl ProtocolEngine {
                 return Err("live stream ledger entry no longer awaits its answer".into());
             }
         }
-        if self.holds.keys().any(|key| {
-            !(1..=8).contains(&key.target.id())
-                || (key.target != CameraId::BROADCAST
-                    && self.targets[key.target.id() as usize].is_none())
-        }) {
-            return Err("raw correlation hold has an invalid target".into());
+        if self
+            .holds
+            .keys()
+            .any(|key| self.targets[key.target].policy.is_none())
+        {
+            return Err("raw correlation hold has an unregistered target".into());
         }
         for (id, entry) in &self.entries {
             if entry.sequence_history.len() > MAX_SEQUENCE_HISTORY {
@@ -5567,7 +5593,7 @@ impl ProtocolEngine {
             | Phase::AwaitingCancellationResolution { socket, .. } = entry.phase
             {
                 let target = entry.request.context().target;
-                let owner = self.socket_owners[target.id() as usize][socket.as_index()];
+                let owner = self.targets[target].socket_owners[socket.as_index()];
                 if !owner.is_some_and(|owner| {
                     owner.request == *id && owner.generation == entry.generation
                 }) {
@@ -5578,7 +5604,8 @@ impl ProtocolEngine {
                 && matches!(entry.phase, Phase::AwaitingReply { .. })
             {
                 let target = entry.request.context().target;
-                let occurrences = self.raw_inquiries[target.id() as usize]
+                let occurrences = self.targets[target]
+                    .raw_inquiries
                     .iter()
                     .filter(|owner| owner.request == *id && owner.generation == entry.generation)
                     .count();
@@ -5624,15 +5651,15 @@ impl ProtocolEngine {
         // “Correlation before ACK is envelope-specific” and “Operational
         // invariants”.
         if self.policy.envelope == EnvelopeKind::Raw {
-            let mut unacknowledged = [0_u8; 9];
-            let mut urgent = [0_u8; 9];
-            let mut uncorrelatable = [0_u8; 9];
-            let mut no_reply = [0_u8; 9];
+            let mut unacknowledged = PerTarget::<u8>::default();
+            let mut urgent = PerTarget::<u8>::default();
+            let mut uncorrelatable = PerTarget::<u8>::default();
+            let mut no_reply = PerTarget::<u8>::default();
             for entry in self.entries.values() {
                 if !raw_unacknowledged_command_candidate(entry) {
                     continue;
                 }
-                let target = usize::from(entry.request.context().target.id());
+                let target = entry.request.context().target;
                 unacknowledged[target] = unacknowledged[target].saturating_add(1);
                 if entry.request.context().control.class == ControlClass::Urgent {
                     urgent[target] = urgent[target].saturating_add(1);
@@ -5660,7 +5687,7 @@ impl ProtocolEngine {
             // `CompletionOnly` command (one, or more once they waited out
             // their bound); the ledger keeps their answers apart.
             let stream = self.raw_stream();
-            if (0..9).any(|target| {
+            if TargetSlot::ALL.into_iter().any(|target| {
                 let crossing = stream
                     && no_reply[target] == 0
                     && uncorrelatable[target] == 1
@@ -6178,8 +6205,8 @@ mod cancellation_regression_tests {
 
     use super::*;
 
-    fn camera() -> CameraId {
-        CameraId::new(1).expect("test camera")
+    fn camera() -> TargetSlot {
+        TargetSlot::ALL[0]
     }
 
     fn policy(envelope: EnvelopeKind, command_spacing: Duration) -> ProtocolPolicy {

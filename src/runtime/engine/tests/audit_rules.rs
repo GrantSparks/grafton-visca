@@ -45,13 +45,13 @@ fn collection_bounds_are_independent_auditor_rules() {
         generation: engine.entry(id).unwrap().generation,
         kind: CorrelationKind::Request,
     };
-    engine.raw_inquiries[1] =
+    engine.targets[TargetSlot::ALL[0]].raw_inquiries =
         std::iter::repeat_n(owner, engine.policy.inquiry_capacity + 1).collect();
     assert_eq!(
         engine.assert_invariants().unwrap_err().as_ref(),
         "raw inquiry FIFO bound exceeded"
     );
-    engine.raw_inquiries[1].clear();
+    engine.targets[TargetSlot::ALL[0]].raw_inquiries.clear();
     engine.displaced_unseen.extend([id; 3]);
     assert_eq!(
         engine.assert_invariants().unwrap_err().as_ref(),
@@ -119,6 +119,8 @@ fn sequence_owners_need_target_and_reply_phase_compatibility() {
 
 #[test]
 fn representation_size_baseline() {
+    assert!(size_of::<Entry>() <= 560);
+    assert!(size_of::<ProtocolEngine>() <= 3880);
     eprintln!(
         "Entry size={} ProtocolEngine size={}",
         size_of::<Entry>(),

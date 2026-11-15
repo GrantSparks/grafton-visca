@@ -21,8 +21,8 @@ const POWER: InquiryRoute = InquiryRoute(1);
 const ZOOM: InquiryRoute = InquiryRoute(2);
 const FOCUS: InquiryRoute = InquiryRoute(3);
 
-fn camera(value: u8) -> CameraId {
-    CameraId::new(value).unwrap()
+fn camera(value: u8) -> TargetSlot {
+    TargetSlot::try_from(crate::CameraId::new(value).unwrap()).unwrap()
 }
 
 fn policy(envelope: EnvelopeKind, transport: TransportKind) -> ProtocolPolicy {
@@ -3778,8 +3778,8 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_named_reu
         Some(2)
     );
 
-    let mut retuned_sockets = [None; 9];
-    retuned_sockets[1] = Some(1);
+    let mut retuned_sockets = PerTarget::default();
+    retuned_sockets[camera(1)] = Some(1);
     engine
         .retune(Duration::ZERO, Duration::ZERO, retuned_sockets)
         .unwrap();
@@ -3893,7 +3893,7 @@ fn retune_runs_the_production_debug_invariant_hook() {
     context.reply_shape = ReplyShape::AckThenCompletion;
 
     engine
-        .retune(Duration::ZERO, Duration::ZERO, [None; 9])
+        .retune(Duration::ZERO, Duration::ZERO, PerTarget::default())
         .unwrap();
 }
 
@@ -4337,7 +4337,7 @@ fn fixture_observation(
         return format!(
             "observer=engine outcome=ack:{}:target={}:socket={}",
             names.get(&id).unwrap(),
-            target.id(),
+            target.camera().id(),
             socket.as_socket_number()
         );
     }
@@ -11887,7 +11887,7 @@ fn raw_single_flight_sending_inquiry_budget_expiry_quarantines_before_successor_
         "normal finish removes the Sending write correlation"
     );
     assert!(
-        engine.raw_inquiries[1].is_empty(),
+        engine.targets[TargetSlot::ALL[0]].raw_inquiries.is_empty(),
         "a Sending inquiry never leaves a stale FIFO owner"
     );
     assert_eq!(
@@ -12091,7 +12091,7 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
     )));
     assert!(engine.entry(first_id).is_none());
     assert!(engine.transmissions.is_empty());
-    assert!(engine.raw_inquiries[1].is_empty());
+    assert!(engine.targets[TargetSlot::ALL[0]].raw_inquiries.is_empty());
     assert!(engine.sequences.is_empty());
     assert!(engine.lower_sequences.is_empty());
     assert_eq!(
@@ -13197,7 +13197,7 @@ fn control_reserve_admits_urgent_stops_past_ordinary_saturation() {
             AdmissionSlot::ControlReserve,
             now,
         ),
-        Err(Error::ControlReserveExhausted { target, reserve: 2 }) if target == camera(1)
+        Err(Error::ControlReserveExhausted { target, reserve: 2 }) if target == camera(1).camera()
     ));
 
     // Camera 1 cannot use camera 2's reserve, so camera 2 keeps its own.
@@ -13705,7 +13705,7 @@ fn unsettled_owed_reply_latches_only_that_targets_inquiries_until_it_arrives() {
     let failure = terminal_failure(&latched, queued).expect("queued inquiry fails at the latch");
     assert!(matches!(
         failure,
-        Error::InquiryCorrelationLost { camera: lost } if lost == camera(1)
+        Error::InquiryCorrelationLost { camera: lost } if lost == camera(1).camera()
     ));
     assert_eq!(
         failure.failure_context(),
@@ -13735,7 +13735,7 @@ fn unsettled_owed_reply_latches_only_that_targets_inquiries_until_it_arrives() {
         Effect::AdmissionRejected {
             error: Error::InquiryCorrelationLost { camera: lost },
             ..
-        } if *lost == camera(1)
+        } if *lost == camera(1).camera()
     )));
 
     // A command to the latched target and an inquiry to another target still

@@ -511,7 +511,7 @@ fn stream_owed_answer_past_its_window_latches_only_the_command_lane() {
     assert_eq!(engine.state(), SessionState::Running);
     assert!(matches!(
         terminal_failure(&latched, queued_id),
-        Some(Error::CommandCorrelationLost { camera: c }) if c == camera(1)
+        Some(Error::CommandCorrelationLost { camera: c }) if c == camera(1).camera()
     ));
     let rejected = engine.handle(
         Input::Admit {
@@ -1150,7 +1150,10 @@ fn non_first_answers_never_pay_a_stream_debt() {
 fn completion_socket_naming_is_learned_from_completions() {
     let now = Instant::now();
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-    assert_eq!(engine.completion_sockets[1], CompletionSockets::Unknown);
+    assert_eq!(
+        engine.targets[TargetSlot::ALL[0]].completion_sockets,
+        CompletionSockets::Unknown
+    );
     let owner = executing_on(&mut engine, 1, ViscaSocket::S2, now);
     let waiting = command_awaiting_ack(&mut engine, 2, now);
     let disputed = engine.handle(named_error(1, ViscaSocket::S2, 0x41), now);
@@ -1161,17 +1164,23 @@ fn completion_socket_naming_is_learned_from_completions() {
         .entries()
         .any(|(_, entry)| entry.request == waiting && entry.disputed));
     engine.handle(completion(1, ViscaSocket::S2), now);
-    assert_eq!(engine.completion_sockets[1], CompletionSockets::Named);
+    assert_eq!(
+        engine.targets[TargetSlot::ALL[0]].completion_sockets,
+        CompletionSockets::Named
+    );
 
     let mut engine = numbering_camera(now);
     let socketless = engine.handle(socketless_completion(1), now);
     assert!(terminal_id(&socketless).is_none());
-    assert_eq!(engine.completion_sockets[1], CompletionSockets::Omitted);
+    assert_eq!(
+        engine.targets[TargetSlot::ALL[0]].completion_sockets,
+        CompletionSockets::Omitted
+    );
     let id = executing_on(&mut engine, 2, ViscaSocket::S1, now);
     engine.handle(completion(1, ViscaSocket::S1), now);
     assert!(phase_of(&engine, id).is_none());
     assert_eq!(
-        engine.completion_sockets[1],
+        engine.targets[TargetSlot::ALL[0]].completion_sockets,
         CompletionSockets::Omitted,
         "permanent for the session"
     );
@@ -1567,9 +1576,9 @@ fn reaching_the_debt_cap_latches_every_lane_without_dropping_a_debt() {
         );
         assert!(rejected.iter().any(|effect| match effect {
             Effect::AdmissionRejected { error, .. } if inquiry_lost =>
-                matches!(error, Error::InquiryCorrelationLost { camera: c } if *c == camera(1)),
+                matches!(error, Error::InquiryCorrelationLost { camera: c } if *c == camera(1).camera()),
             Effect::AdmissionRejected { error, .. } =>
-                matches!(error, Error::CommandCorrelationLost { camera: c } if *c == camera(1)),
+                matches!(error, Error::CommandCorrelationLost { camera: c } if *c == camera(1).camera()),
             _ => false,
         }));
     }
@@ -2922,6 +2931,45 @@ fn latched_ack_proves_socket_assignment_when_write_result_outlives_budget() {
             .unwrap()
             .until
             > late
+    );
+    engine.assert_invariants().unwrap();
+}
+
+/// Independent #837 audit: a raced ACK is also authoritative socket-reuse
+/// evidence even if its write result is too late for the receiving request.
+#[test]
+fn raced_ack_after_budget_does_not_apply_a_displaced_socket_owner() {
+    let start = Instant::now();
+    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+    let first = executing_on(&mut engine, 1, ViscaSocket::S1, start);
+    let mut second_request = urgent_command(1, CancellationPolicy::Supported);
+    second_request.context_mut().retry.total_budget = Duration::from_millis(10);
+    let (second_write, second) = admit(
+        &mut engine,
+        2,
+        second_request,
+        start + Duration::from_millis(1),
+    );
+    assert!(request_transmit_optional(&second_write).is_some());
+    // The camera reused socket 1 after the first command ended unseen.
+    engine.handle(ack(1, ViscaSocket::S1), start + Duration::from_millis(2));
+    assert_eq!(
+        engine.entry(second).unwrap().deferred_ack.unwrap().socket,
+        Some(ViscaSocket::S1)
+    );
+    let late = start + Duration::from_millis(12);
+    let timed_out = send_ok(&mut engine, &second_write, None, late);
+    assert!(terminal_failure(&timed_out, second).is_some());
+    let second_completion = engine.handle(
+        completion(1, ViscaSocket::S1),
+        late + Duration::from_millis(1),
+    );
+    assert!(
+        !matches!(
+            terminal_outcome(&second_completion, first),
+            Some(RuntimeOutcome::Applied)
+        ),
+        "the second command's completion must not apply the socket's displaced first owner"
     );
     engine.assert_invariants().unwrap();
 }

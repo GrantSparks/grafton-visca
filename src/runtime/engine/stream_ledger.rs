@@ -83,7 +83,10 @@ use std::{
 
 use smallvec::SmallVec;
 
-use crate::{CameraId, ViscaSocket};
+use crate::{
+    target::{PerTarget, TargetSlot},
+    ViscaSocket,
+};
 
 use super::{GenerationTicket, InquiryRoute, Lane, RequestId};
 
@@ -317,11 +320,16 @@ type Queue = VecDeque<Outstanding>;
 pub(crate) const MAX_DISPUTE_HANDOFFS: usize = 3;
 
 /// The oldest-first answer queue of every raw stream target.
+#[derive(Debug, Default)]
+struct LedgerTarget {
+    queue: Queue,
+    /// The target's open dispute, if any.
+    dispute: Option<Dispute>,
+}
+
 #[derive(Debug)]
 pub(crate) struct StreamLedger {
-    targets: [Queue; 9],
-    /// Per target, the open dispute, if any.
-    disputes: [Option<Dispute>; 9],
+    targets: PerTarget<LedgerTarget>,
     next_order: u64,
     /// Disputes, hand-offs, and frames that paid a disputed debt, for the
     /// randomized model.
@@ -458,26 +466,25 @@ pub(crate) struct Answered {
 impl StreamLedger {
     pub(crate) fn new() -> Self {
         Self {
-            targets: std::array::from_fn(|_| VecDeque::new()),
-            disputes: std::array::from_fn(|_| None),
+            targets: PerTarget::default(),
             next_order: 0,
             #[cfg(test)]
             disputes_seen: 0,
         }
     }
 
-    fn queue(&self, target: CameraId) -> &Queue {
-        &self.targets[usize::from(target.id())]
+    fn queue(&self, target: TargetSlot) -> &Queue {
+        &self.targets[target].queue
     }
 
-    fn queue_mut(&mut self, target: CameraId) -> &mut Queue {
-        &mut self.targets[usize::from(target.id())]
+    fn queue_mut(&mut self, target: TargetSlot) -> &mut Queue {
+        &mut self.targets[target].queue
     }
 
     /// Appends a request whose write is about to start.
     pub(crate) fn push(
         &mut self,
-        target: CameraId,
+        target: TargetSlot,
         request: RequestId,
         generation: GenerationTicket,
         owes: Owes,
@@ -500,7 +507,7 @@ impl StreamLedger {
     }
 
     /// Records that the live entry of `request` with this kind was written.
-    pub(crate) fn mark_written(&mut self, target: CameraId, request: RequestId, cancel: bool) {
+    pub(crate) fn mark_written(&mut self, target: TargetSlot, request: RequestId, cancel: bool) {
         if let Some(entry) = self.queue_mut(target).iter_mut().find(|entry| {
             entry.request == request
                 && entry.standing == Standing::Live
@@ -513,7 +520,7 @@ impl StreamLedger {
     /// The entries `request` still awaits.
     pub(crate) fn live(
         &self,
-        target: CameraId,
+        target: TargetSlot,
         request: RequestId,
     ) -> impl Iterator<Item = &Outstanding> {
         self.queue(target)
@@ -537,24 +544,24 @@ impl StreamLedger {
     /// dispute is untracked instead. Returns what the dispute assigns.
     pub(crate) fn retire(
         &mut self,
-        target: CameraId,
+        target: TargetSlot,
         request: RequestId,
         mut window: impl FnMut(Owes) -> (Instant, Duration),
     ) -> Answered {
-        let index = usize::from(target.id());
-        let queue = &mut self.targets[index];
+        let state = &mut self.targets[target];
+        let queue = &mut state.queue;
         let unwritten = |entry: &Outstanding| {
             entry.request == request && entry.standing == Standing::Live && !entry.written
         };
         let mut answered = Answered::default();
-        let decided = self.disputes[index].as_ref().and_then(|dispute| {
+        let decided = state.dispute.as_ref().and_then(|dispute| {
             queue
                 .iter()
                 .find(|entry| unwritten(entry) && dispute.names(entry.order))
                 .map(|entry| entry.order == dispute.completion_only.order)
         });
         if let Some(command_unwritten) = decided {
-            if let Some(dispute) = self.disputes[index].take() {
+            if let Some(dispute) = state.dispute.take() {
                 if command_unwritten {
                     // The command sent nothing, so the disputed error was
                     // the STOP's, and each frame handed off since its step's.
@@ -626,7 +633,11 @@ impl StreamLedger {
     /// An extra debt only discards a future answer; it never binds one to the
     /// wrong request.
     /// Inspects first-answer candidates without consuming their evidence.
-    pub(crate) fn candidates(&self, target: CameraId, answer: Answer) -> [Option<Outstanding>; 2] {
+    pub(crate) fn candidates(
+        &self,
+        target: TargetSlot,
+        answer: Answer,
+    ) -> [Option<Outstanding>; 2] {
         match resolve_in(self.queue(target), answer) {
             Resolution::Nothing => [None, None],
             Resolution::Oldest(entry) => [Some(entry), None],
@@ -636,12 +647,12 @@ impl StreamLedger {
 
     pub(crate) fn answer(
         &mut self,
-        target: CameraId,
+        target: TargetSlot,
         answer: Answer,
         evidence: Evidence,
     ) -> Answered {
-        let index = usize::from(target.id());
-        let queue = &mut self.targets[index];
+        let state = &mut self.targets[target];
+        let queue = &mut state.queue;
         let mut answered = Answered {
             resolved: Resolved::Nothing,
             reply_settled: false,
@@ -670,7 +681,7 @@ impl StreamLedger {
                 } else {
                     None
                 };
-                if let Some(dispute) = self.disputes[index].take() {
+                if let Some(dispute) = state.dispute.take() {
                     let candidate = dispute.steps.last().map(|step| step.order);
                     if entry.order == dispute.completion_only.order {
                         accept(queue, &dispute, &mut answered);
@@ -678,14 +689,14 @@ impl StreamLedger {
                         // Its candidate answered: whose frame that was, no
                         // explanation tells any more; stop tracking.
                         if Some(entry.order) != candidate {
-                            self.disputes[index] = Some(dispute);
+                            state.dispute = Some(dispute);
                         }
                     } else if Some(entry.order) == candidate && alone {
                         reject(queue, &dispute, &mut answered);
                     } else if Some(entry.order) == candidate && entry.members > 1 {
                         // A member of the candidate run paid: its members are
                         // alike, so the run stays the candidate.
-                        self.disputes[index] = Some(dispute);
+                        state.dispute = Some(dispute);
                     } else if Some(entry.order) == candidate {
                         match handed_to {
                             Some(step) if dispute.steps.len() <= MAX_DISPUTE_HANDOFFS => {
@@ -693,7 +704,7 @@ impl StreamLedger {
                                 dispute.steps.push(step);
                                 // A live request is named again.
                                 dispute.dormant = false;
-                                self.disputes[index] = Some(dispute);
+                                state.dispute = Some(dispute);
                             }
                             // Untracked past the cap, or with no candidate.
                             _ => {}
@@ -705,7 +716,7 @@ impl StreamLedger {
                         // the disputed frame.
                         accept(queue, &dispute, &mut answered);
                     } else {
-                        self.disputes[index] = Some(dispute);
+                        state.dispute = Some(dispute);
                     }
                 }
                 answered.resolved = if entry.is_debt() {
@@ -715,13 +726,13 @@ impl StreamLedger {
                 };
             }
             Resolution::Ambiguous { first, second } => {
-                let queue = &mut self.targets[index];
+                let queue = &mut state.queue;
                 let candidates = [first, second];
                 let first = first.order;
-                let opened = self.disputes[index].is_none();
+                let opened = state.dispute.is_none();
                 // A second dispute while one is tracked: only the command's
                 // completion can still prove it (accepted).
-                demote(&mut self.disputes[index]);
+                demote(&mut state.dispute);
                 let step = |entry: &Outstanding, evidence| Step {
                     order: entry.order,
                     request: entry.request,
@@ -748,7 +759,7 @@ impl StreamLedger {
                 if let (true, Some(completion_only), Some(stop), Evidence::Error(code)) =
                     (opened, completion_only, stop, evidence)
                 {
-                    self.disputes[index] = Some(Dispute {
+                    state.dispute = Some(Dispute {
                         completion_only: Step {
                             evidence: Evidence::Error(code),
                             ..completion_only
@@ -759,7 +770,7 @@ impl StreamLedger {
                         dormant: false,
                     });
                 }
-                let tracked = self.disputes[index].is_some();
+                let tracked = state.dispute.is_some();
                 // A `NoReply` command's rejection, had it come, came first
                 // either way: it owes nothing more (one member of a run of
                 // them: the others still may).
@@ -782,7 +793,7 @@ impl StreamLedger {
                 answered.resolved = Resolved::Disputed(candidates);
             }
         }
-        pin(&mut self.targets[index], self.disputes[index].as_ref());
+        pin(&mut state.queue, state.dispute.as_ref());
         answered
     }
 
@@ -791,26 +802,26 @@ impl StreamLedger {
     /// follows that request's first answer and so every earlier one. Write
     /// order retiring a tracked dispute's candidate proves it accepted, as
     /// for a first answer.
-    pub(crate) fn settle_before(&mut self, target: CameraId, order: u64) -> Answered {
-        let index = usize::from(target.id());
-        let queue = &mut self.targets[index];
+    pub(crate) fn settle_before(&mut self, target: TargetSlot, order: u64) -> Answered {
+        let state = &mut self.targets[target];
+        let queue = &mut state.queue;
         let mut answered = Answered {
             resolved: Resolved::Nothing,
             reply_settled: settle_in(queue, order),
             retro: SmallVec::new(),
             completion_only_retired: false,
         };
-        if let Some(dispute) = self.disputes[index].take() {
+        if let Some(dispute) = state.dispute.take() {
             let candidate = dispute.steps.last().map(|step| step.order);
             let retired =
                 candidate.is_some_and(|order| !queue.iter().any(|entry| entry.order == order));
             if retired && !dispute.accept_only {
                 accept(queue, &dispute, &mut answered);
             } else {
-                self.disputes[index] = Some(dispute);
+                state.dispute = Some(dispute);
             }
         }
-        pin(&mut self.targets[index], self.disputes[index].as_ref());
+        pin(&mut state.queue, state.dispute.as_ref());
         answered
     }
 
@@ -820,8 +831,8 @@ impl StreamLedger {
     /// request's; if rejected, the ACK was the late answer of the command
     /// owed there, and this frame is that command's. Either way the command
     /// running there has ended, so its socket is free.
-    pub(crate) fn follow(&mut self, target: CameraId, frame: NamedFrame) -> bool {
-        let Some(dispute) = self.disputes[usize::from(target.id())].as_mut() else {
+    pub(crate) fn follow(&mut self, target: TargetSlot, frame: NamedFrame) -> bool {
+        let Some(dispute) = self.targets[target].dispute.as_mut() else {
             return false;
         };
         let Some(step) = dispute.steps.iter_mut().find(|step| {
@@ -835,8 +846,9 @@ impl StreamLedger {
 
     /// Whether a tracked dispute may already hold `request`'s answer: the
     /// disputed frame, or one handed off since, may have been its own.
-    pub(crate) fn awaits_dispute(&self, target: CameraId, request: RequestId) -> bool {
-        self.disputes[usize::from(target.id())]
+    pub(crate) fn awaits_dispute(&self, target: TargetSlot, request: RequestId) -> bool {
+        self.targets[target]
+            .dispute
             .as_ref()
             .is_some_and(|dispute| dispute.steps.iter().any(|step| step.request == request))
     }
@@ -844,7 +856,9 @@ impl StreamLedger {
     /// Checks that every tracked dispute names a `CompletionOnly` entry still
     /// owed and follows no more than [`MAX_DISPUTE_HANDOFFS`] hand-offs.
     pub(crate) fn check_disputes(&self) -> Result<(), &'static str> {
-        for (queue, dispute) in self.targets.iter().zip(&self.disputes) {
+        for (_, state) in self.targets.iter() {
+            let queue = &state.queue;
+            let dispute = &state.dispute;
             let Some(dispute) = dispute else {
                 continue;
             };
@@ -871,16 +885,20 @@ impl StreamLedger {
     /// That completion proves the command accepted, so a tracked dispute
     /// over it is decided as by any completion of it: the disputed frames
     /// were its steps', which the returned [`Answered`] assigns.
-    pub(crate) fn take_completion(&mut self, target: CameraId) -> Option<(Outstanding, Answered)> {
-        let index = usize::from(target.id());
-        let queue = &mut self.targets[index];
+    pub(crate) fn take_completion(
+        &mut self,
+        target: TargetSlot,
+    ) -> Option<(Outstanding, Answered)> {
+        let state = &mut self.targets[target];
+        let queue = &mut state.queue;
         let entry = queue
             .iter()
             .find(|entry| matches!(entry.owes, Owes::Completion | Owes::AcceptedCompletion))
             .copied()?;
         let mut answered = Answered::default();
-        if let Some(dispute) =
-            self.disputes[index].take_if(|dispute| dispute.completion_only.order == entry.order)
+        if let Some(dispute) = state
+            .dispute
+            .take_if(|dispute| dispute.completion_only.order == entry.order)
         {
             accept(queue, &dispute, &mut answered);
             pin(queue, None);
@@ -894,7 +912,7 @@ impl StreamLedger {
     /// answer was taken for another request's (a rejection naming a socket
     /// that an ended or executing command may still hold, which could be
     /// that command's execution error or this one's rejection).
-    pub(crate) fn dispute(&mut self, target: CameraId, answer: Answer) -> bool {
+    pub(crate) fn dispute(&mut self, target: TargetSlot, answer: Answer) -> bool {
         let queue = self.queue_mut(target);
         // When the frame is already ambiguous between waiting requests (the
         // oldest one disputed), it is theirs as much as the oldest one's:
@@ -912,13 +930,14 @@ impl StreamLedger {
         }
         // Another dispute over a tracked request: only the command's
         // completion can still prove it (accepted).
-        let index = usize::from(target.id());
-        if self.disputes[index]
+        let state = &mut self.targets[target];
+        if state
+            .dispute
             .as_ref()
             .is_some_and(|dispute| dispute.names(entry.order))
         {
-            demote(&mut self.disputes[index]);
-            pin(&mut self.targets[index], self.disputes[index].as_ref());
+            demote(&mut state.dispute);
+            pin(&mut state.queue, state.dispute.as_ref());
         }
         true
     }
@@ -929,7 +948,7 @@ impl StreamLedger {
     /// tracked (no second dispute may involve its requests), or a STOP
     /// already waits behind a `CompletionOnly` entry that may still be
     /// rejected (so that any dispute it causes involves one STOP).
-    pub(crate) fn forbids_crossing(&self, target: CameraId) -> bool {
+    pub(crate) fn forbids_crossing(&self, target: TargetSlot) -> bool {
         let queue = self.queue(target);
         let disputed_live = queue.iter().any(|entry| entry.disputed && !entry.is_debt());
         let unproven = queue
@@ -938,7 +957,8 @@ impl StreamLedger {
         let waiting_ack = queue
             .iter()
             .any(|entry| entry.owes == Owes::Ack && !entry.is_debt());
-        let tracked = self.disputes[usize::from(target.id())]
+        let tracked = self.targets[target]
+            .dispute
             .as_ref()
             .is_some_and(|dispute| !dispute.dormant);
         disputed_live || tracked || (unproven && waiting_ack)
@@ -949,7 +969,7 @@ impl StreamLedger {
     /// Whether a `NoReply` command's possible rejection is still owed on
     /// `target` past its window: `CompletionOnly` commands there fail
     /// rather than wait.
-    pub(crate) fn rejection_latched(&self, target: CameraId) -> bool {
+    pub(crate) fn rejection_latched(&self, target: TargetSlot) -> bool {
         self.queue(target)
             .iter()
             .any(|entry| entry.owes == Owes::Rejection && entry.latched())
@@ -958,20 +978,20 @@ impl StreamLedger {
     /// Whether a `NoReply` command's possible rejection is owed on
     /// `target`: until a later first answer settles it, a `CompletionOnly`
     /// command's socketless rejection could not be told from it.
-    pub(crate) fn owes_rejection(&self, target: CameraId) -> bool {
+    pub(crate) fn owes_rejection(&self, target: TargetSlot) -> bool {
         self.queue(target)
             .iter()
             .any(|entry| entry.owes == Owes::Rejection)
     }
 
-    pub(crate) fn owes_completion(&self, target: CameraId) -> bool {
+    pub(crate) fn owes_completion(&self, target: TargetSlot) -> bool {
         self.queue(target)
             .iter()
             .any(|entry| matches!(entry.owes, Owes::Completion | Owes::AcceptedCompletion))
     }
 
     /// The answers `target` owes for requests that already ended.
-    pub(crate) fn debts(&self, target: CameraId) -> u64 {
+    pub(crate) fn debts(&self, target: TargetSlot) -> u64 {
         self.queue(target)
             .iter()
             .filter(|entry| entry.is_debt())
@@ -980,11 +1000,11 @@ impl StreamLedger {
     }
 
     /// The entries (runs and live requests) `target`'s queue holds.
-    pub(crate) fn len(&self, target: CameraId) -> usize {
+    pub(crate) fn len(&self, target: TargetSlot) -> usize {
         self.queue(target).len()
     }
 
-    pub(crate) fn owes_reply(&self, target: CameraId) -> bool {
+    pub(crate) fn owes_reply(&self, target: TargetSlot) -> bool {
         self.queue(target)
             .iter()
             .any(|entry| entry.is_debt() && matches!(entry.owes, Owes::Reply(_)))
@@ -993,20 +1013,21 @@ impl StreamLedger {
     /// Whether `target` owes [`MAX_DEBTS_PER_TARGET`] debts: every lane
     /// latches, and nothing but STOPs and cancellations is written, until
     /// debts are paid.
-    fn capped(&self, target: CameraId) -> bool {
+    fn capped(&self, target: TargetSlot) -> bool {
         self.debts(target) >= MAX_DEBTS_PER_TARGET as u64
     }
 
     /// Whether `lane` on `target` owes an answer, and whether it has latched.
     /// At [`MAX_DEBTS_PER_TARGET`] every lane latches until debts are paid.
-    pub(crate) fn lane_state(&self, target: CameraId, lane: Lane) -> LaneState {
+    pub(crate) fn lane_state(&self, target: TargetSlot, lane: Lane) -> LaneState {
         if self.capped(target) {
             return LaneState::Latched;
         }
         // A dormant dispute's `CompletionOnly` command, never proven
         // accepted, holds both lanes (its command lane through its debt).
         if lane == Lane::Inquiry
-            && self.disputes[usize::from(target.id())]
+            && self.targets[target]
+                .dispute
                 .as_ref()
                 .is_some_and(|dispute| dispute.dormant && !dispute.rejection_only)
         {
@@ -1035,7 +1056,9 @@ impl StreamLedger {
     /// came), so work they refuse fails at once rather than waiting — while
     /// a late answer can still settle it and reopen them.
     pub(crate) fn latch_due(&mut self, now: Instant) {
-        for (queue, dispute) in self.targets.iter().zip(self.disputes.iter_mut()) {
+        for (_, state) in self.targets.iter_mut() {
+            let queue = &state.queue;
+            let dispute = &mut state.dispute;
             let ended = dispute.as_ref().is_some_and(|dispute| {
                 queue
                     .iter()
@@ -1048,7 +1071,11 @@ impl StreamLedger {
                 dispute.dormant = true;
             }
         }
-        for entry in self.targets.iter_mut().flatten() {
+        for entry in self
+            .targets
+            .iter_mut()
+            .flat_map(|(_, state)| &mut state.queue)
+        {
             if let Standing::Owed {
                 window_end,
                 latched,
@@ -1066,7 +1093,7 @@ impl StreamLedger {
     pub(crate) fn wake(&self) -> Option<Instant> {
         self.targets
             .iter()
-            .flatten()
+            .flat_map(|(_, state)| &state.queue)
             .filter_map(|entry| match entry.standing {
                 Standing::Owed {
                     window_end,
@@ -1079,25 +1106,19 @@ impl StreamLedger {
     }
 
     pub(crate) fn clear(&mut self) {
-        for queue in &mut self.targets {
-            queue.clear();
-        }
-        self.disputes = std::array::from_fn(|_| None);
+        self.targets = PerTarget::default();
     }
 
     pub(crate) fn is_empty(&self) -> bool {
-        self.targets.iter().all(VecDeque::is_empty)
+        self.targets
+            .iter()
+            .all(|(_, state)| state.queue.is_empty() && state.dispute.is_none())
     }
 
-    pub(crate) fn entries(&self) -> impl Iterator<Item = (CameraId, &Outstanding)> {
-        self.targets.iter().enumerate().flat_map(|(index, queue)| {
-            let target = u8::try_from(index)
-                .ok()
-                .and_then(|id| CameraId::new(id).ok());
-            queue
-                .iter()
-                .filter_map(move |entry| target.map(|target| (target, entry)))
-        })
+    pub(crate) fn entries(&self) -> impl Iterator<Item = (TargetSlot, &Outstanding)> {
+        self.targets
+            .iter()
+            .flat_map(|(target, state)| state.queue.iter().map(move |entry| (target, entry)))
     }
 }
 
@@ -1348,7 +1369,7 @@ mod tests {
 
     use super::*;
 
-    const TARGET: CameraId = CameraId::CAMERA_1;
+    const TARGET: TargetSlot = TargetSlot::ALL[0];
 
     fn request(id: u64) -> RequestId {
         RequestId::from_nonzero(NonZeroU64::new(id).unwrap())
