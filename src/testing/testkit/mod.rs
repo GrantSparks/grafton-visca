@@ -23,8 +23,8 @@ pub use scripted_transport::ScriptedTransport;
 #[cfg(feature = "blocking")]
 pub use scripted_transport::ScriptedBlockingTransport;
 
-#[cfg(feature = "async")]
-pub use crate::testing::manual_clock::ManualClockExecutor;
 #[cfg(any(feature = "blocking", feature = "async"))]
 pub use crate::testing::manual_clock::{ClockJoinHandle, ClockParticipant, ManualClock};
+#[cfg(feature = "async")]
+pub use crate::testing::manual_clock::{ManualClockExecutor, ManualClockTimer};
 pub use scripted_transport::{helpers, Step};

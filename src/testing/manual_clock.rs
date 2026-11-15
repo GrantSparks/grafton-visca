@@ -17,7 +17,7 @@ use std::{
 };
 
 #[cfg(all(feature = "async", feature = "test-utils"))]
-use crate::executor::Executor;
+use crate::executor::{Executor, ResettableTimer};
 
 #[cfg(all(feature = "test-utils", any(feature = "async", feature = "blocking")))]
 use crate::Error;
@@ -727,11 +727,21 @@ impl Drop for ClockParticipant {
 #[cfg(all(feature = "async", feature = "test-utils"))]
 impl ManualClock {
     /// A future that completes once `duration` of virtual time has passed.
-    fn sleep_async(&self, duration: Duration) -> Sleep {
-        Sleep {
+    fn sleep_async(&self, duration: Duration) -> ManualClockTimer {
+        ManualClockTimer {
             clock: self.clone(),
             deadline: self.now().checked_add(duration),
             key: None,
+            waker: None,
+        }
+    }
+
+    fn timer_at(&self, deadline: Instant) -> ManualClockTimer {
+        ManualClockTimer {
+            clock: self.clone(),
+            deadline: Some(deadline),
+            key: None,
+            waker: None,
         }
     }
 
@@ -905,22 +915,28 @@ impl<F> Drop for Tracked<F> {
     }
 }
 
-/// A virtual-time sleep.
+/// An owned, resettable deadline measured on a [`ManualClock`].
+///
+/// Created by [`Executor::timer`] on a [`ManualClockExecutor`]. Resetting
+/// replaces the pending registration and can rearm a timer after completion.
 #[cfg(all(feature = "async", feature = "test-utils"))]
 #[derive(Debug)]
-struct Sleep {
+pub struct ManualClockTimer {
     clock: ManualClock,
     /// `None` for a sleep too long to represent: it never completes.
     deadline: Option<Instant>,
     key: Option<(Instant, u64)>,
+    /// Retained after completion so reset can wake the waiting task immediately.
+    waker: Option<Waker>,
 }
 
 #[cfg(all(feature = "async", feature = "test-utils"))]
-impl Future for Sleep {
+impl Future for ManualClockTimer {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, context: &mut Context<'_>) -> Poll<()> {
         let this = self.get_mut();
+        this.waker = Some(context.waker().clone());
         let Some(deadline) = this.deadline else {
             return Poll::Pending;
         };
@@ -942,7 +958,7 @@ impl Future for Sleep {
 }
 
 #[cfg(all(feature = "async", feature = "test-utils"))]
-impl Drop for Sleep {
+impl Drop for ManualClockTimer {
     fn drop(&mut self) {
         if let Some(key) = self.key.take() {
             // Removing a deadline wakes nothing, so a verification round in
@@ -951,6 +967,31 @@ impl Drop for Sleep {
                 state.timers.remove(&key);
             });
         }
+    }
+}
+
+#[cfg(all(feature = "async", feature = "test-utils"))]
+impl ResettableTimer for ManualClockTimer {
+    fn reset(self: Pin<&mut Self>, deadline: Instant) {
+        let this = self.get_mut();
+        this.deadline = Some(deadline);
+        this.clock.update(|state, wakes| {
+            if let Some(key) = this.key.take() {
+                state.timers.remove(&key);
+            }
+            if let Some(waker) = &this.waker {
+                if deadline <= state.now {
+                    state.undelivered += 1;
+                    wakes.wakers.push(waker.clone());
+                } else {
+                    let key = (deadline, state.next_id());
+                    state.timers.insert(key, waker.clone());
+                    this.key = Some(key);
+                }
+            }
+            state.changed();
+            state.settle(wakes);
+        });
     }
 }
 
@@ -997,6 +1038,11 @@ impl<E: Executor> Executor for ManualClockExecutor<E> {
         T: Send + 'static;
 
     type Detach = E::Detach;
+    type Timer = ManualClockTimer;
+
+    fn timer(&self, deadline: Instant) -> Self::Timer {
+        self.clock.timer_at(deadline)
+    }
 
     fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
     where
@@ -1040,6 +1086,60 @@ mod tests {
     use super::*;
 
     const HOUR: Duration = Duration::from_secs(3_600);
+
+    #[cfg(all(feature = "async", feature = "test-utils"))]
+    #[test]
+    fn resettable_timers_replace_deadlines_and_rearm_after_completion() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+
+        struct WakeCount(AtomicUsize);
+        impl Wake for WakeCount {
+            fn wake(self: Arc<Self>) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+        }
+
+        let clock = ManualClock::new();
+        let _participant = clock.enter();
+        let start = clock.now();
+        let counter = Arc::new(WakeCount(AtomicUsize::new(0)));
+        let waker = Waker::from(counter.clone());
+        let mut context = Context::from_waker(&waker);
+        let mut timer = Box::pin(clock.timer_at(start + Duration::from_secs(10)));
+        assert!(timer.as_mut().poll(&mut context).is_pending());
+        assert_eq!(clock.lock().timers.len(), 1);
+        timer.as_mut().reset(start + Duration::from_secs(5));
+        assert_eq!(clock.lock().timers.len(), 1);
+        clock.advance(Duration::from_secs(4));
+        assert_eq!(counter.0.load(Ordering::SeqCst), 0);
+        clock.advance(Duration::from_secs(1));
+        assert_eq!(counter.0.load(Ordering::SeqCst), 1);
+        assert!(timer.as_mut().poll(&mut context).is_ready());
+        assert!(clock.lock().timers.is_empty());
+
+        timer.as_mut().reset(start + Duration::from_secs(20));
+        clock.advance(Duration::from_secs(5));
+        assert_eq!(
+            counter.0.load(Ordering::SeqCst),
+            1,
+            "replaced deadline is gone"
+        );
+        assert!(timer.as_mut().poll(&mut context).is_pending());
+        clock.advance(Duration::from_secs(10));
+        assert!(timer.as_mut().poll(&mut context).is_ready());
+        timer.as_mut().reset(clock.now());
+        assert_eq!(
+            counter.0.load(Ordering::SeqCst),
+            3,
+            "a due reset wakes immediately"
+        );
+        assert!(timer.as_mut().poll(&mut context).is_ready());
+        timer.as_mut().reset(clock.now() + HOUR);
+        assert_eq!(clock.lock().timers.len(), 1);
+        drop(timer);
+        assert!(clock.lock().timers.is_empty());
+        assert_balanced(&clock);
+    }
 
     fn assert_balanced(clock: &ManualClock) {
         let state = clock.lock();

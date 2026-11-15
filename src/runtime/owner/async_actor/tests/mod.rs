@@ -52,6 +52,8 @@ mod faults;
 #[cfg(feature = "runtime-tokio")]
 mod lifecycle;
 #[cfg(feature = "runtime-tokio")]
+mod manual_timer;
+#[cfg(feature = "runtime-tokio")]
 mod observability;
 mod receipts;
 #[cfg(feature = "runtime-tokio")]
@@ -144,6 +146,12 @@ impl crate::executor::Executor for ManualRuntime {
         T: Send + 'static;
 
     type Detach = <TokioRuntime as crate::executor::Executor>::Detach;
+
+    type Timer = manual_timer::ManualTimer;
+
+    fn timer(&self, deadline: Instant) -> Self::Timer {
+        manual_timer::ManualTimer::new(self.clone(), deadline)
+    }
 
     fn spawn_with_detach<F>(&self, future: F) -> (Self::Join<F::Output>, Self::Detach)
     where

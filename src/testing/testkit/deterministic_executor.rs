@@ -161,6 +161,7 @@ impl VirtualClock {
 }
 
 /// A future that completes when the virtual clock reaches a specific time.
+#[derive(Debug)]
 pub struct SleepFuture {
     clock: Arc<Mutex<VirtualClockInner>>,
     deadline: Instant,
