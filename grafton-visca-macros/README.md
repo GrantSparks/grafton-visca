@@ -84,6 +84,9 @@ so they reject `data_variant`. Standard VISCA on/off replies use
 opposite polarity. Neither `opcode` nor `subcode` may be `0xFF`, because that
 byte terminates a VISCA frame.
 
+Typed-only keys, including `typed_is_tuple`, require `typed_response`; a
+standalone tuple flag is rejected rather than ignored.
+
 ## ViscaEnum
 
 Generates bidirectional u8 conversions for enums representing VISCA protocol values.

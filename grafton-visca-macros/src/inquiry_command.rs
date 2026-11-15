@@ -329,6 +329,7 @@ impl RawAttributes {
             .ok_or_else(|| error("visca attribute must have an opcode value"));
         let parser = parser.into_entry();
         let typed_response = typed_response.into_entry();
+        let typed_is_tuple = typed_is_tuple.into_entry();
         let field = field.into_entry();
         let value_type = value_type.into_entry();
         let parse_with = parse_with.into_entry();
@@ -336,6 +337,9 @@ impl RawAttributes {
         let data_variant = data_variant.into_entry();
 
         let mut parser_keys = Ok(());
+        if let (None, Some(((), span))) = (&typed_response, typed_is_tuple) {
+            parser_keys = Err(at(span, "typed_is_tuple requires typed_response"));
+        }
         for (key, span) in [
             (ParserKey::Field, field.as_ref().map(|(_, span)| *span)),
             (
@@ -468,7 +472,7 @@ impl RawAttributes {
                         ty,
                         fields,
                         constructor,
-                        is_tuple: typed_is_tuple.get().is_some(),
+                        is_tuple: typed_is_tuple.is_some(),
                     })
                 })
                 }
@@ -1213,6 +1217,20 @@ mod tests {
                     struct MissingFieldInquiry;
                 },
                 "typed_response requires typed_field",
+            ),
+            (
+                syn::parse_quote! {
+                    #[visca(opcode = 0x00, response = Power, typed_is_tuple)]
+                    struct UnusedTypedTupleInquiry;
+                },
+                "typed_is_tuple requires typed_response",
+            ),
+            (
+                syn::parse_quote! {
+                    #[visca(opcode = 0x00, response = Raw, typed_is_tuple)]
+                    struct UnusedRawTupleInquiry;
+                },
+                "typed_is_tuple requires typed_response",
             ),
             (
                 syn::parse_quote! {
