@@ -3,7 +3,7 @@ use crate::{
     target::{PerTarget, TargetSlot},
     AffectedAxes, Error, OperationId, Settlement,
 };
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 #[derive(Debug, Default)]
 pub(super) struct MotionRegistry {
@@ -21,38 +21,23 @@ pub(crate) struct MotionStamp {
 }
 
 impl MotionRegistry {
-    /// Engine admission and generation publication are one boundary against
-    /// settlement commits, even before the owner drains the Admitted effect.
-    pub(super) fn admit(
+    /// Hold only the admission/generation boundary against settlement commits.
+    pub(super) fn begin_admission(
         self: &Arc<Self>,
         target: TargetSlot,
         axes: AffectedAxes,
         token: u64,
-        admit: impl FnOnce() -> Vec<super::Effect>,
-    ) -> (Vec<super::Effect>, Option<MotionStamp>) {
-        let mut bank = self
-            .generations
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        let effects = admit();
-        let stamp = effects
-            .iter()
-            .any(|effect| matches!(effect, super::Effect::Admitted { .. }))
-            .then(|| {
-                let current = &mut bank[target];
-                for (index, value) in current.iter_mut().enumerate() {
-                    if axes.bits() & (1 << index) != 0 {
-                        *value = token;
-                    }
-                }
-                MotionStamp {
-                    registry: Arc::clone(self),
-                    target,
-                    axes,
-                    generations: *current,
-                }
-            });
-        (effects, stamp)
+    ) -> MotionAdmission<'_> {
+        MotionAdmission {
+            registry: self,
+            bank: self
+                .generations
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()),
+            target,
+            axes,
+            token,
+        }
     }
 
     pub(super) fn establish(
@@ -77,6 +62,39 @@ impl MotionRegistry {
             axes,
             generations: *current,
         }
+    }
+}
+
+/// The generations lock may cover the synchronous admission verdict only.
+/// Consuming this guard publishes successful admission and releases the lock
+/// before owner bookkeeping, due work or dispatch can begin.
+pub(super) struct MotionAdmission<'a> {
+    registry: &'a Arc<MotionRegistry>,
+    bank: MutexGuard<'a, PerTarget<[u64; 5]>>,
+    target: TargetSlot,
+    axes: AffectedAxes,
+    token: u64,
+}
+
+impl MotionAdmission<'_> {
+    pub(super) fn admit(
+        mut self,
+        verdict: Result<crate::runtime::engine::RequestId, Error>,
+    ) -> Result<(crate::runtime::engine::RequestId, MotionStamp), Error> {
+        let id = verdict?;
+        let current = &mut self.bank[self.target];
+        for (index, value) in current.iter_mut().enumerate() {
+            if self.axes.bits() & (1 << index) != 0 {
+                *value = self.token;
+            }
+        }
+        let stamp = MotionStamp {
+            registry: Arc::clone(self.registry),
+            target: self.target,
+            axes: self.axes,
+            generations: *current,
+        };
+        Ok((id, stamp))
     }
 }
 
@@ -146,5 +164,25 @@ impl Admitted {
     #[cfg(test)]
     pub(crate) fn get(&self) -> u64 {
         self.id.get()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn engine_refusal_releases_the_motion_lock_without_advancing_generations() {
+        let registry = Arc::new(MotionRegistry::default());
+        let target = TargetSlot::CAMERA_1;
+        let original = registry.establish(target, AffectedAxes::ZOOM, 1);
+        let admission = registry.begin_admission(target, AffectedAxes::ZOOM, 2);
+        assert!(registry.generations.try_lock().is_err());
+        assert!(matches!(
+            admission.admit(Err(Error::RuntimeQueueFull { capacity: 1 })),
+            Err(Error::RuntimeQueueFull { capacity: 1 })
+        ));
+        assert!(registry.generations.try_lock().is_ok());
+        assert!(original.check(OperationId::from_raw(1)).is_ok());
     }
 }

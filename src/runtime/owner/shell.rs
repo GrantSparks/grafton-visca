@@ -922,14 +922,16 @@ impl OwnerShellCore {
         if !self.claim_admission_boundary(&mut admission, accepted_at) {
             return TurnStep::Done(TurnOutcome::Continue);
         }
-        let input = self.state.stage_admission_with(
+        let turn = self.state.begin_input_turn(accepted_at);
+        let verdict = self.state.admit_in_turn(
+            &turn,
             admission.request,
             admission.permit,
             admission.observer,
-            admission.reply,
         );
+        let _ = admission.reply.try_send(verdict);
         TurnStep::Drive {
-            effects: self.state.input(input, accepted_at),
+            effects: self.state.finish_input_turn(turn, EngineTurn::Complete),
             then: Resume::done(TurnOutcome::Continue),
         }
     }

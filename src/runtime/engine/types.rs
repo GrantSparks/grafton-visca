@@ -141,7 +141,8 @@ impl TransmissionId {
     }
 }
 
-/// Owner-local admission reply token. It never authorizes lifecycle mutation.
+/// Test-only admission reply token for the input/effect compatibility shim.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct AdmissionTicket(pub(crate) u64);
 
@@ -933,6 +934,7 @@ pub(crate) enum SessionState {
 #[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub(crate) enum Input {
+    #[cfg(test)]
     Admit {
         ticket: AdmissionTicket,
         request: RuntimeRequest,
@@ -1036,10 +1038,12 @@ pub(crate) enum CancelState {
 /// Ordered, inert outputs. The owner performs I/O and observer/cache delivery.
 #[derive(Debug, Clone)]
 pub(crate) enum Effect {
+    #[cfg(test)]
     Admitted {
         ticket: AdmissionTicket,
         id: RequestId,
     },
+    #[cfg(test)]
     AdmissionRejected {
         ticket: AdmissionTicket,
         error: Error,

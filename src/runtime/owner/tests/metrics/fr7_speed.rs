@@ -102,7 +102,7 @@ fn queued_mode_refusal(invalidate: bool) {
     let request = drive_request(&registration, OperationalTuning::new());
     let permit = state.permits().try_acquire(request.context()).unwrap();
     let (input, observer, _admitted) = super::super::stage_admission(&mut state, request, permit);
-    for effect in state.input(input, now) {
+    for effect in input.complete(&mut state, now) {
         assert!(
             !matches!(state.apply_effect(effect), AppliedEffect::Transmit(_)),
             "the executing mode setter occupies the only socket"
