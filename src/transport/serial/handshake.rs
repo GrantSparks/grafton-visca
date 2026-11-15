@@ -24,7 +24,7 @@ use crate::{
         system::{AddressSetCommand, InterfaceClearCommand},
     },
     error::{Error, Result},
-    protocol::framer::{FramingMode, ProtocolFramer},
+    protocol::framer::{FramingError, FramingMode, ProtocolFramer},
     timeout::Deadline,
     transport::serial::Config,
 };
@@ -381,13 +381,13 @@ impl SerialStartup {
                 }
                 // Raw framing has already discarded through the terminator;
                 // treat the oversized frame as bus noise.
-                Err(Error::ResponseTooLarge { max_size }) => {
+                Err(FramingError::OversizedRawFrame { max_size }) => {
                     warn!(
                         max_size,
                         "Discarded oversized serial Address Set noise frame"
                     );
                 }
-                Err(error) => return Err(error),
+                Err(error) => return Err(error.into()),
             }
         }
         Ok(None)

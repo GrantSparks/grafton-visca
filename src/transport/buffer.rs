@@ -36,7 +36,9 @@ const SONY_HEADER: usize = 8;
 ///   frame** a session accepts — a raw VISCA frame including its `0xFF`
 ///   terminator, a Sony header plus its payload, or one UDP datagram — and the
 ///   most bytes a single transport read requests. A larger datagram is
-///   discarded; a larger stream frame is a framing failure that ends the
+///   discarded. A larger raw stream frame that ends in `0xFF` is discarded
+///   and counted as malformed input; the terminator preserves the next frame's
+///   boundary. An oversized Sony header is a framing failure that ends the
 ///   session. The largest VISCA reply is 16 bytes (24 with a Sony header),
 ///   which is [`BufferConfig::MIN_RECV_BUFFER_SIZE`]; every preset leaves
 ///   ample headroom above it.
@@ -45,7 +47,9 @@ const SONY_HEADER: usize = 8;
 ///   owner has not yet delivered. The framer always has room for one more full
 ///   read on top of it, so a healthy stream whose replies are split across
 ///   reads can never overflow, while the memory a byte stream can retain is
-///   bounded by `max_buffer_size + recv_buffer_size`.
+///   bounded by `max_buffer_size + recv_buffer_size`. Exceeding that sum is a
+///   framing-position loss that ends the stream session, including when input
+///   has no terminating boundary.
 ///
 /// Every session open validates `recv_buffer_size >=`
 /// [`BufferConfig::MIN_RECV_BUFFER_SIZE`], a non-zero `max_buffer_size` and

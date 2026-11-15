@@ -15,7 +15,7 @@ use crate::{
     command::CommandKind,
     profile::{OperationalTuning, ProfileEnvelope, ProfileSpec},
     protocol::{
-        framer::{FramingMode, ProtocolFramer},
+        framer::{FramingError, FramingMode, ProtocolFramer},
         response::{decode_basic_for_source, BasicKind},
     },
     raw::INLINE_BYTES,
@@ -867,7 +867,16 @@ pub(crate) fn decode_frames_with_routing(
                     actual: Vec::new(),
                 });
             }
-            let framed = framed?;
+            let framed = match framed {
+                Ok(frame) => frame,
+                Err(FramingError::OversizedRawFrame { .. }) if !datagram => {
+                    // The terminator was consumed, so the next raw frame is
+                    // still aligned. Count this frame just like short noise.
+                    discarded_malformed = discarded_malformed.saturating_add(1);
+                    continue;
+                }
+                Err(error) => return Err(error.into()),
+            };
             match decode_frame(envelope, routing, framed) {
                 Ok(Some(frame)) => frames.push(frame),
                 // An IP source is ambiguous when more than one target is
@@ -883,9 +892,11 @@ pub(crate) fn decode_frames_with_routing(
                     // boundary but that did not classify is a malformed frame to
                     // discard, not a lost framing position. The framer keeps its
                     // place, so the stream stays Running and the frame is counted
-                    // as ignored, as a datagram already does. Only a genuine framing
-                    // failure (buffer overflow above, or an oversized single
-                    // frame via `framed?`) still poisons.
+                    // as ignored, as a datagram already does. Oversized raw
+                    // frames with a terminator take the same path above. Only
+                    // position loss (retention overflow or an unhonourable Sony
+                    // header) still poisons the stream. The hard retention limit
+                    // is `max_buffer_size + recv_buffer_size`.
                     discarded_malformed = discarded_malformed.saturating_add(1);
                 }
             }

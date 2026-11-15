@@ -33,6 +33,33 @@ pub enum FramingMode {
     SonyEncapsulated,
 }
 
+/// A framing verdict distinguishes a discarded raw frame from lost position.
+///
+/// Only [`Self::OversizedRawFrame`] preserves the next frame's boundary. An
+/// owner may count and discard that frame on a stream; the other variants are
+/// terminal framing failures. Public transport errors retain the configured
+/// byte limit through the conversion to [`Error`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum FramingError {
+    /// A raw frame was discarded through its terminating `0xFF`.
+    OversizedRawFrame { max_size: usize },
+    /// Accumulated input exceeded the retention bound plus one full read.
+    BufferOverflow { max_size: usize },
+    /// A Sony header declares a frame larger than the configured frame limit.
+    OversizedSonyFrame { max_size: usize },
+}
+
+impl From<FramingError> for Error {
+    fn from(error: FramingError) -> Self {
+        let max_size = match error {
+            FramingError::OversizedRawFrame { max_size }
+            | FramingError::BufferOverflow { max_size }
+            | FramingError::OversizedSonyFrame { max_size } => max_size,
+        };
+        Self::ResponseTooLarge { max_size }
+    }
+}
+
 /// The protocol identity visible in an incomplete raw response prefix.
 ///
 /// Classification belongs beside the byte-stream framer so every owner gives
@@ -127,10 +154,10 @@ impl ProtocolFramer {
     /// Push a chunk of bytes into the framer's buffer.
     /// Returns an error if the buffer would exceed max_buffer_size.
     #[cfg(test)]
-    pub fn push(&mut self, chunk: Bytes) -> Result<(), Error> {
-        let new_len = self.buf.len() + chunk.len();
+    pub fn push(&mut self, chunk: Bytes) -> Result<(), FramingError> {
+        let new_len = self.buf.len().saturating_add(chunk.len());
         if new_len > self.max_buffer_size {
-            return Err(Error::ResponseTooLarge {
+            return Err(FramingError::BufferOverflow {
                 max_size: self.max_buffer_size,
             });
         }
@@ -141,10 +168,10 @@ impl ProtocolFramer {
     /// Push a slice of bytes into the framer's buffer.
     /// Returns an error if the buffer would exceed max_buffer_size.
     /// This avoids the need to construct a Bytes object when you already have a slice.
-    pub fn push_slice(&mut self, chunk: &[u8]) -> Result<(), Error> {
-        let new_len = self.buf.len() + chunk.len();
+    pub fn push_slice(&mut self, chunk: &[u8]) -> Result<(), FramingError> {
+        let new_len = self.buf.len().saturating_add(chunk.len());
         if new_len > self.max_buffer_size {
-            return Err(Error::ResponseTooLarge {
+            return Err(FramingError::BufferOverflow {
                 max_size: self.max_buffer_size,
             });
         }
@@ -155,17 +182,19 @@ impl ProtocolFramer {
     /// Drain all complete frames from the buffer.
     ///
     /// Returns an iterator that yields zero-copy `Bytes` for each complete frame,
-    /// or an error if a frame exceeds size limits.
+    /// or a framing verdict if a frame exceeds size limits. An oversized raw
+    /// frame has already been discarded through its terminator, so subsequent
+    /// frames remain aligned and can be drained normally.
     /// Incomplete frames remain in the buffer for future processing.
     ///
     /// Frames are decoded only according to this framer's configured
     /// [`FramingMode`].
-    pub fn drain_frames(&mut self) -> impl Iterator<Item = Result<Bytes, Error>> + '_ {
+    pub fn drain_frames(&mut self) -> impl Iterator<Item = Result<Bytes, FramingError>> + '_ {
         std::iter::from_fn(move || self.extract_next_frame())
     }
 
     /// Extract the next complete frame from the buffer if available.
-    fn extract_next_frame(&mut self) -> Option<Result<Bytes, Error>> {
+    fn extract_next_frame(&mut self) -> Option<Result<Bytes, FramingError>> {
         match self.mode {
             // A raw owner must never infer Sony framing from response bytes:
             // malformed/noise prefixes can legally contain the Sony type bytes.
@@ -175,14 +204,14 @@ impl ProtocolFramer {
     }
 
     /// Extract one raw VISCA frame at its terminator.
-    fn extract_raw_frame(&mut self) -> Option<Result<Bytes, Error>> {
+    fn extract_raw_frame(&mut self) -> Option<Result<Bytes, FramingError>> {
         if let Some(pos) = self.buf.iter().position(|&b| b == VISCA_TERMINATOR) {
             let frame_size = pos + 1;
             if frame_size > self.max_frame_size {
                 // Frame exceeds maximum allowed size
                 // Clear up to and including the terminator to recover
                 let _ = self.buf.split_to(frame_size);
-                return Some(Err(Error::ResponseTooLarge {
+                return Some(Err(FramingError::OversizedRawFrame {
                     max_size: self.max_frame_size,
                 }));
             }
@@ -194,7 +223,7 @@ impl ProtocolFramer {
     }
 
     /// Extract one Sony frame from its header and declared payload length.
-    fn extract_sony_frame(&mut self) -> Option<Result<Bytes, Error>> {
+    fn extract_sony_frame(&mut self) -> Option<Result<Bytes, FramingError>> {
         if self.buf.len() < SonyHeader::SIZE {
             return None;
         }
@@ -210,7 +239,7 @@ impl ProtocolFramer {
             // Discard the known header so a direct framer caller can resume
             // after reporting the oversized Sony frame.
             let _ = self.buf.split_to(SonyHeader::SIZE);
-            return Some(Err(Error::ResponseTooLarge {
+            return Some(Err(FramingError::OversizedSonyFrame {
                 max_size: self.max_frame_size,
             }));
         }
@@ -225,7 +254,7 @@ impl ProtocolFramer {
     /// Try to extract any available frame when the stream has ended.
     /// This handles edge cases where EOF is encountered with partial data.
     #[cfg(all(test, feature = "blocking"))]
-    pub fn drain_on_eof(&mut self) -> Option<Result<Bytes, Error>> {
+    pub fn drain_on_eof(&mut self) -> Option<Result<Bytes, FramingError>> {
         if self.buf.is_empty() {
             return None;
         }
@@ -349,12 +378,13 @@ impl ProtocolFramer {
     ///
     /// * `Ok(true)` - Push succeeded normally
     /// * `Ok(false)` - Push required resync (buffer was cleared and chunk re-pushed)
-    /// * `Err(Error::ResponseTooLarge)` - Resync failed (chunk alone exceeds max_buffer_size)
+    /// * `Err(FramingError::BufferOverflow)` - Resync failed (the chunk alone
+    ///   exceeds the configured retention bound plus one full read).
     #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio", test))]
-    pub fn push_slice_with_resync(&mut self, chunk: &[u8]) -> Result<bool, Error> {
+    pub fn push_slice_with_resync(&mut self, chunk: &[u8]) -> Result<bool, FramingError> {
         match self.push_slice(chunk) {
             Ok(()) => Ok(true),
-            Err(Error::ResponseTooLarge { max_size }) => {
+            Err(FramingError::BufferOverflow { max_size }) => {
                 // Buffer overflow detected - attempt resync
                 let buffered_before = self.buf.len();
                 tracing::warn!(
@@ -713,7 +743,7 @@ mod tests {
             .unwrap();
         assert!(matches!(
             framer.drain_frames().next(),
-            Some(Err(Error::ResponseTooLarge { max_size: 20 }))
+            Some(Err(FramingError::OversizedSonyFrame { max_size: 20 }))
         ));
         assert!(framer.is_empty());
     }
@@ -1048,7 +1078,7 @@ mod tests {
         let results: Vec<_> = framer.drain_frames().collect();
         assert_eq!(results.len(), 1);
         match &results[0] {
-            Err(Error::ResponseTooLarge { max_size }) => {
+            Err(FramingError::OversizedSonyFrame { max_size }) => {
                 assert_eq!(*max_size, 20);
             }
             _ => panic!("Expected ResponseTooLarge error"),
@@ -1083,7 +1113,7 @@ mod tests {
         let results: Vec<_> = framer.drain_frames().collect();
         assert_eq!(results.len(), 1);
         match &results[0] {
-            Err(Error::ResponseTooLarge { max_size }) => {
+            Err(FramingError::OversizedRawFrame { max_size }) => {
                 assert_eq!(*max_size, 10);
             }
             _ => panic!("Expected ResponseTooLarge error"),
@@ -1091,6 +1121,43 @@ mod tests {
 
         // Buffer should be cleared after error
         assert!(framer.is_empty());
+    }
+
+    #[test]
+    fn oversized_raw_frame_keeps_the_next_frame_aligned() {
+        let mut framer = ProtocolFramer::new_with_limits_and_mode(32, 3, 32, FramingMode::RawVisca);
+        framer
+            .push_slice(&[0x55, 0x55, 0x55, 0xFF, 0x90, 0x41, 0xFF])
+            .unwrap();
+
+        let results: Vec<_> = framer.drain_frames().collect();
+        assert_eq!(
+            results,
+            [
+                Err(FramingError::OversizedRawFrame { max_size: 3 }),
+                Ok(Bytes::from_static(&[0x90, 0x41, 0xFF])),
+            ]
+        );
+        assert!(framer.is_empty());
+    }
+
+    #[test]
+    fn cumulative_overflow_reports_the_configured_retention_plus_one_read() {
+        let config = BufferConfig {
+            recv_buffer_size: 24,
+            max_buffer_size: 48,
+        };
+        let mut framer = ProtocolFramer::new_with_config_and_mode(config, FramingMode::RawVisca);
+        framer.push_slice(&[0x55; 72]).unwrap();
+        assert_eq!(
+            framer.push_slice(&[0x55]),
+            Err(FramingError::BufferOverflow { max_size: 72 })
+        );
+        let public_error = Error::from(FramingError::BufferOverflow { max_size: 72 });
+        assert!(matches!(
+            public_error,
+            Error::ResponseTooLarge { max_size: 72 }
+        ));
     }
 
     #[test]
@@ -1104,7 +1171,7 @@ mod tests {
 
         let result = framer.push(Bytes::from(data));
         match result {
-            Err(Error::ResponseTooLarge { max_size }) => {
+            Err(FramingError::BufferOverflow { max_size }) => {
                 assert_eq!(max_size, 50);
             }
             _ => panic!("Expected ResponseTooLarge error"),
@@ -1230,7 +1297,7 @@ mod tests {
         let results: Vec<_> = framer.drain_frames().collect();
         assert_eq!(results.len(), 1);
         match &results[0] {
-            Err(Error::ResponseTooLarge { max_size }) => {
+            Err(FramingError::OversizedSonyFrame { max_size }) => {
                 assert_eq!(*max_size, config.recv_buffer_size);
             }
             _ => panic!("Expected ResponseTooLarge error with max_size = recv_buffer_size"),
@@ -1284,7 +1351,7 @@ mod tests {
         let results: Vec<_> = framer.drain_frames().collect();
         assert_eq!(results.len(), 1);
         match &results[0] {
-            Err(Error::ResponseTooLarge { max_size }) => {
+            Err(FramingError::OversizedRawFrame { max_size }) => {
                 assert_eq!(*max_size, config.recv_buffer_size);
             }
             _ => panic!("Expected ResponseTooLarge error"),
@@ -1378,7 +1445,7 @@ mod tests {
 
         // Should return error even after resync attempt
         assert!(
-            matches!(result, Err(Error::ResponseTooLarge { max_size: 20 })),
+            matches!(result, Err(FramingError::BufferOverflow { max_size: 20 })),
             "Expected ResponseTooLarge error, got {:?}",
             result
         );
