@@ -921,11 +921,11 @@ fn settlement_budget(
 
 /// Bounded retry count for one timeout category.
 ///
-/// Budgets are keyed on the request's [`TimeoutClass`]: quick work gets two extra attempts because
-/// it is cheap to replay, network work gets one fewer because a failing link rarely recovers within
-/// a retry, and a long-running command gets exactly one attempt to spare the camera a second
-/// multi-minute operation. Inquiries retain their own retry class while their response deadline is
-/// selected from the inquiry timing fact.
+/// Quick work and inquiries get two extra retries; network work gets one fewer
+/// (with a minimum of one). Long-running work permits one retry, hence at most
+/// two attempts. Replay eligibility narrows these bounds: a command is never
+/// rewritten after its ACK, and an ambiguous successfully sent raw command is
+/// not replayed. Inquiries retain their own retry class and response deadline.
 const fn retry_budget(base: u32, class: TimeoutClass) -> u32 {
     match class {
         TimeoutClass::Quick | TimeoutClass::Inquiry => base.saturating_add(2),

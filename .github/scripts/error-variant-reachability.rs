@@ -4,27 +4,6 @@ mod source_scan;
 
 use std::{collections::BTreeSet, env, fs, path::Path, process::ExitCode};
 
-fn tokens(source: &str) -> Vec<String> {
-    let mut result = Vec::new();
-    let mut word = String::new();
-    for ch in source.chars() {
-        if ch.is_alphanumeric() || ch == '_' {
-            word.push(ch);
-        } else {
-            if !word.is_empty() {
-                result.push(std::mem::take(&mut word));
-            }
-            if !ch.is_whitespace() {
-                result.push(ch.to_string());
-            }
-        }
-    }
-    if !word.is_empty() {
-        result.push(word);
-    }
-    result
-}
-
 fn main() -> ExitCode {
     let root = env::args_os().nth(1).expect("repository root argument");
     let root = Path::new(&root);
@@ -70,9 +49,8 @@ fn main() -> ExitCode {
             continue;
         }
         let source = fs::read_to_string(root.join(path)).unwrap_or_default();
-        let code = source_scan::production_code(&source);
-        let source_tokens = tokens(&code);
-        let expression_tokens = tokens(&source_scan::production_code(expression));
+        let source_tokens = source_scan::production_tokens(&source);
+        let expression_tokens = source_scan::production_tokens(expression);
         assert!(
             !expression_tokens.is_empty(),
             "empty expression for {variant}"

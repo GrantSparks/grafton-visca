@@ -2,8 +2,9 @@
 
 This is the release-candidate preservation baseline. It records behavior that
 the 2.0 architecture must retain. The supported-surface inventory test checks
-the closed lists below against the current registry and source; an intentional
-change must update the implementation, this inventory, and that test together.
+the marked closed lists below against the current registry and production
+source. An intentional surface change must update the implementation and this
+inventory together.
 
 Caller-visible differences from 1.x are recorded in
 [`migration_2_0.md`](migration_2_0.md).
@@ -34,7 +35,10 @@ Every profile retains the baseline profile facets `ProfileMetadata`,
 Standard transport gates are `SupportsTcp`, `SupportsUdp`, and
 `SupportsSerial`.
 
-The optional typed gates are exactly: `DirectZoom`, `DigitalZoomToggle`,
+The optional typed gates are exactly the following closed list:
+
+<!-- BEGIN OPTIONAL TYPED GATES -->
+`DirectZoom`, `DigitalZoomToggle`,
 `DigitalZoomRange`, `IrisControl`, `OnePushFocus`, `PtzOpticsSnapFocus`,
 `FocusLock`, `PushAutoFocus`, `FocusZone`, `AutoFocusSensitivity`,
 `FocusNearLimitInquiry`, `BacklightCompensation`, `WideDynamicRange`,
@@ -50,16 +54,25 @@ The optional typed gates are exactly: `DirectZoom`, `DigitalZoomToggle`,
 `PtzOpticsMulticastStreaming`, `PtzOpticsNdiQuality`, `ExposureMode`,
 `IrisControlInquiry`, `NoiseReduction2DControl`,
 `NoiseReduction3DControl`, `ImageFreeze`, `DefogLevel`, `TallyBrightness`,
-`PtzOpticsTally`, and `VersionInquiry`. The generated profile registry remains
+`PtzOpticsTally`, `VersionInquiry`, `ColorTemperatureInquiry`, and `NoiseReduction2DMode`.
+<!-- END OPTIONAL TYPED GATES -->
+
+The generated profile registry remains
 the single source for marker implementations and runtime discovery facts.
 
 ## Static nouns and controls
 
-The noun inventory is `PowerAccessor`, `ZoomAccessor`, `SystemAccessor`,
+The noun inventory is:
+
+<!-- BEGIN STATIC NOUNS -->
+`PowerAccessor`, `ZoomAccessor`, `SystemAccessor`,
 `PanTiltAccessor`, `FocusAccessor`, `ExposureAccessor`,
 `WhiteBalanceAccessor`, `ImageAccessor`, `PresetsAccessor`, `TallyAccessor`,
 `NdFilterAccessor`, `MotionSyncAccessor`, `MenuAccessor`, and
-`AdvancedAccessor`, plus the `MotionAccessor`. Blocking and async use the same
+`AdvancedAccessor`, plus the `MotionAccessor`.
+<!-- END STATIC NOUNS -->
+
+Blocking and async use the same
 noun names with mode-native return types. The authoritative method inventory is
 the closed semantic ledger and the generated static noun surface; profile-gated
 methods require their corresponding `Has*` marker. Runtime rows require both a
@@ -121,10 +134,25 @@ Internal
 implementation-only feature flags are omitted from this public inventory.
 
 The supported downstream derives are `ViscaInquiry`, `ViscaEnum`, and
-`ViscaValue`. Stable test utilities are `Step`, `helpers`,
-`ScriptedBlockingTransport`, `ScriptedTransport`, `ManualClock`,
-`ClockParticipant`, `ClockJoinHandle`, `ManualClockExecutor`, `ManualClockTimer`,
-`LocalExecutor`, `TaskJoin`, and the Tokio `ViscaCameraSimulator`.
+`ViscaValue`. Stable test utilities are:
+
+<!-- BEGIN STABLE TEST UTILITIES -->
+| Public utility | Feature condition |
+| --- | --- |
+| `Step` | `test-utils` |
+| `helpers` | `test-utils` |
+| `ScriptedBlockingTransport` | `test-utils,blocking` |
+| `ScriptedTransport` | `test-utils,async` |
+| `ManualClock` | `test-utils,blocking` or `test-utils,async` |
+| `ClockParticipant` | `test-utils,blocking` or `test-utils,async` |
+| `ClockJoinHandle` | `test-utils,blocking` or `test-utils,async` |
+| `ManualClockExecutor` | `test-utils,async` |
+| `ManualClockTimer` | `test-utils,async` |
+| `LocalExecutor` | `test-utils,async` |
+| `TaskJoin` | `test-utils,async` |
+| `ViscaCameraSimulator` | `test-utils,runtime-tokio` |
+<!-- END STABLE TEST UTILITIES -->
+
 The simulator can be constructed without a runtime; sending and receiving
 require Tokio with time enabled. Its fixed-seed timing/loss options schedule
 addressed datagram replies, with per-camera socket cancellation and no polling

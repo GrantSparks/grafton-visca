@@ -32,7 +32,7 @@
 //! Raw policy is explicit and owned by each value. Commands require timeout,
 //! retry, and control classes, directly or through [`crate::raw::Policy`].
 //! Inquiry convenience constructors fix the timeout class to [`TimeoutClass::Inquiry`];
-//! [`Inquiry::with_policy`] rejects any other timeout at construction. No byte-based lifecycle inference or
+//! [`crate::raw::Inquiry::with_policy`] rejects any other timeout at construction. No byte-based lifecycle inference or
 //! caller-selected operation class exists.
 //!
 //! A raw command also declares its [`crate::raw::RawReplyShape`]: the default

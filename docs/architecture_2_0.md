@@ -523,8 +523,9 @@ then executing on the camera, so the socket the ACK names (or the first free
 one, for a socketless ACK) is held; a socketless completion while that hold
 exists binds to no live command. An ACK disputed between two candidates
 holds the socket it names the same way, since one of them executes there,
-for the longer of the two candidates' completion deadlines (a candidate whose
-write result has not come yet counts: its answer may overtake that result).
+for the longer of the two candidates' completion deadlines. Both candidates
+have finished their immediate write: neither owner processes a frame while a
+write result is outstanding (#860).
 Either kind of ACK naming a socket the engine still indexes to an executing
 command proves that command's completion was lost: it ends unconfirmed and
 the socket is released (#721).
@@ -1249,7 +1250,8 @@ fault and spending no retry budget). Reads that already waited for their full
 budget do not receive an extra pause or spend the receive-flood fairness streak.
 When a pause ends at a response or grace deadline, one receive-first probe
 preserves complete input before the due pass. Fault pauses are armed before
-write effects; successful writes clear them and reset idle escalation (#838).
+write effects; staging the next transmission clears its receive pause, while
+a successful write resets idle escalation (#838).
 The coordinator paces only the receive
 source, so boundaries, timers, and control stay selectable during the pause in
 both shells, and an eager custom driver cannot hot-spin either owner (#723).

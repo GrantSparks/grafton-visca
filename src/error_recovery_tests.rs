@@ -638,6 +638,7 @@ fn timeout_certainty_decides_recovery_at_every_stage() {
     }
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 #[test]
 fn cancellation_attempt_source_cannot_change_the_still_live_context() {
     for source in [
@@ -773,6 +774,7 @@ fn os_conditions_and_fatal_observation_sources_have_distinct_verdicts() {
     }
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
 #[test]
 fn cached_cancellation_keeps_canonical_operation_and_session_outcomes_exact() {
     for source in [

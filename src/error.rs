@@ -1040,7 +1040,7 @@ impl Error {
     /// Records a failed cancellation attempt while its original request lives.
     /// Canonical operation/session verdicts remain exact; a transport or timeout
     /// cause is kept inside a fixed CancellationAttempt/StillLive wrapper.
-    #[cfg(any(feature = "async", feature = "blocking", test))]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn cancellation_observation_failed(source: Error) -> Self {
         fn attempt_failure(error: &Error) -> bool {
             match error {
@@ -1662,14 +1662,14 @@ impl Error {
     }
 
     /// An admission deadline expired before the owner accepted the request.
-    #[cfg(any(feature = "async", feature = "blocking", test))]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) const fn admission_timeout() -> Self {
         Self::timeout(FailureStage::PreAdmission, Certainty::NotAccepted)
     }
 
     /// A read-only state query (an idle wait or a motion query) ran out of
     /// time. It changed nothing, so it can be repeated.
-    #[cfg(any(feature = "async", feature = "blocking", test))]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) const fn query_timeout() -> Self {
         Self::timeout(FailureStage::Observation, Certainty::NotAccepted)
     }

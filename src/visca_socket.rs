@@ -24,10 +24,7 @@ impl ViscaSocket {
     /// This is used for array indexing and similar operations.
     #[must_use]
     pub fn as_index(self) -> usize {
-        match self {
-            ViscaSocket::S1 => 0,
-            ViscaSocket::S2 => 1,
-        }
+        usize::from(self.as_socket_number() - 1)
     }
 
     /// Convert to one-based index (1 or 2).
@@ -46,10 +43,7 @@ impl ViscaSocket {
     /// This is used in VISCA command addressing.
     #[must_use]
     pub fn as_protocol_byte(self) -> u8 {
-        match self {
-            ViscaSocket::S1 => 0x01,
-            ViscaSocket::S2 => 0x02,
-        }
+        self.as_socket_number()
     }
 
     /// Convert to VISCA cancel command byte (0x21 or 0x22).
@@ -67,11 +61,7 @@ impl ViscaSocket {
     /// Returns `None` if the index is not 0 or 1.
     #[must_use]
     pub fn from_index(index: usize) -> Option<Self> {
-        match index {
-            0 => Some(ViscaSocket::S1),
-            1 => Some(ViscaSocket::S2),
-            _ => None,
-        }
+        Self::from_socket_number(u8::try_from(index).ok()?.checked_add(1)?)
     }
 
     /// Create from one-based socket number (1 or 2).
@@ -95,9 +85,8 @@ impl ViscaSocket {
     /// Returns `None` if the byte doesn't represent a valid socket.
     #[must_use]
     pub fn from_protocol_byte(byte: u8) -> Option<Self> {
-        match byte & 0x0F {
-            1 => Some(ViscaSocket::S1),
-            2 => Some(ViscaSocket::S2),
+        match byte {
+            0x01 | 0x02 | 0x21 | 0x22 => Self::from_socket_number(byte & 0x0F),
             _ => None,
         }
     }
@@ -145,6 +134,7 @@ mod tests {
         assert_eq!(ViscaSocket::from_index(0), Some(ViscaSocket::S1));
         assert_eq!(ViscaSocket::from_index(1), Some(ViscaSocket::S2));
         assert_eq!(ViscaSocket::from_index(2), None);
+        assert_eq!(ViscaSocket::from_index(usize::MAX), None);
     }
 
     #[test]
@@ -157,12 +147,19 @@ mod tests {
 
     #[test]
     fn test_from_protocol_byte() {
-        assert_eq!(ViscaSocket::from_protocol_byte(0x01), Some(ViscaSocket::S1));
-        assert_eq!(ViscaSocket::from_protocol_byte(0x02), Some(ViscaSocket::S2));
-        assert_eq!(ViscaSocket::from_protocol_byte(0x21), Some(ViscaSocket::S1));
-        assert_eq!(ViscaSocket::from_protocol_byte(0x22), Some(ViscaSocket::S2));
-        assert_eq!(ViscaSocket::from_protocol_byte(0x00), None);
-        assert_eq!(ViscaSocket::from_protocol_byte(0x03), None);
+        let accepted: Vec<_> = (0..=u8::MAX)
+            .filter_map(|byte| ViscaSocket::from_protocol_byte(byte).map(|socket| (byte, socket)))
+            .collect();
+        assert_eq!(
+            accepted,
+            [
+                (0x01, ViscaSocket::S1),
+                (0x02, ViscaSocket::S2),
+                (0x21, ViscaSocket::S1),
+                (0x22, ViscaSocket::S2)
+            ]
+        );
+        assert_eq!(ViscaSocket::from_protocol_byte(0x41), None);
     }
 
     #[test]

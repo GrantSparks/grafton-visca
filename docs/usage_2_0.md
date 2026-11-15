@@ -23,6 +23,8 @@ Cargo feature a snippet needs.
 | Serialization/schema/typescript | `serde`, `schemars`, and `ts-rs` as needed |
 | Testkit steps and helpers | `test-utils` |
 | Scripted blocking transport | `test-utils,blocking` |
+| Manual owner clock and participation guard (`ManualClock`, `ClockParticipant`) | `test-utils,blocking` or `test-utils,async` |
+| Manual-clock async executor (`ManualClockExecutor`) | `test-utils,async` |
 | Async scripted transport and deterministic clock/executor | `test-utils,async` |
 | VISCA camera simulator | `test-utils,runtime-tokio` |
 

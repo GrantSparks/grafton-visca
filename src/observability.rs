@@ -20,7 +20,7 @@ pub enum SessionStatus {
     /// The owner accepts work.
     #[default]
     Running,
-    /// The protocol session closed normally.
+    /// The transport reported a terminal connection closure.
     Closed,
     /// The owner was explicitly shut down.
     Shutdown,
@@ -221,7 +221,7 @@ pub enum DiagnosticOutcome {
     /// A raw plain fire-and-forget write reached the local transport. This is
     /// not evidence that the camera accepted or applied the command.
     Written,
-    /// A command's applied-state effect was committed.
+    /// The command reached applied completion, whether or not it has a state-cache effect.
     Applied,
     /// An inquiry reply was delivered.
     Reply,

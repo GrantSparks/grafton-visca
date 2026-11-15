@@ -295,6 +295,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   controls, submitting requests, halting, cancelling or waiting for operations
   from inside a read or write. Refused callbacks leave the worker available
   for external close and transport teardown (#862).
+- `ViscaSocket::from_protocol_byte` (#889) now accepts exactly the documented
+  addressing/cancel bytes `01`, `02`, `21`, and `22`, rejecting unrelated high
+  nibbles such as `41` instead of silently masking them.
+
 - Contributor and release checks (#886) now require unique production error
   constructors and verify the specific rejection reason in release self-tests.
 - Requests that exceed the selected profile's supported envelope payload

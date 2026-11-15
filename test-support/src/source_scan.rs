@@ -191,12 +191,56 @@ pub fn production_code(source: &str) -> String {
     clean(&declarations(source))
 }
 
+/// Splits production text into identifier/number tokens and punctuation.
+///
+/// Whitespace and literal contents cannot affect a constructor or export
+/// comparison. Punctuation remains separate so paths and delimiters stay visible.
+pub fn production_tokens(source: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut word = String::new();
+    for ch in production_code(source).chars() {
+        if ch.is_alphanumeric() || ch == '_' {
+            word.push(ch);
+        } else {
+            if !word.is_empty() {
+                result.push(std::mem::take(&mut word));
+            }
+            if !ch.is_whitespace() {
+                result.push(ch.to_string());
+            }
+        }
+    }
+    if !word.is_empty() {
+        result.push(word);
+    }
+    result
+}
+
 fn strip_test_items(source: &str, cleaned: &str) -> String {
     let cleaned_lines: Vec<&str> = cleaned.lines().collect();
     let mut skip = vec![false; cleaned_lines.len()];
     let mut index = 0;
     while index < cleaned_lines.len() {
-        if test_only_attribute(cleaned_lines[index].trim()) {
+        let mut attribute = String::new();
+        let mut attribute_line = index;
+        if cleaned_lines[index].trim_start().starts_with("#[") {
+            loop {
+                attribute.extend(
+                    cleaned_lines[attribute_line]
+                        .chars()
+                        .filter(|ch| !ch.is_whitespace()),
+                );
+                if let Some(end) = attribute.find(']') {
+                    attribute.truncate(end + 1);
+                    break;
+                }
+                attribute_line += 1;
+                if attribute_line == cleaned_lines.len() {
+                    break;
+                }
+            }
+        }
+        if test_only_attribute(&attribute) {
             let end = block_end(&cleaned_lines, index);
             for entry in skip.iter_mut().take(end).skip(index) {
                 *entry = true;
@@ -265,7 +309,7 @@ fn test_only_attribute(line: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{declarations, production_code};
+    use super::{declarations, production_code, production_tokens};
 
     #[test]
     fn production_tokens_ignore_literals_comments_and_test_only_items() {
@@ -280,11 +324,19 @@ mod tests { fn fake() { Error::Fake { reason: reason.into() } } }
 pub fn feature_live() { Error::FeatureLive }
 #[cfg(test)]
 mod external_tests;
+#[cfg(
+    all(test, feature = "blocking")
+)]
+fn multiline_fake() { Error::Fake }
+#[cfg(test)] fn inline_fake() { Error::Fake }
 "####;
         let production = production_code(source);
         assert!(production.contains("Error::Live"));
         assert!(production.contains("Error::FeatureLive"));
         assert!(!production.contains("Error::Fake"));
+        assert!(!production_tokens(source)
+            .iter()
+            .any(|token| token == "Fake"));
         assert_eq!(production.lines().count(), source.lines().count());
         let declarations = declarations(source);
         assert!(declarations.contains("// Error::Fake"));

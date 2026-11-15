@@ -237,8 +237,7 @@ says which image area it weights; it is not focus lock, which is the separate
 values are evidence-driven vendor values rather than one fixed protocol table.
 
 Sending a zone is gated per value, following the `exposure_modes` precedent.
-`Focus::FOCUS_ZONES` lists the values a profile may send (default: the
-documented three) and `Capabilities::focus.as_ref().map(|focus| &focus.zones)` mirrors it at runtime; it is
+`Focus::FOCUS_ZONES` lists the values a profile may send (default: empty) and `Capabilities::focus.as_ref().map(|focus| &focus.zones)` mirrors it at runtime; it is
 empty exactly when focus-zone selection is unsupported and must be
 duplicate-free. `FocusZoneCommand` refuses a value outside the list with
 `Error::InvalidParameter { parameter: "focus_zone", .. }` before any I/O, on
