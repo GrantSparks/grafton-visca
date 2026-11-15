@@ -7,7 +7,10 @@
 
 use crate::{
     command::{
-        bytes::FrameWriter,
+        bytes::{
+            constants::{sony_fr7_white_balance, white_balance},
+            FrameWriter,
+        },
         encode::WireEncode,
         response::{Nibbles, Payload},
     },
@@ -125,7 +128,7 @@ pub struct Fr7WhiteBalanceSet;
 impl WireEncode for Fr7WhiteBalanceSet {
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
-            .bytes(&[0x01, 0x04, 0x10, 0x05])
+            .bytes(&white_balance::ONE_PUSH_TRIGGER)
             .finish()
     }
 }
@@ -171,63 +174,63 @@ macro_rules! white_balance_control {
 white_balance_control! {
     /// FR7 preset-white Kelvin adjustment (R7 p. 15), bank 1.
     Fr7PresetWhite, WhiteBalanceStep, WhiteKelvin,
-    up = [0x01, 0x05, 0x03, 0x02, 0x01],
-    down = [0x01, 0x05, 0x03, 0x03, 0x01],
-    direct = [0x01, 0x05, 0x43, 0x01],
+    up = sony_fr7_white_balance::PRESET_WHITE_UP,
+    down = sony_fr7_white_balance::PRESET_WHITE_DOWN,
+    direct = sony_fr7_white_balance::PRESET_WHITE_DIRECT,
     wire = WhiteKelvin::value
 }
 
 white_balance_control! {
     /// FR7 Memory A color-temperature adjustment (R7 p. 15), bank 2.
     Fr7MemoryColorTemperature, MemoryColorTemperatureStep, WhiteKelvin,
-    up = [0x01, 0x05, 0x03, 0x02, 0x02],
-    down = [0x01, 0x05, 0x03, 0x03, 0x02],
-    direct = [0x01, 0x05, 0x43, 0x02],
+    up = sony_fr7_white_balance::MEMORY_COLOR_TEMPERATURE_UP,
+    down = sony_fr7_white_balance::MEMORY_COLOR_TEMPERATURE_DOWN,
+    direct = sony_fr7_white_balance::MEMORY_COLOR_TEMPERATURE_DIRECT,
     wire = WhiteKelvin::value
 }
 
 white_balance_control! {
     /// FR7 Memory A red-gain adjustment (R7 p. 15), bank 2.
     Fr7MemoryRedGain, WhiteBalanceStep, WhiteBalanceGain,
-    up = [0x01, 0x7E, 0x01, 0x63, 0x02, 0x02],
-    down = [0x01, 0x7E, 0x01, 0x63, 0x03, 0x02],
-    direct = [0x01, 0x7E, 0x04, 0x46, 0x02],
+    up = sony_fr7_white_balance::MEMORY_RED_GAIN_UP,
+    down = sony_fr7_white_balance::MEMORY_RED_GAIN_DOWN,
+    direct = sony_fr7_white_balance::MEMORY_RED_GAIN_DIRECT,
     wire = WhiteBalanceGain::to_protocol_value
 }
 
 white_balance_control! {
     /// FR7 Memory A blue-gain adjustment (R7 p. 15), bank 2.
     Fr7MemoryBlueGain, WhiteBalanceStep, WhiteBalanceGain,
-    up = [0x01, 0x7E, 0x01, 0x64, 0x02, 0x02],
-    down = [0x01, 0x7E, 0x01, 0x64, 0x03, 0x02],
-    direct = [0x01, 0x7E, 0x04, 0x56, 0x02],
+    up = sony_fr7_white_balance::MEMORY_BLUE_GAIN_UP,
+    down = sony_fr7_white_balance::MEMORY_BLUE_GAIN_DOWN,
+    direct = sony_fr7_white_balance::MEMORY_BLUE_GAIN_DIRECT,
     wire = WhiteBalanceGain::to_protocol_value
 }
 
 white_balance_control! {
     /// FR7 Memory A tint adjustment (R7 p. 15), bank 2.
     Fr7MemoryTint, WhiteBalanceStep, TintOffset,
-    up = [0x01, 0x05, 0x04, 0x02, 0x02],
-    down = [0x01, 0x05, 0x04, 0x03, 0x02],
-    direct = [0x01, 0x05, 0x44, 0x02],
+    up = sony_fr7_white_balance::MEMORY_TINT_UP,
+    down = sony_fr7_white_balance::MEMORY_TINT_DOWN,
+    direct = sony_fr7_white_balance::MEMORY_TINT_DIRECT,
     wire = |value: TintOffset| u16::from(value.to_protocol_value())
 }
 
 white_balance_control! {
     /// FR7 ATW color-temperature offset adjustment (R7 p. 15), bank 0.
     Fr7AtwColorTemperatureOffset, WhiteBalanceStep, TintOffset,
-    up = [0x01, 0x05, 0x05, 0x02, 0x00],
-    down = [0x01, 0x05, 0x05, 0x03, 0x00],
-    direct = [0x01, 0x05, 0x45, 0x00],
+    up = sony_fr7_white_balance::ATW_COLOR_TEMPERATURE_OFFSET_UP,
+    down = sony_fr7_white_balance::ATW_COLOR_TEMPERATURE_OFFSET_DOWN,
+    direct = sony_fr7_white_balance::ATW_COLOR_TEMPERATURE_OFFSET_DIRECT,
     wire = |value: TintOffset| u16::from(value.to_protocol_value())
 }
 
 white_balance_control! {
     /// FR7 ATW tint offset adjustment (R7 p. 15), bank 0.
     Fr7AtwTintOffset, WhiteBalanceStep, TintOffset,
-    up = [0x01, 0x05, 0x06, 0x02, 0x00],
-    down = [0x01, 0x05, 0x06, 0x03, 0x00],
-    direct = [0x01, 0x05, 0x46, 0x00],
+    up = sony_fr7_white_balance::ATW_TINT_OFFSET_UP,
+    down = sony_fr7_white_balance::ATW_TINT_OFFSET_DOWN,
+    direct = sony_fr7_white_balance::ATW_TINT_OFFSET_DIRECT,
     wire = |value: TintOffset| u16::from(value.to_protocol_value())
 }
 

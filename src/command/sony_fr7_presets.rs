@@ -10,7 +10,7 @@ use grafton_visca_macros::ViscaEnum;
 
 use crate::{
     command::{
-        bytes::FrameWriter,
+        bytes::{constants::sony_fr7_presets, FrameWriter},
         encode::WireEncode,
         response::{Nibbles, Payload},
     },
@@ -128,7 +128,7 @@ impl Fr7SetPresetSpeedSelection {
 impl WireEncode for Fr7SetPresetSpeedSelection {
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
-            .bytes(&[0x01, 0x7e, 0x04, 0x1b])
+            .bytes(&sony_fr7_presets::PRESET_SPEED_SELECTION)
             .byte(u8::from(self.mode))
             .finish()
     }
@@ -160,7 +160,7 @@ impl Fr7SetCommonPresetSpeed {
 impl WireEncode for Fr7SetCommonPresetSpeed {
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
-            .bytes(&[0x01, 0x7e, 0x04, 0x1c])
+            .bytes(&sony_fr7_presets::COMMON_PRESET_SPEED)
             .nibbles::<2>(self.speed.value())
             .finish()
     }
@@ -199,7 +199,7 @@ impl Fr7SetSeparatePresetMode {
 impl WireEncode for Fr7SetSeparatePresetMode {
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
-            .bytes(&[0x01, 0x7e, 0x04, 0x27])
+            .bytes(&sony_fr7_presets::SEPARATE_PRESET_MODE)
             .byte(self.preset.value())
             .byte(u8::from(self.mode))
             .finish()
@@ -239,7 +239,7 @@ impl Fr7SetSeparatePresetSpeed {
 impl WireEncode for Fr7SetSeparatePresetSpeed {
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
-            .bytes(&[0x01, 0x7e, 0x01, 0x0b])
+            .bytes(&sony_fr7_presets::SEPARATE_PRESET_SPEED)
             .byte(self.preset.value())
             .byte(self.speed.value())
             .finish()
@@ -279,7 +279,7 @@ impl Fr7SetSeparatePresetDuration {
 impl WireEncode for Fr7SetSeparatePresetDuration {
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
-            .bytes(&[0x01, 0x7e, 0x04, 0x67])
+            .bytes(&sony_fr7_presets::SEPARATE_PRESET_DURATION)
             .byte(self.preset.value())
             .nibbles::<3>(self.duration.to_protocol_value())
             .finish()

@@ -592,3 +592,191 @@ pub mod system {
     /// PTZOptics settings save.
     pub const SETTINGS_SAVE: [u8; 4] = [COMMAND, 0x04, 0xA5, 0x10];
 }
+
+/// Sony FR7 exposure and counted iris controls (R7 v4.00, p. 14).
+pub mod sony_fr7_exposure {
+    use super::COMMAND;
+
+    /// Auto gain prefix; the encoder appends the validated value.
+    pub const AUTO_GAIN: [u8; 4] = [COMMAND, 0x7E, 0x01, 0x75];
+
+    /// Auto shutter prefix; the encoder appends the validated value.
+    pub const AUTO_SHUTTER: [u8; 3] = [COMMAND, 0x05, 0x35];
+
+    /// Auto iris prefix; the encoder appends the validated value.
+    pub const AUTO_IRIS: [u8; 3] = [COMMAND, 0x05, 0x34];
+
+    /// Relative iris prefix, followed by the direction and two count nibbles.
+    pub const IRIS_STEP: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x4B];
+}
+
+/// Sony FR7 preset-white, Memory A and ATW controls (R7 v4.00, p. 15).
+pub mod sony_fr7_white_balance {
+    use super::{concat, COMMAND};
+
+    const WHITE_STEP_REGISTER: [u8; 3] = [COMMAND, 0x05, 0x03];
+
+    const WHITE_DIRECT_REGISTER: [u8; 3] = [COMMAND, 0x05, 0x43];
+
+    const MEMORY_RED_GAIN_STEP_REGISTER: [u8; 4] = [COMMAND, 0x7E, 0x01, 0x63];
+
+    const MEMORY_RED_GAIN_DIRECT_REGISTER: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x46];
+
+    const MEMORY_BLUE_GAIN_STEP_REGISTER: [u8; 4] = [COMMAND, 0x7E, 0x01, 0x64];
+
+    const MEMORY_BLUE_GAIN_DIRECT_REGISTER: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x56];
+
+    const MEMORY_TINT_STEP_REGISTER: [u8; 3] = [COMMAND, 0x05, 0x04];
+
+    const MEMORY_TINT_DIRECT_REGISTER: [u8; 3] = [COMMAND, 0x05, 0x44];
+
+    const ATW_COLOR_TEMPERATURE_OFFSET_STEP_REGISTER: [u8; 3] = [COMMAND, 0x05, 0x05];
+
+    const ATW_COLOR_TEMPERATURE_OFFSET_DIRECT_REGISTER: [u8; 3] = [COMMAND, 0x05, 0x45];
+
+    const ATW_TINT_OFFSET_STEP_REGISTER: [u8; 3] = [COMMAND, 0x05, 0x06];
+
+    const ATW_TINT_OFFSET_DIRECT_REGISTER: [u8; 3] = [COMMAND, 0x05, 0x46];
+
+    /// Preset white up prefix; the encoder appends the validated value.
+    pub const PRESET_WHITE_UP: [u8; 5] = concat(&[&WHITE_STEP_REGISTER, &[0x02, 0x01]]);
+
+    /// Preset white down prefix; the encoder appends the validated value.
+    pub const PRESET_WHITE_DOWN: [u8; 5] = concat(&[&WHITE_STEP_REGISTER, &[0x03, 0x01]]);
+
+    /// Preset white direct prefix; the encoder appends the validated value.
+    pub const PRESET_WHITE_DIRECT: [u8; 4] = concat(&[&WHITE_DIRECT_REGISTER, &[0x01]]);
+
+    /// Memory color temperature up prefix; the encoder appends the validated value.
+    pub const MEMORY_COLOR_TEMPERATURE_UP: [u8; 5] = concat(&[&WHITE_STEP_REGISTER, &[0x02, 0x02]]);
+
+    /// Memory color temperature down prefix; the encoder appends the validated value.
+    pub const MEMORY_COLOR_TEMPERATURE_DOWN: [u8; 5] =
+        concat(&[&WHITE_STEP_REGISTER, &[0x03, 0x02]]);
+
+    /// Memory color temperature direct prefix; the encoder appends the validated value.
+    pub const MEMORY_COLOR_TEMPERATURE_DIRECT: [u8; 4] = concat(&[&WHITE_DIRECT_REGISTER, &[0x02]]);
+
+    /// Memory red gain up prefix; the encoder appends the validated value.
+    pub const MEMORY_RED_GAIN_UP: [u8; 6] =
+        concat(&[&MEMORY_RED_GAIN_STEP_REGISTER, &[0x02, 0x02]]);
+
+    /// Memory red gain down prefix; the encoder appends the validated value.
+    pub const MEMORY_RED_GAIN_DOWN: [u8; 6] =
+        concat(&[&MEMORY_RED_GAIN_STEP_REGISTER, &[0x03, 0x02]]);
+
+    /// Memory red gain direct prefix; the encoder appends the validated value.
+    pub const MEMORY_RED_GAIN_DIRECT: [u8; 5] =
+        concat(&[&MEMORY_RED_GAIN_DIRECT_REGISTER, &[0x02]]);
+
+    /// Memory blue gain up prefix; the encoder appends the validated value.
+    pub const MEMORY_BLUE_GAIN_UP: [u8; 6] =
+        concat(&[&MEMORY_BLUE_GAIN_STEP_REGISTER, &[0x02, 0x02]]);
+
+    /// Memory blue gain down prefix; the encoder appends the validated value.
+    pub const MEMORY_BLUE_GAIN_DOWN: [u8; 6] =
+        concat(&[&MEMORY_BLUE_GAIN_STEP_REGISTER, &[0x03, 0x02]]);
+
+    /// Memory blue gain direct prefix; the encoder appends the validated value.
+    pub const MEMORY_BLUE_GAIN_DIRECT: [u8; 5] =
+        concat(&[&MEMORY_BLUE_GAIN_DIRECT_REGISTER, &[0x02]]);
+
+    /// Memory tint up prefix; the encoder appends the validated value.
+    pub const MEMORY_TINT_UP: [u8; 5] = concat(&[&MEMORY_TINT_STEP_REGISTER, &[0x02, 0x02]]);
+
+    /// Memory tint down prefix; the encoder appends the validated value.
+    pub const MEMORY_TINT_DOWN: [u8; 5] = concat(&[&MEMORY_TINT_STEP_REGISTER, &[0x03, 0x02]]);
+
+    /// Memory tint direct prefix; the encoder appends the validated value.
+    pub const MEMORY_TINT_DIRECT: [u8; 4] = concat(&[&MEMORY_TINT_DIRECT_REGISTER, &[0x02]]);
+
+    /// ATW color temperature offset up prefix; the encoder appends the validated value.
+    pub const ATW_COLOR_TEMPERATURE_OFFSET_UP: [u8; 5] =
+        concat(&[&ATW_COLOR_TEMPERATURE_OFFSET_STEP_REGISTER, &[0x02, 0x00]]);
+
+    /// ATW color temperature offset down prefix; the encoder appends the validated value.
+    pub const ATW_COLOR_TEMPERATURE_OFFSET_DOWN: [u8; 5] =
+        concat(&[&ATW_COLOR_TEMPERATURE_OFFSET_STEP_REGISTER, &[0x03, 0x00]]);
+
+    /// ATW color temperature offset direct prefix; the encoder appends the validated value.
+    pub const ATW_COLOR_TEMPERATURE_OFFSET_DIRECT: [u8; 4] =
+        concat(&[&ATW_COLOR_TEMPERATURE_OFFSET_DIRECT_REGISTER, &[0x00]]);
+
+    /// ATW tint offset up prefix; the encoder appends the validated value.
+    pub const ATW_TINT_OFFSET_UP: [u8; 5] =
+        concat(&[&ATW_TINT_OFFSET_STEP_REGISTER, &[0x02, 0x00]]);
+
+    /// ATW tint offset down prefix; the encoder appends the validated value.
+    pub const ATW_TINT_OFFSET_DOWN: [u8; 5] =
+        concat(&[&ATW_TINT_OFFSET_STEP_REGISTER, &[0x03, 0x00]]);
+
+    /// ATW tint offset direct prefix; the encoder appends the validated value.
+    pub const ATW_TINT_OFFSET_DIRECT: [u8; 4] =
+        concat(&[&ATW_TINT_OFFSET_DIRECT_REGISTER, &[0x00]]);
+}
+
+/// Sony FR7 black, detail and knee controls (R7 v4.00, p. 16).
+pub mod sony_fr7_image {
+    use super::COMMAND;
+
+    /// Master black step prefix; the encoder appends the validated value.
+    pub const MASTER_BLACK_STEP: [u8; 3] = [COMMAND, 0x05, 0x18];
+
+    /// Master black direct prefix; the encoder appends the validated value.
+    pub const MASTER_BLACK_DIRECT: [u8; 3] = [COMMAND, 0x05, 0x48];
+
+    /// Red black step prefix; the encoder appends the validated value.
+    pub const RED_BLACK_STEP: [u8; 4] = [COMMAND, 0x7E, 0x01, 0x65];
+
+    /// Red black direct prefix; the encoder appends the validated value.
+    pub const RED_BLACK_DIRECT: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x43];
+
+    /// Blue black step prefix; the encoder appends the validated value.
+    pub const BLUE_BLACK_STEP: [u8; 4] = [COMMAND, 0x7E, 0x01, 0x66];
+
+    /// Blue black direct prefix; the encoder appends the validated value.
+    pub const BLUE_BLACK_DIRECT: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x44];
+
+    /// Detail setting prefix; the encoder appends the validated value.
+    pub const DETAIL_SETTING: [u8; 4] = [COMMAND, 0x7E, 0x01, 0x60];
+
+    /// Knee setting prefix; the encoder appends the validated value.
+    pub const KNEE_SETTING: [u8; 4] = [COMMAND, 0x7E, 0x01, 0x6D];
+
+    /// Knee mode prefix; the encoder appends the validated value.
+    pub const KNEE_MODE: [u8; 4] = [COMMAND, 0x7E, 0x01, 0x54];
+
+    /// Knee slope prefix; the encoder appends the validated value.
+    pub const KNEE_SLOPE: [u8; 4] = [COMMAND, 0x7E, 0x01, 0x6F];
+
+    /// Knee point prefix; the encoder appends the validated value.
+    pub const KNEE_POINT: [u8; 4] = [COMMAND, 0x7E, 0x01, 0x6E];
+}
+
+/// Sony FR7 high-resolution zoom drive and stop (R7 v4.00, p. 16).
+pub mod sony_fr7_zoom {
+    use super::COMMAND;
+
+    /// Drive prefix, followed by direction and four speed nibbles; zero direction stops.
+    pub const HIGH_RESOLUTION_DRIVE: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x17];
+}
+
+/// Sony FR7 preset recall speed and duration settings (R7 v4.00, p. 19).
+pub mod sony_fr7_presets {
+    use super::COMMAND;
+
+    /// Preset speed selection prefix; the encoder appends the validated value.
+    pub const PRESET_SPEED_SELECTION: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x1B];
+
+    /// Common preset speed prefix; the encoder appends the validated value.
+    pub const COMMON_PRESET_SPEED: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x1C];
+
+    /// Separate preset mode prefix; the encoder appends the validated value.
+    pub const SEPARATE_PRESET_MODE: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x27];
+
+    /// Separate preset speed prefix; the encoder appends the validated value.
+    pub const SEPARATE_PRESET_SPEED: [u8; 4] = [COMMAND, 0x7E, 0x01, 0x0B];
+
+    /// Separate preset duration prefix; the encoder appends the validated value.
+    pub const SEPARATE_PRESET_DURATION: [u8; 4] = [COMMAND, 0x7E, 0x04, 0x67];
+}
