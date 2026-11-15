@@ -116,7 +116,24 @@ pub(crate) trait Framer: private::Sealed {
     fn buffer(&self) -> &FrameBuffer;
     fn buffer_mut(&mut self) -> &mut FrameBuffer;
     fn from_buffer(buffer: FrameBuffer) -> Self;
-    fn next_frame_len(&mut self) -> Option<Result<usize, FramingError>>;
+    fn frame_len(&self, input: &[u8]) -> Option<Result<usize, FramingError>>;
+    fn next_frame_len(&mut self) -> Option<Result<usize, FramingError>> {
+        let next = self.frame_len(&self.buffer().buf)?;
+        match next {
+            Err(FramingError::OversizedRawFrame { .. }) => {
+                let length = self
+                    .buffer()
+                    .buf
+                    .iter()
+                    .position(|byte| *byte == VISCA_TERMINATOR)?
+                    + 1;
+                self.buffer_mut().buf.advance(length);
+            }
+            Err(_) => self.buffer_mut().buf.clear(),
+            Ok(_) => {}
+        }
+        Some(next)
+    }
 
     /// Push bytes without changing retained input if the hard bound is exceeded.
     fn push_slice(&mut self, chunk: &[u8]) -> Result<(), FramingError> {
@@ -145,6 +162,7 @@ pub(crate) trait Framer: private::Sealed {
         Some(Ok(value))
     }
 
+    #[cfg(any(test, feature = "transport-serial", feature = "transport-serial-tokio"))]
     fn clear(&mut self) {
         self.buffer_mut().buf.clear();
     }
@@ -263,21 +281,15 @@ impl Framer for RawFramer {
     fn from_buffer(buffer: FrameBuffer) -> Self {
         Self { buffer }
     }
-    fn next_frame_len(&mut self) -> Option<Result<usize, FramingError>> {
-        let length = self
-            .buffer
-            .buf
-            .iter()
-            .position(|byte| *byte == VISCA_TERMINATOR)?
-            + 1;
-        if length > self.buffer.max_frame_size {
-            self.buffer.buf.advance(length);
-            Some(Err(FramingError::OversizedRawFrame {
+    fn frame_len(&self, input: &[u8]) -> Option<Result<usize, FramingError>> {
+        let length = input.iter().position(|byte| *byte == VISCA_TERMINATOR)? + 1;
+        Some(if length > self.buffer.max_frame_size {
+            Err(FramingError::OversizedRawFrame {
                 max_size: self.buffer.max_frame_size,
-            }))
+            })
         } else {
-            Some(Ok(length))
-        }
+            Ok(length)
+        })
     }
 }
 
@@ -303,16 +315,15 @@ impl Framer for SonyFramer {
     fn from_buffer(buffer: FrameBuffer) -> Self {
         Self { buffer }
     }
-    fn next_frame_len(&mut self) -> Option<Result<usize, FramingError>> {
-        let header = SonyHeader::decode(self.buffer.buf.get(..SonyHeader::SIZE)?)?;
+    fn frame_len(&self, input: &[u8]) -> Option<Result<usize, FramingError>> {
+        let header = SonyHeader::decode(input.get(..SonyHeader::SIZE)?)?;
         let length = SonyHeader::SIZE + usize::from(header.payload_length);
         if length > self.buffer.max_frame_size {
-            self.buffer.buf.clear();
             Some(Err(FramingError::OversizedSonyFrame {
                 max_size: self.buffer.max_frame_size,
             }))
         } else {
-            (self.buffer.buf.len() >= length).then_some(Ok(length))
+            (input.len() >= length).then_some(Ok(length))
         }
     }
 }
