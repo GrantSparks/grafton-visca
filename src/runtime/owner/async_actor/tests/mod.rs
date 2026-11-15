@@ -42,6 +42,8 @@ use super::super::RuntimeOutcome;
 use super::*;
 use crate::{completion, CancellationOutcome};
 
+#[cfg(feature = "runtime-tokio")]
+mod deadline_pacing;
 mod fairness;
 mod faults;
 #[cfg(feature = "runtime-tokio")]

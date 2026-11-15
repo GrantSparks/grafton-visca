@@ -168,8 +168,9 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
     const GRACE: Duration = Duration::from_millis(100);
     // One probe arms the raw gate, one maps it to the grace, and the shared
     // 10/20/40/30 ms idle slices may each re-poll the eager transport. Keep
-    // slack for the fairness handoff, but make a zero-pause spin unmistakable.
-    const POLL_BOUND: u64 = 12;
+    // one input probe at the grace deadline (#838), plus slack for the
+    // fairness handoff, but make a zero-pause spin unmistakable.
+    const POLL_BOUND: u64 = 13;
 
     let initial = Instant::now();
     let (runtime, sleeps) = ManualRuntime::with_polling_sleeps_and_sleep_barrier(initial);
@@ -240,7 +241,7 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
 
     // The retained source-only prefix gets one 100 ms engine grace. Each
     // immediate idle receive is paced by a positive slice of that deadline;
-    // after the final slice, the boundary-first grace Wake discards it.
+    // after the final slice, one receive probe precedes the grace Wake.
     let mut elapsed = Duration::ZERO;
     while elapsed < GRACE {
         let pause = next_selection_sleep(&sleeps).await;

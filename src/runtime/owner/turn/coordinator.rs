@@ -325,7 +325,15 @@ impl<B> OwnerCoordinator<B> {
             at: next_wake,
             due: wake_due,
         };
-        let phase = if self.forced {
+        // A receive paused exactly until a timer must get one input poll
+        // before that timer. This priority is chosen while the pause is still
+        // pending, since a shell may keep this selection parked until then.
+        let pause_meets_deadline = self.receive_not_before.is_some_and(|until| {
+            next_wake == Some(until) || self.release.await_until() == Some(until)
+        });
+        let phase = if pause_meets_deadline {
+            SourcePhase::ReceiveFirst
+        } else if self.forced {
             SourcePhase::BoundariesFirst
         } else {
             self.phase
@@ -353,7 +361,9 @@ impl<B> OwnerCoordinator<B> {
 
         let complete_frame_buffered = self.forced && complete_frame_buffered();
         let grace = self.release.await_until();
-        let release_phase = if grace.is_some_and(|deadline| deadline <= now) {
+        let release_phase = if pause_meets_deadline {
+            SourcePhase::ReceiveFirst
+        } else if grace.is_some_and(|deadline| deadline <= now) {
             // Once grace has elapsed, its timer leads an eagerly ready receive
             // so no further zero-time turn can delay it.
             SourcePhase::BoundariesFirst
@@ -388,6 +398,11 @@ impl<B> OwnerCoordinator<B> {
     /// receive. Selection keeps every other source live during the pause.
     pub(in crate::runtime::owner) fn pace_receive(&mut self, until: Instant) {
         self.receive_not_before = Some(until);
+    }
+
+    #[cfg(test)]
+    pub(in crate::runtime::owner) const fn receive_not_before(&self) -> Option<Instant> {
+        self.receive_not_before
     }
 
     /// End a pending receive pause because the owner just wrote. Pacing only
@@ -501,8 +516,8 @@ impl<B> OwnerCoordinator<B> {
 
     /// Account for a finished turn. Returns `false` once the session is over.
     ///
-    /// Every receive that keeps the session running lengthens the receive-first
-    /// streak; any other event resets it.
+    /// Progressing receives lengthen the receive-first streak. A no-input read
+    /// already waited for its timeout or will be paced, so it resets the streak.
     pub(in crate::runtime::owner) fn finish(
         &mut self,
         selected: Selected,
@@ -514,7 +529,13 @@ impl<B> OwnerCoordinator<B> {
         } else if let Some(wake) = control_consumed_wake {
             self.control_allowance_consumed_for = Some(wake);
         }
-        let receive = matches!(selected, Selected::Receive { .. });
+        let receive = matches!(
+            selected,
+            Selected::Receive {
+                class: ReceiveClass::Other,
+                ..
+            }
+        );
         self.receive_first_streak = match outcome {
             TurnOutcome::Continue | TurnOutcome::ContinueBuffered if receive => {
                 self.receive_first_streak.saturating_add(1)

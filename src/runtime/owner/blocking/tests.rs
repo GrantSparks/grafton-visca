@@ -954,3 +954,33 @@ fn selected_disconnect_preserves_late_terminal_timeout_and_borrowing_cache() {
     assert!(!owner.core.actor_alive.is_disconnected());
     owner.close().unwrap();
 }
+
+/// #838: a full read timeout already paced the worker. A reply arriving in
+/// the following read must not sit behind another idle pause until its due pass.
+#[test]
+fn replies_after_a_full_idle_read_win_before_their_deadlines() {
+    for semantics in [SendSemantics::Datagram, SendSemantics::Stream] {
+        for (deadline_ms, reply_ms) in [(205, 202), (400, 210)] {
+            let clock = ManualClock::new();
+            let _driver = clock.enter();
+            let (owner, peer) = Setup {
+                semantics,
+                ..Setup::datagram()
+            }
+            .on(&clock)
+            .spawn();
+            let receipt = owner
+                .submit_with_timeout(raw_inquiry(Duration::from_millis(deadline_ms)), PROMPTLY)
+                .unwrap();
+            peer.next_write();
+            clock.sleep(Duration::from_millis(reply_ms));
+            peer.reply(&[0x90, 0x50, 0x03, 0xff]);
+            let deadline = owner.deadline_after(PROMPTLY).unwrap();
+            assert!(
+                matches!(owner.wait_core_until(&receipt, deadline), Ok(RuntimeOutcome::Reply { payload, .. }) if payload.as_slice() == [3])
+            );
+            assert_eq!(owner.metrics().unwrap().inquiry_timeouts, 0);
+            owner.close().unwrap();
+        }
+    }
+}

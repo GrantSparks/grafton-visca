@@ -321,7 +321,7 @@ where
         read_timeout,
     } = budget;
     let started = clock.now();
-    let result = driver.receive(state.buffers(), frame_limit, timeout);
+    let mut result = driver.receive(state.buffers(), frame_limit, timeout);
     // Sampled after the read returns: only this instant proves that input was
     // sampled at or after a raw hold deadline.
     let received_at = clock.now();
@@ -332,6 +332,9 @@ where
         // whose idle answer is itself the receive event and is paced (#675).
         if waited >= timeout && *idle < read_timeout {
             return None;
+        }
+        if waited >= timeout {
+            result = Ok(OwnerReceive::IdleTimeout);
         }
     }
     Some(OwnerEvent::Receive {

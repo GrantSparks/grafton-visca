@@ -171,7 +171,7 @@ impl IdleReceiveRun {
         transient_receive_pause(self.length)
     }
 
-    /// A byte-bearing receive proves the transport is no longer idle.
+    /// Received bytes or a successful write restart the idle-read run.
     pub(super) fn reset(&mut self) {
         self.length = 0;
     }

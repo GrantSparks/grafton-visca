@@ -653,7 +653,7 @@ where
     {
         let idle_after_timeout = async {
             Executor::sleep(runtime, read_timeout).await;
-            Ok(OwnerReceive::NoData)
+            Ok(OwnerReceive::IdleTimeout)
         };
         future::or(driver.receive(buffers, frame_limit), idle_after_timeout).await
     }

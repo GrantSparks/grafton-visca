@@ -782,6 +782,9 @@ pub(crate) enum OwnerReceive {
     /// was consumed and nothing failed: the owner keeps the session, keeps the
     /// framing state, and does not touch any request's retry budget (#625).
     NoData,
+    /// No bytes arrived during the full requested read timeout. Unlike an
+    /// eager `NoData`, this read already paced the owner and needs no pause.
+    IdleTimeout,
     /// The transport read itself failed and consumed nothing, so framing state
     /// is intact. The owner classifies the error: a transient fault retries
     /// in-flight work and keeps the session, a fatal one ends it.
