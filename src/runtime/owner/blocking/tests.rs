@@ -1080,7 +1080,9 @@ fn a_stream_completion_after_a_long_idle_read_wins_before_its_deadline() {
     let _driver = clock.enter();
     let (mut transport, peer, profile, _) = Setup::stream().on(&clock).transport();
     transport.config.read_timeout = Duration::from_secs(5);
-    let adapter = BlockingTransportAdapter::new(transport, &profile, CameraId::CAMERA_1).unwrap();
+    let adapter =
+        BlockingTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
+            .unwrap();
     let owner = BlockingOwnerHandle::spawn(
         adapter.policy().clone(),
         adapter,

@@ -17,7 +17,7 @@ fn completion_only_cancel_is_unsupported_without_ending_application() {
     .unwrap();
     let prepared = prepare_operation::<AppliedOnly, _>(
         &command,
-        CameraId::CAMERA_1,
+        crate::target::TargetSlot::CAMERA_1,
         &generic_profile(),
         OperationalTuning::new(),
         ClassSelection::Request,
@@ -62,7 +62,7 @@ fn prepared_retry_budget_covers_late_ack_and_completion_on_the_worker() {
         .unwrap();
         let prepared = prepare_operation::<AppliedOnly, _>(
             &command,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &profile,
             OperationalTuning::new().ack_timeout(Duration::from_secs(ack_override)),
             ClassSelection::Request,

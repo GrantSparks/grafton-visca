@@ -81,8 +81,8 @@ record_construction InvalidParameter src/units.rs \
   'return Err(Error::InvalidParameter {'
 record_construction BufferTooSmall src/command/bytes/frame.rs \
   'Err(Error::buffer_too_small(frame.len, frame.buffer.len()))'
-record_construction ParameterOutOfRange src/units.rs \
-  'return Err(Error::ParameterOutOfRange {'
+record_construction ParameterOutOfRange src/error.rs \
+  'Self::ParameterOutOfRange {'
 record_construction Timeout src/runtime/engine/mod.rs \
   'Error::timeout(FailureStage::Terminal, certainty)'
 record_construction MotionSuperseded src/runtime/engine/mod.rs \
@@ -114,9 +114,9 @@ record_construction CancellationUnconfirmed src/runtime/engine/mod.rs \
 record_construction UnsequencedCommandUnconfirmed src/runtime/engine/mod.rs \
   'RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed)'
 record_construction InquiryCorrelationLost src/runtime/engine/mod.rs \
-  'return Some(Error::inquiry_correlation_lost(target));'
+  'return Some(Error::inquiry_correlation_lost(target.camera()));'
 record_construction CommandCorrelationLost src/runtime/engine/mod.rs \
-  '.then(|| Error::command_correlation_lost(target))'
+  '.then(|| Error::command_correlation_lost(target.camera()))'
 record_construction CommandFailedAfterAck src/runtime/engine/mod.rs \
   'RuntimeOutcome::Failed(Error::command_failed_after_ack(error))'
 record_construction RuntimeIdentityExhausted src/runtime/engine/mod.rs \

@@ -3038,7 +3038,7 @@ mod tests {
             ] {
                 let prepared = prepare_inquiry(
                     &inquiry,
-                    CameraId::CAMERA_1,
+                    TargetSlot::CAMERA_1,
                     &profile,
                     OperationalTuning::new().ack_timeout(ack),
                     ClassSelection::Request,
