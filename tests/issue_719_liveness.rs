@@ -12,7 +12,7 @@ use std::{
 
 use grafton_visca::{
     blocking::Session, camera::profiles::PtzOpticsG2, profile::ProfileSpec,
-    transport::SendSemantics, Error, OperationalTuning, SessionConfig,
+    transport::SendSemantics, Certainty, Error, FailureStage, OperationalTuning, SessionConfig,
 };
 
 use fake_camera::{frames, BlockingWire, FakeCamera};
@@ -44,6 +44,23 @@ fn config() -> SessionConfig {
         .with_tuning(OperationalTuning::new().retry_limit(0))
 }
 
+/// An admitted inquiry's conclusive failure keeps the precise liveness cause.
+fn inquiry_cause(error: &Error) -> &Error {
+    let Error::InquiryFailed { source, .. } = error else {
+        panic!("an admitted inquiry must report its terminal failure, got {error:?}");
+    };
+    let context = error.failure_context().expect("terminal inquiry context");
+    assert_eq!(context.stage, FailureStage::Terminal);
+    assert_eq!(context.certainty, Certainty::FailedConclusively);
+    assert_eq!(
+        std::error::Error::source(error)
+            .expect("the inquiry exposes its exact cause in the source chain")
+            .to_string(),
+        source.to_string(),
+    );
+    source.as_ref()
+}
+
 #[test]
 fn response_counter_distinguishes_silence_from_positive_liveness() {
     let silent = Session::open(stream_wire(&FakeCamera::silent()), config()).expect("session");
@@ -55,7 +72,10 @@ fn response_counter_distinguishes_silence_from_positive_liveness() {
         .power()
         .state()
         .expect_err("silent peer must exhaust the bounded probe");
-    assert!(matches!(error, Error::Timeout { .. }));
+    let cause = inquiry_cause(&error);
+    assert!(matches!(cause, Error::Timeout { .. }));
+    assert_eq!(cause.failure_context(), error.failure_context());
+    assert!(!cause.requires_new_session());
     assert!(matches!(
         error.recovery(),
         grafton_visca::Recovery::Resubmit { .. }
@@ -97,8 +117,17 @@ fn os_keepalive_timeout_is_session_death_not_idle_no_data() {
         .power()
         .state()
         .expect_err("OS timeout must terminate the connection");
-    assert!(matches!(error, Error::ConnectionClosed { .. }));
+    let cause = inquiry_cause(&error);
+    let Error::ConnectionClosed { reason, .. } = cause else {
+        panic!("the OS keepalive cause must remain a session close, got {error:?}");
+    };
+    assert!(reason
+        .as_deref()
+        .expect("the session close preserves its OS timeout reason")
+        .contains("timed out"));
+    assert!(cause.requires_new_session());
     assert!(error.requires_new_session());
+    assert_eq!(error.recovery(), grafton_visca::Recovery::ReopenSession);
     assert!(matches!(
         session.close(),
         Err(Error::ConnectionClosed { .. })
