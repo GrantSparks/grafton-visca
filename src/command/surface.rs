@@ -14,7 +14,10 @@
 
 use crate::{capabilities::TypedSupportSet, noun_table::noun_table};
 
-use super::semantics::{BuiltinCommand, BuiltinRequestClass, BuiltinRequestKind};
+use super::{
+    inquiry_structs::GeneratedInquiry,
+    semantics::{BuiltinCommand, BuiltinRequestClass, BuiltinRequestKind},
+};
 
 /// The capability gate of one noun-table row, including both its typed noun
 /// header and any refining `where` marker.
@@ -78,7 +81,7 @@ impl RowGate {
 ///
 /// There is one variant per domain that some noun-table row inherits.  The
 /// `Image` noun is gated on `HasImageProcessing`, but every one of its rows
-/// narrows that with its own `where` marker, so it has no variant here.
+/// narrows that with its own `where` marker, so it has no variant here. The exposure noun likewise refines every row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) enum DomainGate {
     /// `HasPower`.
@@ -89,8 +92,6 @@ pub(crate) enum DomainGate {
     PanTilt,
     /// `HasFocus`.
     Focus,
-    /// `HasExposure`.
-    Exposure,
     /// `HasWhiteBalance`.
     WhiteBalance,
     /// `HasPresets`.
@@ -116,7 +117,6 @@ impl DomainGate {
             Self::Zoom => capabilities.has_zoom(),
             Self::PanTilt => capabilities.has_pan_tilt(),
             Self::Focus => capabilities.has_focus(),
-            Self::Exposure => capabilities.has_exposure(),
             Self::WhiteBalance => capabilities.has_white_balance(),
             Self::Presets => capabilities.has_presets(),
             Self::MenuControl => true,
@@ -136,6 +136,23 @@ pub(crate) trait BuiltinInquiryGate {
     const GATE: RowGate;
 }
 
+/// A domain or unconditional gate promises the row on every built-in. Typed
+/// refinements instead prove source coverage at each profile's grant site.
+const fn assert_domain_source(gate: RowGate, source: crate::source_evidence::Source) {
+    if matches!(gate, RowGate::Typed(_)) {
+        return;
+    }
+    let models = crate::camera::profiles::ProfileId::all();
+    let mut index = 0;
+    while index < models.len() {
+        assert!(
+            source.covers_model(Some(models[index])),
+            "a domain or unconditional noun row requires evidence for every built-in profile"
+        );
+        index += 1;
+    }
+}
+
 /// Maps a base-domain marker to its [`DomainGate`].
 macro_rules! domain_gate {
     (HasPower) => {
@@ -149,9 +166,6 @@ macro_rules! domain_gate {
     };
     (HasFocus) => {
         DomainGate::Focus
-    };
-    (HasExposure) => {
-        DomainGate::Exposure
     };
     (HasWhiteBalance) => {
         DomainGate::WhiteBalance
@@ -313,11 +327,13 @@ macro_rules! inquiry_gate {
         impl BuiltinInquiryGate for $module::$request {
             const GATE: RowGate = row_gate!($gate, $base);
         }
+        const _: () = assert_domain_source(row_gate!($gate, $base), <$module::$request>::SOURCE);
     };
     (inquiry [$($request:tt)*] $gate:tt $base:tt) => {
         impl BuiltinInquiryGate for $($request)* {
             const GATE: RowGate = row_gate!($gate, $base);
         }
+        const _: () = assert_domain_source(row_gate!($gate, $base), <$($request)*>::SOURCE);
     };
     ($kind:ident $request:tt $gate:tt $base:tt) => {};
 }
@@ -359,6 +375,7 @@ macro_rules! surface_registry {
                     BuiltinCommand::$command => {
                         const CLASS: BuiltinRequestClass =
                             registry_class(BuiltinCommand::$command, registry_class!($kind));
+                        const _: () = assert_domain_source(row_gate!($gate, $base), BuiltinCommand::$command.source());
                         StaticSurfaceEntry {
                             command: BuiltinCommand::$command,
                             disposition: StaticSurfaceDisposition::Noun {

@@ -435,8 +435,139 @@ where
         .expect("partial exposure-mode session shutdown");
 }
 
+async fn evidence_refinements_predict_every_withheld_builtin_call<E>(runtime: E)
+where
+    E: grafton_visca::Executor,
+{
+    use grafton_visca::{
+        profiles::*,
+        types::{GainLevel, GainLimit, ShutterSpeed},
+        PresetNumber,
+    };
+    let profiles = [
+        ProfileSpec::from_compile_time::<PtzOpticsG2>().unwrap(),
+        ProfileSpec::from_compile_time::<PtzOpticsG3>().unwrap(),
+        ProfileSpec::from_compile_time::<PtzOptics30X>().unwrap(),
+        ProfileSpec::from_compile_time::<SonyFR7>().unwrap(),
+        ProfileSpec::from_compile_time::<SonyBRCH900>().unwrap(),
+        ProfileSpec::from_compile_time::<SonyEVIH100>().unwrap(),
+        ProfileSpec::from_compile_time::<SonyBRC300>().unwrap(),
+        ProfileSpec::from_compile_time::<NearusBRC300>().unwrap(),
+        ProfileSpec::from_compile_time::<GenericVisca>().unwrap(),
+    ];
+    let mut refusals = 0;
+    for profile in profiles {
+        let fake = camera();
+        let session = Session::open(
+            fake.async_wire(),
+            SessionConfig::new(profile.clone()),
+            runtime.clone(),
+        )
+        .await
+        .unwrap();
+        let camera = session.camera_dyn().unwrap();
+        macro_rules! refused {
+            ($request:expr) => {{
+                assert!(
+                    matches!($request.await, Err(Error::FeatureNotSupported { .. })),
+                    "{}: {}",
+                    profile.name(),
+                    stringify!($request)
+                );
+                refusals += 1;
+            }};
+        }
+        if !profile
+            .capabilities()
+            .supports_typed(TypedSupportSurface::PowerStandby)
+        {
+            refused!(camera.power().off());
+        }
+        if !profile
+            .capabilities()
+            .supports_typed(TypedSupportSurface::FocusInfinity)
+        {
+            refused!(camera.focus().infinity());
+        }
+        if !profile
+            .capabilities()
+            .supports_typed(TypedSupportSurface::PresetMemory)
+        {
+            refused!(camera.presets().set(PresetNumber::MIN));
+            refused!(camera.presets().reset(PresetNumber::MIN));
+        }
+        if !profile
+            .capabilities()
+            .supports_typed(TypedSupportSurface::ShutterControl)
+        {
+            refused!(camera.exposure().shutter_reset());
+            refused!(camera.exposure().shutter_up());
+            refused!(camera.exposure().shutter_down());
+            refused!(camera.exposure().shutter());
+        }
+        if !profile
+            .capabilities()
+            .supports_typed(TypedSupportSurface::ShutterDirect)
+        {
+            refused!(camera.exposure().shutter_direct(ShutterSpeed::new(0)));
+        }
+        if !profile
+            .capabilities()
+            .supports_typed(TypedSupportSurface::GainControl)
+        {
+            refused!(camera.exposure().gain_reset());
+            refused!(camera.exposure().gain_up());
+            refused!(camera.exposure().gain_down());
+            refused!(camera.exposure().gain_direct(GainLevel::MIN));
+            refused!(camera.exposure().gain());
+        }
+        if !profile
+            .capabilities()
+            .supports_typed(TypedSupportSurface::GainLimit)
+        {
+            refused!(camera.exposure().set_gain_limit(GainLimit::MIN));
+            refused!(camera.exposure().gain_limit());
+        }
+        if !profile
+            .capabilities()
+            .supports_typed(TypedSupportSurface::StandardWhiteBalanceModes)
+        {
+            refused!(camera.white_balance().auto());
+            refused!(camera.white_balance().indoor());
+            refused!(camera.white_balance().outdoor());
+        }
+        if !profile
+            .capabilities()
+            .supports_typed(TypedSupportSurface::MenuDisplay)
+        {
+            refused!(camera.menu().display(true));
+        }
+        if !profile
+            .capabilities()
+            .supports_typed(TypedSupportSurface::MenuEnterReturn)
+        {
+            refused!(camera.menu().select());
+            refused!(camera.menu().cancel());
+        }
+        if !profile
+            .capabilities()
+            .supports_typed(TypedSupportSurface::MenuStatusInquiry)
+        {
+            refused!(camera.menu().status());
+        }
+        assert!(
+            fake.writes().is_empty(),
+            "{} refused before transport I/O",
+            profile.name()
+        );
+        session.shutdown().unwrap();
+    }
+    assert_eq!(refusals, 59);
+}
+
 runtime_matrix!(
     dynamic_targeted_projection_uses_owner_settlement_wait,
     dynamic_combined_normalized_zoom_requires_typed_digital_range,
     dynamic_shared_exposure_modes_require_typed_permission,
+    evidence_refinements_predict_every_withheld_builtin_call,
 );

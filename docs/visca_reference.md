@@ -2508,6 +2508,80 @@ vendor-verified claim from this built-in catalog.
 | r14-ptzopticsg3-sharpnessmode-grant | R14 | PtzOpticsG3 | grant.SharpnessMode | 01 04 05;09 04 05 | - | Current Developer Portal command and query pages |
 | r1-ptzoptics30x-sharpnessmode-grant | R1 | PtzOptics30X | grant.SharpnessMode | 01 04 05;09 04 05 | - | §7 command/inquiry tables |
 | r8-sonyevih100-sharpnesscontrol-grant | R8 | SonyEviH100 | grant.SharpnessControl | 01 04 02;01 04 42;09 04 42 | - | Technical Manual command list pp.31–34, inquiry list and Aperture Level setting values |
+| r1-ptzoptics30x-gaincontrol-grant | R1 | PtzOptics30X | grant.GainControl | 01 04 0C 00;01 04 0C 02;01 04 0C 03;01 04 4C;09 04 4C | - | §7 command list; §7.10; command inquiry list |
+| r1-ptzoptics30x-gainlimit-grant | R1 | PtzOptics30X | grant.GainLimit | 01 04 2C;09 04 2C | - | §7 command list; §7.10; command inquiry list |
+| r1-ptzoptics30x-menuenterreturn-grant | R1 | PtzOptics30X | grant.MenuEnterReturn | 01 06 06 | - | §7 command list |
+| r1-ptzoptics30x-menustatusinquiry-grant | R1 | PtzOptics30X | grant.MenuStatusInquiry | 09 06 06 | - | §7.10; command inquiry list |
+| r1-ptzoptics30x-presetmemory-grant | R1 | PtzOptics30X | grant.PresetMemory | 01 04 3F 01;01 04 3F 00 | - | §7 command list |
+| r1-ptzoptics30x-shuttercontrol-grant | R1 | PtzOptics30X | grant.ShutterControl | 01 04 0A 00;01 04 0A 02;01 04 0A 03;09 04 4A | - | §7 command list; §7.10; command inquiry list |
+| r1-ptzoptics30x-standardwhitebalancemodes-grant | R1 | PtzOptics30X | grant.StandardWhiteBalanceModes | 01 04 35 00;01 04 35 01;01 04 35 02 | - | §7 command list |
+| r1-ptzopticsg2-gaincontrol-grant | R1 | PtzOpticsG2 | grant.GainControl | 01 04 0C 00;01 04 0C 02;01 04 0C 03;01 04 4C;09 04 4C | - | §7 command list; §7.10; command inquiry list |
+| r1-ptzopticsg2-gainlimit-grant | R1 | PtzOpticsG2 | grant.GainLimit | 01 04 2C;09 04 2C | - | §7 command list; §7.10; command inquiry list |
+| r1-ptzopticsg2-menuenterreturn-grant | R1 | PtzOpticsG2 | grant.MenuEnterReturn | 01 06 06 | - | §7 command list |
+| r1-ptzopticsg2-menustatusinquiry-grant | R1 | PtzOpticsG2 | grant.MenuStatusInquiry | 09 06 06 | - | §7.10; command inquiry list |
+| r1-ptzopticsg2-presetmemory-grant | R1 | PtzOpticsG2 | grant.PresetMemory | 01 04 3F 01;01 04 3F 00 | - | §7 command list |
+| r1-ptzopticsg2-shuttercontrol-grant | R1 | PtzOpticsG2 | grant.ShutterControl | 01 04 0A 00;01 04 0A 02;01 04 0A 03;09 04 4A | - | §7 command list; §7.10; command inquiry list |
+| r1-ptzopticsg2-standardwhitebalancemodes-grant | R1 | PtzOpticsG2 | grant.StandardWhiteBalanceModes | 01 04 35 00;01 04 35 01;01 04 35 02 | - | §7 command list |
+| r11-sonybrch900-focusinfinity-grant | R11 | SonyBrcH900 | grant.FocusInfinity | 01 04 18 02 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r11-sonybrch900-gaincontrol-grant | R11 | SonyBrcH900 | grant.GainControl | 01 04 0C 00;01 04 0C 02;01 04 0C 03;01 04 4C;09 04 4C | - | BRC-H900 v2.20 command list pp.14–18; Version 2.20 pp.20–22 |
+| r11-sonybrch900-menustatusinquiry-grant | R11 | SonyBrcH900 | grant.MenuStatusInquiry | 09 06 06 | - | Version 2.20 p. 22 |
+| r11-sonybrch900-shuttercontrol-grant | R11 | SonyBrcH900 | grant.ShutterControl | 01 04 0A 00;01 04 0A 02;01 04 0A 03;09 04 4A | - | BRC-H900 v2.20 command list pp.14–18; Version 2.20 pp.20–22 |
+| r11-sonybrch900-standardwhitebalancemodes-grant | R11 | SonyBrcH900 | grant.StandardWhiteBalanceModes | 01 04 35 00;01 04 35 01;01 04 35 02 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r12-genericvisca-focusinfinity-grant | R12 | GenericVisca | grant.FocusInfinity | 01 04 18 02 | - | BRC-300 Command List pp.9–12 |
+| r12-genericvisca-gaincontrol-grant | R12 | GenericVisca | grant.GainControl | 01 04 0C 00;01 04 0C 02;01 04 0C 03;01 04 4C;09 04 4C | - | BRC-300 Command List pp.9–12; Technical Manual inquiry list |
+| r12-genericvisca-presetmemory-grant | R12 | GenericVisca | grant.PresetMemory | 01 04 3F 01;01 04 3F 00 | - | BRC-300 Command List pp.9–12 |
+| r12-genericvisca-shuttercontrol-grant | R12 | GenericVisca | grant.ShutterControl | 01 04 0A 00;01 04 0A 02;01 04 0A 03;09 04 4A | - | BRC-300 Command List pp.9–12; Technical Manual inquiry list |
+| r12-genericvisca-standardwhitebalancemodes-grant | R12 | GenericVisca | grant.StandardWhiteBalanceModes | 01 04 35 00;01 04 35 01;01 04 35 02 | - | BRC-300 Command List pp.9–12 |
+| r12-sonybrc300-focusinfinity-grant | R12 | SonyBrc300 | grant.FocusInfinity | 01 04 18 02 | - | BRC-300 Command List pp.9–12 |
+| r12-sonybrc300-gaincontrol-grant | R12 | SonyBrc300 | grant.GainControl | 01 04 0C 00;01 04 0C 02;01 04 0C 03;01 04 4C;09 04 4C | - | BRC-300 Command List pp.9–12; Technical Manual inquiry list |
+| r12-sonybrc300-presetmemory-grant | R12 | SonyBrc300 | grant.PresetMemory | 01 04 3F 01;01 04 3F 00 | - | BRC-300 Command List pp.9–12 |
+| r12-sonybrc300-shuttercontrol-grant | R12 | SonyBrc300 | grant.ShutterControl | 01 04 0A 00;01 04 0A 02;01 04 0A 03;09 04 4A | - | BRC-300 Command List pp.9–12; Technical Manual inquiry list |
+| r12-sonybrc300-standardwhitebalancemodes-grant | R12 | SonyBrc300 | grant.StandardWhiteBalanceModes | 01 04 35 00;01 04 35 01;01 04 35 02 | - | BRC-300 Command List pp.9–12 |
+| r14-ptzopticsg3-gaincontrol-grant | R14 | PtzOpticsG3 | grant.GainControl | 01 04 0C 00;01 04 0C 02;01 04 0C 03;01 04 4C;09 04 4C | - | Current Developer Portal command pages; Queries page; current model scope |
+| r14-ptzopticsg3-gainlimit-grant | R14 | PtzOpticsG3 | grant.GainLimit | 01 04 2C;09 04 2C | - | Current Developer Portal command pages; Queries page; current model scope |
+| r14-ptzopticsg3-menuenterreturn-grant | R14 | PtzOpticsG3 | grant.MenuEnterReturn | 01 06 06 | - | Current Developer Portal command pages |
+| r14-ptzopticsg3-menustatusinquiry-grant | R14 | PtzOpticsG3 | grant.MenuStatusInquiry | 09 06 06 | - | Queries page; current model scope |
+| r14-ptzopticsg3-presetmemory-grant | R14 | PtzOpticsG3 | grant.PresetMemory | 01 04 3F 01;01 04 3F 00 | - | Current Developer Portal command pages |
+| r14-ptzopticsg3-shuttercontrol-grant | R14 | PtzOpticsG3 | grant.ShutterControl | 01 04 0A 00;01 04 0A 02;01 04 0A 03;09 04 4A | - | Current Developer Portal command pages; Queries page; current model scope |
+| r14-ptzopticsg3-standardwhitebalancemodes-grant | R14 | PtzOpticsG3 | grant.StandardWhiteBalanceModes | 01 04 35 00;01 04 35 01;01 04 35 02 | - | Current Developer Portal command pages |
+| r21-genericvisca-focusinfinity-grant | R21 | GenericVisca | grant.FocusInfinity | 01 04 18 02 | - | BRC-300/300P Command List pp.9–12 |
+| r21-genericvisca-gaincontrol-grant | R21 | GenericVisca | grant.GainControl | 01 04 0C 00;01 04 0C 02;01 04 0C 03;01 04 4C;09 04 4C | - | BRC-300/300P Command List pp.9–12; Command List inquiry list |
+| r21-genericvisca-presetmemory-grant | R21 | GenericVisca | grant.PresetMemory | 01 04 3F 01;01 04 3F 00 | - | BRC-300/300P Command List pp.9–12 |
+| r21-genericvisca-shuttercontrol-grant | R21 | GenericVisca | grant.ShutterControl | 01 04 0A 00;01 04 0A 02;01 04 0A 03;09 04 4A | - | BRC-300/300P Command List pp.9–12; Command List inquiry list |
+| r21-genericvisca-standardwhitebalancemodes-grant | R21 | GenericVisca | grant.StandardWhiteBalanceModes | 01 04 35 00;01 04 35 01;01 04 35 02 | - | BRC-300/300P Command List pp.9–12 |
+| r21-nearusbrc300-focusinfinity-grant | R21 | NearusBrc300 | grant.FocusInfinity | 01 04 18 02 | - | BRC-300/300P Command List pp.9–12 |
+| r21-nearusbrc300-gaincontrol-grant | R21 | NearusBrc300 | grant.GainControl | 01 04 0C 00;01 04 0C 02;01 04 0C 03;01 04 4C;09 04 4C | - | BRC-300/300P Command List pp.9–12; Command List inquiry list |
+| r21-nearusbrc300-presetmemory-grant | R21 | NearusBrc300 | grant.PresetMemory | 01 04 3F 01;01 04 3F 00 | - | BRC-300/300P Command List pp.9–12 |
+| r21-nearusbrc300-shuttercontrol-grant | R21 | NearusBrc300 | grant.ShutterControl | 01 04 0A 00;01 04 0A 02;01 04 0A 03;09 04 4A | - | BRC-300/300P Command List pp.9–12; Command List inquiry list |
+| r21-nearusbrc300-standardwhitebalancemodes-grant | R21 | NearusBrc300 | grant.StandardWhiteBalanceModes | 01 04 35 00;01 04 35 01;01 04 35 02 | - | BRC-300/300P Command List pp.9–12 |
+| r7-sonyfr7-menudisplay-grant | R7 | SonyFr7 | grant.MenuDisplay | 01 06 06 | - | FR7 v4 command list pp.14–20 |
+| r7-sonyfr7-menustatusinquiry-grant | R7 | SonyFr7 | grant.MenuStatusInquiry | 09 06 06 | - | FR7 inquiry command list |
+| r7-sonyfr7-presetmemory-grant | R7 | SonyFr7 | grant.PresetMemory | 01 04 3F 01;01 04 3F 00 | - | FR7 v4 command list pp.14–20 |
+| r8-genericvisca-focusinfinity-grant | R8 | GenericVisca | grant.FocusInfinity | 01 04 18 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r8-genericvisca-gaincontrol-grant | R8 | GenericVisca | grant.GainControl | 01 04 0C 00;01 04 0C 02;01 04 0C 03;01 04 4C;09 04 4C | - | EVI-H100 Technical Manual command list pp.31–34; Technical Manual inquiry list |
+| r8-genericvisca-presetmemory-grant | R8 | GenericVisca | grant.PresetMemory | 01 04 3F 01;01 04 3F 00 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r8-genericvisca-shuttercontrol-grant | R8 | GenericVisca | grant.ShutterControl | 01 04 0A 00;01 04 0A 02;01 04 0A 03;09 04 4A | - | EVI-H100 Technical Manual command list pp.31–34; Technical Manual inquiry list |
+| r8-genericvisca-standardwhitebalancemodes-grant | R8 | GenericVisca | grant.StandardWhiteBalanceModes | 01 04 35 00;01 04 35 01;01 04 35 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r8-sonyevih100-focusinfinity-grant | R8 | SonyEviH100 | grant.FocusInfinity | 01 04 18 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r8-sonyevih100-gaincontrol-grant | R8 | SonyEviH100 | grant.GainControl | 01 04 0C 00;01 04 0C 02;01 04 0C 03;01 04 4C;09 04 4C | - | EVI-H100 Technical Manual command list pp.31–34; Technical Manual inquiry list |
+| r8-sonyevih100-presetmemory-grant | R8 | SonyEviH100 | grant.PresetMemory | 01 04 3F 01;01 04 3F 00 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r8-sonyevih100-shuttercontrol-grant | R8 | SonyEviH100 | grant.ShutterControl | 01 04 0A 00;01 04 0A 02;01 04 0A 03;09 04 4A | - | EVI-H100 Technical Manual command list pp.31–34; Technical Manual inquiry list |
+| r8-sonyevih100-standardwhitebalancemodes-grant | R8 | SonyEviH100 | grant.StandardWhiteBalanceModes | 01 04 35 00;01 04 35 01;01 04 35 02 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r8-genericvisca-shutterdirect-grant | R8 | GenericVisca | grant.ShutterDirect | 01 04 4A | - | EVI-H100 Technical Manual command list pp.31–34; Technical Manual inquiry list |
+| r12-genericvisca-shutterdirect-grant | R12 | GenericVisca | grant.ShutterDirect | 01 04 4A | - | BRC-300 Command List pp.9–12; Technical Manual inquiry list |
+| r21-genericvisca-shutterdirect-grant | R21 | GenericVisca | grant.ShutterDirect | 01 04 4A | - | BRC-300/300P Command List pp.9–12; Command List inquiry list |
+| r21-nearusbrc300-shutterdirect-grant | R21 | NearusBrc300 | grant.ShutterDirect | 01 04 4A | - | BRC-300/300P Command List pp.9–12; Command List inquiry list |
+| r12-sonybrc300-shutterdirect-grant | R12 | SonyBrc300 | grant.ShutterDirect | 01 04 4A | - | BRC-300 Command List pp.9–12; Technical Manual inquiry list |
+| r8-sonyevih100-shutterdirect-grant | R8 | SonyEviH100 | grant.ShutterDirect | 01 04 4A | - | EVI-H100 Technical Manual command list pp.31–34; Technical Manual inquiry list |
+| r1-ptzoptics30x-shutterdirect-grant | R1 | PtzOptics30X | grant.ShutterDirect | 01 04 4A | - | §7 command list; §7.10; command inquiry list |
+| r14-ptzopticsg3-shutterdirect-grant | R14 | PtzOpticsG3 | grant.ShutterDirect | 01 04 4A | - | Current Developer Portal command pages; Queries page; current model scope |
+| r1-ptzopticsg2-shutterdirect-grant | R1 | PtzOpticsG2 | grant.ShutterDirect | 01 04 4A | - | §7 command list; §7.10; command inquiry list |
+| r8-sonyevih100-powerstandby-grant | R8 | SonyEviH100 | grant.PowerStandby | 01 04 00 03 | - | EVI-H100 Technical Manual command list pp.31–34 |
+| r11-sonybrch900-powerstandby-grant | R11 | SonyBrcH900 | grant.PowerStandby | 01 04 00 03 | - | BRC-H900 v2.20 command list pp.14–18 |
+| r7-sonyfr7-powerstandby-grant | R7 | SonyFr7 | grant.PowerStandby | 01 04 00 03 | - | FR7 v4 command list pp.14–20 |
+| r1-ptzoptics30x-powerstandby-grant | R1 | PtzOptics30X | grant.PowerStandby | 01 04 00 03 | - | §7 command list |
+| r14-ptzopticsg3-powerstandby-grant | R14 | PtzOpticsG3 | grant.PowerStandby | 01 04 00 03 | - | Current Developer Portal command pages |
+| r1-ptzopticsg2-powerstandby-grant | R1 | PtzOpticsG2 | grant.PowerStandby | 01 04 00 03 | - | §7 command list |
 <!-- END CHECKED SOURCE EVIDENCE -->
 
 ### FR7 cinema domains (R7 v4, pp. 14–22)
