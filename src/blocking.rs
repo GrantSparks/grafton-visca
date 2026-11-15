@@ -529,6 +529,9 @@ impl Session {
     }
 
     /// Returns a scalar snapshot of the owner without cloning diagnostics.
+    ///
+    /// After normal conclusion, returns the retained terminal snapshot. An
+    /// owner that unwinds before conclusion reports `OwnerTerminated`.
     pub fn metrics(&self) -> Result<MetricsSnapshot, Error> {
         self.owner.metrics()
     }
