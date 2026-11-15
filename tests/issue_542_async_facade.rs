@@ -117,8 +117,8 @@ fn camera() -> FakeCamera {
 /// A wire onto `camera` that reports a standard serial transport with serial
 /// addressing.
 fn serial_wire(camera: &FakeCamera) -> AsyncWire {
-    let mut config = TransportConfig::default();
-    config.addressing = AddressingMode::Serial;
+    let config = TransportConfig::default();
+
     camera
         .async_wire()
         .with_config(config)

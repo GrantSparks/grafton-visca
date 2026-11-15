@@ -13,9 +13,6 @@ use crate::{
     transport::builder::TransportConfig,
 };
 
-#[cfg(any(feature = "async", feature = "blocking"))]
-use crate::transport::builder::AddressingMode;
-
 /// Standard transport kind used for profile support validation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(
@@ -360,13 +357,11 @@ where
     }
 
     /// The configuration a standard network transport opens with: the
-    /// caller's configuration or `transport_default`, always with IP
-    /// addressing.
+    /// caller's configuration or `transport_default`. Identity is declared
+    /// by the opened transport.
     #[cfg(any(feature = "async", feature = "blocking"))]
     fn ip_transport_config(&self, transport_default: fn() -> TransportConfig) -> TransportConfig {
-        let mut config = self.transport_config.unwrap_or_else(transport_default);
-        config.addressing = AddressingMode::Ip;
-        config
+        self.transport_config.unwrap_or_else(transport_default)
     }
 
     #[cfg(any(feature = "async", feature = "blocking"))]
@@ -430,7 +425,20 @@ where
         if let Some(profile_id) = P::PROFILE_ID {
             self.transport.validate_for_profile(profile_id)?;
         }
-        config.validate_for_transport(Some(self.transport.kind()))?;
+        match self.transport.kind() {
+            TransportKind::Tcp => {
+                config.validate_for_transport(crate::transport::TransportIdentity::Tcp)?
+            }
+            TransportKind::Udp => {
+                config.validate_for_transport(crate::transport::TransportIdentity::Udp)?
+            }
+            TransportKind::Serial => {
+                config.validate_for_transport(crate::transport::TransportIdentity::Serial {
+                    bus: None,
+                })?
+            }
+            TransportKind::Custom => {}
+        }
         Ok(config)
     }
 
@@ -501,7 +509,11 @@ where
             }
         };
 
-        session_config.validate_for_transport(Some(kind))?;
+        session_config.validate_for_transport(match kind {
+            TransportKind::Tcp => crate::transport::TransportIdentity::Tcp,
+            TransportKind::Udp => crate::transport::TransportIdentity::Udp,
+            _ => unreachable!("network kind"),
+        })?;
         transport_config.validate()?;
         let endpoint = crate::transport::address::canonicalize_endpoint(address, default_port)?;
         Ok(StandardConnectionPlan {
@@ -573,7 +585,8 @@ where
         use crate::runtime::TransportHandle;
 
         let session_config = self.validated_session_config()?;
-        session_config.validate_for_transport(Some(TransportKind::Serial))?;
+        session_config
+            .validate_for_transport(crate::transport::TransportIdentity::Serial { bus: None })?;
 
         let (port, baud_rate) = match &self.transport {
             TransportOptions::Serial { port, baud_rate } => (port, *baud_rate),
@@ -630,7 +643,8 @@ where
     #[cfg(feature = "transport-serial")]
     pub fn open_serial(&self) -> crate::Result<crate::blocking::Session> {
         let session_config = self.validated_session_config()?;
-        session_config.validate_for_transport(Some(TransportKind::Serial))?;
+        session_config
+            .validate_for_transport(crate::transport::TransportIdentity::Serial { bus: None })?;
         let (port, baud_rate) = match &self.transport {
             TransportOptions::Serial { port, baud_rate } => (port, *baud_rate),
             _ => {
@@ -855,7 +869,7 @@ mod tests {
         use crate::{
             camera::{CameraConfig, TransportKind, TransportOptions},
             profiles::{PtzOpticsG2, SonyFR7},
-            transport::{AddressingMode, BufferConfig, TcpKeepaliveConfig, TransportConfig},
+            transport::{BufferConfig, TcpKeepaliveConfig, TransportConfig},
         };
 
         let transport_config = TransportConfig {
@@ -869,7 +883,6 @@ mod tests {
             tcp_nodelay: Some(false),
             tcp_keepalive: Some(TcpKeepaliveConfig::new(Duration::from_secs(4))),
             ttl: Some(41),
-            addressing: AddressingMode::Ip,
         };
 
         let tcp = CameraConfig::<PtzOpticsG2>::tcp("camera.local")
@@ -897,7 +910,6 @@ mod tests {
             transport_config.tcp_keepalive
         );
         assert_eq!(tcp.transport_config.ttl, Some(41));
-        assert_eq!(tcp.transport_config.addressing, AddressingMode::Ip);
 
         let udp = CameraConfig::<PtzOpticsG2>::udp("camera.local")
             .transport_config(transport_config)
@@ -919,7 +931,6 @@ mod tests {
             transport_config.buffer_config
         );
         assert_eq!(udp.transport_config.ttl, Some(41));
-        assert_eq!(udp.transport_config.addressing, AddressingMode::Ip);
 
         let sony = CameraConfig::<SonyFR7>::udp("camera.local")
             .standard_connection_plan()
@@ -1084,7 +1095,7 @@ mod tests {
         use crate::{
             camera::CameraConfig,
             profiles::PtzOpticsG2,
-            transport::{AddressingMode, BufferConfig, TransportConfig},
+            transport::{BufferConfig, TransportConfig},
         };
 
         let transport_config = TransportConfig {
@@ -1094,7 +1105,7 @@ mod tests {
                 recv_buffer_size: 43,
                 max_buffer_size: 53,
             },
-            addressing: AddressingMode::Ip,
+
             ..TransportConfig::default()
         };
         let config = CameraConfig::<PtzOpticsG2>::serial("/dev/fake-visca", 38_400)
@@ -1107,7 +1118,7 @@ mod tests {
         assert_eq!(serial.read_timeout, Duration::from_millis(37));
         assert_eq!(serial.write_timeout, Duration::from_millis(41));
         assert_eq!(serial.buffer_config, transport_config.buffer_config);
-        assert_eq!(serial.transport_config().addressing, AddressingMode::Serial);
+
         assert_eq!(serial.transport_config().tcp_keepalive, None);
     }
 

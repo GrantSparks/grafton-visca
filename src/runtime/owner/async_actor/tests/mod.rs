@@ -1000,6 +1000,7 @@ where
 #[cfg(feature = "runtime-tokio")]
 #[derive(Debug)]
 struct ChunkedStreamTransport {
+    addressing: crate::transport::AddressingMode,
     config: crate::transport::builder::TransportConfig,
     chunks: flume::Receiver<Vec<u8>>,
     sent: flume::Sender<Vec<u8>>,
@@ -1007,6 +1008,13 @@ struct ChunkedStreamTransport {
 
 #[cfg(feature = "runtime-tokio")]
 impl crate::transport::HasTransportConfig for ChunkedStreamTransport {
+    fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+        crate::transport::TransportIdentity::Custom {
+            semantics: crate::transport::SendSemantics::Stream,
+            addressing: self.addressing,
+        }
+    }
+
     fn transport_config(&self) -> &crate::transport::builder::TransportConfig {
         &self.config
     }
@@ -1028,14 +1036,6 @@ impl crate::transport::AsyncTransport for ChunkedStreamTransport {
             return future::pending().await;
         };
         Ok(ReceiveOutcome::copy_message(&chunk, dst))
-    }
-
-    fn send_semantics(&self) -> crate::transport::SendSemantics {
-        crate::transport::SendSemantics::Stream
-    }
-
-    fn addressing_mode_hint(&self) -> Option<crate::transport::builder::AddressingMode> {
-        Some(self.config.addressing)
     }
 }
 
@@ -2023,6 +2023,13 @@ struct ScriptedDatagramTransport {
 
 #[cfg(feature = "runtime-tokio")]
 impl crate::transport::HasTransportConfig for ScriptedDatagramTransport {
+    fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+        crate::transport::TransportIdentity::Custom {
+            semantics: crate::transport::SendSemantics::Datagram,
+            addressing: crate::transport::AddressingMode::Ip,
+        }
+    }
+
     fn transport_config(&self) -> &crate::transport::builder::TransportConfig {
         &self.config
     }
@@ -2042,10 +2049,6 @@ impl crate::transport::AsyncTransport for ScriptedDatagramTransport {
             return future::pending().await;
         };
         Ok(ReceiveOutcome::copy_message(&datagram, dst))
-    }
-
-    fn send_semantics(&self) -> crate::transport::SendSemantics {
-        crate::transport::SendSemantics::Datagram
     }
 }
 
@@ -2082,6 +2085,13 @@ impl AlternatingFaultAndTruncatedDatagrams {
 
 #[cfg(feature = "runtime-tokio")]
 impl crate::transport::HasTransportConfig for AlternatingFaultAndTruncatedDatagrams {
+    fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+        crate::transport::TransportIdentity::Custom {
+            semantics: crate::transport::SendSemantics::Datagram,
+            addressing: crate::transport::AddressingMode::Ip,
+        }
+    }
+
     fn transport_config(&self) -> &crate::transport::builder::TransportConfig {
         &self.config
     }
@@ -2099,10 +2109,6 @@ impl crate::transport::AsyncTransport for AlternatingFaultAndTruncatedDatagrams 
     ) -> Result<crate::transport::ReceiveOutcome, Error> {
         self.next_receive(dst)
     }
-
-    fn send_semantics(&self) -> crate::transport::SendSemantics {
-        crate::transport::SendSemantics::Datagram
-    }
 }
 
 /// A datagram transport whose every send reports the connection as closed.
@@ -2114,6 +2120,13 @@ struct ClosedSendDatagramTransport {
 
 #[cfg(feature = "runtime-tokio")]
 impl crate::transport::HasTransportConfig for ClosedSendDatagramTransport {
+    fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+        crate::transport::TransportIdentity::Custom {
+            semantics: crate::transport::SendSemantics::Datagram,
+            addressing: crate::transport::AddressingMode::Ip,
+        }
+    }
+
     fn transport_config(&self) -> &crate::transport::builder::TransportConfig {
         &self.config
     }
@@ -2132,10 +2145,6 @@ impl crate::transport::AsyncTransport for ClosedSendDatagramTransport {
 
     async fn recv_into(&mut self, _dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         future::pending().await
-    }
-
-    fn send_semantics(&self) -> crate::transport::SendSemantics {
-        crate::transport::SendSemantics::Datagram
     }
 }
 

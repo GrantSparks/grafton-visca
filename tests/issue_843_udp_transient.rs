@@ -24,9 +24,7 @@ use grafton_visca::{
     completion::AppliedOnly,
     profiles::SonyFR7,
     request::builtin::{FocusStop, ZoomStop},
-    transport::{
-        AddressingMode, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
-    },
+    transport::{HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig},
     Error, MetricsSnapshot, SessionStatus,
 };
 use grafton_visca_test_support::{fake_camera::frames, profile_fixtures::sony_session_config};
@@ -129,12 +127,12 @@ struct Observed<T> {
 }
 
 impl<T: HasTransportConfig> HasTransportConfig for Observed<T> {
-    fn transport_config(&self) -> &TransportConfig {
-        self.inner.transport_config()
+    fn identity(&self) -> grafton_visca::transport::TransportIdentity<'_> {
+        self.inner.identity()
     }
 
-    fn standard_transport_kind(&self) -> Option<grafton_visca::camera::TransportKind> {
-        self.inner.standard_transport_kind()
+    fn transport_config(&self) -> &TransportConfig {
+        self.inner.transport_config()
     }
 }
 
@@ -142,13 +140,8 @@ impl<T: HasTransportConfig> HasTransportConfig for Observed<T> {
 impl<T: grafton_visca::transport::BlockingTransport> grafton_visca::transport::BlockingTransport
     for Observed<T>
 {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        kind: grafton_visca::command::CommandKind,
-        timeout: Duration,
-    ) -> Result<(), Error> {
-        self.inner.send_with_timeout(bytes, kind, timeout)?;
+    fn send_with_timeout(&mut self, bytes: &[u8], timeout: Duration) -> Result<(), Error> {
+        self.inner.send_with_timeout(bytes, timeout)?;
         self.recovery.writes.lock().unwrap().push(bytes.to_vec());
         Ok(())
     }
@@ -161,14 +154,6 @@ impl<T: grafton_visca::transport::BlockingTransport> grafton_visca::transport::B
         let received = self.inner.recv_into_with_timeout(buffer, timeout);
         self.recovery.observe_receive(&received);
         received
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        self.inner.send_semantics()
-    }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        self.inner.addressing_mode_hint()
     }
 }
 
@@ -186,14 +171,6 @@ impl<T: grafton_visca::transport::AsyncTransport> grafton_visca::transport::Asyn
         let received = self.inner.recv_into(buffer).await;
         self.recovery.observe_receive(&received);
         received
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        self.inner.send_semantics()
-    }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        self.inner.addressing_mode_hint()
     }
 }
 

@@ -151,17 +151,15 @@ impl Bench {
     }
 
     fn transport_config(&self) -> TransportConfig {
-        let mut config = TransportConfig::default();
-        if self.targets.len() > 1 {
-            // Several cameras share one byte stream only with serial-style
-            // addressing (a daisy chain behind one TCP bridge).
-            config.addressing = AddressingMode::Serial;
-        }
-        config
+        TransportConfig::default()
     }
 
     fn addressing(&self) -> AddressingMode {
-        self.transport_config().addressing
+        if self.targets.len() > 1 {
+            AddressingMode::Serial
+        } else {
+            AddressingMode::Ip
+        }
     }
 
     /// The blocking wire, in the shape `open!` asks its camera for.

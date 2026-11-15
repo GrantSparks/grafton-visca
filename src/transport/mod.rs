@@ -82,7 +82,7 @@
 ///
 /// # Usage
 ///
-/// The runtime queries this via `send_semantics()` on send errors to decide
+/// The runtime queries this via `TransportIdentity::send_semantics()` on send errors to decide
 /// whether to poison the transport (Stream) or continue (Datagram).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
@@ -159,7 +159,9 @@ pub(crate) mod tokio;
 pub use async_transport::AsyncTransport;
 #[cfg(feature = "blocking")]
 pub use blocking_transport::BlockingTransportHandle;
-pub use blocking_transport::{AddressedBus, BlockingTransport, HasTransportConfig};
+pub use blocking_transport::{
+    AddressedBus, BlockingTransport, HasTransportConfig, TransportIdentity,
+};
 pub use buffer::BufferConfig;
 pub use builder::{AddressingMode, TcpKeepaliveConfig, TransportConfig};
 #[cfg(feature = "blocking")]

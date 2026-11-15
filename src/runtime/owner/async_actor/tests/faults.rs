@@ -13,6 +13,7 @@ async fn zero_length_stream_read_still_closes_the_session() {
     let (sent, sent_rx) = flume::bounded(8);
     let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
+            addressing: crate::transport::AddressingMode::Ip,
             config: crate::transport::builder::TransportConfig::default(),
             chunks,
             sent,
@@ -650,6 +651,7 @@ async fn a_malformed_stream_frame_is_discarded_and_keeps_the_session() {
     let (sent, sent_rx) = flume::bounded(8);
     let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
+            addressing: crate::transport::AddressingMode::Ip,
             config: crate::transport::builder::TransportConfig::default(),
             chunks,
             sent,
@@ -720,6 +722,7 @@ async fn a_stream_burst_over_the_frame_limit_keeps_the_session() {
     config.buffer_config.recv_buffer_size = 1024;
     let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
+            addressing: crate::transport::AddressingMode::Ip,
             config,
             chunks,
             sent,
@@ -772,6 +775,7 @@ async fn a_single_target_ip_chain_address_reply_settles_the_command() {
     let (sent, sent_rx) = flume::bounded(8);
     let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
+            addressing: crate::transport::AddressingMode::Ip,
             config: crate::transport::builder::TransportConfig::default(),
             chunks,
             sent,

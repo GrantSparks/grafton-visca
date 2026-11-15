@@ -23,8 +23,8 @@ fn wire(kind: Option<TransportKind>) -> (FakeCamera, BlockingWire) {
     let wire = camera.blocking_wire();
     let wire = match kind {
         Some(TransportKind::Serial) => {
-            let mut config = TransportConfig::default();
-            config.addressing = AddressingMode::Serial;
+            let config = TransportConfig::default();
+
             wire.with_config(config)
                 .with_addressing(AddressingMode::Serial)
                 .with_semantics(SendSemantics::Stream)

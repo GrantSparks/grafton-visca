@@ -124,11 +124,11 @@ pub(crate) const DEFAULT_TCP_KEEPALIVE: TcpKeepaliveConfig = TcpKeepaliveConfig 
 /// transport constructors — starts from them, so the largest reply a session
 /// accepts never depends on which entry point opened the transport.
 ///
-/// | Constructor | `recv_buffer_size` | `addressing` | TCP fields |
-/// |---|---|---|---|
-/// | [`for_tcp`](Self::for_tcp) | 256 ([`BufferConfig::for_raw_ip`]) | `Ip` | nodelay on, keepalive on |
-/// | [`for_udp`](Self::for_udp) | 1024 ([`BufferConfig::for_udp`]) | `Ip` | `None` |
-/// | [`for_serial`](Self::for_serial) | 256 ([`BufferConfig::for_serial`]) | `Serial` | `None` |
+/// | Constructor | `recv_buffer_size` | TCP fields |
+/// |---|---|---|
+/// | [`for_tcp`](Self::for_tcp) | 256 ([`BufferConfig::for_raw_ip`]) | nodelay on, keepalive on |
+/// | [`for_udp`](Self::for_udp) | 1024 ([`BufferConfig::for_udp`]) | `None` |
+/// | [`for_serial`](Self::for_serial) | 256 ([`BufferConfig::for_serial`]) | `None` |
 ///
 /// [`TransportConfig::default`] is the transport-neutral base the three
 /// constructors refine. It is the right starting point only for a custom
@@ -149,8 +149,7 @@ pub struct TransportConfig {
     pub write_timeout: Duration,
     /// Frame and retention limits for received data.
     pub buffer_config: BufferConfig,
-    /// Addressing mode (Serial vs IP) for VISCA frames.
-    pub addressing: AddressingMode,
+
     /// TCP nodelay (Nagle's algorithm disabled when `Some(true)`).
     ///
     /// `None` leaves the operating-system default in place.
@@ -172,7 +171,6 @@ impl Default for TransportConfig {
             read_timeout: DEFAULT_TRANSPORT_TIMEOUT,
             write_timeout: DEFAULT_TRANSPORT_TIMEOUT,
             buffer_config: BufferConfig::default(),
-            addressing: AddressingMode::default(),
             tcp_nodelay: Some(true),
             ttl: None,
             tcp_keepalive: Some(DEFAULT_TCP_KEEPALIVE),
@@ -186,7 +184,7 @@ const DEFAULT_TRANSPORT_TIMEOUT: Duration = Duration::from_secs(5);
 impl TransportConfig {
     /// The configuration every built-in TCP transport starts from.
     ///
-    /// Raw VISCA over TCP: 256-byte frame limit, IP addressing, `TCP_NODELAY`
+    /// Raw VISCA over TCP: 256-byte frame limit, `TCP_NODELAY`
     /// and the long-lived keepalive policy.
     #[must_use]
     pub fn for_tcp() -> Self {
@@ -198,7 +196,7 @@ impl TransportConfig {
 
     /// The configuration every built-in UDP transport starts from.
     ///
-    /// One datagram per receive with a 1024-byte limit and IP addressing; no
+    /// One datagram per receive with a 1024-byte limit; no
     /// TCP socket options.
     #[must_use]
     pub fn for_udp() -> Self {
@@ -212,13 +210,11 @@ impl TransportConfig {
 
     /// The configuration every built-in serial transport starts from.
     ///
-    /// Serial addressing (device addresses `0x81..=0x88` are preserved on the
-    /// wire), a 256-byte frame limit, and no TCP socket options.
+    /// A 256-byte frame limit and no TCP socket options.
     #[must_use]
     pub fn for_serial() -> Self {
         Self {
             buffer_config: BufferConfig::for_serial(),
-            addressing: AddressingMode::Serial,
             tcp_nodelay: None,
             ttl: None,
             tcp_keepalive: None,

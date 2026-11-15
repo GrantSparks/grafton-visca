@@ -8,8 +8,7 @@ use crate::{
         async_io::{AsyncReadExt, AsyncWriteExt},
         builder::TransportConfig,
         serial::SERIAL_PORT_CLOSED,
-        stream_read, AddressedBus, AddressingMode, AsyncTransport, HasTransportConfig,
-        ReceiveOutcome,
+        stream_read, AddressedBus, AsyncTransport, HasTransportConfig, ReceiveOutcome,
     },
     Error,
 };
@@ -67,23 +66,17 @@ impl<S: AsyncReadExt + AsyncWriteExt + Send> AsyncTransport for Serial<S> {
     async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         stream_read(self.stream.read(dst).await?, SERIAL_PORT_CLOSED).map(ReceiveOutcome::complete)
     }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        Some(AddressingMode::Serial)
-    }
 }
 
 impl<S: AsyncReadExt + AsyncWriteExt> HasTransportConfig for Serial<S> {
+    fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+        crate::transport::TransportIdentity::Serial {
+            bus: self.addressed_bus.as_ref(),
+        }
+    }
+
     fn transport_config(&self) -> &TransportConfig {
         &self.config
-    }
-
-    fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
-        Some(crate::camera::TransportKind::Serial)
-    }
-
-    fn addressed_bus(&self) -> Option<&AddressedBus> {
-        self.addressed_bus.as_ref()
     }
 }
 

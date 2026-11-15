@@ -10,10 +10,7 @@ use std::future::Future;
 #[cfg(feature = "async")]
 use crate::{
     executor::Executor,
-    transport::{
-        builder::TransportConfig, AddressingMode, AsyncTransport, HasTransportConfig,
-        ReceiveOutcome,
-    },
+    transport::{builder::TransportConfig, AsyncTransport, HasTransportConfig, ReceiveOutcome},
     Error,
 };
 
@@ -128,6 +125,10 @@ impl AsyncTransport for std::convert::Infallible {
 
 #[cfg(all(feature = "async", feature = "transport-serial-tokio"))]
 impl HasTransportConfig for std::convert::Infallible {
+    fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+        match *self {}
+    }
+
     fn transport_config(&self) -> &TransportConfig {
         match *self {}
     }
@@ -195,60 +196,25 @@ impl<R: Runtime> AsyncTransport for TransportHandle<R> {
             TransportHandle::Serial(transport) => transport.recv_into(dst).await,
         }
     }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        match self {
-            TransportHandle::Tcp(transport) => transport.addressing_mode_hint(),
-            TransportHandle::Udp(transport) => transport.addressing_mode_hint(),
-            #[cfg(feature = "transport-serial-tokio")]
-            TransportHandle::Serial(transport) => transport.addressing_mode_hint(),
-        }
-    }
-
-    fn send_semantics(&self) -> crate::transport::SendSemantics {
-        // Forward to the wrapped transport rather than inheriting the trait
-        // default (`SendSemantics::Stream`). The inner transport is the sole
-        // authority on its send semantics: `Udp` reports `Datagram`, so a UDP
-        // session opened through this wrapper must be governed by datagram
-        // rules (a failed `send_to` or a malformed datagram fails one command,
-        // it does not poison the session). Omitting this forward silently
-        // demoted every UDP session built via `TransportHandle::Udp` to the
-        // stream-poison policy. This mirrors `BlockingTransportHandle`.
-        match self {
-            TransportHandle::Tcp(transport) => transport.send_semantics(),
-            TransportHandle::Udp(transport) => transport.send_semantics(),
-            #[cfg(feature = "transport-serial-tokio")]
-            TransportHandle::Serial(transport) => transport.send_semantics(),
-        }
-    }
 }
 
 #[cfg(feature = "async")]
 impl<R: Runtime> HasTransportConfig for TransportHandle<R> {
+    fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+        match self {
+            TransportHandle::Tcp(transport) => transport.identity(),
+            TransportHandle::Udp(transport) => transport.identity(),
+            #[cfg(feature = "transport-serial-tokio")]
+            TransportHandle::Serial(transport) => transport.identity(),
+        }
+    }
+
     fn transport_config(&self) -> &TransportConfig {
         match self {
             TransportHandle::Tcp(transport) => transport.transport_config(),
             TransportHandle::Udp(transport) => transport.transport_config(),
             #[cfg(feature = "transport-serial-tokio")]
             TransportHandle::Serial(transport) => transport.transport_config(),
-        }
-    }
-
-    fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
-        Some(match self {
-            TransportHandle::Tcp(_) => crate::camera::TransportKind::Tcp,
-            TransportHandle::Udp(_) => crate::camera::TransportKind::Udp,
-            #[cfg(feature = "transport-serial-tokio")]
-            TransportHandle::Serial(_) => crate::camera::TransportKind::Serial,
-        })
-    }
-
-    fn addressed_bus(&self) -> Option<&crate::transport::AddressedBus> {
-        match self {
-            TransportHandle::Tcp(transport) => transport.addressed_bus(),
-            TransportHandle::Udp(transport) => transport.addressed_bus(),
-            #[cfg(feature = "transport-serial-tokio")]
-            TransportHandle::Serial(transport) => transport.addressed_bus(),
         }
     }
 }

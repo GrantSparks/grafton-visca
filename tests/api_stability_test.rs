@@ -15,7 +15,7 @@ use std::marker::PhantomData;
 #[test]
 fn root_value_and_transport_contract() {
     use grafton_visca::{
-        transport::{AddressingMode, BufferConfig, TcpKeepaliveConfig, TransportConfig},
+        transport::{BufferConfig, TcpKeepaliveConfig, TransportConfig},
         types::{ColorTemp, FocusPosition, PanSpeed, TiltSpeed, ZoomPosition, ZoomSpeed},
         units::Raw,
         CameraId, Error, PresetNumber, SessionConfig, SpeedLevel, ViscaSocket,
@@ -87,7 +87,7 @@ fn root_value_and_transport_contract() {
     assert_eq!(config.connect_timeout, Duration::from_secs(5));
     assert_eq!(config.read_timeout, Duration::from_secs(5));
     assert_eq!(config.write_timeout, Duration::from_secs(5));
-    assert_eq!(config.addressing, AddressingMode::Ip);
+
     assert_eq!(config.tcp_nodelay, Some(true));
     assert_eq!(config.tcp_keepalive, Some(keepalive));
     assert_eq!(

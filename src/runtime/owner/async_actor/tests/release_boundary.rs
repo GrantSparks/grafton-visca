@@ -1052,6 +1052,7 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
     let (sent, sent_rx) = flume::bounded(16);
     let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
+            addressing: crate::transport::AddressingMode::Ip,
             config: crate::transport::builder::TransportConfig::default(),
             chunks,
             sent,
@@ -1126,6 +1127,7 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
         let (sent, sent_rx) = flume::bounded(16);
         let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
             ChunkedStreamTransport {
+                addressing: crate::transport::AddressingMode::Ip,
                 config: crate::transport::builder::TransportConfig::default(),
                 chunks,
                 sent,
@@ -1213,6 +1215,7 @@ async fn production_raw_s1_split_tail_precedes_same_target_s2_release() {
     let (sent, sent_rx) = flume::bounded(16);
     let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
+            addressing: crate::transport::AddressingMode::Ip,
             config: crate::transport::builder::TransportConfig::default(),
             chunks,
             sent,
@@ -1266,6 +1269,7 @@ async fn production_raw_live_s1_prefix_survives_same_target_s2_release() {
     let (sent, sent_rx) = flume::bounded(16);
     let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
+            addressing: crate::transport::AddressingMode::Ip,
             config: crate::transport::builder::TransportConfig::default(),
             chunks,
             sent,
@@ -1312,6 +1316,7 @@ async fn production_raw_stale_s2_prefix_is_discarded_before_successor_write() {
     let (sent, sent_rx) = flume::bounded(16);
     let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
+            addressing: crate::transport::AddressingMode::Ip,
             config: crate::transport::builder::TransportConfig::default(),
             chunks,
             sent,
@@ -1368,11 +1373,11 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
     let (chunk_tx, chunks) = flume::bounded(16);
     let (sent, sent_rx) = flume::bounded(16);
     let config = crate::transport::builder::TransportConfig {
-        addressing: crate::transport::builder::AddressingMode::Serial,
         ..crate::transport::builder::TransportConfig::default()
     };
     let adapter = crate::runtime::owner::AsyncTransportAdapter::new_with_targets(
         ChunkedStreamTransport {
+            addressing: crate::transport::AddressingMode::Serial,
             config,
             chunks,
             sent,
@@ -1469,7 +1474,6 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
     let (chunk_tx, chunks) = flume::bounded(16);
     let (sent, sent_rx) = flume::bounded(16);
     let config = crate::transport::builder::TransportConfig {
-        addressing: crate::transport::builder::AddressingMode::Serial,
         buffer_config: crate::transport::buffer::BufferConfig {
             recv_buffer_size: 512,
             ..crate::transport::buffer::BufferConfig::default()
@@ -1478,6 +1482,7 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
     };
     let adapter = crate::runtime::owner::AsyncTransportAdapter::new_with_targets(
         ChunkedStreamTransport {
+            addressing: crate::transport::AddressingMode::Serial,
             config,
             chunks,
             sent,
@@ -1582,8 +1587,8 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
     let (sent, sent_rx) = flume::bounded(16);
     let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
+            addressing,
             config: crate::transport::builder::TransportConfig {
-                addressing,
                 ..crate::transport::builder::TransportConfig::default()
             },
             chunks,
@@ -1711,6 +1716,7 @@ async fn stream_reply_split_across_two_reads_keeps_the_session_running() {
     let (sent, sent_rx) = flume::bounded(8);
     let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
+            addressing: crate::transport::AddressingMode::Ip,
             config: crate::transport::builder::TransportConfig::default(),
             chunks,
             sent,
@@ -2043,6 +2049,7 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
     let (sent, sent_rx) = flume::bounded(16);
     let adapter = crate::runtime::owner::AsyncTransportAdapter::new(
         ChunkedStreamTransport {
+            addressing: crate::transport::AddressingMode::Ip,
             config: crate::transport::builder::TransportConfig::default(),
             chunks,
             sent,

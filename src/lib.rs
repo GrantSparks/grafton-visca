@@ -598,7 +598,6 @@
 //! [`transport::HasTransportConfig`] carries.
 //!
 //! ```rust
-//! use grafton_visca::command::CommandKind;
 //! use grafton_visca::transport::{
 //!     BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
 //! };
@@ -614,12 +613,10 @@
 //!     fn send_with_timeout(
 //!         &mut self,
 //!         bytes: &[u8],
-//!         kind: CommandKind,
 //!         timeout: Duration,
 //!     ) -> Result<(), Error> {
-//!         // Complete the framed write within `timeout`; `kind` selects
-//!         // command vs inquiry framing.
-//!         let _ = (bytes, kind, timeout);
+//!         // Complete the owner-framed write within `timeout`.
+//!         let _ = (bytes, timeout);
 //!         Ok(())
 //!     }
 //!
@@ -635,12 +632,16 @@
 //!         Err(Error::io_timeout())
 //!     }
 //!
-//!     fn send_semantics(&self) -> SendSemantics {
-//!         SendSemantics::Stream
-//!     }
 //! }
 //!
 //! impl HasTransportConfig for MyTransport {
+//!     fn identity(&self) -> grafton_visca::transport::TransportIdentity<'_> {
+//!         grafton_visca::transport::TransportIdentity::Custom {
+//!             semantics: SendSemantics::Stream,
+//!             addressing: grafton_visca::transport::AddressingMode::Ip,
+//!         }
+//!     }
+//!
 //!     fn transport_config(&self) -> &TransportConfig {
 //!         &self.config
 //!     }

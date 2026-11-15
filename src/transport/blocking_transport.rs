@@ -6,7 +6,6 @@
 use core::time::Duration;
 
 use crate::{
-    command::CommandKind,
     transport::{builder::TransportConfig, AddressingMode, ReceiveOutcome, SendSemantics},
     Error,
 };
@@ -43,22 +42,13 @@ pub enum BlockingTransportHandle {
 
 #[cfg(feature = "blocking")]
 impl BlockingTransport for BlockingTransportHandle {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        kind: CommandKind,
-        timeout: Duration,
-    ) -> Result<(), Error> {
+    fn send_with_timeout(&mut self, bytes: &[u8], timeout: Duration) -> Result<(), Error> {
         match self {
-            BlockingTransportHandle::Tcp(transport) => {
-                transport.send_with_timeout(bytes, kind, timeout)
-            }
-            BlockingTransportHandle::Udp(transport) => {
-                transport.send_with_timeout(bytes, kind, timeout)
-            }
+            BlockingTransportHandle::Tcp(transport) => transport.send_with_timeout(bytes, timeout),
+            BlockingTransportHandle::Udp(transport) => transport.send_with_timeout(bytes, timeout),
             #[cfg(feature = "transport-serial")]
             BlockingTransportHandle::Serial(transport) => {
-                transport.send_with_timeout(bytes, kind, timeout)
+                transport.send_with_timeout(bytes, timeout)
             }
         }
     }
@@ -81,52 +71,25 @@ impl BlockingTransport for BlockingTransportHandle {
             }
         }
     }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        match self {
-            BlockingTransportHandle::Tcp(transport) => transport.addressing_mode_hint(),
-            BlockingTransportHandle::Udp(transport) => transport.addressing_mode_hint(),
-            #[cfg(feature = "transport-serial")]
-            BlockingTransportHandle::Serial(transport) => transport.addressing_mode_hint(),
-        }
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        match self {
-            BlockingTransportHandle::Tcp(transport) => transport.send_semantics(),
-            BlockingTransportHandle::Udp(transport) => transport.send_semantics(),
-            #[cfg(feature = "transport-serial")]
-            BlockingTransportHandle::Serial(transport) => transport.send_semantics(),
-        }
-    }
 }
 
 #[cfg(feature = "blocking")]
 impl HasTransportConfig for BlockingTransportHandle {
+    fn identity(&self) -> TransportIdentity<'_> {
+        match self {
+            BlockingTransportHandle::Tcp(transport) => transport.identity(),
+            BlockingTransportHandle::Udp(transport) => transport.identity(),
+            #[cfg(feature = "transport-serial")]
+            BlockingTransportHandle::Serial(transport) => transport.identity(),
+        }
+    }
+
     fn transport_config(&self) -> &TransportConfig {
         match self {
             BlockingTransportHandle::Tcp(transport) => transport.transport_config(),
             BlockingTransportHandle::Udp(transport) => transport.transport_config(),
             #[cfg(feature = "transport-serial")]
             BlockingTransportHandle::Serial(transport) => transport.transport_config(),
-        }
-    }
-
-    fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
-        Some(match self {
-            BlockingTransportHandle::Tcp(_) => crate::camera::TransportKind::Tcp,
-            BlockingTransportHandle::Udp(_) => crate::camera::TransportKind::Udp,
-            #[cfg(feature = "transport-serial")]
-            BlockingTransportHandle::Serial(_) => crate::camera::TransportKind::Serial,
-        })
-    }
-
-    fn addressed_bus(&self) -> Option<&AddressedBus> {
-        match self {
-            BlockingTransportHandle::Tcp(transport) => transport.addressed_bus(),
-            BlockingTransportHandle::Udp(transport) => transport.addressed_bus(),
-            #[cfg(feature = "transport-serial")]
-            BlockingTransportHandle::Serial(transport) => transport.addressed_bus(),
         }
     }
 }
@@ -152,7 +115,6 @@ impl HasTransportConfig for BlockingTransportHandle {
 ///     fn send_with_timeout(
 ///         &mut self,
 ///         bytes: &[u8],
-///         kind: CommandKind,
 ///         timeout: Duration,
 ///     ) -> Result<(), Error> {
 ///         // Send implementation bounded by `timeout`.
@@ -177,25 +139,23 @@ impl HasTransportConfig for BlockingTransportHandle {
 /// Calling `close` also requests shutdown before returning that error; an
 /// external caller can then join the worker and release the transport.
 pub trait BlockingTransport: Send {
-    /// Send raw bytes to the device with command kind and a deadline (blocking).
+    /// Send framed bytes to the device with a deadline (blocking).
     ///
     /// This method must block until all bytes have been written, an error is
     /// known, or `timeout` expires. Implementations must arrange an OS/device
     /// write timeout or an equivalent bounded operation; the blocking owner
     /// cannot safely preempt an arbitrary synchronous implementation. Report
-    /// expiry as [`Error::io_timeout`]. The [`CommandKind`] is used for proper
-    /// protocol framing (for example, Sony encapsulation).
+    /// expiry as [`Error::io_timeout`]. The owner supplies the complete framed packet.
     ///
     /// # Arguments
     ///
     /// * `bytes` - The raw VISCA command bytes to send
-    /// * `kind` - Whether this is a command or inquiry for proper framing
     /// * `timeout` - Maximum time to complete the whole write
     ///
     /// # Error contract
     ///
     /// What a send failure costs is decided by
-    /// [`BlockingTransport::send_semantics`], not by the error value:
+    /// [`TransportIdentity::send_semantics`], not by the error value:
     ///
     /// - [`SendSemantics::Stream`]: the byte-stream position is now unknowable,
     ///   so the runtime poisons the session. Every request in flight fails with
@@ -209,12 +169,7 @@ pub trait BlockingTransport: Send {
     ///   session by an error raised on one that is still running. Report a
     ///   genuinely dead socket from the receive side, which is the side the
     ///   runtime treats as authoritative about session death.
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        kind: CommandKind,
-        timeout: Duration,
-    ) -> Result<(), Error>;
+    fn send_with_timeout(&mut self, bytes: &[u8], timeout: Duration) -> Result<(), Error>;
 
     /// Read raw bytes with a timeout (blocking), reporting whether everything
     /// received fitted in `dst`.
@@ -296,54 +251,6 @@ pub trait BlockingTransport: Send {
         dst: &mut [u8],
         timeout: Duration,
     ) -> Result<ReceiveOutcome, Error>;
-
-    /// Return a side-effect-free hint for the transport's VISCA addressing mode.
-    ///
-    /// Multi-target sessions require an explicit [`AddressingMode::Serial`]
-    /// declaration because serial replies carry a camera source while IP
-    /// replies do not. Custom transports default to `None`, which conservatively
-    /// rejects multi-target startup before configuration is read. Single-target
-    /// sessions do not require a hint. The hint only authorizes preflight;
-    /// `TransportConfig::addressing` remains the runtime's framing source.
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        None
-    }
-
-    /// Query the transport's send semantics.
-    ///
-    /// This method returns whether the transport uses stream or datagram semantics,
-    /// which determines how the runtime handles send failures:
-    ///
-    /// - [`SendSemantics::Stream`]: On send failure/timeout, the transport is
-    ///   "poisoned" and the runtime stops using it to prevent protocol desync.
-    ///
-    /// - [`SendSemantics::Datagram`]: On send failure, only the affected command
-    ///   fails; the transport continues operating for subsequent commands.
-    ///
-    /// # Default Implementation
-    ///
-    /// Returns [`SendSemantics::Stream`] by default, which is the safer choice
-    /// for unknown transport types. Datagram transports (UDP) should override
-    /// this to return [`SendSemantics::Datagram`].
-    ///
-    /// # Forwarding wrappers
-    ///
-    /// A transport that wraps another
-    #[cfg_attr(
-        feature = "blocking",
-        doc = " (such as [`BlockingTransportHandle`], which dispatches to a TCP, UDP, or serial inner transport)"
-    )]
-    /// **must** forward this
-    /// method to the inner transport, exactly as it forwards
-    /// [`BlockingTransport::send_with_timeout`] and
-    /// [`BlockingTransport::recv_into_with_timeout`].
-    /// Unlike a missing `match` arm, an unforwarded `send_semantics` does not fail
-    /// to compile — it silently falls back to this `Stream` default, which is
-    /// wrong for any datagram inner transport. The inner transport is the
-    /// authority on its own semantics.
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Stream
-    }
 }
 
 /// The outcome of serial Address Set on one bus: the port and the number of
@@ -368,6 +275,81 @@ impl AddressedBus {
     }
 }
 
+/// Closed identity of a transport, including its framing and failure semantics.
+///
+/// Standard transports derive all policy from their variant. A caller-owned
+/// transport explicitly declares its semantics and VISCA addressing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum TransportIdentity<'a> {
+    /// TCP byte stream with IP addressing.
+    Tcp,
+    /// UDP datagrams with IP addressing.
+    Udp,
+    /// Serial byte stream, optionally carrying the Address Set bus report.
+    Serial {
+        /// The bus addressed during startup, when Address Set ran.
+        bus: Option<&'a AddressedBus>,
+    },
+    /// Caller-owned transport with explicitly declared protocol facts.
+    Custom {
+        /// Whether failed writes can corrupt the byte stream.
+        semantics: SendSemantics,
+        /// How camera addresses are represented.
+        addressing: AddressingMode,
+    },
+}
+
+impl<'a> TransportIdentity<'a> {
+    /// Whether a failed write can corrupt the stream.
+    #[must_use]
+    pub const fn send_semantics(self) -> SendSemantics {
+        match self {
+            Self::Udp => SendSemantics::Datagram,
+            Self::Tcp | Self::Serial { .. } => SendSemantics::Stream,
+            Self::Custom { semantics, .. } => semantics,
+        }
+    }
+    /// The transport's VISCA addressing mode.
+    #[must_use]
+    pub const fn addressing(self) -> AddressingMode {
+        match self {
+            Self::Tcp | Self::Udp => AddressingMode::Ip,
+            Self::Serial { .. } => AddressingMode::Serial,
+            Self::Custom { addressing, .. } => addressing,
+        }
+    }
+    /// The standard profile-matrix kind, or the explicit custom escape hatch.
+    #[must_use]
+    pub const fn standard_transport_kind(self) -> Option<crate::camera::TransportKind> {
+        match self {
+            Self::Tcp => Some(crate::camera::TransportKind::Tcp),
+            Self::Udp => Some(crate::camera::TransportKind::Udp),
+            Self::Serial { .. } => Some(crate::camera::TransportKind::Serial),
+            Self::Custom { .. } => None,
+        }
+    }
+    /// The serial bus addressed during startup, if Address Set ran.
+    #[must_use]
+    pub const fn addressed_bus(self) -> Option<&'a AddressedBus> {
+        match self {
+            Self::Serial { bus } => bus,
+            _ => None,
+        }
+    }
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) const fn engine_kind(self) -> crate::runtime::engine::TransportKind {
+        match self {
+            Self::Udp
+            | Self::Custom {
+                semantics: SendSemantics::Datagram,
+                ..
+            } => crate::runtime::engine::TransportKind::Datagram,
+            _ => crate::runtime::engine::TransportKind::Stream,
+        }
+    }
+}
+
 /// Trait for types that carry transport configuration.
 ///
 /// This trait provides a unified interface for accessing the transport configuration
@@ -385,51 +367,83 @@ impl AddressedBus {
 /// let buffer_config = &config.buffer_config;
 /// ```
 pub trait HasTransportConfig {
+    /// Declare the transport identity. Wrappers must forward the inner identity.
+    fn identity(&self) -> TransportIdentity<'_>;
+
     /// Get the transport configuration.
     fn transport_config(&self) -> &TransportConfig;
-
-    /// Return the standard transport kind when this is a built-in TCP, UDP, or
-    /// serial transport. Custom transports leave this as `None` so profile
-    /// compatibility remains an explicit BYO escape hatch. Multi-target
-    /// routing additionally requires an explicit serial
-    /// [`BlockingTransport::addressing_mode_hint`] implementation.
-    fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
-        None
-    }
-
-    /// The serial bus this transport addressed with Address Set while
-    /// opening, if it did.
-    ///
-    /// Address Set assigns addresses `1..=n` along the daisy chain. Every
-    /// `Session::open` (blocking and async) checks each registered target
-    /// against this report before any protocol I/O: a target the chain did
-    /// not address fails the open with [`crate::Error::ConnectionFailed`]
-    /// naming the port, whose `NotFound` source names the camera. Cameras
-    /// beyond the registered ones are allowed. `None` (the default, and every
-    /// IP or custom transport) means no bus addressing ran and nothing is
-    /// checked.
-    ///
-    /// A transport that wraps another must forward this method, as it
-    /// forwards [`HasTransportConfig::transport_config`].
-    fn addressed_bus(&self) -> Option<&AddressedBus> {
-        None
-    }
 }
 
 // Blanket implementation for references, enabling HRTB bounds like `for<'a> &'a T: HasTransportConfig`
 impl<T: HasTransportConfig + ?Sized> HasTransportConfig for &T {
+    fn identity(&self) -> TransportIdentity<'_> {
+        (*self).identity()
+    }
+
     #[inline]
     fn transport_config(&self) -> &TransportConfig {
         (*self).transport_config()
     }
+}
 
-    #[inline]
-    fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
-        (*self).standard_transport_kind()
+#[cfg(test)]
+mod identity_tests {
+    use super::*;
+    use crate::camera::TransportKind;
+
+    #[test]
+    fn identity_projects_one_consistent_standard_transport_contract() {
+        let bus = AddressedBus::new("/dev/visca", 3);
+        for (identity, semantics, addressing, kind, addressed) in [
+            (
+                TransportIdentity::Tcp,
+                SendSemantics::Stream,
+                AddressingMode::Ip,
+                Some(TransportKind::Tcp),
+                None,
+            ),
+            (
+                TransportIdentity::Udp,
+                SendSemantics::Datagram,
+                AddressingMode::Ip,
+                Some(TransportKind::Udp),
+                None,
+            ),
+            (
+                TransportIdentity::Serial { bus: None },
+                SendSemantics::Stream,
+                AddressingMode::Serial,
+                Some(TransportKind::Serial),
+                None,
+            ),
+            (
+                TransportIdentity::Serial { bus: Some(&bus) },
+                SendSemantics::Stream,
+                AddressingMode::Serial,
+                Some(TransportKind::Serial),
+                Some(&bus),
+            ),
+        ] {
+            assert_eq!(identity.send_semantics(), semantics);
+            assert_eq!(identity.addressing(), addressing);
+            assert_eq!(identity.standard_transport_kind(), kind);
+            assert_eq!(identity.addressed_bus(), addressed);
+        }
     }
 
-    #[inline]
-    fn addressed_bus(&self) -> Option<&AddressedBus> {
-        (*self).addressed_bus()
+    #[test]
+    fn custom_identity_explicitly_preserves_each_semantics_and_addressing_pair() {
+        for semantics in [SendSemantics::Stream, SendSemantics::Datagram] {
+            for addressing in [AddressingMode::Ip, AddressingMode::Serial] {
+                let identity = TransportIdentity::Custom {
+                    semantics,
+                    addressing,
+                };
+                assert_eq!(identity.send_semantics(), semantics);
+                assert_eq!(identity.addressing(), addressing);
+                assert_eq!(identity.standard_transport_kind(), None);
+                assert_eq!(identity.addressed_bus(), None);
+            }
+        }
     }
 }

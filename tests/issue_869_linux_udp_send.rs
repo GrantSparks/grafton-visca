@@ -12,12 +12,11 @@ use std::{
 };
 
 use grafton_visca::{
-    command::CommandKind,
     completion::AppliedOnly,
     request::builtin::ZoomStop,
     transport::{
-        AddressingMode, BlockingTransport, BlockingTransportHandle, HasTransportConfig,
-        ReceiveOutcome, SendSemantics, Transport, TransportConfig,
+        BlockingTransport, BlockingTransportHandle, HasTransportConfig, ReceiveOutcome, Transport,
+        TransportConfig,
     },
     Error, ErrorKind, SessionStatus,
 };
@@ -58,29 +57,24 @@ struct PrimeSend {
 }
 
 impl HasTransportConfig for PrimeSend {
-    fn transport_config(&self) -> &TransportConfig {
-        self.inner.transport_config()
+    fn identity(&self) -> grafton_visca::transport::TransportIdentity<'_> {
+        self.inner.identity()
     }
 
-    fn standard_transport_kind(&self) -> Option<grafton_visca::camera::TransportKind> {
-        self.inner.standard_transport_kind()
+    fn transport_config(&self) -> &TransportConfig {
+        self.inner.transport_config()
     }
 }
 
 impl BlockingTransport for PrimeSend {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        kind: CommandKind,
-        timeout: Duration,
-    ) -> Result<(), Error> {
+    fn send_with_timeout(&mut self, bytes: &[u8], timeout: Duration) -> Result<(), Error> {
         if !std::mem::take(&mut self.first) {
-            return self.inner.send_with_timeout(bytes, kind, timeout);
+            return self.inner.send_with_timeout(bytes, timeout);
         }
-        self.inner.send_with_timeout(bytes, kind, timeout)?;
+        self.inner.send_with_timeout(bytes, timeout)?;
         let cause = self
             .inner
-            .send_with_timeout(bytes, kind, timeout)
+            .send_with_timeout(bytes, timeout)
             .expect_err("the second send observes loopback ICMP port-unreachable");
         assert!(
             matches!(&cause, Error::Io(error) if error.kind() == io::ErrorKind::ConnectionRefused)
@@ -95,14 +89,6 @@ impl BlockingTransport for PrimeSend {
         timeout: Duration,
     ) -> Result<ReceiveOutcome, Error> {
         self.inner.recv_into_with_timeout(bytes, timeout)
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
-    }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        self.inner.addressing_mode_hint()
     }
 }
 

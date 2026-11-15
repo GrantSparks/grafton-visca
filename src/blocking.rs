@@ -817,10 +817,9 @@ mod tests {
 
     use crate::{
         capabilities::Capabilities,
-        command::CommandKind,
         profile::{PositionInquirySupport, ProfileEnvelope, ProfileTiming, TransportCompatibility},
         testing::testkit::{helpers, ScriptedBlockingTransport, Step},
-        transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
+        transport::{BlockingTransport, HasTransportConfig, TransportConfig},
         CommandTimeouts, ProfileSpec,
     };
 
@@ -845,18 +844,20 @@ mod tests {
     }
 
     impl HasTransportConfig for FailFirstZoomStopSend {
+        fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+            crate::transport::TransportIdentity::Custom {
+                semantics: crate::transport::SendSemantics::Datagram,
+                addressing: crate::transport::AddressingMode::Ip,
+            }
+        }
+
         fn transport_config(&self) -> &TransportConfig {
             self.inner.transport_config()
         }
     }
 
     impl BlockingTransport for FailFirstZoomStopSend {
-        fn send_with_timeout(
-            &mut self,
-            bytes: &[u8],
-            kind: CommandKind,
-            timeout: Duration,
-        ) -> Result<(), Error> {
+        fn send_with_timeout(&mut self, bytes: &[u8], timeout: Duration) -> Result<(), Error> {
             self.writes
                 .lock()
                 .expect("writes lock")
@@ -867,7 +868,7 @@ mod tests {
                     "injected zoom stop send failure",
                 )));
             }
-            self.inner.send_with_timeout(bytes, kind, timeout)
+            self.inner.send_with_timeout(bytes, timeout)
         }
 
         fn recv_into_with_timeout(
@@ -876,10 +877,6 @@ mod tests {
             timeout: Duration,
         ) -> Result<crate::transport::ReceiveOutcome, Error> {
             self.inner.recv_into_with_timeout(dst, timeout)
-        }
-
-        fn send_semantics(&self) -> SendSemantics {
-            SendSemantics::Datagram
         }
     }
 

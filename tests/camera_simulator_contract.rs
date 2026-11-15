@@ -9,7 +9,7 @@ use grafton_visca::{
     profile::ProfileSpec,
     raw,
     testing::camera_simulator::{CommandType, ViscaCameraSimulator},
-    transport::{AsyncTransport, SendSemantics},
+    transport::{AsyncTransport, HasTransportConfig, SendSemantics},
     CameraId, CancellationOutcome, Certainty, ControlClass, Error, ErrorKind, FailureContext,
     FailureStage, Inquiry, Recovery, Request, ResponseDecoder, RetryClass, Session, SessionConfig,
     SessionStatus, TimeoutClass, TokioExecutor,
@@ -92,7 +92,10 @@ async fn complete_reply_loss_is_a_request_outcome_and_never_a_failed_write() {
     let simulator = ViscaCameraSimulator::builder()
         .with_packet_loss(1.0)
         .build();
-    assert_eq!(simulator.send_semantics(), SendSemantics::Datagram);
+    assert_eq!(
+        simulator.identity().send_semantics(),
+        SendSemantics::Datagram
+    );
     let session = open(simulator).await;
     let camera = session.camera::<GenericVisca>().expect("generic camera");
 

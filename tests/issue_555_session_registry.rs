@@ -83,10 +83,8 @@ fn spy_camera(addressing: AddressingMode) -> FakeCamera {
     feature = "runtime-smol"
 ))]
 /// The transport configuration of a spy with `addressing`.
-fn spy_config(addressing: AddressingMode) -> TransportConfig {
-    let mut config = TransportConfig::default();
-    config.addressing = addressing;
-    config
+fn spy_config(_addressing: AddressingMode) -> TransportConfig {
+    TransportConfig::default()
 }
 
 #[cfg(any(

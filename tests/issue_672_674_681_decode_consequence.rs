@@ -48,7 +48,7 @@ fn stream_camera(addressing: AddressingMode, reads: Vec<Vec<u8>>) -> BlockingWir
     // uses a 256-byte buffer).
     let config = {
         let mut config = TransportConfig::default();
-        config.addressing = addressing;
+
         config.buffer_config = {
             let mut config = BufferConfig::default();
             config.recv_buffer_size = 1024;

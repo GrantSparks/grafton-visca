@@ -219,9 +219,7 @@ mod parity {
     }
 
     fn serial_config() -> TransportConfig {
-        let mut config = TransportConfig::default();
-        config.addressing = AddressingMode::Serial;
-        config
+        TransportConfig::default()
     }
 
     fn blocking_transcript() -> Vec<Vec<u8>> {

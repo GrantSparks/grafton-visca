@@ -11,7 +11,7 @@ use crate::{
         async_io::{write_all_flush, AsyncReadExt, AsyncWriteExt},
         builder::TransportConfig,
         connect::preflight,
-        stream_read, AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome,
+        stream_read, AsyncTransport, HasTransportConfig, ReceiveOutcome,
     },
     Error,
 };
@@ -131,18 +131,14 @@ impl<S: AsyncReadExt + AsyncWriteExt + Send> AsyncTransport for Tcp<S> {
     async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
         stream_read(self.stream.read(dst).await?, PEER_CLOSED).map(ReceiveOutcome::complete)
     }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        Some(AddressingMode::Ip)
-    }
 }
 
 impl<S: AsyncReadExt + AsyncWriteExt> HasTransportConfig for Tcp<S> {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
+    fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+        crate::transport::TransportIdentity::Tcp
     }
 
-    fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
-        Some(crate::camera::TransportKind::Tcp)
+    fn transport_config(&self) -> &TransportConfig {
+        &self.config
     }
 }

@@ -22,9 +22,16 @@ profile-specific capability and transport matrix remains checked in
 
 The transport contract includes TCP, UDP, blocking serial, Tokio serial,
 `RawVisca`, `SonyEncapsulated`, `BlockingTransport`, `AsyncTransport`,
-`BlockingTransportHandle`, and `TransportHandle`. Custom transports retain
-send semantics (`Stream` versus `Datagram`), transport configuration, and the
-same framing/correlation behavior as built-in transports.
+`BlockingTransportHandle`, `TransportHandle`, and the required
+`HasTransportConfig::identity() -> TransportIdentity<'_>` descriptor. Its
+`Tcp`, `Udp`, and `Serial { bus }` variants determine kind, send semantics, and
+addressing together; `Custom { semantics, addressing }` declares those facts
+for a caller-owned transport. Wrappers forward the identity, including the
+serial Address Set report. One adapter topology check reads this addressing
+source; `TransportConfig` holds I/O settings only. Transport writes accept the
+owner's complete framed bytes, and blocking `send_with_timeout` takes only the
+bytes and timeout. Custom transports retain the same framing/correlation
+behavior as built-in transports.
 
 ## Capability gates
 

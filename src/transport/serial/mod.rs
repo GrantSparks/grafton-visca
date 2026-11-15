@@ -20,7 +20,7 @@
 //!   discarded, so no startup reply, echo or bus notification reaches the
 //!   session.
 //! - **Addressed cameras.** When Address Set runs, the transport reports the
-//!   camera count through `HasTransportConfig::addressed_bus`, and session
+//!   camera count through `HasTransportConfig::identity`, and session
 //!   startup checks every registered camera against it before any protocol
 //!   I/O, on every entry point.
 //!

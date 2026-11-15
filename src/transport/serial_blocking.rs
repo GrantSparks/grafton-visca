@@ -9,12 +9,11 @@ use std::time::{Duration, Instant};
 use tracing::trace;
 
 use crate::{
-    command::CommandKind,
     error::Result,
     timeout::Deadline,
     transport::{
         blocking::{read_once_bounded, write_all_bounded, TimedIo},
-        builder::{AddressingMode, TransportConfig},
+        builder::TransportConfig,
         serial::{
             handshake::{Action, SerialStartup, StartupTiming},
             open_failed, port_builder, set_device_timeout, Config as SerialConfig, DevicePort,
@@ -115,26 +114,19 @@ fn perform_startup(
 }
 
 impl HasTransportConfig for SerialTransport {
+    fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+        crate::transport::TransportIdentity::Serial {
+            bus: self.addressed_bus.as_ref(),
+        }
+    }
+
     fn transport_config(&self) -> &TransportConfig {
         &self.transport_config
-    }
-
-    fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
-        Some(crate::camera::TransportKind::Serial)
-    }
-
-    fn addressed_bus(&self) -> Option<&AddressedBus> {
-        self.addressed_bus.as_ref()
     }
 }
 
 impl BlockingTransport for SerialTransport {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        _kind: CommandKind,
-        timeout: Duration,
-    ) -> Result<()> {
+    fn send_with_timeout(&mut self, bytes: &[u8], timeout: Duration) -> Result<()> {
         let deadline = Deadline::after(Instant::now(), timeout, "write_timeout")?;
         write_all_bounded(
             &mut *self.port,
@@ -161,10 +153,6 @@ impl BlockingTransport for SerialTransport {
         )?;
         trace!("Read {read} bytes from serial port");
         stream_read(read, SERIAL_PORT_CLOSED).map(ReceiveOutcome::complete)
-    }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        Some(AddressingMode::Serial)
     }
 }
 
@@ -499,6 +487,21 @@ mod tests {
         }
     }
 
+    #[test]
+    fn transport_handle_preserves_the_serial_addressed_bus_identity() {
+        use crate::transport::{BlockingTransportHandle, TransportIdentity};
+
+        let bus = AddressedBus::new("/dev/test", 3);
+        let mut transport = create_test_transport(TestSerialPort::new(Duration::from_secs(1)));
+        transport.addressed_bus = Some(bus.clone());
+        let handle = BlockingTransportHandle::Serial(transport);
+
+        assert_eq!(
+            handle.identity(),
+            TransportIdentity::Serial { bus: Some(&bus) }
+        );
+    }
+
     /// The production timing with a different Address Set attempt budget.
     fn timing(address_set_attempt: Duration) -> StartupTiming {
         StartupTiming {
@@ -775,11 +778,8 @@ mod tests {
         let port =
             TestSerialPort::new(Duration::from_secs(5)).with_write_steps([WriteStep::OverReport]);
         let mut transport = create_test_transport(port);
-        let result = transport.send_with_timeout(
-            &[0x81, 0x01, VISCA_TERMINATOR],
-            CommandKind::Command,
-            Duration::from_millis(100),
-        );
+        let result = transport
+            .send_with_timeout(&[0x81, 0x01, VISCA_TERMINATOR], Duration::from_millis(100));
         assert!(matches!(
             result,
             Err(Error::Io(ref error)) if error.kind() == ErrorKind::InvalidData
@@ -792,11 +792,8 @@ mod tests {
         let port = TestSerialPort::new(original_timeout).with_write_error(ErrorKind::BrokenPipe);
         let mut transport = create_test_transport(port);
 
-        let result = transport.send_with_timeout(
-            &[0x81, 0x01, VISCA_TERMINATOR],
-            CommandKind::Command,
-            Duration::from_millis(100),
-        );
+        let result = transport
+            .send_with_timeout(&[0x81, 0x01, VISCA_TERMINATOR], Duration::from_millis(100));
         assert!(matches!(
             result,
             Err(Error::Io(ref error)) if error.kind() == ErrorKind::BrokenPipe
@@ -907,7 +904,6 @@ mod tests {
         let handle = thread::spawn(move || {
             let result = transport.send_with_timeout(
                 &[0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR],
-                CommandKind::Command,
                 Duration::from_millis(100),
             );
             tx.send(result).ok();
@@ -933,11 +929,7 @@ mod tests {
         // The configured flush failure is never observed because command
         // submission must not enter an unbounded device-drain syscall.
         transport
-            .send_with_timeout(
-                &[0x81, 0x01, VISCA_TERMINATOR],
-                CommandKind::Command,
-                Duration::from_millis(100),
-            )
+            .send_with_timeout(&[0x81, 0x01, VISCA_TERMINATOR], Duration::from_millis(100))
             .expect("send succeeds without flushing");
         assert_eq!(flush_calls.load(Ordering::SeqCst), 0);
     }
@@ -953,11 +945,8 @@ mod tests {
         let flush_calls = Arc::clone(&port.flush_calls);
         let mut transport = create_test_transport(port);
 
-        let result = transport.send_with_timeout(
-            &[0x81, 0x01, VISCA_TERMINATOR],
-            CommandKind::Command,
-            Duration::from_millis(20),
-        );
+        let result =
+            transport.send_with_timeout(&[0x81, 0x01, VISCA_TERMINATOR], Duration::from_millis(20));
 
         assert!(matches!(result, Err(Error::Timeout { .. })));
         assert_eq!(
@@ -983,8 +972,7 @@ mod tests {
         // logical deadline. The command is already on the wire and must not be
         // reported as a timeout (which would poison a stream session).
         let stop = [0x81, 0x01, 0x06, 0x01, 0x03, VISCA_TERMINATOR];
-        let result =
-            transport.send_with_timeout(&stop, CommandKind::Command, Duration::from_millis(20));
+        let result = transport.send_with_timeout(&stop, Duration::from_millis(20));
 
         assert!(result.is_ok(), "a fully written frame was delivered");
         assert_eq!(write_calls.load(Ordering::SeqCst), 1);
@@ -999,11 +987,7 @@ mod tests {
         // A budget the Windows serial backend would otherwise truncate to
         // zero milliseconds, on both the write and the read path.
         transport
-            .send_with_timeout(
-                &[0x81, 0x01, VISCA_TERMINATOR],
-                CommandKind::Command,
-                Duration::from_micros(500),
-            )
+            .send_with_timeout(&[0x81, 0x01, VISCA_TERMINATOR], Duration::from_micros(500))
             .expect("the fake accepts the bounded write");
         let mut buf = [0u8; 4];
         let _ = transport.recv_into_with_timeout(&mut buf, Duration::from_nanos(1));

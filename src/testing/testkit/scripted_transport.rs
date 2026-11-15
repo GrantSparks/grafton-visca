@@ -19,13 +19,13 @@ use std::{
     sync::{Mutex, MutexGuard},
 };
 
+#[cfg(feature = "blocking")]
+use crate::transport::BlockingTransport;
 #[cfg(any(feature = "async", feature = "blocking"))]
 use crate::transport::{builder::TransportConfig, HasTransportConfig, ReceiveOutcome};
 use crate::Error;
 #[cfg(any(feature = "async", feature = "blocking"))]
 use crate::Result;
-#[cfg(feature = "blocking")]
-use crate::{command::CommandKind, transport::BlockingTransport};
 #[cfg(feature = "async")]
 use crate::{executor::Executor, transport::AsyncTransport};
 
@@ -473,6 +473,13 @@ impl AsyncTransport for ScriptedTransport<Immediate> {
 
 #[cfg(feature = "async")]
 impl<E> HasTransportConfig for ScriptedTransport<E> {
+    fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+        crate::transport::TransportIdentity::Custom {
+            semantics: crate::transport::SendSemantics::Stream,
+            addressing: crate::transport::AddressingMode::Ip,
+        }
+    }
+
     fn transport_config(&self) -> &TransportConfig {
         &self.config
     }
@@ -585,12 +592,7 @@ impl ScriptedBlockingTransport {
 
 #[cfg(feature = "blocking")]
 impl BlockingTransport for ScriptedBlockingTransport {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<()> {
+    fn send_with_timeout(&mut self, bytes: &[u8], _timeout: Duration) -> Result<()> {
         for delivery in self.script.on_send(bytes) {
             match delivery {
                 Delivery::Now(reply) => self.script.deliver(reply),
@@ -667,6 +669,13 @@ impl crate::testing::manual_clock::Source<Vec<u8>> for BlockingReplies<'_> {
 
 #[cfg(feature = "blocking")]
 impl HasTransportConfig for ScriptedBlockingTransport {
+    fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+        crate::transport::TransportIdentity::Custom {
+            semantics: crate::transport::SendSemantics::Stream,
+            addressing: crate::transport::AddressingMode::Ip,
+        }
+    }
+
     fn transport_config(&self) -> &TransportConfig {
         &self.config
     }
@@ -981,7 +990,7 @@ mod tests {
             let mut transport = ScriptedBlockingTransport::new(vec![step]);
             for _ in 0..2 {
                 transport
-                    .send_with_timeout(&[0x81, 1], CommandKind::Command, Duration::ZERO)
+                    .send_with_timeout(&[0x81, 1], Duration::ZERO)
                     .expect("send");
                 let mut buffer = [0; 32];
                 for _ in 0..2 {
@@ -1007,7 +1016,7 @@ mod tests {
         let start = clock.now();
         let real = std::time::Instant::now();
         transport
-            .send_with_timeout(&[0x81], CommandKind::Command, Duration::ZERO)
+            .send_with_timeout(&[0x81], Duration::ZERO)
             .expect("send");
         let mut buffer = [0; 16];
         let outcome = transport
@@ -1034,7 +1043,6 @@ mod tests {
         transport
             .send_with_timeout(
                 &[0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR],
-                CommandKind::Command,
                 Duration::from_secs(1),
             )
             .unwrap();
@@ -1059,7 +1067,6 @@ mod tests {
         transport
             .send_with_timeout(
                 &[0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR],
-                CommandKind::Command,
                 Duration::from_secs(1),
             )
             .unwrap();
@@ -1155,11 +1162,7 @@ mod tests {
         let mut buffer = [0u8; 16];
         assert_connection_lost(transport.recv_into_with_timeout(&mut buffer, Duration::ZERO));
         transport
-            .send_with_timeout(
-                &[0x81, 0x01, VISCA_TERMINATOR],
-                CommandKind::Command,
-                Duration::ZERO,
-            )
+            .send_with_timeout(&[0x81, 0x01, VISCA_TERMINATOR], Duration::ZERO)
             .unwrap();
         let n = transport
             .recv_into_with_timeout(&mut buffer, Duration::ZERO)
@@ -1200,7 +1203,7 @@ mod tests {
             Step::on_send(None, vec![vec![0x05]]),
         ]);
         transport
-            .send_with_timeout(&[0x81], CommandKind::Command, Duration::ZERO)
+            .send_with_timeout(&[0x81], Duration::ZERO)
             .unwrap();
         let mut buffer = [0u8; 4];
         let mut received = Vec::new();
@@ -1231,7 +1234,7 @@ mod tests {
             }))]);
         let mut sender = transport.clone();
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            sender.send_with_timeout(&[0x81], CommandKind::Command, Duration::ZERO)
+            sender.send_with_timeout(&[0x81], Duration::ZERO)
         }));
         assert!(result.is_err(), "the dynamic response panicked");
         assert_eq!(transport.sent(), vec![vec![0x81]]);

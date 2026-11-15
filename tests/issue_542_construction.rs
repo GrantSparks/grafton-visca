@@ -319,7 +319,7 @@ mod async_standard {
                 config
             };
             config.ttl = Some(59);
-            config.addressing = AddressingMode::Ip;
+
             config
         };
         let udp_camera_config = CameraConfig::<PtzOpticsG2>::udp("192.0.2.11:1259")
@@ -342,7 +342,7 @@ mod async_standard {
         assert_eq!(call.config.write_timeout, Duration::from_millis(41));
         assert_eq!(call.config.buffer_config, udp_config.buffer_config);
         assert_eq!(call.config.ttl, Some(59));
-        assert_eq!(call.config.addressing, AddressingMode::Ip);
+
         session.shutdown().expect("shutdown");
     }
 
@@ -502,11 +502,7 @@ mod blocking_standard {
 
     #[test]
     fn custom_blocking_session_open_uses_one_owner_and_hint() {
-        let transport = serial_wire({
-            let mut config = TransportConfig::default();
-            config.addressing = AddressingMode::Serial;
-            config
-        });
+        let transport = serial_wire(TransportConfig::default());
         let config = SessionConfig::for_target(
             CameraId::CAMERA_1,
             grafton_visca::ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("profile"),
@@ -522,7 +518,7 @@ mod blocking_standard {
             (
                 {
                     let mut config = TransportConfig::default();
-                    config.addressing = AddressingMode::Serial;
+
                     config.read_timeout = Duration::ZERO;
                     config
                 },
@@ -531,7 +527,7 @@ mod blocking_standard {
             (
                 {
                     let mut config = TransportConfig::default();
-                    config.addressing = AddressingMode::Serial;
+
                     config.write_timeout = Duration::ZERO;
                     config
                 },

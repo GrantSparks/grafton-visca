@@ -13,12 +13,9 @@ use std::{collections::VecDeque, time::Duration};
 
 use grafton_visca::{
     blocking::{Session, SessionConfig},
-    command::CommandKind,
     profile::ProfileSpec,
     profiles::GenericVisca,
-    transport::{
-        AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, TransportConfig,
-    },
+    transport::{BlockingTransport, HasTransportConfig, ReceiveOutcome, TransportConfig},
     CameraId, Error,
 };
 
@@ -41,18 +38,20 @@ impl SerialBus {
 }
 
 impl HasTransportConfig for SerialBus {
+    fn identity(&self) -> grafton_visca::transport::TransportIdentity<'_> {
+        grafton_visca::transport::TransportIdentity::Custom {
+            semantics: grafton_visca::transport::SendSemantics::Stream,
+            addressing: grafton_visca::transport::AddressingMode::Serial,
+        }
+    }
+
     fn transport_config(&self) -> &TransportConfig {
         &self.config
     }
 }
 
 impl BlockingTransport for SerialBus {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
+    fn send_with_timeout(&mut self, bytes: &[u8], _timeout: Duration) -> Result<(), Error> {
         // A daisy-chained camera replies from source 0x80 | ((addr + 8) << 4):
         // camera 1 -> 0x90, camera 2 -> 0xA0, so the owner attributes each reply
         // to the right target.
@@ -73,9 +72,6 @@ impl BlockingTransport for SerialBus {
     }
 
     // Required for multi-target: the topology check rejects a `None` hint.
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        Some(self.config.addressing)
-    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

@@ -29,11 +29,9 @@ where
             return Ok(());
         }
         let write_timeout = self.transport.transport_config().write_timeout;
-        let sent = self.transport.send_with_timeout(
-            frame.as_ref(),
-            crate::command::CommandKind::Command,
-            write_timeout,
-        );
+        let sent = self
+            .transport
+            .send_with_timeout(frame.as_ref(), write_timeout);
         sent.map_err(|error| self.framing.send_error(error))
     }
 }
@@ -48,11 +46,9 @@ where
             Err(error) => return WriteOutcome::NotSent(error),
         };
         let write_timeout = self.transport.transport_config().write_timeout;
-        let sent = self.transport.send_with_timeout(
-            write.frame_buffer.as_ref(),
-            write.command_kind(),
-            write_timeout,
-        );
+        let sent = self
+            .transport
+            .send_with_timeout(write.frame_buffer.as_ref(), write_timeout);
         match sent {
             Ok(()) => WriteOutcome::Sent(meta),
             Err(error) => WriteOutcome::Failed(self.framing.send_error(error)),
@@ -86,7 +82,6 @@ mod tests {
 
     use super::*;
     use crate::{
-        command::CommandKind,
         prepared::{test_support::prepare_command, ClassSelection},
         profiles::{GenericVisca, SonyFR7},
         protocol::framer::RawIncompletePrefix,
@@ -112,6 +107,7 @@ mod tests {
         write_timeouts: Arc<Mutex<Vec<Duration>>>,
         receives: VecDeque<Result<Vec<u8>, Error>>,
         semantics: SendSemantics,
+        addressing: AddressingMode,
     }
 
     impl ScriptedTransport {
@@ -129,7 +125,13 @@ mod tests {
                 write_timeouts: Arc::new(Mutex::new(Vec::new())),
                 receives: receives.into_iter().collect(),
                 semantics: SendSemantics::Datagram,
+                addressing: AddressingMode::Ip,
             }
+        }
+
+        fn addressing(mut self, addressing: AddressingMode) -> Self {
+            self.addressing = addressing;
+            self
         }
 
         fn stream(mut self) -> Self {
@@ -139,18 +141,20 @@ mod tests {
     }
 
     impl HasTransportConfig for ScriptedTransport {
+        fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+            crate::transport::TransportIdentity::Custom {
+                semantics: self.semantics,
+                addressing: self.addressing,
+            }
+        }
+
         fn transport_config(&self) -> &TransportConfig {
             &self.config
         }
     }
 
     impl BlockingTransport for ScriptedTransport {
-        fn send_with_timeout(
-            &mut self,
-            bytes: &[u8],
-            _kind: CommandKind,
-            timeout: Duration,
-        ) -> Result<(), Error> {
+        fn send_with_timeout(&mut self, bytes: &[u8], timeout: Duration) -> Result<(), Error> {
             self.sent.lock().unwrap().push(bytes.to_vec());
             self.write_timeouts.lock().unwrap().push(timeout);
             Ok(())
@@ -167,15 +171,10 @@ mod tests {
             };
             Ok(ReceiveOutcome::copy_message(&next?, dst))
         }
-
-        fn send_semantics(&self) -> SendSemantics {
-            self.semantics
-        }
     }
 
     fn config() -> TransportConfig {
         TransportConfig {
-            addressing: AddressingMode::Ip,
             ..TransportConfig::default()
         }
     }
@@ -375,18 +374,20 @@ mod tests {
     }
 
     impl HasTransportConfig for UnobservedTruncation {
+        fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+            crate::transport::TransportIdentity::Custom {
+                semantics: SendSemantics::Datagram,
+                addressing: AddressingMode::Ip,
+            }
+        }
+
         fn transport_config(&self) -> &TransportConfig {
             &self.config
         }
     }
 
     impl BlockingTransport for UnobservedTruncation {
-        fn send_with_timeout(
-            &mut self,
-            _bytes: &[u8],
-            _kind: CommandKind,
-            _timeout: Duration,
-        ) -> Result<(), Error> {
+        fn send_with_timeout(&mut self, _bytes: &[u8], _timeout: Duration) -> Result<(), Error> {
             Ok(())
         }
 
@@ -403,10 +404,6 @@ mod tests {
             } else {
                 ReceiveOutcome::complete(copied)
             })
-        }
-
-        fn send_semantics(&self) -> SendSemantics {
-            SendSemantics::Datagram
         }
     }
 
@@ -602,10 +599,11 @@ mod tests {
             (vec![0x88, 0x30, 0x02], AddressingMode::Serial),
             (vec![0x00], AddressingMode::Ip),
         ] {
-            let mut stream_config = config();
-            stream_config.addressing = addressing;
+            let stream_config = config();
             let mut adapter = adapter(
-                ScriptedTransport::with_config(stream_config, [Ok(prefix.clone())]).stream(),
+                ScriptedTransport::with_config(stream_config, [Ok(prefix.clone())])
+                    .stream()
+                    .addressing(addressing),
             );
             let mut buffers = buffers(&adapter);
             assert!(frames(receive(&mut adapter, &mut buffers)).is_empty());

@@ -113,7 +113,23 @@ Renamed dependency aliases remain supported.
 | `CameraBuilder` and its `with_executor(...).from_transport(...).profile::<P>().open_async()` chain | `Connect` or `CameraConfig` for standard transports; async `Session::open(transport, SessionConfig, executor)` or blocking `blocking::Session::open(transport, SessionConfig)` for a caller-owned one. `camera_id(...)` becomes a `SessionConfig` target (`for_target`/`register_target`) or `CameraConfig::camera_id`; `timeout_config`/`retry_config` become an `OperationalTuning` supplied through `with_tuning`. |
 | Implicit Sony sequence synchronization at connection startup | Startup remains write-free by default. Opt in with `SessionConfig::with_sony_sequence_reset_on_connect(true)` or the matching `CameraConfig` builder only for a Sony-encapsulated profile; the RESET is sent before owner work begins. Observe its one-/two-byte reply as `DiagnosticResponse::SonyControl { code }`. |
 | `Runtime::connect_tcp` / `connect_udp` and the `TransportHandle` enum | Both remain under `async` as `runtime::{Runtime, TransportHandle}`. Prefer `Connect`/`CameraConfig`; when driving the transport yourself, use `Session::open(TransportHandle::Tcp(runtime.connect_tcp(addr, cfg).await?), config, runtime.clone())` (and the corresponding UDP variant). The generic **connector** futures are `Send`, so this construction path can be boxed or spawned; a caller-created transport keeps its own `Send` obligations for `Session::open`. |
+| Caller-owned transports attached to a generic camera or client | Implement `BlockingTransport` or `AsyncTransport` plus `HasTransportConfig`, declare the required `TransportIdentity`, and pass the transport to the matching `Session::open`. |
 | `BufferConfig::send_buffer_size` / `NetTransportBuilder::send_buffer_size` | Removed, because neither affected production allocation. Owner transmit buffers are fixed and reused at protocol-bounded capacity; configure only receive/framing memory with `recv_buffer_size` and `max_buffer_size`. |
+
+The 2.0 custom-transport contract requires
+`HasTransportConfig::identity() -> TransportIdentity<'_>` and
+`transport_config()`. Standard transports return `Tcp`, `Udp`, or
+`Serial { bus }`; other transports return `Custom { semantics, addressing }`
+with explicit stream/datagram semantics and VISCA addressing. A wrapper
+forwards its inner identity, including any serial Address Set report, and its
+configuration. `TransportConfig` sets I/O timeouts, buffer bounds, and socket
+options; it has no addressing field. The adapter checks topology once using
+the identity before reading configuration or starting the owner.
+
+Implement a blocking write as
+`send_with_timeout(&mut self, bytes: &[u8], timeout: Duration) -> Result<(), Error>`.
+The owner has already framed `bytes`; no command-kind argument is supplied.
+Async `send` likewise writes the complete supplied packet.
 
 `SessionConfig` accepts only individual VISCA IDs 1–7. Broadcast, duplicate
 registration, an empty registry, and unsupported profile/transport pairs are
@@ -1094,16 +1110,18 @@ whose Address Set attempts all go unanswered fails with
 instead of as `TransportError`. Input received during startup is discarded.
 
 **Addressed cameras are checked on every session open.** A transport that ran
-Address Set reports `HasTransportConfig::addressed_bus()` (an
-`AddressedBus { port, cameras }`). Every `Session::open`, blocking and async,
+Address Set returns `TransportIdentity::Serial { bus: Some(&bus) }` from
+`HasTransportConfig::identity()`, where `bus` is an
+`AddressedBus { port, cameras }`. Every `Session::open`, blocking and async,
 including the `CameraConfig` and `Connect` serial paths and caller-built
 transports, checks each registered camera against it before any protocol I/O:
 a camera the chain did not address fails with
 `ConnectionFailed { addr: <port> }` whose `NotFound` source reads
 "camera N was not addressed by Address Set (chain reported M)". Extra cameras
-on the chain are allowed. A custom transport that wraps another must forward
-`addressed_bus()`, as it forwards `transport_config()` and `send_semantics()`;
-an unforwarded method silently disables the check.
+on the chain are allowed. Without Address Set, the serial identity has
+`bus: None`. A custom transport that wraps another forwards `identity()` and
+`transport_config()`, preserving the inner serial bus report and its startup
+validation.
 
 ### Reconfiguring timeouts at runtime
 

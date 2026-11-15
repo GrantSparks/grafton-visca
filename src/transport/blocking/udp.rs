@@ -6,16 +6,15 @@ use std::{
 };
 
 use crate::{
-    command::CommandKind,
     timeout::Deadline,
     transport::{
         address::{bind_address_for, resolve_blocking},
         blocking::{Arm, TimedIo},
-        builder::{AddressingMode, TransportConfig},
+        builder::TransportConfig,
         connect::{connect_deadline, preflight, socket_setup, udp_target},
         datagram::{deliverable, recv_datagram},
         socket_options::{apply_udp_socket_options, UdpSocketConfig},
-        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+        BlockingTransport, HasTransportConfig, ReceiveOutcome,
     },
     Error,
 };
@@ -97,22 +96,17 @@ fn send_datagram<S: ?Sized>(
 }
 
 impl HasTransportConfig for Udp {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
+    fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+        crate::transport::TransportIdentity::Udp
     }
 
-    fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
-        Some(crate::camera::TransportKind::Udp)
+    fn transport_config(&self) -> &TransportConfig {
+        &self.config
     }
 }
 
 impl BlockingTransport for Udp {
-    fn send_with_timeout(
-        &mut self,
-        data: &[u8],
-        _kind: CommandKind,
-        timeout: Duration,
-    ) -> Result<(), Error> {
+    fn send_with_timeout(&mut self, data: &[u8], timeout: Duration) -> Result<(), Error> {
         let deadline = Deadline::after(Instant::now(), timeout, "write_timeout")?;
         send_datagram(&mut self.socket, arm_write, deadline, |socket| {
             socket.send(data)
@@ -142,16 +136,6 @@ impl BlockingTransport for Udp {
                 Err(error) => return Err(error.into()),
             }
         }
-    }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        Some(AddressingMode::Ip)
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        // UDP sends are atomic at the datagram boundary - a failed send
-        // does not affect the state for subsequent sends
-        SendSemantics::Datagram
     }
 }
 

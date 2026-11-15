@@ -14,7 +14,7 @@ use crate::{
         connect::preflight,
         datagram::deliverable,
         socket_options::UdpSocketConfig,
-        AddressingMode, AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
+        AsyncTransport, HasTransportConfig, ReceiveOutcome,
     },
     Error,
 };
@@ -125,25 +125,15 @@ impl<S: AsyncDatagram> AsyncTransport for Udp<S> {
             cooperative_yield().await;
         }
     }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        Some(AddressingMode::Ip)
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        // UDP sends are atomic at the datagram boundary - a failed send
-        // does not affect the state for subsequent sends
-        SendSemantics::Datagram
-    }
 }
 
 impl<S: AsyncDatagram> HasTransportConfig for Udp<S> {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
+    fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+        crate::transport::TransportIdentity::Udp
     }
 
-    fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
-        Some(crate::camera::TransportKind::Udp)
+    fn transport_config(&self) -> &TransportConfig {
+        &self.config
     }
 }
 
