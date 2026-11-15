@@ -4,7 +4,10 @@ use super::*;
 use crate::{
     command::{SetVariableSpeedMode, VariableSpeedMode},
     completion::AppliedOnly,
-    prepared::{prepare_command, prepare_operation, ClassSelection},
+    prepared::{
+        test_support::{prepare_command, prepare_operation},
+        ClassSelection,
+    },
     profiles::SonyFR7,
     request::builtin::PanTiltDrive,
     types::{PanSpeed, TiltSpeed},

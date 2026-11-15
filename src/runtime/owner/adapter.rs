@@ -5,7 +5,7 @@
 //! amount of mode-independent work needed by the blocking and async adapters;
 //! it does not own scheduling, settlement, or observer deadlines.
 
-#[cfg(test)]
+#[cfg(any(test, feature = "test-utils"))]
 use crate::OperationalTuning;
 
 use std::{borrow::Cow, num::NonZeroUsize};
@@ -1811,7 +1811,7 @@ impl ReceiveProbe {
             Some(config.addressing),
             semantics,
             &[(target, profile)],
-            OperationalTuning::new(),
+            crate::session_config::ValidatedTuning::validate(OperationalTuning::new(), [profile])?,
             crate::DEFAULT_ADMISSION_CAPACITY,
             false,
         )?;
