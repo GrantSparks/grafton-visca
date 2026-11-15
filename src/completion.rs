@@ -46,7 +46,7 @@ mod private {
     /// implementation obligation or supported API surface.
     pub trait Sealed {
         #[cfg(any(feature = "blocking", feature = "async"))]
-        type Plan: std::fmt::Debug + Send + Sync;
+        type Plan: std::fmt::Debug + Send + Sync + Unpin;
 
         #[cfg(any(feature = "blocking", feature = "async"))]
         fn lower(
