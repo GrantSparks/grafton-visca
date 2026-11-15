@@ -191,27 +191,57 @@ impl PositionQueryPlan {
         Ok(Self {
             pan_tilt: axes
                 .contains(AffectedAxes::PAN_TILT)
-                .then(|| prepare_builtin_inquiry(&PanTiltPositionInquiry, registration, tuning))
+                .then(|| {
+                    prepare_inquiry(
+                        &PanTiltPositionInquiry,
+                        registration,
+                        tuning,
+                        ClassSelection::Request,
+                    )
+                })
                 .transpose()?
                 .map(PreparedInquiry::into_template),
             zoom: axes
                 .contains(AffectedAxes::ZOOM)
-                .then(|| prepare_builtin_inquiry(&ZoomPositionInquiry, registration, tuning))
+                .then(|| {
+                    prepare_inquiry(
+                        &ZoomPositionInquiry,
+                        registration,
+                        tuning,
+                        ClassSelection::Request,
+                    )
+                })
                 .transpose()?
                 .map(PreparedInquiry::into_template),
             focus: axes
                 .contains(AffectedAxes::FOCUS)
-                .then(|| prepare_builtin_inquiry(&FocusPositionInquiry, registration, tuning))
+                .then(|| {
+                    prepare_inquiry(
+                        &FocusPositionInquiry,
+                        registration,
+                        tuning,
+                        ClassSelection::Request,
+                    )
+                })
                 .transpose()?
                 .map(PreparedInquiry::into_template),
             iris: axes
                 .contains(AffectedAxes::IRIS)
-                .then(|| prepare_builtin_inquiry(&IrisInquiry, registration, tuning))
+                .then(|| {
+                    prepare_inquiry(&IrisInquiry, registration, tuning, ClassSelection::Request)
+                })
                 .transpose()?
                 .map(PreparedInquiry::into_template),
             nd_filter: axes
                 .contains(AffectedAxes::ND_FILTER)
-                .then(|| prepare_builtin_inquiry(&NdFilterInquiry, registration, tuning))
+                .then(|| {
+                    prepare_inquiry(
+                        &NdFilterInquiry,
+                        registration,
+                        tuning,
+                        ClassSelection::Request,
+                    )
+                })
                 .transpose()?
                 .map(PreparedInquiry::into_template),
         })
@@ -683,7 +713,7 @@ where
     validate_timeout_class(command.timeout_class(), false)?;
     command.validate_for_target(registration)?;
     let wire = encode(command, registration)?;
-    let mut context = request_context(command, registration, tuning, class, false, false)?;
+    let mut context = request_context(command, registration, tuning, class, false)?;
     context.motion = command
         .motion_axes()
         .map(|axes| crate::runtime::engine::MotionEffect { axes, stop: false });
@@ -701,39 +731,6 @@ pub(crate) fn prepare_inquiry<Q>(
     registration: &crate::TargetRegistration,
     tuning: OperationalTuning,
     class: ClassSelection,
-) -> Result<PreparedInquiry<Q::Response>>
-where
-    Q: Inquiry + ?Sized,
-{
-    prepare_inquiry_with_policy(
-        inquiry,
-        registration,
-        tuning,
-        class,
-        crate::requests::builtin_inquiry_syntax_retry(inquiry),
-    )
-}
-
-/// Prepares a crate-generated inquiry with its closed protocol retry policy.
-pub(crate) fn prepare_builtin_inquiry<Q>(
-    inquiry: &Q,
-    registration: &crate::TargetRegistration,
-    tuning: OperationalTuning,
-) -> Result<PreparedInquiry<Q::Response>>
-where
-    Q: Inquiry + BuiltinInquiryRequest + ?Sized,
-{
-    prepare_inquiry_with_policy(inquiry, registration, tuning, ClassSelection::Request, true)
-}
-
-pub(crate) trait BuiltinInquiryRequest: Inquiry {}
-
-fn prepare_inquiry_with_policy<Q>(
-    inquiry: &Q,
-    registration: &crate::TargetRegistration,
-    tuning: OperationalTuning,
-    class: ClassSelection,
-    builtin_inquiry_syntax: bool,
 ) -> Result<PreparedInquiry<Q::Response>>
 where
     Q: Inquiry + ?Sized,
@@ -765,14 +762,8 @@ where
     }
     inquiry.validate_for_target(registration)?;
     let wire = encode(inquiry, registration)?;
-    let context = request_context(
-        inquiry,
-        registration,
-        tuning,
-        class,
-        true,
-        builtin_inquiry_syntax,
-    )?;
+    let mut context = request_context(inquiry, registration, tuning, class, true)?;
+    context.retry.builtin_inquiry_syntax = crate::requests::builtin_inquiry_syntax_retry(inquiry);
     Ok(PreparedInquiry {
         wire,
         context,
@@ -844,7 +835,7 @@ where
     // effect of discovering that its operation class is unavailable.
     operation.validate_for_target(registration)?;
     let affected_axes = operation.affected_axes();
-    let mut context = request_context(operation, registration, tuning, class, false, false)?;
+    let mut context = request_context(operation, registration, tuning, class, false)?;
     let stop = context.control.class == crate::runtime::engine::ControlClass::Urgent;
     context.motion = Some(crate::runtime::engine::MotionEffect {
         axes: affected_axes,
@@ -858,7 +849,7 @@ where
         // promptly. Capacity rejections (`0x03`/`0x05`) still retry (#795).
         context.retry.movement_not_executable = false;
     }
-    let settlement = K::lower_settlement(
+    let settlement = completion::lower_settlement::<K>(
         registration,
         tuning,
         affected_axes,
@@ -941,18 +932,7 @@ where
 }
 
 fn validate_timeout_class(class: TimeoutClass, inquiry: bool) -> Result<()> {
-    let valid = if inquiry {
-        matches!(class, TimeoutClass::Inquiry)
-    } else {
-        matches!(
-            class,
-            TimeoutClass::Quick
-                | TimeoutClass::Movement
-                | TimeoutClass::Preset
-                | TimeoutClass::LongRunning
-                | TimeoutClass::Network
-        )
-    };
+    let valid = CommandCategory::of(class).is_none() == inquiry;
     if valid {
         Ok(())
     } else {
@@ -968,7 +948,6 @@ fn request_context<R>(
     tuning: OperationalTuning,
     class: ClassSelection,
     inquiry: bool,
-    builtin_inquiry_syntax: bool,
 ) -> Result<RequestContext>
 where
     R: Request + ?Sized,
@@ -1025,7 +1004,6 @@ where
                 timeout.completion
             },
             governing_deadline,
-            builtin_inquiry_syntax,
         ),
         control: ControlPolicy {
             class: lower_control(class.resolve(crate::requests::admission_control_class(request)?)),
@@ -1100,7 +1078,6 @@ fn retry_policy(
     busy_timeout: Duration,
     deadline: Duration,
     attempt: Duration,
-    builtin_inquiry_syntax: bool,
 ) -> RetryPolicy {
     let bounds =
         tuning.lengthen_retry_bounds(RetryBounds::for_request(busy_timeout, deadline, attempt));
@@ -1129,7 +1106,7 @@ fn retry_policy(
         inquiry_timeout: matches!(retry_class, RetryClass::Inquiry),
         buffer_full: replayable,
         movement_not_executable: matches!(retry_class, RetryClass::Movement | RetryClass::Preset),
-        builtin_inquiry_syntax,
+        builtin_inquiry_syntax: false,
     }
 }
 
@@ -1191,12 +1168,7 @@ fn command_attempt_timeout(timeout: &TimeoutPolicy, shape: ReplyShape) -> Durati
 }
 
 fn observation_timeout(context: &RequestContext, governing_deadline: Duration) -> Duration {
-    let timeout = governing_deadline.max(context.retry.total_budget);
-    debug_assert!(
-        timeout >= context.retry.total_budget,
-        "a default observer must outlive its request's retry budget"
-    );
-    timeout
+    governing_deadline.max(context.retry.total_budget)
 }
 
 impl<R> PreparedInquiry<R> {
@@ -1989,14 +1961,15 @@ mod tests {
     fn profile_rejected_generated_inquiries_fail_before_encoding() {
         fn assert_rejected_before_encoding<Q>(inquiry: &Q, profile: &ProfileSpec, name: &str)
         where
-            Q: Inquiry + BuiltinInquiryRequest,
+            Q: Inquiry,
         {
             crate::command::inquiry_structs::reset_generated_inquiry_write_count();
-            match prepare_builtin_inquiry(
+            match prepare_inquiry(
                 inquiry,
                 &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
                     .expect("valid target registration"),
                 OperationalTuning::new(),
+                ClassSelection::Request,
             ) {
                 Err(error) => assert!(
                     matches!(error, Error::FeatureNotSupported { .. }),
@@ -2867,11 +2840,12 @@ mod tests {
         assert!(builtin.context.retry.inquiry_timeout);
         assert!(builtin.context.retry.builtin_inquiry_syntax);
 
-        let settlement_builtin = prepare_builtin_inquiry(
+        let settlement_builtin = prepare_inquiry(
             &PowerInquiry,
             &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
                 .expect("valid target registration"),
             OperationalTuning::new(),
+            ClassSelection::Request,
         )
         .expect("settlement built-in inquiry preparation");
         assert!(settlement_builtin.context.retry.builtin_inquiry_syntax);
@@ -3296,7 +3270,6 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(5),
             Duration::ZERO,
-            false,
         );
         let standard = retry_policy(
             RetryClass::Standard,
@@ -3305,7 +3278,6 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(5),
             Duration::ZERO,
-            false,
         );
 
         assert_eq!(never.max_retries, 0);
@@ -3326,7 +3298,6 @@ mod tests {
                 Duration::ZERO,
                 Duration::from_secs(5),
                 Duration::ZERO,
-                false,
             )
             .max_retries
         };
@@ -3491,7 +3462,6 @@ mod tests {
                 Duration::ZERO,
                 deadline,
                 Duration::ZERO,
-                false,
             );
             assert_eq!(policy.initial_backoff, Duration::from_millis(50));
             assert_eq!(
@@ -3515,7 +3485,6 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(1),
             Duration::ZERO,
-            false,
         );
         assert_eq!(tuned.initial_backoff, Duration::from_millis(100));
         assert_eq!(tuned.maximum_backoff, Duration::from_millis(750));
@@ -3541,7 +3510,6 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(1),
             Duration::ZERO,
-            false,
         );
         assert_eq!(quick.initial_backoff, Duration::from_millis(50));
         assert_eq!(quick.maximum_backoff, Duration::from_millis(500));
@@ -3559,7 +3527,6 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(300),
             Duration::ZERO,
-            false,
         );
         assert_eq!(long.total_budget, Duration::from_secs(600));
         let short = retry_policy(
@@ -3569,7 +3536,6 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(1),
             Duration::ZERO,
-            false,
         );
         assert_eq!(short.total_budget, Duration::from_secs(20));
     }
@@ -3585,7 +3551,6 @@ mod tests {
                 Duration::ZERO,
                 Duration::from_secs(5),
                 Duration::ZERO,
-                false,
             );
             assert_eq!(policy.max_retries, 1, "base {base}");
         }
@@ -3610,7 +3575,6 @@ mod tests {
                 Duration::ZERO,
                 Duration::from_secs(5),
                 Duration::ZERO,
-                false,
             );
             assert!(policy.ack_timeout, "{class:?} must retry a lost ACK");
             assert!(
@@ -3628,7 +3592,6 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(5),
             Duration::ZERO,
-            false,
         );
         assert!(!never.ack_timeout);
         assert!(!never.completion_timeout);
@@ -3651,7 +3614,6 @@ mod tests {
                 Duration::ZERO,
                 Duration::from_secs(5),
                 Duration::ZERO,
-                false,
             )
             .movement_not_executable
         };
@@ -3732,7 +3694,6 @@ mod tests {
             Duration::ZERO,
             quick_deadline,
             Duration::ZERO,
-            false,
         );
         assert_eq!(
             quick.total_budget,
@@ -3747,7 +3708,6 @@ mod tests {
             busy_timeout,
             long_deadline,
             Duration::ZERO,
-            false,
         );
         assert_eq!(
             long.total_budget,

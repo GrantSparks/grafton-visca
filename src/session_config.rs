@@ -205,11 +205,6 @@ impl SessionConfig {
                 "session target is already registered".into(),
             ));
         }
-        if self.target_count() >= MAX_REGISTERED_TARGETS {
-            return Err(Error::InvalidRequest(
-                "session target registry is full".into(),
-            ));
-        }
         self.targets[slot] = Some(Arc::new(crate::TargetRegistration::from_profile(
             slot, profile,
         )));

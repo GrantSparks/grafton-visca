@@ -538,7 +538,6 @@ macro_rules! define_builtin_inquiries {
             }
 
             #[cfg(any(feature = "blocking", feature = "async"))]
-            impl crate::prepared::BuiltinInquiryRequest for $struct {}
 
             #[cfg(test)]
             impl BuiltinInquiryCommandMarker for $struct {

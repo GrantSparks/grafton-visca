@@ -6,26 +6,18 @@ use std::time::Duration;
 #[cfg(any(feature = "blocking", feature = "async"))]
 use crate::{AffectedAxes, OperationalTuning, Result};
 
-/// A closed operation completion kind.
-///
-/// Settlement lowering is an owner implementation detail. Its hidden default
-/// keeps downstream attempts to implement this sealed trait focused on the
-/// sealing diagnostic instead of requiring internal lowering items.
-pub trait Kind: private::Sealed + Send + Sync + 'static {
-    /// Lowers this marker to its matching owner-private settlement plan.
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    #[doc(hidden)]
-    fn lower_settlement(
-        registration: &crate::TargetRegistration,
-        tuning: OperationalTuning,
-        axes: AffectedAxes,
-        default_budget: Duration,
-    ) -> Result<Settlement<Self>>
-    where
-        Self: Sized,
-    {
-        <Self as private::Sealed>::lower(registration, tuning, axes, default_budget)
-    }
+/// A closed operation completion kind. Settlement lowering remains private
+/// to the owner implementation.
+pub trait Kind: private::Sealed + Send + Sync + 'static {}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) fn lower_settlement<K: Kind>(
+    registration: &crate::TargetRegistration,
+    tuning: OperationalTuning,
+    axes: AffectedAxes,
+    default_budget: Duration,
+) -> Result<Settlement<K>> {
+    <K as private::Sealed>::lower(registration, tuning, axes, default_budget)
 }
 
 /// An operation with a target state and a profile-selected protocol settlement

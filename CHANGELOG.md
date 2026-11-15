@@ -37,6 +37,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Internal operation identities retain their non-zero representation from
   engine allocation through receipts and public handles, removing the silent
   zero-to-one fallback (#874).
+- Preparation retains non-zero operation identities through receipts and public
+  handles, reads built-in inquiry provenance from one hook, and lowers settlement
+  through the private seal. Impossible registry and observer assertions are
+  removed (#874).
 
 - **BREAKING** (#872): Settlement tuning below every built-in targeted retry
   budget is refused. Default `settled()` waits use the larger of the override
