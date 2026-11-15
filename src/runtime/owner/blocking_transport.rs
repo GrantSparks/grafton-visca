@@ -93,7 +93,7 @@ mod tests {
             builder::{AddressingMode, TransportConfig},
             ReceiveOutcome, SendSemantics,
         },
-        CameraId, OperationalTuning, ProfileSpec,
+        OperationalTuning, ProfileSpec,
     };
 
     /// Reads replay a script; an exhausted script times out rather than
@@ -175,12 +175,14 @@ mod tests {
 
     fn adapter(transport: ScriptedTransport) -> BlockingTransportAdapter<ScriptedTransport> {
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
-        BlockingTransportAdapter::new(transport, &profile, CameraId::CAMERA_1).unwrap()
+        BlockingTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
+            .unwrap()
     }
 
     fn sony_adapter(transport: ScriptedTransport) -> BlockingTransportAdapter<ScriptedTransport> {
         let profile = ProfileSpec::from_compile_time::<SonyFR7>().unwrap();
-        BlockingTransportAdapter::new(transport, &profile, CameraId::CAMERA_1).unwrap()
+        BlockingTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
+            .unwrap()
     }
 
     fn buffers(adapter: &BlockingTransportAdapter<ScriptedTransport>) -> OwnerBuffers {
@@ -230,7 +232,7 @@ mod tests {
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         let prepared = prepare_command(
             &crate::request::builtin::FocusModeCommand::Manual,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &profile,
             OperationalTuning::new(),
             ClassSelection::Request,
@@ -408,7 +410,7 @@ mod tests {
                 datagrams: [oversized, vec![0x90, 0x41, 0xff]].into_iter().collect(),
             },
             &profile,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
         )
         .unwrap();
         let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();

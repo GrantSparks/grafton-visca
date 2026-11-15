@@ -96,7 +96,10 @@ impl RetainedRelease {
         if let Some(second_hold) = second_hold {
             let (_completion, admitted) = handle
                 .core
-                .enqueue_admission(no_reply_command_for(CameraId::CAMERA_2, second_hold), None)
+                .enqueue_admission(
+                    no_reply_command_for(TargetSlot::CAMERA_2, second_hold),
+                    None,
+                )
                 .unwrap();
             let boundary = actor.core.receivers.admissions.try_recv().unwrap();
             actor

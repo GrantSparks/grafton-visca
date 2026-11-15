@@ -350,8 +350,8 @@ impl SessionConfig {
 
     /// The registered profile of `target`, shared with an owned camera view.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn registered_profile(&self, target: CameraId) -> Result<Arc<ProfileSpec>> {
-        self.targets[TargetSlot::try_from(target)?]
+    pub(crate) fn registered_profile(&self, target: TargetSlot) -> Result<Arc<ProfileSpec>> {
+        self.targets[target]
             .clone()
             .ok_or_else(|| Error::InvalidRequest("session target is not registered".into()))
     }
@@ -362,7 +362,7 @@ impl SessionConfig {
     /// This is the shared pure projection boundary used by both execution
     /// facades. It performs no owner, transport, or protocol work.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn registered_profile_for<P>(&self, target: CameraId) -> Result<Arc<ProfileSpec>>
+    pub(crate) fn registered_profile_for<P>(&self, target: TargetSlot) -> Result<Arc<ProfileSpec>>
     where
         P: CompileTimeProfile,
     {

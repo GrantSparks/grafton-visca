@@ -152,7 +152,7 @@ mod lowering {
         default_budget: Duration,
     ) -> Result<Settlement<AppliedOnly>> {
         crate::prepared::lower_applied_only_settlement(
-            target,
+            crate::target::TargetSlot::try_from(target)?,
             profile,
             tuning,
             axes,
@@ -168,7 +168,13 @@ mod lowering {
         axes: AffectedAxes,
         default_budget: Duration,
     ) -> Result<Settlement<Targeted>> {
-        crate::prepared::lower_targeted_settlement(target, profile, tuning, axes, default_budget)
-            .map(|inner| Settlement::new(TargetedSettlementPlan { inner }))
+        crate::prepared::lower_targeted_settlement(
+            crate::target::TargetSlot::try_from(target)?,
+            profile,
+            tuning,
+            axes,
+            default_budget,
+        )
+        .map(|inner| Settlement::new(TargetedSettlementPlan { inner }))
     }
 }

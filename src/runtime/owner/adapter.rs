@@ -490,7 +490,7 @@ where
     pub(crate) fn new(
         transport: T,
         profile: &ProfileSpec,
-        target: CameraId,
+        target: TargetSlot,
     ) -> Result<Self, Error> {
         Self::new_with_tuning(transport, profile, target, OperationalTuning::new())
     }
@@ -500,12 +500,12 @@ where
     pub(crate) fn new_with_tuning(
         transport: T,
         profile: &ProfileSpec,
-        target: CameraId,
+        target: TargetSlot,
         tuning: OperationalTuning,
     ) -> Result<Self, Error> {
         Self::new_with_targets(
             transport,
-            &[(TargetSlot::try_from(target)?, profile)],
+            &[(target, profile)],
             tuning,
             crate::DEFAULT_ADMISSION_CAPACITY,
             false,

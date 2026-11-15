@@ -15,7 +15,7 @@ use crate::{
         ProtocolPolicy, ReplyShape, RequestContext, RequestId, RetryPolicy, RuntimeRequest,
         TargetPolicy, TimeoutPolicy,
     },
-    CameraId, ViscaSocket,
+    ViscaSocket,
 };
 
 #[cfg(feature = "runtime-tokio")]
@@ -292,7 +292,7 @@ fn two_target_raw_policy(transport: TransportKind) -> OwnerPolicy {
 }
 
 fn command() -> RuntimeRequest {
-    command_for(CameraId::CAMERA_1)
+    command_for(TargetSlot::CAMERA_1)
 }
 
 /// Owner-core stand-in for a typed stop: public raw requests cannot forge the
@@ -325,7 +325,7 @@ fn urgent_stop_command() -> RuntimeRequest {
 /// A target-local raw fire-and-forget command used to create an independent
 /// broad correlation hold at an exact, test-controlled ambiguity deadline.
 #[cfg(feature = "runtime-tokio")]
-fn no_reply_command_for(target: CameraId, ambiguity: Duration) -> RuntimeRequest {
+fn no_reply_command_for(target: TargetSlot, ambiguity: Duration) -> RuntimeRequest {
     let mut request = command_for(target);
     let RuntimeRequest::Command { context, .. } = &mut request else {
         unreachable!("command helper always builds a command request");
@@ -345,17 +345,23 @@ fn command_with_ack_timeout(timeout: Duration) -> RuntimeRequest {
     request
 }
 
-fn command_for(target: CameraId) -> RuntimeRequest {
+fn command_for(target: TargetSlot) -> RuntimeRequest {
     RuntimeRequest::Command {
         wire: Arc::new(
-            EncodedMessage::new(&[0x80_u8.saturating_add(target.id()), 0x01, 0x04, 0x00, 0xff])
-                .unwrap(),
+            EncodedMessage::new(&[
+                0x80_u8.saturating_add(target.camera().id()),
+                0x01,
+                0x04,
+                0x00,
+                0xff,
+            ])
+            .unwrap(),
         ),
         context: RequestContext {
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
-            target: TargetSlot::try_from(target).unwrap(),
+            target,
             timeout: TimeoutPolicy {
                 ack: Duration::from_secs(5),
                 completion: Duration::from_secs(5),
@@ -428,7 +434,7 @@ fn raw_command_with_completion_deadline(marker: u8, completion: Duration) -> Run
 }
 
 fn inquiry() -> RuntimeRequest {
-    inquiry_for(CameraId::CAMERA_1)
+    inquiry_for(TargetSlot::CAMERA_1)
 }
 
 /// An inquiry whose successful write immediately reaches its response
@@ -498,17 +504,23 @@ async fn reject_raw_stream_predecessor<D: AsyncOwnerDriver>(
         .await;
 }
 
-fn inquiry_for(target: CameraId) -> RuntimeRequest {
+fn inquiry_for(target: TargetSlot) -> RuntimeRequest {
     RuntimeRequest::Inquiry {
         wire: Arc::new(
-            EncodedMessage::new(&[0x80_u8.saturating_add(target.id()), 0x09, 0x04, 0x00, 0xff])
-                .unwrap(),
+            EncodedMessage::new(&[
+                0x80_u8.saturating_add(target.camera().id()),
+                0x09,
+                0x04,
+                0x00,
+                0xff,
+            ])
+            .unwrap(),
         ),
         context: RequestContext {
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
-            target: TargetSlot::try_from(target).unwrap(),
+            target,
             timeout: TimeoutPolicy {
                 ack: Duration::from_secs(5),
                 completion: Duration::from_secs(5),
@@ -737,7 +749,7 @@ fn harness() -> Harness {
 fn prepared_focus(profile: &crate::ProfileSpec) -> crate::prepared::PreparedCommand {
     crate::prepared::prepare_command(
         &crate::request::builtin::FocusModeCommand::Manual,
-        CameraId::CAMERA_1,
+        TargetSlot::CAMERA_1,
         profile,
         crate::OperationalTuning::new(),
         crate::prepared::ClassSelection::Request,
@@ -750,7 +762,7 @@ fn prepared_zoom(
 ) -> crate::prepared::PreparedOperation<completion::Targeted> {
     crate::prepared::prepare_operation::<completion::Targeted, _>(
         &crate::request::builtin::ZoomTarget::new(crate::types::ZoomPosition::new(0x0100).unwrap()),
-        CameraId::CAMERA_1,
+        TargetSlot::CAMERA_1,
         profile,
         crate::OperationalTuning::new(),
         crate::prepared::ClassSelection::Request,
@@ -1579,7 +1591,7 @@ async fn assert_parked_cross_target_write_returns_to_raw_coordinator(policy: Own
     // no receive can consume A before C's `finish_write` executes at H.
     runtime.advance(Duration::from_millis(999));
     let parked = handle
-        .submit(command_for(CameraId::CAMERA_2))
+        .submit(command_for(TargetSlot::CAMERA_2))
         .await
         .unwrap();
     assert_eq!(harness.writes.recv_async().await.unwrap(), parked.id);

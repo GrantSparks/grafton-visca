@@ -40,7 +40,7 @@ use crate::{
         AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
         TransportConfig,
     },
-    CameraId, OperationalTuning,
+    OperationalTuning,
 };
 
 mod cancellation_and_budget;
@@ -290,7 +290,8 @@ impl Setup {
         let clock = self.clock.clone();
         let (transport, peer, profile, hold) = self.transport();
         let adapter =
-            BlockingTransportAdapter::new(transport, &profile, CameraId::CAMERA_1).unwrap();
+            BlockingTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
+                .unwrap();
         let mut policy = adapter.policy().clone();
         if let Some(hold) = hold {
             policy.protocol.raw_inquiry_release_hold = hold;
@@ -314,7 +315,7 @@ fn focus_manual() -> crate::prepared::PreparedCommand {
 fn focus_manual_for(profile: &ProfileSpec) -> crate::prepared::PreparedCommand {
     prepare_command(
         &FocusModeCommand::Manual,
-        CameraId::CAMERA_1,
+        crate::target::TargetSlot::CAMERA_1,
         profile,
         OperationalTuning::new(),
         ClassSelection::Request,
@@ -326,7 +327,7 @@ fn focus_manual_for(profile: &ProfileSpec) -> crate::prepared::PreparedCommand {
 fn limit_clear_for(profile: &ProfileSpec) -> crate::prepared::PreparedCommand {
     prepare_command(
         &PanTiltLimitClear::for_profile(PanTiltLimitCorner::DownLeft, profile).unwrap(),
-        CameraId::CAMERA_1,
+        crate::target::TargetSlot::CAMERA_1,
         profile,
         OperationalTuning::new(),
         ClassSelection::Request,
@@ -364,7 +365,7 @@ fn await_pan_tilt_limits(owner: &BlockingOwnerHandle) {
 fn zoom_stop() -> crate::prepared::PreparedOperation<AppliedOnly> {
     prepare_operation::<AppliedOnly, _>(
         &ZoomStop,
-        CameraId::CAMERA_1,
+        crate::target::TargetSlot::CAMERA_1,
         &generic_profile(),
         OperationalTuning::new(),
         ClassSelection::Request,

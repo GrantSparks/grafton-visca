@@ -75,7 +75,7 @@ mod tests {
             owner::{AsyncTransportAdapter, RetainedStreamInput},
         },
         transport::{builder::TransportConfig, ReceiveOutcome, SendSemantics},
-        CameraId, ViscaSocket,
+        ViscaSocket,
     };
 
     #[derive(Debug)]
@@ -157,7 +157,8 @@ mod tests {
             semantics: SendSemantics::Datagram,
         };
         let mut adapter =
-            AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+            AsyncTransportAdapter::new(transport, &profile(), crate::target::TargetSlot::CAMERA_1)
+                .unwrap();
         assert_eq!(
             adapter.policy().protocol.transport,
             crate::runtime::engine::TransportKind::Datagram
@@ -185,7 +186,8 @@ mod tests {
         };
         let profile = ProfileSpec::from_compile_time::<SonyFR7>().unwrap();
         let mut adapter =
-            AsyncTransportAdapter::new(transport, &profile, CameraId::CAMERA_1).unwrap();
+            AsyncTransportAdapter::new(transport, &profile, crate::target::TargetSlot::CAMERA_1)
+                .unwrap();
 
         futures_lite::future::block_on(adapter.send_sony_sequence_reset()).unwrap();
 
@@ -209,7 +211,8 @@ mod tests {
             semantics: SendSemantics::Datagram,
         };
         let mut adapter =
-            AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+            AsyncTransportAdapter::new(transport, &profile(), crate::target::TargetSlot::CAMERA_1)
+                .unwrap();
         let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
 
         let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4));
@@ -237,7 +240,7 @@ mod tests {
                 datagrams: [oversized, vec![0x90, 0x41, 0xff]].into_iter().collect(),
             },
             &profile(),
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
         )
         .unwrap();
         let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
@@ -273,7 +276,8 @@ mod tests {
             semantics: SendSemantics::Datagram,
         };
         let adapter =
-            AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+            AsyncTransportAdapter::new(transport, &profile(), crate::target::TargetSlot::CAMERA_1)
+                .unwrap();
         assert_eq!(
             adapter.policy().read_timeout,
             std::time::Duration::from_millis(111)
@@ -296,7 +300,8 @@ mod tests {
             semantics: SendSemantics::Stream,
         };
         let mut adapter =
-            AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+            AsyncTransportAdapter::new(transport, &profile(), crate::target::TargetSlot::CAMERA_1)
+                .unwrap();
         let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
 
         let first = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
@@ -370,8 +375,12 @@ mod tests {
                 receives: [Ok(prefix)].into_iter().collect(),
                 semantics: SendSemantics::Stream,
             };
-            let mut adapter =
-                AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+            let mut adapter = AsyncTransportAdapter::new(
+                transport,
+                &profile(),
+                crate::target::TargetSlot::CAMERA_1,
+            )
+            .unwrap();
             let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
             let received = futures_lite::future::block_on(adapter.receive(&mut buffers, 4))
                 .expect("a partial prefix is ordinary stream input");
@@ -397,8 +406,12 @@ mod tests {
                 receives: [Ok(prefix.clone())].into_iter().collect(),
                 semantics: SendSemantics::Stream,
             };
-            let mut adapter =
-                AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+            let mut adapter = AsyncTransportAdapter::new(
+                transport,
+                &profile(),
+                crate::target::TargetSlot::CAMERA_1,
+            )
+            .unwrap();
             let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
             let _ = futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
             assert_eq!(
@@ -429,8 +442,12 @@ mod tests {
                 receives: [Err(idle)].into_iter().collect(),
                 semantics: SendSemantics::Datagram,
             };
-            let mut adapter =
-                AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+            let mut adapter = AsyncTransportAdapter::new(
+                transport,
+                &profile(),
+                crate::target::TargetSlot::CAMERA_1,
+            )
+            .unwrap();
             let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
             let received =
                 futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
@@ -457,8 +474,12 @@ mod tests {
                 receives: [Err(fault)].into_iter().collect(),
                 semantics: SendSemantics::Datagram,
             };
-            let mut adapter =
-                AsyncTransportAdapter::new(transport, &profile(), CameraId::CAMERA_1).unwrap();
+            let mut adapter = AsyncTransportAdapter::new(
+                transport,
+                &profile(),
+                crate::target::TargetSlot::CAMERA_1,
+            )
+            .unwrap();
             let mut buffers = OwnerBuffers::new(adapter.policy().limits).unwrap();
             let received =
                 futures_lite::future::block_on(adapter.receive(&mut buffers, 4)).unwrap();
@@ -483,9 +504,13 @@ mod tests {
             receives: std::collections::VecDeque::new(),
             semantics: SendSemantics::Datagram,
         };
-        let adapter =
-            AsyncTransportAdapter::new_with_tuning(transport, &profile, CameraId::CAMERA_1, tuning)
-                .unwrap();
+        let adapter = AsyncTransportAdapter::new_with_tuning(
+            transport,
+            &profile,
+            crate::target::TargetSlot::CAMERA_1,
+            tuning,
+        )
+        .unwrap();
         assert_eq!(
             adapter.policy().protocol.command_spacing,
             tuning.command_spacing_override().unwrap()

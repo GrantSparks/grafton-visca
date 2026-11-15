@@ -353,7 +353,7 @@ impl Session {
         P: CompileTimeProfile,
     {
         let target = TargetSlot::try_from(target)?;
-        let profile = self.config.registered_profile_for::<P>(target.camera())?;
+        let profile = self.config.registered_profile_for::<P>(target)?;
         Ok(Camera::from_core(self.core(target, profile)))
     }
 
@@ -437,7 +437,7 @@ impl Session {
         target: CameraId,
     ) -> Result<crate::dynapi::BlockingDynSessionCamera, Error> {
         let target = TargetSlot::try_from(target)?;
-        let profile = self.config.registered_profile(target.camera())?;
+        let profile = self.config.registered_profile(target)?;
         Ok(crate::dynapi::BlockingDynSessionCamera::new(
             self.core(target, profile),
         ))
@@ -584,7 +584,7 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     /// a runtime profile comparison.
     pub(crate) fn from_session(session: Session, target: CameraId) -> Result<Self, Error> {
         let target = TargetSlot::try_from(target)?;
-        let profile = session.config.registered_profile(target.camera())?;
+        let profile = session.config.registered_profile(target)?;
         let camera = Camera::from_core(session.core(target, profile));
         Ok(Self { session, camera })
     }
@@ -767,7 +767,7 @@ impl BlockingCameraCore {
     {
         let prepared = prepare_command(
             command,
-            self.target.camera(),
+            self.target,
             self.profile.as_ref(),
             self.tuning(),
             self.class,
@@ -782,7 +782,7 @@ impl BlockingCameraCore {
     {
         let prepared = prepare_inquiry(
             inquiry,
-            self.target.camera(),
+            self.target,
             self.profile.as_ref(),
             self.tuning(),
             self.class,
@@ -800,7 +800,7 @@ impl BlockingCameraCore {
     {
         let prepared = prepare_operation::<K, _>(
             operation,
-            self.target.camera(),
+            self.target,
             self.profile.as_ref(),
             self.tuning(),
             self.class,
@@ -826,7 +826,7 @@ impl BlockingCameraCore {
     pub(crate) fn is_moving(&self, query: MotionQuery) -> Result<bool, Error> {
         let window = crate::prepared::MotionWindow::new(query)?;
         let queries = prepare_position_queries(
-            self.target.camera(),
+            self.target,
             self.profile.as_ref(),
             self.tuning(),
             query.axes,
@@ -842,12 +842,8 @@ impl BlockingCameraCore {
     /// enqueued. The owner worker keeps the session progressing while this
     /// thread sleeps between samples.
     pub(crate) fn wait_until_idle(&self, wait: IdleWait) -> Result<(), Error> {
-        let queries = prepare_position_queries(
-            self.target.camera(),
-            self.profile.as_ref(),
-            self.tuning(),
-            wait.axes,
-        )?;
+        let queries =
+            prepare_position_queries(self.target, self.profile.as_ref(), self.tuning(), wait.axes)?;
         self.owner.wait_until_idle(wait, &queries)
     }
 }
@@ -1068,7 +1064,7 @@ mod tests {
     fn partial_motion_core(session: &Session) -> BlockingCameraCore {
         let profile = session
             .config
-            .registered_profile(CameraId::CAMERA_1)
+            .registered_profile(TargetSlot::CAMERA_1)
             .expect("registered partial motion profile");
         session.core(TargetSlot::CAMERA_1, profile)
     }

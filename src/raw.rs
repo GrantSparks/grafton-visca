@@ -1206,7 +1206,7 @@ mod tests {
             .expect("profile");
         let error = crate::prepared::prepare_command(
             &command,
-            CameraId::CAMERA_1,
+            crate::target::TargetSlot::CAMERA_1,
             &profile,
             crate::OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,

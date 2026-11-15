@@ -121,7 +121,7 @@ impl Session {
         P: CompileTimeProfile,
     {
         let target = TargetSlot::try_from(target)?;
-        let profile = self.config.registered_profile_for::<P>(target.camera())?;
+        let profile = self.config.registered_profile_for::<P>(target)?;
         Ok(Camera::from_core(self.core(target, profile)))
     }
 
@@ -149,7 +149,7 @@ impl Session {
     #[cfg(feature = "dyn-api")]
     pub fn camera_dyn_for(&self, target: CameraId) -> Result<crate::dynapi::DynSessionCamera> {
         let target = TargetSlot::try_from(target)?;
-        let profile = self.config.registered_profile(target.camera())?;
+        let profile = self.config.registered_profile(target)?;
         Ok(crate::dynapi::DynSessionCamera::new(
             self.core(target, profile),
         ))
@@ -305,7 +305,7 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     /// a runtime profile comparison.
     pub(crate) fn from_session(session: Session, target: CameraId) -> Result<Self> {
         let target = TargetSlot::try_from(target)?;
-        let profile = session.config.registered_profile(target.camera())?;
+        let profile = session.config.registered_profile(target)?;
         let camera = Camera::from_core(session.core(target, profile));
         Ok(Self { session, camera })
     }
@@ -483,7 +483,7 @@ impl AsyncCameraCore {
     {
         let prepared = prepare_command(
             command,
-            self.target.camera(),
+            self.target,
             self.profile.as_ref(),
             self.tuning(),
             class,
@@ -509,7 +509,7 @@ impl AsyncCameraCore {
     {
         let prepared = prepare_inquiry(
             inquiry,
-            self.target.camera(),
+            self.target,
             self.profile.as_ref(),
             self.tuning(),
             class,
@@ -538,7 +538,7 @@ impl AsyncCameraCore {
     {
         let prepared = prepare_operation::<K, _>(
             operation,
-            self.target.camera(),
+            self.target,
             self.profile.as_ref(),
             self.tuning(),
             class,
@@ -557,7 +557,7 @@ impl AsyncCameraCore {
     pub(crate) async fn is_moving(&self, query: MotionQuery) -> Result<bool> {
         let window = crate::prepared::MotionWindow::new(query)?;
         let queries = prepare_position_queries(
-            self.target.camera(),
+            self.target,
             self.profile.as_ref(),
             self.tuning(),
             query.axes,
@@ -566,12 +566,8 @@ impl AsyncCameraCore {
     }
 
     pub(crate) async fn wait_until_idle(&self, wait: IdleWait) -> Result<()> {
-        let queries = prepare_position_queries(
-            self.target.camera(),
-            self.profile.as_ref(),
-            self.tuning(),
-            wait.axes,
-        )?;
+        let queries =
+            prepare_position_queries(self.target, self.profile.as_ref(), self.tuning(), wait.axes)?;
         self.owner.wait_until_idle(wait, &queries).await
     }
 }
@@ -787,7 +783,7 @@ mod tests {
     fn partial_motion_core(session: &Session) -> AsyncCameraCore {
         let profile = session
             .config
-            .registered_profile(CameraId::CAMERA_1)
+            .registered_profile(TargetSlot::CAMERA_1)
             .expect("registered partial motion profile");
         session.core(TargetSlot::CAMERA_1, profile)
     }
