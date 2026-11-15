@@ -43,6 +43,8 @@ use crate::{
     CameraId, OperationalTuning,
 };
 
+mod cancellation_and_budget;
+
 const ACK: &[u8] = &[0x90, 0x41, 0xff];
 const COMPLETION: &[u8] = &[0x90, 0x51, 0xff];
 const ZOOM_STOP: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x00, 0xff];
