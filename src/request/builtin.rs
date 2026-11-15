@@ -4384,7 +4384,7 @@ mod tests {
             ControlClass::User,
         );
         assert_policy::<NdFilterDirect>(
-            9,
+            10,
             TimeoutClass::Movement,
             RetryClass::Movement,
             ControlClass::User,

@@ -5,7 +5,7 @@ The fuzz package exercises four bounded protocol layers through doc-hidden
 
 | Target | Coverage |
 | --- | --- |
-| `response_parser` | Raw-frame admission, basic response parsing, and every generated `InquiryKind` decoder (currently 73 distinct kinds). |
+| `response_parser` | Raw-frame admission, basic response parsing, and every generated `InquiryKind` decoder (currently 74 distinct kinds). |
 | `protocol_framer` | Raw and Sony framing with whole and split reads, plus a structurally valid Sony frame derived from each input. |
 | `sony_envelope` | Sony request framing, public VISCA extraction, owner control-reply extraction, and sequence RESET framing. |
 | `response_target` | Strict serial and single-/multi-target IP source routing. |
@@ -29,8 +29,8 @@ Each target has a committed `corpus/<target>/` directory, which is the path
 `cargo-fuzz` uses by default. The structured harnesses derive valid framing
 from the mutated input, so the finite CI budget reaches past protocol headers.
 Every `response_parser` seed is run through the complete generated inquiry
-inventory: 63 queryable rows collapse onto 62 distinct response kinds, then 11
-decode-only kinds bring the current total to 73. Together the existing seed
+inventory: 53 queryable rows have 53 distinct response kinds, then 21
+decode-only kinds bring the current total to 74. Together the existing seed
 patterns form the requested kind × pattern matrix, and a newly added inquiry
 kind joins it automatically.
 

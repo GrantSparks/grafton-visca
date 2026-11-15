@@ -40,7 +40,9 @@ use super::super::boundary::{CancellationBoundary, ControlBoundary};
 use super::super::ReceiptCore;
 use super::super::RuntimeOutcome;
 use super::*;
-use crate::target::{PerTarget, TargetSlot};
+#[cfg(feature = "runtime-tokio")]
+use crate::target::PerTarget;
+use crate::target::TargetSlot;
 use crate::{completion, CancellationOutcome};
 
 #[cfg(feature = "runtime-tokio")]
