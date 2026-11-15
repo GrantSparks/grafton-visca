@@ -49,6 +49,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   typed-support bit for every profile marker at compile time. Commands and
   inquiries enforce the same generated noun-row capability gate before value
   validation, so a new built-in request cannot omit its runtime gate.
+- **BREAKING** (#875): Persisted profile facts and operational tuning refuse
+  unknown keys. The profile JSON Schema requires every current key while
+  retaining explicit `null` for absent optional facts, and closes nested
+  objects. Standalone `ProfileTiming` deserialization enforces builder
+  validation. Regenerate profiles whose fact shape differs from this release.
 
 - **BREAKING** (#829): The minimum supported Rust version is now 1.98 (was 1.88 in
   2.0.0-rc.3). The project builds and tests on one stable toolchain, 1.98.0;

@@ -37,6 +37,7 @@ use crate::{command::exposure::ExposureMode, WhiteBalanceMode};
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[non_exhaustive]
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 pub struct Capabilities {
     // Camera identification
     /// Built-in registry identity, or `None` for a downstream runtime profile.
@@ -44,6 +45,7 @@ pub struct Capabilities {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub profile_id: Option<crate::camera::profiles::ProfileId>,
 
     /// Model name of the camera.
@@ -97,6 +99,7 @@ pub struct Capabilities {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub zoom_range_digital: Option<RangeInclusive<u16>>,
 
     /// Valid zoom speed range (typically 0-7).
@@ -122,8 +125,9 @@ pub struct Capabilities {
     // Required when deserializing: an absent key is not a declared `null`.
     #[cfg_attr(
         feature = "serde",
-        serde(deserialize_with = "<Option<f32> as serde::Deserialize>::deserialize")
+        serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub optical_zoom_ratio: Option<f32>,
 
     // Focus capabilities
@@ -191,6 +195,7 @@ pub struct Capabilities {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub exposure_comp_range: Option<RangeInclusive<i8>>,
 
     /// Iris positions in VISCA units, if iris control is supported: the
@@ -199,6 +204,7 @@ pub struct Capabilities {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub iris_range: Option<CapabilityDomain<u16>>,
 
     /// Gain range in VISCA units.
@@ -216,6 +222,7 @@ pub struct Capabilities {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub exposure_brightness_range: Option<CapabilityDomain<u8>>,
 
     // White balance capabilities
@@ -231,6 +238,7 @@ pub struct Capabilities {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub color_temp_range: Option<RangeInclusive<u16>>,
 
     /// RG tuning range if supported.
@@ -238,6 +246,7 @@ pub struct Capabilities {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub rg_tuning_range: Option<RangeInclusive<i8>>,
 
     /// BG tuning range if supported.
@@ -245,6 +254,7 @@ pub struct Capabilities {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub bg_tuning_range: Option<RangeInclusive<i8>>,
 
     /// Manual red gain range, or `None` when manual RGB gain is not supported.
@@ -253,6 +263,7 @@ pub struct Capabilities {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub red_gain_range: Option<RangeInclusive<u8>>,
 
     /// Manual blue gain range, or `None` when manual RGB gain is not supported.
@@ -260,6 +271,7 @@ pub struct Capabilities {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub blue_gain_range: Option<RangeInclusive<u8>>,
 
     /// Exact supported white-balance modes.
@@ -274,6 +286,7 @@ pub struct Capabilities {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub contrast_range: Option<RangeInclusive<u8>>,
 
     /// Sharpness adjustment range, if supported.
@@ -281,6 +294,7 @@ pub struct Capabilities {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub sharpness_range: Option<RangeInclusive<u8>>,
 
     /// Saturation adjustment range if supported.
@@ -288,6 +302,7 @@ pub struct Capabilities {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub saturation_range: Option<RangeInclusive<u8>>,
 
     /// Hue adjustment range, or `None` when hue is not supported.
@@ -295,6 +310,7 @@ pub struct Capabilities {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub hue_range: Option<RangeInclusive<u8>>,
 
     /// Image luminance range, or `None` when luminance is not supported.
@@ -302,6 +318,7 @@ pub struct Capabilities {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub luminance_range: Option<RangeInclusive<u8>>,
 
     /// Gamma curve range, or `None` when gamma is not supported.
@@ -309,6 +326,7 @@ pub struct Capabilities {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub gamma_range: Option<RangeInclusive<u8>>,
 
     /// Whether camera supports image flip.
@@ -349,6 +367,7 @@ pub struct Capabilities {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub preset_speed_range: Option<RangeInclusive<u8>>,
 
     /// Whether camera supports preset tours.
@@ -400,6 +419,7 @@ pub struct Capabilities {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub nd_filter_steps: Option<u8>,
 
     /// Motion-sync speeds the camera accepts, or `None` when it has no motion
@@ -408,6 +428,7 @@ pub struct Capabilities {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = crate::profile::nullable_schema))]
     pub motion_sync_speed_range: Option<RangeInclusive<u8>>,
 
     /// Whether camera supports direct menu control.

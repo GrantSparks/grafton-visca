@@ -68,6 +68,7 @@ fn retry_budget_is_representable(now: Instant, deadline: Duration, ack: Duration
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 pub struct PositionInquirySupport {
     pan_tilt: bool,
     zoom: bool,
@@ -180,16 +181,19 @@ pub enum ProfileEnvelope {
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 pub struct TransportCompatibility {
     #[cfg_attr(
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = nullable_schema))]
     tcp_port: Option<u16>,
     #[cfg_attr(
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = nullable_schema))]
     udp_port: Option<u16>,
     serial: bool,
 }
@@ -228,6 +232,8 @@ impl TransportCompatibility {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
+#[cfg_attr(feature = "serde", serde(try_from = "ProfileTimingSerde"))]
 pub struct ProfileTiming {
     ack_timeout: Duration,
     command_timeouts: CommandTimeouts,
@@ -238,6 +244,43 @@ pub struct ProfileTiming {
     raw_inquiry_reply_skew: Duration,
     minimum_inquiry_spacing: Duration,
     minimum_command_spacing: Duration,
+}
+
+/// Persisted timing facts before the builder's invariant is established.
+#[cfg(feature = "serde")]
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+struct ProfileTimingSerde {
+    ack_timeout: Duration,
+    command_timeouts: CommandTimeouts,
+    inquiry_timeout: Duration,
+    cancellation_timeout: Duration,
+    ambiguity_timeout: Duration,
+    busy_timeout: Duration,
+    raw_inquiry_reply_skew: Duration,
+    minimum_inquiry_spacing: Duration,
+    minimum_command_spacing: Duration,
+}
+
+#[cfg(feature = "serde")]
+impl TryFrom<ProfileTimingSerde> for ProfileTiming {
+    type Error = Error;
+
+    fn try_from(value: ProfileTimingSerde) -> Result<Self> {
+        Self {
+            ack_timeout: value.ack_timeout,
+            command_timeouts: value.command_timeouts,
+            inquiry_timeout: value.inquiry_timeout,
+            cancellation_timeout: value.cancellation_timeout,
+            ambiguity_timeout: value.ambiguity_timeout,
+            busy_timeout: value.busy_timeout,
+            raw_inquiry_reply_skew: value.raw_inquiry_reply_skew,
+            minimum_inquiry_spacing: value.minimum_inquiry_spacing,
+            minimum_command_spacing: value.minimum_command_spacing,
+        }
+        .validate()
+    }
 }
 
 /// Builder for validated [`ProfileTiming`] facts.
@@ -288,6 +331,7 @@ pub struct ProfileTimingBuilder {
     serde(try_from = "PanTiltCoordinateConversionSerde")
 )]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 pub struct PanTiltCoordinateConversion {
     coordinate_system: capabilities::CoordinateSystem,
     wire_codec: capabilities::PanTiltWireCodec,
@@ -298,6 +342,7 @@ pub struct PanTiltCoordinateConversion {
 /// Unvalidated wire form of [`PanTiltCoordinateConversion`].
 #[cfg(feature = "serde")]
 #[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 struct PanTiltCoordinateConversionSerde {
     coordinate_system: capabilities::CoordinateSystem,
@@ -796,6 +841,7 @@ impl ProfileTimingBuilder {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 pub struct OperationalTuning {
     command_spacing: Option<Duration>,
     inquiry_spacing: Option<Duration>,
@@ -1084,7 +1130,8 @@ impl RetryBounds {
 ///
 /// With the `serde` feature a spec round-trips through JSON or another serde
 /// format. Deserialization requires every current field and validates the
-/// result: a spec saved by another release is refused with an instruction to
+/// result. Unknown keys are refused at every level. A spec saved by another
+/// release is refused with an instruction to
 /// regenerate it, and a built-in identity must match the current registry
 /// exactly.
 #[derive(Debug, Clone, PartialEq)]
@@ -1101,12 +1148,14 @@ pub struct ProfileSpec {
 #[derive(Debug, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 pub(crate) struct ProfileFacts {
     capabilities: capabilities::Capabilities,
     #[cfg_attr(
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = nullable_schema))]
     pan_tilt_coordinates: Option<PanTiltCoordinateConversion>,
     transports: TransportCompatibility,
     envelope: ProfileEnvelope,
@@ -1118,6 +1167,7 @@ pub(crate) struct ProfileFacts {
         feature = "serde",
         serde(deserialize_with = "crate::profile::required_option")
     )]
+    #[cfg_attr(feature = "schemars", schemars(required, transform = nullable_schema))]
     preset_recall_axes: Option<AffectedAxes>,
     position_inquiries: PositionInquirySupport,
 }
@@ -1190,6 +1240,71 @@ const REGENERATE_SPEC: &str = "the spec was saved by another release, so regener
      `ProfileSpec::from_compile_time::<P>()` for a built-in profile (or rebuild a custom \
      profile with `ProfileSpec::builder`) and persist the result";
 
+/// `schemars(required)` also removes the null alternative from an `Option`.
+/// Persisted facts require the key while retaining explicit null as absence.
+#[cfg(feature = "schemars")]
+pub(crate) fn nullable_schema(schema: &mut schemars::Schema) {
+    let value = std::mem::replace(schema, true.into());
+    *schema = schemars::json_schema!({ "anyOf": [value, { "type": "null" }] });
+}
+
+/// Close only the object schemas reachable from the persisted profile.
+/// Serde's standard Duration and RangeInclusive reject unknown fields, but
+/// their upstream schemas omit that constraint. Follow local references so
+/// embedding ProfileSpec never changes unrelated definitions in a generator.
+#[cfg(feature = "schemars")]
+fn close_persisted_schema(
+    mut schema: schemars::Schema,
+    generator: &mut schemars::SchemaGenerator,
+) -> schemars::Schema {
+    fn close(value: &mut serde_json::Value, references: &mut Vec<String>) {
+        match value {
+            serde_json::Value::Object(object) => {
+                if object.contains_key("properties") {
+                    object.insert("additionalProperties".into(), false.into());
+                }
+                if let Some(reference) = object.get("$ref").and_then(serde_json::Value::as_str) {
+                    references.push(reference.into());
+                }
+                for child in object.values_mut() {
+                    close(child, references);
+                }
+            }
+            serde_json::Value::Array(values) => {
+                for child in values {
+                    close(child, references);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    let mut references = Vec::new();
+    if let Some(object) = schema.as_object_mut() {
+        for child in object.values_mut() {
+            close(child, &mut references);
+        }
+        object.insert("additionalProperties".into(), false.into());
+    }
+    let prefix = format!("#{}", generator.settings().definitions_path);
+    let mut visited = std::collections::BTreeSet::new();
+    while let Some(reference) = references.pop() {
+        let Some(name) = reference
+            .strip_prefix(&prefix)
+            .and_then(|rest| rest.strip_prefix('/'))
+        else {
+            continue;
+        };
+        let name = name.replace("~1", "/").replace("~0", "~");
+        if visited.insert(name.clone()) {
+            if let Some(definition) = generator.definitions_mut().get_mut(&name) {
+                close(definition, &mut references);
+            }
+        }
+    }
+    schema
+}
+
 #[cfg(feature = "serde")]
 impl<'de> serde::Deserialize<'de> for ProfileSpec {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
@@ -1211,7 +1326,7 @@ impl schemars::JsonSchema for ProfileSpec {
     }
 
     fn json_schema(generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        ProfileFacts::json_schema(generator)
+        close_persisted_schema(ProfileFacts::json_schema(generator), generator)
     }
 }
 

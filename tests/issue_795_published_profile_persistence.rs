@@ -91,7 +91,10 @@ fn every_rc2_built_in_spec_is_refused_with_a_regeneration_instruction() {
     ] {
         assert_rc2_shape(fixture, missing_tag);
         let error = refusal(fixture);
-        assert!(error.contains("missing field"), "{error}");
+        assert!(
+            error.contains("missing field") || error.contains("unknown field"),
+            "{error}"
+        );
         assert_regeneration_instruction(&error);
     }
 }

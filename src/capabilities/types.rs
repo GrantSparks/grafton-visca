@@ -16,6 +16,7 @@ pub use crate::capabilities::exposure::ShutterSpeedEntry;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 pub struct CapabilityRange<T> {
     min: T,
     max: T,
@@ -31,6 +32,7 @@ where
         __D: serde::Deserializer<'de>,
     {
         #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
         struct WireRange<T> {
             min: T,
             max: T,
@@ -61,6 +63,7 @@ where
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 pub struct CapabilityDomain<T: Clone + 'static> {
     min: T,
     max: T,
@@ -213,6 +216,7 @@ macro_rules! impl_capability_domain {
                 D: serde::Deserializer<'de>,
             {
                 #[derive(serde::Deserialize)]
+                #[serde(deny_unknown_fields)]
                 struct WireDomain {
                     min: $ty,
                     max: $ty,

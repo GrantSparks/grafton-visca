@@ -457,7 +457,10 @@ it; see the scoped stop-on-exit guard in
 features describe data interchange and do not change protocol semantics.
 Persisted runtime profiles include every current fact key; an absent optional
 fact is explicit `null`, and a missing key requires rebuilding and persisting
-the current `ProfileSpec` (#855).
+the current `ProfileSpec` (#855). Unknown keys are refused at every level,
+including operational tuning, and the JSON Schema requires the same complete
+set of nullable fact keys. Standalone `ProfileTiming` deserialization runs
+the builder's validation (#875).
 
 `ViscaInquiry`, `ViscaEnum`, and `ViscaValue` are the supported downstream
 derive entry points. `test-utils` alone exposes `testkit::{Step, helpers}` for

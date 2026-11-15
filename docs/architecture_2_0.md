@@ -182,7 +182,7 @@ recheck both the typed surface and its source-backed mode inventory.
 
 The construction and request path has a fixed order:
 
-1. Build or deserialize `SessionConfig` and validate target IDs, registry
+1. Build `SessionConfig` from validated `ProfileSpec` facts and operational tuning and validate target IDs, registry
    cardinality, profiles, transport envelope, addressing, tuning, and bounded
    owner policy.
 2. Create the one owner and its fixed target-local state registry. No socket,

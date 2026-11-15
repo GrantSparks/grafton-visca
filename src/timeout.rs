@@ -61,6 +61,7 @@ impl CommandCategory {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 pub struct CommandTimeouts {
     quick_timeout: Duration,
     movement_timeout: Duration,
