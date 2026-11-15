@@ -977,15 +977,11 @@ fn decode_response(target: TargetSlot, payload: &[u8]) -> Result<DecodedResponse
         // an ACK takes the first free socket, and a completion is attributed
         // by sequence or by sole socket ownership. Rejecting the frame here
         // would kill an otherwise healthy session over real hardware.
-        BasicKind::Ack => DecodedResponse::Ack {
-            socket: basic.socket,
-        },
-        BasicKind::Completion => DecodedResponse::Completion {
-            socket: basic.socket,
-        },
-        BasicKind::DataReply => {
+        BasicKind::Ack { socket } => DecodedResponse::Ack { socket },
+        BasicKind::Completion { socket } => DecodedResponse::Completion { socket },
+        BasicKind::DataReply(payload) => {
             let mut owned = SmallVec::<[u8; INLINE_BYTES]>::new();
-            owned.extend_from_slice(basic.payload.as_slice());
+            owned.extend_from_slice(payload.as_slice());
             DecodedResponse::InquiryReply {
                 // Response route classification is intentionally left to the
                 // owner/engine's raw inquiry policy. A transport adapter has
@@ -994,12 +990,9 @@ fn decode_response(target: TargetSlot, payload: &[u8]) -> Result<DecodedResponse
                 payload: owned,
             }
         }
-        BasicKind::Error(code) => DecodedResponse::Error {
-            socket: basic.socket,
-            code,
-        },
+        BasicKind::Error { socket, code } => DecodedResponse::Error { socket, code },
         BasicKind::NetworkChange => DecodedResponse::NetworkChange,
-        BasicKind::Unknown => DecodedResponse::Unknown,
+        BasicKind::Unknown(_) => DecodedResponse::Unknown,
     })
 }
 

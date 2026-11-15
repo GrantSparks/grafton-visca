@@ -1787,30 +1787,27 @@ mod lifecycle_trace {
             let kind = input[3];
             let bytes = hex(required(input, "bytes"));
             let decoded = decode_basic(&bytes).expect("fixture frame bytes decode");
-            let response = match (kind, decoded.kind) {
-                ("ack", BasicKind::Ack) => DecodedResponse::Ack {
-                    socket: decoded.socket,
-                },
-                ("complete", BasicKind::Completion) => DecodedResponse::Completion {
-                    socket: decoded.socket,
-                },
-                ("error", BasicKind::Error(code)) => DecodedResponse::Error {
-                    socket: decoded.socket,
-                    code,
-                },
+            let (response, wire_socket) = match (kind, decoded.kind) {
+                ("ack", BasicKind::Ack { socket }) => (DecodedResponse::Ack { socket }, socket),
+                ("complete", BasicKind::Completion { socket }) => {
+                    (DecodedResponse::Completion { socket }, socket)
+                }
+                ("error", BasicKind::Error { socket, code }) => {
+                    (DecodedResponse::Error { socket, code }, socket)
+                }
                 other => panic!("fixture frame {other:?} disagrees with its own bytes"),
             };
             if let Some(socket) = field(input, "socket") {
                 assert_eq!(
-                    decoded.socket.map(|socket| socket.as_socket_number()),
+                    wire_socket.map(|socket| socket.as_socket_number()),
                     socket.parse::<u8>().ok(),
                     "fixture socket disagrees with its own bytes"
                 );
             }
             if let Some(code) = field(input, "code") {
-                assert_eq!(
-                    decoded.kind,
-                    BasicKind::Error(u8::from_str_radix(code, 16).unwrap()),
+                assert!(
+                    matches!(decoded.kind, BasicKind::Error { code: actual, .. }
+                        if actual == u8::from_str_radix(code, 16).unwrap()),
                     "fixture error code disagrees with its own bytes"
                 );
             }
@@ -1843,8 +1840,7 @@ mod lifecycle_trace {
                 .iter()
                 .find_map(effect_request)
                 .expect("a fixture frame is always routed to one request");
-            let socket = decoded
-                .socket
+            let socket = wire_socket
                 .or_else(|| owned.get(&routed).copied())
                 .expect("a routed raw frame owns a socket");
             out.push(format!(

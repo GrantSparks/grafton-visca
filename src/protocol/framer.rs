@@ -237,9 +237,9 @@ impl ProtocolFramer {
         let total_frame_size = SonyHeader::SIZE + header.payload_length as usize;
 
         if total_frame_size > self.max_frame_size {
-            // Discard the known header so a direct framer caller can resume
-            // after reporting the oversized Sony frame.
-            let _ = self.buf.split_to(SonyHeader::SIZE);
+            // This verdict is terminal for the stream. Keeping any rejected
+            // payload could let a direct caller reinterpret it as a header.
+            self.buf.clear();
             return Some(Err(FramingError::OversizedSonyFrame {
                 max_size: self.max_frame_size,
             }));
@@ -726,6 +726,37 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()
             .unwrap();
         assert_eq!(frames, vec![Bytes::from(frame)]);
+        assert!(framer.is_empty());
+    }
+
+    #[test]
+    fn oversized_sony_payload_is_never_reinterpreted_as_another_frame() {
+        let mut framer =
+            ProtocolFramer::new_with_limits_and_mode(64, 32, 64, FramingMode::SonyEncapsulated);
+        let oversized = SonyHeader {
+            payload_type: PayloadType::ViscaReply,
+            payload_length: 64,
+            sequence_number: 1,
+        };
+        // These bytes belong to the rejected payload, even though they look
+        // like a complete encapsulated ACK when stripped of its first header.
+        let mut bytes = oversized.encode().to_vec();
+        bytes.extend_from_slice(
+            &SonyHeader {
+                payload_type: PayloadType::ViscaReply,
+                payload_length: 3,
+                sequence_number: 7,
+            }
+            .encode(),
+        );
+        bytes.extend_from_slice(&[0x90, 0x41, 0xff]);
+        framer.push_slice(&bytes).expect("bounded input");
+        let verdicts: Vec<_> = framer.drain_frames().collect();
+        assert_eq!(
+            verdicts,
+            [Err(FramingError::OversizedSonyFrame { max_size: 32 })]
+        );
+        assert!(framer.drain_frames().next().is_none());
         assert!(framer.is_empty());
     }
 

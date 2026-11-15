@@ -23,24 +23,20 @@ pub(crate) fn lift_inquiry(
     framing: PanTiltFraming,
 ) -> Result<Response, Error> {
     match basic.kind {
-        BasicKind::Ack => Ok(Response::CmdAck {
-            socket: basic.socket,
-        }),
-        BasicKind::Completion => Ok(Response::Completion {
-            socket: basic.socket,
-        }),
-        BasicKind::Error(code) => Ok(Response::Error(Error::from_code(code))),
+        BasicKind::Ack { socket } => Ok(Response::CmdAck { socket }),
+        BasicKind::Completion { socket } => Ok(Response::Completion { socket }),
+        BasicKind::Error { code, .. } => Ok(Response::Error(Error::from_code(code))),
         BasicKind::NetworkChange => Ok(Response::NetworkChange),
-        BasicKind::DataReply => match expected {
-            Some(kind) => dispatch_with_framing(*kind, basic.payload, framing),
+        BasicKind::DataReply(payload) => match expected {
+            Some(kind) => dispatch_with_framing(*kind, payload, framing),
             None => Ok(Response::Unknown {
                 response_type: None,
-                data: basic.payload.as_slice().to_vec(),
+                data: payload.as_slice().to_vec(),
             }),
         },
-        BasicKind::Unknown => Ok(Response::Unknown {
+        BasicKind::Unknown(payload) => Ok(Response::Unknown {
             response_type: None,
-            data: basic.payload.as_slice().to_vec(),
+            data: payload.as_slice().to_vec(),
         }),
     }
 }
