@@ -2973,3 +2973,31 @@ fn raced_ack_after_budget_does_not_apply_a_displaced_socket_owner() {
     );
     engine.assert_invariants().unwrap();
 }
+
+#[test]
+fn raced_socketless_ack_after_budget_keeps_dispatched_capacity_on_retune() {
+    let start = Instant::now();
+    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+    let first = executing_on(&mut engine, 1, ViscaSocket::S1, start);
+    let mut request = urgent_command(1, CancellationPolicy::Supported);
+    request.context_mut().retry.total_budget = Duration::from_millis(10);
+    let (write, second) = admit(&mut engine, 2, request, start + Duration::from_millis(1));
+    engine.handle(
+        frame(1, None, DecodedResponse::Ack { socket: None }),
+        start + Duration::from_millis(2),
+    );
+    let mut capacity = PerTarget::default();
+    capacity[camera(1)] = Some(1);
+    engine
+        .retune(Duration::ZERO, Duration::ZERO, capacity)
+        .unwrap();
+    let late = start + Duration::from_millis(12);
+    let timeout = send_ok(&mut engine, &write, None, late);
+    assert!(terminal_failure(&timeout, second).is_some());
+    let completion = engine.handle(
+        frame(1, None, DecodedResponse::Completion { socket: None }),
+        late + Duration::from_millis(1),
+    );
+    assert!(!matches!(terminal_outcome(&completion, first), Some(RuntimeOutcome::Applied)),
+        "the second command's socketless completion must not apply the first after live capacity retune");
+}

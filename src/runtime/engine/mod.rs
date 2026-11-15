@@ -4572,8 +4572,8 @@ impl ProtocolEngine {
             let socket = ack.socket.or_else(|| {
                 [ViscaSocket::S1, ViscaSocket::S2]
                     .into_iter()
-                    .take(self.command_sockets(target))
-                    .find(|socket| self.socket_owner(target, *socket).is_none())
+                    .take(self.assignment_socket_count(target, id))
+                    .find(|socket| self.socket_available(target, *socket, id))
             });
             if let Some(socket) = socket {
                 // A latched ACK proves reuse just like an ordinary ACK. End
