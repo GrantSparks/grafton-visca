@@ -93,6 +93,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   receive pacing and write bounds; turns reset them without constructing
   another timer future.
 
+- Blocking and Tokio TCP read directly into the supplied receive slice, without
+  a hidden read-ahead buffer. A receive leaves unrequested bytes in the kernel,
+  and blocking TCP uses one socket handle for reads and writes (#866).
+
 - **BREAKING** (#877): ND metadata exposes only the implemented `None` and
   `Variable` modes. Unsourced fixed/stepped variants, step-count facts and
   helpers are removed. Profile validation refuses preset speeds outside the

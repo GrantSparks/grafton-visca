@@ -25,6 +25,9 @@ The following boundaries are release gates:
 * Async owners retain their four read, write, pacing and wake timers for the
   actor lifetime. A turn resets an existing timer instead of constructing a
   fresh timer future.
+* Standard TCP receives read directly into the caller's slice, with no extra
+  user-space read-ahead buffer. The owner requests at most `recv_buffer_size`
+  bytes from the kernel per read.
 * Lifecycle storage is bounded by owner admission, completion observers,
   cancellation waiters, and bounded diagnostic staging and subscriber queues.
 * Private request, transmission, and correlation-generation identifiers are
@@ -51,6 +54,7 @@ The stable test boundaries are:
 | Warmed raw/Sony framing reuse | `tests/issue_548_allocation_baselines.rs`, framing test near the end of the file |
 | Safe retry encoded-command reuse | `runtime::engine` unit test `inert_wire_is_inline_and_reused_across_retry_without_reallocation`, plus `runtime::owner` unit test `warmed_raw_and_sony_retries_reuse_owner_buffers`; raw coverage must be limited to conclusive rejection, never ambiguity or active-budget expiry |
 | Warmed owner-thread executor timer reset | `tests/issue_548_allocation_baselines.rs::{warmed_tokio_timer_resets_do_not_allocate,warmed_smol_timer_resets_do_not_allocate}`; owner test `owner_turns_reuse_the_same_four_manual_timers` pins four factories across forty applied commands and idle turns |
+| TCP read size and kernel retention | Linux `transport::entry_point_tests::tcp_queue::{blocking_reads_leave_unrequested_bytes_in_kernel,tokio_reads_leave_unrequested_bytes_in_kernel,smol_reads_leave_unrequested_bytes_in_kernel}` compare the receive queue after one-byte and 256-byte caller reads; async coverage includes split transports |
 | Bounded submission and completion observers | `tests/issue_561_blocking_queue.rs` and the `runtime::owner` unit tests |
 | Dynamic/static future construction | `tests/dyn_api_integration_test.rs`, `tokio_dynamic_future_construction_matches_one_explicit_static_box` |
 | Downstream derive encoding | `tests/issue_517_inquiry_encoding` coverage |

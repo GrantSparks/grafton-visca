@@ -3,7 +3,7 @@
 use std::{io, net::SocketAddr, time::Duration};
 
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt, BufReader},
+    io::{AsyncReadExt, AsyncWriteExt},
     net::{
         tcp::{OwnedReadHalf, OwnedWriteHalf},
         TcpStream, UdpSocket,
@@ -62,13 +62,15 @@ impl AsyncNet for TokioNet {
     }
 }
 
-/// Wrapper around tokio's BufReader to implement our AsyncReadExt trait.
+/// Owned Tokio TCP read half that reads directly into the caller's slice.
+///
+/// No user-space read-ahead buffer is retained between receives.
 #[derive(Debug)]
-pub struct TokioBufferedReader<R> {
-    inner: BufReader<R>,
+pub struct TokioReader {
+    inner: OwnedReadHalf,
 }
 
-impl<R: AsyncReadExt + Unpin + Send> AsyncReadExtTrait for TokioBufferedReader<R> {
+impl AsyncReadExtTrait for TokioReader {
     async fn read<'a>(&'a mut self, buf: &'a mut [u8]) -> Result<usize, Error> {
         Ok(self.inner.read(buf).await?)
     }
@@ -93,7 +95,7 @@ impl<W: AsyncWriteExt + Unpin + Send> AsyncWriteExtTrait for TokioWriter<W> {
 /// Tokio TCP stream split into owned halves.
 #[derive(Debug)]
 pub struct TokioTcpStream {
-    reader: TokioBufferedReader<OwnedReadHalf>,
+    reader: TokioReader,
     writer: TokioWriter<OwnedWriteHalf>,
 }
 
@@ -115,15 +117,13 @@ impl AsyncWriteExtTrait for TokioTcpStream {
 
 impl NetStream for TokioTcpStream {
     type Net = TokioNet;
-    type Reader = TokioBufferedReader<OwnedReadHalf>;
+    type Reader = TokioReader;
     type Writer = TokioWriter<OwnedWriteHalf>;
 
     fn from_connected(stream: TcpStream) -> Self {
         let (read_half, write_half) = stream.into_split();
         Self {
-            reader: TokioBufferedReader {
-                inner: BufReader::new(read_half),
-            },
+            reader: TokioReader { inner: read_half },
             writer: TokioWriter { inner: write_half },
         }
     }

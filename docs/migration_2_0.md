@@ -1037,7 +1037,9 @@ uses. Start from the matching constructor to change a field:
 `BufferConfig::recv_buffer_size` is the largest accepted reply frame and the
 size of one read, and must be at least `BufferConfig::MIN_RECV_BUFFER_SIZE`
 (24 bytes); `max_buffer_size` bounds stream input carried between reads
-(see `docs/observability_and_recovery.md`). An unrepresentable timeout is now
+(see `docs/observability_and_recovery.md`). Blocking and Tokio TCP now read
+straight into that slice, leaving additional bytes in the kernel rather than
+retaining a separate read-ahead buffer. An unrepresentable timeout is now
 `Error::InvalidParameter` naming the field (`"read_timeout"`, ...) both in
 validation and at runtime.
 

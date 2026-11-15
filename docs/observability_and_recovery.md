@@ -692,7 +692,8 @@ Every default keeps `max_buffer_size` at 8192. The two limits mean:
   `BufferConfig::MIN_RECV_BUFFER_SIZE` (24 bytes: the largest VISCA reply, 16
   bytes, behind Sony's 8-byte header), so every valid reply fits one read. An
   over-size datagram is rejected before framing rather than silently
-  truncated.
+  truncated. Standard TCP transports read directly into the supplied slice:
+  no additional user-space read-ahead buffer retains bytes outside these bounds.
 - `max_buffer_size` bounds the stream input carried from one read to the next:
   an incomplete frame, or complete frames the owner has not delivered yet. The
   framer always has room for one more full read on top of it, so a healthy

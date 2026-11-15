@@ -8,6 +8,16 @@
 
 #![allow(clippy::expect_used, clippy::panic)]
 
+#[cfg(all(
+    target_os = "linux",
+    any(
+        feature = "blocking",
+        feature = "runtime-tokio",
+        feature = "runtime-smol"
+    )
+))]
+mod tcp_queue;
+
 #[cfg(feature = "blocking")]
 use crate::transport::HasTransportConfig;
 use crate::transport::{AddressingMode, TransportConfig};
