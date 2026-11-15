@@ -12,7 +12,7 @@
 //! All commands in this module are part of the baseline VISCA specification and should be
 //! supported by all VISCA-compliant cameras.
 //! # Example
-//! ```ignore
+//! ```rust
 //! use grafton_visca::{CameraId, Request};
 //! use grafton_visca::{command::PanTiltDirection, request::builtin::PanTiltDrive};
 //! use grafton_visca::types::{PanSpeed, TiltSpeed};

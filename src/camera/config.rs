@@ -216,8 +216,9 @@ where
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// let config = CameraConfig::<SonyFR7>::udp("192.168.0.108");
+    /// ```rust
+    /// use grafton_visca::{camera::CameraConfig, profiles::SonyFR7};
+    /// let config = CameraConfig::<SonyFR7>::for_camera();
     /// ```
     pub fn for_camera() -> Self {
         Self::new()

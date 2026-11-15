@@ -7,7 +7,7 @@
 //! Variable zoom speed ranges from 0 (slowest) to 7 (fastest).
 //!
 //! # Example
-//! ```ignore
+//! ```rust
 //! use grafton_visca::{CameraId, Request};
 //! use grafton_visca::request::builtin::ZoomDrive;
 //!

@@ -304,7 +304,7 @@ macro_rules! speed_enum {
         }
 
         impl $name {
-            /// Converts this speed level to a VISCA pan speed value (1-24).
+            /// Converts this speed level to a baseline VISCA pan speed value (1-24).
             #[must_use]
             pub fn to_pan_speed(self) -> u8 {
                 match self {
@@ -366,7 +366,8 @@ speed_enum! {
     ///
     /// Provides predefined speed combinations that work well across different
     /// camera movement types (pan, tilt, zoom, focus) based on VISCA protocol ranges.
-    /// The variants range from `Slowest` (most precise) to `Fastest` (maximum speed).
+    /// Direct `to_*_speed` conversions use the baseline values below;
+    /// profile-aware position requests lower the level through their own limits.
     #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
     #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
     #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
@@ -380,7 +381,7 @@ speed_enum! {
         Medium  => { pan: 12, tilt: 10, zoom: 4, focus: 4 },
         /// Fast speed - quick movements (pan: 18, tilt: 15, zoom: 6, focus: 6)
         Fast    => { pan: 18, tilt: 15, zoom: 6, focus: 6 },
-        /// Fastest speed - maximum speed (pan: 24, tilt: 20, zoom: 7, focus: 7)
+        /// Fastest baseline speed (pan: 24, tilt: 20, zoom: 7, focus: 7)
         Fastest => { pan: 24, tilt: 20, zoom: 7, focus: 7 },
     }
 }
@@ -684,7 +685,7 @@ crate::__grafton_visca_newtype! {
 }
 
 impl PanSpeed {
-    /// Zero pan speed (stopped).
+    /// Zero wire value. Active pan movement requires a nonzero speed.
     pub const ZERO: Self = Self(0x00);
 }
 
@@ -707,7 +708,7 @@ crate::__grafton_visca_newtype! {
 }
 
 impl TiltSpeed {
-    /// Zero tilt speed (stopped).
+    /// Zero wire value. Active tilt movement requires a nonzero speed.
     pub const ZERO: Self = Self(0x00);
 }
 
@@ -728,7 +729,7 @@ crate::__grafton_visca_newtype! {
 }
 
 impl ZoomSpeed {
-    /// Zero zoom speed (stopped).
+    /// The slowest variable zoom speed; use the zoom STOP request to stop motion.
     pub const ZERO: Self = Self(0x00);
 }
 
@@ -749,7 +750,7 @@ crate::__grafton_visca_newtype! {
 }
 
 impl FocusSpeed {
-    /// Zero focus speed (stopped).
+    /// The slowest variable focus speed; use the focus STOP request to stop motion.
     pub const ZERO: Self = Self(0x00);
 }
 
