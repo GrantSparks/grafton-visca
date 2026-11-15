@@ -6,7 +6,10 @@
 //! callers sample time and map the returned durations onto their native wait
 //! mechanism.
 
-use std::time::{Duration, Instant};
+use std::{
+    num::NonZeroU32,
+    time::{Duration, Instant},
+};
 
 use crate::runtime::engine::RawCorrelationReleaseSet;
 
@@ -61,6 +64,16 @@ pub(super) fn clamp_receive_pause(
     })
 }
 
+/// The non-empty release scope carried by every pending proof state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct PendingReleases(RawCorrelationReleaseSet);
+
+impl PendingReleases {
+    fn new(set: RawCorrelationReleaseSet) -> Option<Self> {
+        (!set.is_empty()).then_some(Self(set))
+    }
+}
+
 /// One owner-side, receive-first raw-correlation release turn.
 ///
 /// The engine owns the typed release facts and their deadlines. This small
@@ -68,88 +81,120 @@ pub(super) fn clamp_receive_pause(
 /// due release received one ordered input turn before either owner lets due
 /// work dispatch a successor. Both owner shells use this same latch, no-input
 /// fence, and retained-prefix wait representation (#723).
-#[derive(Debug, Default)]
-pub(super) struct RawReleaseTurn {
-    latched: Option<RawCorrelationReleaseSet>,
-    no_input_fence: Option<RawCorrelationReleaseSet>,
-    await_until: Option<Instant>,
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RawReleaseTurn {
+    #[default]
+    Idle,
+    Latched {
+        set: PendingReleases,
+    },
+    Fenced {
+        set: PendingReleases,
+    },
+    AwaitingInput {
+        set: PendingReleases,
+        until: Instant,
+    },
+    // A no-input probe can finish while the framer still awaits an earlier
+    // prefix's tail. Keep its grace deadline for idle pacing until the timer
+    // consumes the proof; otherwise an eager idle transport can hot-spin.
+    FencedAwaitingInput {
+        set: PendingReleases,
+        until: Instant,
+    },
 }
 
 impl RawReleaseTurn {
-    /// Latch the first non-empty release set until a receive turn completes it.
-    /// A later control mutation cannot replace the old correlation proof.
     pub(super) fn observe(
         &mut self,
         releases: RawCorrelationReleaseSet,
     ) -> Option<RawCorrelationReleaseSet> {
-        if self.latched.is_none() && !releases.is_empty() {
+        if matches!(self, Self::Idle) {
             self.replace(releases);
         }
-        if self.latched.is_none() {
-            self.clear_fence();
-            self.await_until = None;
-        }
-        self.latched
+        self.latched()
     }
 
     pub(super) const fn latched(&self) -> Option<RawCorrelationReleaseSet> {
-        self.latched
+        match self {
+            Self::Idle => None,
+            Self::Latched { set }
+            | Self::Fenced { set }
+            | Self::AwaitingInput { set, .. }
+            | Self::FencedAwaitingInput { set, .. } => Some(set.0),
+        }
+    }
+
+    pub(super) const fn probe_scope(&self) -> Option<RawCorrelationReleaseSet> {
+        match self {
+            Self::Latched { set } | Self::AwaitingInput { set, .. } => Some(set.0),
+            Self::Idle | Self::Fenced { .. } | Self::FencedAwaitingInput { .. } => None,
+        }
     }
 
     pub(super) const fn is_pending(&self) -> bool {
-        self.latched.is_some()
+        !matches!(self, Self::Idle)
     }
 
-    /// Replace a completed proof with a newly exposed, distinct release set.
-    /// The replacement requires its own receive-first turn.
+    /// Replace a completed proof with a newly exposed release scope.
     pub(super) fn replace(&mut self, releases: RawCorrelationReleaseSet) {
-        debug_assert!(!releases.is_empty());
-        self.latched = Some(releases);
-        self.clear_fence();
-        self.await_until = None;
+        *self = PendingReleases::new(releases).map_or(Self::Idle, |set| Self::Latched { set });
     }
 
-    /// Replace the completed input proof only when the engine exposes a
-    /// distinct, non-empty release projection.  A changed projection can add
-    /// a scope after the old proof's receive turn was selected, so it must
-    /// always begin another receive-first turn before due work advances.
     pub(super) fn replace_if_changed(&mut self, releases: RawCorrelationReleaseSet) -> bool {
-        if releases.is_empty() || self.latched == Some(releases) {
+        if releases.is_empty() || self.latched() == Some(releases) {
             return false;
         }
         self.replace(releases);
         true
     }
 
-    /// Record that a no-data receive was sampled for this exact release set.
     pub(super) fn fence_no_input(&mut self, releases: RawCorrelationReleaseSet) {
-        debug_assert!(!releases.is_empty());
-        self.no_input_fence = Some(releases);
+        if let Some(set) = PendingReleases::new(releases) {
+            *self = match self.await_until() {
+                Some(until) if self.latched() == Some(releases) => {
+                    Self::FencedAwaitingInput { set, until }
+                }
+                _ => Self::Fenced { set },
+            };
+        }
     }
 
     pub(super) fn is_fenced(&self, releases: RawCorrelationReleaseSet) -> bool {
-        self.no_input_fence.is_some_and(|fenced| fenced == releases)
+        matches!(self, Self::Fenced { set } | Self::FencedAwaitingInput { set, .. } if set.0 == releases)
     }
 
     pub(super) fn clear_fence(&mut self) {
-        self.no_input_fence = None;
+        *self = match *self {
+            Self::Fenced { set } => Self::Latched { set },
+            Self::FencedAwaitingInput { set, until } => Self::AwaitingInput { set, until },
+            state => state,
+        };
     }
 
     pub(super) const fn await_until(&self) -> Option<Instant> {
-        self.await_until
+        match self {
+            Self::AwaitingInput { until, .. } | Self::FencedAwaitingInput { until, .. } => {
+                Some(*until)
+            }
+            _ => None,
+        }
     }
 
-    pub(super) fn wait_for_input_until(&mut self, deadline: Instant) {
-        self.await_until = Some(deadline);
+    pub(super) fn wait_for_input_until(&mut self, until: Instant) {
+        *self = match *self {
+            Self::Idle => Self::Idle,
+            Self::Fenced { set } | Self::FencedAwaitingInput { set, .. } => {
+                Self::FencedAwaitingInput { set, until }
+            }
+            Self::Latched { set } | Self::AwaitingInput { set, .. } => {
+                Self::AwaitingInput { set, until }
+            }
+        };
     }
 
-    /// Complete the current input proof. The engine due pass is performed by
-    /// the shell immediately before or after this call at the same sampled
-    /// instant.
     pub(super) fn complete(&mut self) {
-        self.latched = None;
-        self.clear_fence();
-        self.await_until = None;
+        *self = Self::Idle;
     }
 }
 
@@ -185,35 +230,43 @@ impl IdleReceiveRun {
 /// One run of consecutive transient receive faults.
 #[derive(Debug, Default)]
 pub(super) struct TransientFaultRun {
-    pub(super) length: u32,
-    pub(super) first_at: Option<Instant>,
-    pub(super) last_at: Option<Instant>,
+    active: Option<FaultRun>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FaultRun {
+    length: NonZeroU32,
+    first_at: Instant,
+    last_at: Instant,
 }
 
 impl TransientFaultRun {
     /// Record one transient fault and report the run it belongs to.
     pub(super) fn record(&mut self, at: Instant) -> (u32, Duration) {
-        let continues = self
-            .last_at
-            .is_some_and(|last| at.saturating_duration_since(last) < TRANSIENT_RECEIVE_FAULT_RESET);
-        if continues {
-            self.length = self.length.saturating_add(1);
-        } else {
-            self.length = 1;
-            self.first_at = Some(at);
-        }
-        self.last_at = Some(at);
-        let span = self
-            .first_at
-            .map_or(Duration::ZERO, |first| at.saturating_duration_since(first));
-        (self.length, span)
+        let run = match self.active {
+            Some(run)
+                if at.saturating_duration_since(run.last_at) < TRANSIENT_RECEIVE_FAULT_RESET =>
+            {
+                FaultRun {
+                    length: run.length.saturating_add(1),
+                    last_at: at,
+                    ..run
+                }
+            }
+            _ => FaultRun {
+                length: NonZeroU32::MIN,
+                first_at: at,
+                last_at: at,
+            },
+        };
+        let observation = (run.length.get(), at.saturating_duration_since(run.first_at));
+        self.active = Some(run);
+        observation
     }
 
     /// A successful byte-bearing read proves the transport recovered.
     pub(super) fn reset(&mut self) {
-        self.length = 0;
-        self.first_at = None;
-        self.last_at = None;
+        self.active = None;
     }
 
     /// Whether this run is long enough, and old enough, to be permanent.
@@ -226,6 +279,27 @@ impl TransientFaultRun {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_fenced_partial_input_keeps_its_grace_until_the_proof_is_consumed() {
+        let until = Instant::now() + Duration::from_millis(100);
+        let set = RawCorrelationReleaseSet::default()
+            .with_terminal_for_test(crate::target::TargetSlot::CAMERA_1);
+        let mut release = RawReleaseTurn::default();
+        assert_eq!(release.observe(RawCorrelationReleaseSet::default()), None);
+        assert_eq!(release.observe(set), Some(set));
+        release.wait_for_input_until(until);
+        release.fence_no_input(set);
+        assert!(release.is_fenced(set));
+        assert_eq!(release.await_until(), Some(until));
+        assert_eq!(release.probe_scope(), None);
+        release.clear_fence();
+        assert_eq!(release.await_until(), Some(until));
+        assert_eq!(release.probe_scope(), Some(set));
+        release.complete();
+        assert!(!release.is_pending());
+        assert_eq!(release.await_until(), None);
+    }
 
     #[test]
     fn receive_pause_escalates_and_clamps() {
@@ -271,7 +345,7 @@ mod tests {
             1
         );
         run.reset();
-        assert_eq!(run.length, 0);
+        assert!(run.active.is_none());
     }
 
     #[test]

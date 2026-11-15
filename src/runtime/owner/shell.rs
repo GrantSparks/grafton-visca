@@ -373,7 +373,7 @@ impl OwnerShellCore {
                             Ok(cutoff) => {
                                 let receipt = self.state.accept_halt(
                                     halt.prepared,
-                                    halt.deadline,
+                                    halt.validity.deadline(),
                                     cutoff,
                                     selected_at,
                                 );
@@ -1340,7 +1340,6 @@ mod tests {
                     requests: [None, Some(Ok(declared_request(true))), None],
                     budget: Duration::from_secs(1),
                 },
-                deadline,
                 validity: AdmissionValidity::until(deadline),
                 reply,
             }))

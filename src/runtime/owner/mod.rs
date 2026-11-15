@@ -674,7 +674,6 @@ impl AdmissionPermitPool {
             pool: Arc::clone(&self.0),
             slot,
             target,
-            released: false,
         })
     }
 
@@ -692,7 +691,6 @@ impl AdmissionPermitPool {
             pool: Arc::clone(&self.0),
             slot: AdmissionSlot::Ordinary,
             target: TargetSlot::ALL[0],
-            released: false,
         })
     }
 
@@ -712,7 +710,6 @@ pub(crate) struct AdmissionPermit {
     pool: Arc<PermitPoolInner>,
     slot: AdmissionSlot,
     target: TargetSlot,
-    released: bool,
 }
 
 impl AdmissionPermit {
@@ -724,10 +721,6 @@ impl AdmissionPermit {
 
 impl Drop for AdmissionPermit {
     fn drop(&mut self) {
-        if self.released {
-            return;
-        }
-        self.released = true;
         let mut available = self
             .pool
             .available
@@ -783,11 +776,10 @@ pub(crate) enum OwnerReceive {
 /// The owner-side half of one bounded, one-shot observation slot.
 ///
 /// The owner resolves it at most once. A handle holds the matching
-/// [`Observer`]; dropping that observer marks the cell detached, so the owner
+/// [`Observer`]; dropping that receiver disconnects the channel, so the owner
 /// can count an observation that nobody will read.
 #[derive(Debug)]
 pub(crate) struct ObserverCell<T> {
-    detached: AtomicBool,
     resolved: AtomicBool,
     sender: flume::Sender<Observed<T>>,
 }
@@ -821,9 +813,7 @@ enum ObserverResolution {
 
 impl<T> ObserverCell<T> {
     fn is_attached(&self) -> bool {
-        !self.detached.load(Ordering::Acquire)
-            && !self.resolved.load(Ordering::Acquire)
-            && !self.sender.is_disconnected()
+        !self.resolved.load(Ordering::Acquire) && !self.sender.is_disconnected()
     }
 
     #[cfg(test)]
@@ -884,7 +874,6 @@ impl<T> Observer<T> {
     pub(crate) fn pair() -> (Self, Arc<ObserverCell<T>>) {
         let (sender, receiver) = flume::bounded(1);
         let cell = Arc::new(ObserverCell {
-            detached: AtomicBool::new(false),
             resolved: AtomicBool::new(false),
             sender,
         });
@@ -931,14 +920,6 @@ impl<T> Observer<T> {
     #[cfg(feature = "blocking")]
     const fn receiver(&self) -> &flume::Receiver<Observed<T>> {
         &self.receiver
-    }
-}
-
-impl<T> Drop for Observer<T> {
-    fn drop(&mut self) {
-        if let Some(cell) = self.cell.upgrade() {
-            cell.detached.store(true, Ordering::Release);
-        }
     }
 }
 
@@ -1491,7 +1472,6 @@ pub(crate) struct StagedWrite {
     pub(crate) transmission: TransmissionId,
     pub(crate) request: RequestId,
     pub(crate) kind: Transmission,
-    pub(crate) requested_sequence: Option<u32>,
 }
 
 /// Owner boundary token for one ordered decoded-input batch.
@@ -1502,6 +1482,17 @@ pub(crate) struct StagedWrite {
 pub(crate) struct OwnerInputTurn(InputTurn, Instant);
 
 impl StagedWrite {
+    fn requested_sequence(&self) -> Option<u32> {
+        match self.kind {
+            Transmission::Request {
+                requested_sequence, ..
+            }
+            | Transmission::Cancel {
+                requested_sequence, ..
+            } => requested_sequence,
+        }
+    }
+
     fn target(&self) -> TargetSlot {
         match self.kind {
             Transmission::Request { target, .. } | Transmission::Cancel { target, .. } => target,
@@ -2246,6 +2237,7 @@ impl OwnerState {
             .active
             .get(&staged.request)
             .is_some_and(|active| active.summary.lane == Lane::Inquiry);
+        let requested_sequence = staged.requested_sequence();
         let (bytes, frame_buffer) = self.buffers.prepare(&staged.kind)?;
         Ok(WireWrite {
             #[cfg(all(
@@ -2255,7 +2247,7 @@ impl OwnerState {
             ))]
             request: staged.request,
             bytes,
-            requested_sequence: staged.requested_sequence,
+            requested_sequence,
             frame_buffer,
             #[cfg(all(
                 test,
@@ -2356,22 +2348,11 @@ impl OwnerState {
                 transmission,
                 request,
                 kind,
-            } => {
-                let requested_sequence = match &kind {
-                    Transmission::Request {
-                        requested_sequence, ..
-                    }
-                    | Transmission::Cancel {
-                        requested_sequence, ..
-                    } => *requested_sequence,
-                };
-                AppliedEffect::Transmit(StagedWrite {
-                    transmission,
-                    request,
-                    kind,
-                    requested_sequence,
-                })
-            }
+            } => AppliedEffect::Transmit(StagedWrite {
+                transmission,
+                request,
+                kind,
+            }),
             Effect::RetryScheduled {
                 id,
                 attempt,

@@ -193,7 +193,6 @@ macro_rules! owner_handle_methods {
                 let boundary =
                     super::boundary::CancellationBoundary::Halt(super::halt::HaltBoundary {
                         prepared,
-                        deadline,
                         validity: validity.clone(),
                         reply,
                     });

@@ -7,7 +7,6 @@ use std::time::Instant;
 #[derive(Debug)]
 pub(super) struct HaltBoundary {
     pub(super) prepared: PreparedHalt,
-    pub(super) deadline: Instant,
     pub(super) validity: AdmissionValidity,
     pub(super) reply: flume::Sender<Result<HaltReceipt, Error>>,
 }
@@ -56,15 +55,6 @@ impl OwnerState {
                     self.record_admission_rejection(prepared.target, super::Lane::Command, error);
                 })?;
                 let remaining = deadline.saturating_duration_since(now);
-                if remaining.is_zero() {
-                    let error = Error::admission_timeout();
-                    self.record_admission_rejection(
-                        request.context().target,
-                        request.lane(),
-                        &error,
-                    );
-                    return Err(error);
-                }
                 request.context_mut().submission_order = cutoff;
                 request.context_mut().dispatch_deadline = Some(deadline);
                 // The engine budget expires queued STOPs at the SAME absolute

@@ -68,6 +68,10 @@ impl AdmissionValidity {
     const CLAIMED: u8 = AdmissionValidityState::Claimed as u8;
     const EXPIRED: u8 = AdmissionValidityState::Expired as u8;
 
+    pub(super) const fn deadline(&self) -> Instant {
+        self.deadline
+    }
+
     pub(super) fn until(deadline: Instant) -> Self {
         Self {
             deadline,
