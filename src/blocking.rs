@@ -23,6 +23,7 @@ use crate::{
     runtime::owner::{
         BlockingOperationReceipt, BlockingOwnerHandle, BlockingTransportAdapter, Clock,
     },
+    target::TargetSlot,
     CameraId, CancellationOutcome, CompileTimeProfile, DiagnosticSubscription, Error, Inquiry,
     MetricsSnapshot, OperationCommand, OperationalTuning, PlainCommand, ProfileSpec, Result,
     StateCache, SubmissionClass,
@@ -351,12 +352,13 @@ impl Session {
     where
         P: CompileTimeProfile,
     {
-        let profile = self.config.registered_profile_for::<P>(target)?;
+        let target = TargetSlot::try_from(target)?;
+        let profile = self.config.registered_profile_for::<P>(target.camera())?;
         Ok(Camera::from_core(self.core(target, profile)))
     }
 
     /// The erased view of `target`, registered with `profile`.
-    fn core(&self, target: CameraId, profile: Arc<ProfileSpec>) -> BlockingCameraCore {
+    fn core(&self, target: TargetSlot, profile: Arc<ProfileSpec>) -> BlockingCameraCore {
         BlockingCameraCore {
             owner: self.owner.clone(),
             target,
@@ -434,7 +436,8 @@ impl Session {
         &self,
         target: CameraId,
     ) -> Result<crate::dynapi::BlockingDynSessionCamera, Error> {
-        let profile = self.config.registered_profile(target)?;
+        let target = TargetSlot::try_from(target)?;
+        let profile = self.config.registered_profile(target.camera())?;
         Ok(crate::dynapi::BlockingDynSessionCamera::new(
             self.core(target, profile),
         ))
@@ -580,7 +583,8 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     /// from this exact `P`. That is what makes the bind structural instead of
     /// a runtime profile comparison.
     pub(crate) fn from_session(session: Session, target: CameraId) -> Result<Self, Error> {
-        let profile = session.config.registered_profile(target)?;
+        let target = TargetSlot::try_from(target)?;
+        let profile = session.config.registered_profile(target.camera())?;
         let camera = Camera::from_core(session.core(target, profile));
         Ok(Self { session, camera })
     }
@@ -693,7 +697,7 @@ impl<P: CompileTimeProfile> CameraSession<P> {
 #[derive(Clone)]
 pub(crate) struct BlockingCameraCore {
     owner: BlockingOwnerHandle,
-    target: CameraId,
+    target: TargetSlot,
     profile: Arc<ProfileSpec>,
     class: ClassSelection,
 }
@@ -702,7 +706,7 @@ impl fmt::Debug for BlockingCameraCore {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Camera")
-            .field("target", &self.target)
+            .field("target", &self.target.camera())
             .field("profile", &self.profile)
             .finish_non_exhaustive()
     }
@@ -720,7 +724,7 @@ impl BlockingCameraCore {
 
     /// Returns this view's fixed camera target.
     pub(crate) const fn target(&self) -> CameraId {
-        self.target
+        self.target.camera()
     }
 
     /// Returns this view's validated profile facts.
@@ -763,7 +767,7 @@ impl BlockingCameraCore {
     {
         let prepared = prepare_command(
             command,
-            self.target,
+            self.target.camera(),
             self.profile.as_ref(),
             self.tuning(),
             self.class,
@@ -778,7 +782,7 @@ impl BlockingCameraCore {
     {
         let prepared = prepare_inquiry(
             inquiry,
-            self.target,
+            self.target.camera(),
             self.profile.as_ref(),
             self.tuning(),
             self.class,
@@ -796,7 +800,7 @@ impl BlockingCameraCore {
     {
         let prepared = prepare_operation::<K, _>(
             operation,
-            self.target,
+            self.target.camera(),
             self.profile.as_ref(),
             self.tuning(),
             self.class,
@@ -822,7 +826,7 @@ impl BlockingCameraCore {
     pub(crate) fn is_moving(&self, query: MotionQuery) -> Result<bool, Error> {
         let window = crate::prepared::MotionWindow::new(query)?;
         let queries = prepare_position_queries(
-            self.target,
+            self.target.camera(),
             self.profile.as_ref(),
             self.tuning(),
             query.axes,
@@ -838,8 +842,12 @@ impl BlockingCameraCore {
     /// enqueued. The owner worker keeps the session progressing while this
     /// thread sleeps between samples.
     pub(crate) fn wait_until_idle(&self, wait: IdleWait) -> Result<(), Error> {
-        let queries =
-            prepare_position_queries(self.target, self.profile.as_ref(), self.tuning(), wait.axes)?;
+        let queries = prepare_position_queries(
+            self.target.camera(),
+            self.profile.as_ref(),
+            self.tuning(),
+            wait.axes,
+        )?;
         self.owner.wait_until_idle(wait, &queries)
     }
 }
@@ -869,7 +877,7 @@ impl<P: CompileTimeProfile> fmt::Debug for Camera<P> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Camera")
-            .field("target", &self.core.target)
+            .field("target", &self.core.target.camera())
             .field("profile", &self.core.profile)
             .finish_non_exhaustive()
     }

@@ -294,7 +294,7 @@ macro_rules! owner_handle_methods {
 
             pub(crate) fn state_cache(
                 &self,
-                target: crate::CameraId,
+                target: crate::target::TargetSlot,
             ) -> crate::state_cache::StateCache {
                 self.core.state_cache(target)
             }

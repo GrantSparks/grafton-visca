@@ -27,6 +27,7 @@ use crate::{
         owner::AsyncTransportAdapter,
         owner::{AsyncOwnerActor, AsyncOwnerHandle},
     },
+    target::TargetSlot,
     transport::{AsyncTransport, HasTransportConfig},
     CameraId, DiagnosticSubscription, Inquiry, MetricsSnapshot, OperationCommand, PlainCommand,
     Result, SessionConfig, StateCache, SubmissionClass,
@@ -119,12 +120,13 @@ impl Session {
     where
         P: CompileTimeProfile,
     {
-        let profile = self.config.registered_profile_for::<P>(target)?;
+        let target = TargetSlot::try_from(target)?;
+        let profile = self.config.registered_profile_for::<P>(target.camera())?;
         Ok(Camera::from_core(self.core(target, profile)))
     }
 
     /// The erased view of `target`, registered with `profile`.
-    fn core(&self, target: CameraId, profile: Arc<ProfileSpec>) -> AsyncCameraCore {
+    fn core(&self, target: TargetSlot, profile: Arc<ProfileSpec>) -> AsyncCameraCore {
         AsyncCameraCore {
             owner: self.owner.clone(),
             target,
@@ -146,7 +148,8 @@ impl Session {
     /// Returns a target-specific runtime-profile camera view.
     #[cfg(feature = "dyn-api")]
     pub fn camera_dyn_for(&self, target: CameraId) -> Result<crate::dynapi::DynSessionCamera> {
-        let profile = self.config.registered_profile(target)?;
+        let target = TargetSlot::try_from(target)?;
+        let profile = self.config.registered_profile(target.camera())?;
         Ok(crate::dynapi::DynSessionCamera::new(
             self.core(target, profile),
         ))
@@ -301,7 +304,8 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     /// from this exact `P`. That is what makes the bind structural instead of
     /// a runtime profile comparison.
     pub(crate) fn from_session(session: Session, target: CameraId) -> Result<Self> {
-        let profile = session.config.registered_profile(target)?;
+        let target = TargetSlot::try_from(target)?;
+        let profile = session.config.registered_profile(target.camera())?;
         let camera = Camera::from_core(session.core(target, profile));
         Ok(Self { session, camera })
     }
@@ -419,7 +423,7 @@ impl<P: CompileTimeProfile> CameraSession<P> {
 #[derive(Clone)]
 pub(crate) struct AsyncCameraCore {
     owner: AsyncOwnerHandle,
-    target: CameraId,
+    target: TargetSlot,
     profile: Arc<ProfileSpec>,
     class: ClassSelection,
 }
@@ -438,7 +442,7 @@ impl AsyncCameraCore {
     }
 
     pub(crate) const fn target(&self) -> CameraId {
-        self.target
+        self.target.camera()
     }
 
     pub(crate) fn profile(&self) -> &ProfileSpec {
@@ -479,7 +483,7 @@ impl AsyncCameraCore {
     {
         let prepared = prepare_command(
             command,
-            self.target,
+            self.target.camera(),
             self.profile.as_ref(),
             self.tuning(),
             class,
@@ -505,7 +509,7 @@ impl AsyncCameraCore {
     {
         let prepared = prepare_inquiry(
             inquiry,
-            self.target,
+            self.target.camera(),
             self.profile.as_ref(),
             self.tuning(),
             class,
@@ -534,7 +538,7 @@ impl AsyncCameraCore {
     {
         let prepared = prepare_operation::<K, _>(
             operation,
-            self.target,
+            self.target.camera(),
             self.profile.as_ref(),
             self.tuning(),
             class,
@@ -553,7 +557,7 @@ impl AsyncCameraCore {
     pub(crate) async fn is_moving(&self, query: MotionQuery) -> Result<bool> {
         let window = crate::prepared::MotionWindow::new(query)?;
         let queries = prepare_position_queries(
-            self.target,
+            self.target.camera(),
             self.profile.as_ref(),
             self.tuning(),
             query.axes,
@@ -562,8 +566,12 @@ impl AsyncCameraCore {
     }
 
     pub(crate) async fn wait_until_idle(&self, wait: IdleWait) -> Result<()> {
-        let queries =
-            prepare_position_queries(self.target, self.profile.as_ref(), self.tuning(), wait.axes)?;
+        let queries = prepare_position_queries(
+            self.target.camera(),
+            self.profile.as_ref(),
+            self.tuning(),
+            wait.axes,
+        )?;
         self.owner.wait_until_idle(wait, &queries).await
     }
 }
@@ -591,7 +599,7 @@ impl<P: CompileTimeProfile> fmt::Debug for Camera<P> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Camera")
-            .field("target", &self.core.target)
+            .field("target", &self.core.target.camera())
             .field("profile", &self.core.profile)
             .finish_non_exhaustive()
     }
