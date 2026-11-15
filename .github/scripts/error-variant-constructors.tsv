@@ -34,7 +34,7 @@ InvalidState	src/runtime/owner/blocking.rs	return Err(Error::InvalidState(format
 OwnerTerminated	src/runtime/owner/boundary.rs	fn missing_terminal_error() -> Error { Error::OwnerTerminated }
 DiagnosticSubscriberLimit	src/runtime/owner/mod.rs	return Err(Error::DiagnosticSubscriberLimit {
 RuntimeShutdown	src/runtime/engine/mod.rs	self.terminate_session( SessionState::Shutdown, Error::RuntimeShutdown, now, effects, )
-CancellationUnconfirmed	src/runtime/engine/mod.rs	EnvelopeKind::Sony => self.finish(id, Error::CancellationUnconfirmed, now, effects)
+CancellationUnconfirmed	src/runtime/engine/mod.rs	CorrelationRef::Sequenced => { self.finish(id, Error::CancellationUnconfirmed, now, effects)
 UnsequencedCommandUnconfirmed	src/runtime/engine/mod.rs	self.finish(id, Error::UnsequencedCommandUnconfirmed, now, effects)
 InquiryCorrelationLost	src/runtime/engine/mod.rs	return Some(Error::inquiry_correlation_lost(target.camera()));
 CommandCorrelationLost	src/runtime/engine/mod.rs	.then(|| Error::command_correlation_lost(target.camera()))
