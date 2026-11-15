@@ -97,9 +97,10 @@ and grows when necessary to cover that full attempt; untuned built-in budgets
 are unchanged. Completion-only commands and inquiries keep their one response
 window. Default observers cover the resulting retry budget (#842).
 The owner/engine consumes that context without reselecting or inventing a
-deadline. `TransportConfig` carries
-socket/serial behavior only and does not own protocol retry or completion
-policy.
+deadline. `TransportConfig` carries I/O timeouts, buffer bounds, and socket
+options. Transport kind, send semantics, and VISCA addressing come from the
+required `HasTransportConfig::identity()` descriptor; the configuration has no
+addressing field and does not own protocol retry or completion policy.
 
 Private request, transmission, and correlation identifiers advance
 monotonically within a session and are never reused. If the 64-bit identity
@@ -178,14 +179,25 @@ as the first, and any mismatch is an error. What a multi-target session does
 accept is heterogeneous *profiles* that share one envelope — in practice
 several raw-VISCA profiles — carried by a serial-addressed transport. The
 built-in serial transports qualify: both `transport-serial` and
-`transport-serial-tokio` declare `AddressingMode::Serial`, so a caller-owned
-transport is not required. A caller-owned transport that reports a standard
-kind is validated against the profile transport registry. A truly custom
-transport that reports no standard kind (`None`) may bypass only the standard
-profile/transport pair matrix as an intentional BYO escape hatch. It still
-undergoes target-registry, envelope, addressing/topology, pacing, framing,
-buffer, and bounded-owner validation, and must provide its stream/datagram
-semantics and transport configuration.
+`transport-serial-tokio` report `TransportIdentity::Serial { bus }`.
+
+Every transport provides the required
+`HasTransportConfig::identity() -> TransportIdentity<'_>` alongside its I/O
+configuration. The `Tcp`, `Udp`, and `Serial { bus }` variants fix the standard
+kind, stream/datagram semantics, and addressing together. A truly custom
+transport declares `Custom { semantics, addressing }`, the explicit escape
+hatch from the standard profile/transport pair matrix. It still undergoes
+target-registry, envelope, addressing/topology, pacing, framing, buffer, and
+bounded-owner validation. The adapter reads this descriptor before transport
+configuration and performs its topology check once, deriving wire addressing
+and write-failure policy from the same identity. Wrappers, including both
+transport-handle enums, forward the inner identity with its serial Address Set
+bus report.
+
+The owner supplies complete framed packets to transport writes.
+`BlockingTransport::send_with_timeout(&mut self, bytes, timeout)` takes no
+command-kind argument; `AsyncTransport::send` likewise sends the supplied
+bytes without selecting their protocol framing.
 
 The static `Has*` profile-marker gates on noun/accessor methods are the
 compile-time permission surface. Direct generic `Camera::execute` and
