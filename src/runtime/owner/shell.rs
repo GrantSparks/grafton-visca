@@ -503,11 +503,11 @@ impl OwnerShellCore {
                 self.lifecycle.publish_terminal(error);
             }
             if let AppliedEffect::Transmit(staged) = applied {
-                if let Some(expired) = self
-                    .state
-                    .engine
-                    .expire_unwritten_halt(staged.transmission, observed_at)
-                {
+                if let Some(expired) = self.state.engine.expire_unwritten_halt(
+                    staged.request,
+                    staged.transmission,
+                    observed_at,
+                ) {
                     prepend_effects(effects, expired.into());
                     continue;
                 }
@@ -562,7 +562,7 @@ impl OwnerShellCore {
             self.state.finish_write(staged, result, finished_at)
         } else {
             self.state
-                .finish_write_turn(staged, result, finished_at, EngineTurn::INPUT_ONLY)
+                .finish_write_turn(staged, result, finished_at, EngineTurn::InputOnly)
         };
         prepend_effects(effects, produced);
     }
@@ -727,11 +727,11 @@ impl OwnerShellCore {
         // turn and any final orphan is classified at the raw release boundary.
         if buffered {
             return TurnStep::Drive {
-                effects: self.state.finish_input_turn(turn, EngineTurn::INPUT_ONLY),
+                effects: self.state.finish_input_turn(turn, EngineTurn::InputOnly),
                 then: Resume::done(TurnOutcome::ContinueBuffered),
             };
         }
-        let effects = self.state.finish_input_turn(turn, EngineTurn::COMPLETE);
+        let effects = self.state.finish_input_turn(turn, EngineTurn::Complete);
         // A completed input turn drained the retained fragment before due work
         // ran. If that input settled the old raw correlation at an exact
         // boundary, `finish_input_turn` released it without another Wake turn,
@@ -780,7 +780,7 @@ impl OwnerShellCore {
             let mut effects = self
                 .state
                 .input_in_turn(&turn, Input::ReceiveFault { error });
-            effects.extend(self.state.finish_input_turn(turn, EngineTurn::INPUT_ONLY));
+            effects.extend(self.state.finish_input_turn(turn, EngineTurn::InputOnly));
             effects
         } else {
             self.state.input(Input::ReceiveFault { error }, received_at)

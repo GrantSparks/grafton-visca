@@ -19,33 +19,18 @@ pub(crate) const MAX_SEQUENCE_HISTORY: usize = 8;
 
 /// Scheduler work permitted when an external-input turn is completed.
 ///
-/// Both owner shells use these same three boundaries. A complete turn runs
-/// deadlines, pending cancellation work, and one ordinary dispatch. A
-/// deadline-only turn withholds that final dispatch while an exact request is
-/// reconsidered. An input-only turn preserves retained wire
-/// evidence ahead of every deadline at the same sampled instant.
+/// Both owner shells use these two boundaries. A complete turn runs deadlines,
+/// pending cancellation, and one ordinary dispatch. An input-only turn retains
+/// wire evidence ahead of deadlines at the same sampled instant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct EngineTurn {
-    run_due: bool,
-    dispatch: bool,
+pub(crate) enum EngineTurn {
+    Complete,
+    InputOnly,
 }
 
 impl EngineTurn {
-    pub(crate) const COMPLETE: Self = Self {
-        run_due: true,
-        dispatch: true,
-    };
-    pub(crate) const INPUT_ONLY: Self = Self {
-        run_due: false,
-        dispatch: false,
-    };
-
     pub(super) const fn runs_due(self) -> bool {
-        self.run_due
-    }
-
-    pub(super) const fn allows_dispatch(self) -> bool {
-        self.dispatch
+        matches!(self, Self::Complete)
     }
 }
 
@@ -161,17 +146,9 @@ impl TransmissionId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct AdmissionTicket(pub(crate) u64);
 
-/// Immutable lifetime generation used by every derived engine index.
+/// Immutable lifetime generation used by retained stream-ledger evidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct GenerationTicket(pub(crate) u64);
-
-/// Lazy-deletion ticket for one exact ready-queue insertion.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct QueueTicket {
-    pub(crate) request: RequestId,
-    pub(crate) generation: GenerationTicket,
-    pub(crate) queue_generation: u64,
-}
 
 /// Public request semantics lower to this private scheduling classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -898,7 +875,6 @@ pub(crate) enum Transmission {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum IgnoreReason {
     UnknownRequest,
-    StaleQueueTicket,
     StaleTransmission,
     IncompatibleTransmissionResult,
     MalformedFrame,
@@ -1016,9 +992,7 @@ pub(crate) enum Input {
 /// The engine stores only `Lifecycle`; this is never a parallel authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Phase {
-    Ready {
-        ticket: QueueTicket,
-    },
+    Ready,
     Sending {
         transmission: TransmissionId,
         started_at: Instant,
@@ -1045,7 +1019,6 @@ pub(crate) enum Phase {
     },
     Backoff {
         ready_at: Instant,
-        queue_generation: u64,
     },
     /// A socket-owned command whose emitted cancellation is awaiting a
     /// conclusive terminal response.

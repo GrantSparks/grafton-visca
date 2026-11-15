@@ -81,6 +81,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   binding, and complete call ordering including write feedback and teardown
   (#865).
 
+- The engine's private entry table updates ready queues, Sony sequence indexes,
+  and typed socket ownership with each lifecycle change. Write receipt and raw
+  inquiry ownership are derived from entries; queue generations, dispatch-time
+  pruning, parallel transmission tracking, and persistent decision scratch are
+  removed. Seven-frame dispute decisions stay inline (#859).
+- **BREAKING** (#859): Removed `DiagnosticIgnoreReason::StaleQueueTicket`;
+  eager private queues cannot produce stale tickets. Other diagnostic reasons
+  retain their meaning.
+
 - Owner receives use one closed read verdict and one generated fatal I/O-kind
   table, including `InvalidInput`. Retained stream evidence is an infallible
   snapshot; raw and Sony replies decode from borrowed frames into reused

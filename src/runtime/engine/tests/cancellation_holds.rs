@@ -82,12 +82,13 @@ fn sending_command_cannot_record_cancellation_intent() {
             now,
         );
         assert!(engine.assert_input_boundary().is_err());
-        let mut effects = Vec::new();
+        let mut effects = Decision::new();
         assert!(matches!(
             engine.cancel(id, now, &mut effects),
             Err(Error::NotSupported)
         ));
         assert!(!effects
+            .as_slice()
             .iter()
             .any(|effect| matches!(effect, Effect::CancellationRecorded { .. })));
         assert!(!engine.entry(id).unwrap().cancellation_observation_open());

@@ -877,7 +877,7 @@ mod metrics {
         for effect in state.input_in_turn(&turn, input) {
             let _ = state.apply_effect(effect);
         }
-        let _ = state.finish_input_turn(turn, EngineTurn::INPUT_ONLY);
+        let _ = state.finish_input_turn(turn, EngineTurn::InputOnly);
         let core = ReceiptCore::admitted(admitted.recv().unwrap().unwrap(), observer, ACK);
         (OperationObservation::new(core, ACK), cell)
     }
@@ -927,7 +927,7 @@ mod metrics {
         for effect in effects {
             let _ = state.apply_effect(effect);
         }
-        let _ = state.finish_input_turn(admission_turn, EngineTurn::INPUT_ONLY);
+        let _ = state.finish_input_turn(admission_turn, EngineTurn::InputOnly);
         let later = OperationObservation::new(
             ReceiptCore::admitted(reply.recv().unwrap().unwrap(), completion, ACK),
             ACK,
@@ -936,7 +936,7 @@ mod metrics {
         for effect in state.input_in_turn(&turn, Input::Cancel { id: later.id() }) {
             let _ = state.apply_effect(effect);
         }
-        let _ = state.finish_input_turn(turn, EngineTurn::INPUT_ONLY);
+        let _ = state.finish_input_turn(turn, EngineTurn::InputOnly);
         assert!(matches!(
             original.check_settlement(),
             Err(Error::SettlementSuperseded { .. })
@@ -1017,7 +1017,7 @@ mod metrics {
                 slot: AdmissionSlot::Ordinary,
             },
             Instant::now(),
-            EngineTurn::INPUT_ONLY,
+            EngineTurn::InputOnly,
         );
         assert_eq!(
             effects.iter().any(|effect| matches!(
@@ -1515,7 +1515,7 @@ mod lifecycle_trace {
 
     fn phase_name(phase: Phase) -> String {
         match phase {
-            Phase::Ready { .. } => "ready".to_owned(),
+            Phase::Ready => "ready".to_owned(),
             Phase::Sending { .. } => "sending".to_owned(),
             Phase::AwaitingAck { .. } => "awaiting-ack".to_owned(),
             Phase::AwaitingCompletion { .. } => "awaiting-completion".to_owned(),
@@ -1922,7 +1922,7 @@ mod lifecycle_trace {
             );
             effects.extend(
                 self.state_mut()
-                    .finish_input_turn(turn, EngineTurn::INPUT_ONLY),
+                    .finish_input_turn(turn, EngineTurn::InputOnly),
             );
             self.drain(effects, "admission", out);
             assert!(
@@ -2189,7 +2189,7 @@ mod lifecycle_trace {
                         self.state_mut().apply_effect(effect);
                         let queued = matches!(
                             self.cancel_phase,
-                            Some(Phase::Ready { .. } | Phase::Backoff { .. })
+                            Some(Phase::Ready | Phase::Backoff { .. })
                         );
                         out.push(format!(
                             "{} effect cancellation-recorded id={} disposition={} cancel-frame=none",
@@ -2459,7 +2459,7 @@ mod lifecycle_trace {
                 &staged,
                 super::write_outcome(write_result(&label)),
                 now,
-                EngineTurn::INPUT_ONLY,
+                EngineTurn::InputOnly,
             );
             prepend_effects(queue, produced);
         }

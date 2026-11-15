@@ -3,7 +3,8 @@
 #[cfg(test)]
 use super::CancelState;
 use super::{
-    add_duration, NonZeroDuration, Phase, QueueTicket, ReplyShape, RuntimeRequest, TransmissionId,
+    add_duration, NonZeroDuration, Phase, ReplyShape, RequestFraming, RuntimeRequest,
+    TransmissionId,
 };
 use crate::ViscaSocket;
 use std::time::Instant;
@@ -110,6 +111,7 @@ pub(crate) struct RequestedCancellation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct SendingCancellation {
     pub(crate) transmission: TransmissionId,
+    pub(crate) framing: RequestFraming,
     pub(crate) ambiguity_deadline: Instant,
     pub(crate) observer_open: bool,
 }
@@ -166,11 +168,11 @@ pub(crate) enum ResolvingCancellation {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Lifecycle {
     Ready {
-        ticket: QueueTicket,
         previous_attempt: Option<AttemptFacts>,
     },
     Sending {
         transmission: TransmissionId,
+        framing: RequestFraming,
         started_at: Instant,
         attempt: AttemptFacts,
         reply: SendingReply,
@@ -194,13 +196,13 @@ pub(crate) enum Lifecycle {
         cancellation: ExecutingCancellation,
     },
     AwaitingReply {
+        send_order: TransmissionId,
         sent_at: Instant,
         deadline: Instant,
         attempt: AttemptFacts,
     },
     Backoff {
         ready_at: Instant,
-        queue_generation: u64,
         previous_attempt: AttemptFacts,
     },
     AwaitingCancellationResolution {
@@ -212,10 +214,19 @@ pub(crate) enum Lifecycle {
 }
 
 impl Lifecycle {
+    /// The socket owned by the logical phase, if it owns one.
+    pub(crate) const fn socket(self) -> Option<ViscaSocket> {
+        match self {
+            Self::Executing { socket, .. }
+            | Self::AwaitingCancellationResolution { socket, .. } => Some(socket),
+            _ => None,
+        }
+    }
+
     /// Stable diagnostic/test projection, never an independently stored phase.
     pub(crate) fn phase(self) -> Phase {
         match self {
-            Self::Ready { ticket, .. } => Phase::Ready { ticket },
+            Self::Ready { .. } => Phase::Ready,
             Self::Sending {
                 transmission,
                 started_at,
@@ -244,14 +255,7 @@ impl Lifecycle {
             Self::AwaitingReply {
                 sent_at, deadline, ..
             } => Phase::AwaitingReply { sent_at, deadline },
-            Self::Backoff {
-                ready_at,
-                queue_generation,
-                ..
-            } => Phase::Backoff {
-                ready_at,
-                queue_generation,
-            },
+            Self::Backoff { ready_at, .. } => Phase::Backoff { ready_at },
             Self::AwaitingCancellationResolution {
                 socket,
                 deadline,
@@ -828,7 +832,7 @@ impl Lifecycle {
 }
 
 impl Lifecycle {
-    pub(crate) const fn cancellation_transmission(self) -> Option<TransmissionId> {
+    pub(crate) const fn sending_cancellation(self) -> Option<SendingCancellation> {
         match self {
             Self::Executing {
                 cancellation: ExecutingCancellation::Sending(send),
@@ -837,7 +841,7 @@ impl Lifecycle {
             | Self::AwaitingCancellationResolution {
                 cancellation: ResolvingCancellation::Sending(send),
                 ..
-            } => Some(send.transmission),
+            } => Some(send),
             Self::Executing {
                 cancellation:
                     ExecutingCancellation::None
@@ -961,9 +965,11 @@ impl PendingCancellation {
         self,
         transmission: TransmissionId,
         ambiguity_deadline: Instant,
+        framing: RequestFraming,
     ) -> Lifecycle {
         let send = SendingCancellation {
             transmission,
+            framing,
             ambiguity_deadline,
             observer_open: self.request.observer_open,
         };

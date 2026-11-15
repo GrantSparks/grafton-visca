@@ -1923,7 +1923,7 @@ impl OwnerState {
         result: WriteOutcome,
         now: Instant,
     ) -> VecDeque<Effect> {
-        self.finish_write_turn(staged, result, now, EngineTurn::COMPLETE)
+        self.finish_write_turn(staged, result, now, EngineTurn::Complete)
     }
 
     pub(crate) fn finish_write_turn(
@@ -2094,7 +2094,7 @@ impl OwnerState {
                 active.cancellation = None;
             }
         }
-        effects.extend(self.engine.finish_input_turn(turn, EngineTurn::COMPLETE));
+        effects.extend(self.engine.finish_input_turn(turn, EngineTurn::Complete));
         (effects.into(), answer)
     }
 

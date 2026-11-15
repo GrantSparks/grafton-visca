@@ -32,7 +32,7 @@ impl State {
 
     fn of(phase: Phase) -> Self {
         match phase {
-            Phase::Ready { .. } => Self::Ready,
+            Phase::Ready => Self::Ready,
             Phase::Sending { .. } => Self::Sending,
             Phase::AwaitingAck { .. } => Self::AwaitingAck,
             Phase::AwaitingCompletion { .. } => Self::AwaitingCompletion,
@@ -194,7 +194,7 @@ const EXPECTED: [[Expected; 9]; 8] = [
 /// which combinations the stored lifecycle type can represent.
 fn pair_is_admissible(phase: Phase, cancellation: CancelState) -> bool {
     match phase {
-        Phase::Ready { .. }
+        Phase::Ready
         | Phase::Sending { .. }
         | Phase::Backoff { .. }
         | Phase::AwaitingReply { .. }
@@ -232,7 +232,7 @@ pub(super) fn all_entries_have_admissible_pairs(engine: &ProtocolEngine) -> bool
 }
 
 fn checked_input(engine: &mut ProtocolEngine, input: Input, now: Instant) -> Vec<Effect> {
-    let effects = engine.handle_turn(input, now, EngineTurn::INPUT_ONLY);
+    let effects = engine.handle_turn(input, now, EngineTurn::InputOnly);
     assert!(all_entries_have_admissible_pairs(engine));
     engine.assert_invariants().unwrap();
     effects
@@ -372,7 +372,7 @@ impl Fixture {
             Action::Due => {
                 let entry = self.engine.entry(self.id).unwrap();
                 let due = match entry.phase() {
-                    Phase::Ready { .. } | Phase::Sending { .. } => {
+                    Phase::Ready | Phase::Sending { .. } => {
                         entry.submitted_at
                             + entry.request.context().retry.total_budget.unwrap().get()
                     }

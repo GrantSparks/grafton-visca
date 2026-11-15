@@ -907,13 +907,13 @@ timeout poisons the session.
 
 | `Lifecycle` variant | Phase-local facts | Legal cancellation |
 | --- | --- | --- |
-| `Ready` | Queue ticket and, on retry, the previous written attempt. | None; cancelling removes the entry. |
-| `Sending` | Transmission, start time, attempt facts, and the closed `SendingReply` family. Its result precedes every unrelated input or due pass. | None; commands refuse cancellation with `NotSupported`. |
+| `Ready` | On retry, the previous written attempt. | None; cancelling removes the entry. |
+| `Sending` | Transmission, framing expectation, start time, attempt facts, and the closed `SendingReply` family. Its result precedes every unrelated input or due pass. | None; commands refuse cancellation with `NotSupported`. |
 | `AwaitingAck` | Send time, ACK deadline and attempt facts. | None or requested. |
 | `AwaitingCompletion` | Send time, completion deadline and attempt facts. No socket. | None; cancellation is refused with `NotSupported` (#835). |
 | `Executing` | Socket, start time, original completion deadline and attempt facts. | `ExecutingCancellation`: none, requested, sending, or observation-failed. |
-| `AwaitingReply` | Send time, inquiry deadline and attempt facts. | None; inquiries are not cancellable. |
-| `Backoff` | Ready-at time, queue generation and the previous written attempt retained for exact Sony acceptance. | None. |
+| `AwaitingReply` | Send order, send time, inquiry deadline and attempt facts. | None; inquiries are not cancellable. |
+| `Backoff` | Ready-at time and the previous written attempt retained for exact Sony acceptance. | None. |
 | `AwaitingCancellationResolution` | Socket, original deadline and attempt facts. | `ResolvingCancellation`: requested, sending, awaiting-terminal, or observation-failed; never none. |
 
 `AttemptFacts` holds dispatch-time socket capacity and stream write order.
@@ -941,7 +941,7 @@ reinstalling an immediate deadline (#861).
 
 Cancellation is nested in the lifecycle states that permit it. Requested and
 sending substates carry their ambiguity deadline and observer-open fact; the
-sending substate also carries its transmission. Awaiting-terminal additionally
+sending substate also carries its transmission and framing expectation. Awaiting-terminal additionally
 carries the cancellation observation deadline. Observation-failed records the
 remaining ambiguity lifecycle after its observer has resolved. None of these
 substates repeats the socket: only the enclosing socketed lifecycle owns it.
@@ -953,9 +953,23 @@ transition/property tests independently check that table. The closed state
 representation replaces the former phase-local latch and cancellation checks.
 Only command requests carry `ReplyShape`; inquiry contexts carry none. Active
 phases derive their response family from the lifecycle. Queued and retry work
-consult the immutable request when selecting the next lifecycle. Cross-index
-audits remain, and both halt entry points run the debug invariant hook on every
-return path (#836, #856, #860).
+consult the immutable request when selecting the next lifecycle. `EntryTable`
+owns live entries, eager ready queues, Sony sequence indexes, and a two-slot
+socket table indexed by `ViscaSocket`. Only admission, closed transitions, and
+removal mutate those indexes; there is no mutable entry or index view. A
+camera-proven socket displacement has a closed placement carrying its one
+socketed lifecycle until same-frame cleanup, so removing the predecessor cannot
+release a successor's socket. Capacity, raw holds, and stream-ledger safety
+remain audited, and both halt entry points run the debug invariant hook on every
+return path (#836, #856, #859, #860).
+
+Write receipts name the request and match its active sending transmission.
+Transmission identities never repeat; no parallel write-ownership map exists.
+Raw inquiry order derives from `AwaitingReply`'s required send order. Ready
+queues contain request ids only and eagerly remove ids on every phase change;
+there are no queue generations, stale tickets, or dispatch-time pruning passes.
+The [entry-table audit record](issue_859_entry_table.md) explains each of the
+31 cross-index checks replaced by construction.
 
 ### Transition table
 
@@ -1064,17 +1078,18 @@ than claimed as a snapshot-auditor check.
 - Runtime mutation is serialized per transport. (Enforcement: owner: the one serialized
   coordinator.)
 - Every admitted request has exactly one authoritative entry until safe terminal removal.
-  (Enforcement: audit: entry/index ownership; owner: sole admission map and safe
-  terminal removal.)
+  (Enforcement: types: private entry table and atomic index changes; owner: sole
+  admission path and safe terminal removal.)
 - Every request and cancellation transmission has one active identity and one result. (Enforcement:
-  audit: bidirectional ownership; owner: identified results consume the transmission identity and
-  stale results are ignored, as pinned by `stale_transmission_and_queue_tickets_are_inert`.)
+  types: identity and framing expectation belong to the active sending lifecycle; owner: named
+  receipts match that identity, and `duplicate_write_receipts_do_not_requeue_the_request` pins
+  stale receipt rejection.)
 - Every request reaches at most one terminal engine transition. (Enforcement: owner: sole-entry
   terminal removal and non-reused request identity.)
 - Every retained operation or cancellation observer resolves at most once. (Enforcement: owner:
   one-shot terminal and cancellation slots.)
-- Every target/socket pair has at most one active owner. (Enforcement: audit: exact target/socket
-  ownership.)
+- Every target/socket pair has at most one active owner. (Enforcement: types: atomic entry-table
+  transitions and the closed active/displaced placement.)
 - No retry path writes a command again after its ACK. (Enforcement: type: retry transitions require
   an eligibility value issued only by unacknowledged lifecycles.)
 - Every live raw byte-stream ledger entry belongs to a request that still awaits that answer; the
@@ -1090,12 +1105,13 @@ than claimed as a snapshot-auditor check.
   a response, accept cancellation, or recreate a request. (Enforcement: types: holds have no request
   lifecycle; owner: resolver/dispatch gates.)
 - Every `AwaitingCancellationResolution` entry has non-`None` cancellation state and owns its exact
-  target/socket correlation. (Enforcement: types: resolving cancellation has no none state; audit:
-  exact socket index.)
+  target/socket correlation. (Enforcement: types: resolving cancellation has no none state;
+  entry-table transitions own the exact socket.)
 - Every sequence owner is an active, target-compatible, and phase-compatible entry. (Enforcement:
-  audit: full-width/lower-16 indexes and retained retry history.)
-- Stale queue, retry, deadline, correlation, admission, or transmission tickets cannot send or
-  resolve work. (Enforcement: audit: index ownership; owner: identity/generation revalidation.)
+  types: entry-table transitions update full-width/lower-16 indexes with bounded retry history.)
+- Stale external admission, cancellation, or transmission identities cannot send or resolve work.
+  (Enforcement: owner: checked non-repeating identities and active lifecycle lookup.) Ready queues
+  and due actions have no stale ticket representation.
 - A cancel transmission is emitted at most once for one socket assignment. (Enforcement: owner: emit
   only from the requested substate, then transition to sending.)
 - Observer removal never mutates protocol state or releases protocol capacity early. (Enforcement:
@@ -1111,7 +1127,7 @@ than claimed as a snapshot-auditor check.
 - No slow observer or subscriber can block protocol progress. (Enforcement: owner: bounded
   nonblocking observer/subscriber delivery.)
 - Request-identity wraparound cannot alias active or quarantined work. (Enforcement: owner: checked
-  fail-closed allocators; audit: active/index identity consistency.)
+  fail-closed allocators; types: private entry-table index updates.)
 - All boundary, engine, observer, diagnostics, framing, and subscription memory has a documented
   bound. (Enforcement: audit: engine collection bounds; types/owner: bounded lanes, buffers and
   registries.)
@@ -1134,14 +1150,24 @@ than claimed as a snapshot-auditor check.
   admission-bounded lifecycle storage.)
 
 Sony sequences may remain owned through `Backoff`, `Ready` and `Sending` only
-with evidence of a retained retry attempt. Full-width and lower-16 indexes are
-checked against target, reply shape, phase and sequence history; merely listing
-all eight phase names would not prove compatibility. Transmission count is at
-most two per entry; raw inquiry FIFOs respect their configured per-target bound
-(one in production raw policy); retro handoffs are at most
-`MAX_DISPUTE_HANDOFFS + 2`, and displaced unseen decisions at most two.
-A terminated engine retains no
-live entry, transmission, sequence, socket, hold, ledger debt or queue (#856).
+with evidence of a retained retry attempt. Private full-width and lower-16
+indexes change with phase-compatible history. Raw inquiry correlation derives
+from live phases and send order, including test configurations with several
+concurrent inquiries.
+
+A ledger `accept` decision returns at most `1 + 2 * MAX_DISPUTE_HANDOFFS` = 7
+retroactive frames: its opening error, then each of the three handoffs' ACK and
+optional named terminal. The opening error cannot carry a named follow-up.
+`Answered` stores all seven inline. Deferred evidence belongs to one local
+engine decision, never engine state; that decision can collect one such result
+per target plus two socketless candidates (7 * 7 + 2 = 51 frames inline), and
+at most two distinct displaced owners per target (14 inline). It applies
+displaced owners before retroactive frames at the existing drain points and is
+consumed before effects return to the owner. The largest real ledger decision
+and the all-target inline capacity have explicit tests.
+
+A terminated engine retains no live entry, sequence, socket, hold, ledger debt
+or queue (#856, #859).
 
 ## Scheduling and async source arbitration
 

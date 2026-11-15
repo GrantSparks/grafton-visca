@@ -98,7 +98,7 @@ impl OwnerState {
         });
         // Input-only finalization preserves all protocol pacing; the shell
         // starts ordinary dispatch after publishing the bounded receipt.
-        let _ = self.finish_input_turn(turn, EngineTurn::INPUT_ONLY);
+        let _ = self.finish_input_turn(turn, EngineTurn::InputOnly);
         HaltReceipt { slots, deadline }
     }
 }

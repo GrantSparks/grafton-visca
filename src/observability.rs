@@ -251,8 +251,6 @@ pub enum DiagnosticCancellation {
 pub enum DiagnosticIgnoreReason {
     /// The request identity was not present.
     UnknownRequest,
-    /// A queue ticket was stale.
-    StaleQueueTicket,
     /// A transmission identity was stale.
     StaleTransmission,
     /// A write result did not match the active transmission.
@@ -474,7 +472,7 @@ impl DiagnosticEvent {
         };
 
         let phase = |value: Lifecycle| match value.phase() {
-            Phase::Ready { .. } => DiagnosticPhase::Ready,
+            Phase::Ready => DiagnosticPhase::Ready,
             Phase::Sending { .. } => DiagnosticPhase::Sending,
             Phase::AwaitingAck { .. } => DiagnosticPhase::AwaitingAck,
             Phase::AwaitingCompletion { .. } => DiagnosticPhase::AwaitingCompletion,
@@ -518,7 +516,6 @@ impl DiagnosticEvent {
         };
         let ignored = |value: IgnoreReason| match value {
             IgnoreReason::UnknownRequest => DiagnosticIgnoreReason::UnknownRequest,
-            IgnoreReason::StaleQueueTicket => DiagnosticIgnoreReason::StaleQueueTicket,
             IgnoreReason::StaleTransmission => DiagnosticIgnoreReason::StaleTransmission,
             IgnoreReason::IncompatibleTransmissionResult => {
                 DiagnosticIgnoreReason::IncompatibleTransmissionResult

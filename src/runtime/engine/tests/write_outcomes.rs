@@ -373,7 +373,7 @@ fn a_result_with_another_requests_identity_cannot_consume_the_active_write() {
             result: WriteOutcome::NotSent(Error::InvalidRequest("wrong request".into())),
         },
         now,
-        EngineTurn::INPUT_ONLY,
+        EngineTurn::InputOnly,
     );
     assert_eq!(
         ignored_reasons(&wrong),

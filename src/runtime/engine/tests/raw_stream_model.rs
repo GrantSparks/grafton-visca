@@ -926,7 +926,7 @@ impl Session {
                                 result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
                             },
                             self.now,
-                            EngineTurn::INPUT_ONLY,
+                            EngineTurn::InputOnly,
                         ));
                         if self.engine.assert_input_boundary().is_ok() {
                             next.extend(self.engine.advance(self.now));
@@ -1211,7 +1211,7 @@ impl Session {
             let effects = self.engine.handle_turn(
                 frame(target, None, response.clone()),
                 self.now,
-                EngineTurn::INPUT_ONLY,
+                EngineTurn::InputOnly,
             );
             let accepted_after = self.accepted_completions(camera_id);
             let mut bound = false;

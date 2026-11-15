@@ -115,7 +115,7 @@ test-utils = ["grafton-visca-test-support/test-utils"]
 [dependencies]
 bytes = "1.11"
 flume = "0.12"
-smallvec = "1.15"
+smallvec = { version = "1.15", features = ["const_generics"] }
 grafton-visca-macros = { path = "grafton-visca-macros", version = "=2.0.0-rc.3" }
 tracing = "0.1"
 nom = "8.0.0"

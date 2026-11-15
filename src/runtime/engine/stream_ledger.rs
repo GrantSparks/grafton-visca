@@ -319,6 +319,11 @@ type Queue = VecDeque<Outstanding>;
 /// explanation is true ([`StreamLedger::answer`]).
 pub(crate) const MAX_DISPUTE_HANDOFFS: usize = 3;
 
+/// The opening error plus an ACK and its named follow for each hand-off.
+/// The first step cannot gain a follow because its evidence is an error.
+pub(crate) const MAX_RETRO_FRAMES: usize = 1 + 2 * MAX_DISPUTE_HANDOFFS;
+pub(crate) type RetroFrames = SmallVec<[Retro; MAX_RETRO_FRAMES]>;
+
 /// The oldest-first answer queue of every raw stream target.
 #[derive(Debug, Default)]
 struct LedgerTarget {
@@ -458,7 +463,7 @@ pub(crate) struct Answered {
     /// Whether an owed inquiry reply was paid or retired.
     pub(crate) reply_settled: bool,
     /// Frames a proven dispute assigns to their requests, in arrival order.
-    pub(crate) retro: SmallVec<[Retro; MAX_DISPUTE_HANDOFFS + 1]>,
+    pub(crate) retro: RetroFrames,
     /// Whether a proven dispute retired a `CompletionOnly` entry as rejected.
     pub(crate) completion_only_retired: bool,
 }
@@ -1583,5 +1588,33 @@ mod tests {
             ]
         );
         assert!(ledger.is_empty());
+    }
+
+    #[test]
+    fn the_largest_dispute_decision_fits_its_exact_inline_bound() {
+        let mut ledger = owed(&[Owes::Completion, Owes::Ack]);
+        ledger.answer(TARGET, Answer::SocketlessError, Evidence::Error(0x41));
+        for (id, socket) in [
+            (3, ViscaSocket::S1),
+            (4, ViscaSocket::S2),
+            (5, ViscaSocket::S1),
+        ] {
+            ledger.push(TARGET, request(id), GenerationTicket(1), Owes::Ack);
+            ledger.mark_written(TARGET, request(id), false);
+            ledger.answer(TARGET, Answer::Ack, Evidence::Ack(Some(socket)));
+            assert!(ledger.follow(TARGET, NamedFrame::Completion(socket)));
+            ledger.retire(TARGET, request(id), |_| {
+                (Instant::now(), Duration::from_secs(1))
+            });
+        }
+        let answered = ledger.answer(TARGET, Answer::Completion, Evidence::Other);
+        assert_eq!(answered.retro.len(), MAX_RETRO_FRAMES);
+        assert_eq!(MAX_RETRO_FRAMES, 7);
+        assert!(!answered.retro.spilled());
+        assert_eq!(answered.retro[0].evidence, Evidence::Error(0x41));
+        assert_eq!(
+            answered.retro.last().map(|retro| retro.evidence),
+            Some(Evidence::Named(NamedFrame::Completion(ViscaSocket::S1)))
+        );
     }
 }

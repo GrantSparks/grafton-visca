@@ -66,8 +66,8 @@ fn sony_late_ack_adopts_acceptance_before_any_retry_write() {
             };
             if waiting == 2 {
                 at = ready_at;
-                engine.run_due(at, &mut Vec::new());
-                assert!(matches!(phase_of(&engine, id), Some(Phase::Ready { .. })));
+                engine.run_due(at, &mut Decision::new());
+                assert!(matches!(phase_of(&engine, id), Some(Phase::Ready)));
             }
         }
         let accepted = engine.handle(ack(EnvelopeKind::Sony, ViscaSocket::S1), at);
@@ -127,7 +127,7 @@ fn sony_late_completion_applies_each_unacknowledged_retry_path() {
             };
             if ready {
                 at = ready_at;
-                engine.run_due(at, &mut Vec::new());
+                engine.run_due(at, &mut Decision::new());
             }
             let completed = engine.handle(complete(EnvelopeKind::Sony, Some(ViscaSocket::S1)), at);
             assert_applied(&completed, id);
@@ -204,21 +204,21 @@ fn acknowledged_lifecycle_cannot_supply_retry_eligibility() {
     assert!(engine
         .entry(id)
         .unwrap()
-        .lifecycle
+        .lifecycle()
         .retry_eligibility(true)
         .is_some());
     engine.handle(ack(EnvelopeKind::Sony, ViscaSocket::S1), start);
     assert!(engine
         .entry(id)
         .unwrap()
-        .lifecycle
+        .lifecycle()
         .retry_eligibility(true)
         .is_none());
     engine.handle(Input::Cancel { id }, start);
     assert!(engine
         .entry(id)
         .unwrap()
-        .lifecycle
+        .lifecycle()
         .retry_eligibility(true)
         .is_none());
 }
@@ -226,16 +226,16 @@ fn acknowledged_lifecycle_cannot_supply_retry_eligibility() {
 #[test]
 fn late_sony_completion_does_not_outlive_the_total_budget_in_backoff() {
     let start = Instant::now();
-    let (mut engine, id) = sony_waiting(start);
+    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+    let mut request = command(1, CancellationPolicy::Supported);
+    request.context_mut().retry.total_budget =
+        Some(NonZeroDuration::new(Duration::from_millis(22)).unwrap());
+    request.context_mut().retry.initial_backoff = Duration::from_millis(1);
+    request.context_mut().retry.maximum_backoff = Duration::from_millis(1);
+    let (write, id) = admit(&mut engine, 1, request, start);
+    send_ok(&mut engine, &write, Some(SEQUENCE), start);
     engine.advance(start + Duration::from_millis(20));
-    engine
-        .entries
-        .get_mut(&id)
-        .unwrap()
-        .request
-        .context_mut()
-        .retry
-        .total_budget = Some(NonZeroDuration::new(Duration::from_millis(22)).unwrap());
+
     let late = engine.handle(
         complete(EnvelopeKind::Sony, Some(ViscaSocket::S1)),
         start + Duration::from_millis(23),
@@ -396,8 +396,8 @@ fn order_snapshot(
         + Duration::from_micros(offset);
     let mut effects = Vec::new();
     if due_first {
-        effects.extend(engine.advance_turn(late, EngineTurn::INPUT_ONLY));
-        engine.run_due(late, &mut effects);
+        effects.extend(engine.advance_turn(late, EngineTurn::InputOnly));
+        effects.extend(due_effects(&mut engine, late));
     }
     let response = if completion {
         DecodedResponse::Completion { socket: None }
@@ -406,8 +406,8 @@ fn order_snapshot(
             socket: Some(ViscaSocket::S1),
         }
     };
-    effects.extend(engine.handle_turn(answer(envelope, response), late, EngineTurn::INPUT_ONLY));
-    engine.run_due(late, &mut effects);
+    effects.extend(engine.handle_turn(answer(envelope, response), late, EngineTurn::InputOnly));
+    effects.extend(due_effects(&mut engine, late));
     let outcomes = effects
         .iter()
         .filter_map(|effect| match effect {
@@ -512,7 +512,7 @@ proptest! {
                         prop_assert_eq!(requested, sequence);
                     }
                     effects.extend(engine.handle_turn(Input::TransmissionFinished {
-request, transmission, result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(sequence))) }, now, EngineTurn::INPUT_ONLY));
+request, transmission, result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(sequence))) }, now, EngineTurn::InputOnly));
                 }
             }
             prop_assert!(engine.assert_invariants().is_ok());
