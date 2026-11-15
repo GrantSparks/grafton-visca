@@ -232,8 +232,11 @@ mod tests {
         let profile = ProfileSpec::from_compile_time::<GenericVisca>().unwrap();
         let prepared = prepare_command(
             &crate::request::builtin::FocusModeCommand::Manual,
-            crate::target::TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )

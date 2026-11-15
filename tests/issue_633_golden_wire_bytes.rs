@@ -193,12 +193,13 @@ fn absolute_and_relative_pan_tilt_positions_match_golden_frames() {
         "fixture assumption: signed-centered wire coordinates"
     );
 
-    let absolute = PanTiltAbsolute::for_profile(
+    let absolute = PanTiltAbsolute::for_target(
         Degrees(10.0),
         Degrees(-5.0),
         pan_speed(0x0A),
         tilt_speed(0x05),
-        &profile,
+        &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, profile.clone())
+            .expect("target registration"),
     )
     .expect("absolute pan/tilt target inside the profile range");
     assert_golden(
@@ -207,12 +208,13 @@ fn absolute_and_relative_pan_tilt_positions_match_golden_frames() {
         patterns::pan_tilt::ABSOLUTE_PAN_144_TILT_NEG_72,
     );
 
-    let relative = PanTiltRelative::for_profile(
+    let relative = PanTiltRelative::for_target(
         Degrees(10.0),
         Degrees(-5.0),
         pan_speed(0x0A),
         tilt_speed(0x05),
-        &profile,
+        &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, profile.clone())
+            .expect("target registration"),
     )
     .expect("relative pan/tilt offset inside the profile range");
     assert_golden(
@@ -261,8 +263,17 @@ fn standard_visca_pan_tilt_limit_corners_match_golden_frames() {
             ][..],
         ),
     ] {
-        let set = PanTiltLimitSet::for_profile(corner, Degrees(10.0), Degrees(-5.0), &profile)
-            .expect("standard VISCA limit position");
+        let set = PanTiltLimitSet::for_target(
+            corner,
+            Degrees(10.0),
+            Degrees(-5.0),
+            &grafton_visca::TargetRegistration::new(
+                grafton_visca::CameraId::CAMERA_1,
+                profile.clone(),
+            )
+            .expect("target registration"),
+        )
+        .expect("standard VISCA limit position");
         assert_golden(&format!("{label} set"), &set, set_golden);
 
         let clear =
@@ -293,12 +304,13 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
     assert_eq!(SonyBRC300::PAN_DEGREES_TO_UNITS, -208.0);
     assert_eq!(SonyBRC300::TILT_DEGREES_TO_UNITS, 208.0);
 
-    let absolute_error = PanTiltAbsolute::for_profile(
+    let absolute_error = PanTiltAbsolute::for_target(
         Degrees(45.0),
         Degrees(15.0),
         pan_speed(0x18),
         tilt_speed(0x14),
-        &profile,
+        &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, profile.clone())
+            .expect("target registration"),
     )
     .expect_err("BRC-300 absolute position must reject unequal paired speeds");
     assert!(matches!(
@@ -306,12 +318,13 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
         Error::InvalidRequest(message) if message.contains("pan and tilt speeds must match")
     ));
 
-    let relative_error = PanTiltRelative::for_profile(
+    let relative_error = PanTiltRelative::for_target(
         Degrees(45.0),
         Degrees(15.0),
         pan_speed(0x18),
         tilt_speed(0x14),
-        &profile,
+        &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, profile.clone())
+            .expect("target registration"),
     )
     .expect_err("BRC-300 relative position must reject unequal paired speeds");
     assert!(matches!(
@@ -319,12 +332,13 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
         Error::InvalidRequest(message) if message.contains("pan and tilt speeds must match")
     ));
 
-    let absolute = PanTiltAbsolute::for_profile(
+    let absolute = PanTiltAbsolute::for_target(
         Degrees(45.0),
         Degrees(15.0),
         pan_speed(0x09),
         tilt_speed(0x09),
-        &profile,
+        &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, profile.clone())
+            .expect("target registration"),
     )
     .expect("BRC-300 absolute position");
     assert_golden(
@@ -336,12 +350,13 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
         ],
     );
 
-    let relative = PanTiltRelative::for_profile(
+    let relative = PanTiltRelative::for_target(
         Degrees(45.0),
         Degrees(15.0),
         pan_speed(0x09),
         tilt_speed(0x09),
-        &profile,
+        &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, profile.clone())
+            .expect("target registration"),
     )
     .expect("BRC-300 relative position");
     assert_golden(
@@ -353,12 +368,13 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
         ],
     );
 
-    let fastest = PanTiltAbsolute::for_profile(
+    let fastest = PanTiltAbsolute::for_target(
         Degrees(45.0),
         Degrees(15.0),
         pan_speed(0x18),
         tilt_speed(0x18),
-        &profile,
+        &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, profile.clone())
+            .expect("target registration"),
     )
     .expect("BRC-300 highest documented paired speed");
     assert_golden(
@@ -370,11 +386,12 @@ fn sony_brc300_profile_uses_documented_position_and_limit_frames() {
         ],
     );
 
-    let limit = PanTiltLimitSet::for_profile(
+    let limit = PanTiltLimitSet::for_target(
         PanTiltLimitCorner::UpRight,
         Degrees(45.0),
         Degrees(15.0),
-        &profile,
+        &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, profile.clone())
+            .expect("target registration"),
     )
     .expect("BRC-300 limit position");
     assert_golden(

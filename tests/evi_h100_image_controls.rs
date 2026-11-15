@@ -37,13 +37,25 @@ fn r8_noise_reduction_is_the_2d_level_family() {
         let command =
             NoiseReduction2D::with_level(NoiseReduction2DLevel::new(level).expect("level"));
         command
-            .validate_for_profile(&profile)
+            .validate_for_target(
+                &grafton_visca::TargetRegistration::new(
+                    grafton_visca::CameraId::CAMERA_1,
+                    profile.clone(),
+                )
+                .expect("target registration"),
+            )
             .unwrap_or_else(|error| panic!("NR level {level}: {error}"));
         assert_eq!(wire(&command), [0x81, 0x01, 0x04, 0x53, level, 0xFF]);
     }
     // `CAM_NRInq` `8x 09 04 53 FF`.
     NoiseReduction2DInquiry
-        .validate_for_profile(&profile)
+        .validate_for_target(
+            &grafton_visca::TargetRegistration::new(
+                grafton_visca::CameraId::CAMERA_1,
+                profile.clone(),
+            )
+            .expect("target registration"),
+        )
         .expect("NR level inquiry");
     assert_eq!(
         wire(&NoiseReduction2DInquiry),
@@ -52,11 +64,23 @@ fn r8_noise_reduction_is_the_2d_level_family() {
 
     // R8 lists no `04 50` auto/manual mode.
     assert!(matches!(
-        NoiseReduction2DModeCommand::new(NoiseReduction2DMode::Auto).validate_for_profile(&profile),
+        NoiseReduction2DModeCommand::new(NoiseReduction2DMode::Auto).validate_for_target(
+            &grafton_visca::TargetRegistration::new(
+                grafton_visca::CameraId::CAMERA_1,
+                profile.clone()
+            )
+            .expect("target registration")
+        ),
         Err(Error::FeatureNotSupported { .. })
     ));
     assert!(matches!(
-        NoiseReduction2DModeInquiry.validate_for_profile(&profile),
+        NoiseReduction2DModeInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(
+                grafton_visca::CameraId::CAMERA_1,
+                profile.clone()
+            )
+            .expect("target registration")
+        ),
         Err(Error::FeatureNotSupported { .. })
     ));
 }
@@ -67,26 +91,48 @@ fn r8_color_gain_and_hue_are_the_saturation_and_hue_controls() {
     // `CAM_ColorGain` Direct `8x 01 04 49 00 00 00 0p FF`, 0h..Eh.
     let saturation = SaturationCommand::new(SaturationLevel::new(0x0E).expect("level"));
     saturation
-        .validate_for_profile(&profile)
+        .validate_for_target(
+            &grafton_visca::TargetRegistration::new(
+                grafton_visca::CameraId::CAMERA_1,
+                profile.clone(),
+            )
+            .expect("target registration"),
+        )
         .expect("color gain");
     assert_eq!(
         wire(&saturation),
         [0x81, 0x01, 0x04, 0x49, 0x00, 0x00, 0x00, 0x0E, 0xFF]
     );
     SaturationInquiry
-        .validate_for_profile(&profile)
+        .validate_for_target(
+            &grafton_visca::TargetRegistration::new(
+                grafton_visca::CameraId::CAMERA_1,
+                profile.clone(),
+            )
+            .expect("target registration"),
+        )
         .expect("color gain inquiry");
     assert_eq!(wire(&SaturationInquiry), [0x81, 0x09, 0x04, 0x49, 0xFF]);
 
     // `CAM_ColorHue` Direct `8x 01 04 4F 00 00 00 0p FF`, 0h..Eh.
     let hue = HueCommand::new(HueLevel::new(0x0E).expect("level"));
-    hue.validate_for_profile(&profile).expect("color hue");
+    hue.validate_for_target(
+        &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, profile.clone())
+            .expect("target registration"),
+    )
+    .expect("color hue");
     assert_eq!(
         wire(&hue),
         [0x81, 0x01, 0x04, 0x4F, 0x00, 0x00, 0x00, 0x0E, 0xFF]
     );
     HueInquiry
-        .validate_for_profile(&profile)
+        .validate_for_target(
+            &grafton_visca::TargetRegistration::new(
+                grafton_visca::CameraId::CAMERA_1,
+                profile.clone(),
+            )
+            .expect("target registration"),
+        )
         .expect("color hue inquiry");
     assert_eq!(wire(&HueInquiry), [0x81, 0x09, 0x04, 0x4F, 0xFF]);
 }
@@ -103,15 +149,33 @@ fn r8_aperture_and_picture_effect_are_metadata_only() {
     // The typed sharpness surface also sends the `04 05` mode R8 lacks, and
     // the typed picture-effect inquiry reads R8's Neg.Art `02` as Off.
     assert!(matches!(
-        SharpnessModeInquiry.validate_for_profile(&profile),
+        SharpnessModeInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(
+                grafton_visca::CameraId::CAMERA_1,
+                profile.clone()
+            )
+            .expect("target registration")
+        ),
         Err(Error::FeatureNotSupported { .. })
     ));
     assert!(matches!(
-        PictureEffectCommand::new(PictureEffectMode::BlackAndWhite).validate_for_profile(&profile),
+        PictureEffectCommand::new(PictureEffectMode::BlackAndWhite).validate_for_target(
+            &grafton_visca::TargetRegistration::new(
+                grafton_visca::CameraId::CAMERA_1,
+                profile.clone()
+            )
+            .expect("target registration")
+        ),
         Err(Error::FeatureNotSupported { .. })
     ));
     assert!(matches!(
-        PictureEffectInquiry.validate_for_profile(&profile),
+        PictureEffectInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(
+                grafton_visca::CameraId::CAMERA_1,
+                profile.clone()
+            )
+            .expect("target registration")
+        ),
         Err(Error::FeatureNotSupported { .. })
     ));
 }

@@ -1409,27 +1409,19 @@ impl ProfileSpec {
         self.facts.pan_tilt_coordinates
     }
 
-    pub(crate) fn convert_pan_tilt_degrees(
+    pub(crate) fn supports_mount_selection(&self) -> bool {
+        self.capabilities().profile_id == Some(crate::camera::profiles::ProfileId::SonyFr7)
+    }
+
+    pub(crate) fn tilt_range_for_mount(
         &self,
-        pan_degrees: f32,
-        tilt_degrees: f32,
-    ) -> Result<(i32, i32)> {
-        let conversion = self.facts.pan_tilt_coordinates.ok_or_else(|| {
-            Error::InvalidRequest("profile has no pan/tilt coordinate conversion".into())
-        })?;
-        let position = conversion.checked_units(
-            crate::inquiry_conversions::PanTiltPositionDeg::new(
-                crate::units::Degrees(pan_degrees),
-                crate::units::Degrees(tilt_degrees),
-            ),
-            PanTiltRanges {
-                pan_degrees: &self.facts.capabilities.pan_range_degrees,
-                tilt_degrees: &self.facts.capabilities.tilt_range_degrees,
-                pan_units: &self.facts.capabilities.pan_range,
-                tilt_units: &self.facts.capabilities.tilt_range,
-            },
-        )?;
-        Ok((position.pan, position.tilt))
+        mount: Option<crate::MountPosition>,
+    ) -> std::ops::RangeInclusive<i32> {
+        if self.supports_mount_selection() && mount == Some(crate::MountPosition::Ceiling) {
+            -0x0C183..=0x00DD2
+        } else {
+            self.capabilities().tilt_range.clone()
+        }
     }
 
     /// Converts relative degrees using the profile scale and the complete
@@ -2813,20 +2805,22 @@ mod tests {
             .expect("unsigned profile");
         let pan = crate::types::PanSpeed::new(5).expect("pan speed");
         let tilt = crate::types::TiltSpeed::new(5).expect("tilt speed");
-        let relative = PanTiltRelative::for_profile(
+        let relative = PanTiltRelative::for_target(
             crate::units::Degrees(0.0),
             crate::units::Degrees(0.0),
             pan,
             tilt,
-            &profile,
+            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
+                .expect("target registration"),
         )
         .expect("zero offset");
-        let absolute = PanTiltAbsolute::for_profile(
+        let absolute = PanTiltAbsolute::for_target(
             crate::units::Degrees(0.0),
             crate::units::Degrees(0.0),
             pan,
             tilt,
-            &profile,
+            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
+                .expect("target registration"),
         )
         .expect("center");
         let mut buffer = [0; 17];
@@ -2988,9 +2982,12 @@ mod tests {
             );
 
             let conversion = profile.pan_tilt_coordinates().expect("BRC-300 coordinates");
-            let (pan, tilt) = profile
-                .convert_pan_tilt_degrees(45.0, 15.0)
-                .expect("right/up BRC-300 target");
+            let (pan, tilt) = crate::TargetRegistration::from_profile(
+                crate::target::TargetSlot::CAMERA_1,
+                profile.clone(),
+            )
+            .convert_pan_tilt_degrees(45.0, 15.0)
+            .expect("right/up BRC-300 target");
             assert_eq!((pan, tilt), (-0x02490, 0x0C30));
             assert_eq!(pan as f32 / conversion.pan_degrees_to_units(), 45.0);
             assert_eq!(tilt as f32 / conversion.tilt_degrees_to_units(), 15.0);
@@ -3102,9 +3099,12 @@ mod tests {
         assert!(source_declared_status
             .capabilities()
             .supports_typed(TypedSupportSurface::IrisControlInquiry));
-        crate::Request::validate_for_profile(
+        crate::Request::validate_for_target(
             &crate::command::IrisControlInquiry,
-            &source_declared_status,
+            &crate::TargetRegistration::from_profile(
+                crate::target::TargetSlot::CAMERA_1,
+                source_declared_status.clone(),
+            ),
         )
         .expect("source-declared iris control-status inquiry must validate");
 
@@ -3229,9 +3229,12 @@ mod tests {
             .build()
             .expect("one preset, number 0");
         let set = |number: u8| {
-            crate::Request::validate_for_profile(
+            crate::Request::validate_for_target(
                 &PresetSet::new(crate::command::PresetNumber::new(number).expect("preset number")),
-                &single,
+                &crate::TargetRegistration::from_profile(
+                    crate::target::TargetSlot::CAMERA_1,
+                    single.clone(),
+                ),
             )
         };
         set(0).expect("preset 0 is the highest");
@@ -3285,11 +3288,14 @@ mod tests {
         let profile = runtime_builder(capabilities)
             .build()
             .expect("marker with a preset speed range");
-        crate::Request::validate_for_profile(
+        crate::Request::validate_for_target(
             &crate::command::preset::PresetRecallSpeedCommand::new(
                 crate::command::preset::PresetRecallSpeed::new(24).expect("preset speed"),
             ),
-            &profile,
+            &crate::TargetRegistration::from_profile(
+                crate::target::TargetSlot::CAMERA_1,
+                profile.clone(),
+            ),
         )
         .expect("in-range recall speed");
     }
@@ -3304,9 +3310,12 @@ mod tests {
         use crate::MotionSyncMode;
 
         let validate = |profile: &ProfileSpec, speed: u8| {
-            crate::Request::validate_for_profile(
+            crate::Request::validate_for_target(
                 &SetMotionSyncPreset::new(MotionSyncSpeed::new(speed).expect("speed")),
-                profile,
+                &crate::TargetRegistration::from_profile(
+                    crate::target::TargetSlot::CAMERA_1,
+                    profile.clone(),
+                ),
             )
         };
 
@@ -3317,8 +3326,14 @@ mod tests {
             .build()
             .expect("motion-sync profile");
         validate(&bounded, 16).expect("in-range speed");
-        crate::Request::validate_for_profile(&SetMotionSyncMode::new(MotionSyncMode::On), &bounded)
-            .expect("motion-sync mode");
+        crate::Request::validate_for_target(
+            &SetMotionSyncMode::new(MotionSyncMode::On),
+            &crate::TargetRegistration::from_profile(
+                crate::target::TargetSlot::CAMERA_1,
+                bounded.clone(),
+            ),
+        )
+        .expect("motion-sync mode");
         assert!(matches!(
             validate(&bounded, 17),
             Err(Error::ParameterOutOfRange {
@@ -4262,9 +4277,12 @@ mod tests {
         let profile = runtime_builder(backlight)
             .build()
             .expect("image-backed typed backlight profile");
-        crate::Request::validate_for_profile(
+        crate::Request::validate_for_target(
             &crate::command::BacklightCommand::new(true),
-            &profile,
+            &crate::TargetRegistration::from_profile(
+                crate::target::TargetSlot::CAMERA_1,
+                profile.clone(),
+            ),
         )
         .expect("image-backed typed backlight command");
     }

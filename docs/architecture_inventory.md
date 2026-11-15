@@ -86,7 +86,7 @@ methods and typed inquiry methods, with the same semantic classes. Dynamic
 projection erases profile and request types only; it does not introduce
 another runtime, owner, cancellation, deadline, outcome, or settling policy. Because it carries no compile-time
 marker bounds, it reproduces the static surface's capability gates at runtime
-through `validate_for_profile`, admitting exactly the operations the static
+through `validate_for_target`, admitting exactly the operations the static
 `<noun>()` accessor could name — including the base-domain inquiries, which are
 gated on the same base marker as their noun accessor. Both gates are derived
 from the same noun-table row, so the erased and static gates cannot drift.

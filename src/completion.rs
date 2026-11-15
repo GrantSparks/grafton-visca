@@ -4,7 +4,7 @@
 use std::time::Duration;
 
 #[cfg(any(feature = "blocking", feature = "async"))]
-use crate::{AffectedAxes, CameraId, OperationalTuning, ProfileSpec, Result};
+use crate::{AffectedAxes, OperationalTuning, Result};
 
 /// A closed operation completion kind.
 ///
@@ -16,8 +16,7 @@ pub trait Kind: private::Sealed + Send + Sync + 'static {
     #[cfg(any(feature = "blocking", feature = "async"))]
     #[doc(hidden)]
     fn lower_settlement(
-        target: CameraId,
-        profile: &ProfileSpec,
+        registration: &crate::TargetRegistration,
         tuning: OperationalTuning,
         axes: AffectedAxes,
         default_budget: Duration,
@@ -25,7 +24,7 @@ pub trait Kind: private::Sealed + Send + Sync + 'static {
     where
         Self: Sized,
     {
-        <Self as private::Sealed>::lower(target, profile, tuning, axes, default_budget)
+        <Self as private::Sealed>::lower(registration, tuning, axes, default_budget)
     }
 }
 
@@ -50,8 +49,7 @@ mod private {
 
         #[cfg(any(feature = "blocking", feature = "async"))]
         fn lower(
-            target: crate::CameraId,
-            profile: &crate::ProfileSpec,
+            registration: &crate::TargetRegistration,
             tuning: crate::OperationalTuning,
             axes: crate::AffectedAxes,
             default_budget: std::time::Duration,
@@ -66,13 +64,12 @@ mod private {
 
         #[cfg(any(feature = "blocking", feature = "async"))]
         fn lower(
-            target: crate::CameraId,
-            profile: &crate::ProfileSpec,
+            registration: &crate::TargetRegistration,
             tuning: crate::OperationalTuning,
             axes: crate::AffectedAxes,
             default_budget: std::time::Duration,
         ) -> crate::Result<super::Settlement<Self>> {
-            super::lowering::targeted(target, profile, tuning, axes, default_budget)
+            super::lowering::targeted(registration, tuning, axes, default_budget)
         }
     }
 
@@ -82,13 +79,12 @@ mod private {
 
         #[cfg(any(feature = "blocking", feature = "async"))]
         fn lower(
-            target: crate::CameraId,
-            profile: &crate::ProfileSpec,
+            registration: &crate::TargetRegistration,
             tuning: crate::OperationalTuning,
             axes: crate::AffectedAxes,
             default_budget: std::time::Duration,
         ) -> crate::Result<super::Settlement<Self>> {
-            super::lowering::applied_only(target, profile, tuning, axes, default_budget)
+            super::lowering::applied_only(registration, tuning, axes, default_budget)
         }
     }
 }
@@ -103,7 +99,7 @@ mod lowering {
     use std::time::Duration;
 
     use super::{AppliedOnly, Kind, Targeted};
-    use crate::{AffectedAxes, CameraId, OperationalTuning, ProfileSpec, Result};
+    use crate::{AffectedAxes, OperationalTuning, Result};
 
     /// Opaque settlement lowering returned by [`Kind`].
     ///
@@ -145,36 +141,22 @@ mod lowering {
     }
 
     pub(super) fn applied_only(
-        target: CameraId,
-        profile: &ProfileSpec,
+        registration: &crate::TargetRegistration,
         tuning: OperationalTuning,
         axes: AffectedAxes,
         default_budget: Duration,
     ) -> Result<Settlement<AppliedOnly>> {
-        crate::prepared::lower_applied_only_settlement(
-            crate::target::TargetSlot::try_from(target)?,
-            profile,
-            tuning,
-            axes,
-            default_budget,
-        )?;
+        crate::prepared::lower_applied_only_settlement(registration, tuning, axes, default_budget)?;
         Ok(Settlement::new(()))
     }
 
     pub(super) fn targeted(
-        target: CameraId,
-        profile: &ProfileSpec,
+        registration: &crate::TargetRegistration,
         tuning: OperationalTuning,
         axes: AffectedAxes,
         default_budget: Duration,
     ) -> Result<Settlement<Targeted>> {
-        crate::prepared::lower_targeted_settlement(
-            crate::target::TargetSlot::try_from(target)?,
-            profile,
-            tuning,
-            axes,
-            default_budget,
-        )
-        .map(|inner| Settlement::new(TargetedSettlementPlan { inner }))
+        crate::prepared::lower_targeted_settlement(registration, tuning, axes, default_budget)
+            .map(|inner| Settlement::new(TargetedSettlementPlan { inner }))
     }
 }

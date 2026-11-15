@@ -186,35 +186,34 @@ impl PositionQueryPlan {
     }
 
     fn prepare(
-        target: TargetSlot,
-        profile: &ProfileSpec,
+        registration: &crate::TargetRegistration,
         tuning: OperationalTuning,
         axes: AffectedAxes,
     ) -> Result<Self> {
         Ok(Self {
             pan_tilt: axes
                 .contains(AffectedAxes::PAN_TILT)
-                .then(|| prepare_builtin_inquiry(&PanTiltPositionInquiry, target, profile, tuning))
+                .then(|| prepare_builtin_inquiry(&PanTiltPositionInquiry, registration, tuning))
                 .transpose()?
                 .map(PreparedInquiry::into_template),
             zoom: axes
                 .contains(AffectedAxes::ZOOM)
-                .then(|| prepare_builtin_inquiry(&ZoomPositionInquiry, target, profile, tuning))
+                .then(|| prepare_builtin_inquiry(&ZoomPositionInquiry, registration, tuning))
                 .transpose()?
                 .map(PreparedInquiry::into_template),
             focus: axes
                 .contains(AffectedAxes::FOCUS)
-                .then(|| prepare_builtin_inquiry(&FocusPositionInquiry, target, profile, tuning))
+                .then(|| prepare_builtin_inquiry(&FocusPositionInquiry, registration, tuning))
                 .transpose()?
                 .map(PreparedInquiry::into_template),
             iris: axes
                 .contains(AffectedAxes::IRIS)
-                .then(|| prepare_builtin_inquiry(&IrisInquiry, target, profile, tuning))
+                .then(|| prepare_builtin_inquiry(&IrisInquiry, registration, tuning))
                 .transpose()?
                 .map(PreparedInquiry::into_template),
             nd_filter: axes
                 .contains(AffectedAxes::ND_FILTER)
-                .then(|| prepare_builtin_inquiry(&NdFilterInquiry, target, profile, tuning))
+                .then(|| prepare_builtin_inquiry(&NdFilterInquiry, registration, tuning))
                 .transpose()?
                 .map(PreparedInquiry::into_template),
         })
@@ -228,11 +227,11 @@ impl PositionQueryPlan {
 /// observation and targeted-operation settlement cannot drift in either their
 /// profile admission checks or their selected wire queries.
 pub(crate) fn prepare_position_queries(
-    target: TargetSlot,
-    profile: &ProfileSpec,
+    registration: &crate::TargetRegistration,
     tuning: OperationalTuning,
     axes: AffectedAxes,
 ) -> Result<PositionQueryPlan> {
+    let profile = registration.profile();
     if !profile.supports_axes(axes) {
         return Err(Error::FeatureNotSupported {
             feature: "selected motion axes are not supported by the profile",
@@ -243,7 +242,7 @@ pub(crate) fn prepare_position_queries(
             feature: "position inquiries required for the selected motion axes",
         });
     }
-    PositionQueryPlan::prepare(target, profile, tuning, axes)
+    PositionQueryPlan::prepare(registration, tuning, axes)
 }
 
 /// One complete position sample for an explicitly selected axis set.
@@ -592,12 +591,12 @@ where
 }
 
 pub(crate) fn lower_targeted_settlement(
-    target: TargetSlot,
-    profile: &ProfileSpec,
+    registration: &crate::TargetRegistration,
     tuning: OperationalTuning,
     axes: AffectedAxes,
     default_budget: Duration,
 ) -> Result<SettlementPlan> {
+    let profile = registration.profile();
     if !profile.supports_axes(axes) {
         return Err(Error::FeatureNotSupported {
             feature: "affected operation axes are not supported by the profile",
@@ -612,7 +611,7 @@ pub(crate) fn lower_targeted_settlement(
         });
     }
     Ok(SettlementPlan::Poll {
-        queries: prepare_position_queries(target, profile, tuning, axes)?,
+        queries: prepare_position_queries(registration, tuning, axes)?,
         tolerance: MovementTolerance::default(),
         interval: tuning
             .inquiry_spacing_override()
@@ -623,12 +622,12 @@ pub(crate) fn lower_targeted_settlement(
 }
 
 pub(crate) fn lower_applied_only_settlement(
-    _target: TargetSlot,
-    profile: &ProfileSpec,
+    registration: &crate::TargetRegistration,
     _tuning: OperationalTuning,
     axes: AffectedAxes,
     _default_budget: Duration,
 ) -> Result<()> {
+    let profile = registration.profile();
     if profile.supports_axes(axes) {
         Ok(())
     } else {
@@ -641,8 +640,7 @@ pub(crate) fn lower_applied_only_settlement(
 /// Prepares a generic plain command through the shared lowering path.
 pub(crate) fn prepare_command<C>(
     command: &C,
-    target: TargetSlot,
-    profile: &ProfileSpec,
+    registration: &crate::TargetRegistration,
     tuning: OperationalTuning,
     class: ClassSelection,
 ) -> Result<PreparedCommand>
@@ -651,8 +649,7 @@ where
 {
     prepare_command_with_state(
         command,
-        target,
-        profile,
+        registration,
         tuning,
         class,
         crate::requests::applied_state_projection(command),
@@ -663,20 +660,18 @@ where
 #[cfg(test)]
 pub(crate) fn prepare_builtin_command<C>(
     command: &C,
-    target: TargetSlot,
-    profile: &ProfileSpec,
+    registration: &crate::TargetRegistration,
     tuning: OperationalTuning,
 ) -> Result<PreparedCommand>
 where
     C: PlainCommand + crate::request::builtin::BuiltinValidation + ?Sized,
 {
-    prepare_command(command, target, profile, tuning, ClassSelection::Request)
+    prepare_command(command, registration, tuning, ClassSelection::Request)
 }
 
 fn prepare_command_with_state<C>(
     command: &C,
-    target: TargetSlot,
-    profile: &ProfileSpec,
+    registration: &crate::TargetRegistration,
     tuning: OperationalTuning,
     class: ClassSelection,
     applied_state: Option<AppliedStateProjection>,
@@ -684,11 +679,13 @@ fn prepare_command_with_state<C>(
 where
     C: PlainCommand + ?Sized,
 {
+    let target = registration.slot();
+    let profile = registration.profile();
     profile.validate_tuning(tuning)?;
     validate_timeout_class(command.timeout_class(), false)?;
-    command.validate_for_profile(profile)?;
+    command.validate_for_target(registration)?;
     let wire = encode(command, target, profile)?;
-    let mut context = request_context(command, target, profile, tuning, class, false, false)?;
+    let mut context = request_context(command, registration, tuning, class, false, false)?;
     context.motion = command
         .motion_axes()
         .map(|axes| crate::runtime::engine::MotionEffect { axes, stop: false });
@@ -702,8 +699,7 @@ where
 /// Prepares a generic typed inquiry through the shared lowering path.
 pub(crate) fn prepare_inquiry<Q>(
     inquiry: &Q,
-    target: TargetSlot,
-    profile: &ProfileSpec,
+    registration: &crate::TargetRegistration,
     tuning: OperationalTuning,
     class: ClassSelection,
 ) -> Result<PreparedInquiry<Q::Response>>
@@ -712,8 +708,7 @@ where
 {
     prepare_inquiry_with_policy(
         inquiry,
-        target,
-        profile,
+        registration,
         tuning,
         class,
         crate::requests::builtin_inquiry_syntax_retry(inquiry),
@@ -723,29 +718,20 @@ where
 /// Prepares a crate-generated inquiry with its closed protocol retry policy.
 pub(crate) fn prepare_builtin_inquiry<Q>(
     inquiry: &Q,
-    target: TargetSlot,
-    profile: &ProfileSpec,
+    registration: &crate::TargetRegistration,
     tuning: OperationalTuning,
 ) -> Result<PreparedInquiry<Q::Response>>
 where
     Q: Inquiry + BuiltinInquiryRequest + ?Sized,
 {
-    prepare_inquiry_with_policy(
-        inquiry,
-        target,
-        profile,
-        tuning,
-        ClassSelection::Request,
-        true,
-    )
+    prepare_inquiry_with_policy(inquiry, registration, tuning, ClassSelection::Request, true)
 }
 
 pub(crate) trait BuiltinInquiryRequest: Inquiry {}
 
 fn prepare_inquiry_with_policy<Q>(
     inquiry: &Q,
-    target: TargetSlot,
-    profile: &ProfileSpec,
+    registration: &crate::TargetRegistration,
     tuning: OperationalTuning,
     class: ClassSelection,
     builtin_inquiry_syntax: bool,
@@ -753,6 +739,8 @@ fn prepare_inquiry_with_policy<Q>(
 where
     Q: Inquiry + ?Sized,
 {
+    let target = registration.slot();
+    let profile = registration.profile();
     // An inquiry has exactly one protocol lifecycle: its reply is the
     // terminal evidence. Do not merely ignore a downstream override here;
     // doing so would let an erased/custom inquiry advertise a reply shape the
@@ -777,12 +765,11 @@ where
             feature: "VISCA inquiries",
         });
     }
-    inquiry.validate_for_profile(profile)?;
+    inquiry.validate_for_target(registration)?;
     let wire = encode(inquiry, target, profile)?;
     let context = request_context(
         inquiry,
-        target,
-        profile,
+        registration,
         tuning,
         class,
         true,
@@ -799,8 +786,7 @@ where
 /// Prepares a generic operation through the shared lowering path.
 pub(crate) fn prepare_operation<K, O>(
     operation: &O,
-    target: TargetSlot,
-    profile: &ProfileSpec,
+    registration: &crate::TargetRegistration,
     tuning: OperationalTuning,
     class: ClassSelection,
 ) -> Result<PreparedOperation<K>>
@@ -810,8 +796,7 @@ where
 {
     prepare_operation_with_state(
         operation,
-        target,
-        profile,
+        registration,
         tuning,
         class,
         crate::requests::applied_state_projection(operation),
@@ -822,21 +807,19 @@ where
 #[cfg(test)]
 pub(crate) fn prepare_builtin_operation<K, O>(
     operation: &O,
-    target: TargetSlot,
-    profile: &ProfileSpec,
+    registration: &crate::TargetRegistration,
     tuning: OperationalTuning,
 ) -> Result<PreparedOperation<K>>
 where
     K: completion::Kind,
     O: OperationCommand<K> + crate::request::builtin::BuiltinValidation + ?Sized,
 {
-    prepare_operation::<K, _>(operation, target, profile, tuning, ClassSelection::Request)
+    prepare_operation::<K, _>(operation, registration, tuning, ClassSelection::Request)
 }
 
 fn prepare_operation_with_state<K, O>(
     operation: &O,
-    target: TargetSlot,
-    profile: &ProfileSpec,
+    registration: &crate::TargetRegistration,
     tuning: OperationalTuning,
     class: ClassSelection,
     applied_state: Option<AppliedStateProjection>,
@@ -845,6 +828,8 @@ where
     K: completion::Kind,
     O: OperationCommand<K> + ?Sized,
 {
+    let target = registration.slot();
+    let profile = registration.profile();
     // An operation handle's `applied()` is a protocol-evidence promise. A
     // no-reply command can prove only a successful local write, so keep that
     // fire-and-forget shape on the plain-command path even for downstream or
@@ -861,9 +846,9 @@ where
     // inquiries or encoding the command.  In particular, an unsupported
     // targeted built-in must not even prepare an inquiry plan as a side
     // effect of discovering that its operation class is unavailable.
-    operation.validate_for_profile(profile)?;
+    operation.validate_for_target(registration)?;
     let affected_axes = operation.affected_axes();
-    let mut context = request_context(operation, target, profile, tuning, class, false, false)?;
+    let mut context = request_context(operation, registration, tuning, class, false, false)?;
     let stop = context.control.class == crate::runtime::engine::ControlClass::Urgent;
     context.motion = Some(crate::runtime::engine::MotionEffect {
         axes: affected_axes,
@@ -878,8 +863,7 @@ where
         context.retry.movement_not_executable = false;
     }
     let settlement = K::lower_settlement(
-        target.camera(),
-        profile,
+        registration,
         tuning,
         affected_axes,
         observation_timeout(
@@ -981,8 +965,7 @@ fn validate_timeout_class(class: TimeoutClass, inquiry: bool) -> Result<()> {
 
 fn request_context<R>(
     request: &R,
-    target: TargetSlot,
-    profile: &ProfileSpec,
+    registration: &crate::TargetRegistration,
     tuning: OperationalTuning,
     class: ClassSelection,
     inquiry: bool,
@@ -991,6 +974,8 @@ fn request_context<R>(
 where
     R: Request + ?Sized,
 {
+    let target = registration.slot();
+    let profile = registration.profile();
     let timing = profile.timing();
     let completion = completion_timeout(request.timeout_class(), profile, tuning);
     let inquiry_timeout = tuning
@@ -1677,8 +1662,8 @@ mod tests {
                     frame: FRAME,
                     reported_length: None,
                 },
-                TargetSlot::CAMERA_1,
-                &profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -1691,8 +1676,8 @@ mod tests {
                     frame: FRAME,
                     reported_length: None,
                 },
-                TargetSlot::CAMERA_1,
-                &profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -1711,8 +1696,8 @@ mod tests {
         ] {
             let error = prepare_command(
                 &request,
-                TargetSlot::CAMERA_1,
-                &profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -1726,8 +1711,8 @@ mod tests {
                 frame: &[0x81],
                 reported_length: None,
             },
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1830,8 +1815,8 @@ mod tests {
         ] {
             let error = prepare_command(
                 &DownstreamPlain { frame },
-                target,
-                &profile,
+                &crate::TargetRegistration::new((target).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -1848,8 +1833,8 @@ mod tests {
             &DownstreamPlain {
                 frame: &[0x81, 0x2a, 0x02, 0xa0, 0x04, 0x02, VISCA_TERMINATOR],
             },
-            target,
-            &profile,
+            &crate::TargetRegistration::new((target).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1874,8 +1859,8 @@ mod tests {
         );
         assert!(prepare_inquiry(
             &CountingInquiry,
-            TargetSlot::CAMERA_1,
-            &no_inquiry,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), no_inquiry.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1894,8 +1879,11 @@ mod tests {
         );
         assert!(prepare_operation::<completion::Targeted, _>(
             &CountingTargeted,
-            TargetSlot::CAMERA_1,
-            &missing_custom_zoom,
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).camera(),
+                missing_custom_zoom.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1910,8 +1898,8 @@ mod tests {
         reset_write_count();
         let error = prepare_operation::<completion::AppliedOnly, _>(
             &CountingAppliedOnly,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1930,8 +1918,8 @@ mod tests {
 
         let error = prepare_inquiry(
             &FocusNearLimitInquiry,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1948,8 +1936,8 @@ mod tests {
             crate::command::inquiry_structs::reset_generated_inquiry_write_count();
             match prepare_builtin_inquiry(
                 inquiry,
-                TargetSlot::CAMERA_1,
-                profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
             ) {
                 Err(error) => assert!(
@@ -1997,8 +1985,8 @@ mod tests {
         .expect("valid raw FR7 auto-iris inquiry");
         let prepared_inquiry = prepare_inquiry(
             &auto_iris,
-            TargetSlot::CAMERA_1,
-            &fr7,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), fr7.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -2027,8 +2015,8 @@ mod tests {
         .expect("valid raw FR7 iris-step command");
         let prepared_command = prepare_command(
             &iris_step,
-            TargetSlot::CAMERA_1,
-            &fr7,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), fr7.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -2095,8 +2083,8 @@ mod tests {
         {
             prepare_inquiry(
                 query,
-                TargetSlot::CAMERA_1,
-                profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -2150,8 +2138,8 @@ mod tests {
             .settlement_timeout(Duration::from_secs(62));
         let prepared = prepare_operation::<completion::Targeted, _>(
             &CountingTargeted,
-            TargetSlot::CAMERA_2,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), profile.clone())
+                .expect("valid target registration"),
             tuning,
             ClassSelection::Request,
         )
@@ -2572,8 +2560,8 @@ mod tests {
         let fr7 =
             ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("Sony FR7 profile");
         let error = prepare_position_queries(
-            TargetSlot::CAMERA_2,
-            &fr7,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), fr7.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             AffectedAxes::IRIS,
         )
@@ -2581,8 +2569,8 @@ mod tests {
         assert!(matches!(error, Error::FeatureNotSupported { .. }));
 
         let error = prepare_position_queries(
-            TargetSlot::CAMERA_2,
-            &fr7,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), fr7.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             AffectedAxes::IRIS.union(AffectedAxes::ND_FILTER),
         )
@@ -2590,8 +2578,8 @@ mod tests {
         assert!(matches!(error, Error::FeatureNotSupported { .. }));
 
         let plan = prepare_position_queries(
-            TargetSlot::CAMERA_2,
-            &fr7,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), fr7.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             AffectedAxes::ND_FILTER,
         )
@@ -2625,8 +2613,8 @@ mod tests {
         reset_request_write_count();
         let error = prepare_builtin_operation::<completion::Targeted, _>(
             &IrisReset,
-            TargetSlot::CAMERA_2,
-            &fr7,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), fr7.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect_err("FR7 does not support shared typed iris operations");
@@ -2635,8 +2623,8 @@ mod tests {
 
         let nd = prepare_builtin_operation::<completion::Targeted, _>(
             &NdFilterStepUp,
-            TargetSlot::CAMERA_2,
-            &fr7,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), fr7.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("FR7 ND operation");
@@ -2654,8 +2642,8 @@ mod tests {
             ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("PTZ profile");
         let completed = prepare_builtin_operation::<completion::Targeted, _>(
             &IrisReset,
-            TargetSlot::CAMERA_2,
-            &ptz,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), ptz.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("PTZ iris operation");
@@ -2672,8 +2660,8 @@ mod tests {
         let level = IrisLevel::new(0x14).expect("BRC-H900 iris level");
         let prepared = prepare_builtin_operation::<completion::Targeted, _>(
             &IrisDirect::new(level),
-            TargetSlot::CAMERA_2,
-            &h900,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), h900.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("BRC-H900 high iris operation");
@@ -2727,8 +2715,8 @@ mod tests {
         let generic = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
             .expect("generic profile");
         let error = prepare_position_queries(
-            TargetSlot::CAMERA_1,
-            &generic,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), generic.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             AffectedAxes::ND_FILTER,
         )
@@ -2792,8 +2780,8 @@ mod tests {
             .expect("built-in profile");
         assert!(prepare_command(
             &WrongAddress,
-            TargetSlot::CAMERA_2,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -2806,8 +2794,8 @@ mod tests {
             .expect("built-in profile");
         let custom = prepare_inquiry(
             &DownstreamDerivedInquiry,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -2817,8 +2805,8 @@ mod tests {
 
         let builtin = prepare_inquiry(
             &PowerInquiry,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -2828,8 +2816,8 @@ mod tests {
 
         let settlement_builtin = prepare_builtin_inquiry(
             &PowerInquiry,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("settlement built-in inquiry preparation");
@@ -2851,8 +2839,11 @@ mod tests {
             (
                 prepare_command(
                     &QuickTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     tuning,
                     ClassSelection::Request,
                 )
@@ -2865,8 +2856,11 @@ mod tests {
             (
                 prepare_command(
                     &MovementTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     tuning,
                     ClassSelection::Request,
                 )
@@ -2879,8 +2873,11 @@ mod tests {
             (
                 prepare_command(
                     &PresetTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     tuning,
                     ClassSelection::Request,
                 )
@@ -2893,8 +2890,11 @@ mod tests {
             (
                 prepare_command(
                     &LongRunningTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     tuning,
                     ClassSelection::Request,
                 )
@@ -2907,8 +2907,11 @@ mod tests {
             (
                 prepare_command(
                     &NetworkTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     tuning,
                     ClassSelection::Request,
                 )
@@ -2926,8 +2929,8 @@ mod tests {
         let profile_default = OperationalTuning::new();
         let quick = prepare_command(
             &QuickTimeoutCommand,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             profile_default,
             ClassSelection::Request,
         )
@@ -2944,8 +2947,8 @@ mod tests {
             .inquiry_timeout(Duration::from_secs(17));
         let prepared = prepare_inquiry(
             &CountingInquiry,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             tuning,
             ClassSelection::Request,
         )
@@ -2960,8 +2963,8 @@ mod tests {
                 .expect("built-in profile");
             let mut prepared = prepare_inquiry(
                 &CountingInquiry,
-                TargetSlot::CAMERA_1,
-                &profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -2993,8 +2996,11 @@ mod tests {
                 "quick",
                 prepare_command(
                     &QuickTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     OperationalTuning::new(),
                     ClassSelection::Request,
                 )
@@ -3005,8 +3011,11 @@ mod tests {
                 "movement",
                 prepare_command(
                     &MovementTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     OperationalTuning::new(),
                     ClassSelection::Request,
                 )
@@ -3017,8 +3026,11 @@ mod tests {
                 "preset",
                 prepare_command(
                     &PresetTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     OperationalTuning::new(),
                     ClassSelection::Request,
                 )
@@ -3029,8 +3041,11 @@ mod tests {
                 "long-running",
                 prepare_command(
                     &LongRunningTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     OperationalTuning::new(),
                     ClassSelection::Request,
                 )
@@ -3041,8 +3056,11 @@ mod tests {
                 "network",
                 prepare_command(
                     &NetworkTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     OperationalTuning::new(),
                     ClassSelection::Request,
                 )
@@ -3061,8 +3079,8 @@ mod tests {
         // receipt constructor. Pin that seam separately from plain commands.
         let operation = prepare_operation::<completion::Targeted, _>(
             &CountingTargeted,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -3087,8 +3105,8 @@ mod tests {
 
         let applied_only = prepare_builtin_operation::<completion::AppliedOnly, _>(
             &ZoomStop,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("applied-only operation preparation");
@@ -3115,8 +3133,8 @@ mod tests {
         // 30 s, so a later replay could move the camera after Timeout.
         let movement = prepare_command(
             &RetryingMovementCommand,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new().movement_timeout(Duration::from_secs(30)),
             ClassSelection::Request,
         )
@@ -3134,8 +3152,8 @@ mod tests {
         // for that whole window, not merely the first completion deadline.
         let busy = prepare_command(
             &RetryingQuickCommand,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new().retry_timing(
                 Duration::from_millis(50),
                 Duration::from_millis(500),
@@ -3164,8 +3182,8 @@ mod tests {
             ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("Sony FR7 profile");
         let sony_operation = prepare_operation::<completion::Targeted, _>(
             &CountingTargeted,
-            TargetSlot::CAMERA_1,
-            &sony,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), sony.clone())
+                .expect("valid target registration"),
             OperationalTuning::new().movement_timeout(Duration::from_secs(30)),
             ClassSelection::Request,
         )
@@ -3187,8 +3205,8 @@ mod tests {
             .expect("built-in profile");
         assert!(prepare_inquiry(
             &ClassifiedInquiry,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -3205,8 +3223,8 @@ mod tests {
         ] {
             let error = prepare_inquiry(
                 &NonDefaultReplyShapeInquiry(reply_shape),
-                TargetSlot::CAMERA_1,
-                &profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -3304,8 +3322,11 @@ mod tests {
                         let tuning = OperationalTuning::new().ack_timeout(ack);
                         let prepared = prepare_command(
                             &command,
-                            TargetSlot::CAMERA_1,
-                            &profile,
+                            &crate::TargetRegistration::new(
+                                (TargetSlot::CAMERA_1).camera(),
+                                profile.clone(),
+                            )
+                            .expect("valid target registration"),
                             tuning,
                             ClassSelection::Request,
                         )
@@ -3351,8 +3372,11 @@ mod tests {
             ] {
                 let prepared = prepare_inquiry(
                     &inquiry,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     OperationalTuning::new().ack_timeout(ack),
                     ClassSelection::Request,
                 )
@@ -3388,7 +3412,8 @@ mod tests {
                 .quick_timeout(Duration::from_millis(quick_ms));
             let command = crate::raw::Plain::new([0x81, 0x01, 0x04, 0x00, 0x02, 0xff],
                 TimeoutClass::Quick, RetryClass::Standard, ControlClass::Normal).expect("command");
-            let prepared = prepare_command(&command, TargetSlot::CAMERA_1, &profile,
+            let prepared = prepare_command(&command,
+        &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone()).expect("valid target registration"),
                 tuning, ClassSelection::Request).expect("valid tuning");
             let attempt = prepared.context.timeout.ack + prepared.context.timeout.completion;
             let budget = prepared.context.retry.total_budget;
@@ -3599,15 +3624,15 @@ mod tests {
         let stop_policies = [
             prepare_builtin_operation::<completion::AppliedOnly, _>(
                 &FocusStop,
-                TargetSlot::CAMERA_1,
-                &profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
             )
             .expect("focus stop"),
             prepare_builtin_operation::<completion::AppliedOnly, _>(
                 &ZoomStop,
-                TargetSlot::CAMERA_1,
-                &profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
             )
             .expect("zoom stop"),
@@ -3619,8 +3644,8 @@ mod tests {
         }
         let drive = prepare_builtin_operation::<completion::AppliedOnly, _>(
             &ZoomDrive::Tele,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("zoom drive");
@@ -3636,8 +3661,8 @@ mod tests {
             .expect("built-in profile");
         let prepared = prepare_builtin_operation::<completion::AppliedOnly, _>(
             &crate::request::builtin::ZoomStop,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("preparation");
@@ -3701,47 +3726,50 @@ mod tests {
         let tilt_speed = TiltSpeed::new(7).expect("speed");
         let sony_tilt_speed = TiltSpeed::new(9).expect("matching Sony BRC-300 speed");
 
-        let sony_absolute = PanTiltAbsolute::for_profile(
+        let sony_absolute = PanTiltAbsolute::for_target(
             Degrees(45.0),
             Degrees(15.0),
             pan_speed,
             sony_tilt_speed,
-            &sony,
+            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, sony.clone())
+                .expect("target registration"),
         )
         .expect("Sony BRC-300 absolute");
-        let sony_relative = PanTiltRelative::for_profile(
+        let sony_relative = PanTiltRelative::for_target(
             Degrees(45.0),
             Degrees(15.0),
             pan_speed,
             sony_tilt_speed,
-            &sony,
+            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, sony.clone())
+                .expect("target registration"),
         )
         .expect("Sony BRC-300 relative");
-        let sony_limit = PanTiltLimitSet::for_profile(
+        let sony_limit = PanTiltLimitSet::for_target(
             PanTiltLimitCorner::UpRight,
             Degrees(45.0),
             Degrees(15.0),
-            &sony,
+            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, sony.clone())
+                .expect("target registration"),
         )
         .expect("Sony BRC-300 limit");
         let prepared_sony_absolute = prepare_builtin_operation::<completion::Targeted, _>(
             &sony_absolute,
-            TargetSlot::CAMERA_1,
-            &sony,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), sony.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("prepared Sony BRC-300 absolute");
         let prepared_sony_relative = prepare_builtin_operation::<completion::Targeted, _>(
             &sony_relative,
-            TargetSlot::CAMERA_1,
-            &sony,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), sony.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("prepared Sony BRC-300 relative");
         let prepared_sony_limit = prepare_builtin_command(
             &sony_limit,
-            TargetSlot::CAMERA_1,
-            &sony,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), sony.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("prepared Sony BRC-300 limit");
@@ -3768,8 +3796,8 @@ mod tests {
         );
         let sony_inquiry = prepare_inquiry(
             &PanTiltPositionInquiry,
-            TargetSlot::CAMERA_1,
-            &sony,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), sony.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -3788,43 +3816,46 @@ mod tests {
         {
             let profile = &nearus;
             let prepared_absolute = prepare_builtin_operation::<completion::Targeted, _>(
-                &PanTiltAbsolute::for_profile(
+                &PanTiltAbsolute::for_target(
                     Degrees(45.0),
                     Degrees(15.0),
                     pan_speed,
                     sony_tilt_speed,
-                    profile,
+                    &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
+                        .expect("target registration"),
                 )
                 .expect("Nearus absolute"),
-                TargetSlot::CAMERA_1,
-                profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
             )
             .expect("prepared Nearus absolute");
             let prepared_relative = prepare_builtin_operation::<completion::Targeted, _>(
-                &PanTiltRelative::for_profile(
+                &PanTiltRelative::for_target(
                     Degrees(45.0),
                     Degrees(15.0),
                     pan_speed,
                     sony_tilt_speed,
-                    profile,
+                    &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
+                        .expect("target registration"),
                 )
                 .expect("Nearus relative"),
-                TargetSlot::CAMERA_1,
-                profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
             )
             .expect("prepared Nearus relative");
             let prepared_limit = prepare_builtin_command(
-                &PanTiltLimitSet::for_profile(
+                &PanTiltLimitSet::for_target(
                     PanTiltLimitCorner::UpRight,
                     Degrees(45.0),
                     Degrees(15.0),
-                    profile,
+                    &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
+                        .expect("target registration"),
                 )
                 .expect("Nearus limit"),
-                TargetSlot::CAMERA_1,
-                profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
             )
             .expect("prepared Nearus limit");
@@ -3841,19 +3872,20 @@ mod tests {
                 prepared_sony_limit.wire.as_bytes()
             );
             assert!(matches!(
-                PanTiltAbsolute::for_profile(
+                PanTiltAbsolute::for_target(
                     Degrees(45.0),
                     Degrees(15.0),
                     pan_speed,
                     tilt_speed,
-                    profile,
+                    &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
+                        .expect("target registration"),
                 ),
                 Err(Error::InvalidRequest(_))
             ));
             let inquiry = prepare_inquiry(
                 &PanTiltPositionInquiry,
-                TargetSlot::CAMERA_1,
-                profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -3871,8 +3903,8 @@ mod tests {
             .expect("Sony BRC-300 limit clear");
         let prepared_clear = prepare_command(
             &clear,
-            TargetSlot::CAMERA_1,
-            &sony,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), sony.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -3892,18 +3924,19 @@ mod tests {
             })
         ));
 
-        let absolute = PanTiltAbsolute::for_profile(
+        let absolute = PanTiltAbsolute::for_target(
             Degrees(45.0),
             Degrees(-15.0),
             pan_speed,
             tilt_speed,
-            &signed,
+            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, signed.clone())
+                .expect("target registration"),
         )
         .expect("signed absolute");
         let prepared = prepare_builtin_operation::<completion::Targeted, _>(
             &absolute,
-            TargetSlot::CAMERA_1,
-            &signed,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), signed.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("prepared signed absolute");
@@ -3918,8 +3951,8 @@ mod tests {
         );
         let inquiry = prepare_inquiry(
             &PanTiltPositionInquiry,
-            TargetSlot::CAMERA_1,
-            &signed,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), signed.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -3947,19 +3980,20 @@ mod tests {
             .expect("built-in profile");
         let generic = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
             .expect("generic built-in profile");
-        let pan_tilt = PanTiltAbsolute::for_profile(
+        let pan_tilt = PanTiltAbsolute::for_target(
             Degrees(100.0),
             Degrees(0.0),
             PanSpeed::new(18).expect("conservative range"),
             TiltSpeed::new(17).expect("conservative range"),
-            &generic,
+            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, generic.clone())
+                .expect("target registration"),
         )
         .expect("valid for the source profile");
         reset_request_write_count();
         assert!(prepare_operation::<completion::Targeted, _>(
             &pan_tilt,
-            TargetSlot::CAMERA_1,
-            &nearus,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), nearus.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -3980,8 +4014,8 @@ mod tests {
         reset_request_write_count();
         assert!(prepare_operation::<completion::Targeted, _>(
             &zoom,
-            TargetSlot::CAMERA_1,
-            &no_direct,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), no_direct.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -4008,8 +4042,8 @@ mod tests {
         reset_request_write_count();
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &outside_zoom,
-            TargetSlot::CAMERA_1,
-            &bounded_zoom,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), bounded_zoom.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_err());
@@ -4018,8 +4052,8 @@ mod tests {
         reset_request_write_count();
         assert!(prepare_operation::<completion::AppliedOnly, _>(
             &FocusTrigger::Snap,
-            TargetSlot::CAMERA_1,
-            &no_direct,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), no_direct.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -4030,8 +4064,8 @@ mod tests {
         reset_request_write_count();
         assert!(prepare_command(
             &preset,
-            TargetSlot::CAMERA_1,
-            &nearus,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), nearus.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -4096,8 +4130,8 @@ mod tests {
         fn submission_class(class: ClassSelection) -> EngineControlClass {
             prepare_command(
                 &BackgroundPlain,
-                TargetSlot::CAMERA_1,
-                &profile(),
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile().clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 class,
             )
@@ -4110,8 +4144,8 @@ mod tests {
         fn inquiry_class(class: ClassSelection) -> EngineControlClass {
             prepare_inquiry(
                 &CountingInquiry,
-                TargetSlot::CAMERA_1,
-                &profile(),
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile().clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 class,
             )
@@ -4126,8 +4160,8 @@ mod tests {
         ) -> Result<PreparedOperation<completion::AppliedOnly>> {
             prepare_operation::<completion::AppliedOnly, _>(
                 &DownstreamUrgentStop,
-                TargetSlot::CAMERA_1,
-                &profile(),
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile().clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 class,
             )
@@ -4136,8 +4170,8 @@ mod tests {
         fn builtin_stop_class(class: ClassSelection) -> EngineControlClass {
             prepare_operation::<completion::AppliedOnly, _>(
                 &ZoomStop,
-                TargetSlot::CAMERA_1,
-                &profile(),
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile().clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 class,
             )
@@ -4268,8 +4302,8 @@ mod tests {
             .expect("plain");
         let undeclared = prepare_command(
             &command,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -4277,8 +4311,8 @@ mod tests {
         assert!(undeclared.context.motion.is_none());
         let declared = prepare_command(
             &command.with_motion_axes(AffectedAxes::ZOOM),
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -4322,8 +4356,8 @@ mod tests {
                 crate::raw::Plain::with_policy([0x81, 0x01, 0x02, 0xff], policy).expect("plain");
             let prepared = prepare_command(
                 &command,
-                TargetSlot::CAMERA_1,
-                &profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -4342,8 +4376,8 @@ mod tests {
         .expect("plain");
         let prepared = prepare_command(
             &default_command,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -4357,8 +4391,8 @@ mod tests {
             .expect("built-in profile");
         let error = prepare_operation::<completion::AppliedOnly, _>(
             &NoReplyAppliedOnly,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -4379,10 +4413,11 @@ pub(crate) struct PreparedHalt {
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 pub(crate) fn prepare_halt(
-    target: TargetSlot,
-    profile: &ProfileSpec,
+    registration: &crate::TargetRegistration,
     tuning: OperationalTuning,
 ) -> PreparedHalt {
+    let target = registration.slot();
+    let profile = registration.profile();
     use crate::request::builtin::{FocusStop, ZoomStop};
     let mut budget = completion_timeout(TimeoutClass::Movement, profile, tuning);
     let mut lower = |prepared: Result<PreparedOperation<completion::AppliedOnly>>| {
@@ -4396,15 +4431,14 @@ pub(crate) fn prepare_halt(
     let pan_tilt = profile.supports_axes(AffectedAxes::PAN_TILT).then(|| {
         lower(
             crate::stop_request::pan_tilt_stop_request(profile).and_then(|stop| {
-                prepare_operation(&stop, target, profile, tuning, ClassSelection::Request)
+                prepare_operation(&stop, registration, tuning, ClassSelection::Request)
             }),
         )
     });
     let zoom = profile.supports_axes(AffectedAxes::ZOOM).then(|| {
         lower(prepare_operation(
             &ZoomStop,
-            target,
-            profile,
+            registration,
             tuning,
             ClassSelection::Request,
         ))
@@ -4412,8 +4446,7 @@ pub(crate) fn prepare_halt(
     let focus = profile.supports_axes(AffectedAxes::FOCUS).then(|| {
         lower(prepare_operation(
             &FocusStop,
-            target,
-            profile,
+            registration,
             tuning,
             ClassSelection::Request,
         ))

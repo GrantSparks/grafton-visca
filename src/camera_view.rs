@@ -25,7 +25,7 @@ macro_rules! camera_view_getters {
     () => {
         /// Returns this view's fixed camera target.
         #[must_use]
-        pub const fn target(&self) -> $crate::CameraId {
+        pub fn target(&self) -> $crate::CameraId {
             self.core.target()
         }
 
@@ -33,6 +33,12 @@ macro_rules! camera_view_getters {
         #[must_use]
         pub fn profile(&self) -> &$crate::ProfileSpec {
             self.core.profile()
+        }
+
+        /// Returns this target's canonical profile and installation facts.
+        #[must_use]
+        pub fn registration(&self) -> &$crate::TargetRegistration {
+            self.core.registration()
         }
 
         /// Returns this view's validated runtime capability inventory.

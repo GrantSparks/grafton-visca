@@ -586,7 +586,8 @@ macro_rules! raw_operation {
                 self.policy.reply_shape()
             }
 
-            fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<()> {
+            fn validate_for_target(&self, target: &crate::TargetRegistration) -> Result<()> {
+                let profile = target.profile();
                 if profile.supports_axes(self.axes) {
                     Ok(())
                 } else {
@@ -1214,8 +1215,11 @@ mod tests {
             .expect("profile");
         let error = crate::prepared::prepare_command(
             &command,
-            crate::target::TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             crate::OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         )

@@ -767,11 +767,11 @@ pub trait Request: Send + Sync {
     /// This is only the profile-free encoding hook: it receives the explicit
     /// target address, but not a [`crate::ProfileSpec`]. Do not use it for
     /// capability or profile-range validation. Shared preparation calls
-    /// [`Self::validate_for_profile`] first and encodes only after that check
+    /// [`Self::validate_for_target`] first and encodes only after that check
     /// succeeds.
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize>;
 
-    /// Validates value-specific capability and range facts before encoding.
+    /// Validates target-specific capability, range and installation facts before encoding.
     ///
     /// Every request submitted through a direct generic or noun path reaches
     /// this hook during preparation, before encoding, owner admission, or
@@ -784,7 +784,7 @@ pub trait Request: Send + Sync {
     /// custom request with no profile-specific constraints may use the default.
     /// The direct generic APIs intentionally do not replace the noun/accessor
     /// `Has*` marker bounds with request-specific compile-time `P` bounds.
-    fn validate_for_profile(&self, _profile: &crate::ProfileSpec) -> Result<()> {
+    fn validate_for_target(&self, _target: &crate::TargetRegistration) -> Result<()> {
         Ok(())
     }
 

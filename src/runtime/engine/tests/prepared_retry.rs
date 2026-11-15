@@ -25,8 +25,8 @@ fn prepared_retry_budget_preserves_healthy_late_ack_attempts() {
         .unwrap();
         let prepared = crate::prepared::prepare_command(
             &command,
-            camera(1),
-            &profile,
+            &crate::TargetRegistration::new((camera(1)).camera(), profile.clone())
+                .expect("valid target registration"),
             crate::OperationalTuning::new().ack_timeout(Duration::from_secs(ack_window)),
             crate::prepared::ClassSelection::Request,
         )

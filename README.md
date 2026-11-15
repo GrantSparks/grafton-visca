@@ -463,7 +463,7 @@ fn full_range_zoom() -> Result<(), grafton_visca::Error> {
   and runtime `ProfileSpec` validation. Direct generic `execute`/`inquire`
   intentionally have no request-specific `P` bounds: they are the uniform
   typed/downstream extension boundary. Preparation runs
-  `Request::validate_for_profile` before encoding, owner admission, or I/O, so
+  `Request::validate_for_target` before encoding, owner admission, or I/O, so
   crate-provided direct requests report `FeatureNotSupported` before writing
   when unsupported. Raw and other downstream requests remain explicit
   low-level extensions and may supply their own validation.

@@ -50,7 +50,7 @@
 //!   surface registry maps it to its `TypedSupportSurface` with
 //!   `typed_surface!`, which has no arm for a marker without a typed-support
 //!   registry row.  The erased facade carries no bounds; it enforces the same
-//!   gate at runtime through `validate_for_profile` (a command through the
+//!   gate at runtime through `validate_for_target` (a command through the
 //!   ledger row its request serves, an inquiry through its
 //!   `BuiltinInquiryGate`).
 //! * `<request>` is the command or inquiry value to send.  Four forms exist,
@@ -230,26 +230,26 @@ macro_rules! noun_table {
             /// Moves to an absolute degree position at the selected speed.
             targeted [PanTiltAbsolute] absolute(pan: Degrees<f32>, tilt: Degrees<f32>, speed: types::SpeedLevel)
                 -> builtin::PanTiltAbsolute
-                = [with_profile |profile| builtin::PanTiltAbsolute::for_profile_speed_level(
-                    pan, tilt, speed, profile,
+                = [with_target |target| builtin::PanTiltAbsolute::for_target_speed_level(
+                    pan, tilt, speed, target,
                 )];
             /// Moves by a relative degree offset at the selected speed. Each axis accepts
             /// the full span between the profile's absolute limits in either direction.
             targeted [PanTiltRelative] relative(pan: Degrees<f32>, tilt: Degrees<f32>, speed: types::SpeedLevel)
                 -> builtin::PanTiltRelative
-                = [with_profile |profile| builtin::PanTiltRelative::for_profile_speed_level(
-                    pan, tilt, speed, profile,
+                = [with_target |target| builtin::PanTiltRelative::for_target_speed_level(
+                    pan, tilt, speed, target,
                 )];
             /// Sets one pan/tilt movement-limit corner.
             plain [PanTiltLimitSet] limit_set(
                 corner: command::PanTiltLimitCorner,
                 pan: Degrees<f32>,
                 tilt: Degrees<f32>
-            ) -> builtin::PanTiltLimitSet = [with_profile |profile| builtin::PanTiltLimitSet::for_profile(
+            ) -> builtin::PanTiltLimitSet = [with_target |target| builtin::PanTiltLimitSet::for_target(
                 corner,
                 pan,
                 tilt,
-                profile,
+                target,
             )];
             /// Clears one pan/tilt movement-limit corner.
             plain [PanTiltLimitClear] limit_clear(corner: command::PanTiltLimitCorner)

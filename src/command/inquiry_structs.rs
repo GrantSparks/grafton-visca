@@ -401,7 +401,8 @@ macro_rules! define_builtin_inquiries {
                     WireEncode::write_into(self, camera_id, buffer)
                 }
 
-                fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> crate::Result<()> {
+                fn validate_for_target(&self, target: &crate::TargetRegistration) -> crate::Result<()> {
+                    let profile = target.profile();
                     validate_builtin_inquiry_gate(
                         profile,
                         <Self as BuiltinInquiryGate>::GATE,
@@ -487,7 +488,7 @@ macro_rules! define_builtin_inquiries {
                     typed: builtin_inquiry_is_typed!($typed),
                     vendor_specific: $vendor_specific,
                     rationale: $rationale,
-                    validate: Some(|profile| <$struct as crate::Request>::validate_for_profile(&$struct, profile)),
+                    validate: Some(|profile| <$struct as crate::Request>::validate_for_target(&$struct, &crate::TargetRegistration::from_profile(crate::target::TargetSlot::CAMERA_1, profile.clone()))),
                 },
             )+)*
             $(
@@ -1951,7 +1952,12 @@ mod generated_invariant_tests {
     fn fr7_variable_nd_query_uses_the_sourced_register_and_payload() {
         use crate::{Inquiry, Request};
         let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().unwrap();
-        assert!(NdFilterInquiry.validate_for_profile(&profile).is_ok());
+        assert!(NdFilterInquiry
+            .validate_for_target(&crate::TargetRegistration::from_profile(
+                crate::target::TargetSlot::CAMERA_1,
+                profile.clone()
+            ))
+            .is_ok());
         let mut buffer = [0; 6];
         assert_eq!(
             Request::write_into(&NdFilterInquiry, CameraId::CAMERA_1, &mut buffer).unwrap(),
@@ -1984,10 +1990,25 @@ mod generated_invariant_tests {
             crate::ProfileSpec::from_compile_time::<crate::profiles::NearusBRC300>().unwrap();
         let g2 = crate::ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().unwrap();
         for profile in [&sony, &nearus] {
-            assert!(ImageFlipInquiry.validate_for_profile(profile).is_ok());
-            assert!(FlipStateInquiry.validate_for_profile(profile).is_err());
+            assert!(ImageFlipInquiry
+                .validate_for_target(&crate::TargetRegistration::from_profile(
+                    crate::target::TargetSlot::CAMERA_1,
+                    profile.clone()
+                ))
+                .is_ok());
+            assert!(FlipStateInquiry
+                .validate_for_target(&crate::TargetRegistration::from_profile(
+                    crate::target::TargetSlot::CAMERA_1,
+                    profile.clone()
+                ))
+                .is_err());
         }
-        assert!(FlipStateInquiry.validate_for_profile(&g2).is_ok());
+        assert!(FlipStateInquiry
+            .validate_for_target(&crate::TargetRegistration::from_profile(
+                crate::target::TargetSlot::CAMERA_1,
+                g2.clone()
+            ))
+            .is_ok());
         let mut buffer = [0; 5];
         assert_eq!(
             Request::write_into(&ImageFlipInquiry, CameraId::CAMERA_1, &mut buffer).unwrap(),

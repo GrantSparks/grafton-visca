@@ -56,7 +56,13 @@ fn zoom_tables_follow_the_sources() {
         // through `CAM_Zoom` Direct `04 47`; past `7F00` is refused.
         for position in [0x4000, 0x7F00] {
             target(position)
-                .validate_for_profile(&profile)
+                .validate_for_target(
+                    &grafton_visca::TargetRegistration::new(
+                        grafton_visca::CameraId::CAMERA_1,
+                        profile.clone(),
+                    )
+                    .expect("target registration"),
+                )
                 .unwrap_or_else(|error| panic!("{name} {position:#06x}: {error}"));
         }
         assert_eq!(
@@ -65,7 +71,13 @@ fn zoom_tables_follow_the_sources() {
         );
         assert!(
             matches!(
-                target(0x7F01).validate_for_profile(&profile),
+                target(0x7F01).validate_for_target(
+                    &grafton_visca::TargetRegistration::new(
+                        grafton_visca::CameraId::CAMERA_1,
+                        profile.clone()
+                    )
+                    .expect("target registration")
+                ),
                 Err(Error::ParameterOutOfRange {
                     min: 0x0000,
                     max: 0x7F00,
@@ -92,13 +104,25 @@ fn digital_zoom_toggle_and_one_push_focus_are_granted() {
         for (enabled, byte) in [(true, 0x02), (false, 0x03)] {
             let command = DigitalZoom::new(enabled);
             command
-                .validate_for_profile(&profile)
+                .validate_for_target(
+                    &grafton_visca::TargetRegistration::new(
+                        grafton_visca::CameraId::CAMERA_1,
+                        profile.clone(),
+                    )
+                    .expect("target registration"),
+                )
                 .unwrap_or_else(|error| panic!("{name} digital zoom: {error}"));
             assert_eq!(wire(&command), [0x81, 0x01, 0x04, 0x06, byte, 0xFF]);
         }
 
         FocusTrigger::OnePush
-            .validate_for_profile(&profile)
+            .validate_for_target(
+                &grafton_visca::TargetRegistration::new(
+                    grafton_visca::CameraId::CAMERA_1,
+                    profile.clone(),
+                )
+                .expect("target registration"),
+            )
             .unwrap_or_else(|error| panic!("{name} one-push focus: {error}"));
         assert_eq!(
             wire(&FocusTrigger::OnePush),

@@ -36,8 +36,8 @@ async fn async_prepared_retry_budget_covers_a_late_ack_and_completion() {
         .unwrap();
         let prepared = crate::prepared::prepare_operation::<completion::AppliedOnly, _>(
             &command,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             crate::OperationalTuning::new().ack_timeout(Duration::from_secs(ack_override)),
             crate::prepared::ClassSelection::Request,
         )

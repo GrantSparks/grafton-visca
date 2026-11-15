@@ -18,8 +18,7 @@ pub fn check_command<C: PlainCommand + ?Sized>(
 ) -> Result<()> {
     std::hint::black_box(crate::prepared::prepare_command(
         command,
-        target.try_into()?,
-        profile,
+        &crate::TargetRegistration::new(target, profile.clone())?,
         tuning,
         crate::prepared::ClassSelection::Request,
     )?);
@@ -39,8 +38,7 @@ pub fn check_inquiry<Q: Inquiry + ?Sized>(
 ) -> Result<()> {
     std::hint::black_box(crate::prepared::prepare_inquiry(
         inquiry,
-        target.try_into()?,
-        profile,
+        &crate::TargetRegistration::new(target, profile.clone())?,
         tuning,
         crate::prepared::ClassSelection::Request,
     )?);

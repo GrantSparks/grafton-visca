@@ -11,19 +11,24 @@
 /// `with_profile` form, so a row that does not need the session profile never
 /// reads it.
 macro_rules! noun_request {
-    ($profile:expr; $ty:ty; by_value $request:expr) => {
-        $crate::noun_facade::noun_request!($profile; $ty; $request)
+    ($profile:expr, $target:expr; $ty:ty; by_value $request:expr) => {
+        $crate::noun_facade::noun_request!($profile, $target; $ty; $request)
     };
-    ($profile:expr; $ty:ty; checked $request:expr) => {{
+    ($profile:expr, $target:expr; $ty:ty; checked $request:expr) => {{
         let request: crate::Result<$ty> = $request;
         request
     }};
-    ($profile:expr; $ty:ty; with_profile |$binding:ident| $request:expr) => {{
+    ($profile:expr, $target:expr; $ty:ty; with_profile |$binding:ident| $request:expr) => {{
         let $binding = $profile;
         let request: crate::Result<$ty> = $request;
         request
     }};
-    ($profile:expr; $ty:ty; $request:expr) => {{
+    ($profile:expr, $target:expr; $ty:ty; with_target |$binding:ident| $request:expr) => {{
+        let $binding = $target;
+        let request: crate::Result<$ty> = $request;
+        request
+    }};
+    ($profile:expr, $target:expr; $ty:ty; $request:expr) => {{
         let request: $ty = $request;
         crate::Result::<$ty>::Ok(request)
     }};
@@ -135,7 +140,7 @@ macro_rules! static_noun_facade {
         $(where P: $crate::capabilities::$gate $(+ $crate::capabilities::$extra)*)?
         {
             $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);
-            let request = $crate::noun_facade::noun_request!(self.camera.profile(); $ret; $($request)*)?;
+            let request = $crate::noun_facade::noun_request!(self.camera.profile(), self.camera.registration(); $ret; $($request)*)?;
             self.camera.execute(&request) $($await)*
         }
     };
@@ -148,7 +153,7 @@ macro_rules! static_noun_facade {
         $(where P: $crate::capabilities::$gate $(+ $crate::capabilities::$extra)*)?
         {
             $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);
-            let request = $crate::noun_facade::noun_request!(self.camera.profile(); $ret; $($request)*)?;
+            let request = $crate::noun_facade::noun_request!(self.camera.profile(), self.camera.registration(); $ret; $($request)*)?;
             self.camera.submit::<$crate::completion::AppliedOnly, _>(&request) $($await)*
         }
     };
@@ -161,7 +166,7 @@ macro_rules! static_noun_facade {
         $(where P: $crate::capabilities::$gate $(+ $crate::capabilities::$extra)*)?
         {
             $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);
-            let request = $crate::noun_facade::noun_request!(self.camera.profile(); $ret; $($request)*)?;
+            let request = $crate::noun_facade::noun_request!(self.camera.profile(), self.camera.registration(); $ret; $($request)*)?;
             self.camera.submit::<$crate::completion::Targeted, _>(&request) $($await)*
         }
     };

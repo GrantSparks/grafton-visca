@@ -294,6 +294,13 @@ generic signatures and custom profile implementations must change their type to
 `Error::CameraMoving` does not need a width migration because that unused
 variant is removed in 2.0 (#722).
 
+The FR7 uses five signed nibbles on both axes and a 235.9-unit degree scale
+from R7. Its rightward pan uses decreasing raw coordinates. Select the actual
+Desktop or Ceiling installation with `SessionConfig::set_mount`; target
+registration keeps those limits separate from the canonical profile. Position
+request constructors accept `camera.registration()` so conversion and
+admission use the same installation facts.
+
 Each profile also selects a `PanTiltWireCodec`. Do not assume that every
 VISCA-compatible model uses the common two-speed/four-plus-four-nibble layout;
 the profile owns coordinate widths, signedness, axis polarity, and framing.

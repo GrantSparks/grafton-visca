@@ -45,6 +45,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   zoom, variable zoom, and focus near-limit inquiry permissions default to false.
   Serial construction checks its transport declaration at compile time, and
   custom-profile validation checks the selected transport before opening it.
+- **BREAKING** (#893): Target registrations keep canonical profiles separate
+  from installation data. FR7 supports desktop and ceiling tilt limits and
+  uses signed twenty-bit positions at 235.9 units per degree, with rightward
+  pan mapped to negative R7 coordinates. Typed position constructors consume
+  `TargetRegistration`; request validation uses `validate_for_target`.
 
 - Request preparation writes directly into owned inline storage. Engine admission
   and reusable polling templates share the inert message only when needed;

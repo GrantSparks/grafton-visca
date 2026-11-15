@@ -43,7 +43,7 @@ mod private {
 
         fn write_into(&self, camera: CameraId, buffer: &mut [u8]) -> Result<usize, Error>;
 
-        fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<(), Error>;
+        fn validate_for_target(&self, target: &crate::TargetRegistration) -> Result<(), Error>;
 
         fn applied_state_projection(
             &self,
@@ -91,8 +91,8 @@ mod private {
             Request::write_into(self, camera, buffer)
         }
 
-        fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-            Request::validate_for_profile(self, profile)
+        fn validate_for_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
+            Request::validate_for_target(self, target)
         }
 
         fn applied_state_projection(
@@ -222,8 +222,8 @@ where
         self.request.write_into(camera, buffer)
     }
 
-    fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        self.request.validate_for_profile(profile)
+    fn validate_for_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
+        self.request.validate_for_target(target)
     }
 
     fn applied_state_projection(
@@ -432,8 +432,11 @@ mod tests {
         let targeted_adapter = OperationAdapter::<Targeted, _>::new(targeted);
         let targeted_prepared = crate::prepared::prepare_operation::<Targeted, _>(
             &targeted_adapter,
-            crate::target::TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         );
@@ -461,8 +464,11 @@ mod tests {
             matches!(
                 crate::prepared::prepare_operation::<AppliedOnly, _>(
                     &applied_adapter,
-                    crate::target::TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (crate::target::TargetSlot::CAMERA_1).camera(),
+                        profile.clone()
+                    )
+                    .expect("valid target registration"),
                     OperationalTuning::new(),
                     crate::prepared::ClassSelection::Request,
                 ),
@@ -480,8 +486,11 @@ mod tests {
         let targeted = OversizedTargeted;
         let static_targeted = crate::prepared::prepare_operation::<Targeted, _>(
             &targeted,
-            crate::target::TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         );
@@ -494,8 +503,11 @@ mod tests {
         let targeted_adapter = OperationAdapter::<Targeted, _>::new(erased_targeted);
         let dynamic_targeted = crate::prepared::prepare_operation::<Targeted, _>(
             &targeted_adapter,
-            crate::target::TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         );
@@ -507,8 +519,11 @@ mod tests {
         let applied = OversizedApplied;
         let static_applied = crate::prepared::prepare_operation::<AppliedOnly, _>(
             &applied,
-            crate::target::TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         );
@@ -521,8 +536,11 @@ mod tests {
         let adapter = OperationAdapter::<AppliedOnly, _>::new(erased);
         let dynamic_applied = crate::prepared::prepare_operation::<AppliedOnly, _>(
             &adapter,
-            crate::target::TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         );
@@ -542,8 +560,11 @@ mod tests {
         let adapter = OperationAdapter::<AppliedOnly, _>::new(erased);
         let downstream_result = crate::prepared::prepare_operation::<AppliedOnly, _>(
             &adapter,
-            crate::target::TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         );
@@ -557,8 +578,11 @@ mod tests {
         let stop_adapter = OperationAdapter::<AppliedOnly, _>::new(erased_stop);
         let prepared = crate::prepared::prepare_operation::<AppliedOnly, _>(
             &stop_adapter,
-            crate::target::TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Handle(SubmissionClass::Background),
         );

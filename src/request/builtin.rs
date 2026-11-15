@@ -186,10 +186,10 @@ macro_rules! builtin_request {
                 )
             }
 
-            fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
+            fn validate_for_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
                 let row = builtin_request!(@row self $(, $value)?);
-                row_gate(row).validate(profile, surface_entry(row).feature())?;
-                <Self as BuiltinValidation>::validate(self, profile)
+                row_gate(row).validate(target.profile(), surface_entry(row).feature())?;
+                <Self as BuiltinValidation>::validate_target(self, target)
             }
 
             #[doc(hidden)]
@@ -225,6 +225,10 @@ pub(crate) trait BuiltinValidation {
     /// Checks only value-dependent facts after the generated row gate.
     fn validate(&self, _profile: &crate::ProfileSpec) -> Result<(), Error> {
         Ok(())
+    }
+
+    fn validate_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
+        self.validate(target.profile())
     }
 
     #[cfg(any(feature = "blocking", feature = "async"))]
@@ -372,23 +376,6 @@ fn pan_tilt_position_speeds_from_level(
         ))?;
         Ok((pan_speed, tilt_speed))
     }
-}
-
-fn validate_pan_tilt_position(
-    profile: &crate::ProfileSpec,
-    pan: i32,
-    tilt: i32,
-    conversion: PanTiltCoordinateConversion,
-) -> Result<(), Error> {
-    let capabilities = profile.capabilities();
-    if profile.pan_tilt_coordinates() != Some(conversion) {
-        return Err(Error::InvalidRequest(
-            "pan/tilt request was converted for a different profile".into(),
-        ));
-    }
-    require_in_range("pan position", pan, &capabilities.pan_range)?;
-    require_in_range("tilt position", tilt, &capabilities.tilt_range)?;
-    Ok(())
 }
 
 fn validate_power_state(profile: &crate::ProfileSpec, standby: bool) -> Result<(), Error> {
@@ -934,29 +921,43 @@ struct PreparedPanTiltPosition {
     pan: i32,
     tilt: i32,
     conversion: PanTiltCoordinateConversion,
+    mount: Option<crate::MountPosition>,
 }
 
 impl PreparedPanTiltPosition {
-    fn for_profile(
+    fn for_target(
         pan: Degrees<f32>,
         tilt: Degrees<f32>,
-        profile: &crate::ProfileSpec,
+        target: &crate::TargetRegistration,
     ) -> Result<Self, Error> {
+        let profile = target.profile();
         let conversion = profile
             .pan_tilt_coordinates()
             .ok_or(Error::FeatureNotSupported {
                 feature: "pan/tilt coordinate conversion",
             })?;
-        let (pan, tilt) = profile.convert_pan_tilt_degrees(pan.0, tilt.0)?;
+        let (pan, tilt) = target.convert_pan_tilt_degrees(pan.0, tilt.0)?;
         Ok(Self {
             pan,
             tilt,
             conversion,
+            mount: target.mount(),
         })
     }
 
     fn validate(self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_pan_tilt_position(profile, self.pan, self.tilt, self.conversion)
+        validate_pan_tilt(profile)?;
+        if profile.pan_tilt_coordinates() != Some(self.conversion) {
+            return Err(Error::InvalidRequest(
+                "pan/tilt request was converted for a different profile".into(),
+            ));
+        }
+        require_in_range("pan position", self.pan, &profile.capabilities().pan_range)?;
+        require_in_range(
+            "tilt position",
+            self.tilt,
+            &profile.tilt_range_for_mount(self.mount),
+        )
     }
 }
 
@@ -969,17 +970,19 @@ struct PreparedPanTiltOffset {
 }
 
 impl PreparedPanTiltOffset {
-    fn for_profile(
+    fn for_target(
         pan: Degrees<f32>,
         tilt: Degrees<f32>,
-        profile: &crate::ProfileSpec,
+        target: &crate::TargetRegistration,
     ) -> Result<Self, Error> {
+        let profile = target.profile();
         let conversion = profile
             .pan_tilt_coordinates()
             .ok_or(Error::FeatureNotSupported {
                 feature: "pan/tilt coordinate conversion",
             })?;
         let (pan, tilt) = profile.convert_pan_tilt_offset_degrees(pan.0, tilt.0)?;
+        target.validate_pan_tilt_offset(pan, tilt)?;
         Ok(Self {
             pan,
             tilt,
@@ -1383,16 +1386,17 @@ pub struct PanTiltAbsolute {
 
 impl PanTiltAbsolute {
     /// Creates an absolute target request.
-    pub fn for_profile(
+    pub fn for_target(
         pan: Degrees<f32>,
         tilt: Degrees<f32>,
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
-        profile: &crate::ProfileSpec,
+        target: &crate::TargetRegistration,
     ) -> Result<Self, Error> {
+        let profile = target.profile();
         let speeds = validate_pan_tilt_position_speed(profile, pan_speed, tilt_speed)?;
         Ok(Self {
-            position: PreparedPanTiltPosition::for_profile(pan, tilt, profile)?,
+            position: PreparedPanTiltPosition::for_target(pan, tilt, target)?,
             speeds,
         })
     }
@@ -1400,14 +1404,14 @@ impl PanTiltAbsolute {
     /// Creates an absolute target from one coarse speed through the profile's
     /// position-command grammar.
     #[cfg(any(feature = "blocking", feature = "async"))]
-    pub(crate) fn for_profile_speed_level(
+    pub(crate) fn for_target_speed_level(
         pan: Degrees<f32>,
         tilt: Degrees<f32>,
         speed: SpeedLevel,
-        profile: &crate::ProfileSpec,
+        target: &crate::TargetRegistration,
     ) -> Result<Self, Error> {
-        let (pan_speed, tilt_speed) = pan_tilt_position_speeds_from_level(speed, profile)?;
-        Self::for_profile(pan, tilt, pan_speed, tilt_speed, profile)
+        let (pan_speed, tilt_speed) = pan_tilt_position_speeds_from_level(speed, target.profile())?;
+        Self::for_target(pan, tilt, pan_speed, tilt_speed, target)
     }
 }
 
@@ -1432,16 +1436,17 @@ pub struct PanTiltRelative {
 
 impl PanTiltRelative {
     /// Creates a relative target request.
-    pub fn for_profile(
+    pub fn for_target(
         pan: Degrees<f32>,
         tilt: Degrees<f32>,
         pan_speed: PanSpeed,
         tilt_speed: TiltSpeed,
-        profile: &crate::ProfileSpec,
+        target: &crate::TargetRegistration,
     ) -> Result<Self, Error> {
+        let profile = target.profile();
         let speeds = validate_pan_tilt_position_speed(profile, pan_speed, tilt_speed)?;
         Ok(Self {
-            offset: PreparedPanTiltOffset::for_profile(pan, tilt, profile)?,
+            offset: PreparedPanTiltOffset::for_target(pan, tilt, target)?,
             speeds,
         })
     }
@@ -1449,14 +1454,14 @@ impl PanTiltRelative {
     /// Creates a relative target from one coarse speed through the profile's
     /// position-command grammar.
     #[cfg(any(feature = "blocking", feature = "async"))]
-    pub(crate) fn for_profile_speed_level(
+    pub(crate) fn for_target_speed_level(
         pan: Degrees<f32>,
         tilt: Degrees<f32>,
         speed: SpeedLevel,
-        profile: &crate::ProfileSpec,
+        target: &crate::TargetRegistration,
     ) -> Result<Self, Error> {
-        let (pan_speed, tilt_speed) = pan_tilt_position_speeds_from_level(speed, profile)?;
-        Self::for_profile(pan, tilt, pan_speed, tilt_speed, profile)
+        let (pan_speed, tilt_speed) = pan_tilt_position_speeds_from_level(speed, target.profile())?;
+        Self::for_target(pan, tilt, pan_speed, tilt_speed, target)
     }
 }
 
@@ -1481,15 +1486,15 @@ pub struct PanTiltLimitSet {
 
 impl PanTiltLimitSet {
     /// Creates a limit-setting command.
-    pub fn for_profile(
+    pub fn for_target(
         corner: PanTiltLimitCorner,
         pan: Degrees<f32>,
         tilt: Degrees<f32>,
-        profile: &crate::ProfileSpec,
+        target: &crate::TargetRegistration,
     ) -> Result<Self, Error> {
         Ok(Self {
             corner,
-            position: PreparedPanTiltPosition::for_profile(pan, tilt, profile)?,
+            position: PreparedPanTiltPosition::for_target(pan, tilt, target)?,
         })
     }
 }
@@ -2045,6 +2050,16 @@ impl BuiltinValidation for PanTiltStop {
 }
 
 impl BuiltinValidation for PanTiltAbsolute {
+    fn validate_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
+        self.validate(target.profile())?;
+        if self.position.mount != target.mount() {
+            return Err(Error::InvalidRequest(
+                "pan/tilt position belongs to a different target mount".into(),
+            ));
+        }
+        Ok(())
+    }
+
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_move_speeds(profile, self.speeds)?;
         self.position.validate(profile)
@@ -2052,6 +2067,11 @@ impl BuiltinValidation for PanTiltAbsolute {
 }
 
 impl BuiltinValidation for PanTiltRelative {
+    fn validate_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
+        self.validate(target.profile())?;
+        target.validate_pan_tilt_offset(self.offset.pan, self.offset.tilt)
+    }
+
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         validate_move_speeds(profile, self.speeds)?;
         self.offset.validate(profile)
@@ -2059,6 +2079,16 @@ impl BuiltinValidation for PanTiltRelative {
 }
 
 impl BuiltinValidation for PanTiltLimitSet {
+    fn validate_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
+        self.validate(target.profile())?;
+        if self.position.mount != target.mount() {
+            return Err(Error::InvalidRequest(
+                "pan/tilt limit belongs to a different target mount".into(),
+            ));
+        }
+        Ok(())
+    }
+
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
         self.position.validate(profile)
     }
@@ -2425,12 +2455,13 @@ mod tests {
     #[test]
     fn relative_pan_tilt_uses_reachable_span_instead_of_absolute_limits() {
         let profile = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2");
-        let request = PanTiltRelative::for_profile(
+        let request = PanTiltRelative::for_target(
             Degrees(200.0),
             Degrees(-45.0),
             PanSpeed::new(10).unwrap(),
             TiltSpeed::new(10).unwrap(),
-            &profile,
+            &crate::TargetRegistration::new(CameraId::CAMERA_1, profile.clone())
+                .expect("target registration"),
         )
         .expect("reachable relative offset");
         assert_eq!(&wire(&request)[10..14], [15, 13, 7, 8]);
@@ -2535,8 +2566,11 @@ mod tests {
         for profile in [&g2, &thirty_x] {
             assert!(prepare_builtin_command(
                 &crate::command::UsbAudio::On,
-                crate::target::TargetSlot::CAMERA_1,
-                profile,
+                &crate::TargetRegistration::new(
+                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    profile.clone()
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
             )
             .is_ok());
@@ -2545,8 +2579,11 @@ mod tests {
         for profile in [&g3, &fr7, &generic] {
             assert!(prepare_builtin_command(
                 &crate::command::UsbAudio::On,
-                crate::target::TargetSlot::CAMERA_1,
-                profile,
+                &crate::TargetRegistration::new(
+                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    profile.clone()
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
             )
             .is_err());
@@ -2585,8 +2622,7 @@ mod tests {
                     assert_eq!(
                         $($prepare)+(
                             &request,
-                            crate::target::TargetSlot::CAMERA_1,
-                            profile,
+                            &crate::TargetRegistration::from_profile(crate::target::TargetSlot::CAMERA_1, profile.clone()),
                             OperationalTuning::new(),
                         )
                         .is_ok(),
@@ -2734,7 +2770,10 @@ mod tests {
         for mode in MODES {
             assert!(
                 WhiteBalanceCommand::new(mode)
-                    .validate_for_profile(&full)
+                    .validate_for_target(&crate::TargetRegistration::from_profile(
+                        crate::target::TargetSlot::CAMERA_1,
+                        full.clone()
+                    ))
                     .is_ok(),
                 "{mode:?} must be admitted when every row gate is permitted"
             );
@@ -2742,7 +2781,12 @@ mod tests {
         for (denied, surface, feature) in gated {
             let profile = profile(capabilities.typed_support.without(surface));
             for mode in MODES {
-                let result = WhiteBalanceCommand::new(mode).validate_for_profile(&profile);
+                let result = WhiteBalanceCommand::new(mode).validate_for_target(
+                    &crate::TargetRegistration::from_profile(
+                        crate::target::TargetSlot::CAMERA_1,
+                        profile.clone(),
+                    ),
+                );
                 if mode == denied {
                     assert!(
                         matches!(result, Err(Error::FeatureNotSupported { .. })),
@@ -2770,11 +2814,12 @@ mod tests {
         let nearus = ProfileSpec::from_compile_time::<NearusBRC300>().expect("Nearus profile");
         let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
 
-        let standard_absolute = PanTiltAbsolute::for_profile_speed_level(
+        let standard_absolute = PanTiltAbsolute::for_target_speed_level(
             Degrees(10.0),
             Degrees(-5.0),
             SpeedLevel::Medium,
-            &standard,
+            &crate::TargetRegistration::new(CameraId::CAMERA_1, standard.clone())
+                .expect("target registration"),
         )
         .expect("standard coarse absolute position");
         assert_eq!(
@@ -2785,11 +2830,12 @@ mod tests {
             ]
         );
 
-        let brc300_absolute = PanTiltAbsolute::for_profile_speed_level(
+        let brc300_absolute = PanTiltAbsolute::for_target_speed_level(
             Degrees(45.0),
             Degrees(15.0),
             SpeedLevel::Fastest,
-            &brc300,
+            &crate::TargetRegistration::new(CameraId::CAMERA_1, brc300.clone())
+                .expect("target registration"),
         )
         .expect("BRC-300 coarse absolute position");
         assert_eq!(
@@ -2800,11 +2846,12 @@ mod tests {
             ]
         );
 
-        let brc300_relative = PanTiltRelative::for_profile_speed_level(
+        let brc300_relative = PanTiltRelative::for_target_speed_level(
             Degrees(45.0),
             Degrees(15.0),
             SpeedLevel::Fastest,
-            &brc300,
+            &crate::TargetRegistration::new(CameraId::CAMERA_1, brc300.clone())
+                .expect("target registration"),
         )
         .expect("BRC-300 coarse relative position");
         assert_eq!(
@@ -2818,11 +2865,12 @@ mod tests {
         for profile in [
             &standard, &g3, &thirty_x, &fr7, &h900, &evi, &brc300, &nearus, &generic,
         ] {
-            PanTiltAbsolute::for_profile_speed_level(
+            PanTiltAbsolute::for_target_speed_level(
                 Degrees(0.0),
                 Degrees(0.0),
                 SpeedLevel::Fastest,
-                profile,
+                &crate::TargetRegistration::new(CameraId::CAMERA_1, profile.clone())
+                    .expect("target registration"),
             )
             .unwrap_or_else(|error| {
                 panic!(
@@ -2830,11 +2878,12 @@ mod tests {
                     profile.capabilities().model_name
                 )
             });
-            PanTiltRelative::for_profile_speed_level(
+            PanTiltRelative::for_target_speed_level(
                 Degrees(0.0),
                 Degrees(0.0),
                 SpeedLevel::Fastest,
-                profile,
+                &crate::TargetRegistration::new(CameraId::CAMERA_1, profile.clone())
+                    .expect("target registration"),
             )
             .unwrap_or_else(|error| {
                 panic!(
@@ -2948,32 +2997,44 @@ mod tests {
 
         prepare_builtin_command(
             &PresetSet::new(preset),
-            crate::target::TargetSlot::CAMERA_1,
-            &fr7,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                fr7.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("preset 255 set must prepare end-to-end on FR7");
 
         prepare_builtin_command(
             &PresetReset::new(preset),
-            crate::target::TargetSlot::CAMERA_1,
-            &fr7,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                fr7.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("preset 255 reset must prepare end-to-end on FR7");
 
         prepare_builtin_operation::<completion::Targeted, _>(
             &PresetRecall::for_profile(preset, &fr7).expect("FR7 preset recall"),
-            crate::target::TargetSlot::CAMERA_1,
-            &fr7,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                fr7.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("preset 255 recall must prepare end-to-end on FR7");
 
         prepare_builtin_command(
             &DirectMenuControl::new(0x00, 0xFF).expect("0xFF data byte is valid"),
-            crate::target::TargetSlot::CAMERA_1,
-            &fr7,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                fr7.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("direct menu (_, 0xFF) must prepare end-to-end on FR7");
@@ -3006,8 +3067,11 @@ mod tests {
     {
         prepare_command(
             command,
-            crate::target::TargetSlot::CAMERA_1,
-            profile,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -3112,11 +3176,12 @@ mod tests {
         // within the four-scalar projection bound.
         row!(
             "pan/tilt limit set",
-            PanTiltLimitSet::for_profile(
+            PanTiltLimitSet::for_target(
                 PanTiltLimitCorner::DownLeft,
                 Degrees(0.0),
                 Degrees(0.0),
-                &ptz,
+                &crate::TargetRegistration::new(CameraId::CAMERA_1, ptz.clone())
+                    .expect("target registration"),
             )
             .expect("limit set"),
             &ptz,
@@ -3455,85 +3520,121 @@ mod tests {
             &crate::command::PresetRecallSpeedCommand {
                 speed: PresetRecallSpeed::new(12).expect("preset speed"),
             },
-            crate::target::TargetSlot::CAMERA_1,
-            &generic,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                generic.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &FocusLock::On,
-            crate::target::TargetSlot::CAMERA_1,
-            &generic,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                generic.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &SpotlightOn::new(),
-            crate::target::TargetSlot::CAMERA_1,
-            &generic,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                generic.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &AutoSlowShutterOn::new(),
-            crate::target::TargetSlot::CAMERA_1,
-            &generic,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                generic.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &NdFilterModeCommand::new(NdFilterMode::Variable),
-            crate::target::TargetSlot::CAMERA_1,
-            &generic,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                generic.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &DigitalZoom::new(true),
-            crate::target::TargetSlot::CAMERA_1,
-            &generic,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                generic.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &MulticastStreaming::On,
-            crate::target::TargetSlot::CAMERA_1,
-            &generic,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                generic.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &SetNdiQuality::new(NdiQuality::High),
-            crate::target::TargetSlot::CAMERA_1,
-            &generic,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                generic.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &TallyBrightLo::new(),
-            crate::target::TargetSlot::CAMERA_1,
-            &generic,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                generic.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &crate::command::SetVariableSpeedMode::new(VariableSpeedMode::Standard24),
-            crate::target::TargetSlot::CAMERA_1,
-            &generic,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                generic.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &TallyOn::new(),
-            crate::target::TargetSlot::CAMERA_1,
-            &generic,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                generic.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_command(
             &TallyFlash::new(),
-            crate::target::TargetSlot::CAMERA_1,
-            &generic,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                generic.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_err());
@@ -3543,13 +3644,13 @@ mod tests {
     #[test]
     fn write_only_state_requests_use_their_exact_plain_policies() {
         assert_policy::<PanTiltLimitSet>(
-            16,
+            17,
             TimeoutClass::Quick,
             RetryClass::Standard,
             ControlClass::Normal,
         );
         assert_policy::<PanTiltLimitClear>(
-            16,
+            17,
             TimeoutClass::Quick,
             RetryClass::Standard,
             ControlClass::Normal,
@@ -3787,8 +3888,11 @@ mod tests {
         ] {
             let request = prepare_builtin_command(
                 &command,
-                crate::target::TargetSlot::CAMERA_1,
-                &profile,
+                &crate::TargetRegistration::new(
+                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    profile.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
             )
             .expect("focus mode preparation")
@@ -3967,6 +4071,7 @@ mod tests {
                 conversion.pan_degrees_to_units(),
                 conversion.tilt_degrees_to_units(),
             )
+            .pan_tilt_wire_codec(conversion.wire_codec())
             .transports(source.transports())
             .envelope(source.envelope())
             .timing(source.timing())
@@ -3993,16 +4098,22 @@ mod tests {
 
         prepare_builtin_operation::<completion::Targeted, _>(
             &explicit,
-            crate::target::TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("explicit optical position remains governed by its numeric range");
 
         let error = prepare_builtin_operation::<completion::Targeted, _>(
             &normalized,
-            crate::target::TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                profile.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect_err("combined normalization requires typed digital-range permission");
@@ -4024,20 +4135,29 @@ mod tests {
         for result in [
             prepare_builtin_operation::<completion::Targeted, _>(
                 &IrisReset,
-                crate::target::TargetSlot::CAMERA_1,
-                &fr7,
+                &crate::TargetRegistration::new(
+                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    fr7.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::Targeted, _>(
                 &IrisUp,
-                crate::target::TargetSlot::CAMERA_1,
-                &fr7,
+                &crate::TargetRegistration::new(
+                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    fr7.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::Targeted, _>(
                 &IrisDown,
-                crate::target::TargetSlot::CAMERA_1,
-                &fr7,
+                &crate::TargetRegistration::new(
+                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    fr7.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
             ),
         ] {
@@ -4046,28 +4166,40 @@ mod tests {
         let iris_direct = IrisDirect::new(IrisLevel::new(4).unwrap());
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &iris_direct,
-            crate::target::TargetSlot::CAMERA_1,
-            &fr7,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                fr7.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_err());
         for result in [
             prepare_builtin_operation::<completion::Targeted, _>(
                 &nd,
-                crate::target::TargetSlot::CAMERA_1,
-                &generic,
+                &crate::TargetRegistration::new(
+                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    generic.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::Targeted, _>(
                 &NdFilterStepUp,
-                crate::target::TargetSlot::CAMERA_1,
-                &generic,
+                &crate::TargetRegistration::new(
+                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    generic.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::Targeted, _>(
                 &NdFilterStepDown,
-                crate::target::TargetSlot::CAMERA_1,
-                &generic,
+                &crate::TargetRegistration::new(
+                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    generic.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
             ),
         ] {
@@ -4076,14 +4208,20 @@ mod tests {
         for result in [
             prepare_builtin_operation::<completion::AppliedOnly, _>(
                 &PushAfPress,
-                crate::target::TargetSlot::CAMERA_1,
-                &generic,
+                &crate::TargetRegistration::new(
+                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    generic.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
             ),
             prepare_builtin_operation::<completion::AppliedOnly, _>(
                 &PushAfRelease,
-                crate::target::TargetSlot::CAMERA_1,
-                &generic,
+                &crate::TargetRegistration::new(
+                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    generic.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
             ),
         ] {
@@ -4135,22 +4273,31 @@ mod tests {
 
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &IrisReset,
-            crate::target::TargetSlot::CAMERA_1,
-            &ptz,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                ptz.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_ok());
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &iris,
-            crate::target::TargetSlot::CAMERA_1,
-            &ptz,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                ptz.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_ok());
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &IrisDirect::new(IrisLevel::new(0x1E).unwrap()),
-            crate::target::TargetSlot::CAMERA_1,
-            &h900,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                h900.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_ok());
@@ -4158,15 +4305,21 @@ mod tests {
         reset_request_write_count();
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &IrisReset,
-            crate::target::TargetSlot::CAMERA_1,
-            &fr7,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                fr7.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_err());
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &iris,
-            crate::target::TargetSlot::CAMERA_1,
-            &fr7,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                fr7.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_err());
@@ -4174,22 +4327,31 @@ mod tests {
 
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &NdFilterDirect::new(NdFilterValue::new(4).unwrap()),
-            crate::target::TargetSlot::CAMERA_1,
-            &fr7,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                fr7.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_ok());
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &NdFilterStepUp,
-            crate::target::TargetSlot::CAMERA_1,
-            &fr7,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                fr7.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_ok());
         assert!(prepare_builtin_operation::<completion::AppliedOnly, _>(
             &PushAfPress,
-            crate::target::TargetSlot::CAMERA_1,
-            &fr7,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                fr7.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_ok());
@@ -4207,8 +4369,11 @@ mod tests {
             assert!(
                 prepare_builtin_command(
                     &gain,
-                    crate::target::TargetSlot::CAMERA_1,
-                    profile,
+                    &crate::TargetRegistration::new(
+                        (crate::target::TargetSlot::CAMERA_1).camera(),
+                        profile.clone()
+                    )
+                    .expect("valid target registration"),
                     OperationalTuning::new(),
                 )
                 .is_ok(),
@@ -4232,8 +4397,11 @@ mod tests {
         ] {
             let error = prepare_builtin_command(
                 &ExposureCommand::new(mode),
-                crate::target::TargetSlot::CAMERA_1,
-                &fr7,
+                &crate::TargetRegistration::new(
+                    (crate::target::TargetSlot::CAMERA_1).camera(),
+                    fr7.clone(),
+                )
+                .expect("valid target registration"),
                 OperationalTuning::new(),
             )
             .expect_err("FR7 does not document the shared AE-mode command family");
@@ -4284,8 +4452,11 @@ mod tests {
         reset_request_write_count();
         let error = prepare_builtin_command(
             &ExposureCommand::new(ExposureMode::Auto),
-            crate::target::TargetSlot::CAMERA_1,
-            &generic,
+            &crate::TargetRegistration::new(
+                (crate::target::TargetSlot::CAMERA_1).camera(),
+                generic.clone(),
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect_err("discovery metadata alone must not admit shared AE-mode control");
@@ -4311,8 +4482,11 @@ mod tests {
             ($profile:expr, $command:expr) => {
                 prepare_builtin_command(
                     &$command,
-                    crate::target::TargetSlot::CAMERA_1,
-                    $profile,
+                    &crate::TargetRegistration::new(
+                        (crate::target::TargetSlot::CAMERA_1).camera(),
+                        ($profile).clone(),
+                    )
+                    .expect("valid target registration"),
                     OperationalTuning::new(),
                 )
                 .is_ok()

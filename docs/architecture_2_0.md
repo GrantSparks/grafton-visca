@@ -194,7 +194,7 @@ The construction and request path has a fixed order:
 4. Project `Camera<P>`, `BlockingDynSessionCamera`, or `DynSessionCamera` views
    without creating a second owner, runtime, transport, or cache.
 5. Prepare each request against the selected target/profile and admit it to the
-   owner. Preparation invokes `Request::validate_for_profile` before encoding;
+   owner. Preparation invokes `Request::validate_for_target` before encoding;
    crate-provided direct requests therefore return `FeatureNotSupported` for
    an unsupported profile before owner admission or transport I/O. `write_into`
    is only the profile-free encoding hook. Raw and other downstream requests

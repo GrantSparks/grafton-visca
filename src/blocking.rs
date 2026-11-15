@@ -357,16 +357,15 @@ impl Session {
         P: CompileTimeProfile,
     {
         let target = TargetSlot::try_from(target)?;
-        let profile = self.config.registered_profile_for::<P>(target)?;
-        Ok(Camera::from_core(self.core(target, profile)))
+        let profile = self.config.registered_target_for::<P>(target)?;
+        Ok(Camera::from_core(self.core(profile)))
     }
 
     /// The erased view of `target`, registered with `profile`.
-    fn core(&self, target: TargetSlot, profile: Arc<ProfileSpec>) -> BlockingCameraCore {
+    fn core(&self, registration: Arc<crate::TargetRegistration>) -> BlockingCameraCore {
         BlockingCameraCore {
             owner: self.owner.clone(),
-            target,
-            profile,
+            registration,
             class: ClassSelection::Request,
         }
     }
@@ -441,9 +440,9 @@ impl Session {
         target: CameraId,
     ) -> Result<crate::dynapi::BlockingDynSessionCamera, Error> {
         let target = TargetSlot::try_from(target)?;
-        let profile = self.config.registered_profile(target)?;
+        let profile = self.config.registered_target(target)?;
         Ok(crate::dynapi::BlockingDynSessionCamera::new(
-            self.core(target, profile),
+            self.core(profile),
         ))
     }
 
@@ -590,8 +589,8 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     /// a runtime profile comparison.
     pub(crate) fn from_session(session: Session, target: CameraId) -> Result<Self, Error> {
         let target = TargetSlot::try_from(target)?;
-        let profile = session.config.registered_profile(target)?;
-        let camera = Camera::from_core(session.core(target, profile));
+        let profile = session.config.registered_target(target)?;
+        let camera = Camera::from_core(session.core(profile));
         Ok(Self { session, camera })
     }
 
@@ -651,7 +650,7 @@ impl<P: CompileTimeProfile> CameraSession<P> {
 
     /// Returns this session's sole camera target.
     #[must_use]
-    pub const fn target(&self) -> CameraId {
+    pub fn target(&self) -> CameraId {
         self.camera.target()
     }
 
@@ -703,8 +702,7 @@ impl<P: CompileTimeProfile> CameraSession<P> {
 #[derive(Clone)]
 pub(crate) struct BlockingCameraCore {
     owner: BlockingOwnerHandle,
-    target: TargetSlot,
-    profile: Arc<ProfileSpec>,
+    registration: Arc<crate::TargetRegistration>,
     class: ClassSelection,
 }
 
@@ -712,8 +710,8 @@ impl fmt::Debug for BlockingCameraCore {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Camera")
-            .field("target", &self.target.camera())
-            .field("profile", &self.profile)
+            .field("target", &self.registration.slot().camera())
+            .field("profile", &self.registration.profile())
             .finish_non_exhaustive()
     }
 }
@@ -724,23 +722,27 @@ impl BlockingCameraCore {
     where
         P: CompileTimeProfile,
     {
-        self.profile.ensure_compile_time::<P>()?;
+        self.registration.profile().ensure_compile_time::<P>()?;
         Ok(Camera::from_core(self))
     }
 
     /// Returns this view's fixed camera target.
-    pub(crate) const fn target(&self) -> CameraId {
-        self.target.camera()
+    pub(crate) fn target(&self) -> CameraId {
+        self.registration.slot().camera()
     }
 
     /// Returns this view's validated profile facts.
     pub(crate) fn profile(&self) -> &ProfileSpec {
-        self.profile.as_ref()
+        self.registration.profile()
     }
 
     /// Returns a cheap live read-only view of this camera's target-local state.
+    pub(crate) fn registration(&self) -> &crate::TargetRegistration {
+        &self.registration
+    }
+
     pub(crate) fn state_cache(&self) -> StateCache {
-        self.owner.state_cache(self.target)
+        self.owner.state_cache(self.registration.slot())
     }
 
     /// Reads the session's live operational tuning.
@@ -773,8 +775,7 @@ impl BlockingCameraCore {
     {
         let prepared = prepare_command(
             command,
-            self.target,
-            self.profile.as_ref(),
+            self.registration.as_ref(),
             self.tuning(),
             self.class,
         )?;
@@ -788,8 +789,7 @@ impl BlockingCameraCore {
     {
         let prepared = prepare_inquiry(
             inquiry,
-            self.target,
-            self.profile.as_ref(),
+            self.registration.as_ref(),
             self.tuning(),
             self.class,
         )?;
@@ -806,8 +806,7 @@ impl BlockingCameraCore {
     {
         let prepared = prepare_operation::<K, _>(
             operation,
-            self.target,
-            self.profile.as_ref(),
+            self.registration.as_ref(),
             self.tuning(),
             self.class,
         )?;
@@ -824,19 +823,14 @@ impl BlockingCameraCore {
     /// outcome even when another axis fails.
     pub(crate) fn stop_all_motion(&self) -> Result<crate::HaltReport> {
         let started = self.owner.now();
-        let prepared =
-            crate::prepared::prepare_halt(self.target, self.profile.as_ref(), self.tuning());
+        let prepared = crate::prepared::prepare_halt(self.registration.as_ref(), self.tuning());
         self.owner.halt(prepared, started)
     }
 
     pub(crate) fn is_moving(&self, query: MotionQuery) -> Result<bool, Error> {
         let window = crate::prepared::MotionWindow::new(query)?;
-        let queries = prepare_position_queries(
-            self.target,
-            self.profile.as_ref(),
-            self.tuning(),
-            query.axes,
-        )?;
+        let queries =
+            prepare_position_queries(self.registration.as_ref(), self.tuning(), query.axes)?;
         self.owner.observe_motion(window, &queries)
     }
 
@@ -849,7 +843,7 @@ impl BlockingCameraCore {
     /// thread sleeps between samples.
     pub(crate) fn wait_until_idle(&self, wait: IdleWait) -> Result<(), Error> {
         let queries =
-            prepare_position_queries(self.target, self.profile.as_ref(), self.tuning(), wait.axes)?;
+            prepare_position_queries(self.registration.as_ref(), self.tuning(), wait.axes)?;
         self.owner.wait_until_idle(wait, &queries)
     }
 }
@@ -879,8 +873,8 @@ impl<P: CompileTimeProfile> fmt::Debug for Camera<P> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Camera")
-            .field("target", &self.core.target.camera())
-            .field("profile", &self.core.profile)
+            .field("target", &self.core.target())
+            .field("profile", &self.core.profile())
             .finish_non_exhaustive()
     }
 }
@@ -906,7 +900,7 @@ impl<P: CompileTimeProfile> Camera<P> {
     /// compile-time profile-permission surface; this direct method is the
     /// uniform typed/downstream extension boundary.
     ///
-    /// Preparation calls [`crate::Request::validate_for_profile`] before
+    /// Preparation calls [`crate::Request::validate_for_target`] before
     /// encoding, owner admission, or transport I/O. Crate-provided requests
     /// submitted directly return [`crate::Error::FeatureNotSupported`] there
     /// when the selected profile lacks their required feature. Raw and other
@@ -930,7 +924,7 @@ impl<P: CompileTimeProfile> Camera<P> {
     /// compile-time profile-permission surface; this direct method is the
     /// uniform typed/downstream extension boundary.
     ///
-    /// Preparation calls [`crate::Request::validate_for_profile`] before
+    /// Preparation calls [`crate::Request::validate_for_target`] before
     /// encoding, owner admission, or transport I/O. Crate-provided inquiries
     /// submitted directly return [`crate::Error::FeatureNotSupported`] there
     /// when the selected profile lacks their required feature. Raw and other
@@ -1070,9 +1064,9 @@ mod tests {
     fn partial_motion_core(session: &Session) -> BlockingCameraCore {
         let profile = session
             .config
-            .registered_profile(TargetSlot::CAMERA_1)
+            .registered_target(TargetSlot::CAMERA_1)
             .expect("registered partial motion profile");
-        session.core(TargetSlot::CAMERA_1, profile)
+        session.core(profile)
     }
 
     /// Two views taken from the same session drive its one owned transport,

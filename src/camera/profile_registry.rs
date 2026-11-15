@@ -1465,7 +1465,7 @@ macro_rules! __define_builtin_profiles {
                                 caps.pan_range.contains(pan) && caps.tilt_range.contains(tilt)
                             });
                         assert_eq!(
-                            spec.convert_pan_tilt_degrees(pan, 0.0).ok(),
+                            $crate::TargetRegistration::from_profile($crate::target::TargetSlot::CAMERA_1, spec.clone()).convert_pan_tilt_degrees(pan, 0.0).ok(),
                             expected,
                             "{id:?} pan {pan}°"
                         );
@@ -1478,7 +1478,7 @@ macro_rules! __define_builtin_profiles {
                                 caps.pan_range.contains(pan) && caps.tilt_range.contains(tilt)
                             });
                         assert_eq!(
-                            spec.convert_pan_tilt_degrees(0.0, tilt).ok(),
+                            $crate::TargetRegistration::from_profile($crate::target::TargetSlot::CAMERA_1, spec.clone()).convert_pan_tilt_degrees(0.0, tilt).ok(),
                             expected,
                             "{id:?} tilt {tilt}°"
                         );
@@ -2900,16 +2900,16 @@ macro_rules! builtin_profile_registry {
                         min_command_spacing_ms: 35,
                     },
                     pan_tilt: {
-                        pan_range: range!(i32, -2700, 2700),
-                        tilt_range: range!(i32, -300, 1200),
+                        pan_range: range!(i32, -0x09CA7, 0x09CA7),
+                        tilt_range: range!(i32, -0x01BA5, 0x0B3B0),
                         max_pan_speed: 24,
                         max_tilt_speed: 24,
                         simultaneous: true,
                         preset_recovery_ms: 0,
-                        pan_degrees_to_units: 15.88,
-                        tilt_degrees_to_units: 15.0,
+                        pan_degrees_to_units: -235.9,
+                        tilt_degrees_to_units: 235.9,
                         coordinate_system: $crate::capabilities::CoordinateSystem::SignedCentered,
-                        wire_codec: $crate::capabilities::PanTiltWireCodec::StandardVisca,
+                        wire_codec: $crate::capabilities::PanTiltWireCodec::SonyFr7,
                     },
                     zoom: {
                         optical_max: 0x4000,

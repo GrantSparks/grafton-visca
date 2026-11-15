@@ -821,6 +821,14 @@ automatic-slow-shutter inquiry, so this table is not a generic-VISCA grant.
 
 ### 9.4 Sony FR7 typed extension rows
 
+R7 p. 12 gives pan `09CA7` (+170° CCW) to `F6359` (−170° CW), desktop
+tilt `FE45B` (−30°) to `0B3B0` (+195°), and ceiling tilt `F3E7D` (−210°)
+to `00DD2` (+15°). Both axes have magnitude 235.9 units/degree. Logical
+rightward pan is clockwise, so the library uses a negative pan scale; upward
+tilt uses a positive scale. R7's nominal +195° and +15° endpoints sit in a
+half-unit rounding cell; conversion snaps that cell to the documented integer
+endpoint and otherwise rounds to nearest with halves away from zero.
+
 R7 pp. 18 and 22 use five signed nibbles for **each** pan/tilt axis: absolute
 `8x 01 06 02 vv ww 0p 0p 0p 0p 0p 0t 0t 0t 0t 0t FF`, relative
 `8x 01 06 03 vv ww 0p 0p 0p 0p 0p 0t 0t 0t 0t 0t FF`, and position reply

@@ -135,12 +135,16 @@ fn positive_degrees_are_right_and_up_for_every_built_in_profile() {
             .pan_tilt_coordinates()
             .expect("absolute pan/tilt conversion")
             .wire_codec();
-        let request = PanTiltAbsolute::for_profile(
+        let request = PanTiltAbsolute::for_target(
             Degrees(45.0),
             Degrees(45.0),
             PanSpeed::new(1).expect("pan speed"),
             TiltSpeed::new(1).expect("tilt speed"),
-            &row.spec,
+            &grafton_visca::TargetRegistration::new(
+                grafton_visca::CameraId::CAMERA_1,
+                row.spec.clone(),
+            )
+            .expect("target registration"),
         )
         .unwrap_or_else(|error| panic!("{:?}: +45°/+45° must encode: {error}", row.id));
         let mut frame = vec![0_u8; 16];

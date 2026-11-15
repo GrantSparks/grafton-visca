@@ -403,20 +403,36 @@ codes all three share (`02` through `15`). The FR7 and BRC-H900 command lists
 could not be read, so those profiles advertise no shutter codes and a typed
 shutter position is refused for them; the raw command path remains.
 
-### Known unverified facts
+#### FR7 pan/tilt installation facts
+
+Sony R7 pp. 12, 18 and 22 specify signed twenty-bit pan and tilt words, with
+235.9 units/degree on each axis. Positive R7 pan is counterclockwise, so the
+library's positive rightward angle uses a negative pan scale. Desktop tilt
+uses −30° to +195°; Ceiling uses −210° to +15°. Configure the matching mount
+with `SessionConfig::set_mount(target, MountPosition::Ceiling)` before opening
+the session. `camera.registration().tilt_range()` reports the effective target
+limits; `camera.profile()` remains the canonical source inventory.
+
+The nominal degree endpoints and integer words differ by up to half a unit.
+The FR7 converter snaps that endpoint cell to R7's exact word and uses nearest
+rounding with halves away from zero in the interior. This is specified packet
+support; FR7 movement and polling still need the physical verification recorded
+in the hardware release checklist.
+
+## Known unverified facts
 
 - **FR7 shutter codes (R7).** The shutter table of the FR7 command list could
   not be read, so `SonyFR7` advertises no shutter codes (`shutter_speeds` is
   empty) and `ShutterSpeed` positions are refused before any I/O.
 - **BRC-H900 shutter codes (R11).** The shutter table of the BRC-H900 command
   list could not be read, so `SonyBRCH900` advertises no shutter codes either.
-- **Pan/tilt direction of PTZOptics, FR7 and BRC-H900.** Degrees are positive
+- **Pan/tilt direction of PTZOptics and BRC-H900.** Degrees are positive
   right and positive up for every profile. R8 (EVI-H100) documents increasing
   raw pan as right and increasing raw tilt as up, and R12/R21 (BRC-300, Nearus)
   document increasing raw pan as left and increasing raw tilt as up. The
-  PTZOptics, FR7 and BRC-H900 sources give degree ranges but no raw direction,
+  PTZOptics and BRC-H900 sources give degree ranges but no raw direction,
   so those profiles follow the R8 convention. Only PTZOptics G2 tilt has been
-  verified on hardware (below); pan direction, `PtzOpticsG3`, FR7 and BRC-H900
+  verified on hardware (below); pan direction, `PtzOpticsG3` and BRC-H900
   remain unverified. `tests/pan_tilt_polarity.rs` pins the encoded direction of
   +45° for every built-in profile.
 

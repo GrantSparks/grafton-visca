@@ -305,7 +305,13 @@ fn focus_zone_values_are_gated_per_profile_while_decoding_stays_universal() {
         let profile = profile.expect("built-in profile");
         assert_eq!(profile.capabilities().focus_zones, expected, "{name}");
         for zone in g2_family {
-            let admitted = FocusZoneCommand::new(zone).validate_for_profile(&profile);
+            let admitted = FocusZoneCommand::new(zone).validate_for_target(
+                &grafton_visca::TargetRegistration::new(
+                    grafton_visca::CameraId::CAMERA_1,
+                    profile.clone(),
+                )
+                .expect("target registration"),
+            );
             assert_eq!(
                 admitted.is_ok(),
                 expected.contains(&zone),
@@ -316,7 +322,10 @@ fn focus_zone_values_are_gated_per_profile_while_decoding_stays_universal() {
 
     let g3 = ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile");
     let error = FocusZoneCommand::new(FocusZone::Zone03)
-        .validate_for_profile(&g3)
+        .validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g3.clone())
+                .expect("target registration"),
+        )
         .expect_err("G3 has no evidence for focus-zone value 03");
     assert!(
         matches!(
@@ -373,7 +382,13 @@ fn color_temperature_inquiry_is_gated_to_profiles_with_a_sourced_reply_layout() 
             .capabilities()
             .supports_typed(TypedSupportSurface::ColorTemperatureInquiry));
         ColorTemperatureInquiry
-            .validate_for_profile(&profile)
+            .validate_for_target(
+                &grafton_visca::TargetRegistration::new(
+                    grafton_visca::CameraId::CAMERA_1,
+                    profile.clone(),
+                )
+                .expect("target registration"),
+            )
             .unwrap_or_else(|error| panic!("{name} must admit the inquiry: {error}"));
     }
 
@@ -417,7 +432,13 @@ fn color_temperature_inquiry_is_gated_to_profiles_with_a_sourced_reply_layout() 
         );
         assert!(
             matches!(
-                ColorTemperatureInquiry.validate_for_profile(&profile),
+                ColorTemperatureInquiry.validate_for_target(
+                    &grafton_visca::TargetRegistration::new(
+                        grafton_visca::CameraId::CAMERA_1,
+                        profile.clone()
+                    )
+                    .expect("target registration")
+                ),
                 Err(Error::FeatureNotSupported { .. })
             ),
             "{name} must refuse the color-temperature inquiry before any I/O",
@@ -455,7 +476,13 @@ fn version_inquiry_is_gated_to_profiles_with_the_sony_reply_layout() {
         );
         assert!(
             matches!(
-                VersionInquiry.validate_for_profile(&profile),
+                VersionInquiry.validate_for_target(
+                    &grafton_visca::TargetRegistration::new(
+                        grafton_visca::CameraId::CAMERA_1,
+                        profile.clone()
+                    )
+                    .expect("target registration")
+                ),
                 Err(Error::FeatureNotSupported { .. })
             ),
             "{name} must refuse the typed version inquiry before any I/O",
@@ -490,7 +517,13 @@ fn version_inquiry_is_gated_to_profiles_with_the_sony_reply_layout() {
             "{name} must advertise the Sony-format version inquiry",
         );
         VersionInquiry
-            .validate_for_profile(&profile)
+            .validate_for_target(
+                &grafton_visca::TargetRegistration::new(
+                    grafton_visca::CameraId::CAMERA_1,
+                    profile.clone(),
+                )
+                .expect("target registration"),
+            )
             .unwrap_or_else(|error| panic!("{name} must admit the version inquiry: {error}"));
     }
 
@@ -677,39 +710,99 @@ fn inquiry_only_noise_reduction_runtime_profile_is_rejected_at_construction() {
 fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates() {
     let g2 = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
     FocusZoneInquiry
-        .validate_for_profile(&g2)
+        .validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g2.clone())
+                .expect("target registration"),
+        )
         .expect("G2 documents the focus-zone response");
     UsbAudioInquiry
-        .validate_for_profile(&g2)
+        .validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g2.clone())
+                .expect("target registration"),
+        )
         .expect("G2 documents USB audio");
 
     let g3 = ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile");
     assert!(matches!(
-        FocusZoneInquiry.validate_for_profile(&g3),
+        FocusZoneInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g3.clone())
+                .expect("target registration")
+        ),
         Err(Error::FeatureNotSupported { .. })
     ));
     assert!(matches!(
-        UsbAudioInquiry.validate_for_profile(&g3),
+        UsbAudioInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g3.clone())
+                .expect("target registration")
+        ),
         Err(Error::FeatureNotSupported { .. })
     ));
 
     let ptzoptics_30x = ProfileSpec::from_compile_time::<PtzOptics30X>().expect("30X profile");
     FocusZoneInquiry
-        .validate_for_profile(&ptzoptics_30x)
+        .validate_for_target(
+            &grafton_visca::TargetRegistration::new(
+                grafton_visca::CameraId::CAMERA_1,
+                ptzoptics_30x.clone(),
+            )
+            .expect("target registration"),
+        )
         .expect("30X documents the focus-zone response");
     UsbAudioInquiry
-        .validate_for_profile(&ptzoptics_30x)
+        .validate_for_target(
+            &grafton_visca::TargetRegistration::new(
+                grafton_visca::CameraId::CAMERA_1,
+                ptzoptics_30x.clone(),
+            )
+            .expect("target registration"),
+        )
         .expect("30X documents USB audio");
     for inquiry in [
-        NoiseReduction2DModeInquiry.validate_for_profile(&g2),
-        NoiseReduction2DInquiry.validate_for_profile(&g2),
-        NoiseReduction3DInquiry.validate_for_profile(&g2),
-        NoiseReduction2DModeInquiry.validate_for_profile(&g3),
-        NoiseReduction2DInquiry.validate_for_profile(&g3),
-        NoiseReduction3DInquiry.validate_for_profile(&g3),
-        NoiseReduction2DModeInquiry.validate_for_profile(&ptzoptics_30x),
-        NoiseReduction2DInquiry.validate_for_profile(&ptzoptics_30x),
-        NoiseReduction3DInquiry.validate_for_profile(&ptzoptics_30x),
+        NoiseReduction2DModeInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g2.clone())
+                .expect("target registration"),
+        ),
+        NoiseReduction2DInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g2.clone())
+                .expect("target registration"),
+        ),
+        NoiseReduction3DInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g2.clone())
+                .expect("target registration"),
+        ),
+        NoiseReduction2DModeInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g3.clone())
+                .expect("target registration"),
+        ),
+        NoiseReduction2DInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g3.clone())
+                .expect("target registration"),
+        ),
+        NoiseReduction3DInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, g3.clone())
+                .expect("target registration"),
+        ),
+        NoiseReduction2DModeInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(
+                grafton_visca::CameraId::CAMERA_1,
+                ptzoptics_30x.clone(),
+            )
+            .expect("target registration"),
+        ),
+        NoiseReduction2DInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(
+                grafton_visca::CameraId::CAMERA_1,
+                ptzoptics_30x.clone(),
+            )
+            .expect("target registration"),
+        ),
+        NoiseReduction3DInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(
+                grafton_visca::CameraId::CAMERA_1,
+                ptzoptics_30x.clone(),
+            )
+            .expect("target registration"),
+        ),
     ] {
         inquiry.expect("G2, G3, and legacy 30X document the NR inquiry");
     }
@@ -724,32 +817,77 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
         assert!(capabilities.supports_typed(TypedSupportSurface::NoiseReduction3DControl));
 
         NoiseReduction2DModeCommand::new(NoiseReduction2DMode::Manual)
-            .validate_for_profile(profile)
+            .validate_for_target(
+                &grafton_visca::TargetRegistration::new(
+                    grafton_visca::CameraId::CAMERA_1,
+                    profile.clone(),
+                )
+                .expect("target registration"),
+            )
             .expect("NR mode control must validate");
         NoiseReduction2D::with_level(NoiseReduction2DLevel::MAX)
-            .validate_for_profile(profile)
+            .validate_for_target(
+                &grafton_visca::TargetRegistration::new(
+                    grafton_visca::CameraId::CAMERA_1,
+                    profile.clone(),
+                )
+                .expect("target registration"),
+            )
             .expect("2D NR control must validate");
         NoiseReduction3D::with_level(NoiseReduction3DLevel::MAX)
-            .validate_for_profile(profile)
+            .validate_for_target(
+                &grafton_visca::TargetRegistration::new(
+                    grafton_visca::CameraId::CAMERA_1,
+                    profile.clone(),
+                )
+                .expect("target registration"),
+            )
             .expect("3D NR control must validate at level 8");
     }
 
     let fr7 = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile");
     for result in [
-        FocusZoneInquiry.validate_for_profile(&fr7),
-        UsbAudioInquiry.validate_for_profile(&fr7),
-        PictureEffectInquiry.validate_for_profile(&fr7),
-        NoiseReduction2DModeInquiry.validate_for_profile(&fr7),
-        NoiseReduction2DInquiry.validate_for_profile(&fr7),
-        NoiseReduction3DInquiry.validate_for_profile(&fr7),
+        FocusZoneInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, fr7.clone())
+                .expect("target registration"),
+        ),
+        UsbAudioInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, fr7.clone())
+                .expect("target registration"),
+        ),
+        PictureEffectInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, fr7.clone())
+                .expect("target registration"),
+        ),
+        NoiseReduction2DModeInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, fr7.clone())
+                .expect("target registration"),
+        ),
+        NoiseReduction2DInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, fr7.clone())
+                .expect("target registration"),
+        ),
+        NoiseReduction3DInquiry.validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, fr7.clone())
+                .expect("target registration"),
+        ),
     ] {
         assert!(matches!(result, Err(Error::FeatureNotSupported { .. })));
     }
 
     for control in [
-        NoiseReduction2DModeCommand::new(NoiseReduction2DMode::Manual).validate_for_profile(&fr7),
-        NoiseReduction2D::with_level(NoiseReduction2DLevel::MAX).validate_for_profile(&fr7),
-        NoiseReduction3D::with_level(NoiseReduction3DLevel::MAX).validate_for_profile(&fr7),
+        NoiseReduction2DModeCommand::new(NoiseReduction2DMode::Manual).validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, fr7.clone())
+                .expect("target registration"),
+        ),
+        NoiseReduction2D::with_level(NoiseReduction2DLevel::MAX).validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, fr7.clone())
+                .expect("target registration"),
+        ),
+        NoiseReduction3D::with_level(NoiseReduction3DLevel::MAX).validate_for_target(
+            &grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, fr7.clone())
+                .expect("target registration"),
+        ),
     ] {
         assert!(matches!(control, Err(Error::FeatureNotSupported { .. })));
     }
