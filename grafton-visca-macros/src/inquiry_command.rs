@@ -111,9 +111,7 @@ impl ParserStrategy {
             Self::ExtendedNibble | Self::Nibble => key == Field,
             Self::Mode | Self::ModeEnum => key == ValueType,
             Self::LastNibble => matches!(key, Field | DataVariant),
-            Self::NdFilter | Self::PictureEffect | Self::DefogLevel | Self::FocusRange => {
-                key == DataVariant
-            }
+            Self::PictureEffect | Self::DefogLevel | Self::FocusRange => key == DataVariant,
             Self::Bool
             | Self::DirectByte
             | Self::Byte
@@ -124,7 +122,8 @@ impl ParserStrategy {
             | Self::TallyStatus
             | Self::SharpnessMode
             | Self::Gamma
-            | Self::AutoWbSensitivity => false,
+            | Self::AutoWbSensitivity
+            | Self::NdFilter => false,
         }
     }
 }
@@ -187,7 +186,6 @@ enum PayloadDecoder {
     LastNibble {
         field: Ident,
     },
-    NdFilter,
     PictureEffect,
     DefogLevel,
     FocusRange,
@@ -428,7 +426,6 @@ impl RawAttributes {
                             .clone()
                             .ok_or_else(|| error("last_nibble parser requires field"))?,
                     },
-                    ParserStrategy::NdFilter => PayloadDecoder::NdFilter,
                     ParserStrategy::PictureEffect => PayloadDecoder::PictureEffect,
                     ParserStrategy::DefogLevel => PayloadDecoder::DefogLevel,
                     ParserStrategy::FocusRange => PayloadDecoder::FocusRange,
@@ -442,7 +439,8 @@ impl RawAttributes {
                     | ParserStrategy::TallyStatus
                     | ParserStrategy::SharpnessMode
                     | ParserStrategy::Gamma
-                    | ParserStrategy::AutoWbSensitivity => PayloadDecoder::Canonical,
+                    | ParserStrategy::AutoWbSensitivity
+                    | ParserStrategy::NdFilter => PayloadDecoder::Canonical,
                 })
             })
             .transpose();
@@ -876,7 +874,6 @@ fn selector_decode_body(
                 )
             }
         },
-        PayloadDecoder::NdFilter => return canonical_decode(response, crate_path),
         PayloadDecoder::PictureEffect => quote! {
             {
                 #single_byte
