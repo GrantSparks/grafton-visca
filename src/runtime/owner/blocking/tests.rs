@@ -18,8 +18,8 @@ use std::ops::ControlFlow;
 
 use super::super::receipt::OperationWait;
 use super::super::{
-    canonical_owner_trace, BlockingTransportAdapter, OperationObservation, RuntimeOutcome,
-    RuntimeRequest, CANONICAL_OWNER_TRACE,
+    canonical_owner_trace, BlockingTransportAdapter, DeadlineKind, DiagnosticEvent,
+    OperationObservation, RuntimeOutcome, RuntimeRequest, CANONICAL_OWNER_TRACE,
 };
 use super::*;
 use crate::testing::manual_clock::ManualClock;
@@ -518,13 +518,14 @@ fn diagnostic_receive_timeout_uses_the_session_clock() {
     let diagnostics = owner.subscribe_diagnostics(128).unwrap();
     while diagnostics.try_recv().is_some() {}
     let start = clock.now();
-    let real_start = Instant::now();
+    // This registered thread keeps virtual time still during an untracked
+    // wall-clock wait. Reaching the exact deadline therefore proves that the
+    // subscription waits on the session clock, regardless of host CPU load.
     assert!(diagnostics
         .recv_timeout(Duration::from_secs(60))
         .unwrap()
         .is_none());
     assert_eq!(clock.now() - start, Duration::from_secs(60));
-    assert!(real_start.elapsed() < Duration::from_secs(2));
     owner.close().unwrap();
 }
 
@@ -536,16 +537,21 @@ fn diagnostic_receive_observes_an_owner_deadline_without_wall_time() {
     let (owner, peer) = Setup::datagram().on(&clock).spawn();
     let receipt = owner.submit_command(focus_manual()).unwrap();
     peer.next_write();
+    let ack_deadline = clock.now() + generic_profile().timing().ack_timeout();
     let diagnostics = owner.subscribe_diagnostics(128).unwrap();
     while diagnostics.try_recv().is_some() {}
     let start = clock.now();
-    let real_start = Instant::now();
-    assert!(diagnostics
+    let event = diagnostics
         .recv_timeout(Duration::from_secs(60))
         .unwrap()
-        .is_some());
-    assert!(clock.now() > start);
-    assert!(real_start.elapsed() < Duration::from_secs(2));
+        .expect("the owner ACK deadline emits a diagnostic before the subscription deadline");
+    assert!(matches!(event, DiagnosticEvent::DeadlineExpired {
+        id,
+        deadline: DeadlineKind::Ack,
+        ..
+    } if id == receipt.core.id));
+    assert!(start < ack_deadline);
+    assert_eq!(clock.now(), ack_deadline);
     drop(receipt);
     owner.close().unwrap();
 }
