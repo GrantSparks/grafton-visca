@@ -2,7 +2,7 @@ use grafton_visca::{
     capabilities::{
         HasBrightnessControl, HasColorTemperature, HasColorTemperatureInquiry, HasContrastControl,
         HasExposureCompensation, HasExposureMode, HasFocusNearLimitInquiry, HasFocusZone,
-        HasFocusZoneInquiry, HasImageFlip, HasImageMirror, HasIrisControl, HasIrisControlInquiry,
+        HasFocusZoneInquiry, HasImageFlip, HasImageMirror, HasIrisControl,
         HasMotionSync, HasNdFilter, HasNoiseReduction2D, HasNoiseReduction2DControl,
         HasNoiseReduction3D, HasNoiseReduction3DControl, HasPictureEffect, HasRgbGain,
         HasRgbTuning, HasSaturationControl, HasSharpnessControl, HasSonyAutoSlowShutter,
@@ -24,7 +24,6 @@ fn requires_variable_speed<P: HasVariableSpeed>() {}
 fn requires_brightness<P: HasBrightnessControl>() {}
 fn requires_exposure_mode<P: HasExposureMode>() {}
 fn requires_iris<P: HasIrisControl>() {}
-fn requires_iris_control_inquiry<P: HasIrisControlInquiry>() {}
 fn requires_nr_2d<P: HasNoiseReduction2D>() {}
 fn requires_nr_3d<P: HasNoiseReduction3D>() {}
 fn requires_nr_2d_control<P: HasNoiseReduction2DControl>() {}
@@ -65,7 +64,6 @@ fn main() {
     requires_brightness::<SonyBRCH900>();
     requires_exposure_mode::<SonyFR7>();
     requires_iris::<SonyFR7>();
-    requires_iris_control_inquiry::<PtzOpticsG3>();
     requires_nr_2d::<SonyFR7>();
     requires_nr_3d::<SonyFR7>();
     requires_nr_2d_control::<SonyFR7>();
@@ -122,7 +120,6 @@ fn main() {
 //~ "profile `SonyBRCH900` does not declare exposure brightness support"
 //~ "profile `SonyFR7` does not declare shared exposure-mode support"
 //~ "profile `SonyFR7` does not declare iris control support"
-//~ "profile `grafton_visca::profiles::PtzOpticsG3` does not declare iris control-status inquiry support"
 //~ "profile `SonyFR7` does not declare 2D noise-reduction inquiry support"
 //~ "profile `SonyFR7` does not declare 3D noise-reduction inquiry support"
 //~ "profile `SonyFR7` does not declare 2D noise-reduction control support"

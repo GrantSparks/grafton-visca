@@ -27,13 +27,13 @@ impl LocalLevel {
 struct CheckedLocalInquiry;
 
 fn custom(payload: &[u8]) -> Result<InquiryData, Error> {
-    Ok(InquiryData::Digital {
+    Ok(InquiryData::ExposureCompensationMode {
         on: payload == [0xa5],
     })
 }
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
-#[visca(opcode = 0, response = Power, parser = Custom, parse_with = custom, data_variant = Digital, typed_response = bool, typed_field = on)]
+#[visca(opcode = 0, response = Power, parser = Custom, parse_with = custom, data_variant = ExposureCompensationMode, typed_response = bool, typed_field = on)]
 struct CustomInquiry;
 
 #[test]
@@ -85,6 +85,6 @@ fn custom_parser_and_typed_projection_share_the_declared_override() {
     assert!(!CustomInquiry.decoder().decode(&[0x02]).unwrap());
     assert!(matches!(
         CustomInquiry.parse_response(&[0xa5]),
-        Ok(InquiryData::Digital { on: true })
+        Ok(InquiryData::ExposureCompensationMode { on: true })
     ));
 }

@@ -11,13 +11,13 @@ use grafton_visca::{
         HasBrightnessControl, HasColorTemperature, HasColorTemperatureInquiry, HasContrastControl,
         HasExposure, HasExposureCompensation, HasExposureMode, HasFocus, HasFocusNearLimitInquiry,
         HasFocusZone, HasFocusZoneInquiry, HasGammaControl, HasHueControl, HasImageFlip,
-        HasImageProcessing, HasIrisControl, HasIrisControlInquiry, HasLuminanceControl,
-        HasMenuControl, HasMotionSync, HasNdFilter, HasNoiseReduction2D, HasNoiseReduction2DMode,
-        HasNoiseReduction3D, HasPanTilt, HasPictureEffect, HasPower, HasPresets,
-        HasPtzOpticsAntiFlicker, HasPtzOpticsMulticastStreaming, HasPtzOpticsNdiQuality,
-        HasPtzOpticsPresetRecallSpeed, HasPtzOpticsSettingsSave, HasRgbGain, HasRgbTuning,
-        HasSaturationControl, HasSharpnessControl, HasSonyAutoSlowShutter, HasSonySpotlight,
-        HasTally, HasUsbAudio, HasVersionInquiry, HasWhiteBalance, HasWideDynamicRange, HasZoom,
+        HasImageProcessing, HasIrisControl, HasLuminanceControl, HasMenuControl, HasMotionSync,
+        HasNdFilter, HasNoiseReduction2D, HasNoiseReduction2DMode, HasNoiseReduction3D, HasPanTilt,
+        HasPictureEffect, HasPower, HasPresets, HasPtzOpticsAntiFlicker,
+        HasPtzOpticsMulticastStreaming, HasPtzOpticsNdiQuality, HasPtzOpticsPresetRecallSpeed,
+        HasPtzOpticsSettingsSave, HasRgbGain, HasRgbTuning, HasSaturationControl,
+        HasSharpnessControl, HasSonyAutoSlowShutter, HasSonySpotlight, HasTally, HasUsbAudio,
+        HasVersionInquiry, HasWhiteBalance, HasWideDynamicRange, HasZoom,
     },
     command::{MotionSyncMode, NdFilterValue},
     completion::{AppliedOnly, Targeted},
@@ -126,7 +126,6 @@ where
         + HasImageFlip
         + HasImageProcessing
         + HasIrisControl
-        + HasIrisControlInquiry
         + HasLuminanceControl
         + HasMotionSync
         + HasNdFilter
@@ -147,7 +146,6 @@ where
     let _ = camera.exposure().compensation();
     let _ = camera.exposure().compensation_enabled();
     let _ = camera.exposure().compensation_position();
-    let _ = camera.exposure().iris_control();
     let _ = camera.exposure().iris();
     let _ = camera.exposure().brightness();
     let _ = camera.image().saturation();

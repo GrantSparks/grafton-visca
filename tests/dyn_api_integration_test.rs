@@ -284,10 +284,8 @@ async fn dynamic_tally_metadata_does_not_grant_typed_permission<E: Executor>(exe
         tally.flash().await,
         tally.on().await,
         tally.off().await,
-        tally.status().await.map(|_| ()),
         tally.red_status().await.map(|_| ()),
         tally.green_status().await.map(|_| ()),
-        tally.auto_adjust_enabled().await.map(|_| ()),
     ] {
         assert!(
             matches!(result, Err(Error::FeatureNotSupported { .. })),

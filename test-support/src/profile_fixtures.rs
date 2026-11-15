@@ -271,7 +271,6 @@ synthetic_profile!(
         TypedSupportSurface::HueControl,
         TypedSupportSurface::ImageFlip,
         TypedSupportSurface::IrisControl,
-        TypedSupportSurface::IrisControlInquiry,
         TypedSupportSurface::LuminanceControl,
         TypedSupportSurface::MotionSync,
         TypedSupportSurface::NdFilter,
@@ -323,7 +322,6 @@ impl capabilities::HasGammaControl for OptionalSurfacesTypedSupport {}
 impl capabilities::HasHueControl for OptionalSurfacesTypedSupport {}
 impl capabilities::HasImageFlip for OptionalSurfacesTypedSupport {}
 impl capabilities::HasIrisControl for OptionalSurfacesTypedSupport {}
-impl capabilities::HasIrisControlInquiry for OptionalSurfacesTypedSupport {}
 impl capabilities::HasLuminanceControl for OptionalSurfacesTypedSupport {}
 impl capabilities::HasMotionSync for OptionalSurfacesTypedSupport {}
 impl capabilities::HasNdFilter for OptionalSurfacesTypedSupport {}

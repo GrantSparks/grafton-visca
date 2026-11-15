@@ -3,7 +3,7 @@
 //! This module tests the parsing of VISCA inquiry responses using
 //! real-world response patterns from PTZ cameras.
 
-use grafton_visca::command::{InquiryData, InquiryKind, Response, TallyStatusState};
+use grafton_visca::command::{InquiryData, InquiryKind, Response};
 
 #[test]
 fn white_balance_mode_inquiry_preserves_existing_values_and_decodes_fr7_atw() {
@@ -337,9 +337,9 @@ fn test_parse_luminance_inquiry() {
 }
 
 #[test]
-fn test_parse_sharpness_inquiry() {
+fn test_parse_sharpness_position_inquiry() {
     let data = vec![0x90, 0x50, 0x00, 0x00, 0x00, 0x08, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::Sharpness);
+    let result = Response::parse_with_type(&data, &InquiryKind::SharpnessPosition);
     assert!(
         result.is_ok(),
         "Failed to parse sharpness response: {:?}",
@@ -347,8 +347,8 @@ fn test_parse_sharpness_inquiry() {
     );
 
     match result.unwrap() {
-        Response::Inquiry(InquiryData::Sharpness { value }) => {
-            assert_eq!(value, 0x08, "Sharpness value mismatch");
+        Response::Inquiry(InquiryData::SharpnessPosition { position }) => {
+            assert_eq!(position, 0x08, "Sharpness position mismatch");
         }
         _ => panic!("Unexpected response type"),
     }
@@ -628,46 +628,6 @@ fn test_parse_tally_green_inquiry() {
     match result.unwrap() {
         Response::Inquiry(InquiryData::TallyGreen { on }) => {
             assert!(!on, "Tally green should be off");
-        }
-        _ => panic!("Unexpected response type"),
-    }
-}
-
-#[test]
-fn test_parse_tally_status_inquiry() {
-    // Combined Tally Status (PTZOptics vendor extension)
-    // Red off (0x02), Green on (0x03)
-    let data = vec![0x90, 0x50, 0x02, 0x03, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::TallyStatus);
-    assert!(
-        result.is_ok(),
-        "Failed to parse tally status response: {:?}",
-        result
-    );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::TallyStatus { state }) => {
-            let TallyStatusState { red_on, green_on } = state;
-            assert!(!red_on, "Red tally should be off");
-            assert!(green_on, "Green tally should be on");
-        }
-        _ => panic!("Unexpected response type"),
-    }
-
-    // Both on (0x03, 0x03)
-    let data = vec![0x90, 0x50, 0x03, 0x03, 0xFF];
-    let result = Response::parse_with_type(&data, &InquiryKind::TallyStatus);
-    assert!(
-        result.is_ok(),
-        "Failed to parse tally status both on: {:?}",
-        result
-    );
-
-    match result.unwrap() {
-        Response::Inquiry(InquiryData::TallyStatus { state }) => {
-            let TallyStatusState { red_on, green_on } = state;
-            assert!(red_on, "Red tally should be on");
-            assert!(green_on, "Green tally should be on");
         }
         _ => panic!("Unexpected response type"),
     }

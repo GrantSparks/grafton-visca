@@ -66,7 +66,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   auto/manual status. Custom requests and decoders remain the explicit path
   for caller-owned protocol extensions. Built-in inquiry admission resolves exact
   source/model facts before encoding, and BRC-H900 power status uses its
-  documented extended query category.
+  documented extended query category. Test inventories and downstream compile
+  contracts follow the sourced surface; sharpness-position decoding remains
+  covered through its canonical response kind.
 
 - **BREAKING** (#872): Settlement tuning below every built-in targeted retry
   budget is refused. Default `settled()` waits use the larger of the override

@@ -17,7 +17,7 @@ struct ModeInquiry;
 struct NibbleInquiry;
 
 fn custom(payload: &[u8]) -> Result<InquiryData, Error> {
-    Ok(InquiryData::Digital {
+    Ok(InquiryData::ExposureCompensationMode {
         on: payload == [0xA5],
     })
 }
@@ -25,7 +25,7 @@ fn custom(payload: &[u8]) -> Result<InquiryData, Error> {
 #[derive(Debug, Clone, Copy, ViscaInquiry)]
 #[visca(
     opcode = 0x00, response = Power, parser = Custom,
-    parse_with = custom, data_variant = Digital,
+    parse_with = custom, data_variant = ExposureCompensationMode,
     typed_response = bool, typed_field = on
 )]
 struct CustomInquiry;

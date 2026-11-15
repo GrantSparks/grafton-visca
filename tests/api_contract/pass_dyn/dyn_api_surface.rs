@@ -7,9 +7,9 @@ use grafton_visca::{
     capabilities::Capabilities,
     command::{
         AntiFlickerMode, AutoFocusSensitivity, AutoWhiteBalanceSensitivity, FocusLock, FocusMode,
-        FocusZone, ImageFlipMode, MenuDirection, MotionSyncMode, MotionSyncPreset, NdFilterMode,
-        NdFilterValue, PanTiltDirection, PanTiltLimitCorner, PictureEffectMode, PresetNumber,
-        SharpnessMode, TallyStatusState, VariableSpeedMode, WhiteBalanceMode,
+        FocusZone, ImageFlipMode, MenuDirection, MotionSyncMode, MotionSyncPreset,
+        NdFilterMode, NdFilterValue, PanTiltDirection, PanTiltLimitCorner, PictureEffectMode,
+        PresetNumber, SharpnessMode, VariableSpeedMode, WhiteBalanceMode,
     },
     dynapi::{
         DynAppliedOperation, DynAppliedRequest, DynFuture, DynMotion, DynPower, DynSessionCamera,
@@ -17,7 +17,7 @@ use grafton_visca::{
     },
     state_cache::StateCache,
     types::{
-        BlueChannel, BlueTuning, BrightnessLevel, ColorTemp, ContrastLevel, DefogLevel,
+        BlueChannel, BlueTuning, BrightnessLevel, ColorTemp, ContrastLevel,
         DynamicRangeLevel, ExposureCompensationLevel, ExposureCompensationPosition, FocusPosition,
         GainLevel, GainLimit, IrisLevel, LuminanceLevel, MotionSyncSpeed, NdFilterPreset,
         NoiseReduction2DLevel, NoiseReduction3DLevel, PanSpeed, RedChannel, RedTuning,
@@ -149,7 +149,6 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<(), Error>> =
         exposure.compensation_direct(ExposureCompensationLevel::new(0).unwrap());
     let _: DynFuture<'_, Result<(), Error>> = exposure.set_dynamic_range(DynamicRangeLevel::MIN);
-    let _: DynFuture<'_, Result<bool, Error>> = exposure.iris_control();
     let _: DynFuture<'_, Result<IrisLevel, Error>> = exposure.iris();
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> = exposure.iris_reset();
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> = exposure.iris_up();
@@ -247,14 +246,12 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<grafton_visca::command::FlipState, Error>> = image.flip_mode();
     let _: DynFuture<'_, Result<PictureEffectMode, Error>> = image.picture_effect();
     let _: DynFuture<'_, Result<(), Error>> = image.set_picture_effect(PictureEffectMode::Off);
-    let _: DynFuture<'_, Result<DefogLevel, Error>> = image.defog_level();
 
     let presets = camera.presets();
     let _: DynFuture<'_, Result<DynTargetedOperation, Error>> =
         presets.recall(PresetNumber::new(1).unwrap());
 
     let tally = camera.tally();
-    let _: DynFuture<'_, Result<TallyStatusState, Error>> = tally.status();
     let _: DynFuture<'_, Result<(), Error>> = tally.red_on();
     let _: DynFuture<'_, Result<(), Error>> = tally.red_off();
     let _: DynFuture<'_, Result<(), Error>> = tally.bright_lo();
@@ -266,7 +263,6 @@ fn noun_surfaces(camera: &dyn DynSessionCameraNouns) {
     let _: DynFuture<'_, Result<(), Error>> = tally.off();
     let _: DynFuture<'_, Result<bool, Error>> = tally.red_status();
     let _: DynFuture<'_, Result<bool, Error>> = tally.green_status();
-    let _: DynFuture<'_, Result<bool, Error>> = tally.auto_adjust_enabled();
 
     let nd = camera.nd_filter();
     let _: DynFuture<'_, Result<grafton_visca::command::NdFilterValue, Error>> = nd.position();

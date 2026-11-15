@@ -57,7 +57,7 @@ struct StrictFlagsInquiry;
 struct StrictModeInquiry;
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
-#[visca(opcode = 0x05, response = TallyStatus)]
+#[visca(opcode = 0x05, response = TallyRed)]
 struct StrictTallyInquiry;
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
@@ -121,10 +121,8 @@ fn canonical_decoders_require_exact_wire_lengths() {
     ));
     assert!(StrictModeInquiry.parse_response(&[0x00, 0x00]).is_err());
 
-    assert!(StrictTallyInquiry.parse_response(&[0x03, 0x02]).is_ok());
-    assert!(StrictTallyInquiry
-        .parse_response(&[0x03, 0x02, 0x00])
-        .is_err());
+    assert!(StrictTallyInquiry.parse_response(&[0x02]).is_ok());
+    assert!(StrictTallyInquiry.parse_response(&[0x02, 0x00]).is_err());
 
     assert!(StrictSharpnessInquiry.parse_response(&[0x02]).is_ok());
     assert!(StrictSharpnessInquiry

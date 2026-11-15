@@ -80,7 +80,7 @@ macro_rules! assert_generated_inquiry_inventory {
         #[test]
         fn all_queryable_generated_inquiries_encode_without_heap_allocation() {
             const QUERYABLE_GENERATED_INQUIRY_COUNT: usize = [$(stringify!($inquiry)),+].len();
-            assert_eq!(QUERYABLE_GENERATED_INQUIRY_COUNT, 53);
+            assert_eq!(QUERYABLE_GENERATED_INQUIRY_COUNT, 48);
             $(
                 let inquiry = <$inquiry>::default();
                 assert_request_encoding_does_not_allocate($label, &inquiry);
@@ -90,7 +90,7 @@ macro_rules! assert_generated_inquiry_inventory {
 }
 
 // Keep this list synchronized with the queryable section of the built-in
-// inquiry table. The two intentionally untyped query requests remain present.
+// inquiry table. Retired, unsourced requests are deliberately absent.
 assert_generated_inquiry_inventory!(
     ("PowerInquiry", grafton_visca::command::PowerInquiry),
     ("VersionInquiry", grafton_visca::command::VersionInquiry),
@@ -173,25 +173,12 @@ assert_generated_inquiry_inventory!(
         "MenuOpenCloseInquiry",
         grafton_visca::command::MenuOpenCloseInquiry
     ),
-    (
-        "TallyStatusInquiry",
-        grafton_visca::command::TallyStatusInquiry
-    ),
     ("NdFilterInquiry", grafton_visca::command::NdFilterInquiry),
     (
         "PictureEffectInquiry",
         grafton_visca::command::PictureEffectInquiry
     ),
     ("FlipStateInquiry", grafton_visca::command::FlipStateInquiry),
-    (
-        "IrisControlInquiry",
-        grafton_visca::command::IrisControlInquiry
-    ),
-    ("DefogModeInquiry", grafton_visca::command::DefogModeInquiry),
-    (
-        "DefogLevelInquiry",
-        grafton_visca::command::DefogLevelInquiry
-    ),
     (
         "AutoWhiteBalanceSensitivityInquiry",
         grafton_visca::command::AutoWhiteBalanceSensitivityInquiry
@@ -222,10 +209,6 @@ assert_generated_inquiry_inventory!(
     (
         "NdFilterPresetInquiry",
         grafton_visca::command::NdFilterPresetInquiry
-    ),
-    (
-        "TallyAutoAdjustInquiry",
-        grafton_visca::command::TallyAutoAdjustInquiry
     ),
     ("TallyRedInquiry", grafton_visca::command::TallyRedInquiry),
     (

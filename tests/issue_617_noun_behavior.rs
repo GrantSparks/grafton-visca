@@ -79,8 +79,7 @@ mod blocking_surface {
     use grafton_visca::{
         blocking::{Session, SessionConfig},
         command::{
-            ExposureCommand, ExposureMode, ExposureModeInquiry, FocusZone, IrisControlInquiry,
-            PanTiltDirection,
+            ExposureCommand, ExposureMode, ExposureModeInquiry, FocusZone, PanTiltDirection,
         },
         profile::ProfileSpec,
         profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300, SonyFR7},
@@ -371,39 +370,12 @@ mod blocking_surface {
         );
         session.shutdown().expect("shutdown");
     }
-
-    #[test]
-    fn blocking_direct_iris_control_inquiry_rejects_before_any_write() {
-        let (session, fake) =
-            open_with(ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"));
-        let camera = session.camera::<PtzOpticsG3>().expect("camera");
-
-        let error = camera
-            .inquire(&IrisControlInquiry)
-            .expect_err("G3 does not document the standard iris control-status inquiry");
-        assert!(matches!(
-            error,
-            Error::FeatureNotSupported {
-                feature: "typed inquiry IrisControlInquiry",
-                ..
-            }
-        ));
-        assert!(
-            fake.writes().is_empty(),
-            "rejected direct iris control-status inquiry must not reach the transport"
-        );
-
-        session.shutdown().expect("shutdown");
-    }
 }
 
 #[cfg(all(feature = "async", feature = "runtime-tokio"))]
 mod async_surface {
     use grafton_visca::{
-        command::{
-            ExposureCommand, ExposureMode, ExposureModeInquiry, IrisControlInquiry,
-            PanTiltDirection,
-        },
+        command::{ExposureCommand, ExposureMode, ExposureModeInquiry, PanTiltDirection},
         profile::ProfileSpec,
         profiles::{PtzOpticsG3, SonyBRC300, SonyFR7},
         transport::AddressingMode,
@@ -681,35 +653,6 @@ mod async_surface {
         session.shutdown().expect("shutdown");
     }
 
-    #[tokio::test]
-    async fn async_direct_iris_control_inquiry_rejects_before_any_write() {
-        let fake = probe_camera();
-        let session = open_session(
-            &fake,
-            ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"),
-        )
-        .await;
-        let camera = session.camera::<PtzOpticsG3>().expect("camera");
-
-        let error = camera
-            .inquire(&IrisControlInquiry)
-            .await
-            .expect_err("G3 does not document the standard iris control-status inquiry");
-        assert!(matches!(
-            error,
-            Error::FeatureNotSupported {
-                feature: "typed inquiry IrisControlInquiry",
-                ..
-            }
-        ));
-        assert!(
-            fake.writes().is_empty(),
-            "rejected direct iris control-status inquiry must not reach the transport"
-        );
-
-        session.shutdown().expect("shutdown");
-    }
-
     #[cfg(feature = "dyn-api")]
     #[tokio::test]
     async fn dynamic_unsupported_capability_fails_before_any_write() {
@@ -877,36 +820,6 @@ mod async_surface {
         session.shutdown().expect("shutdown");
     }
 
-    #[cfg(feature = "dyn-api")]
-    #[tokio::test]
-    async fn dynamic_iris_control_status_inquiry_requires_its_distinct_marker_before_any_write() {
-        let fake = probe_camera();
-        let session = open_session(
-            &fake,
-            ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"),
-        )
-        .await;
-        let camera = session.camera_dyn().expect("dynamic camera");
-
-        let error = camera
-            .exposure()
-            .iris_control()
-            .await
-            .expect_err("G3 has no model-specific source-backed iris control-status inquiry");
-        assert!(matches!(
-            error,
-            Error::FeatureNotSupported {
-                feature: "typed inquiry IrisControlInquiry",
-                ..
-            }
-        ));
-        assert!(
-            fake.writes().is_empty(),
-            "a rejected dynamic iris control-status inquiry must not reach the transport"
-        );
-        session.shutdown().expect("shutdown");
-    }
-
     /// Unsupported image rows remain unavailable whether a profile lacks the
     /// base noun entirely or exposes only other, independently gated image
     /// rows. The erased facade must refuse them before reaching the transport.
@@ -942,11 +855,6 @@ mod async_surface {
                     .freeze_off()
                     .await
                     .expect_err("image freeze-off must be refused"),
-                camera
-                    .image()
-                    .defog_level()
-                    .await
-                    .expect_err("image defog must be refused"),
             ] {
                 assert!(
                     matches!(error, Error::FeatureNotSupported { .. }),
@@ -985,8 +893,8 @@ mod async_surface {
     }
 
     /// The FR7 exposes only the source-backed red/green tally rows.  Its
-    /// packed PTZOptics status, auto-adjust inquiry, brightness commands, and
-    /// tally-mode commands must remain runtime-gated on the erased surface.
+    /// brightness and tally-mode commands remain runtime-gated on the erased
+    /// surface.
     #[cfg(feature = "dyn-api")]
     #[tokio::test]
     async fn dynamic_fr7_unsupported_tally_rows_fail_before_any_write() {
@@ -1001,8 +909,6 @@ mod async_surface {
         for result in [
             camera.tally().bright_lo().await,
             camera.tally().bright_hi().await,
-            camera.tally().status().await.map(|_| ()),
-            camera.tally().auto_adjust_enabled().await.map(|_| ()),
             camera.tally().on().await,
             camera.tally().off().await,
             camera.tally().flash().await,
