@@ -294,8 +294,8 @@ its reply layout is sourced only for the PTZOptics G2 family: the PTZOptics G2
 bench (hardware inquiry test, #498) replies with one data byte, `90 50 pq FF`,
 where `pq` is the `04 20` direct code ([VISCA reference §7.10](visca_reference.md)).
 `PtzOpticsG2` and the legacy G2 `PtzOptics30X` implement
-`HasColorTemperatureInquiry`. `PtzOpticsG3` and `SonyBRCH900` keep the
-controls, but no source documents their reply, so
+`HasColorTemperatureInquiry`. `PtzOpticsG3` retains the setters; BRC-H900 has no
+shared color-temperature grant. Neither has a sourced reply for this inquiry, so
 `camera.white_balance().color_temperature()` does not compile for them and the
 dyn/runtime path refuses it with `FeatureNotSupported` before any I/O; send
 `raw::Inquiry` with `81 09 04 20 FF` to read the bytes.
@@ -382,8 +382,8 @@ inquiry itself is available [R1, R14, R15].
 The vendor state commands use their own support markers instead of inferring
 permission from broad exposure, preset, or streaming metadata. PTZOptics G2,
 G3, and 30X expose anti-flicker, settings save, preset-recall speed, multicast,
-and NDI quality. Sony FR7 and BRC-H900 expose the fixed `04 3A` spotlight
-controls; Sony EVI-H100 (R8), BRC-300 (R12) and Nearus BRC-300 (R21) expose the
+and NDI quality. Sony FR7 exposes the fixed `04 3A` spotlight controls; Sony
+EVI-H100 (R8), BRC-300 (R12) and Nearus BRC-300 (R21) expose the
 fixed `04 5A` automatic slow-shutter controls. None of those three model
 sources lists the `04 3A` spotlight family. Other profiles can use the raw
 escape hatch where appropriate but do not receive these typed methods.
@@ -448,8 +448,10 @@ in the hardware release checklist.
   its separate focus-limit distance selectors do not establish raw direction.
 
 - **BRC-H900 source reference spans (R11 v2.20, p. 37).** The checked
-  pan/tilt table reaches ±169° (±`09BDE` pan) and −30°…+90° tilt
-  (`E458`…`52F8`), at 236 units/degree; increasing pan is left. The focus
+  pan/tilt table labels pan ±169° and records signed raw bounds ±`09BDE`.
+  At 236 units/degree those raw endpoints give exact derived bounds of about
+  ±169.076°; `EndpointQuantization::Exact` retains them. Tilt spans −30°…+90°
+  (`E458`…`52F8`), and increasing pan is left. The focus
   reference table spans `1000` (infinity) through `C000` (0.8 m), with the
   high endpoint nearest. These are the conservative supported reference spans,
   not a claim of measured mechanical stops. Optical zoom is `0000`…`4000`
@@ -534,7 +536,8 @@ the backlight fact, and the typed marker together.
 
 An iris range in runtime metadata is a discovery fact, not a typed-support
 grant. `IrisLevel` covers the built-in wire-domain union (`0x00..=0x1E`) and
-`GainLevel` covers the VISCA nibble domain (`0x00..=0x0F`); profile ranges make
+`GainLevel` covers the union of built-in gain codes (`0x00..=0x19`, including
+BRC-H900); profile ranges make
 the model-specific admission decision for either value. `HasIrisControl`
 covers standard iris reset/up/down/direct control and the `09 04 4B` position
 inquiry. It is enabled for the same eight built-ins:
@@ -663,9 +666,18 @@ test in the PR so reviewers know what remains unresolved.
 
 `Capabilities` owns optional domain records. `None` means the domain is absent;
 its bounds, speeds and refinements cannot survive independently. Use validated
-`CapabilityRange` values, direction-free `FocusCaps::range` plus `near_end`, and
-an optional shared gain range for cameras with a different vendor gain family.
+`CapabilityRange` values, direction-free `FocusCaps::range` plus a sourced or
+`Unknown` `near_end`, and an optional shared gain range for cameras with a
+different vendor gain family.
 RGB gain and tuning each require both channels in one value.
+
+`FocusCaps::near()` and `far()` return `None` when orientation is unknown.
+The PTZOptics profiles retain their validated raw focus positions, while
+physical normalized conversion reports unsupported orientation. Sony sources
+establish their near endpoint at the numerical maximum. Fixed-lens optical
+ratios are separate source facts: for example BRC-H900 has a 14× optical scale;
+family profiles that do not identify one installed lens use
+`Capabilities::zoom_scale_for_lens`.
 
 Coordinates belong to `PanTiltCaps`; the target registration only selects a
 source-declared tilt range. Degree bounds derive from wire bounds and the

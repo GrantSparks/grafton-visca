@@ -19,7 +19,7 @@ pub trait Focus {
     /// Ordered focus position bounds, independent of physical orientation.
     const FOCUS_RANGE: CapabilityRange<u16>;
 
-    /// Which numerical endpoint is nearest to the camera.
+    /// The sourced near endpoint, or `Unknown` when raw orientation is unverified.
     const FOCUS_NEAR_END: crate::capabilities::FocusNearEnd;
 
     /// Whether camera supports auto focus mode.
@@ -78,6 +78,28 @@ pub trait FocusExt: Focus {
     }
 
     /// Convert a normalized focus position to VISCA units.
+    ///
+    /// Zero is the near endpoint and one is the far endpoint when the source
+    /// establishes their orientation.
+    ///
+    /// # Errors
+    /// Returns [`ValidationError::NotSupported`] when `FOCUS_NEAR_END` is
+    /// [`Unknown`](crate::capabilities::FocusNearEnd::Unknown). Numeric raw
+    /// bounds alone do not establish a physical near-to-far direction.
+    ///
+    /// ```rust
+    /// use grafton_visca::{
+    ///     capabilities::{focus::{Focus, FocusExt}, ValidationError},
+    ///     profiles::PtzOpticsG2,
+    ///     units::UnitInterval,
+    /// };
+    /// let minimum = <PtzOpticsG2 as Focus>::FOCUS_RANGE.min();
+    /// assert_eq!(PtzOpticsG2.validate_focus_position(minimum), Ok(minimum));
+    /// assert_eq!(
+    ///     PtzOpticsG2.normalized_to_focus_units(UnitInterval::ZERO),
+    ///     Err(ValidationError::NotSupported("focus near/far orientation")),
+    /// );
+    /// ```
     fn normalized_to_focus_units(&self, normalized: UnitInterval) -> Result<u16, ValidationError> {
         let range = Self::FOCUS_RANGE;
         let span = range.max() - range.min();
@@ -93,6 +115,10 @@ pub trait FocusExt: Focus {
     }
 
     /// Converts raw units to a fraction from the near endpoint to the far end.
+    ///
+    /// # Errors
+    /// Rejects positions outside `FOCUS_RANGE`, or returns
+    /// [`ValidationError::NotSupported`] when physical orientation is unknown.
     fn focus_units_to_normalized(&self, units: u16) -> Result<UnitInterval, ValidationError> {
         self.validate_focus_position(units)?;
         let range = Self::FOCUS_RANGE;

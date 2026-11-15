@@ -190,7 +190,7 @@ AE-mode command/inquiry family, standard absolute Iris Direct command, or `09
 the raw command escape hatch until they receive their own typed APIs.
 
 `IrisLevel` represents the `0x00..=0x1E` union used by the built-in iris
-profiles, and `GainLevel` represents the VISCA `0x00..=0x0F` nibble domain.
+profiles, and `GainLevel` represents the union of built-in gain codes `0x00..=0x19`.
 The selected profile's advertised range remains the final admission check, so
 constructing a syntactically valid value never grants it to a camera that does
 not document it. Coarse `SpeedLevel` position requests similarly clamp to each

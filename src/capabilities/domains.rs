@@ -448,7 +448,7 @@ impl ZoomCaps {
 }
 
 impl FocusCaps {
-    /// Returns the near endpoint without assuming numerical orientation.
+    /// Returns the sourced near endpoint, or `None` when orientation is unknown.
     #[must_use]
     pub const fn near(&self) -> Option<u16> {
         match self.near_end {
@@ -458,7 +458,7 @@ impl FocusCaps {
         }
     }
 
-    /// Returns the far endpoint without assuming numerical orientation.
+    /// Returns the sourced far endpoint, or `None` when orientation is unknown.
     #[must_use]
     pub const fn far(&self) -> Option<u16> {
         match self.near_end {
