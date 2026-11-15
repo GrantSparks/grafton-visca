@@ -63,6 +63,15 @@ impl FrameSequence {
     }
 }
 
+/// Sequence identity requested for one Sony logical transmission.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SonyRequestSequence {
+    /// Allocate the identity for a new logical transmission.
+    AllocateFresh,
+    /// Replay the exact identity of a previously successful transmission.
+    Replay(u32),
+}
+
 /// Metadata extracted from or used during VISCA framing operations.
 ///
 /// Raw VISCA frames do not carry request sequence numbers, so
@@ -281,6 +290,13 @@ impl Envelope for SonyEncapsulated {
 }
 
 impl SonyEncapsulated {
+    fn next_sequence(&self, request: SonyRequestSequence) -> u32 {
+        match request {
+            SonyRequestSequence::AllocateFresh => self.sequence_counter.fetch_add(1, Ordering::Relaxed),
+            SonyRequestSequence::Replay(sequence) => sequence,
+        }
+    }
+
     pub(crate) fn frame_into_with_sequence(
         &self,
         visca_bytes: &[u8],
@@ -299,8 +315,10 @@ impl SonyEncapsulated {
 
         // Allocate only for a new logical message. Retries provide their
         // engine-owned sequence explicitly and must not advance this counter.
-        let sequence = requested_sequence
-            .unwrap_or_else(|| self.sequence_counter.fetch_add(1, Ordering::Relaxed));
+        let sequence = self.next_sequence(match requested_sequence {
+            None => SonyRequestSequence::AllocateFresh,
+            Some(sequence) => SonyRequestSequence::Replay(sequence),
+        });
 
         // Normalize the address byte
         let normalized_addr = normalize_address(visca_bytes[0], self.addressing);
