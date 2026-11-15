@@ -379,3 +379,60 @@ fn sharpness_level_and_mode_have_independent_model_permissions() {
         ));
     }
 }
+
+#[test]
+fn parameterized_preset_inquiries_share_command_bounds_before_encoding() {
+    let (full, _, _) = profiles();
+    let mut capabilities = full.capabilities().clone();
+    capabilities
+        .presets
+        .as_mut()
+        .expect("preset domain")
+        .highest = 5;
+    let profile = build(capabilities, &full, true);
+    let registration = target_for(&profile);
+    macro_rules! check {
+        ($query:ident) => {{
+            let admitted =
+                command::$query::new(types::Fr7PresetNumber::new(5).expect("last preset"));
+            assert!(crate::prepared::test_support::prepare_inquiry(
+                &admitted,
+                &registration,
+                OperationalTuning::new(),
+                crate::prepared::ClassSelection::Request
+            )
+            .is_ok());
+            let denied =
+                command::$query::new(types::Fr7PresetNumber::new(6).expect("wire-valid preset"));
+            crate::command::inquiry_structs::reset_generated_inquiry_write_count();
+            assert!(matches!(
+                crate::prepared::test_support::prepare_inquiry(
+                    &denied,
+                    &registration,
+                    OperationalTuning::new(),
+                    crate::prepared::ClassSelection::Request
+                ),
+                Err(Error::ParameterOutOfRange {
+                    parameter: "preset number",
+                    value: 6,
+                    min: 0,
+                    max: 5
+                })
+            ));
+            assert_eq!(
+                crate::command::inquiry_structs::generated_inquiry_write_count(),
+                0
+            );
+        }};
+    }
+    check!(Fr7SeparatePresetModeInquiry);
+    check!(Fr7SeparatePresetSpeedInquiry);
+    check!(Fr7SeparatePresetDurationInquiry);
+    let preset = types::Fr7PresetNumber::new(6).expect("wire-valid preset");
+    assert!(prepare_builtin_command(
+        &command::Fr7SetSeparatePresetSpeed::new(preset, types::PresetSpeed::MIN),
+        &registration,
+        OperationalTuning::new()
+    )
+    .is_err());
+}

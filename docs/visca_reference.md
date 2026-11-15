@@ -2507,3 +2507,8 @@ the API exposes that domain for readback and does not invent a direct setter.
 Recording, audio controls, assignable controls, dials/selectors, colour bars,
 lens initialization, shooting mode, PTZ trace and auto framing remain explicit
 raw/custom extensions; autonomous PTZ needs its own motion-safety design.
+
+Parameterized FR7 preset queries validate the selected preset against the target
+profile’s advertised highest packet number before serialization, just as preset
+setting commands do. The checked `Fr7PresetNumber` also enforces R7’s wire
+range independently of any custom profile’s narrower inventory.

@@ -128,6 +128,24 @@ pub(crate) struct BuiltinInquiryMetadata {
     pub(crate) validate: fn(&crate::ProfileSpec) -> crate::Result<()>,
 }
 
+/// A checked query argument may also depend on the selected profile's inventory.
+trait InquiryArgument {
+    fn validate(self, profile: &crate::ProfileSpec) -> crate::Result<()>;
+}
+
+impl InquiryArgument for crate::types::Fr7PresetNumber {
+    fn validate(self, profile: &crate::ProfileSpec) -> crate::Result<()> {
+        crate::request::builtin::validate_preset(profile, self.value())
+    }
+}
+
+impl InquiryArgument for crate::command::Fr7KneeParameter {
+    fn validate(self, _profile: &crate::ProfileSpec) -> crate::Result<()> {
+        // This closed selector has no narrower profile-dependent value domain.
+        Ok(())
+    }
+}
+
 /// Declare either a zero-sized query or a query owning one checked argument.
 macro_rules! builtin_inquiry_type {
     ($(#[$meta:meta])* $name:ident) => {
@@ -614,7 +632,9 @@ macro_rules! define_builtin_inquiries {
                         concat!("inquiry ", stringify!($struct)),
                         concat!("typed inquiry ", stringify!($struct)),
                     )?;
-                    Self::SOURCE.validate_for_profile(profile, concat!("sourced inquiry ", stringify!($struct)))
+                    Self::SOURCE.validate_for_profile(profile, concat!("sourced inquiry ", stringify!($struct)))?;
+                    $(InquiryArgument::validate(self.$argument, profile)?;)?
+                    Ok(())
                 }
             }
 

@@ -2426,18 +2426,18 @@ impl BuiltinValidation for PushAfPress {}
 
 impl BuiltinValidation for PushAfRelease {}
 
-fn validate_preset(profile: &crate::ProfileSpec, preset: PresetNumber) -> Result<(), Error> {
+pub(crate) fn validate_preset(profile: &crate::ProfileSpec, preset: u8) -> Result<(), Error> {
     let facts = presets_facts(profile)?;
     require_in_range(
         "preset number",
-        preset.value(),
+        preset,
         &crate::capabilities::CapabilityRange::<u8>::new(0, facts.highest),
     )
 }
 
 impl BuiltinValidation for PresetRecall {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_preset(profile, self.preset)?;
+        validate_preset(profile, self.preset.value())?;
         if profile.preset_recall_axes() == Some(self.axes) {
             Ok(())
         } else {
@@ -2450,13 +2450,13 @@ impl BuiltinValidation for PresetRecall {
 
 impl BuiltinValidation for PresetSet {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_preset(profile, self.0)
+        validate_preset(profile, self.0.value())
     }
 }
 
 impl BuiltinValidation for PresetReset {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_preset(profile, self.0)
+        validate_preset(profile, self.0.value())
     }
 }
 
@@ -2729,7 +2729,7 @@ mod tests {
 
         let above_presets = capabilities.presets.as_ref().expect("presets").highest + 1;
         assert_profile_range_error(
-            validate_preset(&g2, PresetNumber::new(above_presets).expect("preset")),
+            validate_preset(&g2, above_presets),
             "preset number",
             i32::from(above_presets),
             (
@@ -4943,31 +4943,16 @@ impl BuiltinValidation for crate::command::Fr7SetPresetSpeedSelection {}
 impl BuiltinValidation for crate::command::Fr7SetCommonPresetSpeed {}
 impl BuiltinValidation for crate::command::Fr7SetSeparatePresetMode {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        let facts = presets_facts(profile)?;
-        require_in_range(
-            "preset number",
-            self.preset().value(),
-            &crate::capabilities::CapabilityRange::<u8>::new(0, facts.highest),
-        )
+        validate_preset(profile, self.preset().value())
     }
 }
 impl BuiltinValidation for crate::command::Fr7SetSeparatePresetSpeed {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        let facts = presets_facts(profile)?;
-        require_in_range(
-            "preset number",
-            self.preset().value(),
-            &crate::capabilities::CapabilityRange::<u8>::new(0, facts.highest),
-        )
+        validate_preset(profile, self.preset().value())
     }
 }
 impl BuiltinValidation for crate::command::Fr7SetSeparatePresetDuration {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        let facts = presets_facts(profile)?;
-        require_in_range(
-            "preset number",
-            self.preset().value(),
-            &crate::capabilities::CapabilityRange::<u8>::new(0, facts.highest),
-        )
+        validate_preset(profile, self.preset().value())
     }
 }

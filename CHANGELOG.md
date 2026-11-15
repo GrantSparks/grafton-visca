@@ -324,6 +324,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Parameterized FR7 preset queries and setting commands share the target
+  profile’s highest-preset check before encoding, including custom profiles
+  with a narrower preset inventory (#894).
+
 - A write-only cache key becomes `Unknown` before its terminal observation when
   a written attempt may have changed the camera without confirmation. Prior
   uncertain attempts count even when a retry is refused before I/O; unwritten
