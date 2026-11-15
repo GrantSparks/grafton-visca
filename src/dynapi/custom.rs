@@ -337,10 +337,11 @@ mod tests {
         CameraId, OperationalTuning, ProfileSpec, SubmissionClass,
     };
 
-    fn profile() -> Option<ProfileSpec> {
-        let result = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>();
-        assert!(result.is_ok(), "generic profile must construct");
-        result.ok()
+    fn registration() -> crate::Result<crate::TargetRegistration> {
+        crate::TargetRegistration::new(
+            CameraId::CAMERA_1,
+            ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()?,
+        )
     }
 
     fn write_frame(target: CameraId, buffer: &mut [u8]) -> crate::Result<usize> {
@@ -447,20 +448,14 @@ mod tests {
     );
 
     #[test]
-    fn erased_custom_reply_shapes_preserve_operation_lifecycle_contract() {
-        let Some(profile) = profile() else {
-            return;
-        };
+    fn erased_custom_reply_shapes_preserve_operation_lifecycle_contract() -> crate::Result<()> {
+        let registration = registration()?;
         let targeted = CompletionOnlyTargeted;
         let targeted: &dyn DynTargetedRequest = &targeted;
         let targeted_adapter = OperationAdapter::<Targeted, _>::new(targeted);
         let targeted_prepared = crate::prepared::test_support::prepare_operation::<Targeted, _>(
             &targeted_adapter,
-            &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
-                profile.clone(),
-            )
-            .expect("valid target registration"),
+            &registration,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         );
@@ -468,9 +463,7 @@ mod tests {
             targeted_prepared.is_ok(),
             "completion-only custom request prepares through erasure"
         );
-        let Ok(targeted_prepared) = targeted_prepared else {
-            return;
-        };
+        let targeted_prepared = targeted_prepared?;
         let targeted_request = targeted_prepared.admit_with(|request, _, _, _| {
             assert_eq!(
                 request.wire().as_bytes(),
@@ -494,11 +487,7 @@ mod tests {
             matches!(
                 crate::prepared::test_support::prepare_operation::<AppliedOnly, _>(
                     &applied_adapter,
-                    &crate::TargetRegistration::new(
-                        (crate::target::TargetSlot::CAMERA_1).camera(),
-                        profile.clone()
-                    )
-                    .expect("valid target registration"),
+                    &registration,
                     OperationalTuning::new(),
                     crate::prepared::ClassSelection::Request,
                 ),
@@ -506,21 +495,19 @@ mod tests {
             ),
             "no-reply custom operation must be rejected through erasure"
         );
+        Ok(())
     }
 
     #[test]
-    fn erased_requests_enforce_their_original_max_size() {
-        let Some(profile) = profile() else {
-            return;
-        };
+    fn erased_requests_enforce_their_original_max_size() -> crate::Result<()> {
+        let registration = registration()?;
         let raw = crate::raw::AppliedOnly::new(
             [0x81, 1, 4, 7, 0, 0xff],
             AffectedAxes::ZOOM,
             TimeoutClass::Movement,
             RetryClass::Movement,
             ControlClass::User,
-        )
-        .expect("bounded raw operation");
+        )?;
         let erased_raw: &dyn DynAppliedRequest = &raw;
         let raw_adapter = OperationAdapter::<AppliedOnly, _>::new(erased_raw);
         assert_eq!(
@@ -531,11 +518,7 @@ mod tests {
         let targeted = OversizedTargeted;
         let static_targeted = crate::prepared::test_support::prepare_operation::<Targeted, _>(
             &targeted,
-            &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
-                profile.clone(),
-            )
-            .expect("valid target registration"),
+            &registration,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         );
@@ -548,11 +531,7 @@ mod tests {
         let targeted_adapter = OperationAdapter::<Targeted, _>::new(erased_targeted);
         let dynamic_targeted = crate::prepared::test_support::prepare_operation::<Targeted, _>(
             &targeted_adapter,
-            &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
-                profile.clone(),
-            )
-            .expect("valid target registration"),
+            &registration,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         );
@@ -564,11 +543,7 @@ mod tests {
         let applied = OversizedApplied;
         let static_applied = crate::prepared::test_support::prepare_operation::<AppliedOnly, _>(
             &applied,
-            &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
-                profile.clone(),
-            )
-            .expect("valid target registration"),
+            &registration,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         );
@@ -581,11 +556,7 @@ mod tests {
         let adapter = OperationAdapter::<AppliedOnly, _>::new(erased);
         let dynamic_applied = crate::prepared::test_support::prepare_operation::<AppliedOnly, _>(
             &adapter,
-            &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
-                profile.clone(),
-            )
-            .expect("valid target registration"),
+            &registration,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         );
@@ -593,23 +564,18 @@ mod tests {
             matches!(dynamic_applied, Err(Error::InvalidRequest(_))),
             "erased applied request must retain its concrete MAX_SIZE bound"
         );
+        Ok(())
     }
 
     #[test]
-    fn erased_urgent_authority_is_forwarded_only_for_crate_owned_stops() {
-        let Some(profile) = profile() else {
-            return;
-        };
+    fn erased_urgent_authority_is_forwarded_only_for_crate_owned_stops() -> crate::Result<()> {
+        let registration = registration()?;
         let downstream = DownstreamUrgentApplied;
         let erased: &dyn DynAppliedRequest = &downstream;
         let adapter = OperationAdapter::<AppliedOnly, _>::new(erased);
         let downstream_result = crate::prepared::test_support::prepare_operation::<AppliedOnly, _>(
             &adapter,
-            &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
-                profile.clone(),
-            )
-            .expect("valid target registration"),
+            &registration,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         );
@@ -623,11 +589,7 @@ mod tests {
         let stop_adapter = OperationAdapter::<AppliedOnly, _>::new(erased_stop);
         let prepared = crate::prepared::test_support::prepare_operation::<AppliedOnly, _>(
             &stop_adapter,
-            &crate::TargetRegistration::new(
-                (crate::target::TargetSlot::CAMERA_1).camera(),
-                profile.clone(),
-            )
-            .expect("valid target registration"),
+            &registration,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Handle(SubmissionClass::Background),
         );
@@ -635,10 +597,9 @@ mod tests {
             prepared.is_ok(),
             "erased crate-owned stop keeps urgent authority"
         );
-        let Ok(prepared) = prepared else {
-            return;
-        };
+        let prepared = prepared?;
         let context = prepared.admit_with(|request, _, _, _| *request.context());
         assert_eq!(context.control.class, EngineControlClass::Urgent);
+        Ok(())
     }
 }
