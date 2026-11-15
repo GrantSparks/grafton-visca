@@ -11,7 +11,7 @@ use std::sync::atomic::AtomicUsize;
 use std::sync::{atomic::Ordering, Mutex};
 
 #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
-use crate::runtime::engine::{CommandOutcome, InquiryOutcome};
+use crate::runtime::engine::CommandOutcome;
 use crate::runtime::Runtime;
 use crate::{
     runtime::engine::{
@@ -24,7 +24,7 @@ use crate::{
 
 #[cfg(feature = "runtime-tokio")]
 use crate::runtime::engine::{
-    ControlClass, EnvelopeKind, EnvelopeSequence, SequenceWidth, TransportKind,
+    ControlClass, EnvelopeKind, EnvelopeSequence, InquiryOutcome, SequenceWidth, TransportKind,
 };
 
 use crate::observability::DiagnosticEvent;
