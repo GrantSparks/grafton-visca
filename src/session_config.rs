@@ -17,6 +17,40 @@ use crate::{
 #[cfg(any(feature = "async", feature = "blocking"))]
 use crate::camera::TransportKind;
 
+/// Operational overrides checked against every profile in one session.
+#[cfg(any(feature = "async", feature = "blocking"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ValidatedTuning(OperationalTuning);
+
+#[cfg(any(feature = "async", feature = "blocking"))]
+impl ValidatedTuning {
+    pub(crate) fn validate<'a>(
+        tuning: OperationalTuning,
+        profiles: impl IntoIterator<Item = &'a ProfileSpec>,
+    ) -> Result<Self> {
+        let mut profiles = profiles.into_iter().peekable();
+        if profiles.peek().is_none() {
+            return Err(Error::InvalidRequest(
+                "tuning validation requires a registered profile".into(),
+            ));
+        }
+        for profile in profiles {
+            profile.validate_tuning(tuning)?;
+        }
+        Ok(Self(tuning))
+    }
+
+    pub(crate) const fn get(self) -> OperationalTuning {
+        self.0
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(tuning: OperationalTuning) -> Result<Self> {
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()?;
+        Self::validate(tuning, [&profile])
+    }
+}
+
 /// Maximum number of individually addressable cameras in one session.
 pub(crate) const MAX_REGISTERED_TARGETS: usize = TargetSlot::COUNT;
 
@@ -166,17 +200,16 @@ pub(crate) use session_policy_accessors;
 /// copy the validated profile inventory.
 #[derive(Debug, Clone)]
 pub struct SessionConfig {
-    targets: PerTarget<Option<Arc<ProfileSpec>>>,
+    targets: PerTarget<Option<Arc<crate::TargetRegistration>>>,
     policy: SessionPolicy,
 }
 
 impl SessionConfig {
-    /// Creates a single-target configuration for camera 1.
+    /// Creates a single-target configuration for the profile's individual default.
     #[must_use]
     pub fn new(profile: ProfileSpec) -> Self {
-        // Camera 1 is always a valid individual target, so this constructor
-        // is infallible.
-        Self::with_profile(TargetSlot::ALL[0], profile)
+        let target = TargetSlot::from(profile.capabilities().default_camera_id);
+        Self::with_profile(target, profile)
     }
 
     /// Creates a single-target configuration for an explicit camera.
@@ -184,7 +217,7 @@ impl SessionConfig {
         Ok(Self::with_profile(TargetSlot::try_from(target)?, profile))
     }
 
-    /// Creates a camera-1 configuration from a compile-time profile.
+    /// Creates a configuration using the compile-time profile's default target.
     pub fn from_compile_time<P>() -> Result<Self>
     where
         P: CompileTimeProfile,
@@ -205,12 +238,9 @@ impl SessionConfig {
                 "session target is already registered".into(),
             ));
         }
-        if self.target_count() >= MAX_REGISTERED_TARGETS {
-            return Err(Error::InvalidRequest(
-                "session target registry is full".into(),
-            ));
-        }
-        self.targets[slot] = Some(Arc::new(profile));
+        self.targets[slot] = Some(Arc::new(crate::TargetRegistration::from_profile(
+            slot, profile,
+        )));
         Ok(self)
     }
 
@@ -223,6 +253,33 @@ impl SessionConfig {
     /// Returns the registered profile for one individual target.
     #[must_use]
     pub fn profile(&self, target: CameraId) -> Option<&ProfileSpec> {
+        TargetSlot::try_from(target)
+            .ok()
+            .and_then(|slot| self.targets[slot].as_deref())
+            .map(crate::TargetRegistration::profile)
+    }
+
+    /// Selects the mounting position already configured on one target.
+    ///
+    /// The canonical profile remains unchanged. Profiles without source-backed
+    /// mount-dependent limits refuse this setting before the config changes.
+    pub fn set_mount(
+        &mut self,
+        target: CameraId,
+        mount: crate::MountPosition,
+    ) -> Result<&mut Self> {
+        let slot = TargetSlot::try_from(target)?;
+        let registration = self.targets[slot]
+            .as_deref()
+            .ok_or_else(|| Error::InvalidRequest("session target is not registered".into()))?;
+        let selected = registration.clone().with_mount(mount)?;
+        self.targets[slot] = Some(Arc::new(selected));
+        Ok(self)
+    }
+
+    /// Returns the target's profile and installation facts.
+    #[must_use]
+    pub fn registration(&self, target: CameraId) -> Option<&crate::TargetRegistration> {
         TargetSlot::try_from(target)
             .ok()
             .and_then(|slot| self.targets[slot].as_deref())
@@ -274,15 +331,15 @@ impl SessionConfig {
     /// reconfiguration path (#631) on each update, so an update is rejected on
     /// exactly the grounds that would have rejected it at construction.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn validate_tuning(&self, tuning: OperationalTuning) -> Result<()> {
-        for profile in self
-            .targets
-            .iter()
-            .filter_map(|(_, profile)| profile.as_deref())
-        {
-            profile.validate_tuning(tuning)?;
-        }
-        Ok(())
+    pub(crate) fn validate_tuning(&self, tuning: OperationalTuning) -> Result<ValidatedTuning> {
+        ValidatedTuning::validate(
+            tuning,
+            self.targets.iter().filter_map(|(_, registration)| {
+                registration
+                    .as_deref()
+                    .map(crate::TargetRegistration::profile)
+            }),
+        )
     }
 
     /// Validates this configuration's session policy against its registered
@@ -302,11 +359,11 @@ impl SessionConfig {
             )
         };
         let mut total_capacity = capacity;
-        for profile in self
-            .targets
-            .iter()
-            .filter_map(|(_, profile)| profile.as_deref())
-        {
+        for profile in self.targets.iter().filter_map(|(_, registration)| {
+            registration
+                .as_deref()
+                .map(crate::TargetRegistration::profile)
+        }) {
             let reserve = usize::from(profile.typed_stop_paths());
             total_capacity = total_capacity
                 .checked_add(reserve)
@@ -326,7 +383,11 @@ impl SessionConfig {
             && self
                 .targets
                 .iter()
-                .filter_map(|(_, profile)| profile.as_deref())
+                .filter_map(|(_, registration)| {
+                    registration
+                        .as_deref()
+                        .map(crate::TargetRegistration::profile)
+                })
                 .any(|profile| {
                     profile.envelope() != crate::profile::ProfileEnvelope::SonyEncapsulated
                 })
@@ -335,8 +396,8 @@ impl SessionConfig {
                 "Sony sequence reset on connect requires Sony encapsulated profiles".into(),
             ));
         }
-        self.validate_tuning(self.policy.tuning)?;
-        Ok(ValidatedSessionConfig(self))
+        let tuning = self.validate_tuning(self.policy.tuning)?;
+        Ok(ValidatedSessionConfig(self, tuning))
     }
 
     /// Borrow all registrations in the shape consumed by the owner adapter.
@@ -344,36 +405,48 @@ impl SessionConfig {
     pub(crate) fn profile_registry(&self) -> Vec<(TargetSlot, &ProfileSpec)> {
         self.targets
             .iter()
-            .filter_map(|(target, profile)| profile.as_deref().map(|profile| (target, profile)))
+            .filter_map(|(target, profile)| {
+                profile
+                    .as_deref()
+                    .map(|registration| (target, registration.profile()))
+            })
             .collect()
     }
 
     /// The registered profile of `target`, shared with an owned camera view.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn registered_profile(&self, target: TargetSlot) -> Result<Arc<ProfileSpec>> {
+    pub(crate) fn registered_target(
+        &self,
+        target: TargetSlot,
+    ) -> Result<Arc<crate::TargetRegistration>> {
         self.targets[target]
             .clone()
             .ok_or_else(|| Error::InvalidRequest("session target is not registered".into()))
     }
 
-    /// [`Self::registered_profile`], only when its capabilities, coordinate
+    /// [`Self::registered_target`], only when its capabilities, coordinate
     /// codec, and envelope match `P`.
     ///
     /// This is the shared pure projection boundary used by both execution
     /// facades. It performs no owner, transport, or protocol work.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn registered_profile_for<P>(&self, target: TargetSlot) -> Result<Arc<ProfileSpec>>
+    pub(crate) fn registered_target_for<P>(
+        &self,
+        target: TargetSlot,
+    ) -> Result<Arc<crate::TargetRegistration>>
     where
         P: CompileTimeProfile,
     {
-        let profile = self.registered_profile(target)?;
-        profile.ensure_compile_time::<P>()?;
-        Ok(profile)
+        let registration = self.registered_target(target)?;
+        registration.profile().ensure_compile_time::<P>()?;
+        Ok(registration)
     }
 
     fn with_profile(target: TargetSlot, profile: ProfileSpec) -> Self {
         let mut config = Self::default();
-        config.targets[target] = Some(Arc::new(profile));
+        config.targets[target] = Some(Arc::new(crate::TargetRegistration::from_profile(
+            target, profile,
+        )));
         config
     }
 }
@@ -392,22 +465,25 @@ impl Default for SessionConfig {
 /// consumes one, so the policy is validated exactly once per open.
 #[cfg(any(feature = "async", feature = "blocking"))]
 #[derive(Debug, Clone)]
-pub(crate) struct ValidatedSessionConfig(SessionConfig);
+pub(crate) struct ValidatedSessionConfig(SessionConfig, ValidatedTuning);
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 impl ValidatedSessionConfig {
+    pub(crate) const fn validated_tuning(&self) -> ValidatedTuning {
+        self.1
+    }
+
     /// Validates every registered profile against a standard transport kind.
     ///
     /// This check intentionally does not inspect transport configuration.  A
     /// caller can therefore reject an unsupported standard profile before any
     /// adapter/owner setup or transport I/O boundary is entered.
     pub(crate) fn validate_for_transport(&self, kind: Option<TransportKind>) -> Result<()> {
-        for profile in self
-            .0
-            .targets
-            .iter()
-            .filter_map(|(_, profile)| profile.as_deref())
-        {
+        for profile in self.0.targets.iter().filter_map(|(_, registration)| {
+            registration
+                .as_deref()
+                .map(crate::TargetRegistration::profile)
+        }) {
             crate::runtime::owner::validate_profile_transport(profile, kind)?;
         }
         Ok(())
@@ -478,8 +554,26 @@ impl std::ops::Deref for ValidatedSessionConfig {
 }
 
 #[cfg(all(test, feature = "blocking"))]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[test]
+    fn tuning_proof_requires_successful_validation_for_the_registry() {
+        use super::*;
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().unwrap();
+        assert!(ValidatedTuning::validate(OperationalTuning::new(), []).is_err());
+        assert!(ValidatedTuning::validate(
+            OperationalTuning::new().ack_timeout(std::time::Duration::ZERO),
+            [&profile],
+        )
+        .is_err());
+        let tuning = OperationalTuning::new();
+        assert_eq!(
+            ValidatedTuning::validate(tuning, [&profile]).unwrap().get(),
+            tuning
+        );
+    }
+
     use super::*;
     use crate::profiles::{GenericVisca, SonyFR7};
 

@@ -5,6 +5,39 @@ use std::time::Duration;
 use super::*;
 use crate::{runtime::engine::CancellationPolicy, CameraId};
 
+/// The outcome of a scripted physical send; preparation errors use NotSent.
+pub(super) fn write_outcome(result: Result<TransmissionMeta, Error>) -> WriteOutcome {
+    match result {
+        Ok(meta) => WriteOutcome::Sent(meta),
+        Err(error) => WriteOutcome::Failed(error),
+    }
+}
+
+/// Test history collected through the same bounded subscription production uses.
+pub(super) struct DiagnosticRecorder {
+    subscription: DiagnosticSubscription,
+    observed: std::cell::RefCell<Vec<DiagnosticEvent>>,
+}
+
+impl DiagnosticRecorder {
+    pub(super) fn new(state: &mut OwnerState) -> Self {
+        let (_, ends) = boundary::OwnerHandleCore::new(state);
+        let capacity = state.policy().limits.diagnostic_events_per_subscription;
+        Self {
+            subscription: state
+                .subscribe_diagnostics(capacity, ends.lifecycle)
+                .unwrap(),
+            observed: std::cell::RefCell::new(Vec::new()),
+        }
+    }
+
+    pub(super) fn events(&self) -> Vec<DiagnosticEvent> {
+        let mut observed = self.observed.borrow_mut();
+        observed.extend(std::iter::from_fn(|| self.subscription.try_recv()));
+        observed.clone()
+    }
+}
+
 fn policy_for_target_validation() -> ProtocolPolicy {
     ProtocolPolicy {
         capacity: 1,
@@ -39,23 +72,46 @@ fn an_individual_target_rejects_broadcast_without_panicking() {
 
 #[test]
 fn with_targets_rejects_an_empty_registry_without_panicking() {
-    assert!(
-        OwnerPolicy::with_targets(policy_for_target_validation(), PerTarget::default()).is_err()
-    );
+    assert!(OwnerPolicy::with_targets(
+        policy_for_target_validation(),
+        PerTarget::default(),
+        crate::session_config::ValidatedTuning::for_test(crate::OperationalTuning::new()).unwrap()
+    )
+    .is_err());
+}
+
+#[test]
+fn control_lane_uses_its_own_named_nonzero_bound() {
+    let mut policy = OwnerPolicy::single_target(
+        policy_for_target_validation(),
+        TargetSlot::CAMERA_1,
+        TargetPolicy::test_default(),
+    )
+    .unwrap();
+    policy.limits.control_requests = 3;
+    policy.limits.staged_diagnostics = 7;
+    let state = OwnerState::new(policy.clone(), Instant::now()).unwrap();
+    let (handle, _) = boundary::OwnerHandleCore::new(&state);
+    assert_eq!(handle.control.capacity(), Some(3));
+    policy.limits.control_requests = 0;
+    assert!(matches!(
+        OwnerState::new(policy, Instant::now()),
+        Err(Error::InvalidRequest(_))
+    ));
 }
 
 /// Issue #631: the owner state used by the reconfiguration tests below.
 ///
 /// The profile baseline is deliberately non-zero on both axes so a
 /// re-derivation that quietly kept a previous override would be visible.
-fn reconfigurable_owner_state() -> OwnerState {
+fn reconfigurable_owner_state_at(now: Instant) -> OwnerState {
     let mut protocol = policy_for_target_validation();
     protocol.command_spacing = Duration::from_millis(10);
     protocol.inquiry_spacing = Duration::from_millis(20);
     let policy =
         OwnerPolicy::single_target(protocol, TargetSlot::CAMERA_1, TargetPolicy::test_default())
             .expect("single-target owner policy");
-    OwnerState::new(policy).expect("owner state")
+    OwnerState::new(policy, now).expect("owner state")
 }
 
 fn command_sockets(state: &OwnerState) -> u8 {
@@ -64,84 +120,96 @@ fn command_sockets(state: &OwnerState) -> u8 {
         .command_sockets
 }
 
-/// Issue #631: pacing and socket capacity are re-derived from the *profile*
-/// baseline, so an override can be relaxed again instead of becoming the new
-/// floor.
+/// Retuning preserves the immutable construction baseline while replacing
+/// the complete live proof value. Public #631 scenarios verify engine pacing.
 #[test]
-fn retuning_re_derives_pacing_from_the_profile_baseline() {
-    let mut state = reconfigurable_owner_state();
-    assert_eq!(
-        state.policy().protocol.command_spacing,
-        Duration::from_millis(10)
-    );
-    assert_eq!(
-        state.policy().protocol.inquiry_spacing,
-        Duration::from_millis(20)
-    );
-    assert_eq!(command_sockets(&state), 2);
-
+fn retuning_preserves_the_profile_baseline_and_updates_the_live_proof() {
+    let mut state = reconfigurable_owner_state_at(Instant::now());
+    let live = state.live_tuning();
+    let tuning = crate::OperationalTuning::new()
+        .command_spacing(Duration::from_millis(200))
+        .inquiry_spacing(Duration::from_millis(300))
+        .maximum_command_sockets(1);
     state
         .retune(
-            crate::OperationalTuning::new()
-                .command_spacing(Duration::from_millis(200))
-                .inquiry_spacing(Duration::from_millis(300))
-                .maximum_command_sockets(1),
+            crate::session_config::ValidatedTuning::for_test(tuning).expect("validated tuning"),
+            Instant::now(),
         )
-        .expect("widening pacing and lowering socket capacity is accepted");
+        .expect("accepted retune");
+    assert_eq!(live.get().get(), tuning);
     assert_eq!(
-        state.policy().protocol.command_spacing,
-        Duration::from_millis(200)
-    );
-    assert_eq!(
-        state.policy().protocol.inquiry_spacing,
-        Duration::from_millis(300)
-    );
-    assert_eq!(command_sockets(&state), 1);
-
-    // Clearing every override must return to the profile facts. Deriving the
-    // new value from the *tuned* one instead would leave 200 ms installed
-    // forever.
-    state
-        .retune(crate::OperationalTuning::new())
-        .expect("clearing the overrides is accepted");
-    assert_eq!(
-        state.policy().protocol.command_spacing,
+        state.policy().baseline.command_spacing,
         Duration::from_millis(10)
     );
     assert_eq!(
-        state.policy().protocol.inquiry_spacing,
+        state.policy().baseline.inquiry_spacing,
         Duration::from_millis(20)
     );
-    assert_eq!(command_sockets(&state), 2);
-}
-
-/// Issue #631: the live tuning cell handed to request-preparing handles follows
-/// the owner, and a rejected update leaves both the cell and the policy alone.
-#[test]
-fn a_rejected_retune_changes_neither_the_live_tuning_nor_the_policy() {
-    let mut state = reconfigurable_owner_state();
-    let live = state.live_tuning();
-    assert_eq!(live.get(), crate::OperationalTuning::new());
-
-    let accepted = crate::OperationalTuning::new().command_spacing(Duration::from_millis(50));
-    state.retune(accepted).expect("accepted");
-    assert_eq!(live.get(), accepted, "the shared cell follows the owner");
-
-    // The facades reject this before it reaches the owner; the engine's own
-    // socket bound is the second line of defence, and it must fail cleanly.
-    let error = state
-        .retune(crate::OperationalTuning::new().maximum_command_sockets(3))
-        .expect_err("three command sockets is not a VISCA capacity");
-    assert!(matches!(error, Error::InvalidRequest(_)), "got {error:?}");
     assert_eq!(
-        live.get(),
-        accepted,
-        "a rejected update leaves the live tuning untouched"
+        command_sockets(&state),
+        2,
+        "construction facts do not mirror live engine changes"
+    );
+    state
+        .retune(
+            crate::session_config::ValidatedTuning::for_test(crate::OperationalTuning::new())
+                .expect("default tuning"),
+            Instant::now(),
+        )
+        .expect("clear overrides");
+    assert_eq!(live.get().get(), crate::OperationalTuning::new());
+    assert_eq!(
+        state.policy().baseline.command_spacing,
+        Duration::from_millis(10)
     );
     assert_eq!(
-        state.policy().protocol.command_spacing,
-        Duration::from_millis(50),
-        "a rejected update leaves the owner policy untouched"
+        state.policy().baseline.inquiry_spacing,
+        Duration::from_millis(20)
+    );
+}
+
+#[test]
+fn owner_construction_retains_the_selected_clock_anchor() {
+    let selected = Instant::now() + Duration::from_secs(123);
+    let state = reconfigurable_owner_state_at(selected);
+    assert_eq!(state.observed_at, selected);
+}
+
+#[test]
+fn retune_checks_the_selected_clock_before_replacing_live_tuning() {
+    let mut state = reconfigurable_owner_state_at(Instant::now());
+    let live = state.live_tuning();
+    let previous = live.get();
+    let latest = crate::timeout::saturating_deadline(Instant::now(), Duration::MAX);
+    let selected = latest - Duration::from_millis(100);
+    let update = crate::OperationalTuning::new().command_spacing(Duration::from_secs(1));
+    let update =
+        crate::session_config::ValidatedTuning::for_test(update).expect("profile-valid tuning");
+    assert!(state.retune(update, selected).is_err());
+    assert_eq!(live.get(), previous);
+}
+
+/// Invalid overrides cannot produce the proof consumed by owner retuning.
+#[test]
+fn a_rejected_retune_changes_neither_the_live_tuning_nor_the_policy() {
+    let mut state = reconfigurable_owner_state_at(Instant::now());
+    let live = state.live_tuning();
+    let accepted = crate::OperationalTuning::new().command_spacing(Duration::from_millis(200));
+    state
+        .retune(
+            crate::session_config::ValidatedTuning::for_test(accepted).expect("validated"),
+            Instant::now(),
+        )
+        .expect("accepted");
+    let error = crate::session_config::ValidatedTuning::for_test(
+        crate::OperationalTuning::new().maximum_command_sockets(3),
+    )
+    .expect_err("invalid tuning cannot cross the owner boundary");
+    assert!(matches!(error, Error::InvalidRequest(_)));
+    assert_eq!(live.get().get(), accepted);
+    assert_eq!(
+        state.policy().baseline.command_spacing,
+        Duration::from_millis(10)
     );
     assert_eq!(command_sockets(&state), 2);
 }
@@ -195,20 +263,28 @@ fn observer_resolution_distinguishes_receiver_loss_from_duplicate_delivery() {
 /// D26 (#778): the permit pool's two budgets.
 mod control_reserve {
     use super::*;
-    use crate::runtime::engine::{ControlPolicy, ReplyShape, RetryPolicy, TimeoutPolicy};
+    use crate::runtime::engine::{ControlPolicy, RetryPolicy, TimeoutPolicy};
 
     fn context(target: u8, class: ControlClass) -> RequestContext {
         RequestContext {
+            requires_extended_pan_tilt_speed: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
             target: TargetSlot::try_from(CameraId::new(target).unwrap()).unwrap(),
             timeout: TimeoutPolicy {
-                ack: Duration::from_millis(10),
-                completion: Duration::from_millis(20),
-                inquiry: Duration::from_millis(20),
-                cancellation: Duration::from_millis(10),
-                ambiguity: Duration::from_millis(10),
+                ack: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(10))
+                    .unwrap(),
+                completion: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(20))
+                    .unwrap(),
+                inquiry: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(20))
+                    .unwrap(),
+                cancellation: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(
+                    10,
+                ))
+                .unwrap(),
+                ambiguity: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(10))
+                    .unwrap(),
             },
             retry: RetryPolicy::NEVER,
             control: ControlPolicy {
@@ -216,7 +292,6 @@ mod control_reserve {
                 ..ControlPolicy::default()
             },
             cancellation: CancellationPolicy::Supported,
-            reply_shape: ReplyShape::AckThenCompletion,
         }
     }
 
@@ -282,37 +357,118 @@ mod control_reserve {
 }
 
 #[test]
-fn pan_tilt_limit_cache_rejects_unknown_corner_discriminators() {
+fn pan_tilt_limit_cache_preserves_typed_corner_updates_and_clears() {
+    use crate::command::PanTiltLimitCorner;
+    use crate::{KnownState, PanTiltLimitUpdate, StateEntry};
     let mut cache = TargetStateCache::default();
-    let known = AppliedStateProjection::set(StateKey::PanTiltLimits, &[0, 12, -4])
-        .expect("valid down-left limit projection");
-    let malformed_set = AppliedStateProjection::set(StateKey::PanTiltLimits, &[3, 9, 8])
-        .expect("bounded malformed projection");
-    let malformed_clear = AppliedStateProjection::clear_with_values(StateKey::PanTiltLimits, &[3])
-        .expect("bounded malformed projection");
+    let set = KnownState::PanTiltLimits(PanTiltLimitUpdate::set(
+        PanTiltLimitCorner::DownLeft,
+        crate::camera::PanTiltPosition::new(12, -4),
+    ));
+    cache.apply(AppliedStateProjection::set(set));
+    assert_eq!(cache.entry(StateKey::PanTiltLimits), StateEntry::Set(set));
+    let clear = KnownState::PanTiltLimits(PanTiltLimitUpdate::clear(PanTiltLimitCorner::UpRight));
+    cache.apply(AppliedStateProjection::set(clear));
+    assert_eq!(cache.entry(StateKey::PanTiltLimits), StateEntry::Set(clear));
+    cache.apply(AppliedStateProjection::invalidate(StateKey::PanTiltLimits));
+    assert_eq!(cache.entry(StateKey::PanTiltLimits), StateEntry::Unknown);
+}
 
-    cache.apply(known, 1);
-    cache.apply(malformed_set, 1);
-    assert_eq!(
-        cache.get(StateKey::PanTiltLimits),
-        Some(known),
-        "a malformed set must not replace the known corner"
+#[test]
+fn every_state_key_has_an_inline_slot_and_a_typed_accessor() {
+    use crate::{KnownState, StateEntry};
+    let registry = Arc::new(PerTarget::<Mutex<TargetStateCache>>::default());
+    let cache = crate::StateCache::from_registry(Arc::clone(&registry), TargetSlot::CAMERA_1);
+    let other = crate::StateCache::from_registry(Arc::clone(&registry), TargetSlot::CAMERA_2);
+    let mut covered = Vec::new();
+    macro_rules! check {
+        ($variant:ident, $getter:ident, $value:expr) => {{
+            let value = $value;
+            let known = KnownState::$variant(value);
+            let key = known.key();
+            assert_eq!(cache.value(key), StateEntry::Unknown);
+            assert_eq!(cache.$getter(), None);
+            registry[TargetSlot::CAMERA_1]
+                .lock()
+                .unwrap()
+                .apply(AppliedStateProjection::set(known));
+            assert_eq!(cache.value(key), StateEntry::Set(known));
+            assert_eq!(cache.$getter(), Some(value));
+            assert_eq!(other.value(key), StateEntry::Unknown);
+            registry[TargetSlot::CAMERA_1]
+                .lock()
+                .unwrap()
+                .apply(AppliedStateProjection::invalidate(key));
+            assert_eq!(cache.value(key), StateEntry::Unknown);
+            assert_eq!(cache.$getter(), None);
+            registry[TargetSlot::CAMERA_1]
+                .lock()
+                .unwrap()
+                .apply(AppliedStateProjection::set(known));
+            covered.push(known);
+        }};
+    }
+    check!(
+        PanTiltLimits,
+        pan_tilt_limits,
+        crate::PanTiltLimitUpdate::set(
+            crate::command::PanTiltLimitCorner::DownLeft,
+            crate::camera::PanTiltPosition::new(-123, 456)
+        )
     );
-
-    cache.apply(malformed_clear, 1);
-    assert_eq!(
-        cache.get(StateKey::PanTiltLimits),
-        Some(known),
-        "a malformed clear must not replace the known corner"
+    check!(PresetRecallSpeed, preset_recall_speed, 12);
+    check!(FocusLockMode, focus_lock, true);
+    check!(Spotlight, spotlight, true);
+    check!(AutoSlowShutter, auto_slow_shutter, false);
+    check!(
+        NdFilterMode,
+        nd_filter_mode,
+        crate::command::NdFilterMode::Variable
     );
-
-    // A limit clear is local to one corner like a limit set; one that names
-    // no corner is malformed, not a whole-key clear.
-    cache.apply(AppliedStateProjection::clear(StateKey::PanTiltLimits), 1);
+    check!(AutoNdFilter, auto_nd_filter, false);
+    check!(ImageFreeze, image_freeze, true);
+    check!(DigitalZoomMode, digital_zoom, false);
+    check!(MulticastStreaming, multicast_streaming, true);
+    check!(NdiQuality, ndi_quality, crate::types::NdiQuality::Medium);
+    check!(TallyBrightness, tally_brightness_is_high, false);
+    check!(
+        VariableSpeedMode,
+        variable_speed_mode,
+        crate::command::VariableSpeedMode::Fine50
+    );
+    check!(TallyMode, tally_mode, true);
+    check!(
+        Flip,
+        flip_state,
+        crate::command::FlipState {
+            horizontal: false,
+            vertical: true
+        }
+    );
     assert_eq!(
-        cache.get(StateKey::PanTiltLimits),
-        Some(known),
-        "a clear that names no corner must not replace the known corner"
+        covered.iter().map(|value| value.key()).collect::<Vec<_>>(),
+        StateKey::ALL
+    );
+    for known in covered {
+        assert_eq!(cache.value(known.key()), StateEntry::Set(known));
+    }
+    for corner in [
+        crate::command::PanTiltLimitCorner::DownLeft,
+        crate::command::PanTiltLimitCorner::UpRight,
+    ] {
+        let update = crate::PanTiltLimitUpdate::clear(corner);
+        registry[TargetSlot::CAMERA_1]
+            .lock()
+            .unwrap()
+            .apply(AppliedStateProjection::set(KnownState::PanTiltLimits(
+                update,
+            )));
+        assert_eq!(cache.pan_tilt_limits(), Some(update));
+        assert!(cache.pan_tilt_limits().unwrap().is_cleared());
+    }
+    assert_eq!(
+        size_of::<TargetStateCache>(),
+        StateKey::ALL.len() * size_of::<StateEntry>()
     );
 }
 
@@ -322,6 +478,8 @@ fn pan_tilt_limit_cache_rejects_unknown_corner_discriminators() {
 /// against a retry constant, so the counts stay meaningful as retry policy
 /// changes underneath them.
 mod metrics {
+    mod fr7_speed;
+    use super::DiagnosticRecorder;
     use std::{
         collections::VecDeque,
         sync::Arc,
@@ -332,8 +490,8 @@ mod metrics {
     use crate::{
         runtime::engine::{
             CancellationPolicy, ControlPolicy, DeadlineKind, DecodedFrame, DecodedResponse,
-            EncodedMessage, EnvelopeKind, EnvelopeSequence, InquiryRoute, ReplyShape,
-            RequestContext, RetryPolicy, SequenceWidth, TimeoutPolicy, TransmissionMeta,
+            EncodedMessage, EnvelopeKind, EnvelopeSequence, ReplyShape, RequestContext,
+            RetryPolicy, SequenceWidth, TimeoutPolicy, TransmissionMeta,
         },
         Error, ViscaSocket,
     };
@@ -347,7 +505,9 @@ mod metrics {
             max_retries: 3,
             initial_backoff: Duration::from_millis(5),
             maximum_backoff: Duration::from_millis(50),
-            total_budget: Duration::from_secs(10),
+            total_budget: Some(
+                crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(10)).unwrap(),
+            ),
             ack_timeout: true,
             completion_timeout: true,
             inquiry_timeout: true,
@@ -360,7 +520,10 @@ mod metrics {
     fn owner_policy(envelope: EnvelopeKind) -> OwnerPolicy {
         let protocol = ProtocolPolicy {
             capacity: 4,
-            envelope,
+            wire: crate::runtime::engine::WireProtocol::new(
+                envelope,
+                crate::transport::AddressingMode::Ip,
+            ),
             inquiry_capacity: 2,
             inquiry_cooldown: Duration::ZERO,
             raw_inquiry_release_hold: Duration::from_millis(10),
@@ -372,21 +535,25 @@ mod metrics {
 
     fn request_context(retry: RetryPolicy) -> RequestContext {
         RequestContext {
+            requires_extended_pan_tilt_speed: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
             target: TargetSlot::CAMERA_1,
             timeout: TimeoutPolicy {
-                ack: ACK,
-                completion: COMPLETION,
-                inquiry: INQUIRY,
-                cancellation: Duration::from_millis(10),
-                ambiguity: Duration::from_millis(10),
+                ack: crate::runtime::engine::NonZeroDuration::new(ACK).unwrap(),
+                completion: crate::runtime::engine::NonZeroDuration::new(COMPLETION).unwrap(),
+                inquiry: crate::runtime::engine::NonZeroDuration::new(INQUIRY).unwrap(),
+                cancellation: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(
+                    10,
+                ))
+                .unwrap(),
+                ambiguity: crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(10))
+                    .unwrap(),
             },
             retry,
             control: ControlPolicy::default(),
             cancellation: CancellationPolicy::Supported,
-            reply_shape: ReplyShape::AckThenCompletion,
         }
     }
 
@@ -396,6 +563,7 @@ mod metrics {
 
     fn command(retry: RetryPolicy) -> RuntimeRequest {
         RuntimeRequest::Command {
+            reply_shape: ReplyShape::AckThenCompletion,
             wire: wire(),
             context: request_context(retry),
             applied_state: None,
@@ -404,11 +572,11 @@ mod metrics {
 
     fn inquiry(retry: RetryPolicy) -> RuntimeRequest {
         let mut context = request_context(retry);
-        context.timeout.inquiry = INQUIRY;
+        context.timeout.inquiry = crate::runtime::engine::NonZeroDuration::new(INQUIRY).unwrap();
         RuntimeRequest::Inquiry {
+            payload_shape: crate::PayloadShape::Unknown,
             wire: wire(),
             context,
-            route: InquiryRoute(1),
         }
     }
 
@@ -432,7 +600,13 @@ mod metrics {
     ) {
         while let Some(effect) = effects.pop_front() {
             if let AppliedEffect::Transmit(staged) = state.apply_effect(effect) {
-                let produced = state.finish_write(&staged, Ok(TransmissionMeta { sequence }), now);
+                let produced = state.finish_write(
+                    &staged,
+                    WriteOutcome::Sent(sequence.map_or(TransmissionMeta::Raw, |sequence| {
+                        TransmissionMeta::Sony { sequence }
+                    })),
+                    now,
+                );
                 prepend_effects(&mut effects, produced);
             }
         }
@@ -465,8 +639,12 @@ mod metrics {
         drain(state, effects, None, now);
     }
 
-    fn saw_deadline(state: &OwnerState, expected: DeadlineKind, retrying: bool) -> bool {
-        state.diagnostics().any(|event| {
+    fn saw_deadline(
+        diagnostics: &DiagnosticRecorder,
+        expected: DeadlineKind,
+        retrying: bool,
+    ) -> bool {
+        diagnostics.events().iter().any(|event| {
             matches!(
                 event,
                 DiagnosticEvent::DeadlineExpired { deadline, will_retry, .. }
@@ -478,7 +656,8 @@ mod metrics {
     #[test]
     fn expired_ack_deadline_counts_a_timeout_and_the_retry_it_scheduled_for_sony() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony), Instant::now()).unwrap();
+        let diagnostics = DiagnosticRecorder::new(&mut state);
         let _observer = sent(&mut state, command(retrying()), Some(1), start);
         assert_eq!(state.metrics().ack_timeouts, 0);
         advance(&mut state, start + ACK);
@@ -487,25 +666,27 @@ mod metrics {
         assert_eq!(metrics.retries_scheduled, 1);
         assert_eq!(metrics.completion_timeouts, 0);
         assert_eq!(metrics.inquiry_timeouts, 0);
-        assert!(saw_deadline(&state, DeadlineKind::Ack, true));
+        assert!(saw_deadline(&diagnostics, DeadlineKind::Ack, true));
     }
 
     #[test]
     fn expired_ack_deadline_without_a_retry_reports_the_decision_directly() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
+        let diagnostics = DiagnosticRecorder::new(&mut state);
         let _observer = sent(&mut state, command(RetryPolicy::NEVER), None, start);
         advance(&mut state, start + ACK);
         let metrics = state.metrics();
         assert_eq!(metrics.ack_timeouts, 1);
         assert_eq!(metrics.retries_scheduled, 0);
-        assert!(saw_deadline(&state, DeadlineKind::Ack, false));
+        assert!(saw_deadline(&diagnostics, DeadlineKind::Ack, false));
     }
 
     #[test]
     fn expired_completion_deadline_counts_separately_from_the_ack_deadline_for_sony() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony), Instant::now()).unwrap();
+        let diagnostics = DiagnosticRecorder::new(&mut state);
         let _observer = sent(&mut state, command(retrying()), Some(1), start);
         apply(
             &mut state,
@@ -524,27 +705,29 @@ mod metrics {
         // #795: an acknowledged Sony command is never rewritten, so its
         // completion deadline is reported without a retry.
         assert_eq!(metrics.retries_scheduled, 0);
-        assert!(saw_deadline(&state, DeadlineKind::Completion, false));
+        assert!(saw_deadline(&diagnostics, DeadlineKind::Completion, false));
     }
 
     #[test]
     fn expired_inquiry_deadline_counts_as_an_inquiry_timeout() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
+        let diagnostics = DiagnosticRecorder::new(&mut state);
         let _observer = sent(&mut state, inquiry(retrying()), None, start);
         advance(&mut state, start + INQUIRY);
         let metrics = state.metrics();
         assert_eq!(metrics.inquiry_timeouts, 1);
         assert_eq!(metrics.ack_timeouts, 0);
         assert_eq!(metrics.completion_timeouts, 0);
-        assert!(saw_deadline(&state, DeadlineKind::InquiryReply, true));
+        assert!(saw_deadline(&diagnostics, DeadlineKind::InquiryReply, true));
     }
 
     #[test]
     fn camera_backpressure_codes_count_as_busy_errors() {
         for code in [0x03_u8, 0x05, 0x41] {
             let start = Instant::now();
-            let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+            let mut state =
+                OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
             let _observer = sent(&mut state, command(retrying()), None, start);
             apply(
                 &mut state,
@@ -561,7 +744,7 @@ mod metrics {
     #[test]
     fn other_error_codes_count_as_protocol_errors() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
         let _observer = sent(&mut state, command(retrying()), None, start);
         apply(
             &mut state,
@@ -585,7 +768,7 @@ mod metrics {
     #[test]
     fn the_cancellation_reply_code_is_neither_busy_nor_protocol() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
         let _observer = sent(&mut state, command(retrying()), None, start);
         apply(
             &mut state,
@@ -606,7 +789,7 @@ mod metrics {
     #[test]
     fn a_sequenced_reply_matching_no_request_is_counted_as_ignored() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony), Instant::now()).unwrap();
         let _observer = sent(&mut state, command(retrying()), Some(1), start);
         apply(
             &mut state,
@@ -625,7 +808,8 @@ mod metrics {
     #[test]
     fn sony_control_reply_is_observable_without_affecting_request_state() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony), Instant::now()).unwrap();
+        let diagnostics = DiagnosticRecorder::new(&mut state);
 
         apply(
             &mut state,
@@ -636,7 +820,7 @@ mod metrics {
         assert_eq!(state.metrics().received_frames, 1);
         assert_eq!(state.metrics().protocol_errors, 0);
         assert_eq!(state.metrics().terminal, 0);
-        assert!(state.diagnostics().any(|event| matches!(
+        assert!(diagnostics.events().iter().any(|event| matches!(
             event,
             DiagnosticEvent::FrameReceived {
                 target: TargetSlot::CAMERA_1,
@@ -644,7 +828,7 @@ mod metrics {
                 response: ResponseDiagnostic::SonyControl { code: 0x0F01 },
             }
         )));
-        assert!(state.diagnostics().any(|event| matches!(
+        assert!(diagnostics.events().iter().any(|event| matches!(
             event,
             DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
         )));
@@ -656,7 +840,7 @@ mod metrics {
     #[test]
     fn a_transient_receive_fault_retry_counts_as_a_retry_for_sony() {
         let start = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Sony), Instant::now()).unwrap();
         let _observer = sent(&mut state, command(retrying()), Some(1), start);
         apply(
             &mut state,
@@ -694,13 +878,13 @@ mod metrics {
         for effect in state.input_in_turn(&turn, input) {
             let _ = state.apply_effect(effect);
         }
-        let _ = state.finish_input_turn(turn, EngineTurn::INPUT_ONLY);
+        let _ = state.finish_input_turn(turn, EngineTurn::InputOnly);
         let core = ReceiptCore::admitted(admitted.recv().unwrap().unwrap(), observer, ACK);
         (OperationObservation::new(core, ACK), cell)
     }
 
     fn observation_fixture() -> (OperationObservation, Arc<ObserverCell<RuntimeOutcome>>) {
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
         admit_observation(&mut state, command(retrying()), Instant::now())
     }
 
@@ -709,7 +893,7 @@ mod metrics {
     fn admission_supersedes_even_if_cancelled_before_write_but_rejection_does_not() {
         use crate::AffectedAxes;
         let now = Instant::now();
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
         let mut request = command(retrying());
         request.context_mut().motion = Some(crate::runtime::engine::MotionEffect {
             axes: AffectedAxes::PAN_TILT,
@@ -744,7 +928,7 @@ mod metrics {
         for effect in effects {
             let _ = state.apply_effect(effect);
         }
-        let _ = state.finish_input_turn(admission_turn, EngineTurn::INPUT_ONLY);
+        let _ = state.finish_input_turn(admission_turn, EngineTurn::InputOnly);
         let later = OperationObservation::new(
             ReceiptCore::admitted(reply.recv().unwrap().unwrap(), completion, ACK),
             ACK,
@@ -753,7 +937,7 @@ mod metrics {
         for effect in state.input_in_turn(&turn, Input::Cancel { id: later.id() }) {
             let _ = state.apply_effect(effect);
         }
-        let _ = state.finish_input_turn(turn, EngineTurn::INPUT_ONLY);
+        let _ = state.finish_input_turn(turn, EngineTurn::InputOnly);
         assert!(matches!(
             original.check_settlement(),
             Err(Error::SettlementSuperseded { .. })
@@ -772,7 +956,7 @@ mod metrics {
     #[test]
     fn halt_owner_acceptance_orders_concurrent_ingress_and_settlement_generation() {
         use crate::AffectedAxes;
-        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw)).unwrap();
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
         let (handle, ends) = boundary::OwnerHandleCore::new(&state);
         let stamp = state
             .motion
@@ -834,7 +1018,7 @@ mod metrics {
                 slot: AdmissionSlot::Ordinary,
             },
             Instant::now(),
-            EngineTurn::INPUT_ONLY,
+            EngineTurn::InputOnly,
         );
         assert_eq!(
             effects.iter().any(|effect| matches!(
@@ -912,8 +1096,14 @@ mod metrics {
                 matches!(error, Error::CancellationUnconfirmed),
                 "expected the canonical ambiguity verdict, got {error:?}"
             );
-            assert!(!error.is_retryable());
-            assert_eq!(error.suggested_retry_delay(), None);
+            assert!(!matches!(
+                error.recovery(),
+                crate::Recovery::Resubmit { .. }
+            ));
+            assert!(!matches!(
+                error.recovery(),
+                crate::Recovery::Resubmit { .. }
+            ));
             assert_eq!(
                 error.failure_context(),
                 Some(crate::FailureContext::new(
@@ -1011,7 +1201,10 @@ mod metrics {
                 crate::Certainty::Unconfirmed
             ))
         );
-        assert!(!error.is_retryable());
+        assert!(!matches!(
+            error.recovery(),
+            crate::Recovery::Resubmit { .. }
+        ));
         assert!(
             matches!(error, Error::SettlementObservationFailed { operation, source } if operation.get() == observation.id().get() && source.failure_context() == Some(crate::FailureContext::new(crate::FailureStage::Terminal, crate::Certainty::FailedConclusively)))
         );
@@ -1026,7 +1219,7 @@ mod metrics {
             .as_mut()
             .unwrap()
             .control_reserve = 2;
-        let mut state = OwnerState::new(policy).unwrap();
+        let mut state = OwnerState::new(policy, Instant::now()).unwrap();
         let held: Vec<_> = (0..4)
             .map(|_| state.permits.try_acquire_ordinary().unwrap())
             .collect();
@@ -1088,31 +1281,43 @@ fn an_idle_read_error_reports_no_data_rather_than_a_fault() {
         Error::io_timeout().with_context("idle poll"),
     ] {
         assert!(
-            receive_reported_no_data(&idle),
+            matches!(
+                OwnerReceive::read_error(idle.clone()),
+                OwnerReceive::NoProgress(NoProgressReason::EagerIdle)
+            ),
             "an idle read must not be classified as a fault: {idle}"
         );
     }
     for fault in [
         Error::Io(Arc::new(std::io::Error::from(ErrorKind::TimedOut))),
-        Error::TransportError("ICMP port unreachable".into()),
+        Error::transport_error(std::io::Error::other("ICMP port unreachable")),
         Error::Io(Arc::new(std::io::Error::from(ErrorKind::ConnectionRefused))),
         Error::ConnectionClosed { reason: None },
     ] {
         assert!(
-            !receive_reported_no_data(&fault),
+            !matches!(
+                OwnerReceive::read_error(fault.clone()),
+                OwnerReceive::NoProgress(_)
+            ),
             "a real read failure must stay a fault: {fault}"
         );
     }
 
     let keepalive_timeout = Error::Io(Arc::new(std::io::Error::from(ErrorKind::TimedOut)));
     assert!(
-        !receive_fault_is_transient(&keepalive_timeout),
+        matches!(
+            OwnerReceive::read_error(keepalive_timeout),
+            OwnerReceive::Fatal(_)
+        ),
         "an OS TCP timeout is terminal instead of an endless idle read"
     );
 
     let invalid_input = Error::Io(Arc::new(std::io::Error::from(ErrorKind::InvalidInput)));
     assert!(
-        !receive_fault_is_transient(&invalid_input),
+        matches!(
+            OwnerReceive::read_error(invalid_input),
+            OwnerReceive::Fatal(_)
+        ),
         "a transport contract/configuration error closes immediately"
     );
 }
@@ -1131,13 +1336,44 @@ fn transport_close_normalization_keeps_one_connection_closed_prefix() {
     let reason = transport_close_reason(&contextual).expect("contextual close reason");
     assert_eq!(&*reason, "control socket receive: peer closed connection");
 
-    let normalized = boundary_error_for_input(&Input::Shutdown(ShutdownReason::TransportClosed {
-        reason: Some(reason),
-    }))
-    .expect("shutdown boundary");
+    let mut state = reconfigurable_owner_state_at(Instant::now());
+    state.input(
+        Input::Shutdown(ShutdownReason::TransportClosed {
+            reason: Some(reason),
+        }),
+        Instant::now(),
+    );
+    let normalized = state.boundary_error().expect("engine terminal verdict");
     assert_eq!(
         normalized.to_string(),
         "Connection closed: control socket receive: peer closed connection"
+    );
+}
+
+/// Boundary observations read the engine's verdict even while its terminal
+/// effect is still waiting to be applied by the owner.
+#[test]
+fn engine_terminal_cause_is_authoritative_before_effect_delivery() {
+    let mut state = reconfigurable_owner_state_at(Instant::now());
+    let now = Instant::now();
+    let effects = state.engine.handle(
+        Input::Shutdown(ShutdownReason::FramingFailure {
+            reason: "retained stream position lost".into(),
+        }),
+        now,
+    );
+    let expected = state.engine.terminal_error().unwrap();
+    assert_eq!(
+        state.boundary_error().unwrap().to_string(),
+        expected.to_string()
+    );
+    for effect in effects {
+        state.apply_effect(effect);
+    }
+    state.input(Input::Shutdown(ShutdownReason::Explicit), now);
+    assert_eq!(
+        state.boundary_error().unwrap().to_string(),
+        expected.to_string()
     );
 }
 
@@ -1149,7 +1385,7 @@ fn a_datagram_send_failure_is_normalized_to_a_per_request_error() {
     let normalized = normalize_datagram_send_error(Error::ConnectionClosed {
         reason: Some("socket closed".into()),
     });
-    assert!(matches!(normalized, Error::TransportError(_)));
+    assert!(matches!(normalized, Error::TransportError { .. }));
     assert!(!normalized.requires_new_session());
     assert!(
         normalized.to_string().contains("socket closed"),
@@ -1162,8 +1398,10 @@ fn a_datagram_send_failure_is_normalized_to_a_per_request_error() {
         Error::Timeout { .. }
     ));
     assert!(matches!(
-        normalize_datagram_send_error(Error::TransportError("serial encode failed".into())),
-        Error::TransportError(_)
+        normalize_datagram_send_error(Error::transport_error(std::io::Error::other(
+            "serial encode failed"
+        ))),
+        Error::TransportError { .. }
     ));
 }
 
@@ -1173,7 +1411,7 @@ fn a_datagram_send_failure_is_normalized_to_a_per_request_error() {
 /// The replay below is deliberately *not* a model of the runtime. It drives the
 /// real [`OwnerState`] — which owns the real protocol engine, the real
 /// admission permit pool, the real terminal observers and the real
-/// applied-state subscribers — and renders what production actually produced
+/// target-local state cache — and renders what production actually produced
 /// back into the fixture's own record language. Every fixture record is then
 /// compared against that rendering, so an engine or owner behavior change fails
 /// the fixture instead of a hand-written simulator.
@@ -1184,7 +1422,6 @@ fn a_datagram_send_failure_is_normalized_to_a_per_request_error() {
 /// emits no record of its own.
 mod lifecycle_trace {
     use std::{
-        borrow::Cow,
         collections::{BTreeMap, BTreeSet, VecDeque},
         sync::Arc,
         time::{Duration, Instant},
@@ -1194,8 +1431,8 @@ mod lifecycle_trace {
     use crate::{
         protocol::response::{decode_basic, BasicKind},
         runtime::engine::{
-            CancellationPolicy, ControlPolicy, EncodedMessage, InquiryRoute, ReplyShape,
-            RequestContext, RetryPolicy, TimeoutPolicy, TransportKind,
+            CancellationPolicy, ControlPolicy, EncodedMessage, ReplyShape, RequestContext,
+            RetryPolicy, TimeoutPolicy, TransportKind,
         },
         CameraId, Error,
     };
@@ -1279,7 +1516,7 @@ mod lifecycle_trace {
 
     fn phase_name(phase: Phase) -> String {
         match phase {
-            Phase::Ready { .. } => "ready".to_owned(),
+            Phase::Ready => "ready".to_owned(),
             Phase::Sending { .. } => "sending".to_owned(),
             Phase::AwaitingAck { .. } => "awaiting-ack".to_owned(),
             Phase::AwaitingCompletion { .. } => "awaiting-completion".to_owned(),
@@ -1333,6 +1570,7 @@ mod lifecycle_trace {
             Error::CommandFailedAfterAck { source, .. } => {
                 format!("CommandFailedAfterAck({})", error_label(source))
             }
+            Error::InquiryFailed { source } => format!("InquiryFailed({})", error_label(source)),
             Error::MessageLengthError => "MessageLengthError".to_owned(),
             Error::CommandBufferFull => "CommandBufferFull".to_owned(),
             Error::CommandCanceled => "CommandCanceled".to_owned(),
@@ -1342,7 +1580,10 @@ mod lifecycle_trace {
             Error::RuntimeShutdown => "RuntimeShutdown".to_owned(),
             Error::StreamPoisoned { .. } => "StreamPoisoned".to_owned(),
             Error::RuntimeQueueFull { .. } => "Capacity".to_owned(),
-            Error::TransportError(reason) => reason.to_string(),
+            Error::TransportError { source: reason, .. } => match reason.as_ref() {
+                Error::Io(source) => source.to_string(),
+                other => error_label(other),
+            },
             other => format!("{other:?}"),
         }
     }
@@ -1353,17 +1594,19 @@ mod lifecycle_trace {
             RuntimeOutcome::Applied => "Applied".to_owned(),
             RuntimeOutcome::Cancelled => "Cancelled".to_owned(),
             RuntimeOutcome::Failed(error) => format!("Error::{}", error_label(error)),
-            RuntimeOutcome::Reply { route, payload } => {
-                format!("Reply(route={route:?},payload={payload:?})")
+            RuntimeOutcome::Reply { payload } => {
+                format!("Reply(payload={payload:?})")
             }
         }
     }
 
     fn write_result(label: &str) -> Result<TransmissionMeta, Error> {
         match label {
-            "ok" => Ok(TransmissionMeta { sequence: None }),
+            "ok" => Ok(TransmissionMeta::Raw),
             "Timeout" => Err(Error::io_timeout()),
-            other => Err(Error::TransportError(Cow::Owned(other.to_owned()))),
+            other => Err(Error::transport_error(std::io::Error::other(
+                other.to_owned(),
+            ))),
         }
     }
 
@@ -1403,7 +1646,13 @@ mod lifecycle_trace {
                 ..TargetPolicy::test_default()
             });
         }
-        OwnerPolicy::with_targets(protocol, targets).unwrap()
+        OwnerPolicy::with_targets(
+            protocol,
+            targets,
+            crate::session_config::ValidatedTuning::for_test(crate::OperationalTuning::new())
+                .unwrap(),
+        )
+        .unwrap()
     }
 
     fn command(
@@ -1413,27 +1662,30 @@ mod lifecycle_trace {
         ack: Duration,
     ) -> RuntimeRequest {
         RuntimeRequest::Command {
+            reply_shape: ReplyShape::AckThenCompletion,
             wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
             context: RequestContext {
+                requires_extended_pan_tilt_speed: false,
                 motion: None,
                 submission_order: 0,
                 dispatch_deadline: None,
                 target,
                 timeout: TimeoutPolicy {
-                    ack,
-                    completion: UNREACHABLE,
-                    inquiry: UNREACHABLE,
-                    cancellation: UNREACHABLE,
-                    ambiguity: UNREACHABLE,
+                    ack: crate::runtime::engine::NonZeroDuration::new(ack).unwrap(),
+                    completion: crate::runtime::engine::NonZeroDuration::new(UNREACHABLE).unwrap(),
+                    inquiry: crate::runtime::engine::NonZeroDuration::new(UNREACHABLE).unwrap(),
+                    cancellation: crate::runtime::engine::NonZeroDuration::new(UNREACHABLE)
+                        .unwrap(),
+                    ambiguity: crate::runtime::engine::NonZeroDuration::new(UNREACHABLE).unwrap(),
                 },
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
                 cancellation,
-                reply_shape: ReplyShape::AckThenCompletion,
             },
-            // Applied-state delivery is one of the normative observations, and
-            // an unsubscribed fixture simply produces no subscriber record.
-            applied_state: Some(AppliedStateProjection::set(StateKey::Spotlight, &[1]).unwrap()),
+            // Fixtures observe this exact write-only effect through StateCache.
+            applied_state: Some(AppliedStateProjection::set(crate::KnownState::Spotlight(
+                true,
+            ))),
         }
     }
 
@@ -1444,25 +1696,26 @@ mod lifecycle_trace {
         reply: Duration,
     ) -> RuntimeRequest {
         RuntimeRequest::Inquiry {
+            payload_shape: crate::PayloadShape::Unknown,
             wire: Arc::new(EncodedMessage::new(&hex(wire)).unwrap()),
             context: RequestContext {
+                requires_extended_pan_tilt_speed: false,
                 motion: None,
                 submission_order: 0,
                 dispatch_deadline: None,
                 target,
                 timeout: TimeoutPolicy {
-                    ack: UNREACHABLE,
-                    completion: UNREACHABLE,
-                    inquiry: reply,
-                    cancellation: UNREACHABLE,
-                    ambiguity: UNREACHABLE,
+                    ack: crate::runtime::engine::NonZeroDuration::new(UNREACHABLE).unwrap(),
+                    completion: crate::runtime::engine::NonZeroDuration::new(UNREACHABLE).unwrap(),
+                    inquiry: crate::runtime::engine::NonZeroDuration::new(reply).unwrap(),
+                    cancellation: crate::runtime::engine::NonZeroDuration::new(UNREACHABLE)
+                        .unwrap(),
+                    ambiguity: crate::runtime::engine::NonZeroDuration::new(UNREACHABLE).unwrap(),
                 },
                 retry: RetryPolicy::NEVER,
                 control: ControlPolicy::default(),
                 cancellation,
-                reply_shape: ReplyShape::AckThenCompletion,
             },
-            route: InquiryRoute::UNKNOWN,
         }
     }
 
@@ -1475,7 +1728,8 @@ mod lifecycle_trace {
         scheduler_dispatch: BTreeMap<String, u64>,
         labels: BTreeMap<String, RequestId>,
         observers: BTreeMap<RequestId, ObserverSlot>,
-        subscribers: Vec<(String, AppliedStateSubscription)>,
+        cache_observers: Vec<(String, TargetSlot)>,
+        diagnostics: Option<super::DiagnosticRecorder>,
         pending: Option<Pending>,
         write_label: String,
         cancel_phase: Option<Phase>,
@@ -1495,7 +1749,8 @@ mod lifecycle_trace {
                 scheduler_dispatch,
                 labels: BTreeMap::new(),
                 observers: BTreeMap::new(),
-                subscribers: Vec::new(),
+                cache_observers: Vec::new(),
+                diagnostics: None,
                 pending: None,
                 write_label: "ok".to_owned(),
                 cancel_phase: None,
@@ -1525,7 +1780,7 @@ mod lifecycle_trace {
             let mut out = Vec::new();
             match input[2] {
                 "session" => self.session(input, &mut out),
-                "subscribe-applied" => self.subscribe_applied(input, &mut out),
+                "observe-state" => self.observe_state(input, &mut out),
                 "admit" => self.admit(input, &mut out),
                 "blocking-submit" => self.blocking_submit(input, &mut out),
                 "dispatch" => self.dispatch(self.id(input[3]), required(input, "result"), &mut out),
@@ -1559,11 +1814,16 @@ mod lifecycle_trace {
             self.cancellation = cancellation;
             self.labels.clear();
             self.observers.clear();
-            self.subscribers.clear();
+            self.cache_observers.clear();
             self.pending = None;
             self.next_transmission = 0;
             self.cancel_transmissions = 0;
-            let state = OwnerState::new(owner_policy(transport, capacity, cancellation)).unwrap();
+            let mut state = OwnerState::new(
+                owner_policy(transport, capacity, cancellation),
+                Instant::now(),
+            )
+            .unwrap();
+            self.diagnostics = Some(super::DiagnosticRecorder::new(&mut state));
             let registered =
                 state.policy().targets[TargetSlot::CAMERA_1].expect("camera one is registered");
             out.push(format!(
@@ -1577,19 +1837,15 @@ mod lifecycle_trace {
             self.state = Some(state);
         }
 
-        fn subscribe_applied(&mut self, input: &[&str], out: &mut Vec<String>) {
+        fn observe_state(&mut self, input: &[&str], out: &mut Vec<String>) {
             let name = input[3].to_owned();
             let target = TargetSlot::try_from(
                 CameraId::new(required(input, "target").parse().unwrap()).unwrap(),
             )
             .unwrap();
-            let subscription = self
-                .state_mut()
-                .subscribe_applied(Some(target), 8)
-                .expect("applied-state subscription");
-            self.subscribers.push((name.clone(), subscription));
+            self.cache_observers.push((name.clone(), target));
             out.push(format!(
-                "{} effect subscriber-added observer={name} target={}",
+                "{} effect cache-observer-added observer={name} target={}",
                 self.at,
                 target.camera().id()
             ));
@@ -1668,7 +1924,7 @@ mod lifecycle_trace {
             );
             effects.extend(
                 self.state_mut()
-                    .finish_input_turn(turn, EngineTurn::INPUT_ONLY),
+                    .finish_input_turn(turn, EngineTurn::InputOnly),
             );
             self.drain(effects, "admission", out);
             assert!(
@@ -1702,30 +1958,27 @@ mod lifecycle_trace {
             let kind = input[3];
             let bytes = hex(required(input, "bytes"));
             let decoded = decode_basic(&bytes).expect("fixture frame bytes decode");
-            let response = match (kind, decoded.kind) {
-                ("ack", BasicKind::Ack) => DecodedResponse::Ack {
-                    socket: decoded.socket,
-                },
-                ("complete", BasicKind::Completion) => DecodedResponse::Completion {
-                    socket: decoded.socket,
-                },
-                ("error", BasicKind::Error(code)) => DecodedResponse::Error {
-                    socket: decoded.socket,
-                    code,
-                },
+            let (response, wire_socket) = match (kind, decoded.kind) {
+                ("ack", BasicKind::Ack { socket }) => (DecodedResponse::Ack { socket }, socket),
+                ("complete", BasicKind::Completion { socket }) => {
+                    (DecodedResponse::Completion { socket }, socket)
+                }
+                ("error", BasicKind::Error { socket, code }) => {
+                    (DecodedResponse::Error { socket, code }, socket)
+                }
                 other => panic!("fixture frame {other:?} disagrees with its own bytes"),
             };
             if let Some(socket) = field(input, "socket") {
                 assert_eq!(
-                    decoded.socket.map(|socket| socket.as_socket_number()),
+                    wire_socket.map(|socket| socket.as_socket_number()),
                     socket.parse::<u8>().ok(),
                     "fixture socket disagrees with its own bytes"
                 );
             }
             if let Some(code) = field(input, "code") {
-                assert_eq!(
-                    decoded.kind,
-                    BasicKind::Error(u8::from_str_radix(code, 16).unwrap()),
+                assert!(
+                    matches!(decoded.kind, BasicKind::Error { code: actual, .. }
+                        if actual == u8::from_str_radix(code, 16).unwrap()),
                     "fixture error code disagrees with its own bytes"
                 );
             }
@@ -1758,8 +2011,7 @@ mod lifecycle_trace {
                 .iter()
                 .find_map(effect_request)
                 .expect("a fixture frame is always routed to one request");
-            let socket = decoded
-                .socket
+            let socket = wire_socket
                 .or_else(|| owned.get(&routed).copied())
                 .expect("a routed raw frame owns a socket");
             out.push(format!(
@@ -1939,7 +2191,7 @@ mod lifecycle_trace {
                         self.state_mut().apply_effect(effect);
                         let queued = matches!(
                             self.cancel_phase,
-                            Some(Phase::Ready { .. } | Phase::Backoff { .. })
+                            Some(Phase::Ready | Phase::Backoff { .. })
                         );
                         out.push(format!(
                             "{} effect cancellation-recorded id={} disposition={} cancel-frame=none",
@@ -1980,20 +2232,22 @@ mod lifecycle_trace {
                     Effect::AppliedState { effect: projection } => {
                         self.state_mut()
                             .apply_effect(Effect::AppliedState { effect: projection });
-                        for (name, subscription) in &self.subscribers {
-                            if let Some(AppliedStateEvent(delivered)) = subscription.try_recv() {
+                        let entry = self.state().target_cache[projection.target]
+                            .lock()
+                            .unwrap()
+                            .entry(projection.projection.key());
+                        let known = !matches!(entry, crate::StateEntry::Unknown);
+                        assert_eq!(known, projection.projection.is_known());
+                        for (name, target) in &self.cache_observers {
+                            if *target == projection.target {
                                 applied.push((
                                     projection.request,
                                     format!(
                                         "{} outcome applied-state observer={name} target={} id={} state={}",
                                         self.at,
-                                        delivered.target.camera().id(),
-                                        delivered.request.get(),
-                                        if delivered.projection.is_known() {
-                                            "applied"
-                                        } else {
-                                            "invalidated"
-                                        }
+                                        target.camera().id(),
+                                        projection.request.get(),
+                                        if known { "applied" } else { "invalidated" }
                                     ),
                                 ));
                             }
@@ -2070,8 +2324,11 @@ mod lifecycle_trace {
             let pending = self.pending.take().expect("a staged admission");
             self.state_mut().apply_effect(effect);
             let target = self
-                .state()
-                .diagnostics()
+                .diagnostics
+                .as_ref()
+                .unwrap()
+                .events()
+                .iter()
                 .filter_map(|event| match event {
                     DiagnosticEvent::Admitted {
                         id: recorded,
@@ -2080,7 +2337,7 @@ mod lifecycle_trace {
                     } if *recorded == id => Some(*target),
                     _ => None,
                 })
-                .last()
+                .next_back()
                 .expect("owner records every admission");
             let (phase, _) = self
                 .state()
@@ -2202,9 +2459,9 @@ mod lifecycle_trace {
             let now = self.now;
             let produced = self.state_mut().finish_write_turn(
                 &staged,
-                write_result(&label),
+                super::write_outcome(write_result(&label)),
                 now,
-                EngineTurn::INPUT_ONLY,
+                EngineTurn::InputOnly,
             );
             prepend_effects(queue, produced);
         }
@@ -2374,4 +2631,55 @@ mod lifecycle_trace {
             "an out-of-order outcome is retained until its own wait reads it"
         );
     }
+}
+
+#[test]
+fn fatal_receive_io_table_drives_raw_and_wrapped_verdicts() {
+    for &kind in crate::transport::FATAL_RECEIVE_IO_KINDS {
+        for error in [
+            Error::Io(Arc::new(std::io::Error::from(kind))),
+            Error::Io(Arc::new(std::io::Error::from(kind))).with_context("read camera"),
+            Error::transport_error(Error::Io(Arc::new(std::io::Error::from(kind)))),
+        ] {
+            let original = error.to_string();
+            let OwnerReceive::Fatal(ReceiveFatal::TransportClosed { cause: Some(cause) }) =
+                OwnerReceive::read_error(error)
+            else {
+                panic!("{kind:?} must close the read side");
+            };
+            assert_eq!(
+                cause.to_string(),
+                original,
+                "read classification retains its exact cause"
+            );
+        }
+    }
+    for error in [
+        Error::Io(Arc::new(std::io::Error::from(
+            std::io::ErrorKind::ConnectionRefused,
+        ))),
+        Error::transport_error(Error::Io(Arc::new(std::io::Error::from(
+            std::io::ErrorKind::ConnectionRefused,
+        )))),
+    ] {
+        assert!(matches!(
+            OwnerReceive::read_error(error),
+            OwnerReceive::Transient(_)
+        ));
+    }
+}
+
+#[test]
+fn consumed_input_verdict_preserves_stream_cause_and_discards_one_datagram() {
+    let error = Error::ResponseTooLarge { max_size: 24 }.with_context("consumed reply");
+    let OwnerReceive::Fatal(ReceiveFatal::FramingFailure { cause }) =
+        OwnerReceive::consumed_error(error.clone(), TransportKind::Stream)
+    else {
+        panic!("consumed stream bytes lost their framing boundary");
+    };
+    assert_eq!(cause.to_string(), error.to_string());
+    assert!(matches!(
+        OwnerReceive::consumed_error(error, TransportKind::Datagram),
+        OwnerReceive::NoProgress(NoProgressReason::MalformedDatagram)
+    ));
 }

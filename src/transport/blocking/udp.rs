@@ -12,7 +12,7 @@ use crate::{
         address::{bind_address_for, resolve_blocking},
         blocking::{Arm, TimedIo},
         builder::{AddressingMode, TransportConfig},
-        connect::{connect_deadline, preflight},
+        connect::{connect_deadline, preflight, socket_setup, udp_target},
         datagram::{deliverable, recv_datagram},
         socket_options::{apply_udp_socket_options, UdpSocketConfig},
         BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
@@ -39,12 +39,15 @@ impl Udp {
     pub fn connect_with_config(address: &str, config: TransportConfig) -> Result<Self, Error> {
         let socket = Self::preflight_udp_setup(address, config, |endpoint, options| {
             let deadline = connect_deadline(Instant::now(), options.connect_timeout)?;
-            let target = resolve_blocking(endpoint, deadline)?[0];
+            let target = udp_target(&resolve_blocking(endpoint, deadline)?)?;
             deadline.remaining_or(Instant::now(), Error::connect_timeout)?;
 
-            let socket = UdpSocket::bind(bind_address_for(target))?;
-            socket.connect(target)?;
-            apply_udp_socket_options(socket2::SockRef::from(&socket), options)?;
+            let socket = socket_setup(endpoint, UdpSocket::bind(bind_address_for(target)))?;
+            socket_setup(endpoint, socket.connect(target))?;
+            socket_setup(
+                endpoint,
+                apply_udp_socket_options(socket2::SockRef::from(&socket), options),
+            )?;
             Ok(socket)
         })?;
 

@@ -1,9 +1,10 @@
 //! Exhaustive built-in encoder snapshot for issue #715.
 //!
 //! The fixture is the reviewed current wire inventory: one row per generated
-//! case, 466 rows, covering every built-in command encoder, every generated
-//! inquiry and the camera-address variants. Each row was reviewed against the
-//! source register in `docs/visca_reference.md` when it entered the fixture,
+//! case, covering every built-in command encoder, every generated inquiry,
+//! camera-address variants and registered profile-specific preparation. Each
+//! row was reviewed against the source register in `docs/visca_reference.md`
+//! when it entered the fixture,
 //! including the source-backed 2.0 corrections ratified in D5 (#808, #819),
 //! the three 2D-NR mode rows, and the `FocusZone[Zone03]` row
 //! (`81 01 04 AA 03 FF`, PTZOptics G2 bench, 2026-10-04, #795). The
@@ -712,12 +713,12 @@ pub(crate) fn rows() -> Vec<String> {
             mode: PictureEffectMode::BlackAndWhite
         }
     );
-    row!(
+    rowr!(
         o,
-        "PictureEffect[Unknown 0x02]",
-        PictureEffectCommand {
-            mode: PictureEffectMode::Unknown(0x02)
-        }
+        "PictureEffect[Unknown 0x05]",
+        Ok(PictureEffectCommand {
+            mode: PictureEffectMode::Unknown(UnknownPictureEffect::new(0x05)?)
+        })
     );
     row!(o, "ImageFlip[On]", flip::ImageFlip { flip: Flip::On });
     row!(o, "ImageFlip[Off]", flip::ImageFlip { flip: Flip::Off });
@@ -922,6 +923,332 @@ pub(crate) fn rows() -> Vec<String> {
         "VariableSpeed[Fine50]",
         SetVariableSpeedMode::new(VariableSpeedMode::Fine50)
     );
+    // Sony FR7 R7 v4 controls and boundary values.
+    cover!(
+        covered,
+        Fr7AeLevelUp,
+        Fr7AeLevelDown,
+        Fr7AutoGain,
+        Fr7AutoShutter,
+        Fr7AutoIris,
+        Fr7IrisUp,
+        Fr7IrisDown,
+        Fr7WhiteBalanceSet,
+        Fr7PresetWhiteUp,
+        Fr7PresetWhiteDown,
+        Fr7PresetWhiteDirect,
+        Fr7MemoryColorTemperatureUp,
+        Fr7MemoryColorTemperatureDown,
+        Fr7MemoryColorTemperatureDirect,
+        Fr7MemoryRedGainUp,
+        Fr7MemoryRedGainDown,
+        Fr7MemoryRedGainDirect,
+        Fr7MemoryBlueGainUp,
+        Fr7MemoryBlueGainDown,
+        Fr7MemoryBlueGainDirect,
+        Fr7MemoryTintUp,
+        Fr7MemoryTintDown,
+        Fr7MemoryTintDirect,
+        Fr7AtwColorTemperatureOffsetUp,
+        Fr7AtwColorTemperatureOffsetDown,
+        Fr7AtwColorTemperatureOffsetDirect,
+        Fr7AtwTintOffsetUp,
+        Fr7AtwTintOffsetDown,
+        Fr7AtwTintOffsetDirect,
+        Fr7MasterBlackUp,
+        Fr7MasterBlackDown,
+        Fr7MasterBlackDirect,
+        Fr7RedBlackUp,
+        Fr7RedBlackDown,
+        Fr7RedBlackDirect,
+        Fr7BlueBlackUp,
+        Fr7BlueBlackDown,
+        Fr7BlueBlackDirect,
+        Fr7DetailSetting,
+        Fr7KneeSetting,
+        Fr7SetKneeMode,
+        Fr7SetKneeSlope,
+        Fr7SetKneePoint,
+        Fr7ZoomHighResolutionTele,
+        Fr7ZoomHighResolutionWide,
+        Fr7ZoomHighResolutionStop,
+        Fr7SetPresetSpeedSelection,
+        Fr7SetCommonPresetSpeed,
+        Fr7SetSeparatePresetMode,
+        Fr7SetSeparatePresetSpeed,
+        Fr7SetSeparatePresetDuration,
+        WhiteBalancePreset
+    );
+    row!(o, "Fr7AeLevelUp[R7]", Fr7AeLevel::Up);
+    row!(o, "Fr7AeLevelDown[R7]", Fr7AeLevel::Down);
+    row!(o, "Fr7AutoGain[R7]", Fr7AutoGain::new(true));
+    row!(o, "Fr7AutoShutter[R7]", Fr7AutoShutter::new(true));
+    row!(o, "Fr7AutoIris[R7]", Fr7AutoIris::new(true));
+    row!(o, "Fr7IrisUp[R7]", Fr7IrisUp::new(IrisStep::MAX));
+    row!(o, "Fr7IrisDown[R7]", Fr7IrisDown::new(IrisStep::MAX));
+    row!(o, "Fr7WhiteBalanceSet[R7]", Fr7WhiteBalanceSet);
+    row!(
+        o,
+        "Fr7PresetWhiteUp[R7]",
+        Fr7PresetWhite::Up(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7PresetWhiteDown[R7]",
+        Fr7PresetWhite::Down(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7PresetWhiteDirect[R7]",
+        Fr7PresetWhite::Direct(WhiteKelvin::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryColorTemperatureUp[R7]",
+        Fr7MemoryColorTemperature::Up(MemoryColorTemperatureStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryColorTemperatureDown[R7]",
+        Fr7MemoryColorTemperature::Down(MemoryColorTemperatureStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryColorTemperatureDirect[R7]",
+        Fr7MemoryColorTemperature::Direct(WhiteKelvin::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryRedGainUp[R7]",
+        Fr7MemoryRedGain::Up(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryRedGainDown[R7]",
+        Fr7MemoryRedGain::Down(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryRedGainDirect[R7]",
+        Fr7MemoryRedGain::Direct(WhiteBalanceGain::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryBlueGainUp[R7]",
+        Fr7MemoryBlueGain::Up(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryBlueGainDown[R7]",
+        Fr7MemoryBlueGain::Down(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryBlueGainDirect[R7]",
+        Fr7MemoryBlueGain::Direct(WhiteBalanceGain::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryTintUp[R7]",
+        Fr7MemoryTint::Up(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryTintDown[R7]",
+        Fr7MemoryTint::Down(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MemoryTintDirect[R7]",
+        Fr7MemoryTint::Direct(TintOffset::MAX)
+    );
+    row!(
+        o,
+        "Fr7AtwColorTemperatureOffsetUp[R7]",
+        Fr7AtwColorTemperatureOffset::Up(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7AtwColorTemperatureOffsetDown[R7]",
+        Fr7AtwColorTemperatureOffset::Down(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7AtwColorTemperatureOffsetDirect[R7]",
+        Fr7AtwColorTemperatureOffset::Direct(TintOffset::MAX)
+    );
+    row!(
+        o,
+        "Fr7AtwTintOffsetUp[R7]",
+        Fr7AtwTintOffset::Up(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7AtwTintOffsetDown[R7]",
+        Fr7AtwTintOffset::Down(WhiteBalanceStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7AtwTintOffsetDirect[R7]",
+        Fr7AtwTintOffset::Direct(TintOffset::MAX)
+    );
+    row!(
+        o,
+        "Fr7MasterBlackUp[R7]",
+        Fr7MasterBlack::Up(BlackStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MasterBlackDown[R7]",
+        Fr7MasterBlack::Down(BlackStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7MasterBlackDirect[R7]",
+        Fr7MasterBlack::Direct(BlackLevel::MAX)
+    );
+    row!(o, "Fr7RedBlackUp[R7]", Fr7RedBlack::Up(BlackStep::MAX));
+    row!(o, "Fr7RedBlackDown[R7]", Fr7RedBlack::Down(BlackStep::MAX));
+    row!(
+        o,
+        "Fr7RedBlackDirect[R7]",
+        Fr7RedBlack::Direct(BlackLevel::MAX)
+    );
+    row!(o, "Fr7BlueBlackUp[R7]", Fr7BlueBlack::Up(BlackStep::MAX));
+    row!(
+        o,
+        "Fr7BlueBlackDown[R7]",
+        Fr7BlueBlack::Down(BlackStep::MAX)
+    );
+    row!(
+        o,
+        "Fr7BlueBlackDirect[R7]",
+        Fr7BlueBlack::Direct(BlackLevel::MAX)
+    );
+    row!(o, "Fr7DetailSetting[R7]", Fr7DetailSetting::new(true));
+    row!(o, "Fr7KneeSetting[R7]", Fr7KneeSetting::new(true));
+    row!(
+        o,
+        "Fr7SetKneeMode[R7]",
+        Fr7SetKneeMode::new(Fr7KneeMode::Manual)
+    );
+    row!(
+        o,
+        "Fr7SetKneeSlope[R7]",
+        Fr7SetKneeSlope::new(KneeSlope::MAX)
+    );
+    row!(
+        o,
+        "Fr7SetKneePoint[R7]",
+        Fr7SetKneePoint::new(KneePoint::MAX)
+    );
+    row!(
+        o,
+        "Fr7ZoomHighResolutionTele[R7]",
+        Fr7ZoomHighResolution::Tele(HighResolutionZoomSpeed::MAX)
+    );
+    row!(
+        o,
+        "Fr7ZoomHighResolutionWide[R7]",
+        Fr7ZoomHighResolution::Wide(HighResolutionZoomSpeed::MAX)
+    );
+    row!(
+        o,
+        "Fr7ZoomHighResolutionStop[R7]",
+        Fr7ZoomHighResolutionStop
+    );
+    row!(
+        o,
+        "Fr7SetPresetSpeedSelection[R7]",
+        Fr7SetPresetSpeedSelection::new(Fr7PresetSpeedSelection::Common)
+    );
+    row!(
+        o,
+        "Fr7SetCommonPresetSpeed[R7]",
+        Fr7SetCommonPresetSpeed::new(PresetSpeed::MAX)
+    );
+    row!(
+        o,
+        "Fr7SetSeparatePresetMode[R7]",
+        Fr7SetSeparatePresetMode::new(Fr7PresetNumber::MAX, Fr7PresetSeparateMode::Duration)
+    );
+    row!(
+        o,
+        "Fr7SetSeparatePresetSpeed[R7]",
+        Fr7SetSeparatePresetSpeed::new(Fr7PresetNumber::MAX, PresetSpeed::MAX)
+    );
+    row!(
+        o,
+        "Fr7SetSeparatePresetDuration[R7]",
+        Fr7SetSeparatePresetDuration::new(Fr7PresetNumber::MAX, PresetDuration::MAX)
+    );
+    row!(
+        o,
+        "WhiteBalancePreset[R7]",
+        WhiteBalanceCommand::new(WhiteBalanceMode::Preset)
+    );
+    row!(o, "Fr7AeLevelInquiry", Fr7AeLevelInquiry);
+    row!(o, "Fr7AutoGainInquiry", Fr7AutoGainInquiry);
+    row!(o, "Fr7AutoShutterInquiry", Fr7AutoShutterInquiry);
+    row!(o, "Fr7AutoIrisInquiry", Fr7AutoIrisInquiry);
+    row!(o, "Fr7PresetWhiteInquiry", Fr7PresetWhiteInquiry);
+    row!(
+        o,
+        "Fr7MemoryColorTemperatureInquiry",
+        Fr7MemoryColorTemperatureInquiry
+    );
+    row!(o, "Fr7MemoryRedGainInquiry", Fr7MemoryRedGainInquiry);
+    row!(o, "Fr7MemoryBlueGainInquiry", Fr7MemoryBlueGainInquiry);
+    row!(o, "Fr7MemoryTintInquiry", Fr7MemoryTintInquiry);
+    row!(
+        o,
+        "Fr7AtwColorTemperatureOffsetInquiry",
+        Fr7AtwColorTemperatureOffsetInquiry
+    );
+    row!(o, "Fr7AtwTintOffsetInquiry", Fr7AtwTintOffsetInquiry);
+    row!(o, "Fr7MasterBlackInquiry", Fr7MasterBlackInquiry);
+    row!(o, "Fr7RedBlackInquiry", Fr7RedBlackInquiry);
+    row!(o, "Fr7BlueBlackInquiry", Fr7BlueBlackInquiry);
+    row!(o, "Fr7DetailInquiry", Fr7DetailInquiry);
+    row!(o, "Fr7KneeInquiry", Fr7KneeInquiry);
+    row!(o, "Fr7KneeModeInquiry", Fr7KneeModeInquiry);
+    row!(o, "Fr7KneeSlopeInquiry", Fr7KneeSlopeInquiry);
+    row!(o, "Fr7KneePointInquiry", Fr7KneePointInquiry);
+    row!(
+        o,
+        "Fr7KneePermissionInquiry",
+        Fr7KneePermissionInquiry::new(Fr7KneeParameter::Setting)
+    );
+    row!(
+        o,
+        "Fr7ClearImageZoomPositionInquiry",
+        Fr7ClearImageZoomPositionInquiry
+    );
+    row!(
+        o,
+        "Fr7PresetSpeedSelectionInquiry",
+        Fr7PresetSpeedSelectionInquiry
+    );
+    row!(
+        o,
+        "Fr7CommonPresetSpeedInquiry",
+        Fr7CommonPresetSpeedInquiry
+    );
+    row!(
+        o,
+        "Fr7SeparatePresetModeInquiry",
+        Fr7SeparatePresetModeInquiry::new(Fr7PresetNumber::MIN)
+    );
+    row!(
+        o,
+        "Fr7SeparatePresetSpeedInquiry",
+        Fr7SeparatePresetSpeedInquiry::new(Fr7PresetNumber::MIN)
+    );
+    row!(
+        o,
+        "Fr7SeparatePresetDurationInquiry",
+        Fr7SeparatePresetDurationInquiry::new(Fr7PresetNumber::MIN)
+    );
     // inquiries (common set)
     macro_rules! inq { ($($t:ident),* $(,)?) => { $( row!(o, stringify!($t), $t); )* } }
     inq!(
@@ -933,8 +1260,6 @@ pub(crate) fn rows() -> Vec<String> {
         BrightnessInquiry,
         ColorTemperatureInquiry,
         ContrastInquiry,
-        DefogLevelInquiry,
-        DefogModeInquiry,
         ExposureCompensationInquiry,
         ExposureCompensationModeInquiry,
         ExposureCompensationPositionInquiry,
@@ -950,7 +1275,6 @@ pub(crate) fn rows() -> Vec<String> {
         GammaInquiry,
         HueInquiry,
         ImageFlipInquiry,
-        IrisControlInquiry,
         IrisInquiry,
         LuminanceInquiry,
         MenuOpenCloseInquiry,
@@ -969,10 +1293,8 @@ pub(crate) fn rows() -> Vec<String> {
         SharpnessModeInquiry,
         SharpnessPositionInquiry,
         ShutterInquiry,
-        TallyAutoAdjustInquiry,
         TallyGreenInquiry,
         TallyRedInquiry,
-        TallyStatusInquiry,
         UsbAudioInquiry,
         VersionInquiry,
         WhiteBalanceModeInquiry,
@@ -980,6 +1302,7 @@ pub(crate) fn rows() -> Vec<String> {
     );
     row!(o, "PowerInquiry@cam7", PowerInquiry, CameraId::CAMERA_7);
     extra_rows(&mut o);
+    o.extend(registered_profile_rows());
 
     let expected = BuiltinCommand::ALL.iter().copied().collect::<HashSet<_>>();
     assert_eq!(
@@ -1038,7 +1361,7 @@ fn assert_inquiry_coverage(rows: &[String]) {
         .collect::<HashSet<_>>();
 
     for metadata in BUILTIN_INQUIRIES {
-        if metadata.command.is_some() {
+        {
             assert!(
                 names.contains(metadata.name),
                 "queryable inquiry {} is absent from the literal wire inventory",
@@ -1051,7 +1374,10 @@ fn assert_inquiry_coverage(rows: &[String]) {
 // ---- Shared row helpers ----
 use crate::command::encode::WireEncode as Enc;
 fn dmc(a: u8, b: u8) -> Result<DirectMenuControl, Error> {
-    DirectMenuControl::new(a, b)
+    Ok(DirectMenuControl::new(
+        DirectMenuTarget::try_from(a)?,
+        MenuButton::try_from(b)?,
+    ))
 }
 fn extra_rows(o: &mut Vec<String>) {
     row!(
@@ -1068,5 +1394,425 @@ fn extra_rows(o: &mut Vec<String>) {
         o,
         "NoiseReduction2DModeInquiry",
         NoiseReduction2DModeInquiry
+    );
+}
+
+// The facade builds exercise complete preparation and inert admission. The bare
+// library has no owner/preparation module, so it exercises the same sealed
+// target-validation and serialization seam, retaining identical fixture bytes.
+#[cfg(not(any(feature = "blocking", feature = "async")))]
+fn registered_wire<R: crate::Request>(
+    request: &R,
+    target: &crate::TargetRegistration,
+) -> Result<Vec<u8>, Error> {
+    request.validate_for_target(target)?;
+    let mut buffer = [0; 64];
+    let written = crate::Request::write_for_target(
+        request,
+        target,
+        &mut buffer,
+        crate::requests::RequestContractAuthority::new(),
+    )?;
+    Ok(buffer[..written].to_vec())
+}
+
+fn prepared_position<O: crate::OperationCommand<crate::completion::Targeted>>(
+    request: &O,
+    target: &crate::TargetRegistration,
+) -> Result<Vec<u8>, Error> {
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    {
+        crate::prepared::test_support::prepare_operation::<crate::completion::Targeted, _>(
+            request,
+            target,
+            crate::OperationalTuning::new(),
+            crate::prepared::ClassSelection::Request,
+        )
+        .map(|prepared| prepared.admit_with(|request, _, _, _| request.wire().as_bytes().to_vec()))
+    }
+    #[cfg(not(any(feature = "blocking", feature = "async")))]
+    registered_wire(request, target)
+}
+
+fn prepared_limit<C: crate::PlainCommand>(
+    request: &C,
+    target: &crate::TargetRegistration,
+) -> Result<Vec<u8>, Error> {
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    {
+        crate::prepared::test_support::prepare_command(
+            request,
+            target,
+            crate::OperationalTuning::new(),
+            crate::prepared::ClassSelection::Request,
+        )
+        .map(|prepared| prepared.admit_with(|request, _| request.wire().as_bytes().to_vec()))
+    }
+    #[cfg(not(any(feature = "blocking", feature = "async")))]
+    registered_wire(request, target)
+}
+
+fn prepared_query<Q: crate::Inquiry>(
+    request: &Q,
+    target: &crate::TargetRegistration,
+) -> Result<Vec<u8>, Error> {
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    {
+        crate::prepared::test_support::prepare_inquiry(
+            request,
+            target,
+            crate::OperationalTuning::new(),
+            crate::prepared::ClassSelection::Request,
+        )
+        .map(|prepared| prepared.admit_with(|request, _, _| request.wire().as_bytes().to_vec()))
+    }
+    #[cfg(not(any(feature = "blocking", feature = "async")))]
+    registered_wire(request, target)
+}
+
+#[allow(clippy::expect_used)]
+fn registered_target<P: crate::CompileTimeProfile>() -> crate::TargetRegistration {
+    crate::TargetRegistration::new(
+        CameraId::CAMERA_1,
+        crate::ProfileSpec::from_compile_time::<P>().expect("source-backed profile"),
+    )
+    .expect("individual target")
+}
+
+#[allow(clippy::expect_used)]
+fn unsigned_target() -> crate::TargetRegistration {
+    let source =
+        crate::ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2");
+    let mut capabilities = source.capabilities().clone();
+    capabilities.profile_id = None;
+    capabilities.model_name = "Unsigned-centered coordinate fixture".into();
+    capabilities
+        .pan_tilt
+        .as_mut()
+        .expect("pan/tilt")
+        .coordinates = crate::PanTiltCoordinateConversion::new(
+        crate::capabilities::CoordinateSystem::UnsignedCentered,
+        crate::capabilities::PanTiltWireCodec::StandardVisca,
+        14.4,
+        14.4,
+    )
+    .expect("unsigned standard grammar");
+    let profile = crate::ProfileSpec::builder(capabilities)
+        .transports(source.transports())
+        .envelope(source.envelope())
+        .timing(source.timing())
+        .maximum_command_sockets(source.maximum_command_sockets())
+        .supports_operation_complete(source.supports_operation_complete())
+        .supports_command_cancel(source.supports_command_cancel())
+        .position_inquiries(source.position_inquiries())
+        .build()
+        .expect("validated custom profile");
+    crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("unsigned target")
+}
+
+#[allow(clippy::expect_used)]
+fn registered_profile_rows() -> Vec<String> {
+    use crate::{request::builtin, units::Degrees};
+    let desktop = registered_target::<crate::profiles::SonyFR7>();
+    let ceiling = desktop
+        .clone()
+        .with_mount(crate::MountPosition::Ceiling)
+        .expect("ceiling");
+    let standard = registered_target::<crate::profiles::PtzOpticsG2>();
+    let brc = registered_target::<crate::profiles::SonyBRC300>();
+    let unsigned = unsigned_target();
+    let mut output = Vec::new();
+    macro_rules! case {
+        ($label:literal, $bytes:expr) => {{
+            let result: Result<Vec<u8>, Error> = (|| $bytes)();
+            output.push(match result {
+                Ok(bytes) => format!("{}\t{}", $label, hex(&bytes)),
+                Err(error) => format!("{}\tREJECT({:?})", $label, error.kind()),
+            });
+        }};
+    }
+    macro_rules! position {
+        ($label:literal, $target:ident, $kind:ident, $pan:expr, $tilt:expr, $speed:expr, $other:expr) => {
+            case!(
+                $label,
+                prepared_position(
+                    &builtin::$kind::for_target(
+                        Degrees($pan),
+                        Degrees($tilt),
+                        PanSpeed::new($speed)?,
+                        TiltSpeed::new($other)?,
+                        &$target,
+                    )?,
+                    &$target
+                )
+            );
+        };
+    }
+    position!(
+        "FR7[Desktop,ABS,+170,+195]",
+        desktop,
+        PanTiltAbsolute,
+        170.0,
+        195.0,
+        9,
+        5
+    );
+    position!(
+        "FR7[Desktop,ABS,-170,-30]",
+        desktop,
+        PanTiltAbsolute,
+        -170.0,
+        -30.0,
+        9,
+        5
+    );
+    position!(
+        "FR7[Desktop,REL,+200,0]",
+        desktop,
+        PanTiltRelative,
+        200.0,
+        0.0,
+        9,
+        5
+    );
+    position!(
+        "FR7[Desktop,REL,0,-35]",
+        desktop,
+        PanTiltRelative,
+        0.0,
+        -35.0,
+        9,
+        5
+    );
+    position!(
+        "FR7[Desktop,ABS,+200,0,refused]",
+        desktop,
+        PanTiltAbsolute,
+        200.0,
+        0.0,
+        9,
+        5
+    );
+    position!(
+        "FR7[Desktop,ABS,0,-35,refused]",
+        desktop,
+        PanTiltAbsolute,
+        0.0,
+        -35.0,
+        9,
+        5
+    );
+    case!(
+        "FR7[Desktop,LimitSet,UpRight]",
+        prepared_limit(
+            &builtin::PanTiltLimitSet::for_target(
+                PanTiltLimitCorner::UpRight,
+                Degrees(170.0),
+                Degrees(195.0),
+                &desktop,
+            )?,
+            &desktop
+        )
+    );
+    case!(
+        "FR7[Desktop,LimitSet,DownLeft]",
+        prepared_limit(
+            &builtin::PanTiltLimitSet::for_target(
+                PanTiltLimitCorner::DownLeft,
+                Degrees(-170.0),
+                Degrees(-30.0),
+                &desktop,
+            )?,
+            &desktop
+        )
+    );
+    case!(
+        "FR7[LimitClear,UpRight]",
+        prepared_limit(
+            &builtin::PanTiltLimitClear::for_profile(
+                PanTiltLimitCorner::UpRight,
+                desktop.profile(),
+            )?,
+            &desktop
+        )
+    );
+    case!(
+        "FR7[LimitClear,DownLeft]",
+        prepared_limit(
+            &builtin::PanTiltLimitClear::for_profile(
+                PanTiltLimitCorner::DownLeft,
+                desktop.profile(),
+            )?,
+            &desktop
+        )
+    );
+    position!(
+        "FR7[Ceiling,ABS,0,+15]",
+        ceiling,
+        PanTiltAbsolute,
+        0.0,
+        15.0,
+        9,
+        5
+    );
+    position!(
+        "FR7[Ceiling,ABS,0,-210]",
+        ceiling,
+        PanTiltAbsolute,
+        0.0,
+        -210.0,
+        9,
+        5
+    );
+    position!(
+        "FR7[Ceiling,ABS,0,+80,refused]",
+        ceiling,
+        PanTiltAbsolute,
+        0.0,
+        80.0,
+        9,
+        5
+    );
+    position!("G2[REL,0,-45]", standard, PanTiltRelative, 0.0, -45.0, 9, 7);
+    position!(
+        "G2[ABS,0,-45,refused]",
+        standard,
+        PanTiltAbsolute,
+        0.0,
+        -45.0,
+        9,
+        7
+    );
+    position!(
+        "G2[ABS,+45,+15,paired-speed]",
+        standard,
+        PanTiltAbsolute,
+        45.0,
+        15.0,
+        9,
+        7
+    );
+    position!(
+        "G2[ABS,-45,-15,paired-speed]",
+        standard,
+        PanTiltAbsolute,
+        -45.0,
+        -15.0,
+        9,
+        7
+    );
+    position!(
+        "BRC300[ABS,+45,+15,single-speed]",
+        brc,
+        PanTiltAbsolute,
+        45.0,
+        15.0,
+        9,
+        9
+    );
+    position!(
+        "BRC300[ABS,-45,-15,single-speed]",
+        brc,
+        PanTiltAbsolute,
+        -45.0,
+        -15.0,
+        9,
+        9
+    );
+    position!(
+        "BRC300[REL,+45,+15,single-speed]",
+        brc,
+        PanTiltRelative,
+        45.0,
+        15.0,
+        9,
+        9
+    );
+    position!(
+        "BRC300[REL,-45,-15,single-speed]",
+        brc,
+        PanTiltRelative,
+        -45.0,
+        -15.0,
+        9,
+        9
+    );
+    position!(
+        "BRC300[ABS,unequal-speeds,refused]",
+        brc,
+        PanTiltAbsolute,
+        45.0,
+        15.0,
+        9,
+        7
+    );
+    position!(
+        "Unsigned[ABS,zero,bias]",
+        unsigned,
+        PanTiltAbsolute,
+        0.0,
+        0.0,
+        9,
+        7
+    );
+    position!(
+        "Unsigned[REL,zero,no-bias]",
+        unsigned,
+        PanTiltRelative,
+        0.0,
+        0.0,
+        9,
+        7
+    );
+    case!(
+        "H900[PowerInquiry,target-aware]",
+        prepared_query(
+            &PowerInquiry,
+            &registered_target::<crate::profiles::SonyBRCH900>(),
+        )
+    );
+    output
+}
+
+#[test]
+fn registered_profile_rows_match_reviewed_literals() {
+    // R7 v4 p. 12 states endpoint words and mount ranges; p. 18 shows five
+    // nibbles per axis and the exact limit-clear words. Pan degrees point
+    // opposite the raw axis. Interior offsets use the shared nearest-unit
+    // rule: -35 * 235.9 rounds to -8257; +200 pan degrees is -47180 units.
+    // R12's BRC-300 grammar retains its reserved zero after the single speed,
+    // five pan nibbles and four tilt nibbles. R11's power query is extended.
+    let expected = [
+        "FR7[Desktop,ABS,+170,+195]\t81 01 06 02 09 05 0F 06 03 05 09 00 0B 03 0B 00 FF",
+        "FR7[Desktop,ABS,-170,-30]\t81 01 06 02 09 05 00 09 0C 0A 07 0F 0E 04 05 0B FF",
+        "FR7[Desktop,REL,+200,0]\t81 01 06 03 09 05 0F 04 07 0B 04 00 00 00 00 00 FF",
+        "FR7[Desktop,REL,0,-35]\t81 01 06 03 09 05 00 00 00 00 00 0F 0D 0F 0B 0F FF",
+        "FR7[Desktop,ABS,+200,0,refused]\tREJECT(InvalidParameter)",
+        "FR7[Desktop,ABS,0,-35,refused]\tREJECT(InvalidParameter)",
+        "FR7[Desktop,LimitSet,UpRight]\t81 01 06 07 00 01 0F 06 03 05 09 00 0B 03 0B 00 FF",
+        "FR7[Desktop,LimitSet,DownLeft]\t81 01 06 07 00 00 00 09 0C 0A 07 0F 0E 04 05 0B FF",
+        "FR7[LimitClear,UpRight]\t81 01 06 07 01 01 07 0F 0F 0F 0F 07 0F 0F 0F 0F FF",
+        "FR7[LimitClear,DownLeft]\t81 01 06 07 01 00 07 0F 0F 0F 0F 07 0F 0F 0F 0F FF",
+        "FR7[Ceiling,ABS,0,+15]\t81 01 06 02 09 05 00 00 00 00 00 00 00 0D 0D 02 FF",
+        "FR7[Ceiling,ABS,0,-210]\t81 01 06 02 09 05 00 00 00 00 00 0F 03 0E 07 0D FF",
+        "FR7[Ceiling,ABS,0,+80,refused]\tREJECT(InvalidParameter)",
+        "G2[REL,0,-45]\t81 01 06 03 09 07 00 00 00 00 0F 0D 07 08 FF",
+        "G2[ABS,0,-45,refused]\tREJECT(InvalidParameter)",
+        "G2[ABS,+45,+15,paired-speed]\t81 01 06 02 09 07 00 02 08 08 00 00 0D 08 FF",
+        "G2[ABS,-45,-15,paired-speed]\t81 01 06 02 09 07 0F 0D 07 08 0F 0F 02 08 FF",
+        "BRC300[ABS,+45,+15,single-speed]\t81 01 06 02 09 00 0F 0D 0B 07 00 00 0C 03 00 FF",
+        "BRC300[ABS,-45,-15,single-speed]\t81 01 06 02 09 00 00 02 04 09 00 0F 03 0D 00 FF",
+        "BRC300[REL,+45,+15,single-speed]\t81 01 06 03 09 00 0F 0D 0B 07 00 00 0C 03 00 FF",
+        "BRC300[REL,-45,-15,single-speed]\t81 01 06 03 09 00 00 02 04 09 00 0F 03 0D 00 FF",
+        "BRC300[ABS,unequal-speeds,refused]\tREJECT(InvalidParameter)",
+        "Unsigned[ABS,zero,bias]\t81 01 06 02 09 07 08 00 00 00 08 00 00 00 FF",
+        "Unsigned[REL,zero,no-bias]\t81 01 06 03 09 07 00 00 00 00 00 00 00 00 FF",
+        "H900[PowerInquiry,target-aware]\t81 09 7E 04 00 FF",
+    ];
+    let actual = registered_profile_rows();
+    assert_eq!(actual, expected);
+    assert!(
+        rows().ends_with(&actual),
+        "registered cases must enter the golden generator"
     );
 }

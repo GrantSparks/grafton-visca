@@ -37,15 +37,21 @@ mod private {
 
         fn admission_control_class(&self) -> Result<ControlClass, Error>;
 
+        fn pan_tilt_max_speed(&self) -> Option<u8>;
+
         fn declared_max_size(&self) -> usize;
 
         fn reply_shape(&self) -> RawReplyShape;
 
-        fn encoded_size(&self) -> usize;
-
         fn write_into(&self, camera: CameraId, buffer: &mut [u8]) -> Result<usize, Error>;
 
-        fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<(), Error>;
+        fn write_for_target(
+            &self,
+            target: &crate::TargetRegistration,
+            buffer: &mut [u8],
+        ) -> Result<usize, Error>;
+
+        fn validate_for_target(&self, target: &crate::TargetRegistration) -> Result<(), Error>;
 
         fn applied_state_projection(
             &self,
@@ -81,24 +87,32 @@ mod private {
             crate::requests::admission_control_class(self)
         }
 
+        fn pan_tilt_max_speed(&self) -> Option<u8> {
+            crate::requests::pan_tilt_max_speed(self)
+        }
+
         fn declared_max_size(&self) -> usize {
-            T::MAX_SIZE
+            crate::requests::declared_max_size(self)
         }
 
         fn reply_shape(&self) -> RawReplyShape {
             Request::reply_shape(self)
         }
 
-        fn encoded_size(&self) -> usize {
-            Request::encoded_size(self)
-        }
-
         fn write_into(&self, camera: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
             Request::write_into(self, camera, buffer)
         }
 
-        fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-            Request::validate_for_profile(self, profile)
+        fn write_for_target(
+            &self,
+            target: &crate::TargetRegistration,
+            buffer: &mut [u8],
+        ) -> Result<usize, Error> {
+            Request::write_for_target(self, target, buffer, RequestContractAuthority::new())
+        }
+
+        fn validate_for_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
+            Request::validate_for_target(self, target)
         }
 
         fn applied_state_projection(
@@ -216,6 +230,11 @@ where
     }
 
     #[allow(private_interfaces)]
+    fn pan_tilt_max_speed(&self, _authority: RequestContractAuthority) -> Option<u8> {
+        self.request.pan_tilt_max_speed()
+    }
+
+    #[allow(private_interfaces)]
     fn declared_max_size(&self, _authority: RequestContractAuthority) -> usize {
         self.request.declared_max_size()
     }
@@ -224,16 +243,22 @@ where
         self.request.reply_shape()
     }
 
-    fn encoded_size(&self) -> usize {
-        self.request.encoded_size()
-    }
-
     fn write_into(&self, camera: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         self.request.write_into(camera, buffer)
     }
 
-    fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        self.request.validate_for_profile(profile)
+    #[allow(private_interfaces)]
+    fn write_for_target(
+        &self,
+        target: &crate::TargetRegistration,
+        buffer: &mut [u8],
+        _authority: RequestContractAuthority,
+    ) -> Result<usize, Error> {
+        self.request.write_for_target(target, buffer)
+    }
+
+    fn validate_for_target(&self, target: &crate::TargetRegistration) -> Result<(), Error> {
+        self.request.validate_for_target(target)
     }
 
     fn applied_state_projection(
@@ -315,6 +340,19 @@ impl DynCustomOperations for DynSessionCamera {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn erased_pan_tilt_operation_preserves_its_extended_speed_fact() -> crate::Result<()> {
+        let request = request::builtin::PanTiltDrive::new(
+            crate::command::PanTiltDirection::Up,
+            crate::types::PanSpeed::new(50)?,
+            crate::types::TiltSpeed::new(25)?,
+        )?;
+        let erased: &dyn DynAppliedRequest = &request;
+        let adapted = OperationAdapter::<AppliedOnly, _>::new(erased);
+        assert_eq!(crate::requests::pan_tilt_max_speed(&adapted), Some(50));
+        Ok(())
+    }
+
     use super::*;
     use crate::{
         raw::RawReplyShape,
@@ -323,14 +361,19 @@ mod tests {
         CameraId, OperationalTuning, ProfileSpec, SubmissionClass,
     };
 
-    fn profile() -> Option<ProfileSpec> {
-        let result = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>();
-        assert!(result.is_ok(), "generic profile must construct");
-        result.ok()
+    fn registration() -> crate::Result<crate::TargetRegistration> {
+        crate::TargetRegistration::new(
+            CameraId::CAMERA_1,
+            ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()?,
+        )
     }
 
     fn write_frame(target: CameraId, buffer: &mut [u8]) -> crate::Result<usize> {
-        buffer[..4].copy_from_slice(&[target.to_address_byte(), 0x01, 0x02, 0xff]);
+        let available = buffer.len();
+        let frame = buffer
+            .get_mut(..4)
+            .ok_or_else(|| Error::buffer_too_small(4, available))?;
+        frame.copy_from_slice(&[target.to_address_byte(), 0x01, 0x02, 0xff]);
         Ok(4)
     }
 
@@ -339,7 +382,7 @@ mod tests {
     impl Request for CompletionOnlyTargeted {
         type Class = request::Operation<Targeted>;
 
-        const MAX_SIZE: usize = 4;
+        const MAX_SIZE: usize = 8;
         const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
         const RETRY_CLASS: RetryClass = RetryClass::Never;
         const CONTROL_CLASS: ControlClass = ControlClass::Normal;
@@ -369,10 +412,6 @@ mod tests {
         const RETRY_CLASS: RetryClass = RetryClass::Never;
         const CONTROL_CLASS: ControlClass = ControlClass::Normal;
 
-        fn encoded_size(&self) -> usize {
-            4
-        }
-
         fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> crate::Result<usize> {
             write_frame(target, buffer)
         }
@@ -385,7 +424,7 @@ mod tests {
     }
 
     macro_rules! applied_request {
-        ($name:ident, $max_size:expr, $encoded_size:expr, $reply_shape:expr, $control:expr) => {
+        ($name:ident, $max_size:expr, $reply_shape:expr, $control:expr) => {
             struct $name;
 
             impl Request for $name {
@@ -398,10 +437,6 @@ mod tests {
 
                 fn reply_shape(&self) -> RawReplyShape {
                     $reply_shape
-                }
-
-                fn encoded_size(&self) -> usize {
-                    $encoded_size
                 }
 
                 fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> crate::Result<usize> {
@@ -420,37 +455,31 @@ mod tests {
     applied_request!(
         NoReplyApplied,
         4,
-        4,
         RawReplyShape::NoReply,
         ControlClass::Normal
     );
     applied_request!(
         OversizedApplied,
         3,
-        4,
         RawReplyShape::AckThenCompletion,
         ControlClass::Normal
     );
     applied_request!(
         DownstreamUrgentApplied,
         4,
-        4,
         RawReplyShape::AckThenCompletion,
         ControlClass::Urgent
     );
 
     #[test]
-    fn erased_custom_reply_shapes_preserve_operation_lifecycle_contract() {
-        let Some(profile) = profile() else {
-            return;
-        };
+    fn erased_custom_reply_shapes_preserve_operation_lifecycle_contract() -> crate::Result<()> {
+        let registration = registration()?;
         let targeted = CompletionOnlyTargeted;
         let targeted: &dyn DynTargetedRequest = &targeted;
         let targeted_adapter = OperationAdapter::<Targeted, _>::new(targeted);
-        let targeted_prepared = crate::prepared::prepare_operation::<Targeted, _>(
+        let targeted_prepared = crate::prepared::test_support::prepare_operation::<Targeted, _>(
             &targeted_adapter,
-            crate::target::TargetSlot::CAMERA_1,
-            &profile,
+            &registration,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         );
@@ -458,21 +487,31 @@ mod tests {
             targeted_prepared.is_ok(),
             "completion-only custom request prepares through erasure"
         );
-        let Ok(targeted_prepared) = targeted_prepared else {
-            return;
-        };
-        let targeted_context = targeted_prepared.admit_with(|request, _, _, _| *request.context());
-        assert_eq!(targeted_context.reply_shape, ReplyShape::CompletionOnly);
+        let targeted_prepared = targeted_prepared?;
+        let targeted_request = targeted_prepared.admit_with(|request, _, _, _| {
+            assert_eq!(
+                request.wire().as_bytes(),
+                &[0x81, 0x01, 0x02, 0xff],
+                "erasure preserves the shorter frame's actual written length"
+            );
+            request
+        });
+        assert!(matches!(
+            targeted_request,
+            crate::runtime::engine::RuntimeRequest::Command {
+                reply_shape: ReplyShape::CompletionOnly,
+                ..
+            }
+        ));
 
         let applied = NoReplyApplied;
         let applied: &dyn DynAppliedRequest = &applied;
         let applied_adapter = OperationAdapter::<AppliedOnly, _>::new(applied);
         assert!(
             matches!(
-                crate::prepared::prepare_operation::<AppliedOnly, _>(
+                crate::prepared::test_support::prepare_operation::<AppliedOnly, _>(
                     &applied_adapter,
-                    crate::target::TargetSlot::CAMERA_1,
-                    &profile,
+                    &registration,
                     OperationalTuning::new(),
                     crate::prepared::ClassSelection::Request,
                 ),
@@ -480,32 +519,43 @@ mod tests {
             ),
             "no-reply custom operation must be rejected through erasure"
         );
+        Ok(())
     }
 
     #[test]
-    fn erased_requests_enforce_their_original_max_size() {
-        let Some(profile) = profile() else {
-            return;
-        };
+    fn erased_requests_enforce_their_original_max_size() -> crate::Result<()> {
+        let registration = registration()?;
+        let raw = crate::raw::AppliedOnly::new(
+            [0x81, 1, 4, 7, 0, 0xff],
+            AffectedAxes::ZOOM,
+            TimeoutClass::Movement,
+            RetryClass::Movement,
+            ControlClass::User,
+        )?;
+        let erased_raw: &dyn DynAppliedRequest = &raw;
+        let raw_adapter = OperationAdapter::<AppliedOnly, _>::new(erased_raw);
+        assert_eq!(
+            crate::requests::declared_max_size(&raw_adapter),
+            raw.bytes().len(),
+            "erasure preserves a raw value's tighter validated storage bound"
+        );
         let targeted = OversizedTargeted;
-        let static_targeted = crate::prepared::prepare_operation::<Targeted, _>(
+        let static_targeted = crate::prepared::test_support::prepare_operation::<Targeted, _>(
             &targeted,
-            crate::target::TargetSlot::CAMERA_1,
-            &profile,
+            &registration,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         );
         assert!(
             matches!(static_targeted, Err(Error::InvalidRequest(_))),
-            "static targeted request must reject encoded_size above MAX_SIZE"
+            "static targeted request must reject a frame above MAX_SIZE"
         );
 
         let erased_targeted: &dyn DynTargetedRequest = &targeted;
         let targeted_adapter = OperationAdapter::<Targeted, _>::new(erased_targeted);
-        let dynamic_targeted = crate::prepared::prepare_operation::<Targeted, _>(
+        let dynamic_targeted = crate::prepared::test_support::prepare_operation::<Targeted, _>(
             &targeted_adapter,
-            crate::target::TargetSlot::CAMERA_1,
-            &profile,
+            &registration,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         );
@@ -515,24 +565,22 @@ mod tests {
         );
 
         let applied = OversizedApplied;
-        let static_applied = crate::prepared::prepare_operation::<AppliedOnly, _>(
+        let static_applied = crate::prepared::test_support::prepare_operation::<AppliedOnly, _>(
             &applied,
-            crate::target::TargetSlot::CAMERA_1,
-            &profile,
+            &registration,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         );
         assert!(
             matches!(static_applied, Err(Error::InvalidRequest(_))),
-            "static applied request must reject encoded_size above MAX_SIZE"
+            "static applied request must reject a frame above MAX_SIZE"
         );
 
         let erased: &dyn DynAppliedRequest = &applied;
         let adapter = OperationAdapter::<AppliedOnly, _>::new(erased);
-        let dynamic_applied = crate::prepared::prepare_operation::<AppliedOnly, _>(
+        let dynamic_applied = crate::prepared::test_support::prepare_operation::<AppliedOnly, _>(
             &adapter,
-            crate::target::TargetSlot::CAMERA_1,
-            &profile,
+            &registration,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         );
@@ -540,20 +588,18 @@ mod tests {
             matches!(dynamic_applied, Err(Error::InvalidRequest(_))),
             "erased applied request must retain its concrete MAX_SIZE bound"
         );
+        Ok(())
     }
 
     #[test]
-    fn erased_urgent_authority_is_forwarded_only_for_crate_owned_stops() {
-        let Some(profile) = profile() else {
-            return;
-        };
+    fn erased_urgent_authority_is_forwarded_only_for_crate_owned_stops() -> crate::Result<()> {
+        let registration = registration()?;
         let downstream = DownstreamUrgentApplied;
         let erased: &dyn DynAppliedRequest = &downstream;
         let adapter = OperationAdapter::<AppliedOnly, _>::new(erased);
-        let downstream_result = crate::prepared::prepare_operation::<AppliedOnly, _>(
+        let downstream_result = crate::prepared::test_support::prepare_operation::<AppliedOnly, _>(
             &adapter,
-            crate::target::TargetSlot::CAMERA_1,
-            &profile,
+            &registration,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Request,
         );
@@ -565,10 +611,9 @@ mod tests {
         let stop = ZoomStop;
         let erased_stop: &dyn DynAppliedRequest = &stop;
         let stop_adapter = OperationAdapter::<AppliedOnly, _>::new(erased_stop);
-        let prepared = crate::prepared::prepare_operation::<AppliedOnly, _>(
+        let prepared = crate::prepared::test_support::prepare_operation::<AppliedOnly, _>(
             &stop_adapter,
-            crate::target::TargetSlot::CAMERA_1,
-            &profile,
+            &registration,
             OperationalTuning::new(),
             crate::prepared::ClassSelection::Handle(SubmissionClass::Background),
         );
@@ -576,10 +621,9 @@ mod tests {
             prepared.is_ok(),
             "erased crate-owned stop keeps urgent authority"
         );
-        let Ok(prepared) = prepared else {
-            return;
-        };
+        let prepared = prepared?;
         let context = prepared.admit_with(|request, _, _, _| *request.context());
         assert_eq!(context.control.class, EngineControlClass::Urgent);
+        Ok(())
     }
 }

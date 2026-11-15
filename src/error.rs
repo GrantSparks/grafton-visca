@@ -1,43 +1,82 @@
 //! Error classification and recovery decisions.
 //!
-//! `Error::kind()` is a coarse reporting category, `is_retryable()` describes
-//! whether a new bounded attempt can be reasonable, and
-//! `requires_new_session()` answers only whether this error positively proves
-//! that the current session is unusable. None of those predicates is a
-//! perpetual retry policy. In particular, a camera can keep a socket open while
-//! producing no VISCA frames; use
+//! [`Error::recovery`] combines session validity, request certainty and the
+//! temporary condition into one typed verdict. [`Error::kind`] and
+//! [`Error::failure_context`] remain reporting facts. Only [`Recovery::Resubmit`]
+//! permits automatically submitting the request again. An unanswered heartbeat
+//! remains an application policy decision: compare
 //! [`MetricsSnapshot::received_frames`](crate::MetricsSnapshot::received_frames)
-//! around an application heartbeat and impose an application-owned silence
-//! threshold.
+//! around bounded activity and impose a silence threshold.
 //!
-//! ## Owner failure matrix
+//! ## Checked recovery matrix
 //!
-//! This is the canonical event × envelope × transport mapping. "Any" includes
-//! both blocking and async owners; execution mode does not change a verdict.
-//!
-//! | Event | Envelope | Transport | Public outcome | `requires_new_session()` | Application response |
-//! | --- | --- | --- | --- | --- | --- |
-//! | A caller's wait on an admitted operation, cancellation, command, or inquiry expires while the owner still holds the request | Any | Any | [`Error::ObservationTimeout`] (stage `Observation`, certainty `StillLive`) | `false` | Never resubmit: wait again on the handle, or reconcile. `is_retryable()` is `false`. |
-//! | The engine's protocol lifecycle reaches a terminal deadline without correlation ambiguity (ACK, completion, inquiry reply, or retry budget) | Sony, or a raw inquiry | Any | [`Error::Timeout`] (stage `Terminal`; certainty `Unconfirmed` for a sent command, `FailedConclusively` for an inquiry, `NotAccepted` if never sent) | `false` | Follow [`Error::failure_context`]: reconcile an unconfirmed command, retry a conclusively failed inquiry. A timeout alone is not liveness proof. |
-//! | An admission deadline expires before the owner accepts the request | Any | Any | [`Error::Timeout`] (stage `PreAdmission`, certainty `NotAccepted`) | `false` | The request never existed; submitting it again is safe. |
-//! | A sent command's ACK/completion becomes unconfirmable under the default policy, including a STOP written inside a `NoReply` command's hold whose only answer was a socketless error that command could also have sent (it binds to neither, #795) | Raw | Datagram or stream | [`Error::UnsequencedCommandUnconfirmed`] ([`ErrorKind::Unconfirmed`]) | `false` | Never replay blindly; reconcile that command's camera effect. Whole and fragmented late bytes have the same verdict: a retained stream prefix gets a bounded grace, then is discarded as malformed rather than poisoning by segmentation. |
-//! | A recorded cancellation cannot be resolved before its correlation deadline | Sony, or raw with strict policy off | Datagram or stream | [`Error::CancellationUnconfirmed`] ([`ErrorKind::Unconfirmed`]) | `false` | Reconcile the original command; cancellation was requested, not proven. |
-//! | Raw command/cancellation uncertainty under strict policy | Raw | Datagram or stream | [`Error::StreamPoisoned`] | `true` | Replace the session, re-query state, and restore deliberately. |
-//! | An inquiry (or user `CompletionOnly` raw command) to a camera whose earlier inquiry ended unanswered after its bytes entered the stream (that one is written once and fails at its reply deadline with the `Terminal`/`FailedConclusively` timeout above), once its owed reply has still not arrived when the profile's ambiguity window ends — a stalled connection, a camera that never answers that inquiry, or an absent address | Raw | Stream | [`Error::InquiryCorrelationLost`] (stage `Terminal`, certainty `NotAccepted`; not written, not retryable) | `false` | Inquiries to that camera cannot be correlated until the owed reply arrives or a later answer from the camera proves it never will; close and reopen the session to recover them sooner. A raw `CompletionOnly` command left unanswered holds inquiries back the same way, until its completion arrives. Other cameras and the session keep working, and commands and stops to that camera are still sent; settlement polling, `is_moving`, and `wait_until_idle` on it fail. Frames are resolved in write order (#795): the owed reply (data or a socketless rejection) settles the lane, and so does the ACK or rejection of any command written after the inquiry, since the camera answers in order — a camera that never answers that inquiry reopens its inquiries with its next command answer. |
-//! | An ordinary ACK-bearing, `CompletionOnly`, or `NoReply` command to a camera whose earlier command ended [`Error::UnsequencedCommandUnconfirmed`] before its ACK (or completion) after its bytes entered the stream, once that owed answer has still not arrived when the owing command's ambiguity window ends; or a `CompletionOnly` command to a camera that has not answered anything since a `NoReply` command whose ambiguity window has ended | Raw | Stream | [`Error::CommandCorrelationLost`] (stage `Terminal`, certainty `NotAccepted`; not written, not retryable) | `false` | Commands to that camera cannot be correlated until the owed answer arrives or a later answer from the camera proves it never will (the reply to a later inquiry, or the answer to a later STOP); close and reopen the session to recover them sooner. Within the window such commands wait; a late answer is discarded and never acknowledges or completes a later command. A `CompletionOnly` command's owed completion is settled only by itself: if it never comes — a camera that drops it, or a socketless error that it or a STOP behind it could have sent that was in fact its rejection but that the ledger could not prove so within three hand-offs — ordinary commands to that camera stay latched until the session is reopened. STOPs (including the owner halt), inquiries, other cameras, and the session keep working (#795). |
-//! | Request send fails | Any | Datagram | The transport error (a terminal-looking custom error is normalized to [`Error::TransportError`]) | `false` | Treat it as this transmission's failure; the receive side remains the authority on session death. |
-//! | A recorded cancellation's write or observation fails while its operation continues | Any | Datagram | [`Error::CancellationObservationFailed`] for an otherwise retryable cause; already nonretryable verdicts remain exact | `false` | The handle caches this intent's failure and cannot retry it. Observe the operation's outcome or stop the axis. |
-//! | A cancellation observation reaches a deadline while its operation continues | Any | Any | [`Error::Timeout`] (stage `CancellationAttempt`, certainty `StillLive`) | `false` | Wait for the operation or stop the axis; `is_retryable()` is `false`. |
-//! | Request or cancellation send fails after unknown stream progress | Any | Stream | [`Error::StreamPoisoned`] | `true` | Replace the session; stream position may be unknowable. |
-//! | Fatal receive closure, including EOF/reset/broken pipe | Any | Datagram or stream | [`Error::ConnectionClosed`] | `true` | Replace the session and re-query state. |
-//! | Transient receive fault or an idle/no-data read | Any | Datagram or stream | No immediate public failure; request policy/deadlines continue | n/a | Keep driving the session; use a bounded application heartbeat for silent peers. |
-//! | Framer overflow or unrecoverable discard/resynchronization failure | Any | Stream | [`Error::StreamPoisoned`] | `true` | Replace the session. |
-//! | Local request admission is full | Any | Any | [`Error::RuntimeQueueFull`] | `false` | Back off until admission capacity is available. An urgent typed STOP can still use its target's control reserve. |
-//! | An urgent typed STOP finds its target's control reserve and ordinary admission both full | Any | Any | [`Error::ControlReserveExhausted`] | `false` | Back off briefly: earlier stops for that camera are still pending. |
-//! | Camera returns a conclusive protocol rejection before ACK | Any | Any | The exact VISCA error variant (a typed STOP's `0x41` is reported at once, never retried) | `false` | Apply the variant's retry policy; camera state and socket routing remain authoritative. |
-//! | Camera reports an error for a command it already acknowledged | Any | Any | [`Error::CommandFailedAfterAck`] wrapping the exact VISCA error (stage `Terminal`, certainty `Unconfirmed`; not retryable); the engine never writes the command again | `false` | The command may have partly executed: reconcile before resubmitting a relative move or preset (#795). |
-//! | An owner halt supersedes declared motion | Any | Any | [`Error::MotionSuperseded`] (stage `PreAdmission` or `Terminal`; certainty `NotAccepted` if it never reached the camera, `Unconfirmed` if an earlier attempt may have) | `false` | Resubmit only on `NotAccepted`; otherwise reconcile. Not proof of physical rest (#795). |
-//! | Application closes the owner | Any | Any | [`Error::RuntimeShutdown`] | `false` | Reconnect only if the application intends to start another session. |
+//! <!-- BEGIN GENERATED RECOVERY VERDICTS -->
+//! | Error / condition | Kind | Stage / certainty | Recovery |
+//! | --- | --- | --- | --- |
+//! | `ConnectionFailed` | `IoRefused` | — | `Abandon` |
+//! | `ConnectionClosed` | `IoClosed` | — | `ReopenSession` |
+//! | `CommandPending / ACK received` | `Busy` | — | `WaitAgain` |
+//! | `InvalidResponse` | `Protocol` | — | `Abandon` |
+//! | `FeatureNotSupported` | `Unsupported` | — | `Abandon` |
+//! | `Io / other OS error` | `Other` | — | `Abandon` |
+//! | `SyntaxError` | `InvalidParameter` | — | `Abandon` |
+//! | `CommandBufferFull` | `BufferFull` | — | `Resubmit after 200ms` |
+//! | `CommandCanceled` | `Cancelled` | — | `Abandon` |
+//! | `NoSocket` | `BufferFull` | — | `Resubmit after 200ms` |
+//! | `CommandNotExecutable` | `NotExecutable` | — | `Abandon` |
+//! | `InvalidResponseFormat` | `Protocol` | — | `Abandon` |
+//! | `InvalidResponseLength` | `Protocol` | — | `Abandon` |
+//! | `UnexpectedResponseType` | `Protocol` | — | `Abandon` |
+//! | `Unknown` | `Protocol` | — | `Abandon` |
+//! | `InvalidRequest` | `InvalidParameter` | — | `Abandon` |
+//! | `MessageLengthError` | `Protocol` | — | `Abandon` |
+//! | `ParseError` | `Protocol` | — | `Abandon` |
+//! | `TransportError / no uncertain effect` | `Transport` | — | `Resubmit after 50ms` |
+//! | `TransmissionNotSent / first attempt, invalid request` | `InvalidParameter` | Terminal / NotAccepted | `Abandon` |
+//! | `TransmissionNotSent / earlier attempt uncertain` | `InvalidParameter` | Terminal / Unconfirmed | `Reconcile` |
+//! | `InquiryFailed / timeout cause` | `Timeout` | Terminal / FailedConclusively | `Resubmit after 2s` |
+//! | `InquiryFailed / command-scoped source` | `Unconfirmed` | Terminal / FailedConclusively | `Abandon` |
+//! | `InquiryFailed / still-live source` | `Timeout` | Terminal / FailedConclusively | `Resubmit after 2s` |
+//! | `InquiryFailed / session ended` | `IoClosed` | Terminal / FailedConclusively | `ReopenSession` |
+//! | `InvalidParameter` | `InvalidParameter` | — | `Abandon` |
+//! | `BufferTooSmall` | `InvalidParameter` | — | `Abandon` |
+//! | `ParameterOutOfRange` | `InvalidParameter` | — | `Abandon` |
+//! | `Timeout / terminal, not accepted` | `Timeout` | Terminal / NotAccepted | `Resubmit after 2s` |
+//! | `MotionSuperseded / never sent` | `Cancelled` | Terminal / NotAccepted | `Abandon` |
+//! | `SettlementSuperseded / deliberate observation end` | `Cancelled` | — | `Abandon` |
+//! | `SettlementObservationFailed / live session` | `InvalidParameter` | Observation / Unconfirmed | `Reconcile` |
+//! | `CancellationObservationFailed / operation still live` | `Timeout` | CancellationAttempt / StillLive | `WaitAgain` |
+//! | `ObservationTimeout` | `Timeout` | Observation / StillLive | `WaitAgain` |
+//! | `ControlReserveExhausted` | `BufferFull` | — | `Resubmit after 200ms` |
+//! | `InquiryShapeCapacityExhausted` | `BufferFull` | PreAdmission / NotAccepted | `Abandon` |
+//! | `MaxRetriesExceeded` | `Timeout` | — | `Abandon` |
+//! | `NotSupported` | `Unsupported` | — | `Abandon` |
+//! | `InvalidState` | `NotExecutable` | — | `Abandon` |
+//! | `OwnerTerminated` | `IoClosed` | — | `ReopenSession` |
+//! | `DiagnosticSubscriberLimit` | `Other` | — | `Abandon` |
+//! | `RuntimeShutdown / deliberate` | `IoClosed` | — | `Abandon` |
+//! | `CancellationUnconfirmed` | `Unconfirmed` | CancellationAttempt / Unconfirmed | `Reconcile` |
+//! | `UnsequencedCommandUnconfirmed` | `Unconfirmed` | Terminal / Unconfirmed | `Reconcile` |
+//! | `InquiryCorrelationLost / lane latched` | `NotExecutable` | Terminal / NotAccepted | `Abandon` |
+//! | `CommandCorrelationLost / lane latched` | `NotExecutable` | Terminal / NotAccepted | `Abandon` |
+//! | `CommandFailedAfterAck` | `Unconfirmed` | Terminal / Unconfirmed | `Reconcile` |
+//! | `RuntimeIdentityExhausted` | `Other` | — | `Abandon` |
+//! | `RuntimeQueueFull` | `BufferFull` | — | `Resubmit after 200ms` |
+//! | `StreamPoisoned` | `IoClosed` | — | `ReopenSession` |
+//! | `InvalidCameraId` | `InvalidParameter` | — | `Abandon` |
+//! | `ResponseTooLarge` | `Protocol` | — | `Abandon` |
+//! | `InquiryNotCancelable` | `InvalidParameter` | — | `Abandon` |
+//! | `InvalidAddress` | `InvalidParameter` | — | `Abandon` |
+//! | `UnsupportedTransport` | `Unsupported` | — | `Abandon` |
+//! | `MissingRuntime` | `Unsupported` | — | `Abandon` |
+//! | `WithContext / pending command` | `Busy` | — | `WaitAgain` |
+//! | `Timeout / inquiry reply` | `Timeout` | Terminal / FailedConclusively | `Resubmit after 2s` |
+//! | `Timeout / command outcome unknown` | `Timeout` | Terminal / Unconfirmed | `Reconcile` |
+//! | `Timeout / write outcome unknown` | `Timeout` | Session / Unconfirmed | `Reconcile` |
+//! | `Timeout / cancel attempt deadline` | `Timeout` | CancellationAttempt / StillLive | `WaitAgain` |
+//! | `TransportError / uncertain write` | `Transport` | Session / Unconfirmed | `Reconcile` |
+//! | `MotionSuperseded / earlier attempt uncertain` | `Cancelled` | Terminal / Unconfirmed | `Reconcile` |
+//! <!-- END GENERATED RECOVERY VERDICTS -->
 
 use thiserror::Error as ThisError;
 
@@ -135,18 +174,10 @@ pub enum ErrorKind {
 ///
 /// # Error Categories
 ///
-/// Errors are categorized into two main types:
-///
-/// ## Retryable and Non-Retryable Errors
-/// Every variant has one [`ErrorKind`] ([`Error::kind()`]). Retryability is a
-/// function of that kind: [`ErrorKind::Timeout`], [`ErrorKind::BufferFull`],
-/// [`ErrorKind::Busy`] and [`ErrorKind::Transport`] describe temporary
-/// conditions, apart from the few variants whose new attempt would loop or
-/// duplicate a live request (see [`Error::suggested_retry_delay()`]). Use
-/// [`Error::is_retryable()`] to check whether an error can be retried, and
-/// [`Error::suggested_retry_delay()`] for the recommended delay. Whether a
-/// resubmission could duplicate a physical effect is a separate question that
-/// [`Error::failure_context`] answers.
+/// [`Error::recovery`] answers whether to resubmit, wait on the existing
+/// operation, reconcile state, reopen the session, or abandon automatic recovery.
+/// [`Error::kind`] and [`Error::failure_context`] describe the underlying facts;
+/// callers do not need to combine them into another replay policy.
 ///
 /// ## Terminal Session Failures
 /// A third category ends the session outright: the peer closed the connection,
@@ -174,29 +205,24 @@ pub enum ErrorKind {
 ///
 /// # Example
 ///
-/// Resubmission needs replay-safe certainty as well as a retryable condition.
-/// See the [recovery table](https://github.com/GrantSparks/grafton-visca/blob/main/docs/observability_and_recovery.md).
+/// One recipe applies to every error:
 ///
 /// ```rust
-/// use grafton_visca::{Certainty, Error, FailureStage};
+/// use grafton_visca::{Error, Recovery};
 ///
-/// fn should_resubmit(error: &Error) -> bool {
-///     match error.failure_context().map(|context| context.certainty) {
-///         Some(Certainty::NotAccepted | Certainty::FailedConclusively) => {
-///             error.is_retryable()
-///         }
-///         Some(Certainty::StillLive) => false, // Wait on the original handle.
-///         Some(Certainty::Unconfirmed) => false, // Reconcile camera state first.
-///         _ => false, // Missing certainty never establishes replay safety.
+/// fn next_step(error: &Error) -> &'static str {
+///     match error.recovery() {
+///         Recovery::Resubmit { .. } => "submit again after the specified delay",
+///         Recovery::WaitAgain => "observe the existing operation",
+///         Recovery::Reconcile => "inspect camera state before deciding",
+///         Recovery::ReopenSession => "open a new session",
+///         Recovery::Abandon => "do not retry automatically",
+///         _ => "inspect this future recovery verdict",
 ///     }
 /// }
 ///
-/// assert!(!should_resubmit(&Error::timeout(
-///     FailureStage::Terminal, Certainty::Unconfirmed,
-/// )));
-/// assert!(!should_resubmit(&Error::timeout(
-///     FailureStage::CancellationAttempt, Certainty::StillLive,
-/// )));
+/// assert_eq!(next_step(&Error::CommandPending), "observe the existing operation");
+/// assert_eq!(next_step(&Error::io_timeout()), "inspect camera state before deciding");
 /// ```
 #[derive(ThisError, Debug, Clone)]
 #[non_exhaustive]
@@ -250,7 +276,7 @@ pub enum Error {
 
     /// Underlying IO error from network operations.
     #[error("IO error: {0}")]
-    Io(Arc<io::Error>),
+    Io(#[source] Arc<io::Error>),
 
     /// VISCA protocol syntax error (0x02): Command format is incorrect or parameters are illegal.
     #[error("Syntax error in VISCA command")]
@@ -324,12 +350,48 @@ pub enum Error {
 
     /// One transport operation failed while the session remains usable.
     ///
-    /// This is a retryable per-request failure with
-    /// [`ErrorKind::Transport`]. The receive side remains authoritative for
+    /// This is an operation-scoped failure with [`ErrorKind::Transport`].
+    /// Recovery also respects any request certainty in its source. The receive side remains authoritative for
     /// session death; use [`Self::requires_new_session()`] rather than treating
-    /// this error as a reconnect signal.
-    #[error("Transport error: {0}")]
-    TransportError(Cow<'static, str>),
+    /// this error as a reconnect signal. The original cause is retained through
+    /// [`std::error::Error::source`], including any OS error and request certainty.
+    #[error("Transport error: {source}")]
+    #[non_exhaustive]
+    TransportError {
+        /// The original failure, including its OS cause and request certainty.
+        #[source]
+        source: Arc<Error>,
+    },
+
+    /// This transmission attempt sent no bytes; an earlier attempt may have.
+    ///
+    /// The owner refused framing or write preparation before transport I/O.
+    /// `context` records the logical request's certainty across all attempts,
+    /// so a prior possible effect remains `Unconfirmed`. This attempt does not
+    /// end the session, and the original preparation failure remains its source.
+    #[error("Transmission was not sent: {source}")]
+    #[non_exhaustive]
+    TransmissionNotSent {
+        /// The original framing or preparation failure.
+        #[source]
+        source: Arc<Error>,
+        /// Certainty of the logical request, including any earlier attempt.
+        context: FailureContext,
+    },
+
+    /// A failed inquiry terminal outcome, preserving its original cause.
+    ///
+    /// Inquiries change no camera state, so their terminal failure has fixed
+    /// `Terminal` / `FailedConclusively` certainty even when a custom transport
+    /// reports a command-scoped or still-live cause. Caller observation timeouts,
+    /// preparation refusals and standalone decoder errors are not wrapped.
+    #[error("Inquiry failed: {source}")]
+    #[non_exhaustive]
+    InquiryFailed {
+        /// The original terminal failure.
+        #[source]
+        source: Arc<Error>,
+    },
 
     /// Invalid parameter provided to a command.
     #[error("Invalid parameter '{parameter}': {reason} (value: {value})")]
@@ -390,7 +452,7 @@ pub enum Error {
     /// The request — an operation, a cancellation, a command, or an
     /// inquiry — keeps running under its own deadlines and may still take
     /// effect. Never resubmit it: wait again on the operation handle, or
-    /// reconcile the camera's state. [`Self::is_retryable`] is `false`.
+    /// observe the existing operation. [`Self::recovery`] returns [`Recovery::WaitAgain`].
     #[error("Wait for operation {operation} timed out; it is still running")]
     #[non_exhaustive]
     ObservationTimeout {
@@ -403,7 +465,8 @@ pub enum Error {
     /// `context` reports what is known about the superseded request. Its
     /// certainty is [`Certainty::NotAccepted`] when no attempt was ever
     /// written, or when every written attempt was conclusively rejected by
-    /// the camera; resubmitting it is then safe. It is
+    /// the camera. Deliberate supersession still returns [`Recovery::Abandon`],
+    /// so an automatic loop must not undo the halt by resubmitting. It is
     /// [`Certainty::Unconfirmed`] when an earlier attempt may have reached
     /// the camera; reconcile before resubmitting. The stage is
     /// [`FailureStage::PreAdmission`] when the fence rejected the submission
@@ -441,7 +504,7 @@ pub enum Error {
         source: Box<Error>,
     },
 
-    /// A recorded cancellation intent failed with an otherwise retryable cause.
+    /// A recorded cancellation attempt failed while the operation remains live.
     /// A repeated `cancel()` observes
     /// this cached answer and cannot send another cancellation for the intent.
     /// The underlying condition remains available as the error source; the
@@ -655,6 +718,21 @@ pub enum Error {
         reserve: usize,
     },
 
+    /// A new raw inquiry payload-shape declaration could not be admitted.
+    ///
+    /// The target's bounded declaration set is already reserved by admitted
+    /// work or retained correlation evidence. This request was not accepted
+    /// and sent no bytes; the session remains usable. Recovery is
+    /// [`Recovery::Abandon`], rather than an automatic capacity retry.
+    #[error("Raw inquiry payload-shape capacity exhausted for camera {camera} (maximum {capacity} tracked declarations)")]
+    #[non_exhaustive]
+    InquiryShapeCapacityExhausted {
+        /// The individual camera whose declaration set is full.
+        camera: crate::CameraId,
+        /// The maximum number of tracked declarations for that target.
+        capacity: usize,
+    },
+
     /// A stream transport's framing or write position became unknowable.
     ///
     /// This error indicates that a stream-based transport (TCP, Serial) lost
@@ -730,7 +808,7 @@ pub enum Error {
     MissingRuntime,
 
     /// Error with additional context information.
-    /// Wraps another error while preserving its retry intelligence and adding human-readable context.
+    /// Wraps another error while preserving its typed recovery verdict and failure facts.
     #[error("{context}: {source}")]
     #[non_exhaustive]
     WithContext {
@@ -741,42 +819,77 @@ pub enum Error {
     },
 }
 
+/// The complete recovery decision for one failed request or observation.
+///
+/// Only `Resubmit` permits a new submission. The other verdicts retain the
+/// distinction between a live operation, an uncertain effect, a dead session,
+/// and a deliberate or permanent failure.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Recovery {
+    /// The request had no effect and a temporary condition allows another attempt.
+    Resubmit {
+        /// Wait this long before submitting it again.
+        after: Duration,
+    },
+    /// The original request is still live; observe its eventual outcome.
+    WaitAgain,
+    /// The request may have taken effect; inspect camera state before deciding.
+    Reconcile,
+    /// The session is unusable; open a new one.
+    ReopenSession,
+    /// Do not retry automatically: the condition is permanent or deliberate.
+    Abandon,
+}
+
+/// Recovery for an effect-free terminal failure, after session validity is known.
+fn conclusive_recovery(kind: ErrorKind) -> Recovery {
+    match kind {
+        ErrorKind::Timeout => Recovery::Resubmit {
+            after: Duration::from_secs(2),
+        },
+        ErrorKind::BufferFull => Recovery::Resubmit {
+            after: Duration::from_millis(200),
+        },
+        ErrorKind::Busy | ErrorKind::Transport => Recovery::Resubmit {
+            after: Duration::from_millis(50),
+        },
+        ErrorKind::IoClosed
+        | ErrorKind::IoRefused
+        | ErrorKind::Unconfirmed
+        | ErrorKind::Cancelled
+        | ErrorKind::NotExecutable
+        | ErrorKind::Protocol
+        | ErrorKind::Unsupported
+        | ErrorKind::InvalidParameter
+        | ErrorKind::Other => Recovery::Abandon,
+    }
+}
+
 /// Where a deadline or certainty failure happened, and what is known about
 /// the affected request's effect. Read it with [`Error::failure_context`].
+///
+/// Recovery decisions come from [`Error::recovery`]; certainty alone does not
+/// authorize replay of deliberate supersession or a latched correlation lane.
 ///
 /// # Example
 ///
 /// ```rust
-/// use grafton_visca::{Certainty, Error, FailureStage};
+/// use grafton_visca::{Error, Recovery};
 ///
-/// /// What to do after a failed submission or wait.
-/// enum Next {
-///     Resubmit,
-///     WaitAgain,
-///     Reconcile,
-///     GiveUp(Error),
-/// }
-///
-/// fn next_step(error: Error) -> Next {
-///     match error.failure_context() {
-///         Some(context) => match context.certainty {
-///             Certainty::NotAccepted | Certainty::FailedConclusively => Next::Resubmit,
-///             Certainty::StillLive if context.stage == FailureStage::Observation => {
-///                 Next::WaitAgain
-///             }
-///             Certainty::StillLive | Certainty::Unconfirmed => Next::Reconcile,
-///             _ => Next::GiveUp(error),
-///         },
-///         None => Next::GiveUp(error),
+/// fn next_step(error: &Error) -> &'static str {
+///     match error.recovery() {
+///         Recovery::Resubmit { .. } => "submit again after the specified delay",
+///         Recovery::WaitAgain => "observe the existing operation",
+///         Recovery::Reconcile => "inspect camera state before deciding",
+///         Recovery::ReopenSession => "open a new session",
+///         Recovery::Abandon => "do not retry automatically",
+///         _ => "inspect this future recovery verdict",
 ///     }
 /// }
 ///
-/// assert!(matches!(next_step(Error::io_timeout()), Next::Reconcile));
-/// assert!(matches!(
-///     next_step(Error::UnsequencedCommandUnconfirmed),
-///     Next::Reconcile
-/// ));
-/// assert!(matches!(next_step(Error::SyntaxError), Next::GiveUp(_)));
+/// assert_eq!(next_step(&Error::CommandPending), "observe the existing operation");
+/// assert_eq!(next_step(&Error::io_timeout()), "inspect camera state before deciding");
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[non_exhaustive]
@@ -940,11 +1053,20 @@ impl Error {
         }
     }
 
-    /// Makes a cached cancellation failure nonretryable while preserving
-    /// already nonretryable canonical verdicts and their exact context.
-    #[cfg(any(feature = "async", feature = "blocking", test))]
+    /// Records a failed cancellation attempt while its original request lives.
+    /// Canonical operation/session verdicts remain exact; a transport or timeout
+    /// cause is kept inside a fixed CancellationAttempt/StillLive wrapper.
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn cancellation_observation_failed(source: Error) -> Self {
-        if !source.is_retryable() {
+        fn attempt_failure(error: &Error) -> bool {
+            match error {
+                Error::WithContext { source, .. } => attempt_failure(source),
+                Error::Timeout { context } => context.certainty != Certainty::StillLive,
+                Error::TransportError { .. } => error.recovery() != Recovery::WaitAgain,
+                _ => matches!(error.recovery(), Recovery::Resubmit { .. }),
+            }
+        }
+        if !attempt_failure(&source) {
             return source;
         }
         Self::CancellationObservationFailed {
@@ -1049,10 +1171,11 @@ impl Error {
             // Cancelled: explicit cancellation
             Self::CommandCanceled => ErrorKind::Cancelled,
 
-            // BufferFull: transient capacity exhaustion
+            // BufferFull: capacity exhaustion; recovery distinguishes its conditions.
             Self::CommandBufferFull
             | Self::RuntimeQueueFull { .. }
             | Self::ControlReserveExhausted { .. }
+            | Self::InquiryShapeCapacityExhausted { .. }
             | Self::NoSocket => ErrorKind::BufferFull,
 
             // NotExecutable: command invalid in current state
@@ -1068,7 +1191,10 @@ impl Error {
             | Self::OwnerTerminated => ErrorKind::IoClosed,
 
             // Transport: one failed operation on a live session.
-            Self::TransportError(..) => ErrorKind::Transport,
+            Self::TransportError { .. } => ErrorKind::Transport,
+            Self::TransmissionNotSent { source, .. } | Self::InquiryFailed { source, .. } => {
+                source.kind()
+            }
 
             // Unconfirmed: one transmitted operation has an unknowable result
             Self::CancellationUnconfirmed
@@ -1212,6 +1338,8 @@ impl Error {
             | Self::SettlementObservationFailed { source, .. }
             | Self::CancellationObservationFailed { source, .. } => source.requires_new_session(),
 
+            Self::InquiryFailed { source, .. } => source.requires_new_session(),
+
             // Everything else is either a per-request outcome or a condition
             // the session survives. `Io` and `TransportError` stay here on
             // purpose: a datagram request-write failure is isolated to its own
@@ -1239,7 +1367,8 @@ impl Error {
             | Self::InvalidRequest(..)
             | Self::MessageLengthError
             | Self::ParseError(..)
-            | Self::TransportError(..)
+            | Self::TransportError { .. }
+            | Self::TransmissionNotSent { .. }
             | Self::InvalidParameter { .. }
             | Self::BufferTooSmall { .. }
             | Self::ParameterOutOfRange { .. }
@@ -1259,6 +1388,7 @@ impl Error {
             | Self::DiagnosticSubscriberLimit { .. }
             | Self::RuntimeQueueFull { .. }
             | Self::ControlReserveExhausted { .. }
+            | Self::InquiryShapeCapacityExhausted { .. }
             | Self::InvalidCameraId { .. }
             | Self::ResponseTooLarge { .. }
             | Self::InquiryNotCancelable
@@ -1295,150 +1425,154 @@ impl Error {
         }
     }
 
-    /// Check if this error is potentially retryable.
+    /// Returns the complete recovery verdict for this failure.
     ///
-    /// Exactly the errors with a [`Self::suggested_retry_delay()`] are
-    /// retryable: the temporary [`ErrorKind`]s (`Timeout`, `BufferFull`,
-    /// `Busy`, `Transport`), except an error whose new attempt would loop or
-    /// duplicate a live request.
-    ///
-    /// This classifies the *condition*, not replay safety. Whether submitting
-    /// the same request again could duplicate a physical effect is a separate
-    /// question that [`Self::failure_context`] answers: only
-    /// [`Certainty::NotAccepted`] and [`Certainty::FailedConclusively`] are
-    /// replay-safe.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use grafton_visca::Error;
-    ///
-    /// let error = Error::CommandBufferFull;
-    /// if error.is_retryable() {
-    ///     println!("This error can be retried");
-    /// }
-    /// ```
+    /// The verdict combines session validity, request certainty and whether the
+    /// condition is temporary. Only [`Recovery::Resubmit`] permits submitting
+    /// the request again; its delay is part of that verdict. An acknowledged or
+    /// unconfirmed command is never automatically replayed.
     #[must_use]
-    pub fn is_retryable(&self) -> bool {
-        self.suggested_retry_delay().is_some()
-    }
-
-    /// Get a suggested retry delay for retryable errors.
-    ///
-    /// Returns `Some(Duration)` with a recommended delay before retrying the
-    /// operation, or `None` if the error is not retryable. The delay depends
-    /// on [`Self::kind()`], apart from the nonretryable observation and
-    /// exhausted-budget exceptions below:
-    ///
-    /// - [`ErrorKind::Busy`] and [`ErrorKind::Transport`]: 50 ms, for camera
-    ///   contention or one failed transport operation on a live session.
-    /// - [`ErrorKind::BufferFull`]: 200 ms, for camera or local capacity to
-    ///   free up.
-    /// - [`ErrorKind::Timeout`]: 2 s, to allow more time.
-    ///
-    /// A new attempt must not loop or duplicate a live request. Therefore
-    /// [`Self::MaxRetriesExceeded`], [`Self::ObservationTimeout`], every
-    /// [`Self::Timeout`] with [`Certainty::StillLive`],
-    /// [`Self::CancellationObservationFailed`] (the intent's answer is cached),
-    /// and [`Self::SettlementObservationFailed`] have no delay even when their
-    /// kind ordinarily permits retries. [`Self::WithContext`] reports its
-    /// source's delay.
-    ///
-    /// # Example
-    ///
-    /// ```rust
-    /// use grafton_visca::Error;
-    /// use std::time::Duration;
-    ///
-    /// let error = Error::CommandBufferFull;
-    /// if let Some(delay) = error.suggested_retry_delay() {
-    ///     assert_eq!(delay, Duration::from_millis(200));
-    ///     std::thread::sleep(delay);
-    ///     // Retry the operation...
-    /// }
-    /// ```
-    #[must_use]
-    pub fn suggested_retry_delay(&self) -> Option<Duration> {
-        /// Delay for camera contention or one failed live-session transport operation.
-        const CONTENTION_RETRY_DELAY: Duration = Duration::from_millis(50);
-        /// Delay for camera or local capacity to free up.
-        const CAPACITY_RETRY_DELAY: Duration = Duration::from_millis(200);
-        /// Delay after an expired deadline.
-        const TIMEOUT_RETRY_DELAY: Duration = Duration::from_secs(2);
-
+    pub fn recovery(&self) -> Recovery {
+        const CAPACITY: Recovery = Recovery::Resubmit {
+            after: Duration::from_millis(200),
+        };
+        const TIMEOUT: Recovery = Recovery::Resubmit {
+            after: Duration::from_secs(2),
+        };
         match self {
-            Self::WithContext { source, .. } => source.suggested_retry_delay(),
-            // A retryable kind, but a new attempt would loop or duplicate a
-            // live request.
-            Self::MaxRetriesExceeded
-            | Self::ObservationTimeout { .. }
-            | Self::Timeout {
-                context:
-                    FailureContext {
-                        certainty: Certainty::StillLive,
-                        ..
-                    },
+            Self::WithContext { source, .. } => source.recovery(),
+            Self::ConnectionClosed { .. } | Self::StreamPoisoned { .. } | Self::OwnerTerminated => {
+                Recovery::ReopenSession
             }
-            | Self::CancellationObservationFailed { .. }
-            | Self::SettlementObservationFailed { .. } => None,
-            _ => match self.kind() {
-                ErrorKind::Busy | ErrorKind::Transport => Some(CONTENTION_RETRY_DELAY),
-                ErrorKind::BufferFull => Some(CAPACITY_RETRY_DELAY),
-                ErrorKind::Timeout => Some(TIMEOUT_RETRY_DELAY),
-                ErrorKind::Cancelled
-                | ErrorKind::NotExecutable
-                | ErrorKind::IoClosed
-                | ErrorKind::IoRefused
-                | ErrorKind::Unconfirmed
-                | ErrorKind::Protocol
-                | ErrorKind::Unsupported
-                | ErrorKind::InvalidParameter
-                | ErrorKind::Other => None,
+            Self::SettlementObservationFailed { source, .. } => {
+                if source.requires_new_session() {
+                    Recovery::ReopenSession
+                } else {
+                    Recovery::Reconcile
+                }
+            }
+            Self::CancellationObservationFailed { source, .. } => {
+                if source.requires_new_session() {
+                    Recovery::ReopenSession
+                } else {
+                    Recovery::WaitAgain
+                }
+            }
+            Self::CommandPending | Self::ObservationTimeout { .. } => Recovery::WaitAgain,
+            Self::CancellationUnconfirmed
+            | Self::UnsequencedCommandUnconfirmed
+            | Self::CommandFailedAfterAck { .. } => Recovery::Reconcile,
+            Self::Timeout { context } => match context.certainty {
+                Certainty::StillLive => Recovery::WaitAgain,
+                Certainty::Unconfirmed => Recovery::Reconcile,
+                Certainty::NotAccepted | Certainty::FailedConclusively => TIMEOUT,
             },
+            Self::InquiryFailed { source, .. } => {
+                if source.requires_new_session() {
+                    Recovery::ReopenSession
+                } else {
+                    conclusive_recovery(source.kind())
+                }
+            }
+            Self::TransmissionNotSent { source, context } => match context.certainty {
+                Certainty::Unconfirmed => Recovery::Reconcile,
+                Certainty::StillLive => Recovery::WaitAgain,
+                Certainty::NotAccepted | Certainty::FailedConclusively => {
+                    conclusive_recovery(source.kind())
+                }
+            },
+            Self::TransportError { source, .. } => {
+                match source.failure_context().map(|context| context.certainty) {
+                    Some(Certainty::StillLive) => Recovery::WaitAgain,
+                    Some(Certainty::Unconfirmed) => Recovery::Reconcile,
+                    Some(Certainty::NotAccepted | Certainty::FailedConclusively) | None => {
+                        Recovery::Resubmit {
+                            after: Duration::from_millis(50),
+                        }
+                    }
+                }
+            }
+            Self::MotionSuperseded { context, .. } => match context.certainty {
+                Certainty::StillLive => Recovery::WaitAgain,
+                Certainty::Unconfirmed => Recovery::Reconcile,
+                Certainty::NotAccepted | Certainty::FailedConclusively => Recovery::Abandon,
+            },
+            Self::CommandBufferFull
+            | Self::NoSocket
+            | Self::RuntimeQueueFull { .. }
+            | Self::ControlReserveExhausted { .. } => CAPACITY,
+            Self::Io(source) => match source.kind() {
+                io::ErrorKind::TimedOut | io::ErrorKind::WouldBlock => TIMEOUT,
+                _ => Recovery::Abandon,
+            },
+            Self::ConnectionFailed { .. }
+            | Self::InvalidResponse { .. }
+            | Self::FeatureNotSupported { .. }
+            | Self::SyntaxError
+            | Self::CommandCanceled
+            | Self::CommandNotExecutable
+            | Self::InvalidResponseFormat
+            | Self::InvalidResponseLength { .. }
+            | Self::UnexpectedResponseType
+            | Self::Unknown(_)
+            | Self::InvalidRequest(_)
+            | Self::MessageLengthError
+            | Self::ParseError(_)
+            | Self::InvalidParameter { .. }
+            | Self::BufferTooSmall { .. }
+            | Self::ParameterOutOfRange { .. }
+            | Self::SettlementSuperseded { .. }
+            | Self::MaxRetriesExceeded
+            | Self::NotSupported
+            | Self::InvalidState(_)
+            | Self::RuntimeShutdown
+            | Self::DiagnosticSubscriberLimit { .. }
+            | Self::InquiryShapeCapacityExhausted { .. }
+            | Self::InquiryCorrelationLost { .. }
+            | Self::CommandCorrelationLost { .. }
+            | Self::RuntimeIdentityExhausted
+            | Self::InvalidCameraId { .. }
+            | Self::ResponseTooLarge { .. }
+            | Self::InquiryNotCancelable
+            | Self::InvalidAddress { .. }
+            | Self::UnsupportedTransport { .. }
+            | Self::MissingRuntime => Recovery::Abandon,
         }
     }
 
     /// Where a deadline or certainty failure happened, and what is known
     /// about the affected request's effect.
     ///
-    /// Returns `Some` for every timeout ([`Self::Timeout`],
-    /// [`Self::ObservationTimeout`]), for the unconfirmed outcomes
-    /// ([`Self::UnsequencedCommandUnconfirmed`],
-    /// [`Self::CancellationUnconfirmed`], and settlement observation
-    /// failures), for [`Self::CancellationObservationFailed`] (its source's
-    /// context, or `CancellationAttempt`/`StillLive` when none was supplied),
-    /// and for [`Self::MotionSuperseded`], which carries the
-    /// context recorded when the halt superseded it (`NotAccepted` when it
-    /// never reached the camera); `None` otherwise. [`Self::WithContext`] is
-    /// looked through. [`Self::SettlementObservationFailed`] reports
-    /// uncertainty for the original movement while retaining the polling
-    /// failure as its source.
+    /// Timeouts and lifecycle uncertainty carry a context. A failed cancellation
+    /// attempt always describes the original operation as `CancellationAttempt` /
+    /// `StillLive`, independently of its source. Context and transport wrappers
+    /// retain their source's facts. Deliberate settlement supersession has no new
+    /// effect uncertainty and returns `None`.
     ///
     /// # Example
-    ///
     /// ```rust
-    /// use grafton_visca::{Certainty, Error, FailureStage};
-    ///
-    /// fn may_resubmit(error: &Error) -> bool {
-    ///     error
-    ///         .failure_context()
-    ///         .is_some_and(|context| context.certainty == Certainty::NotAccepted)
-    /// }
-    ///
-    /// let unconfirmed = Error::UnsequencedCommandUnconfirmed;
-    /// assert!(!may_resubmit(&unconfirmed));
-    /// assert_eq!(
-    ///     unconfirmed.failure_context().map(|context| context.stage),
-    ///     Some(FailureStage::Terminal)
-    /// );
+    /// use grafton_visca::{Certainty, Error, FailureStage, Recovery};
+    /// let error = Error::io_timeout();
+    /// assert_eq!(error.recovery(), Recovery::Reconcile);
+    /// assert_eq!(error.failure_context().map(|facts| (facts.stage, facts.certainty)),
+    ///     Some((FailureStage::Session, Certainty::Unconfirmed)));
     /// ```
     #[must_use]
     pub fn failure_context(&self) -> Option<FailureContext> {
         match self {
-            Self::Timeout { context } => Some(*context),
-            Self::SettlementObservationFailed { .. } | Self::SettlementSuperseded { .. } => Some(
-                FailureContext::new(FailureStage::Observation, Certainty::Unconfirmed),
-            ),
+            Self::Timeout { context } | Self::TransmissionNotSent { context, .. } => Some(*context),
+            Self::InquiryShapeCapacityExhausted { .. } => Some(FailureContext::new(
+                FailureStage::PreAdmission,
+                Certainty::NotAccepted,
+            )),
+            Self::InquiryFailed { .. } => Some(FailureContext::new(
+                FailureStage::Terminal,
+                Certainty::FailedConclusively,
+            )),
+            Self::SettlementObservationFailed { .. } => Some(FailureContext::new(
+                FailureStage::Observation,
+                Certainty::Unconfirmed,
+            )),
             Self::MotionSuperseded { context, .. } => Some(*context),
             Self::ObservationTimeout { .. } => Some(FailureContext::new(
                 FailureStage::Observation,
@@ -1459,14 +1593,94 @@ impl Error {
                 FailureStage::Terminal,
                 Certainty::Unconfirmed,
             )),
-            Self::CancellationObservationFailed { source, .. } => {
-                source.failure_context().or(Some(FailureContext::new(
-                    FailureStage::CancellationAttempt,
-                    Certainty::StillLive,
-                )))
-            }
+            Self::CancellationObservationFailed { .. } => Some(FailureContext::new(
+                FailureStage::CancellationAttempt,
+                Certainty::StillLive,
+            )),
             Self::WithContext { source, .. } => source.failure_context(),
-            _ => None,
+            Self::TransportError { source, .. } => source.failure_context(),
+            Self::ConnectionFailed { .. }
+            | Self::ConnectionClosed { .. }
+            | Self::CommandPending
+            | Self::InvalidResponse { .. }
+            | Self::FeatureNotSupported { .. }
+            | Self::Io(_)
+            | Self::SyntaxError
+            | Self::CommandBufferFull
+            | Self::CommandCanceled
+            | Self::NoSocket
+            | Self::CommandNotExecutable
+            | Self::InvalidResponseFormat
+            | Self::InvalidResponseLength { .. }
+            | Self::UnexpectedResponseType
+            | Self::Unknown(_)
+            | Self::InvalidRequest(_)
+            | Self::MessageLengthError
+            | Self::ParseError(_)
+            | Self::InvalidParameter { .. }
+            | Self::BufferTooSmall { .. }
+            | Self::ParameterOutOfRange { .. }
+            | Self::SettlementSuperseded { .. }
+            | Self::MaxRetriesExceeded
+            | Self::NotSupported
+            | Self::InvalidState(_)
+            | Self::RuntimeShutdown
+            | Self::OwnerTerminated
+            | Self::DiagnosticSubscriberLimit { .. }
+            | Self::RuntimeIdentityExhausted
+            | Self::RuntimeQueueFull { .. }
+            | Self::ControlReserveExhausted { .. }
+            | Self::StreamPoisoned { .. }
+            | Self::InvalidCameraId { .. }
+            | Self::ResponseTooLarge { .. }
+            | Self::InquiryNotCancelable
+            | Self::InvalidAddress { .. }
+            | Self::UnsupportedTransport { .. }
+            | Self::MissingRuntime => None,
+        }
+    }
+
+    /// A pre-I/O refusal carries certainty for the whole logical request,
+    /// including possibly effective earlier attempts.
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) fn inquiry_shape_capacity_exhausted(
+        camera: crate::CameraId,
+        capacity: usize,
+    ) -> Self {
+        Self::InquiryShapeCapacityExhausted { camera, capacity }
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) fn transmission_not_sent(source: Error, certainty: Certainty) -> Self {
+        Self::TransmissionNotSent {
+            source: Arc::new(source),
+            context: FailureContext::new(FailureStage::Terminal, certainty),
+        }
+    }
+
+    /// Engine inquiry failures cannot leave an uncertain camera-state effect.
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) fn inquiry_failed(source: Error) -> Self {
+        match source {
+            Self::InquiryFailed { .. } => source,
+            source => Self::InquiryFailed {
+                source: Arc::new(source),
+            },
+        }
+    }
+
+    /// Preserves the cause of a failed transport operation on a usable session.
+    ///
+    /// An existing transport-operation wrapper is returned unchanged; repeated
+    /// normalization never adds another layer to its source chain.
+    #[must_use]
+    pub fn transport_error(source: impl Into<Error>) -> Self {
+        let source = source.into();
+        match source {
+            Self::TransportError { .. } => source,
+            source => Self::TransportError {
+                source: Arc::new(source),
+            },
         }
     }
 
@@ -1479,14 +1693,14 @@ impl Error {
     }
 
     /// An admission deadline expired before the owner accepted the request.
-    #[cfg(any(feature = "async", feature = "blocking", test))]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) const fn admission_timeout() -> Self {
         Self::timeout(FailureStage::PreAdmission, Certainty::NotAccepted)
     }
 
     /// A read-only state query (an idle wait or a motion query) ran out of
     /// time. It changed nothing, so it can be repeated.
-    #[cfg(any(feature = "async", feature = "blocking", test))]
+    #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) const fn query_timeout() -> Self {
         Self::timeout(FailureStage::Observation, Certainty::NotAccepted)
     }
@@ -1496,12 +1710,18 @@ impl Error {
     /// not.
     #[cfg(any(feature = "blocking", feature = "async"))]
     pub(crate) fn is_caller_deadline(&self) -> bool {
-        self.failure_context().is_some_and(|context| {
-            matches!(
-                context.stage,
-                FailureStage::Observation | FailureStage::PreAdmission
-            )
-        })
+        match self {
+            Self::WithContext { source, .. } => source.is_caller_deadline(),
+            Self::ObservationTimeout { .. } => true,
+            Self::Timeout { context } => {
+                context.certainty == Certainty::NotAccepted
+                    && matches!(
+                        context.stage,
+                        FailureStage::PreAdmission | FailureStage::Observation
+                    )
+            }
+            _ => false,
+        }
     }
 
     /// Reports a caller deadline met inside a read-only state query as the
@@ -1542,7 +1762,7 @@ impl Error {
     /// Add operation context to this error.
     ///
     /// Wraps the error with additional context information while preserving
-    /// retry intelligence (e.g., `is_retryable()`, `suggested_retry_delay()`).
+    /// typed recovery verdict and failure facts.
     ///
     /// This is useful for providing more detailed error messages that explain
     /// what operation was being performed when the error occurred.
@@ -1556,8 +1776,9 @@ impl Error {
     /// let contextual_error = error.with_context("Failed to recall preset 5");
     ///
     /// // Original error properties are preserved
-    /// assert!(contextual_error.is_retryable());
-    /// assert!(contextual_error.suggested_retry_delay().is_some());
+    /// assert_eq!(contextual_error.recovery(), grafton_visca::Recovery::Resubmit {
+    ///     after: std::time::Duration::from_millis(200),
+    /// });
     ///
     /// // But the error message now includes context
     /// assert_eq!(
@@ -1677,6 +1898,42 @@ mod tests {
     use crate::command::bytes::VISCA_TERMINATOR;
 
     #[test]
+    fn transport_wrapper_preserves_source_chain_and_is_idempotent() {
+        let error = Error::transport_error(io::Error::from_raw_os_error(111));
+        assert_eq!(error.kind(), ErrorKind::Transport);
+        assert!(!error.requires_new_session());
+        let Error::TransportError { source, .. } = &error else {
+            panic!("transport wrapper")
+        };
+        let Error::Io(os) = source.as_ref() else {
+            panic!("original OS source")
+        };
+        assert_eq!(os.raw_os_error(), Some(111));
+        let Some(intermediate) = std::error::Error::source(&error) else {
+            panic!("typed source")
+        };
+        let Some(original) = intermediate.source() else {
+            panic!("OS source chain")
+        };
+        assert_eq!(original.to_string(), os.to_string());
+        let again = Error::transport_error(error.clone());
+        let Error::TransportError { source: same, .. } = again else {
+            panic!("same wrapper")
+        };
+        assert!(Arc::ptr_eq(source, &same));
+    }
+
+    #[test]
+    fn transport_wrapper_keeps_certainty_without_claiming_session_death() {
+        let timeout = Error::io_timeout();
+        let context = timeout.failure_context();
+        assert_eq!(Error::transport_error(timeout).failure_context(), context);
+        let closed = Error::transport_error(Error::ConnectionClosed { reason: None });
+        assert_eq!(closed.kind(), ErrorKind::Transport);
+        assert!(!closed.requires_new_session());
+    }
+
+    #[test]
     fn test_visca_error_from_code() {
         assert!(matches!(Error::from_code(0x01), Error::MessageLengthError));
         assert!(matches!(Error::from_code(0x02), Error::SyntaxError));
@@ -1788,432 +2045,6 @@ mod tests {
     }
 
     #[test]
-    fn test_is_retryable() {
-        assert!(Error::CommandBufferFull.is_retryable());
-        assert!(Error::io_timeout().is_retryable());
-        assert!(Error::RuntimeQueueFull { capacity: 8 }.is_retryable());
-        assert!(Error::TransportError(Cow::Borrowed("datagram send failed")).is_retryable());
-
-        // Issue #501: NoSocket is transient capacity and should be retryable
-        assert!(Error::NoSocket.is_retryable());
-        // Issue #501: CommandPending is now Busy via kind(), no special-case needed
-        assert!(Error::CommandPending.is_retryable());
-        // Issue #501: MaxRetriesExceeded must NOT be retryable (prevents infinite loops)
-        assert!(!Error::MaxRetriesExceeded.is_retryable());
-        assert!(!Error::UnsequencedCommandUnconfirmed.is_retryable());
-
-        assert!(!Error::SyntaxError.is_retryable());
-        assert!(!Error::CommandNotExecutable.is_retryable());
-        assert!(!Error::InvalidParameter {
-            parameter: "test",
-            value: Cow::Borrowed("invalid"),
-            reason: Cow::Borrowed("test reason"),
-        }
-        .is_retryable());
-    }
-
-    #[test]
-    fn test_suggested_retry_delay() {
-        assert_eq!(
-            Error::CommandBufferFull.suggested_retry_delay(),
-            Some(Duration::from_millis(200))
-        );
-        assert_eq!(
-            Error::CommandPending.suggested_retry_delay(),
-            Some(Duration::from_millis(50))
-        );
-        assert_eq!(
-            Error::io_timeout().suggested_retry_delay(),
-            Some(Duration::from_secs(2))
-        );
-        assert_eq!(
-            Error::TransportError(Cow::Borrowed("datagram send failed")).suggested_retry_delay(),
-            Some(Duration::from_millis(50))
-        );
-
-        // Issue #501: NoSocket grouped with CommandBufferFull at 200ms
-        assert_eq!(
-            Error::NoSocket.suggested_retry_delay(),
-            Some(Duration::from_millis(200))
-        );
-        assert_eq!(
-            Error::UnsequencedCommandUnconfirmed.suggested_retry_delay(),
-            None
-        );
-
-        assert_eq!(Error::SyntaxError.suggested_retry_delay(), None);
-        assert_eq!(
-            Error::InvalidParameter {
-                parameter: "test",
-                value: Cow::Borrowed("invalid"),
-                reason: Cow::Borrowed("test reason"),
-            }
-            .suggested_retry_delay(),
-            None
-        );
-    }
-
-    #[test]
-    fn cached_cancellation_failure_preserves_its_source_without_retrying() {
-        use std::error::Error as _;
-        let error = Error::cancellation_observation_failed(Error::TransportError(
-            "cancel send failed".into(),
-        ));
-        assert_eq!(error.kind(), ErrorKind::Transport);
-        assert!(!error.is_retryable());
-        assert_eq!(error.suggested_retry_delay(), None);
-        assert_eq!(
-            error.failure_context(),
-            Some(FailureContext::new(
-                FailureStage::CancellationAttempt,
-                Certainty::StillLive
-            ))
-        );
-        let Some(source) = error.source() else {
-            panic!("source must be retained");
-        };
-        assert_eq!(source.to_string(), "Transport error: cancel send failed");
-        assert!(!error.with_context("cancel zoom").is_retryable());
-
-        let cause = Error::TransportError("cancel send failed".into()).with_context("cancel write");
-        assert!(cause.is_retryable());
-        let expected = format!("{cause:?}");
-        let contextual = Error::cancellation_observation_failed(cause);
-        assert!(!contextual.is_retryable());
-        assert_eq!(
-            contextual.failure_context(),
-            Some(FailureContext::new(
-                FailureStage::CancellationAttempt,
-                Certainty::StillLive
-            ))
-        );
-        assert!(matches!(
-            contextual,
-            Error::CancellationObservationFailed { source }
-                if matches!(source.as_ref(), Error::WithContext { .. })
-                    && format!("{source:?}") == expected
-        ));
-    }
-
-    #[test]
-    fn cached_cancellation_keeps_nonretryable_verdicts_exact() {
-        let mut verdicts = vec![
-            Error::CancellationUnconfirmed,
-            Error::UnsequencedCommandUnconfirmed,
-            Error::NotSupported,
-            Error::InquiryNotCancelable,
-            Error::OwnerTerminated,
-            Error::RuntimeShutdown,
-            Error::CancellationUnconfirmed.with_context("cancel zoom"),
-            Error::cancellation_observation_failed(Error::TransportError(
-                "cancel write failed".into(),
-            )),
-        ];
-        for stage in [
-            FailureStage::PreAdmission,
-            FailureStage::Session,
-            FailureStage::CancellationAttempt,
-            FailureStage::Observation,
-            FailureStage::Terminal,
-        ] {
-            let timeout = Error::timeout(stage, Certainty::StillLive);
-            verdicts.push(timeout.clone());
-            verdicts.push(timeout.with_context("cancel zoom"));
-        }
-        for verdict in verdicts {
-            assert!(!verdict.is_retryable());
-            let expected = format!("{verdict:?}");
-            let context = verdict.failure_context();
-            let kind = verdict.kind();
-            let requires_new_session = verdict.requires_new_session();
-            let observed = Error::cancellation_observation_failed(verdict);
-            assert_eq!(format!("{observed:?}"), expected);
-            assert_eq!(observed.failure_context(), context);
-            assert_eq!(observed.kind(), kind);
-            assert_eq!(observed.requires_new_session(), requires_new_session);
-            assert!(!observed.is_retryable());
-        }
-    }
-
-    #[test]
-    fn owner_death_and_subscriber_limit_have_distinct_recovery_policies() {
-        let stopped = Error::OwnerTerminated;
-        assert_eq!(stopped.kind(), ErrorKind::IoClosed);
-        assert!(stopped.requires_new_session());
-        assert!(!stopped.is_retryable());
-        assert!(stopped
-            .with_context("waiting for an owner")
-            .requires_new_session());
-
-        let limit = Error::DiagnosticSubscriberLimit { capacity: 4 };
-        assert_eq!(limit.kind(), ErrorKind::Other);
-        assert!(!limit.requires_new_session());
-        assert!(!limit.is_retryable());
-        assert!(limit.to_string().contains("4 subscribers"));
-    }
-
-    #[test]
-    fn retry_helpers_agree_for_public_error_classifications() {
-        let cases = [
-            (
-                "explicit timeout",
-                Error::io_timeout(),
-                ErrorKind::Timeout,
-                Some(Duration::from_secs(2)),
-            ),
-            (
-                "pending command",
-                Error::CommandPending,
-                ErrorKind::Busy,
-                Some(Duration::from_millis(50)),
-            ),
-            (
-                "isolated datagram transport failure",
-                Error::TransportError(Cow::Borrowed("datagram send failed")),
-                ErrorKind::Transport,
-                Some(Duration::from_millis(50)),
-            ),
-            (
-                "camera command buffer full",
-                Error::CommandBufferFull,
-                ErrorKind::BufferFull,
-                Some(Duration::from_millis(200)),
-            ),
-            (
-                "runtime queue full",
-                Error::RuntimeQueueFull { capacity: 64 },
-                ErrorKind::BufferFull,
-                Some(Duration::from_millis(200)),
-            ),
-            (
-                "camera has no free socket",
-                Error::NoSocket,
-                ErrorKind::BufferFull,
-                Some(Duration::from_millis(200)),
-            ),
-            (
-                "urgent control reserve exhausted",
-                Error::control_reserve_exhausted(crate::CameraId::CAMERA_2, 3),
-                ErrorKind::BufferFull,
-                Some(Duration::from_millis(200)),
-            ),
-            (
-                "caller wait expired on a live request",
-                Error::observation_timeout(OperationId::from_raw(7)),
-                ErrorKind::Timeout,
-                None,
-            ),
-            (
-                "settlement polling failed after an applied movement",
-                Error::settlement_observation_failed(OperationId::from_raw(8), Error::io_timeout()),
-                ErrorKind::Timeout,
-                None,
-            ),
-            (
-                "contextual settlement polling failure",
-                Error::settlement_observation_failed(
-                    OperationId::from_raw(9),
-                    Error::CommandBufferFull,
-                )
-                .with_context("wait for settled"),
-                ErrorKind::BufferFull,
-                None,
-            ),
-            (
-                "motion superseded by an owner halt",
-                Error::motion_superseded(
-                    crate::AffectedAxes::PAN_TILT,
-                    FailureContext::new(FailureStage::PreAdmission, Certainty::NotAccepted),
-                ),
-                ErrorKind::Cancelled,
-                None,
-            ),
-            (
-                "settlement superseded by an owner halt",
-                Error::settlement_superseded(OperationId::from_raw(10), crate::AffectedAxes::ZOOM),
-                ErrorKind::Cancelled,
-                None,
-            ),
-            (
-                "camera failed an acknowledged command",
-                Error::command_failed_after_ack(Error::CommandNotExecutable),
-                ErrorKind::Unconfirmed,
-                None,
-            ),
-            (
-                "raw stream inquiries cannot be correlated",
-                Error::inquiry_correlation_lost(crate::CameraId::CAMERA_2),
-                ErrorKind::NotExecutable,
-                None,
-            ),
-            (
-                "raw stream commands cannot be correlated",
-                Error::command_correlation_lost(crate::CameraId::CAMERA_2),
-                ErrorKind::NotExecutable,
-                None,
-            ),
-            (
-                "I/O timed out",
-                Error::from(io::Error::from(io::ErrorKind::TimedOut)),
-                ErrorKind::Timeout,
-                Some(Duration::from_secs(2)),
-            ),
-            (
-                "I/O would block",
-                Error::from(io::Error::from(io::ErrorKind::WouldBlock)),
-                ErrorKind::Timeout,
-                Some(Duration::from_secs(2)),
-            ),
-            (
-                "contextual I/O timeout",
-                Error::from(io::Error::from(io::ErrorKind::TimedOut))
-                    .with_context("read camera reply"),
-                ErrorKind::Timeout,
-                Some(Duration::from_secs(2)),
-            ),
-            (
-                "retry budget exhausted",
-                Error::MaxRetriesExceeded,
-                ErrorKind::Timeout,
-                None,
-            ),
-            (
-                "I/O connection reset",
-                Error::from(io::Error::from(io::ErrorKind::ConnectionReset)),
-                ErrorKind::IoClosed,
-                None,
-            ),
-            (
-                "I/O connection refused",
-                Error::from(io::Error::from(io::ErrorKind::ConnectionRefused)),
-                ErrorKind::IoRefused,
-                None,
-            ),
-            (
-                "I/O broken pipe",
-                Error::from(io::Error::from(io::ErrorKind::BrokenPipe)),
-                ErrorKind::IoClosed,
-                None,
-            ),
-            (
-                "I/O interrupted",
-                Error::from(io::Error::from(io::ErrorKind::Interrupted)),
-                ErrorKind::Other,
-                None,
-            ),
-            (
-                "terminal closed connection",
-                Error::ConnectionClosed { reason: None },
-                ErrorKind::IoClosed,
-                None,
-            ),
-            (
-                "terminal stream poison",
-                Error::StreamPoisoned {
-                    reason: Cow::Borrowed("partial write"),
-                },
-                ErrorKind::IoClosed,
-                None,
-            ),
-            (
-                "deliberate runtime shutdown",
-                Error::RuntimeShutdown,
-                ErrorKind::IoClosed,
-                None,
-            ),
-            (
-                "unconfirmed unsequenced raw-VISCA command",
-                Error::UnsequencedCommandUnconfirmed,
-                ErrorKind::Unconfirmed,
-                None,
-            ),
-            (
-                "unconfirmed cancellation",
-                Error::CancellationUnconfirmed,
-                ErrorKind::Unconfirmed,
-                None,
-            ),
-            (
-                "syntax error",
-                Error::SyntaxError,
-                ErrorKind::InvalidParameter,
-                None,
-            ),
-            (
-                "command not executable",
-                Error::CommandNotExecutable,
-                ErrorKind::NotExecutable,
-                None,
-            ),
-            (
-                "unsupported feature",
-                Error::FeatureNotSupported { feature: "test" },
-                ErrorKind::Unsupported,
-                None,
-            ),
-            (
-                "invalid parameter",
-                Error::InvalidParameter {
-                    parameter: "test",
-                    value: Cow::Borrowed("invalid"),
-                    reason: Cow::Borrowed("test reason"),
-                },
-                ErrorKind::InvalidParameter,
-                None,
-            ),
-        ];
-
-        for stage in [
-            FailureStage::PreAdmission,
-            FailureStage::Observation,
-            FailureStage::Terminal,
-            FailureStage::CancellationAttempt,
-            FailureStage::Session,
-        ] {
-            for certainty in [
-                Certainty::NotAccepted,
-                Certainty::StillLive,
-                Certainty::FailedConclusively,
-                Certainty::Unconfirmed,
-            ] {
-                let expected =
-                    (certainty != Certainty::StillLive).then_some(Duration::from_secs(2));
-                let error = Error::timeout(stage, certainty);
-                assert_eq!(error.kind(), ErrorKind::Timeout);
-                assert_eq!(
-                    error.failure_context(),
-                    Some(FailureContext::new(stage, certainty))
-                );
-                assert_eq!(
-                    error.suggested_retry_delay(),
-                    expected,
-                    "{stage:?} {certainty:?}"
-                );
-                assert_eq!(error.is_retryable(), expected.is_some());
-                assert_eq!(
-                    error.with_context("nested timeout").suggested_retry_delay(),
-                    expected
-                );
-            }
-        }
-
-        for (name, error, expected_kind, expected_delay) in cases {
-            assert_eq!(error.kind(), expected_kind, "{name} has the wrong kind");
-
-            let suggested_delay = error.suggested_retry_delay();
-            assert_eq!(
-                error.is_retryable(),
-                suggested_delay.is_some(),
-                "{name}: is_retryable() and suggested_retry_delay() disagree"
-            );
-            assert_eq!(
-                suggested_delay, expected_delay,
-                "{name} has the wrong suggested retry delay"
-            );
-        }
-    }
-
-    #[test]
     fn test_exhaustive_error_kind_mapping() {
         // Verify specific kind() mappings per issue #501
 
@@ -2247,7 +2078,7 @@ mod tests {
         assert_eq!(Error::RuntimeShutdown.kind(), ErrorKind::IoClosed);
         // Transport
         assert_eq!(
-            Error::TransportError(Cow::Borrowed("test")).kind(),
+            Error::transport_error(io::Error::other("test")).kind(),
             ErrorKind::Transport
         );
         // Unconfirmed
@@ -2344,78 +2175,6 @@ mod tests {
         assert!(!Error::UnsequencedCommandUnconfirmed.requires_new_session());
     }
 
-    /// #795: the command lane's latch error mirrors the inquiry lane's.
-    #[test]
-    fn command_correlation_lost_is_unsent_live_session_and_not_retryable() {
-        let error = Error::command_correlation_lost(crate::CameraId::CAMERA_2);
-        assert!(matches!(
-            error,
-            Error::CommandCorrelationLost { camera } if camera == crate::CameraId::CAMERA_2
-        ));
-        assert_eq!(error.kind(), ErrorKind::NotExecutable);
-        assert!(!error.is_retryable());
-        assert_eq!(error.suggested_retry_delay(), None);
-        assert!(!error.requires_new_session());
-        assert_eq!(
-            error.failure_context(),
-            Some(FailureContext::new(
-                FailureStage::Terminal,
-                Certainty::NotAccepted
-            ))
-        );
-        assert!(error.to_string().contains("Camera 2"), "{error}");
-    }
-
-    /// #795: a camera error after an ACK never invites a resubmission, whatever
-    /// its code would mean before the ACK, and keeps the exact camera error.
-    #[test]
-    fn a_camera_error_after_ack_is_unconfirmed_and_not_retryable() {
-        for camera in [
-            Error::CommandBufferFull,
-            Error::NoSocket,
-            Error::CommandNotExecutable,
-            Error::SyntaxError,
-        ] {
-            let error = Error::command_failed_after_ack(camera.clone());
-            assert_eq!(error.kind(), ErrorKind::Unconfirmed, "{error:?}");
-            assert!(!error.is_retryable(), "{error:?}");
-            assert_eq!(error.suggested_retry_delay(), None, "{error:?}");
-            assert!(!error.requires_new_session(), "{error:?}");
-            assert_eq!(
-                error.failure_context(),
-                Some(FailureContext::new(
-                    FailureStage::Terminal,
-                    Certainty::Unconfirmed
-                ))
-            );
-            assert_eq!(
-                std::error::Error::source(&error).map(ToString::to_string),
-                Some(camera.to_string())
-            );
-        }
-    }
-
-    #[test]
-    fn inquiry_correlation_lost_is_unsent_live_session_and_not_retryable() {
-        let error = Error::inquiry_correlation_lost(crate::CameraId::CAMERA_2);
-        assert!(matches!(
-            error,
-            Error::InquiryCorrelationLost { camera } if camera == crate::CameraId::CAMERA_2
-        ));
-        assert_eq!(error.kind(), ErrorKind::NotExecutable);
-        assert!(!error.is_retryable());
-        assert_eq!(error.suggested_retry_delay(), None);
-        assert!(!error.requires_new_session());
-        assert_eq!(
-            error.failure_context(),
-            Some(FailureContext::new(
-                FailureStage::Terminal,
-                Certainty::NotAccepted
-            ))
-        );
-        assert!(error.to_string().contains("Camera 2"), "{error}");
-    }
-
     #[test]
     fn requires_new_session_covers_every_unusable_transport_condition() {
         for error in [
@@ -2448,7 +2207,7 @@ mod tests {
             // Issue #671: a raw command's default unconfirmed outcome fails the
             // one request while the session keeps running.
             Error::UnsequencedCommandUnconfirmed,
-            Error::TransportError(Cow::Borrowed("serial encode failed")),
+            Error::transport_error(io::Error::other("serial encode failed")),
             Error::ConnectionFailed {
                 addr: Cow::Borrowed("192.168.1.100:5678"),
                 source: Arc::new(io::Error::other("refused")),
@@ -2460,21 +2219,6 @@ mod tests {
                 "error should not require a new session: {error}"
             );
         }
-    }
-
-    /// Issue #614: the `0x05` camera answer must never be normalized into a
-    /// session-death variant. It is a transient capacity answer from a live
-    /// session (issues #501/#566), so any helper that folded it into a
-    /// `requires_new_session()` variant would turn a retry into a spurious
-    /// reconnect.
-    #[test]
-    fn no_socket_is_never_a_session_death_condition() {
-        let from_camera = Error::from_code(0x05);
-        assert!(matches!(from_camera, Error::NoSocket));
-        assert!(from_camera.is_retryable());
-        assert!(!from_camera.requires_new_session());
-        let with_context = from_camera.with_context("cancel command");
-        assert!(!with_context.requires_new_session());
     }
 
     #[test]
@@ -2524,24 +2268,6 @@ mod tests {
     }
 
     #[test]
-    fn test_with_context_preserves_retry_intelligence() {
-        // Test that with_context preserves is_retryable
-        let error = Error::CommandBufferFull;
-        let contextual = error.with_context("Failed to power on camera");
-        assert!(contextual.is_retryable());
-        assert_eq!(
-            contextual.suggested_retry_delay(),
-            Some(Duration::from_millis(200))
-        );
-
-        // Test with non-retryable error
-        let error = Error::SyntaxError;
-        let contextual = error.with_context("Failed to send command");
-        assert!(!contextual.is_retryable());
-        assert_eq!(contextual.suggested_retry_delay(), None);
-    }
-
-    #[test]
     fn test_with_context_message_format() {
         let error = Error::CommandBufferFull;
         let contextual = error.with_context("Failed to recall preset 5");
@@ -2575,145 +2301,6 @@ mod tests {
         let error = Error::CommandBufferFull;
         let contextual = error.with_context("Buffer full");
         assert_eq!(contextual.kind(), ErrorKind::BufferFull);
-    }
-
-    #[test]
-    fn test_nested_context() {
-        // Test that context can be added to already-contextualized errors
-        let error = Error::CommandBufferFull;
-        let contextual1 = error.with_context("Inner context");
-        let contextual2 = contextual1.with_context("Outer context");
-
-        // Should preserve retry intelligence through multiple layers
-        assert!(contextual2.is_retryable());
-        assert_eq!(
-            contextual2.suggested_retry_delay(),
-            Some(Duration::from_millis(200))
-        );
-
-        // Message format
-        assert_eq!(
-            contextual2.to_string(),
-            "Outer context: Inner context: Command buffer is full"
-        );
-    }
-
-    #[test]
-    fn test_with_context_all_retryable_types() {
-        // Test all retryable error types preserve their retry metadata
-        let retryable_errors = vec![
-            (Error::CommandBufferFull, Duration::from_millis(200)),
-            (Error::NoSocket, Duration::from_millis(200)),
-            (
-                Error::RuntimeQueueFull { capacity: 8 },
-                Duration::from_millis(200),
-            ),
-            (Error::CommandPending, Duration::from_millis(50)),
-            (Error::io_timeout(), Duration::from_secs(2)),
-        ];
-
-        for (error, expected_delay) in retryable_errors {
-            let contextual = error.with_context("Test operation");
-            assert!(
-                contextual.is_retryable(),
-                "Context should preserve retryable: {}",
-                contextual
-            );
-            assert_eq!(
-                contextual.suggested_retry_delay(),
-                Some(expected_delay),
-                "Context should preserve retry delay: {}",
-                contextual
-            );
-        }
-    }
-
-    #[test]
-    fn test_runtime_queue_full_error() {
-        let error = Error::RuntimeQueueFull { capacity: 64 };
-
-        // Should have BufferFull kind
-        assert_eq!(error.kind(), ErrorKind::BufferFull);
-
-        // Should be retryable
-        assert!(error.is_retryable());
-
-        // Should have suggested retry delay (same as CommandBufferFull)
-        assert_eq!(
-            error.suggested_retry_delay(),
-            Some(Duration::from_millis(200))
-        );
-
-        // Error message should include capacity
-        let message = error.to_string();
-        assert!(
-            message.contains("64"),
-            "Error message should include capacity"
-        );
-        assert!(
-            message.contains("Runtime queue full"),
-            "Error message should indicate queue full"
-        );
-
-        // Context should preserve retry intelligence
-        let contextual = error.with_context("Failed to submit command");
-        assert!(contextual.is_retryable());
-        assert_eq!(contextual.kind(), ErrorKind::BufferFull);
-    }
-
-    /// D20 (#783): a caller's expired wait is its own variant, names the
-    /// still-running request, and is never retryable.
-    #[cfg(any(feature = "async", feature = "blocking"))]
-    #[test]
-    fn observation_timeout_is_a_live_request_that_must_not_be_resubmitted() {
-        let operation = OperationId::from_raw(7);
-        let error = Error::ObservationTimeout { operation };
-        assert_eq!(error.kind(), ErrorKind::Timeout);
-        assert!(!error.is_retryable());
-        assert_eq!(error.suggested_retry_delay(), None);
-        assert!(!error.requires_new_session());
-        assert_eq!(
-            error.failure_context(),
-            Some(FailureContext::new(
-                FailureStage::Observation,
-                Certainty::StillLive
-            ))
-        );
-        assert_eq!(
-            error.to_string(),
-            "Wait for operation 7 timed out; it is still running"
-        );
-        assert!(error.is_caller_deadline());
-    }
-
-    /// D20 (#783): every timeout carries its stage and certainty, and a
-    /// context wrapper is looked through.
-    #[test]
-    fn every_timeout_constructor_carries_its_context() {
-        let cases = [
-            (
-                Error::admission_timeout(),
-                FailureStage::PreAdmission,
-                Certainty::NotAccepted,
-            ),
-            (
-                Error::query_timeout(),
-                FailureStage::Observation,
-                Certainty::NotAccepted,
-            ),
-            (
-                Error::io_timeout(),
-                FailureStage::Session,
-                Certainty::Unconfirmed,
-            ),
-        ];
-        for (error, stage, certainty) in cases {
-            let expected = Some(FailureContext::new(stage, certainty));
-            assert_eq!(error.failure_context(), expected, "{error:?}");
-            assert_eq!(error.kind(), ErrorKind::Timeout);
-            assert!(error.is_retryable(), "{error:?}");
-            assert_eq!(error.clone().context("wrapped").failure_context(), expected);
-        }
     }
 
     /// D20 (#783): a connection that could not be established submitted
@@ -2789,3 +2376,7 @@ mod tests {
         assert!(!terminal.is_caller_deadline());
     }
 }
+
+#[cfg(test)]
+#[path = "error_recovery_tests.rs"]
+mod recovery_tests;

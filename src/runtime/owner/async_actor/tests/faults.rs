@@ -56,21 +56,21 @@ async fn transient_receive_fault_retries_and_keeps_the_session_running() {
     let receipt = handle.submit(retrying_command()).await.unwrap();
     assert_eq!(started.recv_async().await.unwrap(), receipt.id);
     gates
-        .send_async(Ok(TransmissionMeta { sequence: Some(1) }))
+        .send_async(Ok(TransmissionMeta::Sony { sequence: 1 }))
         .await
         .unwrap();
 
     frames
-        .send_async(Ok(OwnerReceive::Fault(Error::Io(Arc::new(
+        .send_async(OwnerReceive::read_error(Error::Io(Arc::new(
             std::io::Error::from(std::io::ErrorKind::ConnectionRefused),
-        )))))
+        ))))
         .await
         .unwrap();
 
     // The very same request is written again rather than failed.
     assert_eq!(started.recv_async().await.unwrap(), receipt.id);
     gates
-        .send_async(Ok(TransmissionMeta { sequence: Some(1) }))
+        .send_async(Ok(TransmissionMeta::Sony { sequence: 1 }))
         .await
         .unwrap();
     frames
@@ -114,14 +114,11 @@ async fn fatal_receive_fault_closes_the_session() {
 
     let receipt = handle.submit(command()).await.unwrap();
     assert_eq!(started.recv_async().await.unwrap(), receipt.id);
-    gates
-        .send_async(Ok(TransmissionMeta { sequence: None }))
-        .await
-        .unwrap();
+    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
     frames
-        .send_async(Ok(OwnerReceive::Fault(Error::Io(Arc::new(
+        .send_async(OwnerReceive::read_error(Error::Io(Arc::new(
             std::io::Error::from(std::io::ErrorKind::BrokenPipe),
-        )))))
+        ))))
         .await
         .unwrap();
 
@@ -295,21 +292,21 @@ async fn a_burst_of_transient_faults_then_recovery_keeps_the_session() {
     let receipt = handle.submit(retrying_command()).await.unwrap();
     assert_eq!(started.recv_async().await.unwrap(), receipt.id);
     gates
-        .send_async(Ok(TransmissionMeta { sequence: Some(1) }))
+        .send_async(Ok(TransmissionMeta::Sony { sequence: 1 }))
         .await
         .unwrap();
 
     // Two consecutive faults, each retransmitting the very same request.
     for _ in 0..2 {
         frames
-            .send_async(Ok(OwnerReceive::Fault(Error::TransportError(
-                "ICMP port unreachable".into(),
-            ))))
+            .send_async(OwnerReceive::read_error(Error::transport_error(
+                std::io::Error::other("ICMP port unreachable"),
+            )))
             .await
             .unwrap();
         assert_eq!(started.recv_async().await.unwrap(), receipt.id);
         gates
-            .send_async(Ok(TransmissionMeta { sequence: Some(1) }))
+            .send_async(Ok(TransmissionMeta::Sony { sequence: 1 }))
             .await
             .unwrap();
     }
@@ -341,9 +338,9 @@ async fn a_burst_of_transient_faults_then_recovery_keeps_the_session() {
     // transient and the session is still answering.
     for _ in 0..3 {
         frames
-            .send_async(Ok(OwnerReceive::Fault(Error::TransportError(
-                "ICMP port unreachable".into(),
-            ))))
+            .send_async(OwnerReceive::read_error(Error::transport_error(
+                std::io::Error::other("ICMP port unreachable"),
+            )))
             .await
             .unwrap();
     }
@@ -373,10 +370,7 @@ async fn an_idle_read_timeout_is_not_a_receive_fault() {
 
     let receipt = handle.submit(retrying_command()).await.unwrap();
     assert_eq!(started.recv_async().await.unwrap(), receipt.id);
-    gates
-        .send_async(Ok(TransmissionMeta { sequence: None }))
-        .await
-        .unwrap();
+    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
 
     for timeout in [
         Error::io_timeout(),
@@ -388,11 +382,16 @@ async fn an_idle_read_timeout_is_not_a_receive_fault() {
         ))),
     ] {
         frames
-            .send_async(Ok(OwnerReceive::Fault(timeout)))
+            .send_async(OwnerReceive::read_error(timeout))
             .await
             .unwrap();
     }
-    frames.send_async(Ok(OwnerReceive::NoData)).await.unwrap();
+    frames
+        .send_async(OwnerReceive::NoProgress(
+            crate::runtime::owner::NoProgressReason::EagerIdle,
+        ))
+        .await
+        .unwrap();
 
     // Control still answers, and nothing was retransmitted.
     assert_eq!(
@@ -582,7 +581,8 @@ async fn a_malformed_datagram_does_not_kill_the_async_session() {
     )
     .unwrap();
     assert_eq!(adapter.policy().protocol.transport, TransportKind::Datagram);
-    let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let receipt = handle.submit(command()).await.unwrap();
@@ -619,7 +619,7 @@ async fn a_malformed_datagram_does_not_kill_the_async_session() {
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.state, SessionState::Shutdown);
     assert!(
-        snapshot.diagnostics.iter().any(|event| matches!(
+        diagnostics.events().iter().any(|event| matches!(
             event,
             DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
         )),
@@ -650,7 +650,8 @@ async fn a_malformed_stream_frame_is_discarded_and_keeps_the_session() {
     )
     .unwrap();
     assert_eq!(adapter.policy().protocol.transport, TransportKind::Stream);
-    let (handle, actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(adapter.policy().clone(), runtime).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let receipt = handle.submit(command()).await.unwrap();
@@ -682,7 +683,7 @@ async fn a_malformed_stream_frame_is_discarded_and_keeps_the_session() {
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.state, SessionState::Shutdown);
     assert!(
-        snapshot.diagnostics.iter().any(|event| matches!(
+        diagnostics.events().iter().any(|event| matches!(
             event,
             DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
         )),
@@ -817,7 +818,7 @@ async fn a_datagram_send_failure_never_demands_a_new_session() {
         !error.requires_new_session(),
         "a live session must never hand out a replacement-session verdict: {error:?}"
     );
-    assert!(matches!(error, Error::TransportError(_)));
+    assert!(matches!(error, Error::TransportError { .. }));
     assert_eq!(
         handle.snapshot().await.unwrap().state,
         SessionState::Running,

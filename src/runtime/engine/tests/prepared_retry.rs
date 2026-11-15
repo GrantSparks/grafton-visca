@@ -23,10 +23,10 @@ fn prepared_retry_budget_preserves_healthy_late_ack_attempts() {
             crate::ControlClass::Normal,
         )
         .unwrap();
-        let prepared = crate::prepared::prepare_command(
+        let prepared = crate::prepared::test_support::prepare_command(
             &command,
-            camera(1),
-            &profile,
+            &crate::TargetRegistration::new((camera(1)).camera(), profile.clone())
+                .expect("valid target registration"),
             crate::OperationalTuning::new().ack_timeout(Duration::from_secs(ack_window)),
             crate::prepared::ClassSelection::Request,
         )
@@ -34,13 +34,13 @@ fn prepared_retry_budget_preserves_healthy_late_ack_attempts() {
         let request = prepared.admit_with(|request, _observer_timeout| request);
         let context = *request.context();
         let legacy_budget = crate::profile::MINIMUM_RETRY_BUDGET
-            .max(context.timeout.completion * 2)
+            .max(context.timeout.completion.get() * 2)
             .max(profile.timing().busy_timeout());
-        let full_attempt = context.timeout.ack + context.timeout.completion;
-        assert!(context.retry.total_budget >= full_attempt);
-        assert!(Duration::from_secs(ack_at) < context.timeout.ack);
+        let full_attempt = context.timeout.ack.get() + context.timeout.completion.get();
+        assert!(context.retry.total_budget.unwrap().get() >= full_attempt);
+        assert!(Duration::from_secs(ack_at) < context.timeout.ack.get());
         assert!(complete_at > legacy_budget);
-        assert!(complete_at < Duration::from_secs(ack_at) + context.timeout.completion);
+        assert!(complete_at < Duration::from_secs(ack_at) + context.timeout.completion.get());
 
         let mut engine = engine_with_target(
             envelope,

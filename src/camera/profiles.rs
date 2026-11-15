@@ -100,7 +100,7 @@ mod profile_constants {
         entry(10000, 0x15),
     ];
 
-    /// Profiles whose shutter table could not be read from their source.
+    /// Profiles with no registered model-specific shutter-code inventory.
     pub const NO_SHUTTER_SPEEDS: &[ShutterSpeedEntry] = &[];
 
     /// The five shared AE modes; also the `Exposure::EXPOSURE_MODES` default.
@@ -150,15 +150,6 @@ mod profile_constants {
         WhiteBalanceMode::OnePush,
         WhiteBalanceMode::Manual,
         WhiteBalanceMode::ColorTemperature,
-    ];
-
-    pub const SONY_FR7_WB_MODES: &[WhiteBalanceMode] = &[
-        WhiteBalanceMode::Auto,
-        WhiteBalanceMode::Indoor,
-        WhiteBalanceMode::Outdoor,
-        WhiteBalanceMode::ATW,
-        WhiteBalanceMode::OnePush,
-        WhiteBalanceMode::Manual,
     ];
 }
 
@@ -285,7 +276,13 @@ mod tests {
             Capabilities::from_profile::<SonyFR7>(),
             Capabilities::from_profile::<SonyBRCH900>(),
         ] {
-            assert!(caps.shutter_speeds.is_empty(), "{}", caps.model_name);
+            assert!(
+                caps.exposure
+                    .as_ref()
+                    .is_some_and(|domain| domain.shutter_speeds.is_empty()),
+                "{}",
+                caps.model_name
+            );
             assert_eq!(code(&caps, 1, 60), None, "{}", caps.model_name);
         }
     }
@@ -296,7 +293,9 @@ mod tests {
 
         assert!(fr7.has_nd_filter());
         assert_eq!(fr7.nd_filter_description(), "Variable ND filter");
-        assert!(fr7.validate_nd_filter(128).is_ok());
+        assert!(fr7.validate_nd_filter(0x14).is_ok());
+        assert!(fr7.validate_nd_filter(0x15).is_err());
+        assert!(fr7.validate_nd_filter(128).is_err());
     }
 
     #[test]

@@ -79,22 +79,30 @@ custom integrations.
 | Variable speed mode controls | `SonyFR7` |
 | Tally controls and inquiries | `SonyFR7` |
 | Image-freeze control | No built-in profile currently marks this typed capability |
-| Vendor defog-level inquiry | No built-in profile currently marks this typed capability |
 | Extended tally-brightness commands | No built-in profile currently marks this typed capability |
 | PTZOptics tally extensions | No built-in profile currently marks this typed capability |
 | Direct menu controls | `SonyFR7` |
 | PTZOptics anti-flicker control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | PTZOptics settings-save command | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | PTZOptics preset-recall speed control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
-| Sony spotlight controls | `SonyFR7`, `SonyBRCH900` |
+| Sony spotlight controls | `SonyFR7` |
 | Sony automatic slow-shutter controls | `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | PTZOptics multicast-streaming controls | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | PTZOptics NDI-quality control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Motion Sync controls and inquiries | Custom/evidenced profiles that explicitly implement `HasMotionSync`; no built-in profile is marked from the current specs |
 
 The Sony FR7 tally row refers to the source-backed red/green tally controls and
-inquiries; packed status, mode, auto-adjust, and extended brightness remain
-separate row-specific surfaces and have no built-in profile grant.
+inquiries. Packed status and auto-adjust inquiries are removed; PTZOptics tally
+mode and extended brightness controls require separate markers and have no
+built-in profile grant.
+
+FR7 also has model-specific AE-level adjustments, automatic gain/shutter/iris,
+counted iris movement, preset white and Memory A white balance, ATW offsets,
+black/detail/knee settings, high-resolution zoom, Clear Image Zoom readback,
+and preset speed/duration settings. Each family has its own `HasSonyFr7*`
+marker. Lens availability, exposure mode and camera runtime state can still
+make a documented command temporarily unavailable; see the
+[source and profile guidance](docs/camera_profile_support.md).
 
 ### Profile-Gated Sub-Capabilities
 
@@ -105,17 +113,28 @@ focus methods.
 
 Dynamic callers get the same marker-derived permission model through
 `Capabilities::typed_support` and `Capabilities::supports_typed(...)`. Metadata
-fields such as `zoom_range_digital` and `supports_direct_zoom` remain runtime
-discovery facts; use typed support checks before calling optional dyn typed
-operations.
+facts live in optional domain records: `caps.zoom.as_ref()` yields the lens
+maxima and direct-positioning fact, and `caps.has_zoom()` derives domain presence.
+Use typed support checks before calling optional dyn typed operations.
+
+| Runtime domain | Owning facts |
+| --- | --- |
+| `pan_tilt: Option<PanTiltCaps>` | Raw bounds, conversion, nominal endpoint policy, speed ranges and mount-selected tilt limits |
+| `zoom: Option<ZoomCaps>` | Optical maximum, optional digital maximum, speed range and lens ratio |
+| `focus`, `exposure`, `white_balance`, `image` | Each domain's sourced numeric ranges and inventories |
+| `presets: Option<PresetCaps>` | Highest memory number, exact recall axes and optional nonzero name length |
+| `power: Option<PowerCaps>` | Power-on timing and optional standby timing |
+
+Profile defaults use `IndividualCameraId` (`1..=7`); broadcast cannot become a
+session default. Persisted profiles use the current grouped shape and must be
+regenerated when upgrading from the flat capability record.
 
 | Typed control surface | Built-in profiles |
 | --------------------- | ----------------- |
-| Direct absolute zoom positioning | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
-| VISCA digital zoom toggle and optical-plus-digital positioning | `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
+| Direct absolute zoom positioning | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
+| VISCA digital zoom toggle and optical-plus-digital positioning | `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | Shared VISCA exposure mode control and inquiry (including `ExposureMode::Iris`) | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | Standard iris reset/up/down/direct control and `09 04 4B` iris-position inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
-| Standard `09 04 2B` iris auto/manual-status inquiry (`iris_control()`) | No built-in profile currently marks this typed capability |
 | Standard one-push focus | `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | PTZOptics snap focus | No built-in profile currently marks this typed capability |
 | Focus lock | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
@@ -123,27 +142,28 @@ operations.
 | Focus zone control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Focus zone inquiry | `PtzOpticsG2`, `PtzOptics30X` |
 | Auto focus sensitivity | No built-in profile currently marks this typed capability |
-| Focus near-limit inquiry | `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
-| Backlight compensation | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
-| Wide dynamic range | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
-| Exposure compensation | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
+| Focus near-limit inquiry | `SonyEVIH100` |
+| Backlight compensation | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
+| Wide dynamic range | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| Exposure compensation | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | Exposure brightness control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
-| One-push white balance | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
+| One-push white balance | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | Auto-tracking white balance | `SonyFR7` |
 | Auto white-balance sensitivity | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
-| Color temperature controls | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900` |
+| Color temperature controls | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Color temperature inquiry (sourced one-byte `pq` reply) | `PtzOpticsG2`, `PtzOptics30X` |
-| RGB gain controls and inquiries | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
-| RGB tuning controls and inquiries | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
-| Vertical image flip control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyBRC300`, `NearusBRC300` |
-| Horizontal image mirror control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
+| RGB gain controls and inquiries | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
+| RGB tuning controls and inquiries | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| Vertical image flip control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRC300`, `NearusBRC300` |
+| Horizontal image mirror control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Combined image flip mode | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
-| Contrast control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
-| Sharpness control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900` |
-| Saturation control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
-| Hue control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyEVIH100` |
+| Contrast control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| Sharpness control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyEVIH100` |
+| Sharpness auto/manual mode and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
+| Saturation control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyEVIH100` |
+| Hue control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyEVIH100` |
 | Luminance control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
-| Gamma control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyBRCH900`, `SonyEVIH100` |
+| Gamma control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyEVIH100` |
 | 2D noise-reduction level inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyEVIH100` |
 | 3D noise-reduction level inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | 2D noise-reduction level control | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyEVIH100` |
@@ -168,18 +188,18 @@ surface specifically for `PtzOpticsG3`; the current PTZOptics G2/G3 Developer
 Portal (R14 in [`docs/visca_reference.md`](docs/visca_reference.md)) sources it
 for `PtzOpticsG2` and `PtzOpticsG3`; raw `PtzOptics30X` uses separate
 PTZOptics Gen-2/R1 evidence; and the Sony-standard profiles follow the same
-R11/R8/R12/R21 model rows described above. `iris_control()` instead
-sends the separate `09 04 2B` auto/manual-status inquiry and requires
-`HasIrisControlInquiry` / `TypedSupportSurface::IrisControlInquiry`; none of the
-checked sources establishes that distinct row, so no built-in profile enables
-it. The Sony FR7 command list instead documents a vendor-relative `7E 04 4B`
+R11/R8/R12/R21 model rows described above. The unsourced auto/manual-status
+inquiry has no typed built-in model. A caller-owned request and decoder can
+represent an extension once its packet and reply are established for that
+camera. The Sony FR7 command list instead documents a vendor-relative `7E 04 4B`
 iris Up/Down family and `05 34` Auto Iris inquiry, not the shared `04 39`
 AE-mode command/inquiry family, standard absolute Iris Direct command, or `09
-04 4B` position inquiry. Those FR7 protocol families remain available through
-the raw command escape hatch until they receive their own typed APIs.
+04 4B` position inquiry. Use the FR7-specific `iris_up_by`, `iris_down_by`,
+`set_auto_iris` and `auto_iris` methods under `camera.exposure()`; these do not
+provide an absolute iris position or its readback.
 
 `IrisLevel` represents the `0x00..=0x1E` union used by the built-in iris
-profiles, and `GainLevel` represents the VISCA `0x00..=0x0F` nibble domain.
+profiles, and `GainLevel` represents the union of built-in gain codes `0x00..=0x19`.
 The selected profile's advertised range remains the final admission check, so
 constructing a syntactically valid value never grants it to a camera that does
 not document it. Coarse `SpeedLevel` position requests similarly clamp to each
@@ -220,7 +240,7 @@ matrix fit together.
 | `schemars` | Stable JSON Schema generation for serde-backed public types |
 | `ts-rs` | Stable TypeScript type generation for supported exported types |
 | `dyn-api` | Runtime-profile camera projections; native blocking with `blocking`, plus object-safe noun/custom-operation views and erased lifecycle handles with `async`. It projects the enabled facades, so enabling it without `blocking` or `async` is a compile error |
-| `test-utils` | Exposes the stable `grafton_visca::testing` module. It enables no facade of its own, so what it exposes depends on the union: `testkit::{Step, helpers}` always, `ScriptedBlockingTransport` with `blocking`, `ScriptedTransport` and the deterministic executor with `async`, and `ViscaCameraSimulator` only with `runtime-tokio`. Neither `runtime-tokio` nor `blocking` exposes any of it on its own. |
+| `test-utils` | Exposes the stable `grafton_visca::testing` module. It enables no facade of its own, so what it exposes depends on the union: `testkit::{Step, helpers}` always, `ScriptedBlockingTransport` with `blocking`, `ManualClock` and `ClockParticipant` with either facade, `ScriptedTransport`, `LocalExecutor` and `ManualClockExecutor` with `async`, and `ViscaCameraSimulator` only with `runtime-tokio`. Neither `runtime-tokio` nor `blocking` exposes any of it on its own. |
 
 ### Feature-union checks
 
@@ -275,9 +295,9 @@ fn quick_start() -> Result<(), grafton_visca::Error> {
     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
     let camera = session.camera();
 
-    let power_is_on = camera.power().state()?;
+    let power_status = camera.power().state()?;
     let zoom = camera.zoom().position()?;
-    println!("Power: {}", if power_is_on { "on" } else { "off" });
+    println!("Power: {power_status:?}");
     println!("Zoom position: 0x{:04X}", zoom.value());
 
     session.close()
@@ -299,9 +319,9 @@ async fn quick_start() -> Result<(), grafton_visca::Error> {
     let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
     let camera = session.camera();
 
-    let power_is_on = camera.power().state().await?;
+    let power_status = camera.power().state().await?;
     let zoom = camera.zoom().position().await?;
-    println!("Power: {}", if power_is_on { "on" } else { "off" });
+    println!("Power: {power_status:?}");
     println!("Zoom position: 0x{:04X}", zoom.value());
 
     session.close().await
@@ -463,7 +483,7 @@ fn full_range_zoom() -> Result<(), grafton_visca::Error> {
   and runtime `ProfileSpec` validation. Direct generic `execute`/`inquire`
   intentionally have no request-specific `P` bounds: they are the uniform
   typed/downstream extension boundary. Preparation runs
-  `Request::validate_for_profile` before encoding, owner admission, or I/O, so
+  `Request::validate_for_target` before encoding, owner admission, or I/O, so
   crate-provided direct requests report `FeatureNotSupported` before writing
   when unsupported. Raw and other downstream requests remain explicit
   low-level extensions and may supply their own validation.

@@ -21,6 +21,8 @@ use crate::{
     Error,
 };
 
+#[cfg(all(test, feature = "runtime-tokio"))]
+use super::OwnerMetrics;
 #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
 use super::SessionState;
 use super::{
@@ -28,8 +30,6 @@ use super::{
     Lane, LiveTuning, ObserverCell, OwnerState, RuntimeOutcome, RuntimeRequest, TargetStateCache,
     TerminalObserver,
 };
-#[cfg(all(test, feature = "runtime-tokio"))]
-use super::{DiagnosticEvent, OwnerMetrics};
 
 /// The one-way decision for an admission constrained by an outer deadline.
 ///
@@ -67,6 +67,10 @@ impl AdmissionValidity {
     const PENDING: u8 = AdmissionValidityState::Pending as u8;
     const CLAIMED: u8 = AdmissionValidityState::Claimed as u8;
     const EXPIRED: u8 = AdmissionValidityState::Expired as u8;
+
+    pub(super) const fn deadline(&self) -> Instant {
+        self.deadline
+    }
 
     pub(super) fn until(deadline: Instant) -> Self {
         Self {
@@ -220,8 +224,8 @@ pub(super) struct PreAdmissionRejection {
 #[derive(Debug)]
 struct PendingAdmissionRejections {
     events: VecDeque<PreAdmissionRejection>,
-    /// Events evicted before the owner could enter them into its public ring.
-    /// The owner folds this into the existing `dropped_diagnostics` metric.
+    /// Events evicted before the owner could deliver them to subscribers.
+    /// The owner reports this as `dropped_staged_diagnostics`.
     dropped: u64,
     /// A one-slot wake-up is already queued or being handled by the owner.
     /// This is protected by the same mutex as `events`, so a concurrent
@@ -289,7 +293,7 @@ impl AdmissionRejectionIngress {
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         if pending.events.len() == self.capacity {
-            // The owner diagnostic ring is bounded too. Preserve the newest
+            // Preserve the newest bounded pre-admission observations and
             // rejection facts, which are the useful ones during saturation,
             // while the atomic total remains exact. The owner reports the
             // bounded loss through its existing diagnostics-drop metric.
@@ -399,7 +403,7 @@ pub(super) enum ControlBoundary {
     /// carried in the same message so a terminal owner selects its retained
     /// cause before returning a proposed update's validation error (#690).
     Reconfigure {
-        validated_tuning: Box<Result<crate::OperationalTuning, Error>>,
+        validated_tuning: Box<Result<crate::session_config::ValidatedTuning, Error>>,
         reply: flume::Sender<Result<(), Error>>,
     },
 }
@@ -409,8 +413,6 @@ pub(super) enum ControlBoundary {
 pub(crate) struct OwnerSnapshot {
     #[cfg(all(test, feature = "runtime-tokio"))]
     pub(crate) metrics: OwnerMetrics,
-    #[cfg(all(test, feature = "runtime-tokio"))]
-    pub(crate) diagnostics: Vec<DiagnosticEvent>,
     #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
     pub(crate) state: SessionState,
     #[cfg(all(test, any(feature = "runtime-tokio", feature = "runtime-smol")))]
@@ -611,8 +613,8 @@ impl OwnerHandleCore {
         // applies backpressure on the sending handle; it never falls back to
         // a lossy `try_send` path.
         let cancellation_capacity = 1;
-        let control_capacity = state.policy().limits.applied_subscribers.max(1);
-        let rejection_capacity = state.policy().limits.diagnostics;
+        let control_capacity = state.policy().limits.control_requests;
+        let rejection_capacity = state.policy().limits.staged_diagnostics;
         let (admission_tx, admissions) = flume::bounded(boundary_capacity);
         let (cancellation_tx, cancellations) = flume::bounded(cancellation_capacity);
         let (control_tx, control) = flume::bounded(control_capacity);
@@ -670,6 +672,10 @@ impl OwnerHandleCore {
 
     /// Reads the tuning the owner is currently preparing requests under.
     pub(super) fn tuning(&self) -> crate::OperationalTuning {
+        self.tuning.get().get()
+    }
+
+    pub(super) fn validated_tuning(&self) -> crate::session_config::ValidatedTuning {
         self.tuning.get()
     }
 

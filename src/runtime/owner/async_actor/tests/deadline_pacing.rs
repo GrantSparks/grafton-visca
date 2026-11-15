@@ -20,14 +20,15 @@ async fn full_idle_read_timeouts_do_not_delay_the_next_reply() {
             let RuntimeRequest::Inquiry { context, .. } = &mut request else {
                 unreachable!()
             };
-            context.timeout.inquiry = Duration::from_millis(deadline_ms);
+            context.timeout.inquiry =
+                crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(deadline_ms))
+                    .unwrap();
             let (completion, admitted) = handle.core.enqueue_admission(request, None).unwrap();
             let admission = actor.core.receivers.admissions.try_recv().unwrap();
             actor
                 .handle_event(
                     OwnerEvent::Admission(Ok(admission)),
                     &mut driver,
-                    &runtime,
                     initial,
                     false,
                 )
@@ -42,14 +43,16 @@ async fn full_idle_read_timeouts_do_not_delay_the_next_reply() {
             }
             runtime.advance(Duration::from_millis(reply_ms - 200));
             frames
-                .send(Ok(OwnerReceive::Frames(vec![DecodedFrame {
-                    target: crate::target::TargetSlot::CAMERA_1,
-                    sequence: None,
-                    response: DecodedResponse::InquiryReply {
-                        route: None,
-                        payload: smallvec::smallvec![3],
-                    },
-                }])))
+                .send(OwnerReceive::Frames(
+                    vec![DecodedFrame {
+                        target: crate::target::TargetSlot::CAMERA_1,
+                        sequence: None,
+                        response: DecodedResponse::InquiryReply {
+                            payload: smallvec::smallvec![3],
+                        },
+                    }]
+                    .into(),
+                ))
                 .unwrap();
             for _ in 0..4 {
                 assert!(run.as_mut().poll(&mut cx).is_pending());
@@ -75,14 +78,14 @@ async fn a_paced_receive_at_its_response_deadline_wins_the_timer_race() {
     let RuntimeRequest::Inquiry { context, .. } = &mut request else {
         unreachable!()
     };
-    context.timeout.inquiry = Duration::from_millis(5);
+    context.timeout.inquiry =
+        crate::runtime::engine::NonZeroDuration::new(Duration::from_millis(5)).unwrap();
     let (completion, admitted) = handle.core.enqueue_admission(request, None).unwrap();
     let admission = actor.core.receivers.admissions.try_recv().unwrap();
     actor
         .handle_event(
             OwnerEvent::Admission(Ok(admission)),
             &mut driver,
-            &runtime,
             initial,
             false,
         )
@@ -91,11 +94,12 @@ async fn a_paced_receive_at_its_response_deadline_wins_the_timer_race() {
     let outcome = actor
         .handle_event(
             OwnerEvent::Receive {
-                result: Ok(OwnerReceive::NoData),
+                result: OwnerReceive::NoProgress(
+                    crate::runtime::owner::NoProgressReason::EagerIdle,
+                ),
                 received_at: initial,
             },
             &mut driver,
-            &runtime,
             initial,
             false,
         )
@@ -115,14 +119,16 @@ async fn a_paced_receive_at_its_response_deadline_wins_the_timer_race() {
     }
     runtime.advance(Duration::from_millis(5));
     frames
-        .send(Ok(OwnerReceive::Frames(vec![DecodedFrame {
-            target: crate::target::TargetSlot::CAMERA_1,
-            sequence: None,
-            response: DecodedResponse::InquiryReply {
-                route: None,
-                payload: smallvec::smallvec![3],
-            },
-        }])))
+        .send(OwnerReceive::Frames(
+            vec![DecodedFrame {
+                target: crate::target::TargetSlot::CAMERA_1,
+                sequence: None,
+                response: DecodedResponse::InquiryReply {
+                    payload: smallvec::smallvec![3],
+                },
+            }]
+            .into(),
+        ))
         .unwrap();
     for _ in 0..4 {
         assert!(run.as_mut().poll(&mut cx).is_pending());
@@ -142,7 +148,7 @@ struct TimedIdle {
 }
 
 impl AsyncOwnerDriver for TimedIdle {
-    async fn write(&mut self, _write: WireWrite<'_>) -> Result<TransmissionMeta, Error> {
+    async fn write(&mut self, _write: WireWrite<'_>) -> WriteOutcome {
         unreachable!("the idle-read fixture never writes")
     }
 
@@ -150,13 +156,13 @@ impl AsyncOwnerDriver for TimedIdle {
         &mut self,
         _buffers: &mut super::super::super::OwnerBuffers,
         _frame_limit: usize,
-    ) -> Result<OwnerReceive, Error> {
+    ) -> OwnerReceive {
         Executor::sleep(&self.runtime, self.wait).await;
-        Ok(if self.fault {
-            OwnerReceive::Fault(Error::io_timeout())
+        if self.fault {
+            OwnerReceive::read_error(Error::io_timeout())
         } else {
-            OwnerReceive::NoData
-        })
+            OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::EagerIdle)
+        }
     }
 }
 impl RetainedStreamInput for TimedIdle {}
@@ -173,20 +179,27 @@ async fn a_transports_own_full_timeout_is_not_eager_idle() {
                 wait,
                 fault,
             };
-            let mut receive = Box::pin(AsyncOwnerActor::<ManualRuntime>::receive_within(
+            let mut receive = Box::pin(AsyncOwnerIo::<ManualRuntime>::receive_within(
                 &mut driver,
                 actor.core.state.buffers(),
                 1,
                 &runtime,
                 timeout,
+                actor.io.timers.read.as_mut(),
             ));
             let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
             assert!(receive.as_mut().poll(&mut cx).is_pending());
             runtime.advance(wait);
-            let Poll::Ready(Ok(result)) = receive.as_mut().poll(&mut cx) else {
+            let Poll::Ready(result) = receive.as_mut().poll(&mut cx) else {
                 panic!("the timed idle driver completed")
             };
-            assert_eq!(matches!(result, OwnerReceive::IdleTimeout), wait == timeout);
+            assert_eq!(
+                matches!(
+                    result,
+                    OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::IdleTimeout)
+                ),
+                wait == timeout
+            );
         }
     }
 }

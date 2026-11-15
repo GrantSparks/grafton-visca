@@ -23,8 +23,9 @@ classes are `raw::Plain`, `raw::Inquiry`, `raw::Targeted`, and
 `raw::AppliedOnly`; their explicit policy values use `raw::Policy`. Each class
 has one primary `new` constructor and one
 `with_policy` constructor where a prebuilt policy is useful. Inquiry decoders
-use `from_fn` or `with_context`, and request values expose `bytes()` and their
-semantic accessors (`route()` or `affected_axes()`).
+use `from_fn` or `with_context`, and operation values expose `bytes()` and
+`affected_axes()`. All inquiry convenience constructors select the `Inquiry`
+timeout category; `with_policy` validates an explicit policy's category.
 
 The raw namespace is the explicit escape hatch for callers that need to supply
 wire bytes or a custom response decoder. The low-level `command` module remains
@@ -33,9 +34,30 @@ not choose a completion class; owner submission uses the typed
 `Request`/`Inquiry`/`OperationCommand` contracts.
 
 Raw frames are bounded by the single public `raw::MAX_BYTES` constant; the
-inline storage capacity is an implementation detail. Custom inquiry routes
-use `InquiryRoute::try_custom`, and affected-axis cardinality is reported by
-`AffectedAxes::axis_count`.
+inline storage capacity is an implementation detail. Inquiry decoders own the
+payload interpretation; a raw reply carries no caller-chosen route identifier.
+Affected-axis cardinality is reported by `AffectedAxes::axis_count`.
+
+An inquiry declares its structural reply evidence through `payload_shape()`.
+`PayloadShape::Bytes(n)` admits exactly `n` decoded data bytes;
+`Nibbles(n)` additionally requires every byte to be at most `0x0F`. The count
+excludes the VISCA address, reply header and terminator. Raw inquiries can use
+`with_payload_shape` to supply the shape their decoder accepts. Custom inquiries
+default to `Unknown`, which overlaps every shape. Known shapes overlap by
+length, pairwise: `Bytes(1)` and `Nibbles(4)` each overlap `Unknown` but do not
+overlap each other. Decoder value, padding and profile-range checks still apply.
+
+Built-in inquiries and canonical `ViscaInquiry` derives take their shape from
+one column beside the decoder in the inquiry table. Pan/tilt position selects
+the profile's same per-axis grammar for both decoding and shape: eight nibble
+bytes for standard VISCA, nine for BRC-300 and ten for FR7. Explicit custom
+parsers and raw derives keep `Unknown`, since their payload structure belongs
+to the caller.
+
+A built-in query with a parameter owns its validated argument and is constructed
+with `new(argument)`. Both encoding paths append its one-byte protocol value to
+the canonical fixed prefix. Generated Source metadata retains that prefix;
+framing and decoder inventories construct the table's valid typed sample.
 
 Every operation row contains a non-empty `BuiltinAxisSelection`.  Preset
 recall is the one profile-dependent case: preparation must validate and carry
@@ -86,6 +108,12 @@ the profile's exact preset axes.  It must not substitute all axes.
 | Serial setup/recovery | `AddressSet`, `InterfaceClear` wire commands | Owner-only transport handshake | — |
 | Cancellation | socket-specific `CommandCancel` wire command | Owner-only operation lifecycle | — |
 | Motion configuration | `MotionSyncMode`, `MotionSyncPreset`, `VariableSpeedMode` | Plain | Set `VariableSpeedMode` for the latter |
+| FR7 iris | `Fr7IrisUp`, `Fr7IrisDown` | AppliedOnly — `Iris` | — |
+| FR7 zoom | `Fr7ZoomHighResolutionTele`, `Fr7ZoomHighResolutionWide`, `Fr7ZoomHighResolutionStop` | AppliedOnly — `Zoom` | — |
+| FR7 exposure | `Fr7AeLevelUp`, `Fr7AeLevelDown`, `Fr7AutoGain`, `Fr7AutoShutter`, `Fr7AutoIris` | Plain | — |
+| FR7 white balance | `Fr7WhiteBalanceSet`, all `Fr7PresetWhite*`, `Fr7Memory*`, `Fr7Atw*` | Plain | — |
+| FR7 image | all `Fr7MasterBlack*`, `Fr7RedBlack*`, `Fr7BlueBlack*`, `Fr7DetailSetting`, `Fr7KneeSetting`, `Fr7SetKnee*` | Plain | — |
+| FR7 presets | `Fr7SetPresetSpeedSelection`, `Fr7SetCommonPresetSpeed`, `Fr7SetSeparatePresetMode`, `Fr7SetSeparatePresetSpeed`, `Fr7SetSeparatePresetDuration` | Plain | — |
 
 The three owner-only rows are deliberately absent from
 `request::builtin`. Address assignment and interface clear require exclusive
@@ -215,15 +243,26 @@ end physical movement with a pan/tilt STOP or `stop_all_motion()` (#839).
 
 `AppliedStateEffectRequirement` is closed to `Set`, `Clear`, and `Invalidate`.
 The later typed conversion must attach the selected requirement to a prepared
-write.  The owner applies the concrete value only after exact application,
-independent of observer attachment:
+write. The owner applies a typed `KnownState` only after exact application,
+independent of observer attachment. Its variant implies the key; values are
+never encoded as scalar arrays for the cache:
 
 - `Set` replaces a known state value supplied by the request.
-- `Clear` removes a known state entry (for example a pan/tilt limit corner).
-  A deterministic boolean `Off` command is still `Set` with `false`, so the
-  owner retains the fact that the disabled value was applied.
+- `Clear` establishes a known absence: a pan/tilt limit clear becomes
+  `KnownState::PanTiltLimits(PanTiltLimitUpdate::clear(corner))`. It is retained
+  as `StateEntry::Set`, so the corner and its known removal remain observable.
+  A deterministic boolean `Off` is likewise `Set` with `false`.
 - `Invalidate` marks a state unknown when the command's result cannot be
   represented exactly (for example vendor tally flash/on/off behavior).
+
+A write with any state requirement that may have taken effect but terminates
+without confirmation invalidates its key. Never-written and conclusively
+rejected attempts preserve previous knowledge. The owner commits either
+change before resolving the request's terminal outcome.
+
+One `state_key_ledger!` row defines each key, its native value type, its
+`KnownState` variant and its typed cache accessor. The fixed table retains one
+slot per key without map allocation or eviction.
 
 Current write-only state keys are `PanTiltLimits`, `PresetRecallSpeed`,
 `FocusLockMode`, `Spotlight`, `AutoSlowShutter`, `NdFilterMode`,

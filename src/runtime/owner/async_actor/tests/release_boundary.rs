@@ -12,10 +12,7 @@ async fn async_receive_batch_precedes_a_completion_deadline_at_equality() {
 
     let first = handle.submit(command()).await.unwrap();
     assert_eq!(started.recv_async().await.unwrap(), first.id);
-    gates
-        .send_async(Ok(TransmissionMeta { sequence: None }))
-        .await
-        .unwrap();
+    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
     frames
         .send_async(batch(vec![ack(ViscaSocket::S1)]))
         .await
@@ -27,10 +24,7 @@ async fn async_receive_batch_precedes_a_completion_deadline_at_equality() {
 
     let second = handle.submit(command()).await.unwrap();
     assert_eq!(started.recv_async().await.unwrap(), second.id);
-    gates
-        .send_async(Ok(TransmissionMeta { sequence: None }))
-        .await
-        .unwrap();
+    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
     assert_eq!(handle.snapshot().await.unwrap().active, 2);
 
     // Deliver ACK S2 and completion S1 at S1's exact completion deadline.
@@ -66,7 +60,8 @@ async fn async_receive_batch_precedes_a_completion_deadline_at_equality() {
 #[tokio::test]
 async fn async_receive_batch_rejects_an_overdue_completion() {
     let runtime = ManualRuntime::new(Instant::now());
-    let (handle, actor) = AsyncOwnerActor::new(policy(1), runtime.clone()).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(policy(1), runtime.clone()).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let harness = harness();
     let started = harness.started.clone();
     let gates = harness.gates.clone();
@@ -75,10 +70,7 @@ async fn async_receive_batch_rejects_an_overdue_completion() {
 
     let receipt = handle.submit(command()).await.unwrap();
     assert_eq!(started.recv_async().await.unwrap(), receipt.id);
-    gates
-        .send_async(Ok(TransmissionMeta { sequence: None }))
-        .await
-        .unwrap();
+    gates.send_async(Ok(TransmissionMeta::Raw)).await.unwrap();
     frames
         .send_async(batch(vec![ack(ViscaSocket::S1)]))
         .await
@@ -95,7 +87,7 @@ async fn async_receive_batch_rejects_an_overdue_completion() {
         snapshot.active, 0,
         "a correlation hold is not a live request"
     );
-    assert!(snapshot.diagnostics.iter().any(|event| matches!(
+    assert!(diagnostics.events().iter().any(|event| matches!(
         event,
         DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
     )));
@@ -199,7 +191,6 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
         .handle_event(
             OwnerEvent::Admission(Ok(predecessor_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -209,7 +200,7 @@ async fn assert_immediate_idle_raw_grace_is_bounded(idle: ImmediateRawIdle) {
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::CommandNotExecutable)
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
     let actor_task = tokio::spawn(actor.run(driver));
 
@@ -352,7 +343,6 @@ async fn raw_tombstone_timeout_verdict() -> RawReleaseObserverDeadlineVerdict {
         .handle_event(
             OwnerEvent::Admission(Ok(predecessor_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -395,7 +385,6 @@ async fn raw_tombstone_timeout_verdict() -> RawReleaseObserverDeadlineVerdict {
         .handle_event(
             OwnerEvent::Admission(Ok(expired_successor)),
             &mut driver,
-            &runtime,
             now,
             false,
         )
@@ -464,7 +453,6 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
         .handle_event(
             OwnerEvent::Admission(Ok(a_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -474,7 +462,7 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         a_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::CommandNotExecutable)
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
 
     let (_c_completion, c_admitted) = handle
@@ -489,7 +477,6 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
         .handle_event(
             OwnerEvent::Admission(Ok(c_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -503,7 +490,6 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
         .handle_event(
             OwnerEvent::Admission(Ok(b_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -535,7 +521,6 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
             .handle_event(
                 OwnerEvent::Wake,
                 &mut driver,
-                &runtime,
                 Executor::now(&runtime),
                 false,
             )
@@ -559,11 +544,12 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
         actor
             .handle_event(
                 OwnerEvent::Receive {
-                    result: Ok(OwnerReceive::NoData),
+                    result: OwnerReceive::NoProgress(
+                        crate::runtime::owner::NoProgressReason::EagerIdle
+                    ),
                     received_at: now,
                 },
                 &mut driver,
-                &runtime,
                 now,
                 false,
             )
@@ -576,7 +562,6 @@ async fn raw_release_growth_replaces_the_latch_and_requires_a_fresh_probe() {
             .handle_event(
                 OwnerEvent::Wake,
                 &mut driver,
-                &runtime,
                 Executor::now(&runtime),
                 false,
             )
@@ -628,7 +613,7 @@ async fn raw_stream_more_than_sixty_four_retained_turns_release_by_progress() {
     let (handle, actor) = AsyncOwnerActor::new(policy, runtime.clone()).unwrap();
     let mut harness = boundary_stream_harness(false);
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+    let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
     while harness.reads_observed.try_recv().is_ok() {}
 
     for _ in 0..RETAINED_TURNS {
@@ -677,7 +662,7 @@ async fn raw_stream_split_tail_at_tombstone_boundary_precedes_release() {
     let mut harness = boundary_stream_harness(false);
     let reads = harness.reads.clone();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+    let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
 
     reads.send_async(ScriptedRawRead::Prefix).await.unwrap();
     while !harness.buffered.load(Ordering::Acquire) {
@@ -715,7 +700,7 @@ async fn raw_stream_prefix_fault_tail_keeps_boundary_input_precedence() {
     let mut harness = boundary_stream_harness(false);
     let reads = harness.reads.clone();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+    let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
 
     reads.send_async(ScriptedRawRead::Prefix).await.unwrap();
     while !harness.buffered.load(Ordering::Acquire) {
@@ -757,7 +742,7 @@ async fn raw_stream_prefix_idle_tail_keeps_boundary_input_precedence() {
     let mut harness = boundary_stream_harness(false);
     let reads = harness.reads.clone();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+    let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
 
     reads.send_async(ScriptedRawRead::Prefix).await.unwrap();
     while !harness.buffered.load(Ordering::Acquire) {
@@ -795,7 +780,7 @@ async fn raw_stream_orphan_prefix_is_reset_before_successor_dispatch() {
     let mut harness = boundary_stream_harness(false);
     let reads = harness.reads.clone();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+    let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
 
     reads.send_async(ScriptedRawRead::Prefix).await.unwrap();
     while !harness.buffered.load(Ordering::Acquire) {
@@ -838,7 +823,7 @@ async fn raw_stream_nonclearing_decoder_poisons_at_release() {
     let mut harness = boundary_stream_harness(true);
     let reads = harness.reads.clone();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+    let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
 
     reads.send_async(ScriptedRawRead::Prefix).await.unwrap();
     while !harness.buffered.load(Ordering::Acquire) {
@@ -849,7 +834,7 @@ async fn raw_stream_nonclearing_decoder_poisons_at_release() {
 
     assert!(matches!(
         successor.terminal().await.unwrap(),
-        RuntimeOutcome::Failed(Error::StreamPoisoned { .. })
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::StreamPoisoned { .. })
     ));
     assert_eq!(
         harness.discards.load(Ordering::Relaxed),
@@ -876,7 +861,7 @@ async fn raw_stream_ambiguous_prefix_expires_without_poisoning_successor() {
         crate::protocol::framer::RawIncompletePrefix::SourceOnly;
     let reads = harness.reads.clone();
     let actor_task = tokio::spawn(actor.run(harness.driver.take().unwrap()));
-    let successor = establish_raw_inquiry_tombstone(&handle, &harness).await;
+    let successor = establish_raw_inquiry_tombstone(&handle, &harness, &runtime).await;
 
     reads.send_async(ScriptedRawRead::Prefix).await.unwrap();
     while !harness.buffered.load(Ordering::Acquire) {
@@ -936,7 +921,6 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
         .handle_event(
             OwnerEvent::Admission(Ok(a_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -946,7 +930,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         a_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::CommandNotExecutable)
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
 
     let (b_completion, b_admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
@@ -955,7 +939,6 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
         .handle_event(
             OwnerEvent::Admission(Ok(b_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -970,7 +953,6 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
             .handle_event(
                 OwnerEvent::Wake,
                 &mut driver,
-                &runtime,
                 Executor::now(&runtime),
                 false,
             )
@@ -991,7 +973,6 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
                     received_at: now,
                 },
                 &mut driver,
-                &runtime,
                 Executor::now(&runtime),
                 false,
             )
@@ -1007,7 +988,7 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         b_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::CommandNotExecutable)
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
 
     let (_c_completion, c_admitted) = handle.core.enqueue_admission(inquiry(), None).unwrap();
@@ -1016,7 +997,6 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
         .handle_event(
             OwnerEvent::Admission(Ok(c_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -1031,7 +1011,6 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
             .handle_event(
                 OwnerEvent::Wake,
                 &mut driver,
-                &runtime,
                 Executor::now(&runtime),
                 false,
             )
@@ -1050,7 +1029,6 @@ async fn raw_stream_completed_tail_resets_next_hold_grace_budget() {
                     received_at: now,
                 },
                 &mut driver,
-                &runtime,
                 Executor::now(&runtime),
                 false,
             )
@@ -1085,7 +1063,8 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
     let mut actor_policy = adapter.policy().clone();
     actor_policy.limits.frames_per_receive = 1;
     actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
-    let (handle, actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let predecessor = handle.submit(inquiry()).await.unwrap();
@@ -1100,7 +1079,7 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
             "the production split-tail predecessor terminalizes",
         )
         .await,
-        RuntimeOutcome::Failed(Error::CommandNotExecutable)
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
 
     let successor = handle.submit(inquiry()).await.unwrap();
@@ -1111,8 +1090,8 @@ async fn production_raw_stream_literal_split_tail_precedes_tombstone_release() {
     chunk_tx.send_async(vec![0xa1, 0xff]).await.unwrap();
 
     let _ = sent_rx.recv_async().await.unwrap();
-    let boundary_snapshot = handle.snapshot().await.unwrap();
-    assert!(boundary_snapshot.diagnostics.iter().any(|event| matches!(
+    handle.metrics().await.unwrap();
+    assert!(diagnostics.events().iter().any(|event| matches!(
         event,
         DiagnosticEvent::Ignored(IgnoreReason::UnmatchedFrame)
     )));
@@ -1158,7 +1137,8 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
         let mut actor_policy = adapter.policy().clone();
         actor_policy.limits.frames_per_receive = 1;
         actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
-        let (handle, actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+        let (handle, mut actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+        let diagnostics = observe_diagnostics(&mut actor);
         let actor_task = tokio::spawn(actor.run(adapter));
 
         let predecessor = handle.submit(inquiry()).await.unwrap();
@@ -1173,7 +1153,7 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
                 "the ambiguous-prefix predecessor terminalizes",
             )
             .await,
-            RuntimeOutcome::Failed(Error::CommandNotExecutable)
+            RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
         ));
         let successor = handle.submit(inquiry()).await.unwrap();
         assert!(sent_rx.try_recv().is_err());
@@ -1196,7 +1176,7 @@ async fn production_raw_ambiguous_prefixes_expire_by_time_without_poison() {
 
         let snapshot = handle.snapshot().await.unwrap();
         assert_eq!(snapshot.state, SessionState::Running);
-        assert!(snapshot.diagnostics.iter().any(|event| matches!(
+        assert!(diagnostics.events().iter().any(|event| matches!(
             event,
             DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
         )));
@@ -1274,7 +1254,7 @@ async fn production_raw_s1_split_tail_precedes_same_target_s2_release() {
 /// An already-buffered named S1 prefix is exact evidence for live X, not
 /// stale evidence for Y/S2. The due pass may release Y while preserving
 /// `[90 51]`; its trailing terminator still completes X through the real
-/// `ProtocolFramer` after Z has been dispatched.
+/// `RawFramer` after Z has been dispatched.
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn production_raw_live_s1_prefix_survives_same_target_s2_release() {
@@ -1401,7 +1381,11 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
             (TargetSlot::CAMERA_1, &profile),
             (TargetSlot::CAMERA_3, &profile),
         ],
-        crate::OperationalTuning::new(),
+        crate::session_config::ValidatedTuning::validate(
+            crate::OperationalTuning::new(),
+            [&profile],
+        )
+        .unwrap(),
         std::num::NonZeroUsize::new(4).unwrap(),
         false,
     )
@@ -1474,7 +1458,7 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
 /// work, then keep the ambiguous socketless A prefix input-first until its
 /// tail is delimited for A's already-sent, target-local successor. This covers
 /// hidden suffix ordering, the fail-closed socketless rule, and raw serial
-/// framing through the production adapter and `ProtocolFramer`.
+/// framing through the production adapter and `RawFramer`.
 #[cfg(feature = "runtime-tokio")]
 #[tokio::test]
 async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix() {
@@ -1502,7 +1486,11 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
             (TargetSlot::CAMERA_1, &profile),
             (TargetSlot::CAMERA_3, &profile),
         ],
-        crate::OperationalTuning::new(),
+        crate::session_config::ValidatedTuning::validate(
+            crate::OperationalTuning::new(),
+            [&profile],
+        )
+        .unwrap(),
         std::num::NonZeroUsize::new(4).unwrap(),
         false,
     )
@@ -1608,7 +1596,8 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
     let mut actor_policy = adapter.policy().clone();
     actor_policy.limits.frames_per_receive = 1;
     actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
-    let (handle, actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let predecessor = handle.submit(inquiry()).await.unwrap();
@@ -1620,7 +1609,7 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
     assert!(matches!(
         terminal_within_test_deadline(&predecessor, "the invalid-prefix predecessor terminalizes",)
             .await,
-        RuntimeOutcome::Failed(Error::CommandNotExecutable)
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
     let successor = handle.submit(inquiry()).await.unwrap();
     assert!(sent_rx.try_recv().is_err());
@@ -1660,8 +1649,8 @@ async fn assert_production_raw_invalid_prefix_is_ignored(
     let snapshot = actor_task.await.unwrap();
     assert_eq!(snapshot.state, SessionState::Shutdown);
     assert_eq!(
-        snapshot
-            .diagnostics
+        diagnostics
+            .events()
             .iter()
             .filter(|event| matches!(
                 event,
@@ -1809,9 +1798,11 @@ async fn owed_stream_inquiry_fixture() -> (
             .unwrap(),
         predecessor.id
     );
+    handle.metrics().await.unwrap();
+    runtime.advance(MINIMUM_FIXTURE_INQUIRY_TIMEOUT);
     assert!(matches!(
         terminal_within_test_deadline(&predecessor, "A times out at its reply deadline").await,
-        RuntimeOutcome::Failed(Error::Timeout { .. })
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::Timeout { .. })
     ));
     let successor = within(handle.submit(inquiry()), "B is admitted")
         .await
@@ -1908,8 +1899,8 @@ async fn raw_stream_owed_prefix_at_window_end_latches_instead_of_releasing() {
     runtime.advance(Duration::from_secs(1));
     assert!(matches!(
         terminal_within_test_deadline(&successor, "B fails at the latch").await,
-        RuntimeOutcome::Failed(Error::InquiryCorrelationLost { camera })
-            if camera == TargetSlot::CAMERA_1.camera()
+        RuntimeOutcome::Failed(Error::InquiryFailed { source })
+            if matches!(source.as_ref(), Error::InquiryCorrelationLost { camera } if *camera == TargetSlot::CAMERA_1.camera())
     ));
     runtime.advance(Duration::from_secs(5));
     let snapshot = within(handle.snapshot(), "the actor answers a snapshot")
@@ -1989,7 +1980,7 @@ async fn raw_stream_latched_target_still_writes_stop_and_ack_bearing_commands() 
     runtime.advance(Duration::from_secs(1));
     assert!(matches!(
         terminal_within_test_deadline(&successor, "B fails at the latch").await,
-        RuntimeOutcome::Failed(Error::InquiryCorrelationLost { .. })
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::InquiryCorrelationLost { .. })
     ));
 
     for request in [urgent_command(), command()] {
@@ -2063,7 +2054,8 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
     let mut actor_policy = adapter.policy().clone();
     actor_policy.limits.frames_per_receive = 1;
     actor_policy.protocol.raw_inquiry_release_hold = Duration::from_secs(1);
-    let (handle, actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+    let (handle, mut actor) = AsyncOwnerActor::new(actor_policy, runtime.clone()).unwrap();
+    let diagnostics = observe_diagnostics(&mut actor);
     let actor_task = tokio::spawn(actor.run(adapter));
 
     let predecessor = within(handle.submit(timed_out_inquiry()), "A is admitted")
@@ -2072,9 +2064,11 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
     let _ = within(sent_rx.recv_async(), "the inquiry is written")
         .await
         .unwrap();
+    handle.metrics().await.unwrap();
+    runtime.advance(MINIMUM_FIXTURE_INQUIRY_TIMEOUT);
     assert!(matches!(
         terminal_within_test_deadline(&predecessor, "A times out at its reply deadline").await,
-        RuntimeOutcome::Failed(Error::Timeout { .. })
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::Timeout { .. })
     ));
     let successor = within(handle.submit(inquiry()), "B is admitted")
         .await
@@ -2088,7 +2082,7 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
     runtime.advance(Duration::from_secs(1));
     assert!(matches!(
         terminal_within_test_deadline(&successor, "B fails at the latch").await,
-        RuntimeOutcome::Failed(Error::InquiryCorrelationLost { .. })
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::InquiryCorrelationLost { .. })
     ));
     runtime.advance(Duration::from_millis(500));
     let snapshot = within(handle.snapshot(), "the actor answers a snapshot")
@@ -2100,7 +2094,7 @@ async fn production_raw_stream_owed_reply_prefix_latches_until_its_tail_settles(
         "the retained prefix released nothing"
     );
     assert!(
-        !snapshot.diagnostics.iter().any(|event| matches!(
+        !diagnostics.events().iter().any(|event| matches!(
             event,
             DiagnosticEvent::Ignored(IgnoreReason::MalformedFrame)
         )),

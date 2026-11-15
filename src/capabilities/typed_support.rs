@@ -48,6 +48,8 @@ macro_rules! define_typed_support_surfaces {
         ]
     ) => {
         const TYPED_SUPPORT_SURFACE_COUNT: usize = [$($wire),*].len();
+        const _: () = assert!(TYPED_SUPPORT_SURFACE_COUNT <= u128::BITS as usize, "typed support vocabulary exceeds inline bitset capacity");
+        $(const _: () = assert!($bit < u128::BITS, "typed support bit exceeds inline capacity");)*
 
         /// Optional typed API surface backed by a profile support marker.
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -68,7 +70,7 @@ macro_rules! define_typed_support_surfaces {
                 $(Self::$surface,)*
             ];
 
-            const fn bit(self) -> u64 {
+            const fn bit(self) -> u128 {
                 1 << match self {
                     $(Self::$surface => $bit,)*
                 }
@@ -148,7 +150,7 @@ super::typed_support_registry::typed_support_registry!(define_typed_surface_look
 
 /// Compact set of typed API surfaces supported by a profile.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
-pub struct TypedSupportSet(u64);
+pub struct TypedSupportSet(u128);
 
 impl TypedSupportSet {
     /// Empty typed support set.
@@ -226,7 +228,8 @@ impl fmt::Debug for TypedSupportSet {
 
 /// Profile contract for runtime typed API permission discovery.
 ///
-/// Custom profiles must keep this set in sync with optional marker trait impls.
+/// Static typed noun methods prove at compile time that each marker has its
+/// corresponding bit. A bit without a marker widens only the erased surface.
 /// Built-in profiles derive both marker impls and this set from the same
 /// registry entry.
 pub trait ProfileTypedSupport {
@@ -337,7 +340,7 @@ mod tests {
         for (index, surface) in TypedSupportSurface::ALL.into_iter().enumerate() {
             assert_eq!(
                 TypedSupportSet::from_surface(surface).0,
-                1_u64 << index,
+                1_u128 << index,
                 "{surface:?} must use the generated bit matching its canonical position"
             );
         }
@@ -362,7 +365,7 @@ mod tests {
         // and serde's derive-generated spelling.  It pins each public wire tag
         // to its exact semantic surface, so a swapped decoder, a spurious
         // accepted tag, or a surface added only to `ALL` cannot pass.
-        const WIRE_SURFACES: [(&str, TypedSupportSurface); 58] = [
+        const WIRE_SURFACES: [(&str, TypedSupportSurface); 74] = [
             ("direct-zoom", TypedSupportSurface::DirectZoom),
             (
                 "digital-zoom-toggle",
@@ -460,10 +463,6 @@ mod tests {
             ),
             ("exposure-mode", TypedSupportSurface::ExposureMode),
             (
-                "iris-control-inquiry",
-                TypedSupportSurface::IrisControlInquiry,
-            ),
-            (
                 "noise-reduction2-d-control",
                 TypedSupportSurface::NoiseReduction2DControl,
             ),
@@ -472,7 +471,6 @@ mod tests {
                 TypedSupportSurface::NoiseReduction3DControl,
             ),
             ("image-freeze", TypedSupportSurface::ImageFreeze),
-            ("defog-level", TypedSupportSurface::DefogLevel),
             ("tally-brightness", TypedSupportSurface::TallyBrightness),
             ("ptz-optics-tally", TypedSupportSurface::PtzOpticsTally),
             ("version-inquiry", TypedSupportSurface::VersionInquiry),
@@ -484,10 +482,61 @@ mod tests {
                 "noise-reduction2-d-mode",
                 TypedSupportSurface::NoiseReduction2DMode,
             ),
+            ("sony-fr7-ae-level", TypedSupportSurface::SonyFr7AeLevel),
+            ("sony-fr7-auto-gain", TypedSupportSurface::SonyFr7AutoGain),
+            (
+                "sony-fr7-auto-shutter",
+                TypedSupportSurface::SonyFr7AutoShutter,
+            ),
+            ("sony-fr7-iris", TypedSupportSurface::SonyFr7Iris),
+            (
+                "sony-fr7-white-balance",
+                TypedSupportSurface::SonyFr7WhiteBalance,
+            ),
+            (
+                "sony-fr7-preset-white",
+                TypedSupportSurface::SonyFr7PresetWhite,
+            ),
+            (
+                "sony-fr7-memory-color-temperature",
+                TypedSupportSurface::SonyFr7MemoryColorTemperature,
+            ),
+            (
+                "sony-fr7-memory-gain",
+                TypedSupportSurface::SonyFr7MemoryGain,
+            ),
+            (
+                "sony-fr7-memory-tint",
+                TypedSupportSurface::SonyFr7MemoryTint,
+            ),
+            (
+                "sony-fr7-atw-offsets",
+                TypedSupportSurface::SonyFr7AtwOffsets,
+            ),
+            ("sony-fr7-black", TypedSupportSurface::SonyFr7Black),
+            ("sony-fr7-detail", TypedSupportSurface::SonyFr7Detail),
+            ("sony-fr7-knee", TypedSupportSurface::SonyFr7Knee),
+            (
+                "sony-fr7-high-resolution-zoom",
+                TypedSupportSurface::SonyFr7HighResolutionZoom,
+            ),
+            (
+                "sony-fr7-clear-image-zoom",
+                TypedSupportSurface::SonyFr7ClearImageZoom,
+            ),
+            (
+                "sony-fr7-preset-speed",
+                TypedSupportSurface::SonyFr7PresetSpeed,
+            ),
+            (
+                "sony-fr7-preset-duration",
+                TypedSupportSurface::SonyFr7PresetDuration,
+            ),
+            ("sharpness-mode", TypedSupportSurface::SharpnessMode),
         ];
 
-        assert_eq!(TypedSupportSurface::ALL.len(), 58);
-        assert_eq!(WIRE_SURFACES.len(), 58);
+        assert_eq!(TypedSupportSurface::ALL.len(), 74);
+        assert_eq!(WIRE_SURFACES.len(), TypedSupportSurface::ALL.len());
         for (wire_name, surface) in WIRE_SURFACES {
             assert_eq!(surface.wire_name(), wire_name);
             let singleton_json = serde_json::to_string(&[wire_name])?;

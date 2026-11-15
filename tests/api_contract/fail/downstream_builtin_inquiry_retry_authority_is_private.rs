@@ -1,5 +1,5 @@
 use grafton_visca::{
-    request, CameraId, ControlClass, Inquiry, InquiryRoute, Request, ResponseDecoder, RetryClass,
+    request, CameraId, ControlClass, Inquiry, Request, ResponseDecoder, RetryClass,
     TimeoutClass,
 };
 
@@ -22,9 +22,6 @@ impl Request for DownstreamInquiry {
 impl Inquiry for DownstreamInquiry {
     type Response = Vec<u8>;
 
-    fn route(&self) -> InquiryRoute {
-        InquiryRoute::RAW
-    }
 
     fn decoder(&self) -> ResponseDecoder<Self::Response> {
         ResponseDecoder::from_fn(|payload| Ok(payload.to_vec()))

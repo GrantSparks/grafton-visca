@@ -26,7 +26,7 @@ impl TargetSlot {
         Self(6),
     ];
 
-    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
+    #[cfg(test)]
     pub(crate) const CAMERA_1: Self = Self::ALL[0];
 
     #[cfg(all(test, any(feature = "blocking", feature = "async")))]
@@ -64,6 +64,12 @@ impl TargetSlot {
     /// The bounded array index for this key, in `0..7`.
     pub(crate) const fn index(self) -> usize {
         self.0 as usize
+    }
+}
+
+impl From<crate::IndividualCameraId> for TargetSlot {
+    fn from(camera: crate::IndividualCameraId) -> Self {
+        Self(camera.value() - 1)
     }
 }
 

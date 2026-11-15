@@ -98,7 +98,8 @@ macro_rules! runtime_matrix {
 /// `pause!` is then virtual and lapses as soon as everything is blocked on
 /// the clock. Anything such a scenario waits for must be an owner deadline,
 /// a matrix macro or an event, never another thread's real sleep. Without
-/// `test-utils` the blocking and smol cases run in real time.
+/// `test-utils` the blocking and smol cases are omitted; the canonical matrix
+/// runs them in dedicated virtual-time legs.
 ///
 /// A scenario that only exists on one facade is not written here: it stays a
 /// plain test, and the file header says why.
@@ -113,20 +114,28 @@ macro_rules! facade_matrix {
     )+) => {
         $crate::facade_matrix!(@cases [tokio::test] false; $($(#[$meta])* fn $scenario() $body)+);
     };
-    (@cases [$tokio_test:meta] $virtual:tt; $(
+    (@cases [$tokio_test:meta] true; $($scenarios:tt)+) => {
+        $crate::facade_matrix!(@emit [$tokio_test] true [any(
+            feature = "runtime-tokio",
+            all(feature = "test-utils", any(feature = "blocking", feature = "runtime-smol"))
+        )]; $($scenarios)+);
+    };
+    (@cases [$tokio_test:meta] false; $($scenarios:tt)+) => {
+        $crate::facade_matrix!(@emit [$tokio_test] false [any(
+            feature = "blocking", feature = "runtime-tokio", feature = "runtime-smol"
+        )]; $($scenarios)+);
+    };
+    (@emit [$tokio_test:meta] $virtual:tt [$case_cfg:meta]; $(
         $(#[$meta:meta])*
         fn $scenario:ident() $body:block
     )+) => {
         $(
             $(#[$meta])*
+            #[cfg($case_cfg)]
             mod $scenario {
                 use super::*;
 
-                #[cfg(feature = "blocking")]
-                #[test]
-                fn blocking() {
-                    $crate::facade_matrix!(@blocking $virtual, $body);
-                }
+                $crate::facade_matrix!(@blocking_case $virtual, $body);
 
                 #[cfg(all(feature = "async", feature = "runtime-tokio"))]
                 #[$tokio_test]
@@ -136,13 +145,29 @@ macro_rules! facade_matrix {
                     $crate::facade_matrix!(@async executor, $virtual, $body);
                 }
 
-                #[cfg(all(feature = "async", feature = "runtime-smol"))]
-                #[test]
-                fn smol() {
-                    $crate::facade_matrix!(@smol $virtual, $body);
-                }
+                $crate::facade_matrix!(@smol_case $virtual, $body);
             }
         )+
+    };
+    (@blocking_case true, $body:block) => {
+        #[cfg(all(feature = "blocking", feature = "test-utils"))]
+        #[test]
+        fn blocking() { $crate::facade_matrix!(@blocking true, $body); }
+    };
+    (@blocking_case false, $body:block) => {
+        #[cfg(feature = "blocking")]
+        #[test]
+        fn blocking() { $crate::facade_matrix!(@blocking false, $body); }
+    };
+    (@smol_case true, $body:block) => {
+        #[cfg(all(feature = "async", feature = "runtime-smol", feature = "test-utils"))]
+        #[test]
+        fn smol() { $crate::facade_matrix!(@smol true, $body); }
+    };
+    (@smol_case false, $body:block) => {
+        #[cfg(all(feature = "async", feature = "runtime-smol"))]
+        #[test]
+        fn smol() { $crate::facade_matrix!(@smol false, $body); }
     };
     (@blocking true, $body:block) => {{
         #[cfg(feature = "test-utils")]
@@ -156,12 +181,13 @@ macro_rules! facade_matrix {
             }
             macro_rules! open {
                 ($camera:expr, $config:expr) => {
-                    clock.open_blocking_session($camera.blocking_wire().on_clock(&clock), $config)
+                    clock.open_blocking_session(&_driver, $camera.blocking_wire().on_clock(&clock), $config)
                 };
             }
             macro_rules! open_camera {
                 ($camera:expr, $config:expr) => {
                     clock.open_blocking_camera_session(
+                        &_driver,
                         $camera.blocking_wire().on_clock(&clock),
                         $config,
                     )
@@ -215,8 +241,6 @@ macro_rules! facade_matrix {
             const FACADE: &str = "blocking";
             $body
         }
-        #[cfg(not(feature = "test-utils"))]
-        $crate::facade_matrix!(@blocking false, $body);
     }};
     (@blocking false, $body:block) => {{
         macro_rules! wait {
@@ -290,8 +314,6 @@ macro_rules! facade_matrix {
                 $crate::facade_matrix!(@async executor, true, $body);
             });
         }
-        #[cfg(not(feature = "test-utils"))]
-        $crate::facade_matrix!(@smol false, $body);
     }};
     (@smol false, $body:block) => {
         smol::block_on(async {

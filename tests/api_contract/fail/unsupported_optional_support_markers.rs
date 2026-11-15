@@ -2,10 +2,10 @@ use grafton_visca::{
     capabilities::{
         HasBrightnessControl, HasColorTemperature, HasColorTemperatureInquiry, HasContrastControl,
         HasExposureCompensation, HasExposureMode, HasFocusNearLimitInquiry, HasFocusZone,
-        HasFocusZoneInquiry, HasImageFlip, HasImageMirror, HasIrisControl, HasIrisControlInquiry,
+        HasFocusZoneInquiry, HasImageFlip, HasImageMirror, HasIrisControl,
         HasMotionSync, HasNdFilter, HasNoiseReduction2D, HasNoiseReduction2DControl,
         HasNoiseReduction3D, HasNoiseReduction3DControl, HasPictureEffect, HasRgbGain,
-        HasRgbTuning, HasSaturationControl, HasSharpnessControl, HasSonyAutoSlowShutter,
+        HasRgbTuning, HasSaturationControl, HasSharpnessControl, HasSharpnessMode, HasSonyAutoSlowShutter,
         HasSonySpotlight, HasTally, HasUsbAudio, HasVariableSpeed, HasVersionInquiry,
         HasWideDynamicRange,
     },
@@ -24,13 +24,13 @@ fn requires_variable_speed<P: HasVariableSpeed>() {}
 fn requires_brightness<P: HasBrightnessControl>() {}
 fn requires_exposure_mode<P: HasExposureMode>() {}
 fn requires_iris<P: HasIrisControl>() {}
-fn requires_iris_control_inquiry<P: HasIrisControlInquiry>() {}
 fn requires_nr_2d<P: HasNoiseReduction2D>() {}
 fn requires_nr_3d<P: HasNoiseReduction3D>() {}
 fn requires_nr_2d_control<P: HasNoiseReduction2DControl>() {}
 fn requires_nr_3d_control<P: HasNoiseReduction3DControl>() {}
 fn requires_contrast<P: HasContrastControl>() {}
 fn requires_sharpness<P: HasSharpnessControl>() {}
+fn requires_sharpness_mode<P: HasSharpnessMode>() {}
 fn requires_focus_zone<P: HasFocusZone>() {}
 fn requires_focus_zone_inquiry<P: HasFocusZoneInquiry>() {}
 fn requires_picture_effect<P: HasPictureEffect>() {}
@@ -65,7 +65,6 @@ fn main() {
     requires_brightness::<SonyBRCH900>();
     requires_exposure_mode::<SonyFR7>();
     requires_iris::<SonyFR7>();
-    requires_iris_control_inquiry::<PtzOpticsG3>();
     requires_nr_2d::<SonyFR7>();
     requires_nr_3d::<SonyFR7>();
     requires_nr_2d_control::<SonyFR7>();
@@ -80,11 +79,13 @@ fn main() {
     requires_contrast::<SonyEVIH100>();
     requires_contrast::<SonyBRC300>();
     requires_sharpness::<GenericVisca>();
-    requires_sharpness::<SonyEVIH100>();
+    requires_sharpness_mode::<SonyEVIH100>();
+    requires_sharpness_mode::<SonyFR7>();
     requires_sharpness::<SonyBRC300>();
     requires_auto_slow_shutter::<SonyFR7>();
     requires_auto_slow_shutter::<SonyBRCH900>();
     requires_spotlight::<SonyEVIH100>();
+    requires_spotlight::<SonyBRCH900>();
     requires_spotlight::<SonyBRC300>();
     requires_spotlight::<NearusBRC300>();
     // #828 grant audit: the model sources document none of these.
@@ -117,12 +118,12 @@ fn main() {
 
 //~ E0277
 //~ "profile `SonyBRC300` does not declare contrast control support"
-//~ "profile `SonyEVIH100` does not declare sharpness control support"
+//~ "profile `SonyEVIH100` does not declare sharpness mode support"
+//~ "profile `SonyFR7` does not declare sharpness mode support"
 //~ "profile `SonyFR7` does not declare exposure brightness support"
 //~ "profile `SonyBRCH900` does not declare exposure brightness support"
 //~ "profile `SonyFR7` does not declare shared exposure-mode support"
 //~ "profile `SonyFR7` does not declare iris control support"
-//~ "profile `grafton_visca::profiles::PtzOpticsG3` does not declare iris control-status inquiry support"
 //~ "profile `SonyFR7` does not declare 2D noise-reduction inquiry support"
 //~ "profile `SonyFR7` does not declare 3D noise-reduction inquiry support"
 //~ "profile `SonyFR7` does not declare 2D noise-reduction control support"
@@ -136,6 +137,7 @@ fn main() {
 //~ "profile `SonyFR7` does not declare Sony auto slow-shutter support"
 //~ "profile `SonyBRCH900` does not declare Sony auto slow-shutter support"
 //~ "profile `SonyEVIH100` does not declare Sony spotlight support"
+//~ "profile `SonyBRCH900` does not declare Sony spotlight support"
 //~ "profile `SonyBRC300` does not declare Sony spotlight support"
 //~ "profile `NearusBRC300` does not declare Sony spotlight support"
 //~ "profile `SonyEVIH100` does not declare color-temperature support"

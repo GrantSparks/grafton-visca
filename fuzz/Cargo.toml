@@ -8,7 +8,7 @@ publish = false
 cargo-fuzz = true
 
 [dependencies]
-grafton-visca = { path = "..", default-features = false, features = ["blocking", "test-utils"] }
+grafton-visca = { path = "..", default-features = false, features = ["transport-serial", "test-utils"] }
 libfuzzer-sys = "0.4"
 
 [[bin]]
@@ -40,3 +40,10 @@ doc = false
 bench = false
 
 [workspace]
+
+[[bin]]
+name = "serial_startup"
+path = "fuzz_targets/serial_startup.rs"
+test = false
+doc = false
+bench = false

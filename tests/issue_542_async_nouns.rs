@@ -12,9 +12,7 @@ use grafton_visca::{
         HasSonyAutoSlowShutter, HasSonySpotlight, HasUsbAudio,
     },
     completion::{AppliedOnly, Targeted},
-    profiles::{
-        PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300, SonyBRCH900, SonyEVIH100, SonyFR7,
-    },
+    profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300, SonyEVIH100, SonyFR7},
     Camera, CompileTimeProfile, Error, Operation, Result,
 };
 
@@ -190,7 +188,6 @@ fn noun_views_are_borrowed_profile_typed_handles() {
     let _: fn(&Camera<PtzOpticsG3>) = ptzoptics_vendor_command_gates::<PtzOpticsG3>;
     let _: fn(&Camera<PtzOptics30X>) = ptzoptics_vendor_command_gates::<PtzOptics30X>;
     let _: fn(&Camera<SonyFR7>) = sony_spotlight_command_gates::<SonyFR7>;
-    let _: fn(&Camera<SonyBRCH900>) = sony_spotlight_command_gates::<SonyBRCH900>;
     let _: fn(&Camera<SonyEVIH100>) = sony_auto_slow_shutter_command_gates::<SonyEVIH100>;
     let _: fn(&Camera<SonyBRC300>) = sony_auto_slow_shutter_command_gates::<SonyBRC300>;
 }

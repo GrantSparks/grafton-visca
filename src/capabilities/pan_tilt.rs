@@ -22,6 +22,19 @@ pub enum PanTiltWireCodec {
     /// Sony BRC-300: one speed byte, fixed `00`, five signed pan nibbles,
     /// and four signed tilt nibbles.
     SonyBrc300,
+    /// Sony FR7: two speed bytes and five signed nibbles for each axis.
+    SonyFr7,
+}
+
+impl PanTiltWireCodec {
+    /// Complete size of this grammar's longest position or limit frame.
+    pub(crate) const fn maximum_position_frame_bytes(self) -> usize {
+        match self {
+            Self::StandardVisca => 15,
+            Self::SonyBrc300 => 16,
+            Self::SonyFr7 => 17,
+        }
+    }
 }
 
 /// Trait for cameras that support pan and tilt movement.
@@ -35,7 +48,11 @@ pub trait PanTilt {
 
     /// Valid range for tilt position in VISCA units.
     /// Typically maps to degrees based on camera model.
-    const TILT_RANGE: CapabilityRange<i32>;
+    const TILT_RANGES: crate::capabilities::TiltRanges;
+
+    /// Quantization policy of the source's nominal degree endpoints.
+    const ENDPOINT_QUANTIZATION: crate::capabilities::EndpointQuantization =
+        crate::capabilities::EndpointQuantization::Exact;
 
     /// Maximum pan speed (0x01-0x18 for most cameras).
     const MAX_PAN_SPEED: u8;
@@ -84,13 +101,13 @@ pub trait PanTiltExt: PanTilt {
 
     /// Validate a tilt position is within range.
     fn validate_tilt(&self, tilt: i32) -> Result<i32, ValidationError> {
-        Self::TILT_RANGE.validate("tilt", tilt)
+        Self::TILT_RANGES.range(None).validate("tilt", tilt)
     }
 
     /// Validate a pan speed against `1..=MAX_PAN_SPEED`.
     ///
     /// Rejects out-of-range speeds instead of clamping them, matching the
-    /// request path (`Capabilities::pan_speed`).
+    /// request path (`PanTiltCaps::pan_speed`).
     /// A profile whose `MAX_PAN_SPEED` is `0` has no valid speed and fails to
     /// compile a call to this method.
     fn validate_pan_speed(&self, speed: u8) -> Result<u8, ValidationError> {
@@ -100,7 +117,7 @@ pub trait PanTiltExt: PanTilt {
     /// Validate a tilt speed against `1..=MAX_TILT_SPEED`.
     ///
     /// Rejects out-of-range speeds instead of clamping them, matching the
-    /// request path (`Capabilities::tilt_speed`).
+    /// request path (`PanTiltCaps::tilt_speed`).
     /// A profile whose `MAX_TILT_SPEED` is `0` has no valid speed and fails to
     /// compile a call to this method.
     fn validate_tilt_speed(&self, speed: u8) -> Result<u8, ValidationError> {
@@ -150,7 +167,8 @@ mod tests {
 
     impl PanTilt for TestCamera {
         const PAN_RANGE: CapabilityRange<i32> = CapabilityRange::<i32>::new(-170, 170);
-        const TILT_RANGE: CapabilityRange<i32> = CapabilityRange::<i32>::new(-30, 90);
+        const TILT_RANGES: crate::capabilities::TiltRanges =
+            crate::capabilities::TiltRanges::Single(CapabilityRange::<i32>::new(-30, 90));
         const MAX_PAN_SPEED: u8 = 24;
         const MAX_TILT_SPEED: u8 = 24;
         const PAN_DEGREES_TO_UNITS: f32 = 100.0;

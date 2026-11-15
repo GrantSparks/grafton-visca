@@ -9,7 +9,8 @@ use crate::{
         bytes::{constants::menu, FrameWriter},
         pan_tilt::PanTiltDirection,
     },
-    visca_command, Error,
+    macros::consolidated::visca_command,
+    Error,
 };
 
 visca_command! {
@@ -147,18 +148,49 @@ impl PerformMenuAction {
     }
 }
 
+/// Sony FR7 direct-menu target (R7 v4.00, page 20).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, crate::ViscaEnum)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub enum DirectMenuTarget {
+    /// Neutral-density filter control.
+    NdFilter = 0x00,
+    /// Iris control.
+    Iris = 0x01,
+    /// ISO or gain control.
+    IsoGain = 0x02,
+    /// Shutter control.
+    Shutter = 0x03,
+    /// Auto-exposure level or mode control.
+    AeLevelMode = 0x04,
+    /// Exit the direct menu.
+    Exit = 0x7F,
+}
+
+/// Sony FR7 direct-menu button state (R7 v4.00, page 20).
+#[derive(Debug, Copy, Clone, PartialEq, Eq, crate::ViscaEnum)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub enum MenuButton {
+    /// Release the selected control.
+    Release = 0x00,
+    /// Press the selected control.
+    Press = 0x01,
+}
+
 /// Direct menu control command for Sony FR7.
 ///
-/// Provides direct control over the FR7's advanced menu system using
-/// manufacturer-specific codes for button presses and dial turns.
-///
-/// VISCA format: `81 01 7E 04 72 pp qq FF`
+/// R7 v4.00 page 20 closes both domains in `8x 01 7E 04 72 pp 0q FF`:
+/// one of six targets and a release or press. Construction cannot send an
+/// undocumented control byte.
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct DirectMenuControl {
-    /// First control byte (pp).
-    control1: u8,
-    /// Second control byte (qq).
-    control2: u8,
+    target: DirectMenuTarget,
+    button: MenuButton,
 }
 
 impl crate::command::encode::WireEncode for DirectMenuControl {
@@ -169,47 +201,35 @@ impl crate::command::encode::WireEncode for DirectMenuControl {
     ) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
             .bytes(&menu::DIRECT)
-            .byte(self.control1)
-            .byte(self.control2)
+            .byte(u8::from(self.target))
+            .byte(u8::from(self.button))
             .finish()
     }
 }
 
 impl DirectMenuControl {
-    /// Create a new direct menu control command.
-    ///
-    /// `0xFF` immediately followed by a VISCA address (`0x81..=0x88`) would
-    /// encode as an apparent second VISCA frame. Such a pair is rejected here
-    /// to match raw-frame admission before a command can be submitted.
-    pub fn new(control1: u8, control2: u8) -> Result<Self, Error> {
-        if control1 == crate::command::bytes::VISCA_TERMINATOR && (0x81..=0x88).contains(&control2)
-        {
-            return Err(Error::InvalidRequest(
-                "direct menu control cannot contain 0xFF followed by a VISCA address; it would encode as a second frame".into(),
-            ));
-        }
-
-        Ok(Self { control1, control2 })
-    }
-
-    /// Return the first direct-menu control byte.
+    /// Creates a direct-menu button command.
     #[must_use]
-    pub const fn control1(self) -> u8 {
-        self.control1
+    pub const fn new(target: DirectMenuTarget, button: MenuButton) -> Self {
+        Self { target, button }
     }
 
-    /// Return the second direct-menu control byte.
+    /// Returns the selected direct-menu target.
     #[must_use]
-    pub const fn control2(self) -> u8 {
-        self.control2
+    pub const fn target(self) -> DirectMenuTarget {
+        self.target
     }
 
-    /// Menu open/close toggle (FR7).
-    pub fn open_close() -> Self {
-        Self {
-            control1: 0x00,
-            control2: 0x01,
-        }
+    /// Returns the selected button state.
+    #[must_use]
+    pub const fn button(self) -> MenuButton {
+        self.button
+    }
+
+    /// Opens or closes the FR7 direct menu by pressing its ND control.
+    #[must_use]
+    pub const fn open_close() -> Self {
+        Self::new(DirectMenuTarget::NdFilter, MenuButton::Press)
     }
 }
 
@@ -319,7 +339,7 @@ mod tests {
     visca_test!(
         DirectMenuControl,
         test_direct_menu_control,
-        DirectMenuControl::new(0x00, 0x01).expect("valid direct menu control"),
+        DirectMenuControl::new(DirectMenuTarget::NdFilter, MenuButton::Press),
         &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0x01, VISCA_TERMINATOR]
     );
 
@@ -330,58 +350,40 @@ mod tests {
         &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0x01, VISCA_TERMINATOR]
     );
 
-    // Regression for #683: a 0xFF direct-menu control parameter is a data byte.
-    // The frame must still be terminated: `... 72 00 FF FF`, not `... 72 00 FF`.
-    visca_test!(
-        DirectMenuControl,
-        test_direct_menu_control_0xff_param_keeps_terminator,
-        DirectMenuControl::new(0x00, 0xFF).expect("0xFF data byte is valid"),
-        &[0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0xFF, VISCA_TERMINATOR]
-    );
-
     #[test]
-    fn direct_menu_rejects_an_apparent_second_visca_frame() {
-        for control2 in 0x81..=0x88 {
-            assert!(matches!(
-                DirectMenuControl::new(0xFF, control2),
-                Err(Error::InvalidRequest(_))
-            ));
-        }
-    }
-
-    /// Every accepted control pair, including a trailing `0xFF` data byte,
-    /// encodes to one terminated frame. The rejected `0xFF 0x81..=0x88`
-    /// sequences are the raw admission guard's apparent second frame.
-    #[test]
-    fn every_accepted_direct_menu_param_terminates() {
+    fn direct_menu_domains_round_trip_and_encode_exactly() {
         use crate::command::encode::WireEncode;
-
-        for control1 in [0x00u8, 0x7F, 0x80, 0xFF] {
-            for control2 in 0..=u8::MAX {
-                let command = DirectMenuControl::new(control1, control2);
-                if control1 == 0xFF && (0x81..=0x88).contains(&control2) {
-                    assert!(matches!(command, Err(Error::InvalidRequest(_))));
-                    continue;
+        for byte in 0..=u8::MAX {
+            let target = DirectMenuTarget::try_from(byte);
+            assert_eq!(target.is_ok(), matches!(byte, 0..=4 | 0x7F));
+            let button = MenuButton::try_from(byte);
+            assert_eq!(button.is_ok(), byte <= 1);
+            if let Ok(button) = button {
+                assert_eq!(u8::from(button), byte);
+            }
+            if let Ok(target) = target {
+                assert_eq!(u8::from(target), byte);
+                for button in [MenuButton::Release, MenuButton::Press] {
+                    let command = DirectMenuControl::new(target, button);
+                    let mut buffer = [0; 8];
+                    let len = command
+                        .write_into(crate::CameraId::CAMERA_1, &mut buffer)
+                        .unwrap();
+                    assert_eq!(len, 8);
+                    assert_eq!(
+                        buffer,
+                        [
+                            0x81,
+                            1,
+                            0x7E,
+                            4,
+                            0x72,
+                            byte,
+                            u8::from(button),
+                            VISCA_TERMINATOR
+                        ]
+                    );
                 }
-                let command = command.expect("all remaining control pairs are valid");
-                let mut buffer = [0u8; 32];
-                let len = command
-                    .write_into(crate::camera_id::CameraId::CAMERA_1, &mut buffer)
-                    .expect("direct menu control encodes into a 32-byte buffer");
-                assert_eq!(
-                    buffer[..len],
-                    [
-                        0x81,
-                        0x01,
-                        0x7E,
-                        0x04,
-                        0x72,
-                        control1,
-                        control2,
-                        VISCA_TERMINATOR
-                    ],
-                    "direct menu control1={control1:#x} control2={control2:#x} wire bytes"
-                );
             }
         }
     }

@@ -271,7 +271,7 @@ fn open_blocking(cam: &CamHw, transport: Transport) -> CameraSession<PtzOpticsG2
 /// The inquiry set, read once.
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Snapshot {
-    power_on: bool,
+    power_status: grafton_visca::PowerStatus,
     zoom: ZoomPosition,
     focus: FocusPosition,
     pan_tilt: PanTiltPosition,
@@ -286,7 +286,7 @@ impl Snapshot {
         let manual_focus =
             self.focus_mode == FocusMode::Manual && other.focus_mode == FocusMode::Manual;
         [
-            ("power", self.power_on != other.power_on),
+            ("power", self.power_status != other.power_status),
             ("zoom", self.zoom != other.zoom),
             ("pan_tilt", self.pan_tilt != other.pan_tilt),
             ("focus_mode", self.focus_mode != other.focus_mode),
@@ -351,7 +351,7 @@ fn read_blocking(
     latencies: &mut Vec<Duration>,
 ) -> Result<Snapshot, Error> {
     Ok(Snapshot {
-        power_on: timed(cam, "power", latencies, || camera.power().state())?,
+        power_status: timed(cam, "power", latencies, || camera.power().state())?,
         zoom: timed(cam, "zoom", latencies, || camera.zoom().position())?,
         focus: timed(cam, "focus", latencies, || camera.focus().position())?,
         pan_tilt: timed(cam, "pan_tilt", latencies, || camera.pan_tilt().position())?,
@@ -382,7 +382,7 @@ async fn read_async(
     latencies: &mut Vec<Duration>,
 ) -> Result<Snapshot, Error> {
     Ok(Snapshot {
-        power_on: timed_async(cam, "power", latencies, camera.power().state()).await?,
+        power_status: timed_async(cam, "power", latencies, camera.power().state()).await?,
         zoom: timed_async(cam, "zoom", latencies, camera.zoom().position()).await?,
         focus: timed_async(cam, "focus", latencies, camera.focus().position()).await?,
         pan_tilt: timed_async(cam, "pan_tilt", latencies, camera.pan_tilt().position()).await?,

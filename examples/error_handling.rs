@@ -16,7 +16,7 @@ use grafton_visca::{
     camera::{profiles::PtzOpticsG2, CameraConfig},
     runtime::TokioRuntime,
     transport::TransportConfig,
-    Error,
+    Error, Recovery,
 };
 
 use support::finish_session;
@@ -76,12 +76,16 @@ fn classify_common_errors() {
 
     println!("\nClassification:");
     for error in examples {
-        // `is_retryable` classifies the condition; `failure_context` says
-        // whether resubmitting the same request is safe.
+        let decision = match error.recovery() {
+            Recovery::Resubmit { after } => format!("submit again after {after:?}"),
+            Recovery::WaitAgain => "wait on the existing operation".into(),
+            Recovery::Reconcile => "inspect camera state before deciding".into(),
+            Recovery::ReopenSession => "open a new session".into(),
+            Recovery::Abandon => "do not retry automatically".into(),
+            _ => "inspect this future recovery verdict".into(),
+        };
         println!(
-            "  {error}: retryable={}, suggested_delay={:?}, context={:?}",
-            error.is_retryable(),
-            error.suggested_retry_delay(),
+            "  {error}: {decision}; context={:?}",
             error.failure_context()
         );
     }
@@ -104,10 +108,7 @@ async fn connect_and_query(address: &str) -> Result<(), Error> {
         Ok(session) => session,
         Err(error) => {
             println!("  Connection failed: {error}");
-            println!("  retryable={}", error.is_retryable());
-            if let Some(delay) = error.suggested_retry_delay() {
-                println!("  suggested retry delay: {delay:?}");
-            }
+            println!("  recovery={:?}", error.recovery());
             return Err(error);
         }
     };
@@ -115,10 +116,7 @@ async fn connect_and_query(address: &str) -> Result<(), Error> {
     let camera = session.camera();
     let inquiry_result = camera.power().state().await;
     match &inquiry_result {
-        Ok(is_on) => println!(
-            "  Connected. Power is {}.",
-            if *is_on { "on" } else { "off" }
-        ),
+        Ok(status) => println!("  Connected. Power status is {status:?}."),
         Err(error) => println!("  Connected, but power inquiry failed: {error}"),
     }
     let close_result = session.close().await;

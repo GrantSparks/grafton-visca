@@ -106,7 +106,10 @@ fn nearus_uses_the_brc300_frame_its_command_list_documents() {
         CoordinateSystem::SignedCentered
     );
     assert_eq!(NearusBRC300::PAN_RANGE, SonyBRC300::PAN_RANGE);
-    assert_eq!(NearusBRC300::TILT_RANGE, SonyBRC300::TILT_RANGE);
+    assert_eq!(
+        NearusBRC300::TILT_RANGES.range(None),
+        SonyBRC300::TILT_RANGES.range(None)
+    );
     assert_eq!(NearusBRC300::MAX_PAN_SPEED, 0x18);
     assert_eq!(NearusBRC300::MAX_TILT_SPEED, 0x18);
 }
@@ -127,6 +130,6 @@ fn real_profile_wire_facts_are_distinct() {
     );
     assert_eq!(SonyBRC300::PAN_RANGE.min(), -0x08A58);
     assert_eq!(SonyBRC300::PAN_RANGE.max(), 0x08A58);
-    assert_eq!(SonyBRC300::TILT_RANGE.min(), -0x186A);
-    assert_eq!(SonyBRC300::TILT_RANGE.max(), 0x493D);
+    assert_eq!(SonyBRC300::TILT_RANGES.range(None).min(), -0x186A);
+    assert_eq!(SonyBRC300::TILT_RANGES.range(None).max(), 0x493D);
 }

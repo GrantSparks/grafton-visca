@@ -5,8 +5,8 @@
 
 use crate::{
     command::bytes::{constants::gain, step_command_encoder},
+    macros::consolidated::visca_command,
     types::{GainLevel, GainLimit},
-    visca_command,
 };
 
 /// Commands for controlling gain values.

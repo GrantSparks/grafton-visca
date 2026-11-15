@@ -58,7 +58,7 @@ async fn read_and_move(camera: &Camera<PtzOpticsG2>) -> Result<(), Error> {
         power.state(),
     );
     report("zoom movement", movement)?;
-    println!("Power: {}", if power? { "on" } else { "off" });
+    println!("Power: {:?}", power?);
     Ok(())
 }
 

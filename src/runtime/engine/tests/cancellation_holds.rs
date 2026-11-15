@@ -4,7 +4,8 @@ use super::*;
 fn completion_only() -> RuntimeRequest {
     let mut request =
         command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly);
-    request.context_mut().timeout.completion = Duration::from_secs(5);
+    request.context_mut().timeout.completion =
+        NonZeroDuration::new(Duration::from_secs(5)).unwrap();
     request
 }
 
@@ -66,16 +67,34 @@ fn completion_only_unconfirmed_still_holds_all_responses() {
 }
 
 #[test]
-fn sending_completion_only_cancel_is_refused_when_write_lands() {
-    let now = Instant::now();
-    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let (write, id) = admit(&mut engine, 1, completion_only(), now);
-    engine.handle(Input::Cancel { id }, now);
-    let result = send_ok(&mut engine, &write, None, now);
-    assert!(refused(&result, id));
-    assert_eq!(engine.entry(id).unwrap().cancellation(), CancelState::None);
-    assert!(!engine.entry(id).unwrap().cancellation_observation_open());
-    engine.assert_invariants().unwrap();
+fn sending_command_cannot_record_cancellation_intent() {
+    for shape in [
+        ReplyShape::AckThenCompletion,
+        ReplyShape::CompletionOnly,
+        ReplyShape::NoReply,
+    ] {
+        let now = Instant::now();
+        let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+        let (write, id) = admit(
+            &mut engine,
+            1,
+            command_with_reply_shape(1, CancellationPolicy::Supported, shape),
+            now,
+        );
+        assert!(engine.assert_input_boundary().is_err());
+        let mut effects = Decision::new();
+        assert!(matches!(
+            engine.cancel(id, now, &mut effects),
+            Err(Error::NotSupported)
+        ));
+        assert!(!effects
+            .as_slice()
+            .iter()
+            .any(|effect| matches!(effect, Effect::CancellationRecorded { .. })));
+        assert!(!engine.entry(id).unwrap().cancellation_observation_open());
+        send_ok(&mut engine, &write, None, now);
+        assert!(engine.assert_input_boundary().is_ok());
+    }
 }
 
 #[test]
@@ -127,11 +146,14 @@ fn unconfirmed_cancel_write_failure_and_resolution_expiry_retain_future_socket_h
         let (transmission, _, _) = cancel_transmit(&cancel);
         engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission,
                 result: if success {
-                    Ok(TransmissionMeta { sequence: None })
+                    WriteOutcome::Sent(TransmissionMeta::for_sequence(None))
                 } else {
-                    Err(Error::TransportError("cancel write failed".into()))
+                    WriteOutcome::Failed(Error::transport_error(std::io::Error::other(
+                        "cancel write failed",
+                    )))
                 },
             },
             now,

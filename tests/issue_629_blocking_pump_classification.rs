@@ -121,7 +121,10 @@ fn connection_reset_during_settlement_polling_classifies_as_session_death() {
     let Error::ConnectionClosed { reason, .. } = source.as_ref() else {
         panic!("settlement must report the session close, got {error:?}");
     };
-    assert!(!error.is_retryable());
+    assert!(!matches!(
+        error.recovery(),
+        grafton_visca::Recovery::Resubmit { .. }
+    ));
     let context = error
         .failure_context()
         .expect("applied move observation context");
@@ -166,7 +169,9 @@ fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
         ],
         Some((
             4,
-            Error::TransportError("public settlement retry write failed".into()),
+            Error::transport_error(std::io::Error::other(
+                "public settlement retry write failed",
+            )),
         )),
     );
     let session = Session::open(serial_stream_wire(&fake), config).expect("owner session");
@@ -192,12 +197,30 @@ fn stream_retry_write_failure_during_settlement_is_not_reported_as_timeout() {
     let Error::SettlementObservationFailed { source, .. } = &error else {
         panic!("settlement must preserve its inquiry cause, got {error:?}");
     };
+    let inquiry = source.as_ref();
+    let Error::InquiryFailed { source, .. } = inquiry else {
+        panic!("settlement must retain the failed polling inquiry, got {error:?}");
+    };
     let Error::StreamPoisoned { reason, .. } = source.as_ref() else {
         panic!("settlement must report stream poison, got {error:?}");
     };
+    let context = inquiry.failure_context().expect("terminal inquiry context");
+    assert_eq!(context.stage, FailureStage::Terminal);
+    assert_eq!(context.certainty, Certainty::FailedConclusively);
+    assert!(inquiry.requires_new_session());
+    let inquiry_cause = std::error::Error::source(&error)
+        .expect("the settlement exposes its polling inquiry in the source chain");
+    assert_eq!(inquiry_cause.to_string(), inquiry.to_string());
+    assert_eq!(
+        inquiry_cause
+            .source()
+            .expect("the inquiry exposes its terminal stream cause")
+            .to_string(),
+        source.to_string(),
+    );
     assert!(reason.contains("public settlement retry write failed"));
     assert!(error.requires_new_session());
-    assert!(!error.is_retryable());
+    assert_eq!(error.recovery(), grafton_visca::Recovery::ReopenSession);
     let context = error
         .failure_context()
         .expect("applied move observation context");

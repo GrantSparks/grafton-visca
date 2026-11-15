@@ -22,6 +22,22 @@ use fake_camera::FakeCamera;
 #[derive(Clone, Copy, Debug)]
 struct ThreadExecutor;
 
+struct ThreadTimer(async_io::Timer);
+
+impl Future for ThreadTimer {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, context: &mut std::task::Context<'_>) -> std::task::Poll<()> {
+        Pin::new(&mut self.get_mut().0).poll(context).map(|_| ())
+    }
+}
+
+impl grafton_visca::ResettableTimer for ThreadTimer {
+    fn reset(self: Pin<&mut Self>, deadline: std::time::Instant) {
+        self.get_mut().0.set_at(deadline);
+    }
+}
+
 impl Executor for ThreadExecutor {
     type Join<T>
         = Pin<Box<dyn Future<Output = std::result::Result<T, ExecError>> + Send + 'static>>
@@ -29,6 +45,12 @@ impl Executor for ThreadExecutor {
         T: Send + 'static;
 
     type Detach = ();
+
+    type Timer = ThreadTimer;
+
+    fn timer(&self, deadline: std::time::Instant) -> Self::Timer {
+        ThreadTimer(async_io::Timer::at(deadline))
+    }
 
     fn spawn_with_detach<F>(&self, future: F) -> (Self::Join<F::Output>, Self::Detach)
     where

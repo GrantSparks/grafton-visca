@@ -1,7 +1,11 @@
 //! Inert values crossing the deterministic protocol-engine boundary.
 use crate::target::{PerTarget, TargetSlot};
 
-use std::{num::NonZeroU64, sync::Arc, time::Duration};
+use std::{
+    num::NonZeroU64,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use smallvec::SmallVec;
 
@@ -15,33 +19,18 @@ pub(crate) const MAX_SEQUENCE_HISTORY: usize = 8;
 
 /// Scheduler work permitted when an external-input turn is completed.
 ///
-/// Both owner shells use these same three boundaries. A complete turn runs
-/// deadlines, pending cancellation work, and one ordinary dispatch. A
-/// deadline-only turn withholds that final dispatch while an exact request is
-/// reconsidered. An input-only turn preserves retained wire
-/// evidence ahead of every deadline at the same sampled instant.
+/// Both owner shells use these two boundaries. A complete turn runs deadlines,
+/// pending cancellation, and one ordinary dispatch. An input-only turn retains
+/// wire evidence ahead of deadlines at the same sampled instant.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct EngineTurn {
-    run_due: bool,
-    dispatch: bool,
+pub(crate) enum EngineTurn {
+    Complete,
+    InputOnly,
 }
 
 impl EngineTurn {
-    pub(crate) const COMPLETE: Self = Self {
-        run_due: true,
-        dispatch: true,
-    };
-    pub(crate) const INPUT_ONLY: Self = Self {
-        run_due: false,
-        dispatch: false,
-    };
-
     pub(super) const fn runs_due(self) -> bool {
-        self.run_due
-    }
-
-    pub(super) const fn allows_dispatch(self) -> bool {
-        self.dispatch
+        matches!(self, Self::Complete)
     }
 }
 
@@ -53,6 +42,7 @@ pub(crate) struct EncodedMessage {
 
 impl EncodedMessage {
     /// Copies validated, terminated VISCA bytes into reusable inert storage.
+    #[cfg(test)]
     pub(crate) fn new(bytes: &[u8]) -> Result<Self, Error> {
         if bytes.len() > MAX_BYTES {
             return Err(Error::ResponseTooLarge {
@@ -67,6 +57,33 @@ impl EncodedMessage {
         Ok(Self {
             bytes: SmallVec::from_slice(bytes),
         })
+    }
+
+    /// Writes directly into bounded inert storage, retaining a large frame's
+    /// one allocation instead of copying it into a second buffer.
+    pub(crate) fn encode(
+        capacity: usize,
+        write: impl FnOnce(&mut [u8]) -> Result<usize, Error>,
+    ) -> Result<Self, Error> {
+        if capacity > MAX_BYTES {
+            return Err(Error::InvalidRequest(
+                "encoded VISCA storage exceeds raw::MAX_BYTES".into(),
+            ));
+        }
+        let mut bytes = SmallVec::from_elem(0, capacity);
+        let written = write(&mut bytes)?;
+        if written > capacity {
+            return Err(Error::InvalidRequest(
+                "encoder returned a length beyond its supplied buffer".into(),
+            ));
+        }
+        bytes.truncate(written);
+        if bytes.last().copied() != Some(0xff) {
+            return Err(Error::InvalidRequest(
+                "encoded VISCA message must end in 0xff".into(),
+            ));
+        }
+        Ok(Self { bytes })
     }
 
     /// Returns the inert wire bytes.
@@ -95,6 +112,10 @@ impl std::fmt::Debug for EncodedMessage {
 pub(crate) struct RequestId(NonZeroU64);
 
 impl RequestId {
+    pub(crate) const fn as_nonzero(self) -> NonZeroU64 {
+        self.0
+    }
+
     pub(crate) const fn get(self) -> u64 {
         self.0.get()
     }
@@ -125,26 +146,9 @@ impl TransmissionId {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct AdmissionTicket(pub(crate) u64);
 
-/// Immutable lifetime generation used by every derived engine index.
+/// Immutable lifetime generation used by retained stream-ledger evidence.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct GenerationTicket(pub(crate) u64);
-
-/// Lazy-deletion ticket for one exact ready-queue insertion.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(crate) struct QueueTicket {
-    pub(crate) request: RequestId,
-    pub(crate) generation: GenerationTicket,
-    pub(crate) queue_generation: u64,
-}
-
-/// Classifies an inquiry for parsed-content routing.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) struct InquiryRoute(pub(crate) u16);
-
-impl InquiryRoute {
-    /// A parser could not classify the response content.
-    pub(crate) const UNKNOWN: Self = Self(0);
-}
 
 /// Public request semantics lower to this private scheduling classification.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -213,26 +217,95 @@ pub(crate) enum ReplyShape {
     NoReply,
 }
 
-/// All scheduler deadlines for one request class.
+/// A strictly positive interval. Absolute representability is checked against
+/// the owner's sampled clock when a policy or request crosses the engine boundary.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct NonZeroDuration(Duration);
+
+impl NonZeroDuration {
+    pub(crate) fn new(duration: Duration) -> Result<Self, Error> {
+        if duration.is_zero() {
+            return Err(Error::InvalidRequest(
+                "engine timeout durations must be non-zero".into(),
+            ));
+        }
+        Ok(Self(duration))
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn from_millis(milliseconds: NonZeroU64) -> Self {
+        Self(Duration::from_millis(milliseconds.get()))
+    }
+
+    pub(crate) const fn get(self) -> Duration {
+        self.0
+    }
+}
+
+/// All scheduler deadlines for one request class. Zero ambiguity, including
+/// when a virtual clock lands exactly on the ACK deadline, is unrepresentable.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct TimeoutPolicy {
-    pub(crate) ack: Duration,
-    pub(crate) completion: Duration,
-    pub(crate) inquiry: Duration,
-    pub(crate) cancellation: Duration,
-    pub(crate) ambiguity: Duration,
+    pub(crate) ack: NonZeroDuration,
+    pub(crate) completion: NonZeroDuration,
+    pub(crate) inquiry: NonZeroDuration,
+    pub(crate) cancellation: NonZeroDuration,
+    pub(crate) ambiguity: NonZeroDuration,
+}
+
+impl TimeoutPolicy {
+    pub(crate) fn new(
+        ack: Duration,
+        completion: Duration,
+        inquiry: Duration,
+        cancellation: Duration,
+        ambiguity: Duration,
+    ) -> Result<Self, Error> {
+        Ok(Self {
+            ack: NonZeroDuration::new(ack)?,
+            completion: NonZeroDuration::new(completion)?,
+            inquiry: NonZeroDuration::new(inquiry)?,
+            cancellation: NonZeroDuration::new(cancellation)?,
+            ambiguity: NonZeroDuration::new(ambiguity)?,
+        })
+    }
+
+    pub(crate) fn validate_at(self, now: Instant) -> Result<(), Error> {
+        for duration in [
+            self.ack,
+            self.completion,
+            self.inquiry,
+            self.cancellation,
+            self.ambiguity,
+        ] {
+            crate::timeout::validate_duration_at(now, duration.get())?;
+        }
+        for duration in [
+            duration_sum(self.ack.get(), self.completion.get())?,
+            duration_sum(self.cancellation.get(), self.ambiguity.get())?,
+        ] {
+            crate::timeout::validate_duration_at(now, duration)?;
+        }
+        Ok(())
+    }
 }
 
 impl Default for TimeoutPolicy {
     fn default() -> Self {
         Self {
-            ack: Duration::from_millis(500),
-            completion: Duration::from_secs(5),
-            inquiry: Duration::from_secs(1),
-            cancellation: Duration::from_secs(1),
-            ambiguity: Duration::from_secs(1),
+            ack: NonZeroDuration(Duration::from_millis(500)),
+            completion: NonZeroDuration(Duration::from_secs(5)),
+            inquiry: NonZeroDuration(Duration::from_secs(1)),
+            cancellation: NonZeroDuration(Duration::from_secs(1)),
+            ambiguity: NonZeroDuration(Duration::from_secs(1)),
         }
     }
+}
+
+fn duration_sum(left: Duration, right: Duration) -> Result<Duration, Error> {
+    left.checked_add(right).ok_or_else(|| {
+        Error::InvalidRequest("engine deadline interval sum is unrepresentable".into())
+    })
 }
 
 /// Context-sensitive bounded retry rules, completely decided before admission.
@@ -241,7 +314,7 @@ pub(crate) struct RetryPolicy {
     pub(crate) max_retries: u32,
     pub(crate) initial_backoff: Duration,
     pub(crate) maximum_backoff: Duration,
-    pub(crate) total_budget: Duration,
+    pub(crate) total_budget: Option<NonZeroDuration>,
     pub(crate) ack_timeout: bool,
     pub(crate) completion_timeout: bool,
     pub(crate) inquiry_timeout: bool,
@@ -251,6 +324,21 @@ pub(crate) struct RetryPolicy {
 }
 
 impl RetryPolicy {
+    pub(crate) fn validate_at(self, now: Instant) -> Result<(), Error> {
+        if self.initial_backoff > self.maximum_backoff {
+            return Err(Error::InvalidRequest(
+                "engine retry backoffs must be ordered".into(),
+            ));
+        }
+        for duration in [self.initial_backoff, self.maximum_backoff] {
+            crate::timeout::validate_duration_at(now, duration)?;
+        }
+        if let Some(budget) = self.total_budget {
+            crate::timeout::validate_duration_at(now, budget.get())?;
+        }
+        Ok(())
+    }
+
     // A fixed no-retry policy for the engine and owner test fixtures;
     // production requests always carry a prepared retry policy (#636).
     #[cfg(test)]
@@ -258,7 +346,7 @@ impl RetryPolicy {
         max_retries: 0,
         initial_backoff: Duration::ZERO,
         maximum_backoff: Duration::ZERO,
-        total_budget: Duration::ZERO,
+        total_budget: None,
         ack_timeout: false,
         completion_timeout: false,
         inquiry_timeout: false,
@@ -278,115 +366,69 @@ pub(crate) struct MotionEffect {
 /// Every immutable protocol policy carried by an admitted request.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct RequestContext {
+    /// FR7 speeds above 24 require session-confirmed Extended step mode at dispatch.
+    pub(crate) requires_extended_pan_tilt_speed: bool,
     pub(crate) motion: Option<MotionEffect>,
     /// Assigned under the owner ingress lock, independently of engine admission.
     pub(crate) submission_order: u64,
     /// Absolute last instant before which an owner-halt STOP may begin a write.
-    pub(crate) dispatch_deadline: Option<std::time::Instant>,
+    pub(crate) dispatch_deadline: Option<Instant>,
     pub(crate) target: TargetSlot,
     pub(crate) timeout: TimeoutPolicy,
     pub(crate) retry: RetryPolicy,
     pub(crate) control: ControlPolicy,
     pub(crate) cancellation: CancellationPolicy,
-    /// The reply protocol this command declared. Inquiry preparation admits
-    /// only the default shape because inquiries always await a reply; commands
-    /// honor their declared shape in the lifecycle state machine.
-    pub(crate) reply_shape: ReplyShape,
 }
 
-/// Maximum number of scalar values carried by one applied-state effect.
-pub(crate) const MAX_APPLIED_STATE_VALUES: usize = 4;
-
-/// Bounded, inline value storage for a known state replacement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct AppliedStateValue {
-    pub(crate) values: [i64; MAX_APPLIED_STATE_VALUES],
-    pub(crate) value_count: u8,
-}
-
-impl AppliedStateValue {
-    pub(crate) fn new(values: &[i64]) -> Result<Self, Error> {
-        if values.len() > MAX_APPLIED_STATE_VALUES {
-            return Err(Error::InvalidRequest(
-                "applied-state projection accepts at most four values".into(),
-            ));
+impl RequestContext {
+    /// Checks the completed per-request policy at its actual admission instant,
+    /// without reading another clock or revalidating the session's tuning.
+    pub(crate) fn validate_at(self, now: Instant) -> Result<(), Error> {
+        self.timeout.validate_at(now)?;
+        self.retry.validate_at(now)?;
+        crate::timeout::validate_duration_at(now, self.control.minimum_spacing)?;
+        let attempt = duration_sum(self.timeout.ack.get(), self.timeout.completion.get())?;
+        let cancellation = duration_sum(
+            self.timeout.cancellation.get(),
+            self.timeout.ambiguity.get(),
+        )?;
+        let window = attempt
+            .max(cancellation)
+            .max(self.timeout.inquiry.get())
+            .max(self.retry.maximum_backoff);
+        if let Some(budget) = self.retry.total_budget {
+            crate::timeout::validate_duration_at(now, duration_sum(budget.get(), window)?)?;
         }
-        let mut stored = [0; MAX_APPLIED_STATE_VALUES];
-        stored[..values.len()].copy_from_slice(values);
-        Ok(Self {
-            values: stored,
-            value_count: values.len() as u8,
-        })
+        Ok(())
     }
 }
 
-/// Closed action model for one write-only state key.
+/// Closed, inline effect on one write-only key.
 ///
-/// The engine carries this inert value across the lifecycle boundary and
-/// emits it only when the exact request reaches [`RuntimeOutcome::Applied`].
-/// `Clear` is deliberately distinct from `Invalidate`: the former records a
-/// known absence while the latter records that the state can no longer be
-/// trusted.
+/// Known values imply their key. A cleared limit is a typed known update,
+/// whereas invalidation explicitly records that the key can no longer be trusted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AppliedStateProjection {
-    /// Replace the key with a bounded known value.
-    Set {
-        key: StateKey,
-        value: AppliedStateValue,
-    },
-    /// Record a known absence for the key.
-    Clear {
-        key: StateKey,
-        /// Bounded discriminator naming what the clear is local to: a pan/tilt
-        /// limit clear names the corner it clears, exactly as a limit set does.
-        value: AppliedStateValue,
-    },
-    /// Record that the key's value is unknown.
+    Set(crate::state_cache::KnownState),
     Invalidate { key: StateKey },
 }
 
 impl AppliedStateProjection {
-    pub(crate) fn set(key: StateKey, values: &[i64]) -> Result<Self, Error> {
-        Ok(Self::Set {
-            key,
-            value: AppliedStateValue::new(values)?,
-        })
+    pub(crate) const fn set(value: crate::state_cache::KnownState) -> Self {
+        Self::Set(value)
     }
-
-    // A value-less clear for engine tests; production preparation builds every
-    // clear with its discriminator through `clear_with_values`.
-    #[cfg(test)]
-    pub(crate) const fn clear(key: StateKey) -> Self {
-        Self::Clear {
-            key,
-            value: AppliedStateValue {
-                values: [0; MAX_APPLIED_STATE_VALUES],
-                value_count: 0,
-            },
-        }
-    }
-
-    pub(crate) fn clear_with_values(key: StateKey, values: &[i64]) -> Result<Self, Error> {
-        Ok(Self::Clear {
-            key,
-            value: AppliedStateValue::new(values)?,
-        })
-    }
-
     pub(crate) const fn invalidate(key: StateKey) -> Self {
         Self::Invalidate { key }
     }
-
-    pub(crate) const fn state(self) -> StateKey {
+    pub(crate) const fn key(self) -> StateKey {
         match self {
-            Self::Set { key, .. } | Self::Clear { key, .. } | Self::Invalidate { key } => key,
+            Self::Set(value) => value.key(),
+            Self::Invalidate { key } => key,
         }
     }
-
-    /// Whether the effect leaves the state known; read by `runtime::owner::tests`.
     #[cfg(test)]
     pub(crate) const fn is_known(self) -> bool {
-        matches!(self, Self::Set { .. } | Self::Clear { .. })
+        matches!(self, Self::Set(_))
     }
 }
 
@@ -409,12 +451,13 @@ pub(crate) enum RuntimeRequest {
     Command {
         wire: Arc<EncodedMessage>,
         context: RequestContext,
+        reply_shape: ReplyShape,
         applied_state: Option<AppliedStateProjection>,
     },
     Inquiry {
         wire: Arc<EncodedMessage>,
         context: RequestContext,
-        route: InquiryRoute,
+        payload_shape: crate::PayloadShape,
     },
 }
 
@@ -437,6 +480,13 @@ impl RuntimeRequest {
         }
     }
 
+    pub(crate) const fn payload_shape(&self) -> Option<crate::PayloadShape> {
+        match self {
+            Self::Inquiry { payload_shape, .. } => Some(*payload_shape),
+            Self::Command { .. } => None,
+        }
+    }
+
     pub(crate) const fn is_inquiry(&self) -> bool {
         matches!(self, Self::Inquiry { .. })
     }
@@ -446,13 +496,6 @@ impl RuntimeRequest {
         match self {
             Self::Command { .. } => Lane::Command,
             Self::Inquiry { .. } => Lane::Inquiry,
-        }
-    }
-
-    pub(crate) const fn inquiry_route(&self) -> Option<InquiryRoute> {
-        match self {
-            Self::Inquiry { route, .. } => Some(*route),
-            Self::Command { .. } => None,
         }
     }
 
@@ -513,10 +556,10 @@ pub(crate) enum AdmissionSlot {
 }
 
 /// Session-wide scheduling policy.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct ProtocolPolicy {
     pub(crate) capacity: usize,
-    pub(crate) envelope: EnvelopeKind,
+    pub(crate) wire: super::WireProtocol,
     pub(crate) transport: TransportKind,
     pub(crate) inquiry_capacity: usize,
     pub(crate) command_spacing: Duration,
@@ -544,16 +587,34 @@ pub(crate) struct ProtocolPolicy {
     pub(crate) strict_unconfirmed_poison: bool,
 }
 
+impl ProtocolPolicy {
+    pub(crate) fn validate_at(&self, now: Instant) -> Result<(), Error> {
+        for duration in [
+            self.command_spacing,
+            self.inquiry_spacing,
+            self.inquiry_cooldown,
+            self.raw_inquiry_release_hold,
+            self.raw_release_grace,
+        ] {
+            crate::timeout::validate_duration_at(now, duration)?;
+        }
+        crate::timeout::validate_duration_at(
+            now,
+            duration_sum(self.raw_inquiry_release_hold, self.raw_release_grace)?,
+        )
+    }
+}
+
 #[cfg(test)]
 impl ProtocolPolicy {
     /// Shared test fixture: a raw datagram policy with capacity 16, inquiry
     /// capacity 8, no command or inquiry spacing, a 25 ms inquiry cooldown and
     /// non-strict recovery. Tests override fields
     /// with `..ProtocolPolicy::test_default()`.
-    pub(crate) const fn test_default() -> Self {
+    pub(crate) fn test_default() -> Self {
         Self {
             capacity: 16,
-            envelope: EnvelopeKind::Raw,
+            wire: super::WireProtocol::new(EnvelopeKind::Raw, crate::transport::AddressingMode::Ip),
             transport: TransportKind::Datagram,
             inquiry_capacity: 8,
             command_spacing: Duration::ZERO,
@@ -595,7 +656,6 @@ pub(crate) enum DecodedResponse {
         socket: Option<ViscaSocket>,
     },
     InquiryReply {
-        route: Option<InquiryRoute>,
         payload: SmallVec<[u8; INLINE_BYTES]>,
     },
     Error {
@@ -746,7 +806,7 @@ pub(crate) enum RawReleaseGateAction {
     /// The release may advance and ordinary scheduling may resume.
     Advance,
     /// Keep the old correlation scope alive and await input until this instant.
-    AwaitInputUntil(std::time::Instant),
+    AwaitInputUntil(Instant),
     /// Discard the first retained raw fragment, record it, and classify again.
     DiscardFirst,
 }
@@ -761,8 +821,45 @@ pub(crate) struct DecodedFrame {
 
 /// Metadata returned by a successful exact transport write.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct TransmissionMeta {
-    pub(crate) sequence: Option<u32>,
+pub(crate) enum TransmissionMeta {
+    Raw,
+    Sony { sequence: u32 },
+}
+
+impl TransmissionMeta {
+    pub(crate) const fn sequence(self) -> Option<u32> {
+        match self {
+            Self::Raw => None,
+            Self::Sony { sequence } => Some(sequence),
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn for_sequence(sequence: Option<u32>) -> Self {
+        match sequence {
+            None => Self::Raw,
+            Some(sequence) => Self::Sony { sequence },
+        }
+    }
+}
+
+pub(crate) use crate::transport::envelope::SonyRequestSequence;
+
+/// Correlation expectation derived from one bound write plan.
+/// Raw VISCA has no Sony sequence axis; Sony preserves its exact retry intent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RequestFraming {
+    Raw,
+    Sony { sequence: SonyRequestSequence },
+}
+
+/// The transport boundary classifies refusal before I/O separately from a
+/// send whose bytes may have reached the camera.
+#[derive(Debug)]
+pub(crate) enum WriteOutcome {
+    NotSent(Error),
+    Sent(TransmissionMeta),
+    Failed(Error),
 }
 
 /// One exact write requested by the engine.
@@ -771,18 +868,14 @@ pub(crate) enum Transmission {
     Request {
         target: TargetSlot,
         wire: Arc<EncodedMessage>,
-        /// `None` asks the envelope to allocate a sequence for the first
-        /// logical transmission (or for a request whose first write never
-        /// succeeded).  A retry carries the request's last successful Sony
-        /// sequence so the exact logical message is replayed byte-for-byte.
-        requested_sequence: Option<u32>,
+        framing: super::WriteFraming,
+        lane: Lane,
+        requires_extended_pan_tilt_speed: bool,
     },
     Cancel {
         target: TargetSlot,
         socket: ViscaSocket,
-        /// Cancellation is a separate logical message and therefore always
-        /// asks Sony framing for a fresh sequence.
-        requested_sequence: Option<u32>,
+        framing: super::WriteFraming,
     },
 }
 
@@ -790,10 +883,10 @@ pub(crate) enum Transmission {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum IgnoreReason {
     UnknownRequest,
-    StaleQueueTicket,
     StaleTransmission,
     IncompatibleTransmissionResult,
     MalformedFrame,
+    ReplyShapeMismatch,
     UnmatchedFrame,
     UnmatchedSequencedFrame,
     TargetIncompatibleSequence,
@@ -830,10 +923,6 @@ pub(crate) enum RuntimeOutcome {
     Written,
     Applied,
     Reply {
-        /// The route the reply frame was decoded with; `None` when it was
-        /// correlated without one. Only the protocol trace tests read it.
-        #[cfg(test)]
-        route: Option<InquiryRoute>,
         payload: SmallVec<[u8; INLINE_BYTES]>,
     },
     Cancelled,
@@ -867,6 +956,9 @@ pub(crate) enum SessionState {
 }
 
 /// Ordered boundary inputs to the pure state machine.
+// Admission owns the complete bounded request. Keep this synchronous engine
+// input inline instead of allocating every admitted request for enum size.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug)]
 pub(crate) enum Input {
     Admit {
@@ -875,8 +967,9 @@ pub(crate) enum Input {
         slot: AdmissionSlot,
     },
     TransmissionFinished {
+        request: RequestId,
         transmission: TransmissionId,
-        result: Result<TransmissionMeta, Error>,
+        result: WriteOutcome,
     },
     Frame(DecodedFrame),
     #[cfg(test)]
@@ -908,42 +1001,39 @@ pub(crate) enum Input {
 /// The engine stores only `Lifecycle`; this is never a parallel authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Phase {
-    Ready {
-        ticket: QueueTicket,
-    },
+    Ready,
     Sending {
         transmission: TransmissionId,
-        started_at: std::time::Instant,
+        started_at: Instant,
     },
     AwaitingAck {
-        sent_at: std::time::Instant,
-        deadline: std::time::Instant,
+        sent_at: Instant,
+        deadline: Instant,
     },
     /// A completion-only raw command that was sent but never acknowledged, so it
     /// owns no socket. It awaits its completion frame under the completion
     /// deadline and, unlike [`Self::AwaitingAck`], has no ACK-timeout path.
     AwaitingCompletion {
-        sent_at: std::time::Instant,
-        deadline: std::time::Instant,
+        sent_at: Instant,
+        deadline: Instant,
     },
     Executing {
         socket: ViscaSocket,
-        started_at: std::time::Instant,
-        deadline: std::time::Instant,
+        started_at: Instant,
+        deadline: Instant,
     },
     AwaitingReply {
-        sent_at: std::time::Instant,
-        deadline: std::time::Instant,
+        sent_at: Instant,
+        deadline: Instant,
     },
     Backoff {
-        ready_at: std::time::Instant,
-        queue_generation: u64,
+        ready_at: Instant,
     },
     /// A socket-owned command whose emitted cancellation is awaiting a
     /// conclusive terminal response.
     AwaitingCancellationResolution {
         socket: ViscaSocket,
-        deadline: std::time::Instant,
+        deadline: Instant,
     },
 }
 
@@ -954,20 +1044,20 @@ pub(crate) enum Phase {
 pub(crate) enum CancelState {
     None,
     Requested {
-        ambiguity_deadline: std::time::Instant,
+        ambiguity_deadline: Instant,
     },
     Sending {
         transmission: TransmissionId,
         socket: ViscaSocket,
-        ambiguity_deadline: std::time::Instant,
+        ambiguity_deadline: Instant,
     },
     AwaitingTerminal {
-        ambiguity_deadline: std::time::Instant,
-        observation_deadline: std::time::Instant,
+        ambiguity_deadline: Instant,
+        observation_deadline: Instant,
     },
     ObservationFailed {
         socket: ViscaSocket,
-        ambiguity_deadline: std::time::Instant,
+        ambiguity_deadline: Instant,
     },
 }
 
@@ -995,7 +1085,7 @@ pub(crate) enum Effect {
     RetryScheduled {
         id: RequestId,
         attempt: u32,
-        ready_at: std::time::Instant,
+        ready_at: Instant,
     },
     /// One of a request's own protocol deadlines expired.
     ///
@@ -1041,4 +1131,119 @@ pub(crate) struct AppliedStateEffect {
 /// Returns the stream ledger's fixed memory bound, or refuses arithmetic overflow.
 pub(crate) const fn checked_stream_ledger_bound(admissible: usize) -> Option<usize> {
     super::stream_ledger::checked_max_entries_per_target(admissible)
+}
+
+#[cfg(test)]
+mod duration_proof_tests {
+    use super::*;
+
+    fn context(timeout: TimeoutPolicy, retry: RetryPolicy) -> RequestContext {
+        RequestContext {
+            requires_extended_pan_tilt_speed: false,
+            motion: None,
+            submission_order: 0,
+            dispatch_deadline: None,
+            target: TargetSlot::CAMERA_1,
+            timeout,
+            retry,
+            control: ControlPolicy::default(),
+            cancellation: CancellationPolicy::Supported,
+        }
+    }
+
+    #[test]
+    fn every_protocol_timeout_is_nonzero_by_construction() {
+        assert!(NonZeroDuration::new(Duration::ZERO).is_err());
+        for index in 0..5 {
+            let mut values = [Duration::from_secs(1); 5];
+            values[index] = Duration::ZERO;
+            assert!(
+                TimeoutPolicy::new(values[0], values[1], values[2], values[3], values[4]).is_err()
+            );
+        }
+        assert!(RetryPolicy::NEVER.total_budget.is_none());
+    }
+
+    #[test]
+    fn derived_long_profile_timings_are_not_capped_like_configured_overrides() -> Result<(), Error>
+    {
+        let now = Instant::now();
+        let hours = |value: u64| Duration::from_secs(value * 60 * 60);
+        let timeout = TimeoutPolicy::new(
+            Duration::from_secs(1),
+            hours(2),
+            hours(2),
+            Duration::from_secs(1),
+            Duration::from_secs(1),
+        )?;
+        let retry = RetryPolicy {
+            initial_backoff: hours(2),
+            maximum_backoff: hours(4),
+            total_budget: Some(NonZeroDuration::new(hours(4))?),
+            ..RetryPolicy::NEVER
+        };
+        context(timeout, retry).validate_at(now)?;
+        Ok(())
+    }
+
+    #[test]
+    fn context_refuses_unrepresentable_individual_and_composed_windows() -> Result<(), Error> {
+        let now = Instant::now();
+        let timeout = TimeoutPolicy {
+            ambiguity: NonZeroDuration::new(Duration::MAX)?,
+            ..TimeoutPolicy::default()
+        };
+        assert!(timeout.validate_at(now).is_err());
+        let mut request = context(TimeoutPolicy::default(), RetryPolicy::NEVER);
+        request.control.minimum_spacing = Duration::MAX;
+        assert!(request.validate_at(now).is_err());
+        request.control.minimum_spacing = Duration::ZERO;
+        request.retry.maximum_backoff = Duration::MAX;
+        assert!(request.validate_at(now).is_err());
+        request.retry.maximum_backoff = Duration::ZERO;
+        request.retry.total_budget = Some(NonZeroDuration::new(Duration::MAX)?);
+        assert!(request.validate_at(now).is_err());
+
+        let span = crate::timeout::saturating_deadline(now, Duration::MAX).duration_since(now);
+        let half = span / 2 + Duration::from_nanos(1);
+        assert!(now.checked_add(half).is_some());
+        let nanos = Duration::from_nanos(1);
+        let timeout = TimeoutPolicy::new(half, half, nanos, nanos, nanos)?;
+        assert!(
+            timeout.validate_at(now).is_err(),
+            "representable components can overflow as an attempt"
+        );
+        let timeout = TimeoutPolicy::new(nanos, nanos, nanos, nanos, nanos)?;
+        timeout.validate_at(now)?;
+        let retry = RetryPolicy {
+            total_budget: Some(NonZeroDuration::new(span - nanos)?),
+            ..RetryPolicy::NEVER
+        };
+        retry.validate_at(now)?;
+        assert!(
+            context(timeout, retry).validate_at(now).is_err(),
+            "the complete queued-attempt window must fit"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn session_intervals_are_validated_without_forbidding_zero_pacing() -> Result<(), Error> {
+        let now = Instant::now();
+        let setters: [fn(&mut ProtocolPolicy, Duration); 5] = [
+            |policy, value| policy.command_spacing = value,
+            |policy, value| policy.inquiry_spacing = value,
+            |policy, value| policy.inquiry_cooldown = value,
+            |policy, value| policy.raw_inquiry_release_hold = value,
+            |policy, value| policy.raw_release_grace = value,
+        ];
+        for set in setters {
+            let mut policy = ProtocolPolicy::test_default();
+            set(&mut policy, Duration::MAX);
+            assert!(policy.validate_at(now).is_err());
+            set(&mut policy, Duration::ZERO);
+            policy.validate_at(now)?;
+        }
+        Ok(())
+    }
 }

@@ -33,7 +33,7 @@ use std::borrow::Cow;
 /// let buf = ParamBuf::<8>::try_from_slice(&data)?;
 /// ```
 #[derive(Debug, Clone, Copy)]
-pub struct ParamBuf<const N: usize> {
+pub(crate) struct ParamBuf<const N: usize> {
     buf: [u8; N],
     len: usize,
 }
@@ -72,18 +72,6 @@ impl<const N: usize> ParamBuf<N> {
     pub fn as_slice(&self) -> &[u8] {
         &self.buf[..self.len]
     }
-
-    /// Whether the parameter buffer contains no bytes.
-    #[inline]
-    pub fn is_empty(&self) -> bool {
-        self.len == 0
-    }
-
-    /// Get the length of the parameter bytes.
-    #[inline]
-    pub fn len(&self) -> usize {
-        self.len
-    }
 }
 
 impl<const N: usize> TryFrom<&[u8]> for ParamBuf<N> {
@@ -114,7 +102,7 @@ impl<const N: usize> TryFrom<Vec<u8>> for ParamBuf<N> {
 ///
 /// For variable-length data, use the checked `ParamBuf::try_from_slice`
 /// or `TryFrom` implementations instead.
-pub trait IntoParamBuf<const N: usize> {
+pub(crate) trait IntoParamBuf<const N: usize> {
     /// Encode the value into a ParamBuf.
     fn encode_param(self) -> ParamBuf<N>;
 }
@@ -156,7 +144,7 @@ mod tests {
     fn test_parambuf_try_from_slice_valid() {
         let data = [0x01, 0x02, 0x03];
         let buf = ParamBuf::<4>::try_from_slice(&data).expect("should create from slice");
-        assert_eq!(buf.len(), 3);
+        assert_eq!(buf.as_slice().len(), 3);
         assert_eq!(buf.as_slice(), &[0x01, 0x02, 0x03]);
     }
 
@@ -164,7 +152,7 @@ mod tests {
     fn test_parambuf_try_from_slice_exact_size() {
         let data = [0x01, 0x02, 0x03, 0x04];
         let buf = ParamBuf::<4>::try_from_slice(&data).expect("should create from slice");
-        assert_eq!(buf.len(), 4);
+        assert_eq!(buf.as_slice().len(), 4);
         assert_eq!(buf.as_slice(), &[0x01, 0x02, 0x03, 0x04]);
     }
 
@@ -180,7 +168,7 @@ mod tests {
     fn test_parambuf_try_from_vec() {
         let data = vec![0x01, 0x02, 0x03];
         let buf: ParamBuf<4> = data.try_into().expect("should create from vec");
-        assert_eq!(buf.len(), 3);
+        assert_eq!(buf.as_slice().len(), 3);
     }
 
     #[test]
@@ -193,14 +181,14 @@ mod tests {
     #[test]
     fn test_u8_encode_param() {
         let buf: ParamBuf<1> = 0x42u8.encode_param();
-        assert_eq!(buf.len(), 1);
+        assert_eq!(buf.as_slice().len(), 1);
         assert_eq!(buf.as_slice(), &[0x42]);
     }
 
     #[test]
     fn test_array_encode_param() {
         let buf: ParamBuf<4> = [0x01, 0x02, 0x03, 0x04].encode_param();
-        assert_eq!(buf.len(), 4);
+        assert_eq!(buf.as_slice().len(), 4);
         assert_eq!(buf.as_slice(), &[0x01, 0x02, 0x03, 0x04]);
     }
 
@@ -209,7 +197,7 @@ mod tests {
         let original =
             ParamBuf::<4>::try_from_slice(&[0x01, 0x02]).expect("should create from slice");
         let buf: ParamBuf<4> = original.encode_param();
-        assert_eq!(buf.len(), 2);
+        assert_eq!(buf.as_slice().len(), 2);
         assert_eq!(buf.as_slice(), &[0x01, 0x02]);
     }
 }

@@ -1,7 +1,7 @@
 use grafton_visca::{
     command::{ImageFreeze, Response, ResponseParser, VISCA_TERMINATOR},
     request::{Inquiry as InquiryClass, Plain as PlainClass},
-    CameraId, ControlClass, Error, Inquiry, InquiryRoute, PlainCommand, Request, ResponseDecoder,
+    CameraId, ControlClass, Error, Inquiry, PlainCommand, Request, ResponseDecoder,
     RetryClass, TimeoutClass,
 };
 
@@ -54,9 +54,6 @@ impl Request for VendorStatusInquiry {
 impl Inquiry for VendorStatusInquiry {
     type Response = u8;
 
-    fn route(&self) -> InquiryRoute {
-        InquiryRoute::RAW
-    }
 
     fn decoder(&self) -> ResponseDecoder<Self::Response> {
         ResponseDecoder::from_fn(|payload| {
@@ -103,7 +100,6 @@ fn main() {
         .write_into(CameraId::CAMERA_1, &mut inquiry_buffer)
         .unwrap();
     assert_eq!(inquiry_len, VendorStatusInquiry::MAX_SIZE);
-    assert_eq!(VendorStatusInquiry.route(), InquiryRoute::RAW);
     let payload = <VendorStatusInquiry as Inquiry>::decoder(&VendorStatusInquiry)
         .decode(&[0x7f])
         .unwrap();

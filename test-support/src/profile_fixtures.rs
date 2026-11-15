@@ -68,8 +68,10 @@ macro_rules! synthetic_profile_impl {
         synthetic_profile_default!($default, $profile);
 
         impl ProfileMetadata for $profile {
+            const SUPPORTS_COMMAND_CANCEL: bool = true;
+
             const MODEL_NAME: &'static str = $model;
-            const DEFAULT_CAMERA_ID: u8 = 1;
+            const DEFAULT_CAMERA_ID: grafton_visca::IndividualCameraId = grafton_visca::IndividualCameraId::new(1).expect("individual profile default");
             type Envelope = RawVisca;
             const ACK_TIMEOUT: Duration = Duration::from_millis(100);
             const COMMAND_TIMEOUTS: CommandTimeouts = synthetic_command_timeouts!($($command_timeouts)?);
@@ -78,7 +80,7 @@ macro_rules! synthetic_profile_impl {
 
         impl PanTilt for $profile {
             const PAN_RANGE: CapabilityRange<i32> = CapabilityRange::<i32>::new(-1700, 1700);
-            const TILT_RANGE: CapabilityRange<i32> = CapabilityRange::<i32>::new(-300, 900);
+            const TILT_RANGES: grafton_visca::capabilities::TiltRanges = grafton_visca::capabilities::TiltRanges::Single(CapabilityRange::<i32>::new(-300, 900));
             const MAX_PAN_SPEED: u8 = 24;
             const MAX_TILT_SPEED: u8 = 20;
             const PAN_DEGREES_TO_UNITS: f32 = 10.0;
@@ -86,6 +88,8 @@ macro_rules! synthetic_profile_impl {
         }
 
         impl Zoom for $profile {
+            const SUPPORTS_VARIABLE_ZOOM: bool = true;
+
             const OPTICAL_ZOOM_MAX: u16 = 0x4000;
             const DIGITAL_ZOOM_MAX: Option<u16> = Some(0x7000);
             const ZOOM_SPEED_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 7);
@@ -94,8 +98,12 @@ macro_rules! synthetic_profile_impl {
         }
 
         impl Focus for $profile {
-            const FOCUS_NEAR_LIMIT: u16 = 0x1000;
-            const FOCUS_FAR_LIMIT: u16 = 0xF000;
+            const SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool = true;
+
+            const MAX_FOCUS_SPEED: u8 = 7;
+
+            const FOCUS_RANGE: grafton_visca::capabilities::CapabilityRange<u16> = grafton_visca::capabilities::CapabilityRange::<u16>::new(0x1000, 0xF000);
+    const FOCUS_NEAR_END: grafton_visca::capabilities::FocusNearEnd = grafton_visca::capabilities::FocusNearEnd::Minimum;
             const SUPPORTS_AUTO_FOCUS: bool = true;
             const SUPPORTS_ONE_PUSH_FOCUS: bool = true;
             const FOCUS_ZONES: &'static [FocusZone] =
@@ -107,7 +115,7 @@ macro_rules! synthetic_profile_impl {
             const EXPOSURE_MODES: &'static [ExposureMode] = EXPOSURE_MODES;
             const IRIS_RANGE: Option<CapabilityDomain<u16>> = None;
             const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry] = SHUTTER_SPEEDS;
-            const GAIN_RANGE: CapabilityRange<u8> = CapabilityRange::<u8>::new(0, 15);
+            const GAIN_RANGE: Option<grafton_visca::capabilities::CapabilityRange<u8>> = Some(CapabilityRange::<u8>::new(0, 15));
             const SUPPORTS_BACKLIGHT_COMP: bool = false;
         }
 
@@ -192,6 +200,20 @@ synthetic_profile!(
     TypedSupportSet::from_surface(TypedSupportSurface::DirectZoom)
 );
 
+// Explicit caller-owned combined zoom facts for protocol/noun tests. This is
+// a custom profile (no built-in identity), not a claim about a Sony model.
+synthetic_profile!(
+    CombinedZoomTypedSupport,
+    "Explicit Combined Zoom Fixture",
+    TypedSupportSet::from_surfaces(&[
+        TypedSupportSurface::DirectZoom,
+        TypedSupportSurface::DigitalZoomRange,
+    ])
+);
+impl MotionSyncMetadata for CombinedZoomTypedSupport {}
+impl HasDirectZoom for CombinedZoomTypedSupport {}
+impl capabilities::HasDigitalZoomRange for CombinedZoomTypedSupport {}
+
 synthetic_profile!(
     NonDefaultCompileTimeProfile,
     "Non-Default Compile-Time Profile",
@@ -263,7 +285,6 @@ synthetic_profile!(
         TypedSupportSurface::HueControl,
         TypedSupportSurface::ImageFlip,
         TypedSupportSurface::IrisControl,
-        TypedSupportSurface::IrisControlInquiry,
         TypedSupportSurface::LuminanceControl,
         TypedSupportSurface::MotionSync,
         TypedSupportSurface::NdFilter,
@@ -275,6 +296,7 @@ synthetic_profile!(
         TypedSupportSurface::RgbTuning,
         TypedSupportSurface::SaturationControl,
         TypedSupportSurface::SharpnessControl,
+        TypedSupportSurface::SharpnessMode,
         TypedSupportSurface::Tally,
         TypedSupportSurface::WideDynamicRange,
     ])
@@ -315,7 +337,6 @@ impl capabilities::HasGammaControl for OptionalSurfacesTypedSupport {}
 impl capabilities::HasHueControl for OptionalSurfacesTypedSupport {}
 impl capabilities::HasImageFlip for OptionalSurfacesTypedSupport {}
 impl capabilities::HasIrisControl for OptionalSurfacesTypedSupport {}
-impl capabilities::HasIrisControlInquiry for OptionalSurfacesTypedSupport {}
 impl capabilities::HasLuminanceControl for OptionalSurfacesTypedSupport {}
 impl capabilities::HasMotionSync for OptionalSurfacesTypedSupport {}
 impl capabilities::HasNdFilter for OptionalSurfacesTypedSupport {}
@@ -327,6 +348,7 @@ impl capabilities::HasRgbGain for OptionalSurfacesTypedSupport {}
 impl capabilities::HasRgbTuning for OptionalSurfacesTypedSupport {}
 impl capabilities::HasSaturationControl for OptionalSurfacesTypedSupport {}
 impl capabilities::HasSharpnessControl for OptionalSurfacesTypedSupport {}
+impl capabilities::HasSharpnessMode for OptionalSurfacesTypedSupport {}
 impl capabilities::HasTally for OptionalSurfacesTypedSupport {}
 impl capabilities::HasWideDynamicRange for OptionalSurfacesTypedSupport {}
 impl capabilities::HasImageProcessing for OptionalSurfacesTypedSupport {}

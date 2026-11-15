@@ -30,16 +30,23 @@ const PREFERRED_TILT_STOP_SPEED: u8 = 10;
 /// Returns an error when the profile's declared speed range cannot produce a
 /// valid speed field.
 pub(crate) fn pan_tilt_stop_request(profile: &ProfileSpec) -> Result<PanTiltStop> {
-    let capabilities = profile.capabilities();
-    let pan_value = if capabilities.pan_speed.contains(&PREFERRED_PAN_STOP_SPEED) {
+    let capabilities =
+        profile
+            .capabilities()
+            .pan_tilt
+            .as_ref()
+            .ok_or(crate::Error::FeatureNotSupported {
+                feature: "pan/tilt",
+            })?;
+    let pan_value = if capabilities.pan_speed.contains(PREFERRED_PAN_STOP_SPEED) {
         PREFERRED_PAN_STOP_SPEED
     } else {
-        *capabilities.pan_speed.start()
+        capabilities.pan_speed.min()
     };
-    let tilt_value = if capabilities.tilt_speed.contains(&PREFERRED_TILT_STOP_SPEED) {
+    let tilt_value = if capabilities.tilt_speed.contains(PREFERRED_TILT_STOP_SPEED) {
         PREFERRED_TILT_STOP_SPEED
     } else {
-        *capabilities.tilt_speed.start()
+        capabilities.tilt_speed.min()
     };
     Ok(PanTiltStop::new(
         PanSpeed::new(pan_value)?,

@@ -2,8 +2,9 @@
 
 This is the release-candidate preservation baseline. It records behavior that
 the 2.0 architecture must retain. The supported-surface inventory test checks
-the closed lists below against the current registry and source; an intentional
-change must update the implementation, this inventory, and that test together.
+the marked closed lists below against the current registry and production
+source. An intentional surface change must update the implementation and this
+inventory together.
 
 Caller-visible differences from 1.x are recorded in
 [`migration_2_0.md`](migration_2_0.md).
@@ -34,7 +35,10 @@ Every profile retains the baseline profile facets `ProfileMetadata`,
 Standard transport gates are `SupportsTcp`, `SupportsUdp`, and
 `SupportsSerial`.
 
-The optional typed gates are exactly: `DirectZoom`, `DigitalZoomToggle`,
+The optional typed gates are exactly the following closed list:
+
+<!-- BEGIN OPTIONAL TYPED GATES -->
+`DirectZoom`, `DigitalZoomToggle`,
 `DigitalZoomRange`, `IrisControl`, `OnePushFocus`, `PtzOpticsSnapFocus`,
 `FocusLock`, `PushAutoFocus`, `FocusZone`, `AutoFocusSensitivity`,
 `FocusNearLimitInquiry`, `BacklightCompensation`, `WideDynamicRange`,
@@ -48,18 +52,33 @@ The optional typed gates are exactly: `DirectZoom`, `DigitalZoomToggle`,
 `PtzOpticsAntiFlicker`, `PtzOpticsSettingsSave`,
 `PtzOpticsPresetRecallSpeed`, `SonySpotlight`, `SonyAutoSlowShutter`,
 `PtzOpticsMulticastStreaming`, `PtzOpticsNdiQuality`, `ExposureMode`,
-`IrisControlInquiry`, `NoiseReduction2DControl`,
-`NoiseReduction3DControl`, `ImageFreeze`, `DefogLevel`, `TallyBrightness`,
-`PtzOpticsTally`, and `VersionInquiry`. The generated profile registry remains
+`NoiseReduction2DControl`,
+`NoiseReduction3DControl`, `ImageFreeze`, `TallyBrightness`,
+`PtzOpticsTally`, `VersionInquiry`, `ColorTemperatureInquiry`, `NoiseReduction2DMode`,
+`SonyFr7AeLevel`, `SonyFr7AutoGain`, `SonyFr7AutoShutter`, `SonyFr7Iris`,
+`SonyFr7WhiteBalance`, `SonyFr7PresetWhite`, `SonyFr7MemoryColorTemperature`,
+`SonyFr7MemoryGain`, `SonyFr7MemoryTint`, `SonyFr7AtwOffsets`, `SonyFr7Black`,
+`SonyFr7Detail`, `SonyFr7Knee`, `SonyFr7HighResolutionZoom`,
+`SonyFr7ClearImageZoom`, `SonyFr7PresetSpeed`, `SonyFr7PresetDuration`, and
+`SharpnessMode`.
+<!-- END OPTIONAL TYPED GATES -->
+
+The generated profile registry remains
 the single source for marker implementations and runtime discovery facts.
 
 ## Static nouns and controls
 
-The noun inventory is `PowerAccessor`, `ZoomAccessor`, `SystemAccessor`,
+The noun inventory is:
+
+<!-- BEGIN STATIC NOUNS -->
+`PowerAccessor`, `ZoomAccessor`, `SystemAccessor`,
 `PanTiltAccessor`, `FocusAccessor`, `ExposureAccessor`,
 `WhiteBalanceAccessor`, `ImageAccessor`, `PresetsAccessor`, `TallyAccessor`,
 `NdFilterAccessor`, `MotionSyncAccessor`, `MenuAccessor`, and
-`AdvancedAccessor`, plus the `MotionAccessor`. Blocking and async use the same
+`AdvancedAccessor`, plus the `MotionAccessor`.
+<!-- END STATIC NOUNS -->
+
+Blocking and async use the same
 noun names with mode-native return types. The authoritative method inventory is
 the closed semantic ledger and the generated static noun surface; profile-gated
 methods require their corresponding `Has*` marker. Runtime rows require both a
@@ -67,6 +86,11 @@ typed noun-header marker and the row's refining marker, so dynamic tally
 refinements cannot bypass `HasTally` (#855).
 In particular, `ExposureAccessor::mode` and `ExposureAccessor::set_mode` use
 `HasExposureMode` rather than inheriting broad `HasExposure` permission.
+Sony FR7 has separate sourced families for relative iris movement, white
+balance, image settings, high-resolution zoom and preset speed/duration;
+their `HasSonyFr7*` markers do not grant the shared VISCA counterparts.
+`HasSharpnessControl` covers level/step operations; the independent
+`HasSharpnessMode` covers auto/manual mode and its inquiry.
 
 ## Dynamic controls
 
@@ -86,7 +110,7 @@ methods and typed inquiry methods, with the same semantic classes. Dynamic
 projection erases profile and request types only; it does not introduce
 another runtime, owner, cancellation, deadline, outcome, or settling policy. Because it carries no compile-time
 marker bounds, it reproduces the static surface's capability gates at runtime
-through `validate_for_profile`, admitting exactly the operations the static
+through `validate_for_target`, admitting exactly the operations the static
 `<noun>()` accessor could name — including the base-domain inquiries, which are
 gated on the same base marker as their noun accessor. Both gates are derived
 from the same noun-table row, so the erased and static gates cannot drift.
@@ -121,10 +145,25 @@ Internal
 implementation-only feature flags are omitted from this public inventory.
 
 The supported downstream derives are `ViscaInquiry`, `ViscaEnum`, and
-`ViscaValue`. Stable test utilities are `Step`, `helpers`,
-`ScriptedBlockingTransport`, `ScriptedTransport`, `DeterministicExecutor`,
-`DeterministicClock`, `DeterministicExecutorExt`, `TestExecutorSelector`,
-`TestExecutorType`, `TestExecutors`, and the Tokio `ViscaCameraSimulator`.
+`ViscaValue`. Stable test utilities are:
+
+<!-- BEGIN STABLE TEST UTILITIES -->
+| Public utility | Feature condition |
+| --- | --- |
+| `Step` | `test-utils` |
+| `helpers` | `test-utils` |
+| `ScriptedBlockingTransport` | `test-utils,blocking` |
+| `ScriptedTransport` | `test-utils,async` |
+| `ManualClock` | `test-utils,blocking` or `test-utils,async` |
+| `ClockParticipant` | `test-utils,blocking` or `test-utils,async` |
+| `ClockJoinHandle` | `test-utils,blocking` or `test-utils,async` |
+| `ManualClockExecutor` | `test-utils,async` |
+| `ManualClockTimer` | `test-utils,async` |
+| `LocalExecutor` | `test-utils,async` |
+| `TaskJoin` | `test-utils,async` |
+| `ViscaCameraSimulator` | `test-utils,runtime-tokio` |
+<!-- END STABLE TEST UTILITIES -->
+
 The simulator can be constructed without a runtime; sending and receiving
 require Tokio with time enabled. Its fixed-seed timing/loss options schedule
 addressed datagram replies, with per-camera socket cancellation and no polling
@@ -134,8 +173,8 @@ The preserved extension semantics are custom command encoding, typed and raw
 inquiry decoding, caller-owned blocking/async transports, raw/protocol command
 and inquiry escape hatches, custom profiles with typed capability gates, and
 runtime-neutral executor integration. The final 2.0 generic request surface is
-on the profile-bound `Camera` view (async `Camera<P>` or blocking
-`Camera<'_, P>`): `execute` for plain commands, `inquire` for inquiries, and
+on the profile-bound `Camera<P>` view in either facade: `execute` for plain
+commands, `inquire` for inquiries, and
 `submit` for typed operations. `with_submission_class` derives one camera view
 whose complete request/noun surface uses the selected ordinary-work
 `SubmissionClass`. A `CameraSession<P>` is the

@@ -34,68 +34,65 @@ macro_rules! format {
 }
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
-#[visca(opcode = 0x00, response = Power, parser = Bool)]
+#[visca(opcode = 0x00, response = Power)]
 struct StrictBoolInquiry;
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
-#[visca(opcode = 0x01, response = GainLimit, parser = DirectByte)]
+#[visca(opcode = 0x01, response = GainLimit)]
 struct StrictDirectByteInquiry;
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
-#[visca(opcode = 0x02, response = NoiseReduction2D, parser = Byte)]
+#[visca(opcode = 0x02, response = NoiseReduction2D)]
 struct StrictByteInquiry;
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
-#[visca(opcode = 0x03, response = FlipState, parser = Flags)]
+#[visca(opcode = 0x03, response = FlipState)]
 struct StrictFlagsInquiry;
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
 #[visca(
     opcode = 0x04,
-    response = ExposureMode,
-    parser = Mode,
-    value_type = ExposureMode
+    response = ExposureMode
 )]
 struct StrictModeInquiry;
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
-#[visca(opcode = 0x05, response = TallyStatus, parser = TallyStatus)]
+#[visca(opcode = 0x05, response = TallyRed)]
 struct StrictTallyInquiry;
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
-#[visca(opcode = 0x06, response = SharpnessMode, parser = SharpnessMode)]
+#[visca(opcode = 0x06, response = SharpnessMode)]
 struct StrictSharpnessInquiry;
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
-#[visca(opcode = 0x07, response = Gamma, parser = Gamma)]
+#[visca(opcode = 0x07, response = Gamma)]
 struct StrictGammaInquiry;
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
 #[visca(
     opcode = 0x08,
-    response = AutoWhiteBalanceSensitivity,
-    parser = AutoWbSensitivity
+    response = AutoWhiteBalanceSensitivity
 )]
 struct StrictAwbInquiry;
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
-#[visca(opcode = 0x09, response = ZoomPosition, parser = Position)]
+#[visca(opcode = 0x09, response = ZoomPosition)]
 struct StrictPositionInquiry;
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
 #[visca(
     opcode = 0x0A,
-    response = Iris,
-    parser = ExtendedNibble,
-    field = position
+    response = Iris
 )]
 struct StrictExtendedInquiry;
 
 #[test]
-fn generated_parser_selectors_use_the_canonical_wire_lengths() {
+fn canonical_decoders_require_exact_wire_lengths() {
     assert!(matches!(
         StrictBoolInquiry.parse_response(&[0x02]),
-        ::core::result::Result::Ok(InquiryData::Power { on: true })
+        ::core::result::Result::Ok(InquiryData::Power {
+            status: grafton_visca::PowerStatus::On
+        })
     ));
     assert!(StrictBoolInquiry.parse_response(&[0x02, 0x00]).is_err());
 
@@ -124,10 +121,8 @@ fn generated_parser_selectors_use_the_canonical_wire_lengths() {
     ));
     assert!(StrictModeInquiry.parse_response(&[0x00, 0x00]).is_err());
 
-    assert!(StrictTallyInquiry.parse_response(&[0x03, 0x02]).is_ok());
-    assert!(StrictTallyInquiry
-        .parse_response(&[0x03, 0x02, 0x00])
-        .is_err());
+    assert!(StrictTallyInquiry.parse_response(&[0x02]).is_ok());
+    assert!(StrictTallyInquiry.parse_response(&[0x02, 0x00]).is_err());
 
     assert!(StrictSharpnessInquiry.parse_response(&[0x02]).is_ok());
     assert!(StrictSharpnessInquiry
@@ -142,7 +137,7 @@ fn generated_parser_selectors_use_the_canonical_wire_lengths() {
 }
 
 #[test]
-fn generated_nibble_templates_reject_bad_nibbles_and_trailing_bytes() {
+fn canonical_nibble_decoders_reject_bad_nibbles_and_trailing_bytes() {
     assert!(StrictPositionInquiry
         .parse_response(&[0x00, 0x01, 0x02, 0x03])
         .is_ok());
@@ -153,10 +148,14 @@ fn generated_nibble_templates_reject_bad_nibbles_and_trailing_bytes() {
         .parse_response(&[0x00, 0x01, 0x02, 0x03, 0x00])
         .is_err());
 
-    assert!(StrictExtendedInquiry.parse_response(&[0x00, 0x05]).is_ok());
-    assert!(StrictExtendedInquiry.parse_response(&[0x10, 0x05]).is_err());
     assert!(StrictExtendedInquiry
-        .parse_response(&[0x00, 0x05, 0x00])
+        .parse_response(&[0x00, 0x00, 0x00, 0x05])
+        .is_ok());
+    assert!(StrictExtendedInquiry
+        .parse_response(&[0x00, 0x00, 0x10, 0x05])
+        .is_err());
+    assert!(StrictExtendedInquiry
+        .parse_response(&[0x00, 0x00, 0x00, 0x05, 0x00])
         .is_err());
 }
 

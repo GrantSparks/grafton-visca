@@ -30,11 +30,9 @@
 //!   its `submit` returns the typed blocking handle the matrix already covers.
 
 #![cfg(any(
-    feature = "blocking",
-    all(
-        feature = "async",
-        any(feature = "runtime-tokio", feature = "runtime-smol")
-    )
+    all(feature = "blocking", feature = "test-utils"),
+    feature = "runtime-tokio",
+    feature = "runtime-smol"
 ))]
 #![allow(clippy::expect_used)]
 
@@ -42,19 +40,27 @@ use grafton_visca_test_support::{facade_matrix, fake_camera, profile_fixtures};
 
 use std::{
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use grafton_visca::{
-    completion::{AppliedOnly, Targeted},
+    completion::AppliedOnly,
     profile::ProfileSpec,
-    request::builtin::{PanTiltHome, ZoomDrive, ZoomStop},
-    CancellationOutcome, Certainty, Error, FailureContext, FailureStage, SessionConfig,
+    request::builtin::{ZoomDrive, ZoomStop},
+    CancellationOutcome, Error, SessionConfig,
 };
+
+#[cfg(any(feature = "runtime-tokio", feature = "test-utils", feature = "dyn-api"))]
+use grafton_visca::request::builtin::PanTiltHome;
+#[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
+use grafton_visca::{completion::Targeted, Certainty, FailureContext, FailureStage};
+#[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
+use std::time::Instant;
 
 use fake_camera::{frames, FakeCamera, WAIT_BUDGET, ZOOM_STOP, ZOOM_TELE};
 use profile_fixtures::NonDefaultCompileTimeProfile as Raw;
 
+#[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
 const PAN_TILT_HOME: &[u8] = &[0x81, 0x01, 0x06, 0x04, 0xff];
 const CANCEL_SOCKET_ONE: &[u8] = &[0x81, 0x21, 0xff];
 const PAN_TILT_POSITION_INQUIRY: &[u8] = &[0x81, 0x09, 0x06, 0x12, 0xff];
@@ -73,10 +79,13 @@ struct PositionReplies {
 /// The switch that makes the scripted camera answer position inquiries.
 #[derive(Debug)]
 struct Positions {
+    #[cfg(any(feature = "runtime-tokio", feature = "test-utils", feature = "dyn-api"))]
     camera: FakeCamera,
+    #[cfg(any(feature = "runtime-tokio", feature = "test-utils", feature = "dyn-api"))]
     replies: Arc<Mutex<PositionReplies>>,
 }
 
+#[cfg(any(feature = "runtime-tokio", feature = "test-utils", feature = "dyn-api"))]
 impl Positions {
     /// Answers every position inquiry from now on, including those already
     /// written and unanswered.
@@ -111,7 +120,9 @@ fn scripted_camera() -> (FakeCamera, Positions) {
         }
     });
     let positions = Positions {
+        #[cfg(any(feature = "runtime-tokio", feature = "test-utils", feature = "dyn-api"))]
         camera: camera.clone(),
+        #[cfg(any(feature = "runtime-tokio", feature = "test-utils", feature = "dyn-api"))]
         replies,
     };
     (camera, positions)
@@ -122,6 +133,7 @@ fn config() -> SessionConfig {
 }
 
 /// Writes other than position inquiries.
+#[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
 fn commands(camera: &FakeCamera) -> Vec<Vec<u8>> {
     camera
         .writes()
@@ -137,6 +149,7 @@ fn debug<T: std::fmt::Debug>(value: &T) -> String {
 /// Admits a continuous zoom and acknowledges it on socket one, so the
 /// operation is written, accepted, and still running. Expands inside a
 /// `facade_matrix!` body.
+#[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
 macro_rules! running_zoom {
     ($session:expr, $camera:expr) => {{
         let view = $session.camera::<Raw>().expect("raw camera");
@@ -167,7 +180,7 @@ facade_matrix! {
         let expired = wait!(moving.applied_with_timeout(SHORT))
             .expect_err("nothing concluded the zoom");
         assert!(matches!(expired, Error::ObservationTimeout { operation, .. } if operation == id));
-        assert!(!expired.is_retryable());
+        assert!(!matches!(expired.recovery(), grafton_visca::Recovery::Resubmit { .. }));
         camera.push(frames::complete(1));
         wait!(moving.applied()).expect("the handle observes the completion");
         wait!(moving.applied_with_timeout(Duration::ZERO))
@@ -360,8 +373,8 @@ facade_matrix! {
             "{failed:?}"
         );
         let again = wait!(moving.cancel()).expect_err("the failure is cached");
-        assert!(!failed.is_retryable());
-        assert!(!again.is_retryable());
+        assert!(!matches!(failed.recovery(), grafton_visca::Recovery::Resubmit { .. }));
+        assert!(!matches!(again.recovery(), grafton_visca::Recovery::Resubmit { .. }));
         assert_eq!(again.failure_context(), failed.failure_context());
         assert_eq!(
             camera.writes(),
@@ -383,17 +396,17 @@ facade_matrix! {
     fn a_failed_cancel_write_is_nonretryable_and_keeps_its_source() {
         let camera = FakeCamera::new(|write, answer| {
             if write == CANCEL_SOCKET_ONE {
-                answer.fail_send(Error::TransportError("cancel send failed".into()));
+                answer.fail_send(Error::transport_error(std::io::Error::other("cancel send failed")));
             }
         });
         let session = open!(camera, config()).expect("owner session");
         let mut moving = running_zoom!(session, camera);
         let first = wait!(moving.cancel()).expect_err("cancel write fails");
-        assert!(!first.is_retryable());
+        assert!(!matches!(first.recovery(), grafton_visca::Recovery::Resubmit { .. }));
         let source = std::error::Error::source(&first).expect("transport source retained");
         assert!(source.to_string().contains("cancel send failed"));
         let again = wait!(moving.cancel()).expect_err("cached cancellation failure");
-        assert!(!again.is_retryable());
+        assert!(!matches!(again.recovery(), grafton_visca::Recovery::Resubmit { .. }));
         assert_eq!(debug(&first), debug(&again));
         assert_eq!(camera.writes(), vec![ZOOM_TELE.to_vec(), CANCEL_SOCKET_ONE.to_vec()]);
         assert!(matches!(wait!(moving.applied_with_timeout(SHORT)),
@@ -530,7 +543,10 @@ mod async_facade {
             .await
             .expect_err("nothing concluded the zoom");
         assert!(matches!(expired, Error::ObservationTimeout { operation, .. } if operation == id));
-        assert!(!expired.is_retryable());
+        assert!(!matches!(
+            expired.recovery(),
+            grafton_visca::Recovery::Resubmit { .. }
+        ));
         let lost = future::or(async { Some(moving.applied().await) }, async {
             executor.sleep(SHORT).await;
             None

@@ -1,0 +1,54 @@
+# Variant	Production source	Unique construction expression (literal contents ignored)
+ConnectionFailed	src/transport/connect.rs	Error::connection_failed(endpoint.to_owned(), std::sync::Arc::new(error))
+ConnectionClosed	src/error.rs	Self::ConnectionClosed { reason }
+CommandPending	src/command/response/types.rs	Response::CmdAck { .. } => Err(Error::CommandPending)
+InvalidResponse	src/command/response/types.rs	Response::Unknown { data, .. } => Err(Error::InvalidResponse {
+FeatureNotSupported	src/prepared.rs	crate::capabilities::InquirySupport::None ) { return Err(Error::FeatureNotSupported {
+Io	src/error.rs	Self::Io(Arc::new(err))
+SyntaxError	src/error.rs	0x02 => Self::SyntaxError,
+CommandBufferFull	src/error.rs	0x03 => Self::CommandBufferFull,
+CommandCanceled	src/error.rs	0x04 => Self::CommandCanceled,
+NoSocket	src/error.rs	0x05 => Self::NoSocket,
+CommandNotExecutable	src/error.rs	0x41 => Self::CommandNotExecutable,
+InvalidResponseFormat	src/command/response/payload.rs	let Some(padding) = N.checked_sub(digits) else { return Err(Error::InvalidResponseFormat);
+InvalidResponseLength	src/error.rs	Self::InvalidResponseLength { expected, actual: payload.len(),
+UnexpectedResponseType	src/command/inquiry_structs.rs	_ => Err(Error::UnexpectedResponseType),
+Unknown	src/error.rs	_ => Self::Unknown(code),
+InvalidRequest	src/raw.rs	const fn urgent_control_class_error() -> Error { Error::InvalidRequest(Cow::Borrowed(
+MessageLengthError	src/error.rs	0x01 => Self::MessageLengthError,
+ParseError	src/error.rs	Self::ParseError(Cow::Owned(err.to_string()))
+TransportError	src/error.rs	Self::TransportError { source: Arc::new(source), }
+InvalidParameter	src/units.rs	if !value.is_finite() { return Err(Error::InvalidParameter {
+BufferTooSmall	src/command/bytes/frame.rs	Err(Error::buffer_too_small(frame.len, frame.buffer.len()))
+ParameterOutOfRange	src/error.rs	Self::ParameterOutOfRange { parameter, value, min, max, }
+Timeout	src/runtime/engine/mod.rs	Error::timeout(FailureStage::Terminal, terminal_certainty(entry))
+MotionSuperseded	src/runtime/engine/mod.rs	RuntimeOutcome::Failed(Error::MotionSuperseded { axes, context: superseded_context(effect_possible), }), &mut effects,
+SettlementSuperseded	src/runtime/owner/motion.rs	let error = Error::SettlementSuperseded
+SettlementObservationFailed	src/runtime/owner/mod.rs	Error::SettlementObservationFailed {
+CancellationObservationFailed	src/error.rs	Self::CancellationObservationFailed { source: Box::new(source), }
+ObservationTimeout	src/runtime/owner/mod.rs	Error::ObservationTimeout {
+ControlReserveExhausted	src/runtime/owner/mod.rs	return Err(Error::ControlReserveExhausted {
+MaxRetriesExceeded	src/transport/serial/handshake.rs	self.fail(Error::MaxRetriesExceeded);
+NotSupported	src/runtime/owner/adapter.rs	if config.addressing == AddressingMode::Ip && profiles.len() > 1 { return Err(Error::NotSupported);
+InvalidState	src/runtime/owner/blocking.rs	return Err(Error::InvalidState(format!("blocking owner worker cannot call {call} on its own session").into(),));
+OwnerTerminated	src/runtime/owner/boundary.rs	fn missing_terminal_error() -> Error { Error::OwnerTerminated }
+DiagnosticSubscriberLimit	src/runtime/owner/mod.rs	return Err(Error::DiagnosticSubscriberLimit {
+RuntimeShutdown	src/runtime/engine/mod.rs	self.terminate_session(SessionState::Shutdown, Error::RuntimeShutdown, effects)
+CancellationUnconfirmed	src/runtime/engine/mod.rs	RuntimeOutcome::Failed(Error::CancellationUnconfirmed)
+UnsequencedCommandUnconfirmed	src/runtime/engine/mod.rs	self.finish( id, RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed), effects, )
+InquiryCorrelationLost	src/runtime/engine/mod.rs	return Some(Error::inquiry_correlation_lost(target.camera()));
+CommandCorrelationLost	src/runtime/engine/mod.rs	.then(|| Error::command_correlation_lost(target.camera()))
+CommandFailedAfterAck	src/runtime/engine/mod.rs	RuntimeOutcome::Failed(Error::command_failed_after_ack(error))
+RuntimeIdentityExhausted	src/runtime/engine/mod.rs	let Some(id) = self.allocate_request_id() else { effects.push(Effect::AdmissionRejected { ticket, error: Error::RuntimeIdentityExhausted,
+RuntimeQueueFull	src/runtime/engine/mod.rs	return Err(Error::RuntimeQueueFull {
+StreamPoisoned	src/runtime/engine/mod.rs	Error::StreamPoisoned { reason: Cow::Owned(reason.into()), }
+InvalidCameraId	src/camera_id.rs	_ => Err(Error::InvalidCameraId { id }),
+ResponseTooLarge	src/error.rs	Self::ResponseTooLarge { max_size }
+InquiryNotCancelable	src/runtime/engine/mod.rs	CancellationDecision::Refused(Error::InquiryNotCancelable)
+InvalidAddress	src/transport/address.rs	Error::InvalidAddress { reason: reason.into(), }
+UnsupportedTransport	src/runtime/owner/adapter.rs	return Err(Error::UnsupportedTransport {
+MissingRuntime	src/executor.rs	.map_err(|_| Error::MissingRuntime)
+WithContext	src/error.rs	Self::WithContext { context: context.into(), source: Box::new(self), }
+TransmissionNotSent	src/error.rs	Self::TransmissionNotSent { source: Arc::new(source), context: FailureContext::new(FailureStage::Terminal, certainty), }
+InquiryFailed	src/error.rs	Self::InquiryFailed { source: Arc::new(source), }
+InquiryShapeCapacityExhausted	src/error.rs	Self::InquiryShapeCapacityExhausted { camera, capacity }

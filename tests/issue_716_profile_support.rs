@@ -49,7 +49,11 @@ fn brc_h900_and_brc_300_typed_requests_encode_the_documented_standard_frames() {
     }
 
     assert_eq!(
-        Capabilities::from_profile::<SonyBRCH900>().exposure_modes,
+        Capabilities::from_profile::<SonyBRCH900>()
+            .exposure
+            .as_ref()
+            .expect("exposure domain")
+            .modes,
         [
             ExposureMode::Auto,
             ExposureMode::Manual,
@@ -60,7 +64,10 @@ fn brc_h900_and_brc_300_typed_requests_encode_the_documented_standard_frames() {
     );
     assert!(
         Capabilities::from_profile::<SonyBRC300>()
-            .exposure_modes
+            .exposure
+            .as_ref()
+            .expect("exposure domain")
+            .modes
             .contains(&ExposureMode::Bright),
         "R12 lists Bright mode for BRC-300"
     );
@@ -71,7 +78,12 @@ where
     P: CompileTimeProfile + HasExposureMode + HasIrisControl,
 {
     let capabilities = Capabilities::from_profile::<P>();
-    assert!(!capabilities.exposure_modes.is_empty());
+    assert!(!capabilities
+        .exposure
+        .as_ref()
+        .expect("exposure domain")
+        .modes
+        .is_empty());
     assert!(capabilities.supports_typed(TypedSupportSurface::ExposureMode));
     assert!(capabilities.supports_typed(TypedSupportSurface::IrisControl));
 }
@@ -88,7 +100,12 @@ fn every_builtin_exposure_inventory_matches_its_typed_marker_boundary() {
     assert_shared_exposure_inventory::<GenericVisca>();
 
     let fr7 = Capabilities::from_profile::<SonyFR7>();
-    assert!(fr7.exposure_modes.is_empty());
+    assert!(fr7
+        .exposure
+        .as_ref()
+        .expect("exposure domain")
+        .modes
+        .is_empty());
     assert!(!fr7.supports_typed(TypedSupportSurface::ExposureMode));
     assert!(!fr7.supports_typed(TypedSupportSurface::IrisControl));
 }

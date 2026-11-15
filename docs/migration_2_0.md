@@ -26,6 +26,27 @@ physical-rest observation. `settled()` returns `Settlement`: either exact
 profile-declared completion evidence or stable position samples over a reported
 window and tolerance. Stable samples do not prove arrival at the requested endpoint.
 
+## Power inquiry status (#880)
+
+| 1.x pattern | 2.0 pattern |
+| --- | --- |
+| `camera.power().state()?` returns `bool` | Returns `PowerStatus::{On, Standby, CircuitError}`. Match the status to surface a camera fault, or call `.is_on()` for a boolean view. |
+| `capabilities::power::PowerState` | Use `PowerStatus`, the status actually reported by the power inquiry. |
+
+A documented internal power circuit error (`90 50 04 FF`) is a successful
+status read. Unknown reply bytes still produce a protocol error. The public
+response parser preserves `90 38 FF` as `Response::NetworkChange`, a notification
+whose `into_result()` returns `UnexpectedResponseType`.
+
+## Virtual-time test execution
+
+Replace the 1.x `DeterministicExecutor`, `DeterministicClock` and executor
+selection helpers with `testing::testkit::ManualClock` and
+`ManualClockExecutor::local(&clock)`. Drive borrowed futures with `run_until`;
+background tasks do not keep that call alive after its future completes.
+Scripted transports accept any `Executor`; use `on_clock(&clock)` for the
+blocking transport. Dynamic response closures use `Arc` instead of `Box`.
+
 ## Extensible public payloads (#788)
 
 Public configuration records and named error, diagnostic, response, transport
@@ -47,7 +68,7 @@ match error {
 
 Named patterns need `..` even when the parent enum was already non-exhaustive.
 Matches over `InquiryKind`, `InquiryData`, `FrameSequence`, `ReceiveOutcome`,
-`Step` and `TestExecutorType` also need a wildcard arm. These registries can grow;
+and `Step` also need a wildcard arm. These registries can grow;
 fixed wire/value records and command payloads retain their literal construction
 and exhaustive field patterns. Opaque types with private fields continue to use
 their existing constructors.
@@ -55,7 +76,7 @@ their existing constructors.
 Custom parsers use `Response::cmd_ack`, `completion` or `unknown`; custom transports
 report every receive as a `ReceiveOutcome` (`complete`, `truncated`,
 `possibly_truncated`, or `copy_message` for a source that yields whole messages)
-and use `FrameMeta::new`. Capability validators use `ValidationError::out_of_range` or
+and use `FrameMeta::Raw` or `FrameMeta::Sony { sequence }`. Capability validators use `ValidationError::out_of_range` or
 `invalid_value`; test scripts use `Step::on_send` or `after`. Error constructors
 use snake_case names such as `Error::feature_not_supported`, `invalid_parameter`,
 `runtime_queue_full` and `stream_poisoned`; `Error::timeout(stage, certainty)`
@@ -80,6 +101,7 @@ Renamed dependency aliases remain supported.
 | Direct `Camera::new_*`, `open_*` compatibility constructors | `Connect`/`CameraConfig` for standard transports; `Session::open` for a caller-owned transport. |
 | One implicit camera ID or raw camera-ID setters | `CameraId`, `SessionConfig::for_target`, `try_camera_id`, and explicit `camera_for`. |
 | Root camera-number constants | `CameraId` plus a validated `ProfileSpec`/compile-time profile. (`CameraVariant` had already been removed before the 1.x oracle used for this guide.) |
+| Custom executor timing | Implement `Executor::Timer`, a `ResettableTimer`, and `Executor::timer(deadline)` on the same clock as `now`. Owners create timers once and reset them across turns (#866). |
 | `RuntimeHandle` and private scheduler/runtime modules | `TokioRuntime`, `SmolRuntime`, or a coherent public `Executor`; never construct the owner directly. |
 | `CameraBuilder` and its `with_executor(...).from_transport(...).profile::<P>().open_async()` chain | `Connect` or `CameraConfig` for standard transports; async `Session::open(transport, SessionConfig, executor)` or blocking `blocking::Session::open(transport, SessionConfig)` for a caller-owned one. `camera_id(...)` becomes a `SessionConfig` target (`for_target`/`register_target`) or `CameraConfig::camera_id`; `timeout_config`/`retry_config` become an `OperationalTuning` supplied through `with_tuning`. |
 | Implicit Sony sequence synchronization at connection startup | Startup remains write-free by default. Opt in with `SessionConfig::with_sony_sequence_reset_on_connect(true)` or the matching `CameraConfig` builder only for a Sony-encapsulated profile; the RESET is sent before owner work begins. Observe its one-/two-byte reply as `DiagnosticResponse::SonyControl { code }`. |
@@ -273,13 +295,20 @@ Raw pan/tilt coordinates are `i32` in 2.0 so the BRC-300's documented signed
 20-bit pan field can be represented without truncation. This changes
 `PanTiltPosition`, the pan/tilt field of
 `MovementTolerance`, inquiry payloads, `PanTiltExt::{validate_pan,validate_tilt}`,
-`ProfileSpecBuilder::pan_tilt`, `Capabilities::{pan_range,tilt_range}`, and
-`PanTilt::{PAN_RANGE,TILT_RANGE}` (including every built-in profile constant).
+the complete `PanTiltCaps` supplied to `ProfileSpecBuilder::pan_tilt`, and
+`PanTilt::{PAN_RANGE,TILT_RANGES}` (including every built-in profile constant).
 Code that persisted `i16` remains value-compatible after an explicit widening;
 generic signatures and custom profile implementations must change their type to
 `i32`. Use checked narrowing only when talking to a standard 16-bit profile.
 `Error::CameraMoving` does not need a width migration because that unused
 variant is removed in 2.0 (#722).
+
+The FR7 uses five signed nibbles on both axes and a 235.9-unit degree scale
+from R7. Its rightward pan uses decreasing raw coordinates. Select the actual
+Desktop or Ceiling installation with `SessionConfig::set_mount`; target
+registration keeps those limits separate from the canonical profile. Position
+request constructors accept `camera.registration()` so conversion and
+admission use the same installation facts.
 
 Each profile also selects a `PanTiltWireCodec`. Do not assume that every
 VISCA-compatible model uses the common two-speed/four-plus-four-nibble layout;
@@ -290,14 +319,15 @@ Optional typed controls now name the exact evidence boundary:
 | 1.x/broad assumption | 2.0 bound or action |
 | --- | --- |
 | Exposure-mode methods were available through broad exposure support | Add `HasExposureMode`; `SonyFR7` intentionally does not implement it because its documented family is different. |
-| `iris_control()` followed the standard iris-control marker | Add `HasIrisControlInquiry`. No built-in profile opts into the ambiguous `09 04 2B` status inquiry; standard iris position/control remains under `HasIrisControl` where documented. |
+| Sharpness level and mode methods shared `HasSharpnessControl` | Level/reset/step controls and level readback keep `HasSharpnessControl`; auto/manual mode and its inquiry require `HasSharpnessMode`, currently granted only to the PTZOptics profiles. Sony FR7 detail enablement uses `HasSonyFr7Detail`. |
+| `iris_control()` followed the standard iris-control marker | The unsourced status inquiry is removed. Use a caller-owned request and decoder only when model documentation establishes the packet and reply; standard iris position/control remains under `HasIrisControl` where documented. |
 | One focus-zone marker covered command and inquiry | The inquiry requires `HasFocusZoneInquiry`. Only `PtzOpticsG2` and the legacy `PtzOptics30X` profile carry it; `PtzOpticsG3` and `SonyFR7` no longer compile for this unsourced inquiry. |
 | Aggregate noise-reduction support implied setters and inquiries | Use `HasNoiseReduction2D` / `HasNoiseReduction3D` for inquiries and the matching `*Control` markers for setters, as detailed below. |
 | PTZOptics advanced methods were ungated | Add the relevant `HasPtzOpticsAntiFlicker`, `HasPtzOpticsMulticastStreaming`, `HasPtzOpticsNdiQuality`, `HasPtzOpticsPresetRecallSpeed`, or `HasPtzOpticsSettingsSave` bound. |
 | Sony auto-slow-shutter and spotlight methods were broadly exposed | Add `HasSonyAutoSlowShutter` or `HasSonySpotlight`; unsupported profiles reject through the dynamic API before encoding. |
 | USB-audio methods were broadly exposed | Add `HasUsbAudio`. Only `PtzOpticsG2` and legacy `PtzOptics30X` currently carry source-backed support; `PtzOpticsG3` does not. |
 | `system().version()` was available on every profile and assumed the Sony 7-byte reply | Add `HasVersionInquiry`. The Sony profiles and `GenericVisca` carry it; `PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30X` do not, because G2 hardware replies `90 50 00 52 FF` and no source defines that layout. Dynamic calls on those profiles return `FeatureNotSupported` before any I/O. Read the bytes with `raw::Inquiry` and `81 09 00 02 FF`. A custom profile needs all three: implement `HasVersionInquiry` on the compile-time type, include `TypedSupportSurface::VersionInquiry` in `ProfileTypedSupport::TYPED_SUPPORT`, and add `"version-inquiry"` to the runtime `capabilities.typed_support` list before persisting it (#795). |
-| `white_balance().color_temperature()` needed only `HasColorTemperature` | Add `HasColorTemperatureInquiry`. Only `PtzOpticsG2` and `PtzOptics30X` carry it, because only the PTZOptics G2 one-byte `90 50 pq FF` reply is sourced; `PtzOpticsG3` and `SonyBRCH900` keep the color-temperature setters. Dynamic calls on the other profiles return `FeatureNotSupported` before any I/O. Read the bytes with `raw::Inquiry` and `81 09 04 20 FF`. |
+| `white_balance().color_temperature()` needed only `HasColorTemperature` | Add `HasColorTemperatureInquiry`. Only `PtzOpticsG2` and `PtzOptics30X` carry it, because only the PTZOptics G2 one-byte `90 50 pq FF` reply is sourced; `PtzOpticsG3` retains the setters, while BRC-H900 has no shared color-temperature grant. Dynamic calls on the other profiles return `FeatureNotSupported` before any I/O. Read the bytes with `raw::Inquiry` and `81 09 04 20 FF`. |
 | `HasImageProcessing` arrived through a blanket implementation | Built-in profiles receive an explicit implementation only when at least one source-backed image surface exists. A downstream profile must opt in deliberately. |
 | `CapabilityRange` serde accepted `min > max`, and checked scalar wrappers could deserialize invalid values | Deserialization now validates the same invariants as construction; handle the serde error and repair invalid persisted data before retrying. |
 
@@ -314,7 +344,7 @@ caller can observe directly are:
 | Bright Direct (`set_brightness_direct`) used `04 0D` | Use `Brightness::SetLevel` or the noun method `brightness_set`. They encode the sourced direct register `04 4D`; `04 0D` remains only the reset/up/down family. |
 | UpRight limit corner was `03` | It is `01` in limit set and clear frames. |
 | Focus-zone inquiry was `09 04 3C` | It now matches the focus-zone register at `09 04 AA`. |
-| `FocusZone` had exactly Top/Center/Bottom (`00/01/02`), and the inquiry rejected any other reply | `FocusZone` is `#[non_exhaustive]` and adds `Zone03` (`03`), which PTZOptics G2 firmware reports, accepts and reads back, though no vendor source names it. Add a wildcard arm to exhaustive matches. Sending is gated per profile by `Capabilities::focus_zones` (`Focus::FOCUS_ZONES`): `PtzOpticsG2` and `PtzOptics30X` admit `Zone03`, `PtzOpticsG3` and custom profiles default to Top/Center/Bottom, and an unlisted value fails with `Error::InvalidParameter { parameter: "focus_zone", .. }` before any I/O. Decoding `03` is never gated (#795). |
+| `FocusZone` had exactly Top/Center/Bottom (`00/01/02`), and the inquiry rejected any other reply | `FocusZone` is `#[non_exhaustive]` and adds `Zone03` (`03`), which PTZOptics G2 firmware reports, accepts and reads back, though no vendor source names it. Add a wildcard arm to exhaustive matches. Sending is gated per profile by `FocusCaps::zones` (`Focus::FOCUS_ZONES`): `PtzOpticsG2` and `PtzOptics30X` admit `Zone03`, `PtzOpticsG3` explicitly lists Top/Center/Bottom; custom profiles default to no focus-zone selection, and an unlisted value fails with `Error::InvalidParameter { parameter: "focus_zone", .. }` before any I/O. Decoding `03` is never gated (#795). |
 | Picture-effect inquiry was `09 04 32` | It is `09 04 63`. |
 | USB-audio inquiry was `09 04 7A`, and on was decoded as `03` | It is the vendor frame `2A 02 A0 04`; `02` means on and `03` means off. |
 | A final data byte of `FF` doubled as the terminator | Preset 255 and Direct Menu values ending in `FF` now contain both the data byte and a separate terminating `FF`. Direct Menu rejects `FF` followed by an address byte because that sequence would begin a second frame. |
@@ -353,6 +383,15 @@ not established:
 
 These are breaking source and wire corrections, not aliases: code that names a
 removed item must choose the model-specific behavior it intended.
+
+### Canonical command values (#882)
+
+| 1.x input | 2.0 input and behavior |
+| --- | --- |
+| `NdFilterValue::from_stops` truncated fractional quarter stops | The conversion rounds to the nearest quarter stop using `f32`, with halves away from zero: `6.99` becomes code `14` hex and `2.24` becomes `01`. |
+| `DirectMenuControl::new(u8, u8)` and `menu().direct(u8, u8)` | Pass `DirectMenuTarget` and `MenuButton`. The constructor is infallible; both enums admit only R7's documented targets and release/press states. Raw requests remain available for model-specific experiments. |
+| Noise-reduction level zero and `off()` represented the same register value | `NoiseReduction2DLevel` and `NoiseReduction3DLevel` are nonzero. Use `NoiseReduction2D::Off` / `NoiseReduction3D::Off` or the noun's `disable_noise_reduction_*` method for zero. Typed inquiry readback returns the same `Off` / `Level(level)` value, preserving an off register without constructing level zero. |
+| `PictureEffectMode::Unknown(u8)` admitted aliases for known codes | `Unknown(UnknownPictureEffect)` validates model-specific codes, rejecting `00`, `02`, and `04`. `from_command_byte` normalizes command Off (`00`) and black and white (`04`); inquiry `from_byte` still maps `02` to Off and also normalizes `00`. |
 
 ### Noise-reduction controls and independent gates
 
@@ -424,6 +463,7 @@ ND-filter position inquiries.
 | `InFlightDyn`/legacy dynamic operation wrappers | `DynTargetedOperation` and `DynAppliedOperation`. Applied-only handles have no settled operation. |
 | Dropping an operation handle | Unchanged from 1.x: drop is `detach` and never stops hardware. See [Drop never stops hardware](#drop-never-stops-hardware) for the scoped stop-on-exit pattern. |
 | Raw `command::RawInquiryPayload`/untyped response assumptions | `raw::Plain`, `raw::Inquiry`, `raw::Targeted`, or `raw::AppliedOnly`, with an explicit response parser/spec. |
+| `ViscaCommand::encoded_size` allocation hint | No counterpart. Declare `Request::MAX_SIZE` as the upper bound and return the actual frame length from `write_into`; shorter frames are accepted (#873). |
 | `ViscaCommand` response-associated-type extensions | The typed `Request`/`Inquiry`/`OperationCommand` contract and `ResponseParser` for custom decoding. |
 | Unvalidated vendor opcodes that 1.x let through because it validated nothing on send (e.g. vendor tally mode `0A 02 02 0p` on a PTZOptics profile) | The typed and `execute` routes validate against profile capability, so a profile without the typed surface refuses the opcode (tally mode needs `HasTally`). Send a firmware-confirmed vendor opcode through `raw::Plain` instead. |
 | Plain requests submitted as operations or operations without affected axes | Match the request class exactly: `execute` for plain, `inquire` for inquiry, and `submit` for a typed operation with non-empty affected axes. |
@@ -811,7 +851,10 @@ Both forms are demonstrated end to end in `examples/operation_handles.rs` and
 | --- | --- |
 | Raw normalized floats, root normalized helpers, `ZoomPosition` float conversions | Checked public values such as `UnitInterval::new/try_from`, `ZoomPosition`, and profile-aware noun methods. |
 | `inquiry_conversions` module (`ZoomDomain`, `ZoomPositionExt`, `PanTiltPositionRaw`, `PanTiltPositionDeg`, `zoom_from_normalized`) | `ZoomDomain`, `PanTiltPositionDeg` and `zoom_from_normalized` remain. `ZoomPositionExt::normalize_with_max` is the inherent `ZoomPosition::normalize_with_max`, and `ZoomPositionExt::from_normalized` is `zoom_from_normalized`. `PanTiltPositionRaw` is `camera::PanTiltPosition`. The profile-less `as_degrees()` / `PanTiltPositionDeg::to_raw()` / `PanPosition::{from_degrees,to_degrees}` helpers applied PTZOptics G2 geometry (14.4 units per degree) to every camera and are removed: use `PanTiltPosition::as_degrees_with_profile`, `PanTiltPositionDeg::to_raw_with_profile`, or `PanTiltCoordinateConversion` from `ProfileSpec::pan_tilt_coordinates()`. |
-| `capabilities::Capabilities` runtime discovery (`from_profile::<P>()`, `supports_typed`, zoom/magnification helpers) | Preserved: `Capabilities` stays at `grafton_visca::capabilities::Capabilities`. Reach it with `camera.capabilities()` (static or dynamic) or `Capabilities::from_profile::<P>()`; build a runtime profile from `Capabilities::runtime_baseline(..)` plus `ProfileSpec::builder`. |
+| `capabilities::Capabilities` runtime discovery (`from_profile::<P>()`, `supports_typed`, zoom/magnification helpers) | `Capabilities` stays at `grafton_visca::capabilities::Capabilities`, but its flat fields become optional domain structs (`pan_tilt`, `zoom`, `focus`, `exposure`, `white_balance`, `image`, `presets`, `power`). Read numeric facts through the domain, such as `caps.zoom.as_ref().map(|zoom| zoom.optical_max)`; query presence with derived methods such as `has_zoom()`. Builder domain setters take the complete domain value. Coordinates live in `PanTiltCaps`, recall axes and optional nonzero name length in `PresetCaps`, and completion support only in `ProfileSpec`. Degree ranges and zero-based zoom intervals derive from their canonical facts. Persisted flat records must be regenerated (#879). |
+| Custom `ProfileMetadata`, `Focus`, and `Zoom` implementations relying on permissive defaults | Declare `INQUIRY_SUPPORT`, `SUPPORTS_COMMAND_CANCEL`, and `MAX_FOCUS_SPEED` explicitly. Direct and variable zoom and focus near-limit inquiry default to `false`; opt in only when the profile has evidence. Standard serial construction also requires its marker to agree with `TRANSPORTS` (#876). |
+| `NdFilterMode::{Fixed, Stepped}`, `NdFilterMetadata::ND_STEPS`, `nd_step_count`, and `Capabilities::nd_filter_steps` | Removed because no sourced typed wire implementation existed. ND metadata has only `None` and `Variable`; variable-density values validate through `NdFilterValue` (#877). |
+| Custom profile range and orientation constants | `PanTilt::TILT_RANGES` declares one fixed range or desktop/ceiling ranges. `Focus::FOCUS_RANGE` is numerically ordered and `FOCUS_NEAR_END` selects the sourced near endpoint or `Unknown`. PTZOptics profiles retain raw positions but refuse physical normalized conversion while orientation is unknown; `FocusCaps::near()` and `far()` return `None` in that case. `Exposure::GAIN_RANGE` is optional for models with a distinct vendor gain family. `ProfileMetadata::DEFAULT_CAMERA_ID`, `Capabilities::default_camera_id` and `ProfileId::default_camera_id()` use `IndividualCameraId`, which accepts only `1..=7`. |
 | Model-aware constructors that embed a profile in a value | Plain checked values plus the profile-gated camera noun; profile validation belongs at preparation. |
 | Generic optional accessors or unsupported PTZOptics/Sony controls | Compile-time `Has*` gates; dynamic callers inspect capability support. Unsupported controls are not exposed through metadata fallback. |
 | Direct PTZOptics ND filter, Motion Sync, variable-speed, Sony color-temperature, or legacy quality controls | The matching supported noun only when its profile marker permits it; otherwise use a raw extension deliberately. |
@@ -833,7 +876,7 @@ camera operation. They have no name-preserving alias in 2.0:
 | `ResponseFuture` | Keep the returned `Operation<K>` and call its terminal method, or await the typed `inquire`/`execute` call directly. The owner retains response routing; there is no public boxed response-future alias. |
 | `RawSender` | Construct `raw::Plain`, `raw::Inquiry<R>`, `raw::Targeted`, or `raw::AppliedOnly` and pass it to the matching camera `execute`, `inquire`, or `submit` method. Raw values still carry explicit timeout, retry, control, and reply-shape policy. |
 | `submit_continuous` | Express the lifecycle in the request type: implement `OperationCommand<completion::AppliedOnly>` for a custom typed request, or construct `raw::AppliedOnly`, then call `submit::<completion::AppliedOnly, _>`. |
-| `CommandBehavior` and `InquiryResponseSpec` | Implement the public `Request` class plus `Inquiry`/`OperationCommand<K>` contract. Custom inquiry decoding belongs in the response type/decoder and `InquiryRoute`; action-versus-inquiry routing is no longer supplied as mutable runtime metadata. |
+| `CommandBehavior` and `InquiryResponseSpec` | Implement the public `Request` class plus `Inquiry`/`OperationCommand<K>` contract. Custom inquiry decoding belongs in the response type/decoder; action-versus-inquiry routing is no longer supplied as mutable runtime metadata. |
 | `CachedFlipState` | `StateCache::flip_state()` returns the public `command::FlipState` value. |
 | Aggregate `PanTiltLimits` cache state | `StateCache::pan_tilt_limits()` returns the most recent `PanTiltLimitUpdate` (corner, optional position, and cleared state). An application that needs the full two-corner rectangle must fold those updates into its own state. |
 | `transport::BackoffStrategy` and `RetryAttempt` | Retry scheduling is owner policy, with deterministic equal jitter rather than a caller-selected strategy. Configure conservative bounds with `OperationalTuning::retry_limit` / `retry_timing`; observe attempts through diagnostics/metrics rather than constructing an attempt counter. |
@@ -842,10 +885,9 @@ camera operation. They have no name-preserving alias in 2.0:
 
 For a central application error adapter, prefer `error.kind()` when several
 wire-level variants have the same application meaning. Map `ErrorKind::Timeout`
-to a request timeout, but decide replay with `error.failure_context()`, not
-`is_retryable()`: an `ObservationTimeout` (your wait expired, the request is
-still running) is never retryable, and a resubmission is safe only after
-`Certainty::NotAccepted` or `Certainty::FailedConclusively`. 1.x had one unit `Timeout` for every deadline; 2.0's
+to a request timeout, but decide recovery with `error.recovery()`. An
+`ObservationTimeout` asks you to wait on the existing operation; unconfirmed
+effects require reconciliation, and deliberate supersession is not replayed. 1.x had one unit `Timeout` for every deadline; 2.0's
 `Timeout` carries a `FailureContext`, so match it as `Error::Timeout { .. }`,
 and a custom transport reports an expired read or write with
 `Error::io_timeout()`. Map `BufferFull` to a retryable busy/capacity state, and
@@ -855,7 +897,7 @@ or establish the prerequisite before retrying, and retry only when the command's
 semantics make that safe. Map `Unsupported` to an unsupported feature; retain a
 wildcard because `ErrorKind` is non-exhaustive. Preserve the original `Error`
 as the source when possible. Decide whether to rebuild the
-connection with `error.requires_new_session()` rather than treating every
+connection with `Recovery::ReopenSession` rather than treating every
 `IoClosed` kind as an unexpected disconnect: deliberate `RuntimeShutdown` has
 that kind but does not require a replacement session. `OwnerTerminated` does
 require one. A cached `CancellationObservationFailed { source }` and every
@@ -871,33 +913,33 @@ Retained public protocol values also changed shape:
 | `<R as RuntimeSerial>::SerialTransport` | `<R as Runtime>::SerialTransport`; `RuntimeSerial` remains the `connect_serial` extension trait, while the associated transport type lives on `Runtime` so `TransportHandle<R>` stays runtime-paired. |
 | `command::FocusSpeed` (a second focus-speed type) | `grafton_visca::FocusSpeed` (also `types::FocusSpeed`), the one type `Focus::FarWithSpeed`, `FocusDrive`, and `focus().far_variable(..)` take. Out-of-range values now report `ParameterOutOfRange`. |
 | `Coarse` (`grafton_visca::Coarse`, `types::Coarse`), a second name for `SpeedLevel`, and `PanSpeed::from_coarse`, `TiltSpeed::from_coarse`, `ZoomSpeed::from_coarse`, `FocusSpeed::from_coarse` | `SpeedLevel` and `From`: `ZoomSpeed::from(SpeedLevel::Fast)` or `SpeedLevel::Fast.into()`. The mapping to wire speeds is unchanged. |
-| `command::Version`, `command::TallyStatus`, `command::NightDayMode`, `command::IrisControl` | `command::VersionInfo` and `command::TallyStatusState`, which the accessors return; the unused `NightDayMode`/`IrisControl` enums are removed. `InquiryData::Version { info }` and `InquiryData::TallyStatus { state }` carry those structs instead of repeating their fields. |
+| `command::Version`, `command::TallyStatus`, `command::NightDayMode`, `command::IrisControl` | `command::VersionInfo`, returned by the version accessor and carried by `InquiryData::Version { info }`. The unsourced tally-status inquiry and its value types, plus the unused `NightDayMode`/`IrisControl` enums, are removed. |
 | `SetMotionSyncPreset::new(u8)?`, `SetMotionSyncPreset::from_preset`, `MotionSyncSpeed::from_preset`, and the `set_motion_sync_preset_speed(MotionSyncPreset)` camera method | `motion_sync().set_speed(MotionSyncSpeed)`; `SetMotionSyncPreset::new(MotionSyncSpeed)` and `speed() -> MotionSyncSpeed`. `MotionSyncSpeed::new(u8)?` owns the `1..=24` range and `MotionSyncSpeed::from(MotionSyncPreset)` is the one preset mapping. |
 | `ShutterSpeed::try_from(Fraction)` | `capabilities.shutter_speed_for(fraction)?`: shutter codes are camera-specific, and the removed table matched no built-in profile. `ShutterSpeed` wraps the `0p 0q` field's byte: `ShutterSpeed::new(u8)` is infallible and `value()` returns `u8`; the profile's table decides which codes a camera accepts. |
 | `Fraction { numerator, denominator }` literals and `Fraction::new(n, d)` returning `Self` | `Fraction::new(n, d)` returns `Option<Fraction>` (`None` for a zero denominator) in lowest terms, so `==` is value equality; read it with `numerator()`/`denominator()`. Its text and serde form is `"1/60"`. |
-| `capabilities::ShutterSpeed { label, value }` and `ExposureExt::find_shutter_speed` | One `capabilities::ShutterSpeedEntry { exposure: Fraction, value }` for both `Exposure::SHUTTER_SPEEDS` and `Capabilities::shutter_speeds`. Look codes up with `Capabilities::shutter_speed_for`; `find_shutter_speed`'s nearest-code guess is removed. |
+| `capabilities::ShutterSpeed { label, value }` and `ExposureExt::find_shutter_speed` | One `capabilities::ShutterSpeedEntry { exposure: Fraction, value }` for both `Exposure::SHUTTER_SPEEDS` and `ExposureCaps::shutter_speeds`. Look codes up with `Capabilities::shutter_speed_for`; `find_shutter_speed`'s nearest-code guess is removed. |
 | `ColorTemp::try_from(Kelvin(k))` (a second, `2000..=8000` K formula) | Unchanged call; it is now `ColorTemp::from_kelvin(k)` (`2500..=8000` K, nearest 100 K step, `ParameterOutOfRange` outside). `3200` K encodes `0x07`, not `0x0B`. |
 | `From<Raw<_>>` for speed and level wrappers (silently clamped to `MIN`, #828) | `T::try_from(Raw(value))?`, which rejects a value outside the type's domain. |
 | `PanTiltExt::degrees_to_{pan,tilt}_units(degrees) -> i16` (truncating) | `-> Option<i32>`, rounded like request preparation (`10.05°` on a G2 is `145`, not `144`); `None` for non-finite input. |
-| `Zoom::ZOOM_MAGNIFICATION_TO_UNITS`, `Capabilities::zoom_magnification_to_units`, `{magnification_to_zoom_units, zoom_units_to_magnification, max_optical_zoom, max_combined_zoom}` on `Capabilities` and `ZoomExt` | `Zoom::OPTICAL_ZOOM_RATIO` / `Capabilities::optical_zoom_ratio` (`Option<f32>`) and one `capabilities::ZoomScale` (`units(magnification)`, `magnification(units)`), from `caps.zoom_scale()?` or, for a profile that spans several lenses such as the PTZOptics G2 family, `caps.zoom_scale_for_lens(20.0)?` for the installed 20x lens; `zoom_scale()` on such a profile fails with an error naming `zoom_scale_for_lens`. Only `PtzOptics30X` (30x, R3) fixes its lens; the old scales could not reach the nominal ratio (PT30X: `29 × 565 > 0x4000`). Digital magnification has no sourced scale and is rejected. |
+| `Zoom::ZOOM_MAGNIFICATION_TO_UNITS`, `Capabilities::zoom_magnification_to_units`, `{magnification_to_zoom_units, zoom_units_to_magnification, max_optical_zoom, max_combined_zoom}` on `Capabilities` and `ZoomExt` | `Zoom::OPTICAL_ZOOM_RATIO` / `ZoomCaps::optical_ratio` (`Option<f32>`) and one `capabilities::ZoomScale` (`units(magnification)`, `magnification(units)`), from `caps.zoom_scale()?` or, for a profile that spans several lenses such as the PTZOptics G2 family, `caps.zoom_scale_for_lens(20.0)?` for the installed 20x lens; `zoom_scale()` on such a profile fails with an error naming `zoom_scale_for_lens`. Fixed-lens profiles supply their documented ratio (for example PT30X 30× and BRC-H900 14×); the old scales could not reach the nominal ratio (PT30X: `29 × 565 > 0x4000`). Digital magnification has no sourced scale and is rejected. |
 | `types::{PanPosition, TiltPosition}`, `PanTilt::{AbsolutePositionRaw, RelativePositionRaw, LimitSetRaw}` | `PanTilt::{AbsolutePosition, RelativePosition, LimitSet}` take the raw `i16` wire words directly (an unsigned-centered word `w` is `w as i16`); the value types restated PTZOptics G2 ranges as if they were protocol limits. Profile-aware requests take `Degrees`. |
 | `units::Magnification<T>` | Removed; it had no consumer. `ZoomScale::units(f32)` and `ZoomScale::magnification(u16) -> Option<f32>` name the quantity in the method. |
 | `ExposureExt::fstop_to_iris_units` | Removed (#828): an uncalibrated placeholder that returned the minimum iris for `NaN`. Use a wire `IrisLevel` code established by the selected model's iris table; no profile-less `FStop` conversion is supported (#844). |
-| `camera::profiles::{G2Gain, G2PresetId}` | Removed. `G2Gain` offered 24 dB, which the G2 profile rejects; use `GainLevel` and `PresetNumber` with the profile's `gain_range`/preset count. |
-| `Capabilities::{has_gamma, has_luminance, has_color_temp, has_rgb_gain, has_noise_reduction}` and `ImageProcessing::{SUPPORTS_HUE, SUPPORTS_GAMMA, SUPPORTS_LUMINANCE, SUPPORTS_NOISE_REDUCTION}`, `WhiteBalance::{SUPPORTS_COLOR_TEMP, SUPPORTS_RGB_GAIN}` (#818) | Removed. The range is the fact: `hue_range`, `gamma_range`, `luminance_range`, `color_temp_range` `.is_some()`; manual RGB gain is `red_gain_range` and `blue_gain_range` both `Some`; noise reduction is `has_2d_nr \|\| has_3d_nr`. |
-| `Capabilities::{has_iris_control, has_digital_zoom, has_focus_zone, has_exposure_comp}`, `Focus::SUPPORTS_FOCUS_ZONE`, `Exposure::SUPPORTS_EXPOSURE_COMP` | Removed. Use `iris_range.is_some()`, `zoom_range_digital.is_some()`, `!focus_zones.is_empty()` (`Focus::FOCUS_ZONES` defaults to empty) and `exposure_comp_range` (`Exposure::EXPOSURE_COMP_RANGE: Option<CapabilityRange<i8>>`, default `None`). |
-| `Presets::PRESET_SPEED_RANGE: CapabilityRange<u8>`, `Capabilities::preset_speed_range: RangeInclusive<u8>` | `Option<..>`: `None` when the model documents no preset recall speed (EVI-H100, Generic VISCA). |
-| `Capabilities::{has_motion_sync, max_motion_sync_speed}`, `MotionSyncMetadata::{SUPPORTS_MOTION_SYNC, MAX_MOTION_SYNC_SPEED}` | One fact: `MotionSyncMetadata::MOTION_SYNC_SPEED_RANGE: Option<CapabilityRange<u8>>` and `Capabilities::motion_sync_speed_range: Option<RangeInclusive<u8>>`. `None` means no motion sync; `Some(range)` bounds every typed motion-sync speed and must lie in `MotionSyncSpeed`'s `1..=24`. Replace `has_motion_sync` with `motion_sync_speed_range.is_some()`. No built-in profile documents motion sync. |
+| `camera::profiles::{G2Gain, G2PresetId}` | Removed. `G2Gain` offered 24 dB, which the G2 profile rejects; use `GainLevel` and `PresetNumber` with the profile's `ExposureCaps::gain_range` and `PresetCaps::highest` memory number. |
+| `Capabilities::{has_gamma, has_luminance, has_color_temp, has_rgb_gain, has_noise_reduction}` and `ImageProcessing::{SUPPORTS_HUE, SUPPORTS_GAMMA, SUPPORTS_LUMINANCE, SUPPORTS_NOISE_REDUCTION}`, `WhiteBalance::{SUPPORTS_COLOR_TEMP, SUPPORTS_RGB_GAIN}` (#818) | Removed. Read optional image ranges from `ImageCaps` and color temperature from `WhiteBalanceCaps::color_temp_range`; manual RGB gain is one `WhiteBalanceCaps::rgb_gain: Option<RgbGainRanges>` containing both channels. Noise reduction presence derives from the paired typed grants through `Capabilities::has_2d_nr()` and `has_3d_nr()`. |
+| `Capabilities::{has_iris_control, has_digital_zoom, has_focus_zone, has_exposure_comp}`, `Focus::SUPPORTS_FOCUS_ZONE`, `Exposure::SUPPORTS_EXPOSURE_COMP` | Removed. Use `ExposureCaps::iris_range.is_some()`, `ZoomCaps::digital_max.is_some()`, `!FocusCaps::zones.is_empty()` (`Focus::FOCUS_ZONES` defaults to empty) and `ExposureCaps::compensation_range` (`Exposure::EXPOSURE_COMP_RANGE: Option<CapabilityRange<i8>>`, default `None`). |
+| `Presets::PRESET_SPEED_RANGE: CapabilityRange<u8>`, `Capabilities::preset_speed_range: RangeInclusive<u8>` | `Presets::PRESET_SPEED_RANGE` and `PresetCaps::speed_range` are optional: `None` when the model documents no preset recall speed (EVI-H100, Generic VISCA). |
+| `Capabilities::{has_motion_sync, max_motion_sync_speed}`, `MotionSyncMetadata::{SUPPORTS_MOTION_SYNC, MAX_MOTION_SYNC_SPEED}` | One fact: `MotionSyncMetadata::MOTION_SYNC_SPEED_RANGE: Option<CapabilityRange<u8>>` and `PanTiltCaps::motion_sync_speed_range: Option<CapabilityRange<u8>>`. `None` means no motion sync; `Some(range)` bounds every typed motion-sync speed and must lie in `MotionSyncSpeed`'s `1..=24`. Replace `has_motion_sync` with `motion_sync_speed_range.is_some()`. No built-in profile documents motion sync. |
 | `Capabilities::{default_tcp_port, default_udp_port}`, `SupportsTcp::DEFAULT_TCP_PORT`, `SupportsUdp::DEFAULT_UDP_PORT` (#822) | Removed. Ports are `ProfileSpec::transports()` / `CompileTimeProfile::TRANSPORTS` (`CameraConfig::tcp`/`udp` resolve through it and fail to build for a profile that implements `SupportsTcp`/`SupportsUdp` without the port). |
 | `PanTiltExt::validate_{pan,tilt}_speed`, `ZoomExt::validate_zoom_speed`, `FocusExt::validate_focus_speed` returning a clamped `u8` (#823) | Return `Result<u8, ValidationError>` and reject an out-of-range speed, as request validation does. `CapabilityRange::clamp` is removed; `CapabilityRange::validate` is the shared range check. |
 | `Error::InvalidPreset { preset, max }`, returned by `G2PresetId::new` | Removed with `G2PresetId`. An out-of-profile preset number is `Error::ParameterOutOfRange` with the profile's `0..=highest_preset` bounds. |
 | `retry_config(RetryConfig)` with any `max_retries` and retry delays | `OperationalTuning::retry_limit` / `retry_timing`, which `validate_tuning` accepts only when they make retries more conservative: the retry count may only shrink below the default 3, and the backoff and budget may only lengthen beyond the profile's bounds (#828). |
 | `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` over TCP or UDP | Serial only: their manuals document RS-232C/RS-422 VISCA and no IP transport. |
-| `Presets::MAX_PRESETS`, `Capabilities::max_presets` (documented as a count, used as the highest index) | `Presets::HIGHEST_PRESET` and `Capabilities::highest_preset`: the highest preset memory number, so presets are `0..=highest_preset` and `0` is one preset (a runtime profile with `has_presets` and `highest_preset: 0` now builds). The registry field is `presets: { highest: N, .. }`. |
+| `Presets::MAX_PRESETS`, `Capabilities::max_presets` (documented as a count, used as the highest index) | `Presets::HIGHEST_PRESET` and `PresetCaps::highest`: the highest preset memory number, so presets are `0..=highest` and `0` is one preset. Runtime support is `Capabilities::presets: Some(PresetCaps { highest: 0, .. })`; an absent domain is `None`. The registry field is `presets: { highest: N, .. }`. |
 | Highest preset number of `SonyEVIH100` 6, `GenericVisca` 6, `NearusBRC300` 16 | 5 for all three: R8 and R21 document `CAM_Memory` p = 0 to 5, and Generic VISCA keeps what R8, R12 and R21 share. Presets 6 and above are refused with `ParameterOutOfRange`. |
 | `SonyEVIH100` implemented `HasColorTemperature`, `HasRgbTuning`, `HasImageFlip`, `HasImageMirror` | Removed: R8 has no color-temperature mode or `04 20` command, its `04 43`/`04 44` rows are absolute R/B gain (`HasRgbGain`), and image flip is a rear switch with no `04 61`/`04 66` command. Code bounded on those markers no longer compiles for `SonyEVIH100`; dyn calls return `FeatureNotSupported`. |
 | `SonyBRC300`, `NearusBRC300`, `GenericVisca` implemented `HasFocusNearLimitInquiry`; `NearusBRC300` implemented `HasSaturationControl` | Removed: R12 and R21 list no `04 28` focus near-limit command or inquiry, and R21 lists no `04 49` saturation (color gain) command. |
-| `SonyFR7` and `SonyBRCH900` accepted typed `ShutterSpeed` positions | Refused before any I/O: their shutter tables could not be read (a known unverified fact, not a claim that the cameras lack shutter control); send the shutter command as a `raw::Plain` request. |
+| `SonyFR7` and `SonyBRCH900` accepted typed `ShutterSpeed` positions | Refused before any I/O: their shutter-code inventories have not been transcribed into the checked profiles (not a claim that the cameras lack shutter control); send the shutter command as a `raw::Plain` request. |
 | `ExposureExt::validate_iris` reported a profile without iris as `ValidationError::NotSupported("Iris control")` | `NotSupported("iris")`, the same label request validation uses; a position in the profile's iris table gap is `InvalidValue`. |
 | `ProfileGroup::{supports_tcp, supports_udp, supports_serial, uses_sony_encapsulation, inquiry_support}` were declared per group | Derived from the members: a transport or encapsulation is reported only when every member has it, and `inquiry_support` is the weakest member's. `ProfileGroup::GenericVisca` therefore reports no TCP or UDP, because `SonyBRC300`, `SonyEVIH100` and `NearusBRC300` are serial-only; ask the `ProfileId` (`supports_tcp()` and friends) for one profile. |
 | `SonyBRC300`/`NearusBRC300` converted degrees at 13 units per degree on both axes, within a `±390` tilt range | Their geometry follows R12/R21: about 208 units (`0xD0`) per degree, positive tilt up (raw `493D` is about +90°) and raw pan reversed (`08A58` is left), as positive pan is right and positive tilt up on every profile. Recompute stored degree values and degree-based limits from raw positions. |
@@ -925,8 +967,8 @@ constructor, bounds, accessor and error contract:
 | `visca_range_type!` `MIN`/`MAX` typed as the inner integer | `MIN`/`MAX` are `Self`; read the raw bound with `T::MIN.value()`. |
 | `visca_range_type!` `value(&self)` | `pub const fn value(self)`, usable in `const` items and as `T::value` in iterator adapters. |
 | An out-of-range `visca_range_type!` value (for example `command::FocusSpeed::new(8)` or `PresetRecallSpeed::new(25)`) returned `Error::InvalidParameter` | Every range-checked newtype returns `Error::ParameterOutOfRange { parameter, value, min, max }`. Values outside a sparse `valid_values` set still return `Error::InvalidParameter`. `GainLimit`, `SharpnessLevel`, `LuminanceLevel`, `ContrastLevel` and `DynamicRangeLevel` are now declared as ranges, so they also report `ParameterOutOfRange`. |
-| `types::BrightnessLevel(u16)` with a `0x00..=0x11` domain, `Exposure::BRIGHTNESS_RANGE: Option<CapabilityRange<u16>>`, `Capabilities::exposure_brightness_range: Option<RangeInclusive<u16>>` | `BrightnessLevel(u8)` is the `CAM_Bright` Direct wire byte: `BrightnessLevel::new(u8)` is infallible and `TryFrom<u16>` refuses a value above `0xFF`. The brightness ranges are `u8`, and the selected profile's range is the only admission check (EVI-H100 `0x00..=0x1F` without `0x01..=0x04`, BRC-300 and Nearus BRC-300 `0x00..=0x17`, PTZOptics `0x00..=0x11`). The percentage and `Raw` conversions for brightness are removed: a percentage of the wire byte means nothing for a profile-specific range. |
-| `Exposure::IRIS_RANGE: Option<CapabilityRange<u16>>`, `Capabilities::iris_range: Option<RangeInclusive<u16>>` (and the brightness pair) | `Option<CapabilityDomain<u16>>` (`CapabilityDomain<u8>` for brightness): the source table's bounds plus the positions it does not list. Build one with `CapabilityDomain::new(min, max)` or `CapabilityDomain::with_gaps(min, max, &[..])`; read it with `min()`, `max()`, `gaps()`, `bounds()` and `contains(value)`. It serializes as `{min, max, gaps}`. A gap is refused with `Error::InvalidParameter` (EVI-H100 iris and bright `0x01..=0x04`, Generic VISCA iris `0x01..=0x04`). |
+| `types::BrightnessLevel(u16)` with a `0x00..=0x11` domain, `Exposure::BRIGHTNESS_RANGE: Option<CapabilityRange<u16>>`, `Capabilities::exposure_brightness_range: Option<RangeInclusive<u16>>` | `BrightnessLevel(u8)` is the `CAM_Bright` Direct wire byte: `BrightnessLevel::new(u8)` is infallible and `TryFrom<u16>` refuses a value above `0xFF`. The `ExposureCaps::brightness_range` domain uses `u8`, and the selected profile's range is the only admission check (EVI-H100 `0x00..=0x1F` without `0x01..=0x04`, BRC-300 and Nearus BRC-300 `0x00..=0x17`, PTZOptics `0x00..=0x11`). The percentage and `Raw` conversions for brightness are removed: a percentage of the wire byte means nothing for a profile-specific range. |
+| `Exposure::IRIS_RANGE: Option<CapabilityRange<u16>>`, `Capabilities::iris_range: Option<RangeInclusive<u16>>` (and the brightness pair) | `ExposureCaps::iris_range` is `Option<CapabilityDomain<u16>>` (`ExposureCaps::brightness_range` uses `CapabilityDomain<u8>`): the source table's bounds plus the positions it does not list. Build one with `CapabilityDomain::new(min, max)` or `CapabilityDomain::with_gaps(min, max, &[..])`; read it with `min()`, `max()`, `gaps()`, `bounds()` and `contains(value)`. It serializes as `{min, max, gaps}`. A gap is refused with `Error::InvalidParameter` (EVI-H100 iris and bright `0x01..=0x04`, Generic VISCA iris `0x01..=0x04`). |
 | `ExposureCompensationLevel::new`, `Sharpness::SetLevel`, `ZoomPosition::normalize_with_max`, the defog, broadcast-domain, exposure-compensation and color-tuning inquiry decoders, and profile admission of pan/tilt speeds and positions, zoom, focus, iris, exposure, gain, brightness, color and preset values returned `InvalidParameter` | Caller values report `ParameterOutOfRange` with their inclusive bounds (the profile's range for admission checks); numeric reply-decoder failures report `InvalidResponse`/`Protocol` instead. A shutter code outside the profile's table remains `InvalidParameter` (#845). `ExposureCompensationLevel::MIN`/`MAX` are `Self`, and it implements `Display`. |
 | `Sharpness::SetLevel { value: u8 }` | `Sharpness::SetLevel { value: SharpnessLevel }`; construct the level with `SharpnessLevel::new`. |
 | `ParameterOutOfRange` displayed `(valid range: 2..4)` | `(valid range: 2..=4)`, an inclusive range. |
@@ -939,6 +981,8 @@ constructor, bounds, accessor and error contract:
 | `ViscaInquiry` `opcode`/`subcode` accepted only decimal or `0x` literals | Any unsuffixed integer literal in `0..=254`, in any radix (`0b0100_0111`, `0o107`); `FF` is the frame terminator and is refused in opcode/subcode (#846). |
 | `ViscaEnum` discriminants accepted suffixed literals and byte literals | Discriminants are unsuffixed integer literals in `0..=255`. |
 | `#[visca_enum(exhaustive = ...)]` was parsed and ignored | Rejected as an unknown key; generated conversions always cover every variant. |
+| `ViscaInquiry` selectors such as `Nibble`, `ExtendedNibble`, `Mode` and `PanTilt` | Omit `parser` to use the canonical built-in inquiry table, including profile framing. Only `parser = Custom` with `parse_with` remains for explicit overrides (#881). |
+| `typed_constructor = new_u8` truncated wide reply fields | Values above `u8::MAX` return `InvalidResponse`; `typed_response` paths resolve exactly as written, including local types (#881). |
 
 #### Command encoding and inquiry decoding (#809–#812, #828)
 
@@ -948,12 +992,12 @@ i16_quad}` accessors, including arbitrary or overflowing indices.
 in release builds too. A zoom-position reply has exactly four nibbles;
 `Nibbles4Or8` is not a supported leniency path (#845).
 
-`ViscaInquiry` parser attributes must be consumed by their selected strategy.
-Use `field`/`convention` for an explicit boolean override, `value_type` for
-Mode/Nibble families, or `parse_with` for Custom. Mode/Nibble construct their
-named response variant directly; Custom accepts `data_variant` only with a
-typed response. Canonical selectors reject these override keys. The macro
-README gives the complete accepted-key table (#846).
+`ViscaInquiry` decodes the selected `response` through the canonical table,
+including the profile's position framing. Omit `parser` for built-in replies;
+use `parser = Custom, parse_with = path` for an explicit different layout.
+`data_variant` requires a custom parser and a typed response. Typed paths are
+resolved as written, and `new_u8` narrowing is checked. The macro README lists
+the supported keys (#881).
 
 Every built-in command and inquiry writes its frame through one frame writer,
 and every inquiry reply decodes through the generated table, so the same
@@ -963,14 +1007,16 @@ malformed reply now fails the same way on every inquiry and profile:
 | --- | --- |
 | An unknown code byte in an inquiry reply (exposure mode, white-balance mode, focus zone, flip mode, an on/off byte, ...) returned `Error::InvalidParameter` from some inquiries and `Error::InvalidResponse` from others | Always `Error::InvalidResponse { expected, actual }`, with `actual` the offending byte. A camera reply outside its code set is a protocol error, not a caller error. A numeric value outside the reply type's range is also `InvalidResponse` with `ErrorKind::Protocol`; caller-supplied constructor/admission values retain their parameter-error classification (#845). |
 | A padded reply (`00 00 0p 0q`, `00 00 00 0p`) with nonzero padding decoded after silently dropping the leading nibbles (a sharpness position of `00 01 00 05` read as `5`) | `Error::InvalidResponseFormat`. Contrast and luminance replies now keep both `0p 0q` digits, as the reference documents. |
-| `Nibbles::u8_pair(start)` and `Nibbles::last_nibble()` | `Nibbles::zero_extended_u8()` and `Nibbles::zero_extended_nibble()`, which reject nonzero padding. `#[derive(ViscaInquiry)]` with `parser = LastNibble` or `parser = Nibble` uses them, so a derived inquiry now rejects a reply with nonzero padding as `InvalidResponseFormat`, and `parser = Mode` reports an unknown code as the enum's own `InvalidResponse`. |
-| `InquiryData::FlipState { horizontal, vertical }` | `InquiryData::FlipState { state }`, carrying `FlipState` as `Version` and `TallyStatus` do. `FlipState::from(ImageFlipMode)` converts a combined flip mode. |
+| `Nibbles::u8_pair(start)` and `Nibbles::last_nibble()` | `Nibbles::zero_extended_u8()` and `Nibbles::zero_extended_nibble()`, which reject nonzero padding as `InvalidResponseFormat`. Canonical derived inquiries use the built-in inquiry table's same padding and enum-code checks; unknown enum codes report `InvalidResponse`. Custom decoders can use the checked `Nibbles` helpers directly. The old per-parser derive selectors are removed (#881). |
+| `InquiryData::FlipState { horizontal, vertical }` | `InquiryData::FlipState { state }`, carrying `FlipState`. `FlipState::from(ImageFlipMode)` converts a combined flip mode. |
 | `InquiryData::SharpnessPosition { position: u16 }` and `InquiryData::Brightness { position: u16 }` | `position: u8`: both replies are `00 00 0p 0q`. `BrightnessLevel` is unchanged; the typed accessor still returns it. |
-| The gain inquiry decoded only the last nibble of `00 00 0p 0q` | Both digits: `InquiryData::Gain::gain` is `pq`, and a value above `GainLevel`'s `0x0F` is the typed accessor's `InvalidResponse` protocol error instead of being truncated (#845). |
+| The gain inquiry decoded only the last nibble of `00 00 0p 0q` | Both digits: `InquiryData::Gain::gain` is `pq`, and a value above `GainLevel`'s built-in `0x19` union is the typed accessor's `InvalidResponse` protocol error instead of being truncated (#845). |
 | A pan/tilt position reply of the wrong length returned `Error::DecoderNotFound { inquiry_kind, payload_hex }` | `Error::InvalidResponseLength`, as for every other inquiry and framing; `Error::DecoderNotFound` is removed. A profile that pairs BRC-300 framing with unsigned-centered coordinates is rejected where it is built: `ProfileSpecBuilder::build`, `ProfileSpec` and `PanTiltCoordinateConversion` deserialization reject it with the profile-field error `InvalidRequest` naming `pan_tilt_coordinates`, and a compile-time profile that declares it fails to build at `PanTiltCoordinateConversion::for_profile`. |
 | `AutoWhiteBalanceSensitivity::to_command_byte()` | `u8::from(sensitivity)`; the enum derives `ViscaEnum`, so `TryFrom<u8>` decodes it. `Flip` and `ImageFlipMode` derive `ViscaEnum` too. |
-| Unit commands (`PowerOn`, `TallyRedOn`, `SpotlightOn`, ...) had hand-written `new()`/`Default` | `visca_command!` generates `#[derive(Default)]` and a `const fn new()` for every unit command, including commands a downstream crate declares with it; delete a downstream unit command's own `new`/`Default`. |
-| `visca_command!` took `bytes = [..]` / `prefix = [..]` literal lists only | Either form takes any `[u8; N]` expression, so a body can be a named constant. Bodies never include the camera address byte. |
+| `visca_command!` declared downstream commands | The generator is crate-internal. Implement `Request` for a downstream command, or send an explicit frame with `raw::Plain` (#883). |
+
+`Runtime::now` is removed. A runtime exposes its time source through
+`Executor::now`; custom virtual-time runtimes implement that one hook (#883).
 
 ### Transport defaults, connect errors and serial startup (#797–#800, #828)
 
@@ -992,7 +1038,9 @@ uses. Start from the matching constructor to change a field:
 `BufferConfig::recv_buffer_size` is the largest accepted reply frame and the
 size of one read, and must be at least `BufferConfig::MIN_RECV_BUFFER_SIZE`
 (24 bytes); `max_buffer_size` bounds stream input carried between reads
-(see `docs/observability_and_recovery.md`). An unrepresentable timeout is now
+(see `docs/observability_and_recovery.md`). Blocking and Tokio TCP now read
+straight into that slice, leaving additional bytes in the kernel rather than
+retaining a separate read-ahead buffer. An unrepresentable timeout is now
 `Error::InvalidParameter` naming the field (`"read_timeout"`, ...) both in
 validation and at runtime.
 
@@ -1133,33 +1181,17 @@ request already admitted on the deadlines it was admitted with. The owner's
 session-wide pacing floor and per-target socket capacity *are* applied at once,
 so work still queued behind pacing is released under the new values.
 
-If a command that is already running must move onto a widened deadline, cancel
-it and resubmit:
+Widen deadlines for future submissions directly. An already-admitted operation
+keeps its original deadline; discarding a cancellation result and resubmitting
+could repeat a physical effect. Observe the original operation and use
+`error.recovery()` on failure before deciding whether new work is appropriate.
 
 ```rust
 use std::time::Duration;
+use grafton_visca::{blocking::Session, Error, OperationalTuning};
 
-use grafton_visca::{
-    blocking::{Camera, Operation, Session},
-    camera::profiles::PtzOpticsG2,
-    completion::AppliedOnly,
-    Error, OperationCommand, OperationalTuning,
-};
-
-fn resubmit_after_widening<O>(
-    session: &Session,
-    camera: &Camera<PtzOpticsG2>,
-    mut operation: Operation<AppliedOnly>,
-    command: O,
-) -> Result<Operation<AppliedOnly>, Error>
-where
-    O: OperationCommand<AppliedOnly>,
-{
-    session.set_tuning(OperationalTuning::new().ack_timeout(Duration::from_secs(2)))?;
-    // `operation` was admitted before the update and keeps its old deadline.
-    let _ = operation.cancel_with_timeout(Duration::from_secs(1));
-    let operation = camera.submit::<AppliedOnly, _>(&command)?;
-    Ok(operation)
+fn widen_future_deadlines(session: &Session) -> Result<(), Error> {
+    session.set_tuning(OperationalTuning::new().ack_timeout(Duration::from_secs(2)))
 }
 ```
 
@@ -1189,6 +1221,18 @@ retry class.
 
 ## Recovery changes
 
+| 1.x API | 2.0 replacement |
+| --- | --- |
+| `Error::is_retryable()` and `suggested_retry_delay()` | Both are removed. Match `error.recovery()`: `Resubmit { after }`, `WaitAgain`, `Reconcile`, `ReopenSession`, or `Abandon`. Only `Resubmit` permits an automatic new submission; the other variants keep live work, unknown effects, dead sessions and deliberate failures distinct. `kind()` and `failure_context()` remain facts, not another recovery recipe. |
+
+
+`Error::TransportError(Cow<str>)` becomes `TransportError { source: Arc<Error> }`.
+Use `Error::transport_error(cause)` with the original `Error` or `io::Error`,
+then match `TransportError { source, .. }` to inspect it. Repeated normalization
+keeps the original wrapper. This failure describes one transport operation on a
+usable session; receive-side evidence decides session death. Its source chain
+retains OS error codes and any request certainty (#869).
+
 Do not reconnect by reusing a poisoned owner, old view, subscriber, or operation
 handle. Keep `SessionConfig`, open a fresh session, select fresh views, and
 expect every cache entry to start `Unknown`. Re-query camera state explicitly;
@@ -1209,12 +1253,12 @@ outcomes most likely to cause an incorrect reconnect or retry loop:
 | --- | --- | --- | --- |
 | The peer closed the connection, including an OS TCP keepalive timeout normalized from `io::ErrorKind::TimedOut` | `ConnectionClosed` | `true` | Open a fresh session and re-query. |
 | The stream position became unknowable, or the strict opt-in poisoned the session for an unconfirmable command | `StreamPoisoned` | `true` | Open a fresh session; never blindly replay uncertain work. |
-| A typed STOP finds its camera's control reserve and ordinary admission both full | `ControlReserveExhausted` (`is_retryable() == true`) | `false` | Back off briefly; earlier stops for that camera are still pending. Ordinary saturation alone no longer rejects a STOP (D26). |
-| Your own wait on an operation, command, or inquiry expires while the request is still running | `ObservationTimeout { operation }` (`is_retryable() == false`) | `false` | Wait again on the handle, or reconcile; never resubmit. |
-| An open peer answers no built-in inquiry through its default retry policy (ten-second total-budget floor, approximately 10.05 seconds with the first backoff) | `Timeout` (stage `Terminal`, certainty `FailedConclusively`; `is_retryable() == true`) | `false` | Compare `MetricsSnapshot::received_frames` around bounded heartbeats; replace the session only when the application's silence threshold is met. |
+| A typed STOP finds its camera's control reserve and ordinary admission both full | `ControlReserveExhausted` (`Recovery::Resubmit { .. }`) | `false` | Back off briefly; earlier stops for that camera are still pending. Ordinary saturation alone no longer rejects a STOP (D26). |
+| Your own wait on an operation, command, or inquiry expires while the request is still running | `ObservationTimeout { operation }` (`Recovery::WaitAgain`) | `false` | Wait again on the handle, or reconcile; never resubmit. |
+| An open peer answers no built-in inquiry through its default retry policy (ten-second total-budget floor, approximately 10.05 seconds with the first backoff) | `Timeout` (stage `Terminal`, certainty `FailedConclusively`; `Recovery::Resubmit { .. }`) | `false` | Compare `MetricsSnapshot::received_frames` around bounded heartbeats; replace the session only when the application's silence threshold is met. |
 | A sent unsequenced command on a raw-VISCA envelope cannot be correlated, default per-request mode (ACK/completion/cancellation ambiguity or active retry-budget expiry; the review probe reached this in about 2.56 seconds) | `UnsequencedCommandUnconfirmed` (`kind() == Unconfirmed`) | `false` | Reconcile that command's camera effect; do not replay it blindly or infer that the session died. |
-| Raw-VISCA over a stream: a camera's earlier inquiry timed out after it was written and its owed reply has not arrived within the profile's ambiguity window | `InquiryCorrelationLost { camera }` (`is_retryable() == false`; `Terminal`/`NotAccepted`, nothing sent) | `false` | The session is live and other cameras work. That camera's inquiries reopen when the owed reply arrives or the camera answers a later command (proving the reply will never come); close and reopen the session to recover them sooner. |
-| Raw-VISCA over a stream: a camera's earlier command ended unconfirmed before its ACK and its owed answer has not arrived within that command's ambiguity window | `CommandCorrelationLost { camera }` (`is_retryable() == false`; `Terminal`/`NotAccepted`, nothing sent) | `false` | The session is live; STOPs and inquiries to that camera still work. Ordinary and `NoReply` commands resume when the owed answer arrives or the camera answers a later inquiry or STOP; close and reopen the session to recover them sooner. A `CompletionOnly` command also fails this way behind a `NoReply` command the camera has answered nothing since, past that command's window (#795). |
+| Raw-VISCA over a stream: a camera's earlier inquiry timed out after it was written and its owed reply has not arrived within the profile's ambiguity window | `InquiryCorrelationLost { camera }` (`Recovery::Abandon`; `Terminal`/`NotAccepted`, nothing sent) | `false` | The session is live and other cameras work. That camera's inquiries reopen when the owed reply arrives or the camera answers a later command (proving the reply will never come); close and reopen the session to recover them sooner. |
+| Raw-VISCA over a stream: a camera's earlier command ended unconfirmed before its ACK and its owed answer has not arrived within that command's ambiguity window | `CommandCorrelationLost { camera }` (`Recovery::Abandon`; `Terminal`/`NotAccepted`, nothing sent) | `false` | The session is live; STOPs and inquiries to that camera still work. Ordinary and `NoReply` commands resume when the owed answer arrives or the camera answers a later inquiry or STOP; close and reopen the session to recover them sooner. A `CompletionOnly` command also fails this way behind a `NoReply` command the camera has answered nothing since, past that command's window (#795). |
 | The application shut the session down | `RuntimeShutdown` | `false` | Reconnect only if the application intends to start another session. |
 
 `received_frames` is positive evidence, not an automatic failure detector. An
@@ -1324,3 +1368,17 @@ where
 For the complete construction, transport, target, tuning, noun, and lifecycle
 examples, see [`usage_2_0.md`](usage_2_0.md). For bounded state and diagnostic
 behavior, see [`observability_and_recovery.md`](observability_and_recovery.md).
+
+Source enforcement (#878) withdraws unsupported Sony shared controls. FR7 retains
+only its documented shared direct zoom, backlight and detail/ sharpness families;
+its separate cinema controls use the FR7-specific methods. BRC-H900 shared
+digital zoom, focus near-limit, color temperature, tuning and unsourced image
+families are refused. Combined tally, defog, iris auto/manual status and orphan
+response kinds have no built-in replacements; use a custom request and decoder
+when model documentation establishes their packets. The orphan `DefogLevel`,
+`BroadcastDomain` and `FocusRange` values are removed with their only consumers.
+Envelope implementations now select the exact `ProfileEnvelope` through
+`Envelope::KIND`. Match `FrameMeta::Raw` or `FrameMeta::Sony { sequence }` when
+protocol identity matters, or call `meta.sequence()` for an optional Sony
+identity. The former `FrameMeta::new` constructor and public sequence field
+are removed.

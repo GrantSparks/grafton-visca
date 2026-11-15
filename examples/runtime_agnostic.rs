@@ -16,9 +16,13 @@
 //! cargo run --example runtime_agnostic --features async
 //! ```
 
-use std::{future::Future, pin::Pin, time::Duration};
+use std::{
+    future::Future,
+    pin::Pin,
+    time::{Duration, Instant},
+};
 
-use grafton_visca::{Error, ExecError, Executor};
+use grafton_visca::{Error, ExecError, Executor, ResettableTimer};
 
 /// Minimal executor adapter built from runtime-neutral async crates.
 #[derive(Debug, Clone, Copy)]
@@ -30,6 +34,24 @@ impl CustomExecutor {
     }
 }
 
+/// Reuses async-io's timer registration when an owner changes its deadline.
+#[derive(Debug)]
+struct CustomTimer(async_io::Timer);
+
+impl Future for CustomTimer {
+    type Output = ();
+
+    fn poll(self: Pin<&mut Self>, context: &mut std::task::Context<'_>) -> std::task::Poll<()> {
+        Pin::new(&mut self.get_mut().0).poll(context).map(|_| ())
+    }
+}
+
+impl ResettableTimer for CustomTimer {
+    fn reset(self: Pin<&mut Self>, deadline: Instant) {
+        self.get_mut().0.set_at(deadline);
+    }
+}
+
 impl Executor for CustomExecutor {
     type Join<T>
         = Pin<Box<dyn Future<Output = Result<T, ExecError>> + Send + 'static>>
@@ -38,6 +60,12 @@ impl Executor for CustomExecutor {
 
     // The spawned task is explicitly detached below, so no extra token is needed.
     type Detach = ();
+
+    type Timer = CustomTimer;
+
+    fn timer(&self, deadline: Instant) -> Self::Timer {
+        CustomTimer(async_io::Timer::at(deadline))
+    }
 
     fn spawn_with_detach<F>(&self, future: F) -> (Self::Join<F::Output>, Self::Detach)
     where
@@ -109,6 +137,14 @@ fn main() -> Result<(), Error> {
 
     executor.block_on(executor.sleep(Duration::from_millis(5)));
     println!("sleep completed");
+
+    let mut timer = Box::pin(executor.timer(executor.now()));
+    executor.block_on(timer.as_mut());
+    timer
+        .as_mut()
+        .reset(executor.now() + Duration::from_millis(5));
+    executor.block_on(timer.as_mut());
+    println!("reusable timer reset completed");
 
     let quick =
         executor.block_on(executor.timeout(Duration::from_millis(50), async { "ready" }))?;

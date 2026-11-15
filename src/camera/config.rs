@@ -207,7 +207,7 @@ where
             transport_config: None,
             #[cfg(any(feature = "transport-serial", feature = "transport-serial-tokio"))]
             serial_startup: crate::transport::serial::Startup::default(),
-            camera_id: CameraId::new(P::DEFAULT_CAMERA_ID).unwrap_or_default(),
+            camera_id: P::DEFAULT_CAMERA_ID.into(),
             _phantom: PhantomData,
         }
     }
@@ -216,8 +216,9 @@ where
     ///
     /// # Example
     ///
-    /// ```ignore
-    /// let config = CameraConfig::<SonyFR7>::udp("192.168.0.108");
+    /// ```rust
+    /// use grafton_visca::{camera::CameraConfig, profiles::SonyFR7};
+    /// let config = CameraConfig::<SonyFR7>::for_camera();
     /// ```
     pub fn for_camera() -> Self {
         Self::new()
@@ -264,10 +265,19 @@ where
     }
 
     /// Create a serial camera configuration.
+    ///
+    /// A profile implementing [`SupportsSerial`] must declare serial support in
+    /// [`crate::CompileTimeProfile::TRANSPORTS`], checked at compile time.
     pub fn serial(port: impl Into<String>, baud_rate: u32) -> Self
     where
-        P: SupportsSerial,
+        P: SupportsSerial + crate::CompileTimeProfile,
     {
+        const {
+            assert!(
+                P::TRANSPORTS.supports_serial(),
+                "a profile implementing `SupportsSerial` must declare serial support in `TRANSPORTS`"
+            );
+        }
         Self::new().transport(TransportOptions::serial(port, baud_rate))
     }
 
@@ -281,6 +291,10 @@ where
     /// colons are ambiguous with an explicit port: `2001:db8::1` and
     /// `2001:db8::1:5678` are invalid, while `[2001:db8::1]` uses the default
     /// port and `[2001:db8::1]:5678` is an IPv6 address with port `5678`.
+    ///
+    /// UDP uses a numeric address as given. A hostname resolving to both IPv4
+    /// and IPv6 selects its first IPv4 address; a single-family name selects
+    /// its first address. TCP tries each resolved address in order.
     ///
     /// Examples:
     /// - IPv4: `"192.168.1.1"`, `"192.168.1.1:5678"`
@@ -416,6 +430,7 @@ where
         if let Some(profile_id) = P::PROFILE_ID {
             self.transport.validate_for_profile(profile_id)?;
         }
+        config.validate_for_transport(Some(self.transport.kind()))?;
         Ok(config)
     }
 
@@ -430,7 +445,7 @@ where
     /// Returns the validated, pure [`crate::SessionConfig`] that standard
     /// construction will pass to the owner-backed session.
     ///
-    /// This performs profile and session-policy validation but no endpoint
+    /// This validates the profile, session policy, and selected transport, but no endpoint
     /// parsing, DNS lookup, device open, task spawn, or protocol I/O. It is
     /// useful when an application needs to inspect or compose the shared
     /// session policy before selecting an async or blocking transport.
@@ -662,8 +677,13 @@ mod tests {
                 struct $name;
 
                 impl ProfileMetadata for $name {
+                    const INQUIRY_SUPPORT: crate::capabilities::InquirySupport =
+                        crate::capabilities::InquirySupport::Full;
+                    const SUPPORTS_COMMAND_CANCEL: bool = true;
+
                     const MODEL_NAME: &'static str = stringify!($name);
-                    const DEFAULT_CAMERA_ID: u8 = 1;
+                    const DEFAULT_CAMERA_ID: crate::IndividualCameraId =
+                        crate::IndividualCameraId::new(1).expect("individual profile default");
                     type Envelope = crate::transport::RawVisca;
                     const ACK_TIMEOUT: Duration = <Base as ProfileMetadata>::ACK_TIMEOUT;
                     const COMMAND_TIMEOUTS: crate::CommandTimeouts =
@@ -671,21 +691,36 @@ mod tests {
                 }
                 impl PanTilt for $name {
                     const PAN_RANGE: CapabilityRange<i32> = <Base as PanTilt>::PAN_RANGE;
-                    const TILT_RANGE: CapabilityRange<i32> = <Base as PanTilt>::TILT_RANGE;
+                    const TILT_RANGES: crate::capabilities::TiltRanges =
+                        crate::capabilities::TiltRanges::Single(
+                            <Base as PanTilt>::TILT_RANGES.range(None),
+                        );
                     const MAX_PAN_SPEED: u8 = <Base as PanTilt>::MAX_PAN_SPEED;
                     const MAX_TILT_SPEED: u8 = <Base as PanTilt>::MAX_TILT_SPEED;
                     const PAN_DEGREES_TO_UNITS: f32 = <Base as PanTilt>::PAN_DEGREES_TO_UNITS;
                     const TILT_DEGREES_TO_UNITS: f32 = <Base as PanTilt>::TILT_DEGREES_TO_UNITS;
                 }
                 impl Zoom for $name {
+                    const SUPPORTS_DIRECT_ZOOM: bool = true;
+                    const SUPPORTS_VARIABLE_ZOOM: bool = true;
+
                     const OPTICAL_ZOOM_MAX: u16 = <Base as Zoom>::OPTICAL_ZOOM_MAX;
                     const DIGITAL_ZOOM_MAX: Option<u16> = None;
                     const ZOOM_SPEED_RANGE: CapabilityRange<u8> = <Base as Zoom>::ZOOM_SPEED_RANGE;
                     const OPTICAL_ZOOM_RATIO: Option<f32> = None;
                 }
                 impl Focus for $name {
-                    const FOCUS_NEAR_LIMIT: u16 = <Base as Focus>::FOCUS_NEAR_LIMIT;
-                    const FOCUS_FAR_LIMIT: u16 = <Base as Focus>::FOCUS_FAR_LIMIT;
+                    const SUPPORTS_FOCUS_NEAR_LIMIT_INQUIRY: bool = true;
+
+                    const MAX_FOCUS_SPEED: u8 = 7;
+
+                    const FOCUS_RANGE: crate::capabilities::CapabilityRange<u16> =
+                        crate::capabilities::CapabilityRange::<u16>::new(
+                            <Base as Focus>::FOCUS_RANGE.min(),
+                            <Base as Focus>::FOCUS_RANGE.max(),
+                        );
+                    const FOCUS_NEAR_END: crate::capabilities::FocusNearEnd =
+                        crate::capabilities::FocusNearEnd::Minimum;
                     const SUPPORTS_AUTO_FOCUS: bool = true;
                     const SUPPORTS_ONE_PUSH_FOCUS: bool = false;
                 }
@@ -693,7 +728,8 @@ mod tests {
                     const IRIS_RANGE: Option<CapabilityDomain<u16>> = None;
                     const SHUTTER_SPEEDS: &'static [ShutterSpeedEntry] =
                         <Base as Exposure>::SHUTTER_SPEEDS;
-                    const GAIN_RANGE: CapabilityRange<u8> = <Base as Exposure>::GAIN_RANGE;
+                    const GAIN_RANGE: Option<crate::capabilities::CapabilityRange<u8>> =
+                        <Base as Exposure>::GAIN_RANGE;
                     const SUPPORTS_BACKLIGHT_COMP: bool = false;
                 }
                 impl WhiteBalance for $name {
@@ -779,6 +815,25 @@ mod tests {
         // (it fails to build for a `SupportsTcp` implementor without one), and
         // an explicit TCP transport is refused before any I/O.
         impl SupportsUdp for UdpOnly {}
+        for transport in [
+            TransportOptions::tcp("/never-resolved"),
+            TransportOptions::serial("/never-opened", 9600),
+        ] {
+            let config = CameraConfig::<UdpOnly>::new().transport(transport);
+            let preflight = config.validate().expect_err("unsupported custom transport");
+            let session = config.session_config().expect_err("same session preflight");
+            assert_eq!(preflight.to_string(), session.to_string());
+            assert!(matches!(preflight, crate::Error::InvalidRequest(_)));
+        }
+        #[cfg(feature = "blocking")]
+        {
+            let config =
+                CameraConfig::<UdpOnly>::new().transport(TransportOptions::tcp("/never-resolved"));
+            assert_eq!(
+                config.validate().expect_err("preflight").to_string(),
+                config.open().expect_err("refused before DNS").to_string(),
+            );
+        }
         assert!(CameraConfig::<UdpOnly>::new()
             .transport(TransportOptions::tcp("camera.local"))
             .standard_connection_plan()
@@ -904,7 +959,8 @@ mod tests {
             .preset_timeout(Duration::from_secs(73))
             .long_running_timeout(Duration::from_secs(379))
             .network_timeout(Duration::from_secs(83))
-            .settlement_timeout(Duration::from_secs(83));
+            // The longer movement/preset deadlines also raise their retry floor.
+            .settlement_timeout(Duration::from_secs(600));
         let config = CameraConfig::<PtzOpticsG2>::udp("camera.local").with_tuning(tuning);
 
         assert_eq!(

@@ -22,6 +22,8 @@ mod boundary;
 #[cfg(feature = "blocking")]
 mod clock;
 #[cfg(any(feature = "async", feature = "blocking"))]
+mod driver;
+#[cfg(any(feature = "async", feature = "blocking"))]
 mod handle;
 #[cfg(any(feature = "async", feature = "blocking"))]
 mod receipt;
@@ -41,6 +43,8 @@ pub(crate) use adapter::validate_profile_transport;
 pub(crate) use adapter::AsyncTransportAdapter;
 #[cfg(feature = "blocking")]
 pub(crate) use adapter::BlockingTransportAdapter;
+#[cfg(feature = "test-utils")]
+pub(crate) use adapter::ReceiveProbe;
 #[cfg(all(feature = "test-utils", feature = "blocking"))]
 pub(crate) use adapter::{decode_response_target, RoutingState, TargetRegistry};
 
@@ -76,12 +80,12 @@ use crate::{
 use crate::{raw::MAX_BYTES, CancellationOutcome, Error, ErrorKind, ViscaSocket};
 
 use super::engine::{
-    AdmissionSlot, AdmissionTicket, AppliedStateEffect, AppliedStateProjection,
-    CancellationObservation, CancellationPolicy, ControlClass, DeadlineKind, DecodedFrame,
-    DecodedResponse, Effect, EngineTurn, EnvelopeKind, EnvelopeSequence, IgnoreReason, Input,
-    InputTurn, Lane, Lifecycle, ProtocolEngine, ProtocolPolicy, RequestContext, RequestId,
-    RetryPolicy, RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason, TargetPolicy,
-    TimeoutPolicy, Transmission, TransmissionId, TransmissionMeta,
+    AdmissionSlot, AdmissionTicket, AppliedStateProjection, CancellationObservation,
+    CancellationPolicy, ControlClass, DeadlineKind, DecodedFrame, DecodedResponse, Effect,
+    EngineTurn, EnvelopeKind, EnvelopeSequence, IgnoreReason, Input, InputTurn, Lane, Lifecycle,
+    ProtocolEngine, ProtocolPolicy, RequestContext, RequestId, RetryPolicy, RuntimeOutcome,
+    RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy, Transmission,
+    TransmissionId, TransmissionMeta, TransportKind, WriteFraming, WriteOutcome,
 };
 
 #[cfg(test)]
@@ -187,29 +191,23 @@ pub(crate) fn canonical_owner_trace(
 /// Bounds for every owner-side collection and reusable byte store.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct OwnerLimits {
-    pub(crate) diagnostics: usize,
+    pub(crate) staged_diagnostics: usize,
+    pub(crate) control_requests: usize,
     pub(crate) diagnostic_subscribers: usize,
     pub(crate) diagnostic_events_per_subscription: usize,
-    pub(crate) state_keys_per_target: usize,
-    pub(crate) applied_subscribers: usize,
-    pub(crate) applied_events_per_subscription: usize,
     pub(crate) frames_per_receive: usize,
     pub(crate) receive_bytes: usize,
-    pub(crate) framing_bytes: usize,
 }
 
 impl Default for OwnerLimits {
     fn default() -> Self {
         Self {
-            diagnostics: 128,
+            staged_diagnostics: 128,
+            control_requests: 16,
             diagnostic_subscribers: 4,
             diagnostic_events_per_subscription: 128,
-            state_keys_per_target: 64,
-            applied_subscribers: 16,
-            applied_events_per_subscription: 64,
             frames_per_receive: 64,
             receive_bytes: 4_096,
-            framing_bytes: 8_192,
         }
     }
 }
@@ -238,7 +236,7 @@ pub(crate) struct OwnerPolicy {
     pub(crate) protocol: ProtocolPolicy,
     pub(crate) targets: PerTarget<Option<TargetPolicy>>,
     pub(crate) limits: OwnerLimits,
-    pub(crate) tuning: crate::OperationalTuning,
+    pub(crate) tuning: crate::session_config::ValidatedTuning,
     pub(crate) baseline: TuningBaseline,
     /// Maximum time one transport read may take before the owner treats the
     /// read as "no data arrived" (#675). The async owner enforces it around
@@ -263,6 +261,7 @@ impl OwnerPolicy {
     pub(crate) fn with_targets(
         protocol: ProtocolPolicy,
         targets: PerTarget<Option<TargetPolicy>>,
+        tuning: crate::session_config::ValidatedTuning,
     ) -> Result<Self, Error> {
         if targets.iter().all(|(_, target)| target.is_none()) {
             return Err(Error::InvalidRequest(
@@ -273,18 +272,19 @@ impl OwnerPolicy {
         // (#799); the production builder lowers the caller's configured
         // values over them (#675).
         let transport = crate::transport::TransportConfig::default();
+        let baseline = TuningBaseline {
+            command_spacing: protocol.command_spacing,
+            inquiry_spacing: protocol.inquiry_spacing,
+            command_sockets: PerTarget::from_fn(|target| {
+                targets[target].map(|policy| policy.command_sockets)
+            }),
+        };
         Ok(Self {
             protocol,
             targets,
             limits: OwnerLimits::default(),
-            tuning: crate::OperationalTuning::new(),
-            baseline: TuningBaseline {
-                command_spacing: protocol.command_spacing,
-                inquiry_spacing: protocol.inquiry_spacing,
-                command_sockets: PerTarget::from_fn(|target| {
-                    targets[target].map(|policy| policy.command_sockets)
-                }),
-            },
+            tuning,
+            baseline,
             read_timeout: transport.read_timeout,
             write_timeout: transport.write_timeout,
         })
@@ -300,7 +300,11 @@ impl OwnerPolicy {
     ) -> Result<Self, Error> {
         let mut targets = PerTarget::default();
         targets[target] = Some(target_policy);
-        Self::with_targets(protocol, targets)
+        Self::with_targets(
+            protocol,
+            targets,
+            crate::session_config::ValidatedTuning::for_test(crate::OperationalTuning::new())?,
+        )
     }
 }
 
@@ -332,10 +336,10 @@ pub(crate) struct OwnerMetrics {
     /// Running (#672). The session continues past these frames; this counter makes
     /// the otherwise lossy-diagnostics-only signal a durable metric.
     pub(crate) ignored_malformed_frames: u64,
-    pub(crate) dropped_diagnostics: u64,
+    pub(crate) ignored_reply_shape_mismatches: u64,
+    pub(crate) dropped_staged_diagnostics: u64,
     pub(crate) dropped_diagnostic_events: u64,
     pub(crate) dropped_observer_events: u64,
-    pub(crate) dropped_applied_events: u64,
     pub(crate) dropped_boundary_work: u64,
 }
 
@@ -495,99 +499,21 @@ pub(crate) enum DiagnosticEvent {
     Ignored(IgnoreReason),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct CachedProjection {
-    projection: AppliedStateProjection,
-    generation: u64,
-}
-
 #[derive(Debug, Default)]
 pub(crate) struct TargetStateCache {
-    values: BTreeMap<StateKey, CachedProjection>,
-    order: VecDeque<(StateKey, u64)>,
-    generation: u64,
+    values: crate::state_cache::PerStateKey<crate::state_cache::StateEntry>,
 }
 
 impl TargetStateCache {
-    fn apply(&mut self, projection: AppliedStateProjection, capacity: usize) {
-        if capacity == 0 {
-            return;
-        }
-        // The cache stores the public semantic discriminator, not a
-        // profile-specific wire variant. `PanTiltLimitCorner` has only the
-        // two Standard VISCA values documented for this opcode: down-left
-        // (`0x00`) and up-right (`0x01`). A limit set and a limit clear are
-        // both local to one corner, so each must name a valid one; refuse a
-        // malformed projection before it can replace a previously known limit
-        // update.
-        let invalid_limit_corner = match projection {
-            AppliedStateProjection::Set {
-                key: StateKey::PanTiltLimits,
-                value,
-            }
-            | AppliedStateProjection::Clear {
-                key: StateKey::PanTiltLimits,
-                value,
-            } => !matches!(
-                value.values[0..value.value_count as usize].first(),
-                Some(0 | 1)
-            ),
-            _ => false,
-        };
-        if invalid_limit_corner {
-            return;
-        }
-        self.generation = self.generation.wrapping_add(1);
-        let generation = self.generation;
-        let state = projection.state();
-        self.values.insert(
-            state,
-            CachedProjection {
-                projection,
-                generation,
-            },
-        );
-        self.order.push_back((state, generation));
-        while self.values.len() > capacity {
-            let Some((key, candidate_generation)) = self.order.pop_front() else {
-                break;
-            };
-            if self
-                .values
-                .get(&key)
-                .is_some_and(|value| value.generation == candidate_generation)
-            {
-                self.values.remove(&key);
-            }
-        }
-        // Updates to the same key leave stale order tickets. Keep their number
-        // bounded while preserving the most recent ticket for every value.
-        if self.order.len() > capacity.saturating_mul(2) {
-            self.order.retain(|(key, candidate_generation)| {
-                self.values
-                    .get(key)
-                    .is_some_and(|value| value.generation == *candidate_generation)
-            });
-        }
-    }
-
-    fn get(&self, state: StateKey) -> Option<AppliedStateProjection> {
-        self.values.get(&state).map(|value| value.projection)
-    }
-
-    pub(crate) fn entry(&self, state: StateKey) -> crate::state_cache::StateEntry {
-        let Some(value) = self.get(state) else {
-            return crate::state_cache::StateEntry::Unknown;
-        };
-        match value {
-            AppliedStateProjection::Set { value, .. } => crate::state_cache::StateEntry::Set(
-                crate::state_cache::StateValue::from_owner(value),
-            ),
-            AppliedStateProjection::Clear { value, .. } => crate::state_cache::StateEntry::Clear(
-                crate::state_cache::StateValue::from_owner(value),
-            ),
+    fn apply(&mut self, projection: AppliedStateProjection) {
+        self.values[projection.key()] = match projection {
+            AppliedStateProjection::Set(value) => crate::state_cache::StateEntry::Set(value),
             AppliedStateProjection::Invalidate { .. } => crate::state_cache::StateEntry::Unknown,
-        }
+        };
+    }
+
+    pub(crate) fn entry(&self, key: StateKey) -> crate::state_cache::StateEntry {
+        self.values[key]
     }
 }
 
@@ -677,7 +603,6 @@ impl AdmissionPermitPool {
             pool: Arc::clone(&self.0),
             slot,
             target,
-            released: false,
         })
     }
 
@@ -695,7 +620,6 @@ impl AdmissionPermitPool {
             pool: Arc::clone(&self.0),
             slot: AdmissionSlot::Ordinary,
             target: TargetSlot::ALL[0],
-            released: false,
         })
     }
 
@@ -715,7 +639,6 @@ pub(crate) struct AdmissionPermit {
     pool: Arc<PermitPoolInner>,
     slot: AdmissionSlot,
     target: TargetSlot,
-    released: bool,
 }
 
 impl AdmissionPermit {
@@ -727,10 +650,6 @@ impl AdmissionPermit {
 
 impl Drop for AdmissionPermit {
     fn drop(&mut self) {
-        if self.released {
-            return;
-        }
-        self.released = true;
         let mut available = self
             .pool
             .available
@@ -751,46 +670,84 @@ impl Drop for AdmissionPermit {
     }
 }
 
-/// Outcome of one owner driver receive.
-///
-/// The distinction is load bearing on byte-stream transports: only a zero-length
-/// transport read means the peer closed. A read that carried bytes but did not
-/// finish a frame decodes to an empty batch, and the owner must keep pumping so
-/// the remainder of the frame can arrive in a later read.
+/// Reusable receive storage, consumed in source order and returned to the owner.
 #[cfg(any(feature = "async", feature = "blocking"))]
+pub(crate) type FrameBatch = VecDeque<DecodedFrame>;
+
+/// Closed receive verdict. Only the adapter classifies transport evidence;
+/// the shell executes this decision without inspecting the error again.
 #[derive(Debug)]
 pub(crate) enum OwnerReceive {
-    /// The transport reported end of stream, i.e. a zero-length read.
-    Closed,
-    /// The read carried bytes and decoded to zero or more complete frames, in
-    /// source order. An empty batch means the chunk only advanced a partially
-    /// received frame; the transport is still open.
-    Frames(Vec<DecodedFrame>),
-    /// The read reported that no bytes arrived — an expired idle read timeout,
-    /// which is how a custom transport implements a non-blocking read. Nothing
-    /// was consumed and nothing failed: the owner keeps the session, keeps the
-    /// framing state, and does not touch any request's retry budget (#625).
-    NoData,
-    /// No bytes arrived during the full requested read timeout. Unlike an
-    /// eager `NoData`, this read already paced the owner and needs no pause.
+    Frames(FrameBatch),
+    NoProgress(NoProgressReason),
+    Transient(Error),
+    Fatal(ReceiveFatal),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NoProgressReason {
+    EagerIdle,
     IdleTimeout,
-    /// The transport read itself failed and consumed nothing, so framing state
-    /// is intact. The owner classifies the error: a transient fault retries
-    /// in-flight work and keeps the session, a fatal one ends it.
-    ///
-    /// This is deliberately distinct from `Err`, which the driver reserves for
-    /// a framing or decode failure over bytes that were already consumed.
-    Fault(Error),
+    MalformedDatagram,
+}
+
+#[derive(Debug)]
+pub(crate) enum ReceiveFatal {
+    TransportClosed { cause: Option<Error> },
+    FramingFailure { cause: Error },
+}
+
+impl OwnerReceive {
+    /// A failed read consumed no bytes. Preserve the full original cause.
+    pub(crate) fn read_error(error: Error) -> Self {
+        enum Class {
+            Idle,
+            Fatal,
+            Transient,
+        }
+        fn classify(error: &Error) -> Class {
+            match error {
+                Error::WithContext { source, .. } => classify(source),
+                Error::TransportError { source, .. } => classify(source),
+                Error::Timeout { .. } => Class::Idle,
+                Error::Io(io)
+                    if matches!(
+                        io.kind(),
+                        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
+                    ) =>
+                {
+                    Class::Idle
+                }
+                Error::Io(io) if crate::transport::FATAL_RECEIVE_IO_KINDS.contains(&io.kind()) => {
+                    Class::Fatal
+                }
+                Error::RuntimeShutdown => Class::Fatal,
+                error if error.requires_new_session() => Class::Fatal,
+                _ => Class::Transient,
+            }
+        }
+        match classify(&error) {
+            Class::Idle => Self::NoProgress(NoProgressReason::EagerIdle),
+            Class::Fatal => Self::Fatal(ReceiveFatal::TransportClosed { cause: Some(error) }),
+            Class::Transient => Self::Transient(error),
+        }
+    }
+
+    pub(crate) fn consumed_error(error: Error, transport: TransportKind) -> Self {
+        match transport {
+            TransportKind::Stream => Self::Fatal(ReceiveFatal::FramingFailure { cause: error }),
+            TransportKind::Datagram => Self::NoProgress(NoProgressReason::MalformedDatagram),
+        }
+    }
 }
 
 /// The owner-side half of one bounded, one-shot observation slot.
 ///
 /// The owner resolves it at most once. A handle holds the matching
-/// [`Observer`]; dropping that observer marks the cell detached, so the owner
+/// [`Observer`]; dropping that receiver disconnects the channel, so the owner
 /// can count an observation that nobody will read.
 #[derive(Debug)]
 pub(crate) struct ObserverCell<T> {
-    detached: AtomicBool,
     resolved: AtomicBool,
     sender: flume::Sender<Observed<T>>,
 }
@@ -824,9 +781,7 @@ enum ObserverResolution {
 
 impl<T> ObserverCell<T> {
     fn is_attached(&self) -> bool {
-        !self.detached.load(Ordering::Acquire)
-            && !self.resolved.load(Ordering::Acquire)
-            && !self.sender.is_disconnected()
+        !self.resolved.load(Ordering::Acquire) && !self.sender.is_disconnected()
     }
 
     #[cfg(test)]
@@ -887,7 +842,6 @@ impl<T> Observer<T> {
     pub(crate) fn pair() -> (Self, Arc<ObserverCell<T>>) {
         let (sender, receiver) = flume::bounded(1);
         let cell = Arc::new(ObserverCell {
-            detached: AtomicBool::new(false),
             resolved: AtomicBool::new(false),
             sender,
         });
@@ -934,14 +888,6 @@ impl<T> Observer<T> {
     #[cfg(feature = "blocking")]
     const fn receiver(&self) -> &flume::Receiver<Observed<T>> {
         &self.receiver
-    }
-}
-
-impl<T> Drop for Observer<T> {
-    fn drop(&mut self) {
-        if let Some(cell) = self.cell.upgrade() {
-            cell.detached.store(true, Ordering::Release);
-        }
     }
 }
 
@@ -1247,7 +1193,9 @@ impl OperationObservation {
 
     pub(crate) fn check_settlement(&mut self) -> Result<(), Error> {
         if let Some(stamp) = &self.core.motion {
-            if let Err(error) = stamp.check(crate::OperationId::from_raw(self.id().get())) {
+            if let Err(error) =
+                stamp.check(crate::OperationId::from_nonzero(self.id().as_nonzero()))
+            {
                 self.settled = Some(Err(error.clone()));
                 return Err(error);
             }
@@ -1263,7 +1211,7 @@ impl OperationObservation {
         if polled {
             if let Some(stamp) = &self.core.motion {
                 return stamp.commit(
-                    crate::OperationId::from_raw(self.id().get()),
+                    crate::OperationId::from_nonzero(self.id().as_nonzero()),
                     result,
                     &mut self.settled,
                 );
@@ -1276,33 +1224,12 @@ impl OperationObservation {
     }
 }
 
-/// Bounded applied-state event delivered after the target-local cache changes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct AppliedStateEvent(pub(crate) AppliedStateEffect);
-
-#[cfg(test)]
-#[derive(Debug)]
-pub(crate) struct AppliedStateSubscription {
-    receiver: flume::Receiver<AppliedStateEvent>,
-}
-
-#[cfg(test)]
-impl AppliedStateSubscription {
-    pub(crate) fn try_recv(&self) -> Option<AppliedStateEvent> {
-        self.receiver.try_recv().ok()
-    }
-}
-
-#[derive(Debug)]
-struct AppliedSubscriber {
-    target: Option<TargetSlot>,
-    sender: flume::Sender<AppliedStateEvent>,
-}
-
 #[derive(Debug)]
 pub(crate) struct DiagnosticSubscription {
     receiver: flume::Receiver<DiagnosticEvent>,
     lifecycle: Arc<boundary::OwnerLifecycle>,
+    #[cfg(feature = "blocking")]
+    clock: Clock,
 }
 
 impl DiagnosticSubscription {
@@ -1326,11 +1253,25 @@ impl DiagnosticSubscription {
 
     #[cfg(feature = "blocking")]
     pub(crate) fn recv_timeout(&self, timeout: Duration) -> Result<Option<DiagnosticEvent>, Error> {
-        match self.receiver.recv_timeout(timeout) {
-            Ok(event) => Ok(Some(event)),
-            Err(flume::RecvTimeoutError::Timeout) => Ok(None),
-            Err(flume::RecvTimeoutError::Disconnected) => Err(self.disconnected_error()),
-        }
+        let received = match &self.clock {
+            Clock::System => match self.receiver.recv_timeout(timeout) {
+                Ok(event) => Some(Ok(event)),
+                Err(flume::RecvTimeoutError::Timeout) => None,
+                Err(flume::RecvTimeoutError::Disconnected) => {
+                    Some(Err(flume::RecvError::Disconnected))
+                }
+            },
+            #[cfg(any(test, feature = "test-utils"))]
+            Clock::Manual(_) => {
+                let deadline = self.clock.now().checked_add(timeout);
+                let selection = self.clock.select().recv(&self.receiver, |event| event);
+                match deadline {
+                    Some(deadline) => selection.wait_until(deadline),
+                    None => Some(selection.wait()),
+                }
+            }
+        };
+        received.transpose().map_err(|_| self.disconnected_error())
     }
 }
 
@@ -1346,8 +1287,7 @@ pub(crate) struct OwnerBuffers {
     send: Vec<u8>,
     transmit: BytesMut,
     receive: Box<[u8]>,
-    framing: Vec<u8>,
-    framing_limit: usize,
+    frames: FrameBatch,
     /// Count of delimited-but-unclassifiable frames the last stream decode
     /// discarded as malformed (#672). It is a side channel from the shared
     /// decode, which owns the framer but not the owner's diagnostics, back to
@@ -1360,18 +1300,17 @@ pub(crate) struct OwnerBuffers {
 }
 
 impl OwnerBuffers {
-    fn new(limits: OwnerLimits) -> Result<Self, Error> {
-        if limits.receive_bytes == 0 || limits.framing_bytes == 0 {
+    pub(crate) fn new(limits: OwnerLimits) -> Result<Self, Error> {
+        if limits.receive_bytes == 0 {
             return Err(Error::InvalidRequest(
-                "owner receive and framing buffers must be non-zero".into(),
+                "owner receive buffer must be non-zero".into(),
             ));
         }
         Ok(Self {
             send: Vec::with_capacity(MAX_BYTES),
             transmit: BytesMut::with_capacity(MAX_BYTES.saturating_add(8)),
             receive: vec![0; limits.receive_bytes].into_boxed_slice(),
-            framing: Vec::with_capacity(limits.framing_bytes),
-            framing_limit: limits.framing_bytes,
+            frames: FrameBatch::with_capacity(limits.frames_per_receive),
             discarded_malformed: 0,
         })
     }
@@ -1427,31 +1366,19 @@ impl OwnerBuffers {
         &mut self.receive
     }
 
-    /// Copies one validated transport read into the owner-owned framing
-    /// scratch without exposing the receive store to an adapter borrow.
-    pub(crate) fn append_received(&mut self, received: usize) -> Result<(), Error> {
-        if received > self.receive.len() {
-            return Err(Error::InvalidResponse {
-                expected: "transport read fitting the owner receive buffer".into(),
-                actual: received.to_le_bytes().to_vec(),
-            });
-        }
-        if self.framing.len().saturating_add(received) > self.framing_limit {
-            return Err(Error::ResponseTooLarge {
-                max_size: self.framing_limit,
-            });
-        }
-        self.framing.extend_from_slice(&self.receive[..received]);
-        Ok(())
+    /// Lend the warmed batch storage to one receive operation.
+    pub(crate) fn take_frames(&mut self) -> FrameBatch {
+        let mut frames = std::mem::take(&mut self.frames);
+        frames.clear();
+        frames
     }
 
-    pub(crate) fn framing(&self) -> &[u8] {
-        &self.framing
-    }
-
-    pub(crate) fn consume_framing(&mut self, count: usize) {
-        let count = count.min(self.framing.len());
-        self.framing.drain(..count);
+    /// Reuse the allocation after the shell has consumed the complete batch.
+    pub(crate) fn recycle_frames(&mut self, mut frames: FrameBatch) {
+        frames.clear();
+        if frames.capacity() > self.frames.capacity() {
+            self.frames = frames;
+        }
     }
 }
 
@@ -1466,10 +1393,8 @@ pub(crate) struct WireWrite<'a> {
     ))]
     pub(crate) request: RequestId,
     pub(crate) bytes: &'a [u8],
-    /// Sequence requested by the engine. `None` lets Sony framing allocate a
-    /// fresh identity; an explicit value is a retry of the same logical wire
-    /// message. Raw framing rejects an explicit value.
-    pub(crate) requested_sequence: Option<u32>,
+    /// The concrete encoder plan bound by the session wire authority.
+    pub(crate) framing: &'a WriteFraming,
     /// Reusable framing destination owned by the session. Envelope adapters
     /// must frame into this buffer instead of allocating per transmission.
     pub(crate) frame_buffer: &'a mut BytesMut,
@@ -1481,11 +1406,16 @@ pub(crate) struct WireWrite<'a> {
     ))]
     pub(crate) cancellation: bool,
     pub(crate) inquiry: bool,
-    pub(crate) envelope: EnvelopeKind,
 }
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 impl WireWrite<'_> {
+    /// Executes the encoder plan already bound by the session authority.
+    pub(crate) fn frame(&mut self) -> Result<TransmissionMeta, Error> {
+        self.framing
+            .frame_into(self.bytes, self.command_kind(), self.frame_buffer)
+    }
+
     /// The command kind this write is framed and sent as.
     pub(crate) const fn command_kind(&self) -> crate::command::CommandKind {
         if self.inquiry {
@@ -1501,7 +1431,6 @@ pub(crate) struct StagedWrite {
     pub(crate) transmission: TransmissionId,
     pub(crate) request: RequestId,
     pub(crate) kind: Transmission,
-    pub(crate) requested_sequence: Option<u32>,
 }
 
 /// Owner boundary token for one ordered decoded-input batch.
@@ -1512,6 +1441,12 @@ pub(crate) struct StagedWrite {
 pub(crate) struct OwnerInputTurn(InputTurn, Instant);
 
 impl StagedWrite {
+    fn framing(&self) -> &WriteFraming {
+        match &self.kind {
+            Transmission::Request { framing, .. } | Transmission::Cancel { framing, .. } => framing,
+        }
+    }
+
     fn target(&self) -> TargetSlot {
         match self.kind {
             Transmission::Request { target, .. } | Transmission::Cancel { target, .. } => target,
@@ -1538,54 +1473,61 @@ pub(crate) enum AppliedEffect {
 /// never a half-applied mixture of two updates — and two concurrent updates
 /// resolve last-writer-wins in the order the owner accepted them.
 #[derive(Debug, Clone)]
-pub(crate) struct LiveTuning(Arc<Mutex<crate::OperationalTuning>>);
+pub(crate) struct LiveTuning(Arc<Mutex<crate::session_config::ValidatedTuning>>);
 
 impl LiveTuning {
-    fn new(tuning: crate::OperationalTuning) -> Self {
+    fn new(tuning: crate::session_config::ValidatedTuning) -> Self {
         Self(Arc::new(Mutex::new(tuning)))
     }
 
     /// Copies the tuning currently governing request preparation.
-    pub(crate) fn get(&self) -> crate::OperationalTuning {
+    pub(crate) fn get(&self) -> crate::session_config::ValidatedTuning {
         *self.0.lock().unwrap_or_else(|poison| poison.into_inner())
     }
 
-    fn set(&self, tuning: crate::OperationalTuning) {
+    fn set(&self, tuning: crate::session_config::ValidatedTuning) {
         *self.0.lock().unwrap_or_else(|poison| poison.into_inner()) = tuning;
     }
 }
 
-/// Retained byte-stream input as both owner shells see it at a raw
-/// correlation release (#776). Datagram and stateless drivers retain nothing,
-/// which the defaults describe.
-#[cfg(any(feature = "async", feature = "blocking"))]
+/// Evidence and a nonzero progress measure for one retained input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RetainedInput {
+    pub(crate) len: std::num::NonZeroUsize,
+    pub(crate) evidence: RetainedEvidence,
+}
+
+/// Raw-prefix facts or explicit non-raw retention, never independent flags.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RetainedEvidence {
+    Complete,
+    Malformed,
+    Incomplete {
+        target: TargetSlot,
+        kind: crate::protocol::framer::RawIncompletePrefix,
+    },
+    NotRaw,
+}
+
+impl RetainedEvidence {
+    fn raw(self) -> Option<RawPrefixEvidence> {
+        match self {
+            Self::Complete => Some(RawPrefixEvidence::Complete),
+            Self::Malformed => Some(RawPrefixEvidence::Malformed),
+            Self::Incomplete { target, kind } => {
+                Some(RawPrefixEvidence::Incomplete { target, kind })
+            }
+            Self::NotRaw => None,
+        }
+    }
+}
+
+/// Infallible inspection of retained stream input. Only discarding mutates it.
 pub(crate) trait RetainedStreamInput {
-    /// Whether the stream framer retains input not yet delivered to the
-    /// engine.
-    fn has_buffered_stream_input(&mut self) -> Result<bool, Error> {
-        Ok(false)
+    fn retained(&self) -> Option<RetainedInput> {
+        None
     }
-
-    /// A monotonic measure of the first retained input. Production adapters
-    /// return the framer's exact byte count; the default suits a
-    /// single-fragment test seam. A successful discard must reduce it (or
-    /// remove it), which lets the owner prove progress without a turn cap.
-    fn buffered_stream_input_len(&mut self) -> Result<Option<usize>, Error> {
-        Ok(self.has_buffered_stream_input()?.then_some(1))
-    }
-
-    /// Evidence visible in the first retained raw input. A complete frame
-    /// defers to the ordinary decode path; an incomplete prefix is classified
-    /// only from its first two bytes, just far enough for the engine to decide
-    /// whether it belongs to an expiring correlation scope. `None` means no
-    /// input is retained.
-    fn buffered_raw_prefix_evidence(&mut self) -> Result<Option<RawPrefixEvidence>, Error> {
-        Ok(None)
-    }
-
-    /// Discard exactly the first retained raw frame or incomplete fragment,
-    /// preserving all later input.
-    fn discard_buffered_stream_input(&mut self) -> Result<(), Error> {
+    fn discard_first(&mut self) -> Result<(), Error> {
         Ok(())
     }
 }
@@ -1612,38 +1554,29 @@ pub(crate) struct OwnerState {
     active: BTreeMap<RequestId, ActiveRequest>,
     motion: Arc<MotionRegistry>,
     target_cache: Arc<PerTarget<Mutex<TargetStateCache>>>,
-    subscribers: BTreeMap<u64, AppliedSubscriber>,
     diagnostic_subscribers: BTreeMap<u64, DiagnosticSubscriber>,
-    // Read only by `subscribe_applied`, whose consumers are feature-gated
-    // (#636).
-    #[cfg(test)]
-    next_subscription: u64,
     // Read only by `subscribe_diagnostics`, whose consumers are feature-gated
     // (#636).
     #[cfg(any(feature = "async", feature = "blocking", test))]
     next_diagnostic_subscription: u64,
     next_ticket: u64,
-    diagnostics: VecDeque<DiagnosticEvent>,
     metrics: OwnerMetrics,
     buffers: OwnerBuffers,
-    session_error: Option<Error>,
 }
 
 impl OwnerState {
-    pub(crate) fn new(policy: OwnerPolicy) -> Result<Self, Error> {
-        if policy.limits.diagnostics == 0
+    pub(crate) fn new(policy: OwnerPolicy, now: Instant) -> Result<Self, Error> {
+        if policy.limits.staged_diagnostics == 0
             || policy.limits.diagnostic_subscribers == 0
             || policy.limits.diagnostic_events_per_subscription == 0
-            || policy.limits.state_keys_per_target == 0
-            || policy.limits.applied_subscribers == 0
-            || policy.limits.applied_events_per_subscription == 0
+            || policy.limits.control_requests == 0
             || policy.limits.frames_per_receive == 0
         {
             return Err(Error::InvalidRequest(
                 "owner collection bounds must be non-zero".into(),
             ));
         }
-        let mut engine = ProtocolEngine::new(policy.protocol)?;
+        let mut engine = ProtocolEngine::new(policy.protocol.clone(), now)?;
         for (target, target_policy) in policy.targets.iter() {
             if let Some(target_policy) = target_policy {
                 engine.register_target(target, *target_policy)?;
@@ -1659,7 +1592,7 @@ impl OwnerState {
         let tuning = LiveTuning::new(policy.tuning);
         Ok(Self {
             engine,
-            observed_at: Instant::now(),
+            observed_at: now,
             policy,
             tuning,
             permits,
@@ -1669,17 +1602,12 @@ impl OwnerState {
             target_cache: Arc::new(PerTarget::from_fn(|_| {
                 Mutex::new(TargetStateCache::default())
             })),
-            subscribers: BTreeMap::new(),
             diagnostic_subscribers: BTreeMap::new(),
-            #[cfg(test)]
-            next_subscription: 1,
             #[cfg(any(feature = "async", feature = "blocking", test))]
             next_diagnostic_subscription: 1,
             next_ticket: 1,
-            diagnostics: VecDeque::new(),
             metrics: OwnerMetrics::default(),
             buffers,
-            session_error: None,
         })
     }
 
@@ -1714,11 +1642,15 @@ impl OwnerState {
     /// admitted request's context, so an in-flight command is never re-timed
     /// underneath its own observer.
     ///
-    /// The caller is responsible for validating `tuning` against the registered
-    /// profiles first — the owner does not retain `ProfileSpec` values, and the
-    /// session facades perform those profile-safety checks before the update
-    /// reaches this point.
-    pub(crate) fn retune(&mut self, tuning: crate::OperationalTuning) -> Result<(), Error> {
+    /// The proof value was checked against every registered profile before
+    /// crossing this boundary. Commit it to the live cell only after the
+    /// engine accepts its pacing and capacity update.
+    pub(crate) fn retune(
+        &mut self,
+        validated: crate::session_config::ValidatedTuning,
+        now: Instant,
+    ) -> Result<(), Error> {
+        let tuning = validated.get();
         let baseline = self.policy.baseline;
         let command_spacing = tuning
             .command_spacing_override()
@@ -1734,16 +1666,8 @@ impl OwnerState {
             })
         });
         self.engine
-            .retune(command_spacing, inquiry_spacing, command_sockets)?;
-        self.policy.protocol.command_spacing = command_spacing;
-        self.policy.protocol.inquiry_spacing = inquiry_spacing;
-        for (target, slot) in self.policy.targets.iter_mut() {
-            if let (Some(policy), Some(sockets)) = (slot.as_mut(), command_sockets[target]) {
-                policy.command_sockets = sockets;
-            }
-        }
-        self.policy.tuning = tuning;
-        self.tuning.set(tuning);
+            .retune(command_spacing, inquiry_spacing, command_sockets, now)?;
+        self.tuning.set(validated);
         Ok(())
     }
 
@@ -1752,7 +1676,7 @@ impl OwnerState {
     }
 
     pub(crate) fn boundary_error(&self) -> Option<Error> {
-        self.session_error.clone()
+        self.engine.terminal_error()
     }
 
     /// Whether `id` is still an active request: admitted, and its terminal
@@ -1832,20 +1756,17 @@ impl OwnerState {
     }
 
     /// Accounts for a bounded diagnostic ingress evicting an older event before
-    /// the owner can place it in its public diagnostic ring.
+    /// the owner can deliver it to diagnostic subscribers.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn record_dropped_diagnostics(&mut self, count: u64) {
-        self.metrics.dropped_diagnostics = self.metrics.dropped_diagnostics.saturating_add(count);
+    pub(crate) fn record_dropped_staged_diagnostics(&mut self, count: u64) {
+        self.metrics.dropped_staged_diagnostics = self
+            .metrics
+            .dropped_staged_diagnostics
+            .saturating_add(count);
     }
 
     pub(crate) fn state_cache_registry(&self) -> Arc<PerTarget<Mutex<TargetStateCache>>> {
         Arc::clone(&self.target_cache)
-    }
-
-    // Used by owner tests and the test-only async snapshot helper (#636).
-    #[cfg(test)]
-    pub(crate) fn diagnostics(&self) -> impl Iterator<Item = &DiagnosticEvent> {
-        self.diagnostics.iter()
     }
 
     pub(crate) fn next_wake(&self) -> Option<Instant> {
@@ -1878,39 +1799,25 @@ impl OwnerState {
         I: RetainedStreamInput + ?Sized,
     {
         loop {
-            let buffered = input.has_buffered_stream_input()?;
-            let evidence = input.buffered_raw_prefix_evidence()?;
-            if buffered != evidence.is_some() {
-                return Err(Error::InvalidState(
-                    if buffered {
-                        "retained raw stream input could not be classified before correlation release"
-                    } else {
-                        "stream decoder described absent buffered input"
-                    }
-                    .into(),
-                ));
-            }
-            match self.engine.resolve_raw_release_gate(now, evidence) {
+            let Some(retained) = input.retained() else {
+                // No retained input clears the previous grace scope.
+                let _ = self.engine.resolve_raw_release_gate(now, None);
+                return Ok(RawReleaseResolution::Advance);
+            };
+            let Some(evidence) = retained.evidence.raw() else {
+                let _ = self.engine.resolve_raw_release_gate(now, None);
+                return Ok(RawReleaseResolution::Advance);
+            };
+            match self.engine.resolve_raw_release_gate(now, Some(evidence)) {
                 RawReleaseGateAction::Advance => return Ok(RawReleaseResolution::Advance),
                 RawReleaseGateAction::AwaitInputUntil(deadline) => {
                     return Ok(RawReleaseResolution::AwaitInputUntil(deadline));
                 }
-                RawReleaseGateAction::DiscardFirst if !buffered => {
-                    return Err(Error::InvalidState(
-                        "raw release gate requested a discard without retained input".into(),
-                    ));
-                }
                 RawReleaseGateAction::DiscardFirst => {
-                    let before = input.buffered_stream_input_len()?.ok_or_else(|| {
-                        Error::InvalidState(
-                            "stream decoder reported buffered input without a progress measure"
-                                .into(),
-                        )
-                    })?;
-                    input.discard_buffered_stream_input()?;
+                    input.discard_first()?;
                     if input
-                        .buffered_stream_input_len()?
-                        .is_some_and(|after| after >= before)
+                        .retained()
+                        .is_some_and(|after| after.len >= retained.len)
                     {
                         return Err(Error::InvalidState(
                             "raw stream decoder did not consume the discarded prefix".into(),
@@ -2004,9 +1911,6 @@ impl OwnerState {
                 response: response_diagnostic(&frame.response),
             });
         }
-        if self.session_error.is_none() {
-            self.session_error = boundary_error_for_input(input);
-        }
     }
 
     pub(crate) fn advance(&mut self, now: Instant) -> VecDeque<Effect> {
@@ -2017,16 +1921,16 @@ impl OwnerState {
     pub(crate) fn finish_write(
         &mut self,
         staged: &StagedWrite,
-        result: Result<TransmissionMeta, Error>,
+        result: WriteOutcome,
         now: Instant,
     ) -> VecDeque<Effect> {
-        self.finish_write_turn(staged, result, now, EngineTurn::COMPLETE)
+        self.finish_write_turn(staged, result, now, EngineTurn::Complete)
     }
 
     pub(crate) fn finish_write_turn(
         &mut self,
         staged: &StagedWrite,
-        result: Result<TransmissionMeta, Error>,
+        result: WriteOutcome,
         now: Instant,
         turn: EngineTurn,
     ) -> VecDeque<Effect> {
@@ -2035,6 +1939,7 @@ impl OwnerState {
         self.engine
             .handle_turn(
                 Input::TransmissionFinished {
+                    request: staged.request,
                     transmission: staged.transmission,
                     result,
                 },
@@ -2050,7 +1955,7 @@ impl OwnerState {
         &mut self,
         turn: &OwnerInputTurn,
         staged: &StagedWrite,
-        result: Result<TransmissionMeta, Error>,
+        result: WriteOutcome,
     ) -> VecDeque<Effect> {
         self.observed_at = turn.1;
         self.observe_write(staged, &result);
@@ -2058,6 +1963,7 @@ impl OwnerState {
             .handle_in_turn(
                 &turn.0,
                 Input::TransmissionFinished {
+                    request: staged.request,
                     transmission: staged.transmission,
                     result,
                 },
@@ -2065,31 +1971,22 @@ impl OwnerState {
             .into()
     }
 
-    fn observe_write(&mut self, staged: &StagedWrite, result: &Result<TransmissionMeta, Error>) {
+    fn observe_write(&mut self, staged: &StagedWrite, result: &WriteOutcome) {
+        let (success, sequence) = match result {
+            WriteOutcome::NotSent(_) => return,
+            WriteOutcome::Sent(meta) => (true, meta.sequence()),
+            WriteOutcome::Failed(_) => (false, None),
+        };
         self.metrics.writes = self.metrics.writes.saturating_add(1);
-        if result.is_err() {
+        if !success {
             self.metrics.write_failures = self.metrics.write_failures.saturating_add(1);
-        }
-        let success = result.is_ok();
-        let sequence = result.as_ref().ok().and_then(|meta| meta.sequence);
-        if self.session_error.is_none()
-            && result.is_err()
-            && self.policy.protocol.transport == super::engine::TransportKind::Stream
-        {
-            let reason = result
-                .as_ref()
-                .err()
-                .map_or_else(|| "stream write failed".to_owned(), ToString::to_string);
-            self.session_error = Some(Error::StreamPoisoned {
-                reason: reason.into(),
-            });
         }
         self.record(DiagnosticEvent::WriteFinished {
             id: staged.request,
             transmission: staged.transmission,
             target: staged.target(),
             cancellation: matches!(staged.kind, Transmission::Cancel { .. }),
-            envelope: self.policy.protocol.envelope,
+            envelope: self.policy.protocol.wire.kind(),
             sequence,
             success,
         });
@@ -2198,37 +2095,8 @@ impl OwnerState {
                 active.cancellation = None;
             }
         }
-        effects.extend(self.engine.finish_input_turn(turn, EngineTurn::COMPLETE));
+        effects.extend(self.engine.finish_input_turn(turn, EngineTurn::Complete));
         (effects.into(), answer)
-    }
-
-    // Consumed by the async actor's `Subscribe` control arm and the owner
-    // lifecycle fixture (#636).
-    #[cfg(test)]
-    pub(crate) fn subscribe_applied(
-        &mut self,
-        target: Option<TargetSlot>,
-        event_capacity: usize,
-    ) -> Result<AppliedStateSubscription, Error> {
-        if event_capacity == 0
-            || event_capacity > self.policy.limits.applied_events_per_subscription
-        {
-            return Err(Error::InvalidRequest(
-                "applied-state subscription capacity is outside owner bounds".into(),
-            ));
-        }
-        self.subscribers
-            .retain(|_, value| !value.sender.is_disconnected());
-        if self.subscribers.len() >= self.policy.limits.applied_subscribers {
-            return Err(Error::RuntimeQueueFull {
-                capacity: self.policy.limits.applied_subscribers,
-            });
-        }
-        let id = allocate_subscription_id(&mut self.next_subscription, &self.subscribers);
-        let (sender, receiver) = flume::bounded(event_capacity);
-        self.subscribers
-            .insert(id, AppliedSubscriber { target, sender });
-        Ok(AppliedStateSubscription { receiver })
     }
 
     #[cfg(any(feature = "async", feature = "blocking", test))]
@@ -2261,10 +2129,12 @@ impl OwnerState {
         Ok(DiagnosticSubscription {
             receiver,
             lifecycle,
+            #[cfg(feature = "blocking")]
+            clock: Clock::System,
         })
     }
 
-    pub(crate) fn validate_frame_batch(&self, frames: &[DecodedFrame]) -> Result<(), Error> {
+    pub(crate) fn validate_frame_batch(&self, frames: &FrameBatch) -> Result<(), Error> {
         if frames.len() > self.policy.limits.frames_per_receive {
             // A frame-count limit, not a byte-size limit: name frames rather than
             // reusing the "N bytes" `ResponseTooLarge` message. Since the shared
@@ -2302,7 +2172,7 @@ impl OwnerState {
 
     pub(crate) fn prepare_write<'a>(
         &'a mut self,
-        staged: &StagedWrite,
+        staged: &'a StagedWrite,
     ) -> Result<WireWrite<'a>, Error> {
         #[cfg(all(
             test,
@@ -2310,10 +2180,26 @@ impl OwnerState {
             any(feature = "runtime-tokio", feature = "runtime-smol")
         ))]
         let cancellation = matches!(staged.kind, Transmission::Cancel { .. });
-        let inquiry = self
-            .active
-            .get(&staged.request)
-            .is_some_and(|active| active.summary.lane == Lane::Inquiry);
+        let (inquiry, requires_extended_pan_tilt_speed) = match staged.kind {
+            Transmission::Request {
+                lane,
+                requires_extended_pan_tilt_speed,
+                ..
+            } => (lane == Lane::Inquiry, requires_extended_pan_tilt_speed),
+            Transmission::Cancel { .. } => (false, false),
+        };
+        if requires_extended_pan_tilt_speed {
+            let cache = crate::state_cache::StateCache::from_registry(
+                Arc::clone(&self.target_cache),
+                staged.target(),
+            );
+            if cache.variable_speed_mode() != Some(crate::command::VariableSpeedMode::Fine50) {
+                return Err(Error::InvalidRequest(format!(
+                    "Sony FR7 speeds above 24 require an applied Fine50 variable-speed mode for camera {}",
+                    staged.target().camera()).into()));
+            }
+        }
+        let framing = staged.framing();
         let (bytes, frame_buffer) = self.buffers.prepare(&staged.kind)?;
         Ok(WireWrite {
             #[cfg(all(
@@ -2323,7 +2209,7 @@ impl OwnerState {
             ))]
             request: staged.request,
             bytes,
-            requested_sequence: staged.requested_sequence,
+            framing,
             frame_buffer,
             #[cfg(all(
                 test,
@@ -2332,7 +2218,6 @@ impl OwnerState {
             ))]
             cancellation,
             inquiry,
-            envelope: self.policy.protocol.envelope,
         })
     }
 
@@ -2424,22 +2309,11 @@ impl OwnerState {
                 transmission,
                 request,
                 kind,
-            } => {
-                let requested_sequence = match &kind {
-                    Transmission::Request {
-                        requested_sequence, ..
-                    }
-                    | Transmission::Cancel {
-                        requested_sequence, ..
-                    } => *requested_sequence,
-                };
-                AppliedEffect::Transmit(StagedWrite {
-                    transmission,
-                    request,
-                    kind,
-                    requested_sequence,
-                })
-            }
+            } => AppliedEffect::Transmit(StagedWrite {
+                transmission,
+                request,
+                kind,
+            }),
             Effect::RetryScheduled {
                 id,
                 attempt,
@@ -2511,36 +2385,16 @@ impl OwnerState {
                 AppliedEffect::None
             }
             Effect::AppliedState { effect } => {
-                // Cache mutation is observer-independent and always precedes
-                // best-effort subscriber delivery.
+                // Cache mutation precedes terminal observation and diagnostic
+                // delivery, independently of any observer staying attached.
                 if let Ok(mut cache) = self.target_cache[effect.target].lock() {
-                    cache.apply(effect.projection, self.policy.limits.state_keys_per_target);
+                    cache.apply(effect.projection);
                 }
                 self.metrics.cache_updates = self.metrics.cache_updates.saturating_add(1);
                 self.record(DiagnosticEvent::AppliedState {
                     id: effect.request,
                     target: effect.target,
-                    key: effect.projection.state(),
-                });
-                let event = AppliedStateEvent(effect);
-                self.subscribers.retain(|_, subscriber| {
-                    if subscriber.sender.is_disconnected() {
-                        return false;
-                    }
-                    if subscriber
-                        .target
-                        .is_none_or(|target| target == effect.target)
-                    {
-                        match subscriber.sender.try_send(event) {
-                            Ok(()) => {}
-                            Err(flume::TrySendError::Full(_)) => {
-                                self.metrics.dropped_applied_events =
-                                    self.metrics.dropped_applied_events.saturating_add(1);
-                            }
-                            Err(flume::TrySendError::Disconnected(_)) => return false,
-                        }
-                    }
-                    true
+                    key: effect.projection.key(),
                 });
                 AppliedEffect::None
             }
@@ -2568,25 +2422,11 @@ impl OwnerState {
                 AppliedEffect::None
             }
             Effect::SessionChanged { from, to } => {
-                // Issue #680: an engine-initiated terminal transition (deadline
-                // expiry, the strict `strict_unconfirmed_poison` opt-in, a
-                // stream/framing self-poison) reaches the owner only as this
-                // payload-free effect — it does not pass through `observe_input`
-                // with a `Close`/`Poison`/`Shutdown` input, so `session_error`
-                // would otherwise stay `None`. Learn the engine's actual
-                // terminal error on the first non-`Running` transition and latch
-                // it, so `boundary_error()` (hence `shutdown()`/`close()` and
-                // `set_tuning`) surfaces the true cause with the correct
-                // `requires_new_session()` verdict instead of masking it as
-                // `RuntimeShutdown`, and so the diagnostic `reason` below is the
-                // real `ErrorKind` rather than `Other`. An owner-supplied
-                // boundary input already set `session_error` first, so the
-                // `is_none()` guard leaves that verdict untouched.
-                if self.session_error.is_none() && !matches!(to, SessionState::Running) {
-                    self.session_error = self.engine.terminal_error();
-                }
+                // The engine records the exact cause before emitting this
+                // transition, including engine-initiated stream poison.
                 let reason = self
-                    .session_error
+                    .engine
+                    .terminal_error()
                     .as_ref()
                     .map_or(ErrorKind::Other, Error::kind);
                 self.record(DiagnosticEvent::SessionChanged { from, to, reason });
@@ -2602,6 +2442,12 @@ impl OwnerState {
                 if reason == IgnoreReason::MalformedFrame {
                     self.metrics.ignored_malformed_frames =
                         self.metrics.ignored_malformed_frames.saturating_add(1);
+                }
+                if reason == IgnoreReason::ReplyShapeMismatch {
+                    self.metrics.ignored_reply_shape_mismatches = self
+                        .metrics
+                        .ignored_reply_shape_mismatches
+                        .saturating_add(1);
                 }
                 self.record(DiagnosticEvent::Ignored(reason));
                 AppliedEffect::None
@@ -2619,11 +2465,6 @@ impl OwnerState {
     }
 
     fn record(&mut self, event: DiagnosticEvent) {
-        if self.diagnostics.len() == self.policy.limits.diagnostics {
-            self.diagnostics.pop_front();
-            self.metrics.dropped_diagnostics = self.metrics.dropped_diagnostics.saturating_add(1);
-        }
-        self.diagnostics.push_back(event);
         self.diagnostic_subscribers.retain(|_, subscriber| {
             if subscriber.sender.is_disconnected() {
                 return false;
@@ -2694,34 +2535,12 @@ fn cancellation_diagnostic(observation: &CancellationObservation) -> Cancellatio
     }
 }
 
-fn boundary_error_for_input(input: &Input) -> Option<Error> {
-    match input {
-        Input::Shutdown(reason) => Some(match reason {
-            ShutdownReason::Explicit => Error::RuntimeShutdown,
-            ShutdownReason::TransportClosed { reason } => Error::ConnectionClosed {
-                reason: reason.as_ref().map(|value| value.to_string().into()),
-            },
-            ShutdownReason::FramingFailure { reason } => Error::StreamPoisoned {
-                reason: reason.to_string().into(),
-            },
-        }),
-        // A transient receive fault is explicitly not a boundary error: the
-        // session survives it and retried work keeps its own outcome.
-        Input::Admit { .. }
-        | Input::TransmissionFinished { .. }
-        | Input::Frame(_)
-        | Input::ReceiveFault { .. } => None,
-        #[cfg(test)]
-        Input::Wake | Input::Cancel { .. } => None,
-    }
-}
-
 /// A caller's wait on `id` expired while the owner still holds the request
 /// (D20, #783).
 #[cfg(any(feature = "async", feature = "blocking"))]
 pub(crate) fn observation_timeout(id: RequestId) -> Error {
     Error::ObservationTimeout {
-        operation: crate::OperationId::from_raw(id.get()),
+        operation: crate::OperationId::from_nonzero(id.as_nonzero()),
     }
 }
 
@@ -2734,7 +2553,7 @@ pub(crate) fn settlement_error(error: Error, id: RequestId) -> Error {
         observation_timeout(id)
     } else {
         Error::SettlementObservationFailed {
-            operation: crate::OperationId::from_raw(id.get()),
+            operation: crate::OperationId::from_nonzero(id.as_nonzero()),
             source: Box::new(error),
         }
     }
@@ -2756,18 +2575,6 @@ pub(crate) fn settlement_error(error: Error, id: RequestId) -> Error {
 /// on a connected TCP socket it is the first error Linux commonly reports when
 /// keepalive exhausts, so it remains a fatal receive fault rather than being
 /// mistaken for an application-owned idle timer (#719).
-pub(crate) fn receive_reported_no_data(error: &Error) -> bool {
-    match error {
-        Error::Timeout { .. } => true,
-        Error::Io(io) => matches!(
-            io.kind(),
-            std::io::ErrorKind::WouldBlock | std::io::ErrorKind::Interrupted
-        ),
-        Error::WithContext { source, .. } => receive_reported_no_data(source),
-        _ => false,
-    }
-}
-
 /// Retains a fatal receive cause without nesting the public
 /// `Connection closed:` display prefix inside a new `ConnectionClosed`.
 ///
@@ -2799,48 +2606,23 @@ pub(crate) fn transport_close_reason(error: &Error) -> Option<Box<str>> {
 /// `send` (#637). The receive side is the authority on session death — it is
 /// always pumping, and a socket that is genuinely gone fails its next read.
 pub(crate) fn normalize_datagram_send_error(error: Error) -> Error {
-    if error.requires_new_session() {
-        Error::TransportError(format!("datagram send failed: {error}").into())
+    fn transport_failure(error: &Error) -> bool {
+        match error {
+            Error::Io(_)
+            | Error::ConnectionFailed { .. }
+            | Error::ConnectionClosed { .. }
+            | Error::StreamPoisoned { .. }
+            | Error::OwnerTerminated
+            | Error::RuntimeShutdown
+            | Error::TransportError { .. } => true,
+            Error::WithContext { source, .. } => transport_failure(source),
+            _ => false,
+        }
+    }
+    if transport_failure(&error) {
+        Error::transport_error(error)
     } else {
         error
-    }
-}
-
-/// Whether one receive-side transport failure leaves the session usable.
-///
-/// A `ConnectionClosed` read ends the session, and every other read error is a
-/// transient fault that retries in-flight work where that is safe and keeps
-/// the loop alive. The remaining fatal cases are stated explicitly instead of
-/// being inherited from [`ErrorKind`], which cannot separate "the peer went away" from "this read
-/// failed".
-///
-/// Transient therefore includes the case the issue is about: a UDP `recv`
-/// reporting ECONNREFUSED after an ICMP port-unreachable, which says nothing
-/// about whether the camera is reachable now.
-///
-/// This answers "fatal or transient" only. Errors that report no data at all
-/// are separated out by [`receive_reported_no_data`] first and never reach a
-/// fault classification.
-pub(crate) fn receive_fault_is_transient(error: &Error) -> bool {
-    match error {
-        // Proof the session is finished: the peer closed, the byte stream
-        // position is unknowable, or the owner's transport is gone.
-        error if error.requires_new_session() => false,
-        Error::RuntimeShutdown => false,
-        // A raw I/O failure is fatal only when the operating system reported
-        // that this connection itself is dead.
-        Error::Io(io) => !matches!(
-            io.kind(),
-            std::io::ErrorKind::TimedOut
-                | std::io::ErrorKind::ConnectionReset
-                | std::io::ErrorKind::ConnectionAborted
-                | std::io::ErrorKind::BrokenPipe
-                | std::io::ErrorKind::UnexpectedEof
-                | std::io::ErrorKind::NotConnected
-                | std::io::ErrorKind::InvalidInput
-        ),
-        Error::WithContext { source, .. } => receive_fault_is_transient(source),
-        _ => true,
     }
 }
 

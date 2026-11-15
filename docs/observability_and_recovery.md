@@ -28,10 +28,9 @@ without granting control over the protocol engine.
 | `received_frames` | Valid decoded VISCA response frames received from the camera; compare snapshots around an application heartbeat for positive liveness evidence. |
 | `ignored_unmatched_sequenced_replies` | Sequenced replies matching no request. |
 | `ignored_malformed_frames` | Delimited frames, and consumed oversized/malformed datagrams rejected before framing, discarded because they did not classify as a valid VISCA response. |
-| `dropped_diagnostics` | Events evicted from bounded diagnostic staging or the owner diagnostic ring. |
+| `dropped_staged_diagnostics` | Events evicted from bounded pre-admission staging before any subscriber could receive them. |
 | `dropped_diagnostic_events` | Events dropped because a subscriber queue was full. |
 | `dropped_observer_events` | Operation-observer events (terminal outcomes and cancellation failures) dropped because their handle was already detached or dropped. |
-| `dropped_applied_events` | Applied-state events dropped by full subscriber queues. |
 | `dropped_boundary_work` | Boundary messages discarded during owner termination. |
 | `active` | Admitted, non-terminal requests currently retained. |
 | `pending` | Queued admissions plus one retained admission, if present; retained cancellations are not pending requests. |
@@ -42,7 +41,7 @@ bounded by owner policy. Both facades obtain `metrics()` through a separate
 bounded control request answered by the owner. Once the owner terminates,
 `metrics()` returns its published terminal error rather than a final snapshot;
 the `session` field is therefore `Running` in a successful call. Neither facade
-clones the diagnostic ring, subscriber queues, wire buffers, or state registry.
+clones subscriber queues, wire buffers, or the state registry.
 
 `busy_errors` counts the codes the scheduler itself treats as transient
 camera-side backpressure — command buffer full (`0x03`), no socket (`0x05`),
@@ -64,7 +63,8 @@ is read with `DiagnosticSubscription::{try_recv,recv}`, a blocking one with
 one owner retains at most four live subscriptions. A fifth subscription fails
 with nonretryable `DiagnosticSubscriberLimit { capacity }`; drop an existing
 subscription to make room. Request-admission capacity does not change this
-subscriber limit. The owner ring retains at most 128 events.
+subscriber limit. Subscriptions receive events recorded after they are created;
+there is no retained diagnostic history or replay.
 
 `DiagnosticEvent` is a bounded, `#[non_exhaustive]` enum containing only
 sanitized categories: admission, frame category, protocol phase transition,
@@ -138,24 +138,29 @@ over it needs a wildcard arm:
 let cache = camera.state_cache();
 assert_eq!(cache.target(), camera.target());
 match cache.value(grafton_visca::StateKey::ImageFreeze) {
-    grafton_visca::StateEntry::Unknown => { /* no exact applied value yet */ }
-    grafton_visca::StateEntry::Set(value) => println!("{} values", value.len()),
-    grafton_visca::StateEntry::Clear(value) => println!("cleared: {:?}", value.as_slice()),
+    grafton_visca::StateEntry::Unknown => { /* no exact applied value is currently known */ }
+    grafton_visca::StateEntry::Set(grafton_visca::KnownState::ImageFreeze(enabled)) => {
+        println!("freeze enabled: {enabled}");
+    }
     _ => {}
 }
 ```
 
-`StateValue` stores at most four inline `i64` values. The owner registry has
-seven target slots and at most 64 state keys per target. A view contains one
-target index and a shared registry reference; cloning a view does not create a
-second map, worker, or queue.
+`KnownState` carries each key's native value: booleans, enums, speeds, flip
+pairs, or a typed `PanTiltLimitUpdate`. A cleared limit is a known corner-local
+update whose `position()` is `None`; it remains `StateEntry::Set`. The owner
+registry has seven target slots and one inline slot per `StateKey`, without
+allocation, eviction, or a separate capacity limit. A view contains one target
+index and a shared registry reference; cloning it shares the table.
 
-The cache changes only after an exact `AppliedStateEffect`. The owner commits
-that effect before notifying applied-state or diagnostic observers, and the
-commit does not depend on an observer remaining attached. Preparing a command,
-an ACK alone, a failed write, a timeout, or a pre-ACK error does not change the
-cache. A fresh session starts every target at `Unknown`; target 1 and target 2
-views never read or mutate each other's entries.
+An exact `AppliedStateEffect` establishes a known value. A write that may have
+taken effect but ends without confirmation makes its key `Unknown`, including
+a session-ending failure after the write left. A command never written, or
+conclusively rejected before ACK with no possibly applied earlier attempt,
+leaves the previous value intact. Preparing a command and an ACK alone cannot
+establish a value. The owner commits effects before notifying observers or
+resolving the terminal outcome, independently of observer attachment. A fresh
+session starts every target at `Unknown`; target views remain isolated.
 
 ## What is retried, and for how long
 
@@ -257,66 +262,113 @@ scheduling.
 
 ## Timeouts: stage and certainty
 
-A timeout says *which* deadline expired and *what is known* about the request
-it concerns. Read both with `Error::failure_context()`, which returns a
-`FailureContext { stage, certainty }` for every timeout and for the two
-unconfirmed outcomes (D20, #783). Every `StillLive` timeout is nonretryable,
-including a cancellation-attempt timeout: wait for the existing operation or
-stop the axis. An otherwise retryable cancellation write or observation
-failure becomes `CancellationObservationFailed { source }`; its exact source
-remains available. Already nonretryable verdicts, including
-`CancellationUnconfirmed` and `StillLive` timeouts, retain their original
-variant and context. The cached one-intent result is never retryable (#841). For other errors,
-`is_retryable()` classifies the condition as
-temporary; it is not a replay-safety answer. Submitting the same request again
-is safe only after `Certainty::NotAccepted` or `Certainty::FailedConclusively`:
-in both, the request had no effect.
+A timeout records the deadline stage and what is known about the request.
+`Error::recovery()` combines those facts with session validity and the condition
+into one verdict. Only `Resubmit { after }` permits submitting a request again;
+`WaitAgain` observes the existing operation, `Reconcile` inspects state,
+`ReopenSession` replaces a dead session, and `Abandon` ends automatic recovery.
+An ACK is `WaitAgain`, an uncertain effect is `Reconcile`, and deliberate
+supersession never authorizes automatic replay. Session death takes precedence
+when an observation failure retains a fatal source.
 
-| Stage | Error | Certainty | What it means | Recovery |
-| --- | --- | --- | --- | --- |
-| `PreAdmission` | `Timeout` | `NotAccepted` | The admission deadline passed before the owner accepted the request. | It never existed: submit it again if it is still wanted. |
-| `Observation` | `ObservationTimeout { operation }` | `StillLive` | Your wait expired; the owner still holds the request, which may yet take effect. Never retryable. | Wait again on the operation handle, or reconcile. Never resubmit. |
-| `Observation` | `Timeout` | `NotAccepted` | A read-only state query (`wait_until_idle`, `is_moving`) ran out of time. | Repeat the query if you still need the answer. |
-| `Terminal` | `Timeout` | `FailedConclusively` | An inquiry got no reply within its lifecycle. Inquiries change nothing. On a raw-VISCA stream (TCP) the inquiry is written once and fails at its first reply deadline (about 1 s), and its late reply is still owed (see below). | Retry the inquiry. |
-| `Terminal` | `InquiryCorrelationLost { camera }` | `NotAccepted` | Raw-VISCA stream only: a reply owed by an earlier timed-out inquiry to that camera did not arrive within the profile's ambiguity window, so this inquiry (or raw `CompletionOnly` command) was never written. Not retryable; `requires_new_session() == false` because the session is live. | Inquiries to this camera reopen when the owed reply arrives or when the camera answers any command written after the timed-out inquiry (it answers in order, so the reply will never come); close and reopen the session to recover them sooner. |
-| `Terminal` | `Timeout` | `Unconfirmed` | A command was sent but never acknowledged or completed in its lifecycle. It may have reached the camera. | Reconcile the camera's state before resubmitting. |
-| `Terminal` | `CommandCorrelationLost { camera }` | `NotAccepted` | Raw-VISCA stream only: an earlier command to that camera ended `UnsequencedCommandUnconfirmed` before its ACK (or completion) and that owed answer did not arrive within the owing command's ambiguity window, so this ordinary (or `NoReply`) command was never written. STOPs and inquiries are still sent. Not retryable; `requires_new_session() == false` (#795). | Commands to this camera resume when the owed answer arrives or when the camera answers a later inquiry or STOP (proving the answer will never come; a `CompletionOnly` completion is settled only by itself); close and reopen the session to recover them sooner. |
-| `Terminal` | `CommandFailedAfterAck { source }` | `Unconfirmed` | The camera acknowledged the command and then reported `source` (for example `CommandNotExecutable`). The command may have partly executed; it was never written again. Not retryable (#795). | Reconcile the camera's state before resubmitting. |
-| `Terminal` or `PreAdmission` | `MotionSuperseded { axes, context }` | `NotAccepted` or `Unconfirmed` | An owner halt superseded this motion. `NotAccepted` when it never reached the camera; `Unconfirmed` when an earlier attempt may have (#795). | Resubmit only on `NotAccepted`; otherwise reconcile. |
-| `Terminal` | `Timeout` | `NotAccepted` | A command's retry budget ran out before its first write. | Submit it again if it is still wanted. |
-| `Terminal` | `UnsequencedCommandUnconfirmed` | `Unconfirmed` | A raw command's correlation was lost. | Reconcile; never replay blindly. |
-| `CancellationAttempt` | `Timeout` | `StillLive` | An accepted cancellation did not resolve in time; the operation keeps running. Never retryable. | Wait on the operation's own outcome, or stop the axis. |
-| `CancellationAttempt` | `CancellationUnconfirmed` | `Unconfirmed` | A cancellation's outcome is unknowable, and so is the operation's. | Reconcile the original command. |
-| `Session` | `Timeout` | `NotAccepted` | Connecting or handshaking timed out. | Open the session again. |
-| `Session` | `Timeout` | `Unconfirmed` | One transport read or write timed out (`Error::io_timeout()`). Owners read an idle read as "no data". | Usually invisible; a write that timed out may or may not have left. |
+`SettlementSuperseded` deliberately ends a settlement observation. It adds no
+new uncertainty about the original command's application, so its context is
+`None` and its verdict is `Abandon`. `MotionSuperseded` retains the actual
+`NotAccepted` or `Unconfirmed` fact; the latter requires reconciliation.
+Cancellation-attempt failures always report `CancellationAttempt` / `StillLive`
+while retaining their original source. A repeated cancellation observes that
+cached answer; wait for the operation or stop the axis.
+
+The table is checked against one value of every public `Error` variant, with
+additional rows for context-dependent outcomes.
+
+<!-- BEGIN GENERATED RECOVERY VERDICTS -->
+| Error / condition | Kind | Stage / certainty | Recovery |
+| --- | --- | --- | --- |
+| `ConnectionFailed` | `IoRefused` | — | `Abandon` |
+| `ConnectionClosed` | `IoClosed` | — | `ReopenSession` |
+| `CommandPending / ACK received` | `Busy` | — | `WaitAgain` |
+| `InvalidResponse` | `Protocol` | — | `Abandon` |
+| `FeatureNotSupported` | `Unsupported` | — | `Abandon` |
+| `Io / other OS error` | `Other` | — | `Abandon` |
+| `SyntaxError` | `InvalidParameter` | — | `Abandon` |
+| `CommandBufferFull` | `BufferFull` | — | `Resubmit after 200ms` |
+| `CommandCanceled` | `Cancelled` | — | `Abandon` |
+| `NoSocket` | `BufferFull` | — | `Resubmit after 200ms` |
+| `CommandNotExecutable` | `NotExecutable` | — | `Abandon` |
+| `InvalidResponseFormat` | `Protocol` | — | `Abandon` |
+| `InvalidResponseLength` | `Protocol` | — | `Abandon` |
+| `UnexpectedResponseType` | `Protocol` | — | `Abandon` |
+| `Unknown` | `Protocol` | — | `Abandon` |
+| `InvalidRequest` | `InvalidParameter` | — | `Abandon` |
+| `MessageLengthError` | `Protocol` | — | `Abandon` |
+| `ParseError` | `Protocol` | — | `Abandon` |
+| `TransportError / no uncertain effect` | `Transport` | — | `Resubmit after 50ms` |
+| `TransmissionNotSent / first attempt, invalid request` | `InvalidParameter` | Terminal / NotAccepted | `Abandon` |
+| `TransmissionNotSent / earlier attempt uncertain` | `InvalidParameter` | Terminal / Unconfirmed | `Reconcile` |
+| `InquiryFailed / timeout cause` | `Timeout` | Terminal / FailedConclusively | `Resubmit after 2s` |
+| `InquiryFailed / command-scoped source` | `Unconfirmed` | Terminal / FailedConclusively | `Abandon` |
+| `InquiryFailed / still-live source` | `Timeout` | Terminal / FailedConclusively | `Resubmit after 2s` |
+| `InquiryFailed / session ended` | `IoClosed` | Terminal / FailedConclusively | `ReopenSession` |
+| `InvalidParameter` | `InvalidParameter` | — | `Abandon` |
+| `BufferTooSmall` | `InvalidParameter` | — | `Abandon` |
+| `ParameterOutOfRange` | `InvalidParameter` | — | `Abandon` |
+| `Timeout / terminal, not accepted` | `Timeout` | Terminal / NotAccepted | `Resubmit after 2s` |
+| `MotionSuperseded / never sent` | `Cancelled` | Terminal / NotAccepted | `Abandon` |
+| `SettlementSuperseded / deliberate observation end` | `Cancelled` | — | `Abandon` |
+| `SettlementObservationFailed / live session` | `InvalidParameter` | Observation / Unconfirmed | `Reconcile` |
+| `CancellationObservationFailed / operation still live` | `Timeout` | CancellationAttempt / StillLive | `WaitAgain` |
+| `ObservationTimeout` | `Timeout` | Observation / StillLive | `WaitAgain` |
+| `ControlReserveExhausted` | `BufferFull` | — | `Resubmit after 200ms` |
+| `InquiryShapeCapacityExhausted` | `BufferFull` | PreAdmission / NotAccepted | `Abandon` |
+| `MaxRetriesExceeded` | `Timeout` | — | `Abandon` |
+| `NotSupported` | `Unsupported` | — | `Abandon` |
+| `InvalidState` | `NotExecutable` | — | `Abandon` |
+| `OwnerTerminated` | `IoClosed` | — | `ReopenSession` |
+| `DiagnosticSubscriberLimit` | `Other` | — | `Abandon` |
+| `RuntimeShutdown / deliberate` | `IoClosed` | — | `Abandon` |
+| `CancellationUnconfirmed` | `Unconfirmed` | CancellationAttempt / Unconfirmed | `Reconcile` |
+| `UnsequencedCommandUnconfirmed` | `Unconfirmed` | Terminal / Unconfirmed | `Reconcile` |
+| `InquiryCorrelationLost / lane latched` | `NotExecutable` | Terminal / NotAccepted | `Abandon` |
+| `CommandCorrelationLost / lane latched` | `NotExecutable` | Terminal / NotAccepted | `Abandon` |
+| `CommandFailedAfterAck` | `Unconfirmed` | Terminal / Unconfirmed | `Reconcile` |
+| `RuntimeIdentityExhausted` | `Other` | — | `Abandon` |
+| `RuntimeQueueFull` | `BufferFull` | — | `Resubmit after 200ms` |
+| `StreamPoisoned` | `IoClosed` | — | `ReopenSession` |
+| `InvalidCameraId` | `InvalidParameter` | — | `Abandon` |
+| `ResponseTooLarge` | `Protocol` | — | `Abandon` |
+| `InquiryNotCancelable` | `InvalidParameter` | — | `Abandon` |
+| `InvalidAddress` | `InvalidParameter` | — | `Abandon` |
+| `UnsupportedTransport` | `Unsupported` | — | `Abandon` |
+| `MissingRuntime` | `Unsupported` | — | `Abandon` |
+| `WithContext / pending command` | `Busy` | — | `WaitAgain` |
+| `Timeout / inquiry reply` | `Timeout` | Terminal / FailedConclusively | `Resubmit after 2s` |
+| `Timeout / command outcome unknown` | `Timeout` | Terminal / Unconfirmed | `Reconcile` |
+| `Timeout / write outcome unknown` | `Timeout` | Session / Unconfirmed | `Reconcile` |
+| `Timeout / cancel attempt deadline` | `Timeout` | CancellationAttempt / StillLive | `WaitAgain` |
+| `TransportError / uncertain write` | `Transport` | Session / Unconfirmed | `Reconcile` |
+| `MotionSuperseded / earlier attempt uncertain` | `Cancelled` | Terminal / Unconfirmed | `Reconcile` |
+<!-- END GENERATED RECOVERY VERDICTS -->
 
 ```rust
-use grafton_visca::{Certainty, Error, FailureStage};
+use grafton_visca::{Error, Recovery};
 
-/// What to do after a failed submission or wait.
-enum Next {
-    Resubmit,
-    WaitAgain,
-    Reconcile,
-    GiveUp(Error),
-}
-
-fn next_step(error: Error) -> Next {
-    match error.failure_context() {
-        Some(context) => match context.certainty {
-            Certainty::NotAccepted | Certainty::FailedConclusively => Next::Resubmit,
-            Certainty::StillLive if context.stage == FailureStage::Observation => {
-                Next::WaitAgain
-            }
-            Certainty::StillLive | Certainty::Unconfirmed => Next::Reconcile,
-            _ => Next::GiveUp(error),
-        },
-        None => Next::GiveUp(error),
+fn next_step(error: &Error) -> &'static str {
+    match error.recovery() {
+        Recovery::Resubmit { .. } => "submit again after the specified delay",
+        Recovery::WaitAgain => "observe the existing operation",
+        Recovery::Reconcile => "inspect camera state before deciding",
+        Recovery::ReopenSession => "open a new session",
+        Recovery::Abandon => "do not retry automatically",
+        _ => "inspect this future recovery verdict",
     }
 }
+
+assert_eq!(next_step(&Error::CommandPending), "observe the existing operation");
+assert_eq!(next_step(&Error::io_timeout()), "inspect camera state before deciding");
 ```
 
-The same function is a compiled example on `FailureContext`.
+The same recipe is compiled in the `Error` and `FailureContext` rustdoc.
 
 ## Transient transport faults and session death
 
@@ -331,11 +383,10 @@ A stream `ConnectionReset` still proves closure (#843). A raw command has no
 sequence to replay; its complete transient-fault
 decision is the architecture guide's
 [raw recovery rule](architecture_2_0.md#raw-unconfirmed-outcomes-and-strict-recovery).
-A read that proves the connection is
-gone (`ConnectionClosed`, or an `Io` failure whose kind is `TimedOut`,
-`ConnectionReset`, `ConnectionAborted`, `BrokenPipe`, `UnexpectedEof`, or
-`NotConnected`), or an `Io(InvalidInput)` reports a live transport contract
-failure, the session ends. A raw OS `TimedOut` is included because a
+A read that proves the connection is gone ends the session. This includes
+`ConnectionClosed`, runtime shutdown, and the raw I/O kinds in the
+[shared fatal receive table](../src/transport/receive_errors.rs), generated
+alongside `transport::FATAL_RECEIVE_IO_KINDS` for both transport traits. A raw OS `TimedOut` is included because a
 connected TCP socket commonly reports it when keepalive has exhausted; it is
 not the spelling for an application-owned idle timer. The owner normalizes
 that fatal receive closure to
@@ -430,7 +481,7 @@ only add late replies. Its reply is then owed. Until it arrives, that camera's
 next inquiries wait; once the profile's ambiguity window has passed they fail
 at once, unwritten, with `Error::InquiryCorrelationLost { camera }`
 (`kind() == ErrorKind::NotExecutable`, `failure_context()` = `Terminal` /
-`NotAccepted`, `is_retryable() == false`). A silent camera therefore stops
+`NotAccepted`, `recovery() == Recovery::Abandon`). A silent camera therefore stops
 answering *inquiries* on that session. The session is still live, so
 `requires_new_session()` is `false`. Meanwhile ACK-bearing commands and stops
 to that camera are still written. The engine resolves every frame on a raw
@@ -514,16 +565,14 @@ application idle timeout there are two application-side levers:
    ```rust,ignore
    // Application-owned idle heartbeat; the library starts no timer of its own.
    let before = session.metrics()?.received_frames;
-   match session.camera::<PtzOpticsG2>()?.power().state() {
-       Ok(_) if session.metrics()?.received_frames > before => {
-           /* positive liveness; keep waiting for real work */
-       }
-       Err(error) if error.requires_new_session() => rebuild(&config)?,
-       Err(Error::Timeout { .. }) if session.metrics()?.received_frames == before => {
-           record_unanswered_heartbeat(); // rebuild when your threshold is met
-       }
-       Err(error) => return Err(error),
-       Ok(_) => record_unanswered_heartbeat(),
+   let result = session.camera::<PtzOpticsG2>()?.power().state();
+   if result.as_ref().is_err_and(|error| error.recovery() == Recovery::ReopenSession) {
+       rebuild(&config)?;
+   } else if session.metrics()?.received_frames > before {
+       record_positive_liveness();
+   } else {
+       // Includes a latched inquiry lane after a prior unanswered raw inquiry.
+       record_unanswered_heartbeat(); // rebuild when your threshold is met
    }
    ```
 
@@ -531,7 +580,7 @@ application idle timeout there are two application-side levers:
    used, treat an idle close as a completed session and rebuild, following the
    fresh-session steps below. A supervisor keeps the reusable `SessionConfig`
    and a re-callable transport factory outside the session, classifies each
-   failure with `requires_new_session()`, and on `true` opens a fresh session,
+   failure with `recovery()`, and on `ReopenSession` opens a fresh session,
    re-queries state, and resumes. `examples/recovery.rs` demonstrates both the
    absent-frame silence decision and positive liveness after the rebuild.
 
@@ -579,19 +628,17 @@ values from the poisoned owner.
 
 ## Memory bounds
 
-The current owner policy is intentionally explicit. The first nine rows are
+The current owner policy is intentionally explicit. The first seven rows are
 fixed; the remaining four are caller-tunable bounds:
 
 | Resource | Bound | Caller-tunable |
 | --- | ---: | --- |
 | Registered targets | 7 | no |
-| State keys per target | 64 | no |
-| Scalars per state value | 4 | no |
-| Diagnostic history | 128 events | no |
+| State entries per target | one slot per `StateKey` | no |
+| Pre-admission diagnostic staging | 128 events | no |
+| Queued control requests | 16 | no |
 | Diagnostic subscribers | 4 | no |
 | Events per diagnostic subscriber | 128 | no |
-| Applied-state subscribers | 16 | no |
-| Events per applied subscriber | 64 | no |
 | Frames per receive batch | 64 | no |
 | Admitted request lifecycle entries (pending or active, including quarantine) | `SessionConfig::admission_capacity()` (64 by default) for ordinary work, plus each camera's control reserve (one slot per supported typed STOP, at most three) | yes — `SessionConfig::with_admission_capacity()`; the reserve is set by each profile |
 | Owner transport-read scratch / largest copied read | see below | yes — `BufferConfig::recv_buffer_size` |
@@ -645,7 +692,8 @@ Every default keeps `max_buffer_size` at 8192. The two limits mean:
   `BufferConfig::MIN_RECV_BUFFER_SIZE` (24 bytes: the largest VISCA reply, 16
   bytes, behind Sony's 8-byte header), so every valid reply fits one read. An
   over-size datagram is rejected before framing rather than silently
-  truncated.
+  truncated. Standard TCP transports read directly into the supplied slice:
+  no additional user-space read-ahead buffer retains bytes outside these bounds.
 - `max_buffer_size` bounds the stream input carried from one read to the next:
   an incomplete frame, or complete frames the owner has not delivered yet. The
   framer always has room for one more full read on top of it, so a healthy

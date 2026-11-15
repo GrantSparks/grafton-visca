@@ -40,7 +40,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let camera = session.camera();
         let power = camera.power().state()?;
         let zoom = camera.zoom().position()?;
-        println!("Power: {}", if power { "on" } else { "off" });
+        println!("Power: {power:?}");
         println!("Zoom position: 0x{:04X}", zoom.value());
 
         if move_camera {

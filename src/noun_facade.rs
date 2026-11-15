@@ -4,32 +4,65 @@
 /// The one parser of a noun row's request form.
 ///
 /// A row writes its request as `[<expr>]`, `[by_value <const expr>]`,
-/// `[checked <expr>]` or `[with_profile |<name>| <expr>]`; this macro
+/// `[by_value [<const witness>] <expr>]`, `[checked <expr>]` or
+/// `[with_profile |<name>| <expr>]`; this macro
 /// evaluates any of them to `crate::Result<$ty>`. A `by_value` request
 /// evaluates like `<expr>`; the marker only tells the typed-request inventory
 /// to check the constant's ledger row. `$profile` is substituted only into the
 /// `with_profile` form, so a row that does not need the session profile never
 /// reads it.
 macro_rules! noun_request {
-    ($profile:expr; $ty:ty; by_value $request:expr) => {
-        $crate::noun_facade::noun_request!($profile; $ty; $request)
+    ($profile:expr, $target:expr; $ty:ty; by_value [$witness:expr] $request:expr) => {
+        $crate::noun_facade::noun_request!($profile, $target; $ty; $request)
     };
-    ($profile:expr; $ty:ty; checked $request:expr) => {{
+    ($profile:expr, $target:expr; $ty:ty; by_value $request:expr) => {
+        $crate::noun_facade::noun_request!($profile, $target; $ty; $request)
+    };
+    ($profile:expr, $target:expr; $ty:ty; checked $request:expr) => {{
         let request: crate::Result<$ty> = $request;
         request
     }};
-    ($profile:expr; $ty:ty; with_profile |$binding:ident| $request:expr) => {{
+    ($profile:expr, $target:expr; $ty:ty; with_profile |$binding:ident| $request:expr) => {{
         let $binding = $profile;
         let request: crate::Result<$ty> = $request;
         request
     }};
-    ($profile:expr; $ty:ty; $request:expr) => {{
+    ($profile:expr, $target:expr; $ty:ty; with_target |$binding:ident| $request:expr) => {{
+        let $binding = $target;
+        let request: crate::Result<$ty> = $request;
+        request
+    }};
+    ($profile:expr, $target:expr; $ty:ty; $request:expr) => {{
         let request: $ty = $request;
         crate::Result::<$ty>::Ok(request)
     }};
 }
 
 pub(crate) use noun_request;
+
+/// Proves a static marker's runtime bit at the method's monomorphization.
+macro_rules! assert_profile_gate {
+    (@marker $profile:ident, $marker:ident) => {
+        const {
+            assert!(
+                <$profile as $crate::capabilities::ProfileTypedSupport>::TYPED_SUPPORT
+                    .contains($crate::capabilities::typed_surface!($marker)),
+                concat!("profile marker `", stringify!($marker), "` requires its typed-support bit"),
+            );
+        }
+    };
+    ($profile:ident; [typed $base:ident]; [$($marker:ident $(+ $extra:ident)*)?]) => {
+        $crate::noun_facade::assert_profile_gate!(@marker $profile, $base);
+        $($crate::noun_facade::assert_profile_gate!(@marker $profile, $marker);
+          $($crate::noun_facade::assert_profile_gate!(@marker $profile, $extra);)*)?
+    };
+    ($profile:ident; $base:tt; [$($marker:ident $(+ $extra:ident)*)?]) => {
+        $($crate::noun_facade::assert_profile_gate!(@marker $profile, $marker);
+          $($crate::noun_facade::assert_profile_gate!(@marker $profile, $extra);)*)?
+    };
+}
+
+pub(crate) use assert_profile_gate;
 
 /// Generates one static noun facade — blocking or async — from
 /// [`crate::noun_table::noun_table`].
@@ -93,27 +126,29 @@ macro_rules! static_noun_facade {
         }
     };
 
-    (@method [$($async:tt)?] [$($await:tt)*] [$(#[$doc:meta])*] inquiry $method:ident() -> $ret:ty;
+    (@method [$($async:tt)?] [$($await:tt)*] $base:tt [$(#[$doc:meta])*] inquiry $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty;
         [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
-        pub $($async)? fn $method(&self) -> $crate::Result<$ret>
+        pub $($async)? fn $method(&self $(, $arg: $ty)*) -> $crate::Result<$ret>
         $(where P: $crate::capabilities::$gate $(+ $crate::capabilities::$extra)*)?
         {
+            $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);
             self.camera.inquire(&$($request)*) $($await)*
         }
     };
-    (@method [$($async:tt)?] [$($await:tt)*] [$(#[$doc:meta])*] plain
+    (@method [$($async:tt)?] [$($await:tt)*] $base:tt [$(#[$doc:meta])*] plain
         $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty;
         [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
         pub $($async)? fn $method(&self, $($arg: $ty),*) -> $crate::Result<()>
         $(where P: $crate::capabilities::$gate $(+ $crate::capabilities::$extra)*)?
         {
-            let request = $crate::noun_facade::noun_request!(self.camera.profile(); $ret; $($request)*)?;
+            $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);
+            let request = $crate::noun_facade::noun_request!(self.camera.profile(), self.camera.registration(); $ret; $($request)*)?;
             self.camera.execute(&request) $($await)*
         }
     };
-    (@method [$($async:tt)?] [$($await:tt)*] [$(#[$doc:meta])*] applied
+    (@method [$($async:tt)?] [$($await:tt)*] $base:tt [$(#[$doc:meta])*] applied
         $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty;
         [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
@@ -121,11 +156,12 @@ macro_rules! static_noun_facade {
             -> $crate::Result<Operation<$crate::completion::AppliedOnly>>
         $(where P: $crate::capabilities::$gate $(+ $crate::capabilities::$extra)*)?
         {
-            let request = $crate::noun_facade::noun_request!(self.camera.profile(); $ret; $($request)*)?;
+            $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);
+            let request = $crate::noun_facade::noun_request!(self.camera.profile(), self.camera.registration(); $ret; $($request)*)?;
             self.camera.submit::<$crate::completion::AppliedOnly, _>(&request) $($await)*
         }
     };
-    (@method [$($async:tt)?] [$($await:tt)*] [$(#[$doc:meta])*] targeted
+    (@method [$($async:tt)?] [$($await:tt)*] $base:tt [$(#[$doc:meta])*] targeted
         $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty;
         [$($gate:ident $(+ $extra:ident)*)?]; [$($request:tt)*]) => {
         $(#[$doc])*
@@ -133,7 +169,8 @@ macro_rules! static_noun_facade {
             -> $crate::Result<Operation<$crate::completion::Targeted>>
         $(where P: $crate::capabilities::$gate $(+ $crate::capabilities::$extra)*)?
         {
-            let request = $crate::noun_facade::noun_request!(self.camera.profile(); $ret; $($request)*)?;
+            $crate::noun_facade::assert_profile_gate!(P; $base; [$($gate $(+ $extra)*)?]);
+            let request = $crate::noun_facade::noun_request!(self.camera.profile(), self.camera.registration(); $ret; $($request)*)?;
             self.camera.submit::<$crate::completion::Targeted, _>(&request) $($await)*
         }
     };
@@ -158,7 +195,7 @@ macro_rules! static_noun_facade {
         $(
             $crate::noun_facade::static_noun_facade!(@accessor $gate $accessor $getter $doc {
                 $(
-                    $crate::noun_facade::static_noun_facade!(@method $mode $await
+                    $crate::noun_facade::static_noun_facade!(@method $mode $await $gate
                         [$(#[$row_doc])*] $kind $method($($arg: $ty),*) -> $ret;
                         [$($rgate $(+ $extra)*)?]; [$($request)*]);
                 )*

@@ -16,19 +16,14 @@
 use std::{fmt, marker::PhantomData, sync::Arc, time::Duration};
 
 use crate::{
-    camera::{IdleWait, MotionQuery},
     completion,
-    prepared::{
-        prepare_command, prepare_inquiry, prepare_operation, prepare_position_queries,
-        ClassSelection,
-    },
+    prepared::ClassSelection,
     runtime::owner::{
         BlockingOperationReceipt, BlockingOwnerHandle, BlockingTransportAdapter, Clock,
     },
     target::TargetSlot,
     CameraId, CancellationOutcome, CompileTimeProfile, DiagnosticSubscription, Error, Inquiry,
-    MetricsSnapshot, OperationCommand, OperationalTuning, PlainCommand, ProfileSpec, Result,
-    StateCache, SubmissionClass,
+    MetricsSnapshot, OperationCommand, OperationalTuning, PlainCommand, Result, SubmissionClass,
 };
 
 pub use crate::OperationId;
@@ -88,7 +83,7 @@ where
     /// Returns the opaque identity assigned when this operation was admitted.
     #[must_use]
     pub fn id(&self) -> OperationId {
-        OperationId::from_raw(self.receipt.id())
+        OperationId::from_nonzero(self.receipt.id())
     }
 
     /// Waits for exact protocol application, bounded by the configured
@@ -159,7 +154,9 @@ where
 
 impl Operation<completion::Targeted> {
     /// Waits for exact application and the profile-selected protocol
-    /// settlement condition, bounded by the configured settlement budget.
+    /// settlement condition. The default budget is the larger of the configured
+    /// settlement override and this request's retry budget. Use
+    /// [`settled_with_timeout`](Self::settled_with_timeout) for an exact bound.
     ///
     /// Application is cached, so calling this after
     /// [`applied`](Operation::applied) continues from it. Polled settlement proves observed stability, not arrival at the requested endpoint.
@@ -327,7 +324,7 @@ impl Session {
         let mut adapter = BlockingTransportAdapter::new_with_targets(
             transport,
             &profiles,
-            config.tuning(),
+            config.validated_tuning(),
             config.admission_capacity(),
             config.strict_unconfirmed_poison(),
         )?;
@@ -355,16 +352,15 @@ impl Session {
         P: CompileTimeProfile,
     {
         let target = TargetSlot::try_from(target)?;
-        let profile = self.config.registered_profile_for::<P>(target)?;
-        Ok(Camera::from_core(self.core(target, profile)))
+        let profile = self.config.registered_target_for::<P>(target)?;
+        Ok(Camera::from_core(self.core(profile)))
     }
 
     /// The erased view of `target`, registered with `profile`.
-    fn core(&self, target: TargetSlot, profile: Arc<ProfileSpec>) -> BlockingCameraCore {
+    fn core(&self, registration: Arc<crate::TargetRegistration>) -> BlockingCameraCore {
         BlockingCameraCore {
             owner: self.owner.clone(),
-            target,
-            profile,
+            registration,
             class: ClassSelection::Request,
         }
     }
@@ -373,7 +369,7 @@ impl Session {
     ///
     /// Unlike [`Self::camera`], this selector does not require a
     /// [`CompileTimeProfile`] marker. Every request is still validated against
-    /// the registered [`ProfileSpec`] before encoding or transport I/O.
+    /// the registered [`crate::ProfileSpec`] before encoding or transport I/O.
     ///
     /// # Example: a blocking runtime-only profile
     ///
@@ -381,7 +377,7 @@ impl Session {
     /// use std::time::Duration;
     /// use grafton_visca::{
     ///     blocking::Session,
-    ///     capabilities::Capabilities,
+    ///     capabilities::{Capabilities, PowerCaps},
     ///     command::PowerOn,
     ///     profile::{
     ///         PositionInquirySupport, ProfileEnvelope, ProfileSpec, ProfileTiming,
@@ -393,8 +389,13 @@ impl Session {
     ///
     /// # fn main() -> Result<(), Box<dyn std::error::Error>> {
     /// let mut capabilities = Capabilities::runtime_baseline("Custom camera", 1)?;
-    /// capabilities.has_power = true;
-    /// capabilities.power_on_time = Duration::from_secs(1);
+    /// capabilities.power = Some(PowerCaps {
+    ///     on_time: Duration::from_secs(1),
+    ///     standby: None,
+    ///     wake_on_lan: false,
+    ///     retains_settings: false,
+    ///     home_on_up: false,
+    /// });
     ///
     /// let timing = ProfileTiming::builder()
     ///     .ack_timeout(Duration::from_millis(100))
@@ -414,7 +415,6 @@ impl Session {
     ///     .maximum_command_sockets(1)
     ///     .supports_operation_complete(true)
     ///     .supports_command_cancel(false)
-    ///     .preset_recall_axes(None)
     ///     .position_inquiries(PositionInquirySupport::new(false, false, false))
     ///     .build()?;
     ///
@@ -439,9 +439,9 @@ impl Session {
         target: CameraId,
     ) -> Result<crate::dynapi::BlockingDynSessionCamera, Error> {
         let target = TargetSlot::try_from(target)?;
-        let profile = self.config.registered_profile(target)?;
+        let profile = self.config.registered_target(target)?;
         Ok(crate::dynapi::BlockingDynSessionCamera::new(
-            self.core(target, profile),
+            self.core(profile),
         ))
     }
 
@@ -494,7 +494,7 @@ impl Session {
     /// owner has shut down; a retained terminal error takes precedence over
     /// validation of the proposed update.
     pub fn set_tuning(&self, tuning: OperationalTuning) -> Result<(), Error> {
-        let validated_tuning = self.config.validate_tuning(tuning).map(|()| tuning);
+        let validated_tuning = self.config.validate_tuning(tuning);
         self.owner.reconfigure(validated_tuning)
     }
 
@@ -522,6 +522,8 @@ impl Session {
     /// A custom transport calling this from its own worker requests shutdown
     /// but receives [`Error::InvalidState`] immediately: it cannot wait for
     /// its own teardown. A caller on another thread can still close and join.
+    /// Other calls that would wait for this worker also fail immediately with
+    /// [`Error::InvalidState`], without enqueuing work.
     pub fn close(self) -> Result<(), Error> {
         self.owner.close()
     }
@@ -581,13 +583,13 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     /// registered from the same `P`.
     ///
     /// This is crate-private and is only reachable from the `P`-typed
-    /// construction paths, where the registered [`ProfileSpec`] was lowered
+    /// construction paths, where the registered [`crate::ProfileSpec`] was lowered
     /// from this exact `P`. That is what makes the bind structural instead of
     /// a runtime profile comparison.
     pub(crate) fn from_session(session: Session, target: CameraId) -> Result<Self, Error> {
         let target = TargetSlot::try_from(target)?;
-        let profile = session.config.registered_profile(target)?;
-        let camera = Camera::from_core(session.core(target, profile));
+        let profile = session.config.registered_target(target)?;
+        let camera = Camera::from_core(session.core(profile));
         Ok(Self { session, camera })
     }
 
@@ -647,7 +649,7 @@ impl<P: CompileTimeProfile> CameraSession<P> {
 
     /// Returns this session's sole camera target.
     #[must_use]
-    pub const fn target(&self) -> CameraId {
+    pub fn target(&self) -> CameraId {
         self.camera.target()
     }
 
@@ -690,164 +692,11 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     }
 }
 
-/// Erased owner-backed blocking target view shared by typed and dynamic
-/// projections.
-///
-/// This is crate-private so the public camera type cannot accidentally expose
-/// transport details. It is the only place that retains the owner handle and
-/// performs request preparation.
-#[derive(Clone)]
-pub(crate) struct BlockingCameraCore {
+crate::camera_core::camera_core! {
+    core: BlockingCameraCore,
     owner: BlockingOwnerHandle,
-    target: TargetSlot,
-    profile: Arc<ProfileSpec>,
-    class: ClassSelection,
-}
-
-impl fmt::Debug for BlockingCameraCore {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter
-            .debug_struct("Camera")
-            .field("target", &self.target.camera())
-            .field("profile", &self.profile)
-            .finish_non_exhaustive()
-    }
-}
-
-impl BlockingCameraCore {
-    #[cfg(feature = "dyn-api")]
-    pub(crate) fn into_typed<P>(self) -> Result<Camera<P>, Error>
-    where
-        P: CompileTimeProfile,
-    {
-        self.profile.ensure_compile_time::<P>()?;
-        Ok(Camera::from_core(self))
-    }
-
-    /// Returns this view's fixed camera target.
-    pub(crate) const fn target(&self) -> CameraId {
-        self.target.camera()
-    }
-
-    /// Returns this view's validated profile facts.
-    pub(crate) fn profile(&self) -> &ProfileSpec {
-        self.profile.as_ref()
-    }
-
-    /// Returns a cheap live read-only view of this camera's target-local state.
-    pub(crate) fn state_cache(&self) -> StateCache {
-        self.owner.state_cache(self.target)
-    }
-
-    /// Reads the session's live operational tuning.
-    ///
-    /// This is read once per preparation rather than copied into the view, so a
-    /// view taken before [`Session::set_tuning`] still prepares its next
-    /// request under the new values (#631).
-    fn tuning(&self) -> OperationalTuning {
-        self.owner.tuning()
-    }
-
-    /// Returns this view's submission-class default, if it carries one.
-    pub(crate) const fn submission_class(&self) -> Option<SubmissionClass> {
-        self.class.handle_default()
-    }
-
-    /// Sets this view's submission-class default.
-    pub(crate) fn set_submission_class(&mut self, class: Option<SubmissionClass>) {
-        self.class = ClassSelection::from_handle_default(class);
-    }
-
-    /// Executes a plain command through the shared owner.
-    ///
-    /// Ordinary commands wait for their terminal protocol application. A raw
-    /// [`crate::raw::RawReplyShape::NoReply`] command instead succeeds once its
-    /// local transport write succeeds; it does not claim camera application.
-    pub(crate) fn execute<C>(&self, command: &C) -> Result<(), Error>
-    where
-        C: PlainCommand + ?Sized,
-    {
-        let prepared = prepare_command(
-            command,
-            self.target,
-            self.profile.as_ref(),
-            self.tuning(),
-            self.class,
-        )?;
-        self.owner.submit_command(prepared)?.wait()
-    }
-
-    /// Submits a typed inquiry and returns its decoded response.
-    pub(crate) fn inquire<Q>(&self, inquiry: &Q) -> Result<Q::Response, Error>
-    where
-        Q: Inquiry + ?Sized,
-    {
-        let prepared = prepare_inquiry(
-            inquiry,
-            self.target,
-            self.profile.as_ref(),
-            self.tuning(),
-            self.class,
-        )?;
-        self.owner.submit_inquiry(prepared)?.wait()
-    }
-
-    /// Admits a typed operation and returns its lifecycle handle once the
-    /// owner has accepted it. A transport write failure is reported through
-    /// the operation's outcome.
-    pub(crate) fn submit<K, O>(&self, operation: &O) -> Result<Operation<K>, Error>
-    where
-        K: completion::Kind,
-        O: OperationCommand<K> + ?Sized,
-    {
-        let prepared = prepare_operation::<K, _>(
-            operation,
-            self.target,
-            self.profile.as_ref(),
-            self.tuning(),
-            self.class,
-        )?;
-        Ok(Operation::from_receipt(
-            self.owner.submit_operation(prepared)?,
-        ))
-    }
-
-    /// Stops every profile-supported pan/tilt, zoom, and focus axis through
-    /// this camera's one owner.
-    ///
-    /// One halt fences older declared motion, then admits supported STOPs
-    /// independently under a common deadline. The report retains each axis's
-    /// outcome even when another axis fails.
-    pub(crate) fn stop_all_motion(&self) -> Result<crate::HaltReport> {
-        let started = self.owner.now();
-        let prepared =
-            crate::prepared::prepare_halt(self.target, self.profile.as_ref(), self.tuning());
-        self.owner.halt(prepared, started)
-    }
-
-    pub(crate) fn is_moving(&self, query: MotionQuery) -> Result<bool, Error> {
-        let window = crate::prepared::MotionWindow::new(query)?;
-        let queries = prepare_position_queries(
-            self.target,
-            self.profile.as_ref(),
-            self.tuning(),
-            query.axes,
-        )?;
-        self.owner.observe_motion(window, &queries)
-    }
-
-    /// Waits for exactly the selected, profile-supported axes to become idle.
-    ///
-    /// The timeout is lowered once to one absolute deadline. Every inquiry
-    /// admission, reply, and polling interval is bounded by that same
-    /// deadline, and the clock is checked before each new inquiry can be
-    /// enqueued. The owner worker keeps the session progressing while this
-    /// thread sleeps between samples.
-    pub(crate) fn wait_until_idle(&self, wait: IdleWait) -> Result<(), Error> {
-        let queries =
-            prepare_position_queries(self.target, self.profile.as_ref(), self.tuning(), wait.axes)?;
-        self.owner.wait_until_idle(wait, &queries)
-    }
+    async: [],
+    await: [],
 }
 
 /// A profile-aware camera view onto one [`Session`] target.
@@ -875,8 +724,8 @@ impl<P: CompileTimeProfile> fmt::Debug for Camera<P> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Camera")
-            .field("target", &self.core.target.camera())
-            .field("profile", &self.core.profile)
+            .field("target", &self.core.target())
+            .field("profile", &self.core.profile())
             .finish_non_exhaustive()
     }
 }
@@ -902,7 +751,7 @@ impl<P: CompileTimeProfile> Camera<P> {
     /// compile-time profile-permission surface; this direct method is the
     /// uniform typed/downstream extension boundary.
     ///
-    /// Preparation calls [`crate::Request::validate_for_profile`] before
+    /// Preparation calls [`crate::Request::validate_for_target`] before
     /// encoding, owner admission, or transport I/O. Crate-provided requests
     /// submitted directly return [`crate::Error::FeatureNotSupported`] there
     /// when the selected profile lacks their required feature. Raw and other
@@ -926,7 +775,7 @@ impl<P: CompileTimeProfile> Camera<P> {
     /// compile-time profile-permission surface; this direct method is the
     /// uniform typed/downstream extension boundary.
     ///
-    /// Preparation calls [`crate::Request::validate_for_profile`] before
+    /// Preparation calls [`crate::Request::validate_for_target`] before
     /// encoding, owner admission, or transport I/O. Crate-provided inquiries
     /// submitted directly return [`crate::Error::FeatureNotSupported`] there
     /// when the selected profile lacks their required feature. Raw and other
@@ -969,7 +818,7 @@ mod tests {
         profile::{PositionInquirySupport, ProfileEnvelope, ProfileTiming, TransportCompatibility},
         testing::testkit::{helpers, ScriptedBlockingTransport, Step},
         transport::{BlockingTransport, HasTransportConfig, SendSemantics, TransportConfig},
-        CommandTimeouts,
+        CommandTimeouts, ProfileSpec,
     };
 
     struct FailFirstZoomStopSend {
@@ -1011,9 +860,9 @@ mod tests {
                 .push(bytes.to_vec());
             if !self.failed && bytes.starts_with(&[0x81, 0x01, 0x04, 0x07]) {
                 self.failed = true;
-                return Err(Error::TransportError(
-                    "injected zoom stop send failure".into(),
-                ));
+                return Err(Error::transport_error(std::io::Error::other(
+                    "injected zoom stop send failure",
+                )));
             }
             self.inner.send_with_timeout(bytes, kind, timeout)
         }
@@ -1034,8 +883,9 @@ mod tests {
     fn partial_motion_profile(has_zoom: bool, has_focus: bool) -> ProfileSpec {
         let mut capabilities =
             Capabilities::runtime_baseline("Partial motion test camera", 1).expect("baseline");
-        capabilities.has_zoom = has_zoom;
-        capabilities.has_focus = has_focus;
+        let domains = Capabilities::from_profile::<crate::profiles::GenericVisca>();
+        capabilities.zoom = has_zoom.then(|| domains.zoom.expect("generic zoom domain"));
+        capabilities.focus = has_focus.then(|| domains.focus.expect("generic focus domain"));
 
         ProfileSpec::builder(capabilities)
             .transports(TransportCompatibility::new(Some(5678), None, false))
@@ -1057,7 +907,6 @@ mod tests {
             .maximum_command_sockets(1)
             .supports_operation_complete(true)
             .supports_command_cancel(false)
-            .preset_recall_axes(None)
             .position_inquiries(PositionInquirySupport::new(false, false, false))
             .build()
             .expect("valid partial motion profile")
@@ -1066,9 +915,9 @@ mod tests {
     fn partial_motion_core(session: &Session) -> BlockingCameraCore {
         let profile = session
             .config
-            .registered_profile(TargetSlot::CAMERA_1)
+            .registered_target(TargetSlot::CAMERA_1)
             .expect("registered partial motion profile");
-        session.core(TargetSlot::CAMERA_1, profile)
+        session.core(profile)
     }
 
     /// Two views taken from the same session drive its one owned transport,
@@ -1222,7 +1071,7 @@ mod tests {
         assert!(matches!(report.pan_tilt, crate::HaltOutcome::Unsupported));
         assert!(matches!(
             report.zoom,
-            crate::HaltOutcome::Failed(Error::TransportError(_))
+            crate::HaltOutcome::Failed(Error::TransportError { .. })
         ));
         assert!(matches!(report.focus, crate::HaltOutcome::Applied));
         assert_eq!(

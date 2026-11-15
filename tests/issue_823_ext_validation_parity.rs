@@ -1,5 +1,5 @@
 //! Issue #823: the public `*Ext` validation helpers and the request path
-//! (`Request::validate_for_profile` over `ProfileSpec::from_compile_time`)
+//! (`Request::validate_for_target` over `ProfileSpec::from_compile_time`)
 //! must accept and reject exactly the same values.
 //!
 //! Each parameter is probed at `min - 1`, `min`, `max` and `max + 1` (where
@@ -98,7 +98,15 @@ fn check_profile<P: CompileTimeProfile>(camera: &P) {
             accepts(PanSpeed::new(v).ok().and_then(|pan| {
                 let tilt = TiltSpeed::new(1).ok()?;
                 let drive = PanTiltDrive::new(PanTiltDirection::Up, pan, tilt).ok()?;
-                Some(drive.validate_for_profile(&spec))
+                Some(
+                    drive.validate_for_target(
+                        &grafton_visca::TargetRegistration::new(
+                            grafton_visca::CameraId::CAMERA_1,
+                            spec.clone(),
+                        )
+                        .expect("target registration"),
+                    ),
+                )
             }))
         },
     );
@@ -114,7 +122,15 @@ fn check_profile<P: CompileTimeProfile>(camera: &P) {
             accepts(TiltSpeed::new(v).ok().and_then(|tilt| {
                 let pan = PanSpeed::new(1).ok()?;
                 let drive = PanTiltDrive::new(PanTiltDirection::Up, pan, tilt).ok()?;
-                Some(drive.validate_for_profile(&spec))
+                Some(
+                    drive.validate_for_target(
+                        &grafton_visca::TargetRegistration::new(
+                            grafton_visca::CameraId::CAMERA_1,
+                            spec.clone(),
+                        )
+                        .expect("target registration"),
+                    ),
+                )
             }))
         },
     );
@@ -127,11 +143,15 @@ fn check_profile<P: CompileTimeProfile>(camera: &P) {
         &boundary_values(zoom_range.min(), zoom_range.max()),
         |v| camera.validate_zoom_speed(v),
         |v| {
-            accepts(
-                ZoomSpeed::new(v)
-                    .ok()
-                    .map(|speed| ZoomDrive::TeleVariable(speed).validate_for_profile(&spec)),
-            )
+            accepts(ZoomSpeed::new(v).ok().map(|speed| {
+                ZoomDrive::TeleVariable(speed).validate_for_target(
+                    &grafton_visca::TargetRegistration::new(
+                        grafton_visca::CameraId::CAMERA_1,
+                        spec.clone(),
+                    )
+                    .expect("target registration"),
+                )
+            }))
         },
     );
 
@@ -143,11 +163,15 @@ fn check_profile<P: CompileTimeProfile>(camera: &P) {
         &boundary_values(focus_range.min(), focus_range.max()),
         |v| camera.validate_focus_speed(v),
         |v| {
-            accepts(
-                FocusSpeed::new(v)
-                    .ok()
-                    .map(|speed| FocusDrive::FarVariable(speed).validate_for_profile(&spec)),
-            )
+            accepts(FocusSpeed::new(v).ok().map(|speed| {
+                FocusDrive::FarVariable(speed).validate_for_target(
+                    &grafton_visca::TargetRegistration::new(
+                        grafton_visca::CameraId::CAMERA_1,
+                        spec.clone(),
+                    )
+                    .expect("target registration"),
+                )
+            }))
         },
     );
 
@@ -159,11 +183,15 @@ fn check_profile<P: CompileTimeProfile>(camera: &P) {
         &boundary_values(preset_range.min(), preset_range.max()),
         |v| camera.validate_preset_number(v),
         |v| {
-            accepts(
-                PresetNumber::new(v)
-                    .ok()
-                    .map(|preset| PresetSet::new(preset).validate_for_profile(&spec)),
-            )
+            accepts(PresetNumber::new(v).ok().map(|preset| {
+                PresetSet::new(preset).validate_for_target(
+                    &grafton_visca::TargetRegistration::new(
+                        grafton_visca::CameraId::CAMERA_1,
+                        spec.clone(),
+                    )
+                    .expect("target registration"),
+                )
+            }))
         },
     );
 
@@ -175,11 +203,15 @@ fn check_profile<P: CompileTimeProfile>(camera: &P) {
         &probes_for(hue),
         |v| camera.validate_hue(v),
         |v| {
-            accepts(
-                HueLevel::new(v)
-                    .ok()
-                    .map(|level| HueCommand::new(level).validate_for_profile(&spec)),
-            )
+            accepts(HueLevel::new(v).ok().map(|level| {
+                HueCommand::new(level).validate_for_target(
+                    &grafton_visca::TargetRegistration::new(
+                        grafton_visca::CameraId::CAMERA_1,
+                        spec.clone(),
+                    )
+                    .expect("target registration"),
+                )
+            }))
         },
     );
     let contrast = <P as ImageProcessing>::CONTRAST_RANGE;
@@ -189,11 +221,15 @@ fn check_profile<P: CompileTimeProfile>(camera: &P) {
         &probes_for(contrast),
         |v| camera.validate_contrast(v),
         |v| {
-            accepts(
-                ContrastLevel::new(v)
-                    .ok()
-                    .map(|level| Contrast::new(level).validate_for_profile(&spec)),
-            )
+            accepts(ContrastLevel::new(v).ok().map(|level| {
+                Contrast::new(level).validate_for_target(
+                    &grafton_visca::TargetRegistration::new(
+                        grafton_visca::CameraId::CAMERA_1,
+                        spec.clone(),
+                    )
+                    .expect("target registration"),
+                )
+            }))
         },
     );
 }
@@ -244,4 +280,28 @@ fn sony_brc300_unpublished_image_ranges_match_request_validation() {
 fn sony_evi_h100_image_ranges_match_request_validation() {
     assert!(<SonyEVIH100 as ImageProcessing>::HUE_RANGE.is_some());
     check_profile(&SonyEVIH100);
+}
+
+#[test]
+fn variable_nd_helper_matches_typed_request_at_and_beyond_both_boundaries() {
+    use grafton_visca::{
+        capabilities::NdFilterMetadataExt, command::NdFilterValue, request::builtin::NdFilterDirect,
+    };
+    let spec = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7");
+    let registration =
+        grafton_visca::TargetRegistration::new(grafton_visca::CameraId::CAMERA_1, spec)
+            .expect("FR7 target");
+    assert_parity(
+        "ND density",
+        Some(CapabilityRange::<u8>::new(0, 0x14)),
+        &[0, 0x14, 0x15, 128, 255],
+        |value| SonyFR7.validate_nd_filter(value),
+        |value| {
+            NdFilterValue::new(u16::from(value)).is_ok_and(|value| {
+                NdFilterDirect::new(value)
+                    .validate_for_target(&registration)
+                    .is_ok()
+            })
+        },
+    );
 }

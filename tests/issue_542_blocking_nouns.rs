@@ -11,13 +11,13 @@ use grafton_visca::{
         HasBrightnessControl, HasColorTemperature, HasColorTemperatureInquiry, HasContrastControl,
         HasExposure, HasExposureCompensation, HasExposureMode, HasFocus, HasFocusNearLimitInquiry,
         HasFocusZone, HasFocusZoneInquiry, HasGammaControl, HasHueControl, HasImageFlip,
-        HasImageProcessing, HasIrisControl, HasIrisControlInquiry, HasLuminanceControl,
-        HasMenuControl, HasMotionSync, HasNdFilter, HasNoiseReduction2D, HasNoiseReduction2DMode,
-        HasNoiseReduction3D, HasPanTilt, HasPictureEffect, HasPower, HasPresets,
-        HasPtzOpticsAntiFlicker, HasPtzOpticsMulticastStreaming, HasPtzOpticsNdiQuality,
-        HasPtzOpticsPresetRecallSpeed, HasPtzOpticsSettingsSave, HasRgbGain, HasRgbTuning,
-        HasSaturationControl, HasSharpnessControl, HasSonyAutoSlowShutter, HasSonySpotlight,
-        HasTally, HasUsbAudio, HasVersionInquiry, HasWhiteBalance, HasWideDynamicRange, HasZoom,
+        HasImageProcessing, HasIrisControl, HasLuminanceControl, HasMenuControl, HasMotionSync,
+        HasNdFilter, HasNoiseReduction2D, HasNoiseReduction2DMode, HasNoiseReduction3D, HasPanTilt,
+        HasPictureEffect, HasPower, HasPresets, HasPtzOpticsAntiFlicker,
+        HasPtzOpticsMulticastStreaming, HasPtzOpticsNdiQuality, HasPtzOpticsPresetRecallSpeed,
+        HasPtzOpticsSettingsSave, HasRgbGain, HasRgbTuning, HasSaturationControl,
+        HasSharpnessControl, HasSharpnessMode, HasSonyAutoSlowShutter, HasSonySpotlight, HasTally,
+        HasUsbAudio, HasVersionInquiry, HasWhiteBalance, HasWideDynamicRange, HasZoom,
     },
     command::{MotionSyncMode, NdFilterValue},
     completion::{AppliedOnly, Targeted},
@@ -126,7 +126,6 @@ where
         + HasImageFlip
         + HasImageProcessing
         + HasIrisControl
-        + HasIrisControlInquiry
         + HasLuminanceControl
         + HasMotionSync
         + HasNdFilter
@@ -138,6 +137,7 @@ where
         + HasRgbTuning
         + HasSaturationControl
         + HasSharpnessControl
+        + HasSharpnessMode
         + HasTally
         + HasWideDynamicRange,
 {
@@ -147,7 +147,6 @@ where
     let _ = camera.exposure().compensation();
     let _ = camera.exposure().compensation_enabled();
     let _ = camera.exposure().compensation_position();
-    let _ = camera.exposure().iris_control();
     let _ = camera.exposure().iris();
     let _ = camera.exposure().brightness();
     let _ = camera.image().saturation();
@@ -291,7 +290,6 @@ fn static_camera_surface_is_profile_typed_and_non_default() {
     let _: fn(&Camera<PtzOpticsG3>) = ptzoptics_vendor_command_gates::<PtzOpticsG3>;
     let _: fn(&Camera<PtzOptics30X>) = ptzoptics_vendor_command_gates::<PtzOptics30X>;
     let _: fn(&Camera<SonyFR7>) = sony_spotlight_command_gates::<SonyFR7>;
-    let _: fn(&Camera<SonyBRCH900>) = sony_spotlight_command_gates::<SonyBRCH900>;
     let _: fn(&Camera<SonyEVIH100>) = sony_auto_slow_shutter_command_gates::<SonyEVIH100>;
     let _: fn(&Camera<SonyBRC300>) = sony_auto_slow_shutter_command_gates::<SonyBRC300>;
     let _: fn(&Camera<PtzOpticsG2>) = focus_zone_inquiry_gate::<PtzOpticsG2>;

@@ -18,7 +18,7 @@ use crate::{
     timeout::Deadline,
     transport::{
         address::{bind_address_for, literal_socket_addr, resolved},
-        connect::{connect_deadline, TcpAttempts},
+        connect::{connect_deadline, socket_setup, udp_target, TcpAttempts},
         socket_options::{
             apply_tcp_socket_options, apply_udp_socket_options, TcpConnectionConfig,
             UdpSocketConfig,
@@ -85,7 +85,10 @@ pub(crate) async fn connect_tcp<N: AsyncNet>(
     while let Some((address, remaining)) = attempts.next_attempt(Instant::now()) {
         match within::<N, _>(remaining, N::connect_tcp(address)).await {
             Some(Ok(stream)) => {
-                apply_tcp_socket_options(N::tcp_socket(&stream), options)?;
+                socket_setup(
+                    endpoint,
+                    apply_tcp_socket_options(N::tcp_socket(&stream), options),
+                )?;
                 return Ok(stream);
             }
             Some(Err(error)) => attempts.failed(Some(error)),
@@ -101,18 +104,27 @@ pub(crate) async fn connect_udp<N: AsyncNet>(
     options: UdpSocketConfig,
 ) -> Result<N::UdpSocket> {
     let deadline = connect_deadline(Instant::now(), options.connect_timeout)?;
-    let target = resolve::<N>(endpoint, deadline).await?[0];
+    let target = udp_target(&resolve::<N>(endpoint, deadline).await?)?;
 
     let remaining = deadline.remaining_or(Instant::now(), Error::connect_timeout)?;
-    let socket = within::<N, _>(remaining, N::bind_udp(bind_address_for(target)))
-        .await
-        .ok_or_else(Error::connect_timeout)??;
+    let socket = socket_setup(
+        endpoint,
+        within::<N, _>(remaining, N::bind_udp(bind_address_for(target)))
+            .await
+            .ok_or_else(Error::connect_timeout)?,
+    )?;
     let remaining = deadline.remaining_or(Instant::now(), Error::connect_timeout)?;
-    within::<N, _>(remaining, N::connect_udp(&socket, target))
-        .await
-        .ok_or_else(Error::connect_timeout)??;
+    socket_setup(
+        endpoint,
+        within::<N, _>(remaining, N::connect_udp(&socket, target))
+            .await
+            .ok_or_else(Error::connect_timeout)?,
+    )?;
 
-    apply_udp_socket_options(N::udp_socket(&socket), options)?;
+    socket_setup(
+        endpoint,
+        apply_udp_socket_options(N::udp_socket(&socket), options),
+    )?;
     Ok(socket)
 }
 
@@ -173,6 +185,124 @@ mod tests {
         async fn sleep(duration: Duration) {
             tokio::time::sleep(duration).await;
         }
+    }
+
+    /// Inject failures at the real shared connector boundary. The socket
+    /// primitives are runtime-independent, so these errors exercise the same
+    /// code used by Tokio and smol.
+    struct FailingUdp<const STAGE: u8>;
+
+    impl<const STAGE: u8> AsyncNet for FailingUdp<STAGE> {
+        type TcpStream = TcpStream;
+        type UdpSocket = UdpSocket;
+
+        async fn lookup(_: String) -> io::Result<Vec<SocketAddr>> {
+            unreachable!("numeric test endpoints do not resolve")
+        }
+        async fn connect_tcp(_: SocketAddr) -> io::Result<TcpStream> {
+            unreachable!("UDP test")
+        }
+        async fn bind_udp(address: SocketAddr) -> io::Result<UdpSocket> {
+            if STAGE == 3 {
+                return std::future::pending().await;
+            }
+            if STAGE == 0 {
+                Err(io::Error::new(
+                    io::ErrorKind::AddrNotAvailable,
+                    "bind failed",
+                ))
+            } else {
+                UdpSocket::bind(address)
+            }
+        }
+        async fn connect_udp(socket: &UdpSocket, address: SocketAddr) -> io::Result<()> {
+            if STAGE == 1 {
+                Err(io::Error::new(
+                    io::ErrorKind::PermissionDenied,
+                    "connect failed",
+                ))
+            } else {
+                socket.connect(address)
+            }
+        }
+        fn tcp_socket(stream: &TcpStream) -> socket2::SockRef<'_> {
+            socket2::SockRef::from(stream)
+        }
+        fn udp_socket(socket: &UdpSocket) -> socket2::SockRef<'_> {
+            socket2::SockRef::from(socket)
+        }
+        async fn sleep(duration: Duration) {
+            tokio::time::sleep(duration).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn udp_bind_connect_and_option_failures_use_connection_failed() {
+        const ENDPOINT: &str = "127.0.0.1:1259";
+        let options = UdpSocketConfig {
+            ttl: None,
+            connect_timeout: Duration::from_secs(1),
+        };
+        let mut invalid_options = options;
+        // Bypass public preflight only to force an actual socket-option error.
+        invalid_options.ttl = Some(300);
+        for (result, expected_kind) in [
+            (
+                connect_udp::<FailingUdp<0>>(ENDPOINT, options).await,
+                Some(io::ErrorKind::AddrNotAvailable),
+            ),
+            (
+                connect_udp::<FailingUdp<1>>(ENDPOINT, options).await,
+                Some(io::ErrorKind::PermissionDenied),
+            ),
+            (
+                connect_udp::<FailingUdp<2>>(ENDPOINT, invalid_options).await,
+                None,
+            ),
+        ] {
+            assert!(matches!(&result, Err(Error::ConnectionFailed { .. })));
+            let Error::ConnectionFailed { addr, source } = result.expect_err("UDP setup fails")
+            else {
+                return;
+            };
+            assert_eq!(addr, ENDPOINT);
+            if let Some(kind) = expected_kind {
+                assert_eq!(source.kind(), kind);
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn udp_setup_budget_expiry_keeps_the_session_timeout_contract() {
+        let options = UdpSocketConfig {
+            ttl: None,
+            connect_timeout: Duration::from_millis(1),
+        };
+        assert!(matches!(
+            connect_udp::<FailingUdp<3>>("127.0.0.1:1259", options).await,
+            Err(Error::Timeout { context }) if context == crate::FailureContext::new(
+                crate::FailureStage::Session,
+                crate::Certainty::NotAccepted,
+            )
+        ));
+    }
+
+    #[tokio::test]
+    async fn a_numeric_ipv6_udp_target_is_used_as_given() {
+        if UdpSocket::bind("[::1]:0").is_err() {
+            return; // This host has no IPv6 loopback support.
+        }
+        let options = UdpSocketConfig {
+            ttl: None,
+            connect_timeout: Duration::from_secs(1),
+        };
+        let socket = connect_udp::<FailingUdp<2>>("[::1]:1259", options)
+            .await
+            .expect("numeric IPv6 setup");
+        assert_eq!(
+            socket.peer_addr().expect("peer"),
+            "[::1]:1259".parse::<SocketAddr>().expect("IPv6 endpoint")
+        );
     }
 
     /// #798 review: an unroutable first address used to consume the whole

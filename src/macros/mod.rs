@@ -18,7 +18,7 @@
 //! ## Internal Macros
 //!
 //! These macros are used internally for implementing VISCA commands and are not part
-//! of the public API. They may change without notice:
+//! of the public API. They are crate-private and are not exported:
 //!
 //! - Consolidated command generator: `visca_command!`
 //! - Test utilities: `visca_test!`

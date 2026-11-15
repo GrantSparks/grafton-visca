@@ -5,28 +5,19 @@ use grafton_visca::{
 
 #[derive(Debug, Clone, Copy, ViscaInquiry)]
 #[visca(
-    opcode = 0x39, response = ExposureMode, parser = Mode,
-    value_type = ExposureMode, typed_response = ExposureMode, typed_field = mode
+    opcode = 0x39, response = ExposureMode, typed_response = ExposureMode, typed_field = mode
 )]
 struct ModeInquiry;
 
 #[derive(Debug, Clone, Copy, ViscaInquiry)]
 #[visca(
-    opcode = 0x4B, response = Iris, parser = Nibble, field = position,
+    opcode = 0x4B, response = Iris,
     typed_response = u8, typed_field = position
 )]
 struct NibbleInquiry;
 
-#[derive(Debug, Clone, Copy, ViscaInquiry)]
-#[visca(
-    opcode = 0x00, response = Power, parser = BoolConvention,
-    convention = OnIs02, field = on, data_variant = Digital,
-    typed_response = bool, typed_field = on
-)]
-struct ConventionInquiry;
-
 fn custom(payload: &[u8]) -> Result<InquiryData, Error> {
-    Ok(InquiryData::Digital {
+    Ok(InquiryData::ExposureCompensationMode {
         on: payload == [0xA5],
     })
 }
@@ -34,7 +25,7 @@ fn custom(payload: &[u8]) -> Result<InquiryData, Error> {
 #[derive(Debug, Clone, Copy, ViscaInquiry)]
 #[visca(
     opcode = 0x00, response = Power, parser = Custom,
-    parse_with = custom, data_variant = Digital,
+    parse_with = custom, data_variant = ExposureCompensationMode,
     typed_response = bool, typed_field = on
 )]
 struct CustomInquiry;
@@ -44,7 +35,6 @@ fn main() {
         ModeInquiry.decoder().decode(&[0x00]).unwrap(),
         ExposureMode::Auto
     );
-    assert_eq!(NibbleInquiry.decoder().decode(&[0x00, 0x05]).unwrap(), 5);
-    assert!(ConventionInquiry.decoder().decode(&[0x02]).unwrap());
+    assert_eq!(NibbleInquiry.decoder().decode(&[0x00, 0x00, 0x00, 0x05]).unwrap(), 5);
     assert!(CustomInquiry.decoder().decode(&[0xA5]).unwrap());
 }

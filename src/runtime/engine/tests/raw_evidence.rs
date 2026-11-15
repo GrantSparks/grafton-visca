@@ -131,7 +131,7 @@ fn named_error_on_a_free_socket_rejects_the_command_while_an_inquiry_is_live() {
     for transport in [TransportKind::Datagram, TransportKind::Stream] {
         let now = Instant::now();
         let mut engine = fresh(EnvelopeKind::Raw, transport);
-        let (inquiry_effects, inquiry_id) = admit(&mut engine, 1, inquiry(1, POWER), now);
+        let (inquiry_effects, inquiry_id) = admit(&mut engine, 1, inquiry(1), now);
         send_ok(&mut engine, &inquiry_effects, None, now);
         let (command_effects, command_id) = admit(
             &mut engine,
@@ -321,7 +321,10 @@ fn acknowledged_commands_are_never_rewritten_after_a_rejection() {
         Error::CommandFailedAfterAck { source, .. }
             if matches!(**source, Error::CommandNotExecutable)
     ));
-    assert!(!error.is_retryable());
+    assert!(!matches!(
+        error.recovery(),
+        crate::Recovery::Resubmit { .. }
+    ));
     assert_eq!(
         error.failure_context(),
         Some(FailureContext::new(
@@ -405,6 +408,7 @@ fn stream_owed_ack_never_binds_a_later_command() {
     ));
     let (_, dispatched, _) = request_transmit(&stop_ack);
     assert_eq!(dispatched, ordinary_id);
+    send_ok(&mut engine, &stop_ack, None, later);
     let applied = engine.handle(completion(1, ViscaSocket::S2), later);
     assert!(matches!(
         terminal_outcome(&applied, stop),
@@ -536,6 +540,7 @@ fn stream_owed_answer_past_its_window_latches_only_the_command_lane() {
         window_end,
     );
     assert_eq!(request_transmit(&other).1, other_id);
+    send_ok(&mut engine, &other, None, window_end);
     let mut stop_request = urgent_command(1, CancellationPolicy::Supported);
     stop_request.context_mut().retry = no_not_executable_retry();
     let (stop_effects, stop) = admit(&mut engine, 5, stop_request, window_end);
@@ -726,10 +731,9 @@ fn halt_after_a_possibly_applied_attempt_reports_unconfirmed() {
     assert_eq!(resent_id, id);
     engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission,
-            result: Ok(TransmissionMeta {
-                sequence: Some(sony_sequence(id)),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(sony_sequence(id)))),
         },
         retry_at,
     );
@@ -807,7 +811,7 @@ fn stream_owed_completion_only_answer_holds_back_ordinary_work() {
             command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
             true,
         ),
-        (6, inquiry(1, POWER), true),
+        (6, inquiry(1), true),
     ] {
         let rejected = engine.handle(
             Input::Admit {
@@ -909,7 +913,7 @@ fn an_error_naming_a_busy_socket_is_its_commands_while_an_inquiry_is_live() {
         let now = Instant::now();
         let mut engine = fresh(EnvelopeKind::Raw, transport);
         let executing = executing_on(&mut engine, 1, ViscaSocket::S1, now);
-        let (inquiry_effects, inquiry_id) = admit(&mut engine, 2, inquiry(1, POWER), now);
+        let (inquiry_effects, inquiry_id) = admit(&mut engine, 2, inquiry(1), now);
         send_ok(&mut engine, &inquiry_effects, None, now);
         let failed = engine.handle(named_error(1, ViscaSocket::S1, 0x41), now);
         assert!(
@@ -1017,8 +1021,9 @@ fn executing_with_cancel(
     assert_eq!(cancelled, socket);
     engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission,
-            result: Ok(TransmissionMeta { sequence: None }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
         },
         now,
     );
@@ -1116,14 +1121,14 @@ fn non_first_answers_never_pay_a_stream_debt() {
     let cancel_reply = engine.handle_turn(
         named_error(1, ViscaSocket::S1, 0x05),
         noise_at,
-        EngineTurn::INPUT_ONLY,
+        EngineTurn::InputOnly,
     );
     assert!(terminal_id(&cancel_reply).is_none());
     assert_eq!(raw_owed(&engine, 1), 1);
     let execution_error = engine.handle_turn(
         named_error(1, ViscaSocket::S2, 0x41),
         noise_at,
-        EngineTurn::INPUT_ONLY,
+        EngineTurn::InputOnly,
     );
     assert!(matches!(
         terminal_failure(&execution_error, executing),
@@ -1131,7 +1136,7 @@ fn non_first_answers_never_pay_a_stream_debt() {
     ));
     assert_eq!(raw_owed(&engine, 1), 1);
 
-    engine.handle_turn(ack(1, ViscaSocket::S1), noise_at, EngineTurn::INPUT_ONLY);
+    engine.handle_turn(ack(1, ViscaSocket::S1), noise_at, EngineTurn::InputOnly);
     assert_eq!(raw_owed(&engine, 1), 0);
     let later = command_awaiting_ack(&mut engine, 3, noise_at);
     engine.handle(ack(1, ViscaSocket::S2), noise_at);
@@ -1215,7 +1220,7 @@ fn a_socketless_error_pays_the_oldest_debt_while_a_command_executes() {
 fn inquiry_replies_answer_only_inquiry_entries() {
     let start = Instant::now();
     let mut engine = single_flight_raw_stream_engine();
-    let (send, inquiry_id) = admit(&mut engine, 1, inquiry(1, POWER), start);
+    let (send, inquiry_id) = admit(&mut engine, 1, inquiry(1), start);
     send_ok(&mut engine, &send, None, start);
     command_awaiting_ack(&mut engine, 2, start);
     engine.advance(start + Duration::from_millis(20));
@@ -1253,9 +1258,14 @@ fn only_a_write_that_left_owes_its_answer() {
     let budgeted = || command_with_retry(1, immediate_retry_budget(Duration::from_millis(10)));
 
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-    let (staged, id) = admit(&mut engine, 1, budgeted(), now);
-    assert!(request_transmit_optional(&staged).is_some());
-    let expired = engine.advance(now + Duration::from_millis(10));
+    let mut request = budgeted();
+    request.context_mut().control.class = ControlClass::Urgent;
+    request.context_mut().dispatch_deadline = Some(now + Duration::from_millis(10));
+    let (staged, id) = admit(&mut engine, 1, request, now);
+    let (transmission, _, _) = request_transmit(&staged);
+    let expired = engine
+        .expire_unwritten_halt(id, transmission, now + Duration::from_millis(10))
+        .expect("expired before writing");
     assert!(terminal_failure(&expired, id).is_some());
     assert_eq!(raw_owed(&engine, 1), 0);
     assert_eq!(command_lane(&engine, 1), LaneState::Clear);
@@ -1266,8 +1276,9 @@ fn only_a_write_that_left_owes_its_answer() {
     let (transmission, _, _) = request_transmit(&staged);
     let late = engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission,
-            result: Ok(TransmissionMeta { sequence: None }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
         },
         now + Duration::from_millis(11),
     );
@@ -1323,12 +1334,12 @@ fn disputed(engine: &mut ProtocolEngine, now: Instant) -> (RequestId, RequestId,
     );
     send_ok(engine, &effects, None, now);
     // A STOP is never held back by it; ordinary work is.
-    let (queued, inquiry_id) = admit(engine, 2, inquiry(1, POWER), now);
+    let (queued, inquiry_id) = admit(engine, 2, inquiry(1), now);
     assert!(request_transmit_optional(&queued).is_none());
     let (stop_effects, stop) = admit(engine, 3, stop_command(1), now);
     assert_eq!(request_transmit(&stop_effects).1, stop);
     send_ok(engine, &stop_effects, None, now);
-    let disputed = engine.handle_turn(socketless_error(1, 0x41), now, EngineTurn::INPUT_ONLY);
+    let disputed = engine.handle_turn(socketless_error(1, 0x41), now, EngineTurn::InputOnly);
     assert!(terminal_id(&disputed).is_none() && retry_scheduled(&disputed).is_none());
     assert!(engine
         .ledger
@@ -1359,14 +1370,29 @@ fn a_disputed_stop_is_settled_by_its_own_ack() {
     assert_eq!(raw_owed(&engine, 1), 0);
     assert_eq!(command_lane(&engine, 1), LaneState::Clear);
     assert!(!engine.ledger.forbids_crossing(camera(1)));
+    if request_transmit_optional(&proven).is_some() {
+        finish_write_input_only(
+            &mut engine,
+            request_transmit(&proven).1,
+            request_transmit(&proven).0,
+            Ok(TransmissionMeta::for_sequence(None)),
+            now,
+        );
+    }
     // The work queued behind the dispute is written again.
     for _ in 0..2 {
         let next = engine.advance(now);
         if request_transmit_optional(&next).is_some() {
-            send_ok(&mut engine, &next, None, now);
+            finish_write_input_only(
+                &mut engine,
+                request_transmit(&next).1,
+                request_transmit(&next).0,
+                Ok(TransmissionMeta::for_sequence(None)),
+                now,
+            );
         }
     }
-    assert!(phase_of(&engine, inquiry_id).is_none_or(|phase| !matches!(phase, Phase::Ready { .. })));
+    assert!(phase_of(&engine, inquiry_id).is_none_or(|phase| !matches!(phase, Phase::Ready)));
     engine.assert_invariants().unwrap();
 }
 
@@ -1444,7 +1470,10 @@ fn a_cancellation_rejected_after_ack_is_unconfirmed_on_both_envelopes() {
             &error,
             Error::CommandFailedAfterAck { source, .. } if matches!(**source, Error::NoSocket)
         ));
-        assert!(!error.is_retryable());
+        assert!(!matches!(
+            error.recovery(),
+            crate::Recovery::Resubmit { .. }
+        ));
     };
 
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Datagram);
@@ -1477,10 +1506,9 @@ fn a_cancellation_rejected_after_ack_is_unconfirmed_on_both_envelopes() {
     let cancel_sequence = sequence + 0x100;
     engine.handle(
         Input::TransmissionFinished {
+            request: id,
             transmission,
-            result: Ok(TransmissionMeta {
-                sequence: Some(cancel_sequence),
-            }),
+            result: WriteOutcome::Sent(TransmissionMeta::for_sequence(Some(cancel_sequence))),
         },
         now,
     );
@@ -1542,12 +1570,13 @@ fn inquiry_lane(engine: &ProtocolEngine, target: u8) -> LaneState {
     engine.ledger.lane_state(camera(target), Lane::Inquiry)
 }
 
-/// Reaching the cap means the camera answers nothing: every lane of that
-/// camera latches, and no debt is ever dropped. STOPs are still written past
-/// it, no other camera is affected, the session is never poisoned, and paying
-/// debts reopens the lanes.
+/// The command debt cap retains every unpaid answer and refuses ordinary
+/// commands. A raw inquiry may still cross those debts: its independent exact
+/// declaration reservation bounds its row and any ACK-run separator (#892).
+/// STOPs continue, other cameras and the session stay healthy, and paying
+/// debts restores ordinary command work.
 #[test]
-fn reaching_the_debt_cap_latches_every_lane_without_dropping_a_debt() {
+fn reaching_the_debt_cap_keeps_queries_available_without_dropping_command_debt() {
     let mut now = Instant::now();
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
     for ticket in 1..MAX_DEBTS_PER_TARGET as u64 {
@@ -1562,32 +1591,40 @@ fn reaching_the_debt_cap_latches_every_lane_without_dropping_a_debt() {
     assert_eq!(inquiry_lane(&engine, 1), LaneState::Latched);
     assert_eq!(command_lane(&engine, 1), LaneState::Latched);
     assert_eq!(engine.state(), SessionState::Running);
-    for (ticket, request, inquiry_lost) in [
-        (101, inquiry(1, POWER), true),
-        (102, command(1, CancellationPolicy::Supported), false),
-    ] {
-        let rejected = engine.handle(
-            Input::Admit {
-                ticket: AdmissionTicket(ticket),
-                request,
-                slot: AdmissionSlot::Ordinary,
-            },
-            now,
-        );
-        assert!(rejected.iter().any(|effect| match effect {
-            Effect::AdmissionRejected { error, .. } if inquiry_lost =>
-                matches!(error, Error::InquiryCorrelationLost { camera: c } if *c == camera(1).camera()),
-            Effect::AdmissionRejected { error, .. } =>
-                matches!(error, Error::CommandCorrelationLost { camera: c } if *c == camera(1).camera()),
-            _ => false,
-        }));
-    }
+    let rejected = engine.handle(
+        Input::Admit {
+            ticket: AdmissionTicket(102),
+            request: command(1, CancellationPolicy::Supported),
+            slot: AdmissionSlot::Ordinary,
+        },
+        now,
+    );
+    assert!(rejected.iter().any(|effect| matches!(effect,
+        Effect::AdmissionRejected { error: Error::CommandCorrelationLost { camera: c }, .. }
+            if *c == camera(1).camera())));
+    let (query, query_id) = admit(&mut engine, 101, inquiry(1), now);
+    let (transmission, _, _) = request_transmit(&query);
+    // Refuse this staged write so the rest of the old debt-payment script
+    // continues with exactly its original wire history.
+    engine.handle(
+        Input::TransmissionFinished {
+            request: query_id,
+            transmission,
+            result: WriteOutcome::NotSent(Error::InvalidRequest(
+                "test transport refused before bytes".into(),
+            )),
+        },
+        now,
+    );
+    assert_eq!(raw_owed(&engine, 1), MAX_DEBTS_PER_TARGET);
     // STOPs are still written at the cap, and their debts are kept.
     now = unanswered_stop(&mut engine, 103, now);
     assert_eq!(raw_owed(&engine, 1), MAX_DEBTS_PER_TARGET + 1);
     // Another camera is unaffected.
-    let (other, other_id) = admit(&mut engine, 104, inquiry(2, POWER), now);
+    let (other, other_id) = admit(&mut engine, 104, inquiry(2), now);
     assert_eq!(request_transmit(&other).1, other_id);
+
+    send_ok(&mut engine, &other, None, now);
 
     // The camera recovers: its late ACKs pay the oldest debts first. Back
     // below the cap the inquiry lane reopens; the command lane stays latched
@@ -1665,16 +1702,16 @@ fn a_burst_of_answers_pays_runs_in_write_order() {
     // [3 owed ACKs] [owed reply] [40 owed ACKs]
     assert_eq!(engine.ledger.len(camera(1)), 3);
     assert_eq!(raw_owed(&engine, 1), 44);
-    assert!(engine.ledger.owes_reply(camera(1)));
+    assert!(engine.ledger.owes_reply(camera(1), PayloadShape::Unknown));
 
     // Socketless rejections answer any kind, so only write order decides.
     for _ in 0..3 {
         let paid = engine.handle(socketless_error(1, 0x02), now);
         assert!(terminal_id(&paid).is_none());
-        assert!(engine.ledger.owes_reply(camera(1)));
+        assert!(engine.ledger.owes_reply(camera(1), PayloadShape::Unknown));
     }
     engine.handle(socketless_error(1, 0x02), now);
-    assert!(!engine.ledger.owes_reply(camera(1)));
+    assert!(!engine.ledger.owes_reply(camera(1), PayloadShape::Unknown));
     assert_eq!(raw_owed(&engine, 1), 40);
     assert_eq!(engine.ledger.len(camera(1)), 1);
 
@@ -1838,19 +1875,18 @@ fn a_later_first_answer_retires_a_never_answered_inquiry() {
     let command_id = command_awaiting_ack(&mut engine, 2, window_end);
     engine.handle(ack(1, ViscaSocket::S1), window_end);
     assert_eq!(socket_of(&engine, command_id), Some(ViscaSocket::S1));
-    assert!(!engine.ledger.owes_reply(camera(1)));
+    assert!(!engine.ledger.owes_reply(camera(1), PayloadShape::Unknown));
     assert_eq!(inquiry_lane(&engine, 1), LaneState::Clear);
 
     let later = window_end + Duration::from_millis(100);
     engine.advance(later);
-    let (effects, inquiry_id) = admit(&mut engine, 3, inquiry(1, POWER), later);
+    let (effects, inquiry_id) = admit(&mut engine, 3, inquiry(1), later);
     send_ok(&mut engine, &effects, None, later);
     let reply = engine.handle(
         frame(
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: None,
                 payload: SmallVec::from_slice(&[2]),
             },
         ),
@@ -1880,14 +1916,13 @@ fn an_inquiry_reply_ends_a_stop_debt_cascade() {
     now = ended;
     assert_eq!(raw_owed(&engine, 1), 1);
 
-    let (effects, inquiry_id) = admit(&mut engine, 3, inquiry(1, POWER), now);
+    let (effects, inquiry_id) = admit(&mut engine, 3, inquiry(1), now);
     send_ok(&mut engine, &effects, None, now);
     let reply = engine.handle(
         frame(
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: None,
                 payload: SmallVec::from_slice(&[2]),
             },
         ),
@@ -1906,7 +1941,7 @@ fn an_inquiry_reply_ends_a_stop_debt_cascade() {
 /// Whether the dispatch gate itself, not pacing, holds queued `id` back.
 fn dispatch_gated(engine: &ProtocolEngine, id: RequestId) -> bool {
     let entry = engine.entry(id).expect("queued request");
-    matches!(entry.phase(), Phase::Ready { .. }) && engine.dispatch_blocked(entry, engine.turn_at)
+    matches!(entry.phase(), Phase::Ready) && engine.dispatch_blocked(entry, engine.turn_at)
 }
 
 /// The gate blocks a queued ordinary command on a latched lane, not only one
@@ -1991,7 +2026,7 @@ fn stop_inside_no_reply_hold(
         terminal_outcome(&written, no_reply),
         Some(RuntimeOutcome::Written)
     ));
-    let (queued, inquiry_id) = admit(engine, 2, inquiry(1, POWER), now);
+    let (queued, inquiry_id) = admit(engine, 2, inquiry(1), now);
     assert!(request_transmit_optional(&queued).is_none());
     let (queued, command_id) = admit(engine, 3, command(1, CancellationPolicy::Supported), now);
     assert!(request_transmit_optional(&queued).is_none());
@@ -2018,14 +2053,8 @@ fn a_stop_inside_a_no_reply_hold_is_written_at_once_and_settled_by_its_ack() {
             Some(ViscaSocket::S1),
             "{transport:?}"
         );
-        assert!(matches!(
-            phase_of(&engine, inquiry_id),
-            Some(Phase::Ready { .. })
-        ));
-        assert!(matches!(
-            phase_of(&engine, command_id),
-            Some(Phase::Ready { .. })
-        ));
+        assert!(matches!(phase_of(&engine, inquiry_id), Some(Phase::Ready)));
+        assert!(matches!(phase_of(&engine, command_id), Some(Phase::Ready)));
         let done = engine.handle(completion(1, ViscaSocket::S1), now);
         assert!(
             matches!(terminal_outcome(&done, stop), Some(RuntimeOutcome::Applied)),
@@ -2045,7 +2074,7 @@ fn an_ambiguous_error_inside_a_no_reply_hold_binds_to_neither() {
     let now = Instant::now();
     let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
     let (stop, _, _) = stop_inside_no_reply_hold(&mut engine, now);
-    let disputed = engine.handle_turn(socketless_error(1, 0x41), now, EngineTurn::INPUT_ONLY);
+    let disputed = engine.handle_turn(socketless_error(1, 0x41), now, EngineTurn::InputOnly);
     assert!(terminal_id(&disputed).is_none() && retry_scheduled(&disputed).is_none());
     assert!(engine.ledger.awaits_dispute(camera(1), stop));
     let proven = engine.handle(ack(1, ViscaSocket::S2), now);
@@ -2066,7 +2095,7 @@ fn a_stop_whose_error_is_ambiguous_ends_unconfirmed() {
     for transport in [TransportKind::Stream, TransportKind::Datagram] {
         let mut engine = fresh(EnvelopeKind::Raw, transport);
         let (stop, _, _) = stop_inside_no_reply_hold(&mut engine, now);
-        let disputed = engine.handle_turn(socketless_error(1, 0x41), now, EngineTurn::INPUT_ONLY);
+        let disputed = engine.handle_turn(socketless_error(1, 0x41), now, EngineTurn::InputOnly);
         assert!(
             terminal_id(&disputed).is_none() && retry_scheduled(&disputed).is_none(),
             "{transport:?}"
@@ -2218,7 +2247,7 @@ fn an_unanswered_tracked_dispute_falls_to_the_latch() {
         let at = now + Duration::from_millis(step);
         // An inquiry queued just before the dispute ends.
         let effects = if step == 115 {
-            let (effects, _) = admit(&mut engine, 8, inquiry(1, POWER), at);
+            let (effects, _) = admit(&mut engine, 8, inquiry(1), at);
             assert!(request_transmit_optional(&effects).is_none());
             effects
         } else {
@@ -2243,14 +2272,14 @@ fn an_unanswered_tracked_dispute_falls_to_the_latch() {
         outcomes.values().any(|(ended, outcome)| *ended == step
             && matches!(
                 outcome,
-                RuntimeOutcome::Failed(Error::InquiryCorrelationLost { .. })
+                RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::InquiryCorrelationLost { .. })
             )),
         "{outcomes:?}"
     );
     let rejected = engine.handle(
         Input::Admit {
             ticket: AdmissionTicket(9),
-            request: inquiry(1, POWER),
+            request: inquiry(1),
             slot: AdmissionSlot::Ordinary,
         },
         at,
@@ -2318,12 +2347,12 @@ fn a_second_ambiguity_keeps_the_dispute_accept_only() {
     assert_eq!(request_transmit(&written).1, second_stop);
     send_ok(&mut engine, &written, None, at);
     // Either STOP's answer: binds to neither, and the dispute is kept.
-    let ambiguous = engine.handle_turn(socketless_error(1, 0x41), at, EngineTurn::INPUT_ONLY);
+    let ambiguous = engine.handle_turn(socketless_error(1, 0x41), at, EngineTurn::InputOnly);
     assert!(terminal_id(&ambiguous).is_none() && retry_scheduled(&ambiguous).is_none());
     assert!(engine.ledger.awaits_dispute(camera(1), first_stop));
     // An ACK no longer proves the command rejected.
     let ack_at = at + Duration::from_millis(1);
-    let acked = engine.handle_turn(ack(1, ViscaSocket::S2), ack_at, EngineTurn::INPUT_ONLY);
+    let acked = engine.handle_turn(ack(1, ViscaSocket::S2), ack_at, EngineTurn::InputOnly);
     assert!(terminal_outcome(&acked, completion_only).is_none());
     assert!(engine.ledger.awaits_dispute(camera(1), first_stop));
     // Its completion proves it accepted: the first error was the first STOP's.
@@ -2385,7 +2414,7 @@ fn completion_only_work_behind_an_unsettled_no_reply_fails_fast() {
         }
     )));
     // An inquiry's reply settles the `NoReply` command's possible rejection.
-    let (effects, inquiry_id) = admit(&mut engine, 4, inquiry(1, POWER), window_end);
+    let (effects, inquiry_id) = admit(&mut engine, 4, inquiry(1), window_end);
     assert_eq!(request_transmit(&effects).1, inquiry_id);
     send_ok(&mut engine, &effects, None, window_end);
     let replied = engine.handle(
@@ -2393,7 +2422,6 @@ fn completion_only_work_behind_an_unsettled_no_reply_fails_fast() {
             1,
             None,
             DecodedResponse::InquiryReply {
-                route: None,
                 payload: SmallVec::from_slice(&[0x02]),
             },
         ),
@@ -2404,97 +2432,6 @@ fn completion_only_work_behind_an_unsettled_no_reply_fails_fast() {
     engine.advance(later);
     let (effects, flowing) = admit(&mut engine, 5, completion_only_request(), later);
     assert_eq!(request_transmit(&effects).1, flowing);
-    engine.assert_invariants().unwrap();
-}
-
-/// A `CompletionOnly` command and a STOP behind it are both still being
-/// written when a socketless error arrives (an answer may overtake its write
-/// result), so the error is disputed between them. The `CompletionOnly`
-/// command then ends as a staged write that never left: it sent nothing, so
-/// the error was the STOP's rejection, which the STOP receives at once, and
-/// nothing stays owed (property-test regression: a tracked dispute named a
-/// dropped entry).
-#[test]
-fn an_unwritten_completion_only_command_decides_its_dispute_accepted() {
-    let now = Instant::now();
-    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-    let (staged, completion_only) = admit(
-        &mut engine,
-        1,
-        command_with_reply_shape_and_retry(
-            1,
-            CancellationPolicy::Supported,
-            ReplyShape::CompletionOnly,
-            immediate_retry_budget(Duration::from_millis(10)),
-        ),
-        now,
-    );
-    assert_eq!(request_transmit(&staged).1, completion_only);
-    let (stop_effects, stop) = admit(&mut engine, 2, stop_command(1), now);
-    assert_eq!(request_transmit(&stop_effects).1, stop);
-    send_ok(&mut engine, &stop_effects, None, now);
-    let disputed = engine.handle_turn(socketless_error(1, 0x41), now, EngineTurn::INPUT_ONLY);
-    assert!(terminal_id(&disputed).is_none());
-    assert!(engine.ledger.awaits_dispute(camera(1), stop));
-    // The `CompletionOnly` command's budget ends with its write unconfirmed.
-    let expired = engine.advance(now + Duration::from_millis(10));
-    assert!(terminal_failure(&expired, completion_only).is_some());
-    assert!(matches!(
-        terminal_failure(&expired, stop),
-        Some(Error::CommandNotExecutable)
-    ));
-    assert!(!engine.ledger.awaits_dispute(camera(1), stop));
-    assert_eq!(raw_owed(&engine, 1), 0);
-    assert!(engine.ledger.is_empty());
-    engine.assert_invariants().unwrap();
-}
-
-/// The other direction: the `CompletionOnly` command was written, the STOP
-/// behind it was still being written when the disputed error came, and the
-/// STOP then ends as a staged write that never left. It sent nothing, so
-/// the error was the command's rejection: the command fails with it, and its
-/// entry is retired instead of owing a completion that latches the command
-/// lane with `CommandCorrelationLost`.
-#[test]
-fn an_unwritten_stop_decides_its_dispute_rejected() {
-    let now = Instant::now();
-    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-    let (effects, completion_only) = admit(
-        &mut engine,
-        1,
-        command_with_reply_shape_and_retry(
-            1,
-            CancellationPolicy::Supported,
-            ReplyShape::CompletionOnly,
-            no_not_executable_retry(),
-        ),
-        now,
-    );
-    send_ok(&mut engine, &effects, None, now);
-    let mut request = stop_command(1);
-    request.context_mut().retry.total_budget = Duration::from_millis(10);
-    let (stop_effects, stop) = admit(&mut engine, 2, request, now);
-    assert_eq!(request_transmit(&stop_effects).1, stop);
-    let disputed = engine.handle_turn(socketless_error(1, 0x41), now, EngineTurn::INPUT_ONLY);
-    assert!(terminal_id(&disputed).is_none());
-    assert!(engine.ledger.awaits_dispute(camera(1), stop));
-    let expired = engine.advance(now + Duration::from_millis(10));
-    assert!(terminal_failure(&expired, stop).is_some());
-    assert!(matches!(
-        terminal_failure(&expired, completion_only),
-        Some(Error::CommandNotExecutable)
-    ));
-    assert_eq!(raw_owed(&engine, 1), 0);
-    let later = now + Duration::from_secs(1);
-    engine.advance(later);
-    assert_eq!(command_lane(&engine, 1), LaneState::Clear);
-    let (effects, next) = admit(
-        &mut engine,
-        3,
-        command(1, CancellationPolicy::Supported),
-        later,
-    );
-    assert_eq!(request_transmit(&effects).1, next);
     engine.assert_invariants().unwrap();
 }
 
@@ -2530,15 +2467,15 @@ fn a_learned_completion_decides_its_dispute_accepted() {
     let (stop_effects, stop) = admit(&mut engine, 3, stop_command(1), now);
     assert_eq!(request_transmit(&stop_effects).1, stop);
     send_ok(&mut engine, &stop_effects, None, now);
-    let disputed = engine.handle_turn(socketless_error(1, 0x41), now, EngineTurn::INPUT_ONLY);
+    let disputed = engine.handle_turn(socketless_error(1, 0x41), now, EngineTurn::InputOnly);
     assert!(terminal_id(&disputed).is_none());
     assert!(engine.ledger.awaits_dispute(camera(1), stop));
     // The command's completion, while the socket is held: dropped.
-    let dropped = engine.handle_turn(socketless_completion(1), now, EngineTurn::INPUT_ONLY);
+    let dropped = engine.handle_turn(socketless_completion(1), now, EngineTurn::InputOnly);
     assert!(terminal_id(&dropped).is_none());
     // The held command's late completion names its socket: the camera names
     // sockets, so the dropped completion was the command's.
-    engine.handle_turn(completion(1, ViscaSocket::S2), now, EngineTurn::INPUT_ONLY);
+    engine.handle_turn(completion(1, ViscaSocket::S2), now, EngineTurn::InputOnly);
     let learned = engine.advance(now);
     assert!(matches!(
         terminal_outcome(&learned, completion_only),
@@ -2610,7 +2547,7 @@ fn a_disputed_ack_holds_the_socket_it_names() {
     let written = engine.advance(at);
     assert_eq!(request_transmit(&written).1, second_stop);
     send_ok(&mut engine, &written, None, at);
-    let acked = engine.handle_turn(ack(1, ViscaSocket::S2), at, EngineTurn::INPUT_ONLY);
+    let acked = engine.handle_turn(ack(1, ViscaSocket::S2), at, EngineTurn::InputOnly);
     assert!(terminal_id(&acked).is_none());
     assert_eq!(socket_of(&engine, first_stop), None);
     assert_eq!(socket_of(&engine, second_stop), None);
@@ -2641,7 +2578,7 @@ fn a_disputed_acks_socket_displaces_its_stale_owner() {
     let rejection = engine.handle_turn(
         named_error(1, ViscaSocket::S2, 0x41),
         now,
-        EngineTurn::INPUT_ONLY,
+        EngineTurn::InputOnly,
     );
     assert!(terminal_id(&rejection).is_none());
     let mut request = stop_command(1);
@@ -2651,7 +2588,7 @@ fn a_disputed_acks_socket_displaces_its_stale_owner() {
     let written = engine.advance(at);
     assert_eq!(request_transmit(&written).1, second_stop);
     send_ok(&mut engine, &written, None, at);
-    let acked = engine.handle_turn(ack(1, ViscaSocket::S2), at, EngineTurn::INPUT_ONLY);
+    let acked = engine.handle_turn(ack(1, ViscaSocket::S2), at, EngineTurn::InputOnly);
     assert!(matches!(
         terminal_failure(&acked, stale),
         Some(Error::UnsequencedCommandUnconfirmed)
@@ -2660,136 +2597,6 @@ fn a_disputed_acks_socket_displaces_its_stale_owner() {
     assert!(engine
         .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S2))
         .is_some());
-    engine.assert_invariants().unwrap();
-}
-
-/// The hold a disputed ACK installs takes its deadline from the two
-/// candidates, including one whose write result has not come yet (its
-/// answer may overtake it): here neither candidate awaits its ACK in the
-/// engine's phases, yet the socket is held.
-#[test]
-fn a_disputed_ack_holds_its_socket_while_a_candidate_is_still_being_written() {
-    let now = Instant::now();
-    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-    let (effects, _) = admit(
-        &mut engine,
-        1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
-        now,
-    );
-    send_ok(&mut engine, &effects, None, now);
-    let (stop_effects, first_stop) = admit(&mut engine, 2, stop_command(1), now);
-    assert_eq!(request_transmit(&stop_effects).1, first_stop);
-    let disputed = engine.handle_turn(socketless_error(1, 0x41), now, EngineTurn::INPUT_ONLY);
-    assert!(terminal_id(&disputed).is_none());
-    let mut request = stop_command(1);
-    request.context_mut().dispatch_deadline = Some(now + Duration::from_millis(20));
-    let (_, second_stop) = admit(&mut engine, 3, request, now);
-    let at = now + Duration::from_millis(10);
-    let written = engine.advance(at);
-    assert_eq!(request_transmit(&written).1, second_stop);
-    // Neither STOP's write result has come.
-    assert!(engine
-        .entries
-        .values()
-        .all(|entry| !matches!(entry.phase(), Phase::AwaitingAck { .. })));
-    let acked = engine.handle_turn(ack(1, ViscaSocket::S1), at, EngineTurn::INPUT_ONLY);
-    assert!(terminal_id(&acked).is_none());
-    let hold = engine
-        .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S1))
-        .expect("the disputed ACK's socket is held");
-    // The STOPs' completion deadline (40 ms in this profile).
-    assert_eq!(hold.until, at + Duration::from_millis(40));
-    engine.assert_invariants().unwrap();
-}
-
-/// A halt STOP still staged when a socketless error is disputed between it
-/// and the `CompletionOnly` command ahead of it, and then expired by the
-/// owner before its write: it sent nothing, so the error was the command's
-/// rejection, which the expiry's effects deliver at once.
-#[test]
-fn an_expired_unwritten_halt_stop_delivers_its_disputes_decision() {
-    let now = Instant::now();
-    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-    let (effects, completion_only) = admit(
-        &mut engine,
-        1,
-        command_with_reply_shape_and_retry(
-            1,
-            CancellationPolicy::Supported,
-            ReplyShape::CompletionOnly,
-            no_not_executable_retry(),
-        ),
-        now,
-    );
-    send_ok(&mut engine, &effects, None, now);
-    let deadline = now + Duration::from_millis(10);
-    let mut request = stop_command(1);
-    request.context_mut().dispatch_deadline = Some(deadline);
-    let (stop_effects, stop) = admit(&mut engine, 2, request, now);
-    let (transmission, _, _) = request_transmit(&stop_effects);
-    let disputed = engine.handle_turn(socketless_error(1, 0x41), now, EngineTurn::INPUT_ONLY);
-    assert!(terminal_id(&disputed).is_none());
-    assert!(engine.ledger.awaits_dispute(camera(1), stop));
-    let expired = engine
-        .expire_unwritten_halt(transmission, deadline)
-        .expect("expired before the driver wrote it");
-    assert!(terminal_failure(&expired, stop).is_some());
-    assert!(matches!(
-        terminal_failure(&expired, completion_only),
-        Some(Error::CommandNotExecutable)
-    ));
-    assert_eq!(raw_owed(&engine, 1), 0);
-    engine.assert_invariants().unwrap();
-}
-
-/// An accept-only (demoted) dispute is never rejected by a step that ends
-/// unwritten: its steps were chosen through entries already disputed, so a
-/// step's identity is inferred rather than proven. The dispute is untracked
-/// instead, and the `CompletionOnly` command keeps waiting for its completion.
-#[test]
-fn an_unwritten_step_of_an_accept_only_dispute_only_untracks_it() {
-    let now = Instant::now();
-    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-    let (effects, completion_only) = admit(
-        &mut engine,
-        1,
-        command_with_reply_shape_and_retry(
-            1,
-            CancellationPolicy::Supported,
-            ReplyShape::CompletionOnly,
-            no_not_executable_retry(),
-        ),
-        now,
-    );
-    send_ok(&mut engine, &effects, None, now);
-    // The first STOP stays staged and ends unwritten at its budget.
-    let mut request = stop_command(1);
-    request.context_mut().retry.total_budget = Duration::from_millis(30);
-    let (stop_effects, first_stop) = admit(&mut engine, 2, request, now);
-    assert_eq!(request_transmit(&stop_effects).1, first_stop);
-    let disputed = engine.handle_turn(socketless_error(1, 0x41), now, EngineTurn::INPUT_ONLY);
-    assert!(terminal_id(&disputed).is_none());
-    // A second STOP written at its wait bound; a second ambiguous error
-    // demotes the dispute.
-    let mut request = stop_command(1);
-    request.context_mut().dispatch_deadline = Some(now + Duration::from_millis(20));
-    let (_, second_stop) = admit(&mut engine, 3, request, now);
-    let at = now + Duration::from_millis(10);
-    let written = engine.advance(at);
-    assert_eq!(request_transmit(&written).1, second_stop);
-    send_ok(&mut engine, &written, None, at);
-    let ambiguous = engine.handle_turn(socketless_error(1, 0x41), at, EngineTurn::INPUT_ONLY);
-    assert!(terminal_id(&ambiguous).is_none());
-    assert!(engine.ledger.awaits_dispute(camera(1), first_stop));
-    let expired = engine.advance(now + Duration::from_millis(30));
-    assert!(terminal_failure(&expired, first_stop).is_some());
-    assert!(terminal_outcome(&expired, completion_only).is_none());
-    assert!(matches!(
-        phase_of(&engine, completion_only),
-        Some(Phase::AwaitingCompletion { .. })
-    ));
-    assert!(!engine.ledger.awaits_dispute(camera(1), second_stop));
     engine.assert_invariants().unwrap();
 }
 
@@ -2821,7 +2628,7 @@ fn late_first_answers_are_order_independent() {
             // oracle rather than comparing two empty retry-only effect sets.
             engine.policy.inquiry_capacity = 1;
             let request = if class == 2 {
-                inquiry(1, POWER)
+                inquiry(1)
             } else {
                 command(1, CancellationPolicy::Supported)
             };
@@ -2833,8 +2640,9 @@ fn late_first_answers_are_order_independent() {
                 let (transmission, _, _) = cancel_transmit(&cancel);
                 engine.handle(
                     Input::TransmissionFinished {
+                        request: id,
                         transmission,
-                        result: Ok(TransmissionMeta { sequence: None }),
+                        result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
                     },
                     start,
                 );
@@ -2858,7 +2666,6 @@ fn late_first_answers_are_order_independent() {
                 1,
                 None,
                 DecodedResponse::InquiryReply {
-                    route: Some(POWER),
                     payload: smallvec![0x02],
                 },
             ),
@@ -2872,11 +2679,10 @@ fn late_first_answers_are_order_independent() {
             ),
             _ => named_error(1, ViscaSocket::S1, 0x04),
         };
-        let mut due_first_effects = due_first.advance_turn(late, EngineTurn::COMPLETE);
-        due_first_effects.extend(due_first.handle_turn(input(), late, EngineTurn::INPUT_ONLY));
-        let mut frame_first_effects =
-            frame_first.handle_turn(input(), late, EngineTurn::INPUT_ONLY);
-        frame_first_effects.extend(frame_first.advance_turn(late, EngineTurn::COMPLETE));
+        let mut due_first_effects = due_first.advance_turn(late, EngineTurn::Complete);
+        due_first_effects.extend(due_first.handle_turn(input(), late, EngineTurn::InputOnly));
+        let mut frame_first_effects = frame_first.handle_turn(input(), late, EngineTurn::InputOnly);
+        frame_first_effects.extend(frame_first.advance_turn(late, EngineTurn::Complete));
 
         let due_first_outcomes = terminal_outcomes(&due_first_effects);
         let frame_first_outcomes = terminal_outcomes(&frame_first_effects);
@@ -2885,7 +2691,10 @@ fn late_first_answers_are_order_independent() {
             "class {class}: terminal outcomes/counts"
         );
         let expected_error = if class == 2 {
-            Error::timeout(FailureStage::Terminal, Certainty::FailedConclusively)
+            Error::inquiry_failed(Error::timeout(
+                FailureStage::Terminal,
+                Certainty::FailedConclusively,
+            ))
         } else {
             Error::UnsequencedCommandUnconfirmed
         };
@@ -2956,92 +2765,4 @@ fn late_ack_preserves_its_socket_against_successor_errors_and_socketless_complet
         assert!(engine.entry(second).is_some());
         engine.assert_invariants().unwrap();
     }
-}
-
-#[test]
-fn latched_ack_proves_socket_assignment_when_write_result_outlives_budget() {
-    let start = Instant::now();
-    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-    let mut request = command(1, CancellationPolicy::Supported);
-    request.context_mut().retry.total_budget = Duration::from_millis(10);
-    let (write, id) = admit(&mut engine, 1, request, start);
-    engine.handle(ack(1, ViscaSocket::S1), start + Duration::from_millis(1));
-    let late = start + Duration::from_millis(11);
-    let terminal = send_ok(&mut engine, &write, None, late);
-    assert!(terminal_failure(&terminal, id).is_some());
-    assert!(
-        engine
-            .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S1))
-            .unwrap()
-            .until
-            > late
-    );
-    engine.assert_invariants().unwrap();
-}
-
-/// Independent #837 audit: a raced ACK is also authoritative socket-reuse
-/// evidence even if its write result is too late for the receiving request.
-#[test]
-fn raced_ack_after_budget_does_not_apply_a_displaced_socket_owner() {
-    let start = Instant::now();
-    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-    let first = executing_on(&mut engine, 1, ViscaSocket::S1, start);
-    let mut second_request = urgent_command(1, CancellationPolicy::Supported);
-    second_request.context_mut().retry.total_budget = Duration::from_millis(10);
-    let (second_write, second) = admit(
-        &mut engine,
-        2,
-        second_request,
-        start + Duration::from_millis(1),
-    );
-    assert!(request_transmit_optional(&second_write).is_some());
-    // The camera reused socket 1 after the first command ended unseen.
-    engine.handle(ack(1, ViscaSocket::S1), start + Duration::from_millis(2));
-    assert_eq!(
-        engine.entry(second).unwrap().deferred_ack().unwrap().socket,
-        Some(ViscaSocket::S1)
-    );
-    let late = start + Duration::from_millis(12);
-    let timed_out = send_ok(&mut engine, &second_write, None, late);
-    assert!(terminal_failure(&timed_out, second).is_some());
-    let second_completion = engine.handle(
-        completion(1, ViscaSocket::S1),
-        late + Duration::from_millis(1),
-    );
-    assert!(
-        !matches!(
-            terminal_outcome(&second_completion, first),
-            Some(RuntimeOutcome::Applied)
-        ),
-        "the second command's completion must not apply the socket's displaced first owner"
-    );
-    engine.assert_invariants().unwrap();
-}
-
-#[test]
-fn raced_socketless_ack_after_budget_keeps_dispatched_capacity_on_retune() {
-    let start = Instant::now();
-    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
-    let first = executing_on(&mut engine, 1, ViscaSocket::S1, start);
-    let mut request = urgent_command(1, CancellationPolicy::Supported);
-    request.context_mut().retry.total_budget = Duration::from_millis(10);
-    let (write, second) = admit(&mut engine, 2, request, start + Duration::from_millis(1));
-    engine.handle(
-        frame(1, None, DecodedResponse::Ack { socket: None }),
-        start + Duration::from_millis(2),
-    );
-    let mut capacity = PerTarget::default();
-    capacity[camera(1)] = Some(1);
-    engine
-        .retune(Duration::ZERO, Duration::ZERO, capacity)
-        .unwrap();
-    let late = start + Duration::from_millis(12);
-    let timeout = send_ok(&mut engine, &write, None, late);
-    assert!(terminal_failure(&timeout, second).is_some());
-    let completion = engine.handle(
-        frame(1, None, DecodedResponse::Completion { socket: None }),
-        late + Duration::from_millis(1),
-    );
-    assert!(!matches!(terminal_outcome(&completion, first), Some(RuntimeOutcome::Applied)),
-        "the second command's socketless completion must not apply the first after live capacity retune");
 }

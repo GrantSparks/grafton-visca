@@ -57,31 +57,13 @@ cd grafton-visca
 # feature shape from this script's `list-json` mode, so both share one list.
 bash .github/scripts/test-all-features.sh
 
-# Or run individual matrix entries while iterating
-cargo test
-cargo test --no-default-features
-cargo test --no-default-features --features async
-cargo test --no-default-features --features runtime-tokio
-cargo test --no-default-features --features runtime-smol
-cargo check --no-default-features --features runtime-tokio,runtime-smol
-cargo test --no-default-features --features transport-serial
-cargo test --no-default-features --features runtime-tokio,transport-serial-tokio
-cargo test --no-default-features --features serde,schemars,ts-rs
-cargo test --no-default-features --features test-utils
-cargo test --no-default-features --features runtime-tokio,test-utils
-cargo test --no-default-features --features runtime-smol,test-utils
-cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test
-cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test
+# Inspect the canonical per-leg commands and run lint/doc matrix modes.
+bash .github/scripts/test-all-features.sh list-json
+bash .github/scripts/test-all-features.sh clippy
+bash .github/scripts/test-all-features.sh doc
 
-# Feature-union checks for combinations that may appear downstream
-cargo test --no-default-features --features runtime-tokio,transport-serial
-cargo test --no-default-features --features runtime-smol,dyn-api
-
-# Run clippy checks
-cargo clippy --all-targets --all-features -- -D warnings
-
-# Format code
-cargo fmt
+# Format with the pinned formatter.
+cargo +nightly-2026-08-26 fmt --all
 ```
 
 ## Code Style
@@ -182,8 +164,9 @@ impl Request for MyCommand {
 
 ### 2. Define Proper Buffer Sizes
 
-Each request declares `Request::MAX_SIZE`; it includes every byte through the
-final `VISCA_TERMINATOR`.
+Each request declares `Request::MAX_SIZE`, an upper bound including every byte
+through the final `VISCA_TERMINATOR`. `write_into` returns the actual frame
+length, which may be shorter than that bound.
 
 ### 3. Implement Inquiry Pattern
 
@@ -209,7 +192,6 @@ impl Request for MyInquiry {
 impl Inquiry for MyInquiry {
     type Response = MyResponse;
 
-    fn route(&self) -> InquiryRoute { /* select the response route */ }
     fn decoder(&self) -> ResponseDecoder<Self::Response> { /* decode response */ }
 }
 ```
@@ -223,8 +205,9 @@ generated from them:
    row gives the command its `BuiltinCommand` identity and its class
    (`plain`, `applied(<AXES>)` or `targeted(<AXES>)`), plus any write-only
    state effect.
-2. **Wire encoder** (`src/command/<domain>.rs`): the request type and its
-   `WireEncode` implementation, written through `FrameWriter`.
+2. **Wire encoder** (`src/command/<domain>.rs`): fixed-body and single-parameter
+   encoders use the crate-internal `visca_command!` generator. Other
+   `WireEncode` implementations write through `FrameWriter`.
 3. **Request entry** (`src/request/builtin.rs`): one `builtin_request!` entry
    names the request type's ledger row and its policy. Each entry still gives
    an explicit `size:`, the `MAX_SIZE` allocation bound for the request's
@@ -234,7 +217,8 @@ generated from them:
    different ledger rows adds
    `rows: |value| match value[.field] { Variant => Row, ... }`, an exhaustive
    match whose patterns are variant paths (a wildcard is rejected), and its
-   validator gates each value on the row it selects, `self.ledger_row()`.
+   generated request hook gates each value on the row it selects,
+   `self.ledger_row()`, before per-value validation.
 4. **Noun row** (`src/noun_table.rs`): one row under the owning `@noun` header
    gives the method name, arguments, rustdoc, capability `where` marker and
    request. The blocking, async and `Dyn*` methods, the static surface entry
@@ -244,8 +228,10 @@ The compiler rejects a ledger row without a noun row, a noun row whose kind
 disagrees with the ledger class, and a request type without a `rows:` entry
 whose noun rows disagree on their capability gate. For a type with a `rows:`
 entry, every noun row that
-sends it must be a `[by_value <const expr>]` row whose value selects that noun
-row's ledger row. A typed built-in inquiry is added to
+sends it must use `[by_value <const expr>]`, or
+`[by_value [<const witness>] <runtime expr>]` for an argument-bearing constructor.
+The constant must select the noun row's ledger row; generated preparation tests
+also check the ledger row selected by the evaluated runtime request. A typed built-in inquiry is added to
 `define_builtin_inquiries!` in `src/command/inquiry_structs.rs` and gets its
 runtime gate from its noun row in the same way.
 
@@ -283,6 +269,19 @@ The short version:
   and marker impls disagree.
 
 ## Testing
+
+### Error constructor inventory
+
+`bash .github/scripts/test-error-variant-reachability.sh` checks every public
+`Error` variant against one reviewed constructor expression in
+`.github/scripts/error-variant-constructors.tsv`. Expressions are token sequences
+and must occur exactly once in production source. The shared source scanner
+ignores comments, literal contents and test-only items; include construction-only
+syntax, such as a field initializer, rather than a pattern spelling. Update the
+inventory when moving a constructor or intentionally changing the error surface.
+The checker compiles directly with the pinned stable `rustc`, without building
+the library or resolving dependencies. Its mutation fixtures check missing and
+duplicate production constructors and ignore copies inside tests.
 
 ### Unit Tests
 
@@ -329,21 +328,9 @@ local only with a `// Local fake:` comment.
 # Default test suite
 cargo test
 
-# Canonical local/release validation commands. CI runs the feature matrix as
-# separate jobs rather than this command block verbatim.
+# Inspect the same feature list CI uses; use test-leg NAME to run one entry.
+bash .github/scripts/test-all-features.sh list-json
 bash .github/scripts/test-all-features.sh
-cargo test
-cargo test --no-default-features --features runtime-tokio
-cargo test --no-default-features --features runtime-smol
-cargo check --no-default-features --features runtime-tokio,runtime-smol
-cargo test --no-default-features --features transport-serial
-cargo test --no-default-features --features runtime-tokio,transport-serial-tokio
-cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils --test dyn_api_integration_test
-cargo test --no-default-features --features runtime-smol,dyn-api,test-utils --test dyn_api_smol_integration_test
-
-# Feature-union checks
-cargo test --no-default-features --features runtime-tokio,transport-serial
-cargo test --no-default-features --features runtime-smol,dyn-api
 
 # With output for debugging
 cargo test -- --nocapture
@@ -375,7 +362,9 @@ bash .github/scripts/test-all-features.sh slowest 15 --all-features
   when you need the space; the next run rebuilds it.
 - Wait on deadlines in virtual time where the owner allows it: write the
   scenario as `facade_matrix! { paused: ... }` so its Tokio case runs on paused
-  time. The blocking and smol owners read the real clock.
+  time and its blocking and smol cases use `ManualClock` in `test-utils`
+  legs. Those two cases are omitted without `test-utils`, while non-paused
+  scenarios continue to test the production feature shapes.
 - A heavy test whose behaviour cannot differ by feature configuration runs in
   one designated leg: list it in `.github/scripts/engine-model-tests.sh` only
   with evidence that no `cfg(feature = ...)` reaches its code path. The matrix

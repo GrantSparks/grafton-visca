@@ -60,6 +60,30 @@
 //! [`command`](crate::command) explicitly for custom VISCA commands that are
 //! not represented by a typed accessor.
 
+// The common public surface is defined once; each facade selects its own
+// session, camera and operation types explicitly at expansion.
+#[cfg(any(feature = "async", feature = "blocking"))]
+macro_rules! shared_prelude {
+    ($($facade:ident)::+) => {
+        pub use crate::{
+            AutoWhiteBalanceSensitivity, CancellationOutcome, Error, ExposureMode,
+            MetricsSnapshot, MotionSyncMode, NdFilterMode, PanTiltDirection,
+            PanTiltLimitCorner, PanTiltLimitUpdate, PowerStatus, PresetNumber, Recovery,
+            SessionStatus, StateCache, StateEntry, StateKey, KnownState, WhiteBalanceMode,
+        };
+        pub use $($facade)::+::{
+            Camera, CameraConfig, CameraSession, Connect, Operation, OperationId, Session,
+            SessionConfig,
+        };
+        pub use crate::camera::{IdleWait, MotionQuery};
+        crate::camera::profiles::profile_registry::builtin_profile_registry!(
+            crate::camera::profiles::profile_registry::reexport_builtin_profiles
+        );
+        pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
+        pub use crate::units::{Degrees, Percentage, Raw, UnitInterval};
+    };
+}
+
 /// Runtime-profile projection prelude.
 ///
 /// With `blocking`, this includes `BlockingDynSessionCamera`.
@@ -86,28 +110,11 @@ pub mod dyn_api {
 /// ```
 #[cfg(feature = "async")]
 pub mod r#async {
-    // Common enums for camera settings
-    pub use crate::{
-        AutoWhiteBalanceSensitivity, Camera, CancellationOutcome, Error, ExposureMode,
-        NdFilterMode, Operation, OperationId, PanTiltDirection, PanTiltLimitCorner,
-        PanTiltLimitUpdate, PresetNumber, Session, SessionConfig, StateCache, StateEntry, StateKey,
-        StateValue, WhiteBalanceMode,
-    };
+    shared_prelude!(crate);
     // The noun accessors and the motion view, one per noun-table header.
     use crate::noun_table::reexport_nouns;
     crate::noun_table::noun_table!(reexport_nouns, [accessor], [crate]);
     crate::noun_table::motion_table!(reexport_nouns, [accessor], [crate]);
-    // High-level camera construction and configuration
-    pub use crate::camera::{CameraConfig, IdleWait, MotionQuery};
-    pub use crate::Connect;
-    // Camera profiles - these are the primary way to configure camera behavior
-    crate::camera::profiles::profile_registry::builtin_profile_registry!(
-        crate::camera::profiles::profile_registry::reexport_builtin_profiles
-    );
-    // Type-safe parameter types for camera control
-    pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
-    pub use crate::units::{Degrees, Percentage, Raw, UnitInterval};
-
     // Owner-backed dynamic noun and custom-operation projections.
     #[cfg(feature = "dyn-api")]
     pub use crate::dynapi::{
@@ -131,7 +138,7 @@ pub mod r#async {
 /// Blocking prelude - import this for synchronous camera control.
 ///
 /// This prelude provides the high-level API for blocking camera control:
-/// - Camera profiles and borrowed typed camera views
+/// - Camera profiles and typed camera views
 /// - Common types and error handling
 ///
 /// Import advanced extension APIs from their owning modules when needed.
@@ -142,30 +149,11 @@ pub mod r#async {
 /// ```
 #[cfg(feature = "blocking")]
 pub mod blocking {
-    // Common enums for camera settings
-    pub use crate::{
-        AutoWhiteBalanceSensitivity, CancellationOutcome, Error, ExposureMode, MetricsSnapshot,
-        MotionSyncMode, NdFilterMode, PanTiltDirection, PanTiltLimitCorner, PanTiltLimitUpdate,
-        PresetNumber, SessionStatus, StateCache, StateEntry, StateKey, StateValue,
-        WhiteBalanceMode,
-    };
-    // High-level owner-backed blocking session facade and camera view.
-    pub use crate::blocking::{Camera, Operation, OperationId, Session, SessionConfig};
+    shared_prelude!(crate::blocking);
     // The noun accessors and the motion view, one per noun-table header.
     use crate::noun_table::reexport_nouns;
     crate::noun_table::noun_table!(reexport_nouns, [accessor], [crate::blocking]);
     crate::noun_table::motion_table!(reexport_nouns, [accessor], [crate::blocking]);
     #[cfg(feature = "dyn-api")]
     pub use crate::dynapi::BlockingDynSessionCamera;
-    // Final owner-backed construction in the blocking-only feature build.
-    #[cfg(feature = "blocking")]
-    pub use crate::blocking::{CameraConfig, Connect};
-    pub use crate::camera::{IdleWait, MotionQuery};
-    // Camera profiles - these are the primary way to configure camera behavior
-    crate::camera::profiles::profile_registry::builtin_profile_registry!(
-        crate::camera::profiles::profile_registry::reexport_builtin_profiles
-    );
-    // Type-safe parameter types for camera control
-    pub use crate::types::{FStop, IrisLevel, PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed};
-    pub use crate::units::{Degrees, Percentage, Raw, UnitInterval};
 }

@@ -12,7 +12,7 @@
 
 use grafton_visca_macros::ViscaEnum;
 
-use crate::{command::bytes::constants::white_balance, visca_command};
+use crate::{command::bytes::constants::white_balance, macros::consolidated::visca_command};
 
 /// White balance modes.
 ///
@@ -39,6 +39,8 @@ pub enum WhiteBalanceMode {
     ATW = 0x04,
     /// Manual white balance control.
     Manual = 0x05,
+    /// Preset white balance; Sony FR7 uses its preset-white Kelvin bank.
+    Preset = 0x0A,
     /// Color temperature mode (specify exact color temperature).
     ColorTemperature = 0x20,
 }

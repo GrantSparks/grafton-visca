@@ -1,10 +1,10 @@
 use grafton_visca::{
-    command::{InquiryKind, VISCA_TERMINATOR},
-    CameraId, Inquiry, InquiryRoute, Request, ViscaInquiry,
+    command::VISCA_TERMINATOR,
+    CameraId, Inquiry, Request, ViscaInquiry,
 };
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
-#[visca(opcode = 0x00, response = Power, parser = Bool)]
+#[visca(opcode = 0x00, response = Power)]
 struct PowerProbeInquiry;
 
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
@@ -17,10 +17,8 @@ fn main() {
     let len = <PowerProbeInquiry as Request>::write_into(&inquiry, CameraId::CAMERA_1, &mut buffer)
         .unwrap();
     assert_eq!(&buffer[..len], &[0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR]);
-    assert_eq!(
-        inquiry.route(),
-        InquiryRoute::custom(InquiryKind::Power as u16 + 1)
-    );
+    assert!(inquiry.decoder().decode(&[0x02]).is_ok());
+
 
     let raw = VendorRawInquiry;
     let mut raw_buffer = [0; VendorRawInquiry::MAX_SIZE];
@@ -28,5 +26,4 @@ fn main() {
         <VendorRawInquiry as Request>::write_into(&raw, CameraId::CAMERA_1, &mut raw_buffer)
             .unwrap();
     assert_eq!(raw_len, VendorRawInquiry::MAX_SIZE);
-    assert_eq!(raw.route(), InquiryRoute::RAW);
 }

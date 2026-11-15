@@ -14,7 +14,7 @@ pub enum PictureEffectMode {
     /// Black and white effect.
     BlackAndWhite,
     /// Unknown or camera-specific effect.
-    Unknown(u8),
+    Unknown(UnknownPictureEffect),
 }
 
 impl PictureEffectMode {
@@ -23,7 +23,8 @@ impl PictureEffectMode {
     ///
     /// The inquiry reports Off as `02`, while the command selects Off with
     /// `00` (`docs/visca_reference.md` §7.8 and §7.10), so this is
-    /// deliberately not the inverse of [`Self::as_byte`] for `Off`.
+    /// deliberately not the inverse of [`Self::as_byte`] for `Off`. The
+    /// command Off spelling `00` is also normalized to `Off`.
     ///
     /// # Arguments
     /// * `effect` - The raw effect byte from the camera
@@ -32,9 +33,21 @@ impl PictureEffectMode {
     /// The corresponding PictureEffectMode variant
     pub fn from_byte(effect: u8) -> Self {
         match effect {
-            0x02 => PictureEffectMode::Off,
+            0x00 | 0x02 => PictureEffectMode::Off,
             0x04 => PictureEffectMode::BlackAndWhite,
-            _ => PictureEffectMode::Unknown(effect),
+            _ => PictureEffectMode::Unknown(UnknownPictureEffect(effect)),
+        }
+    }
+
+    /// Converts a command register byte to its unique typed spelling.
+    ///
+    /// `02` is the inquiry-only Off spelling and cannot be sent as a distinct
+    /// unknown command value.
+    pub fn from_command_byte(effect: u8) -> Result<Self, crate::Error> {
+        match effect {
+            0x00 => Ok(Self::Off),
+            0x04 => Ok(Self::BlackAndWhite),
+            value => UnknownPictureEffect::new(value).map(Self::Unknown),
         }
     }
 
@@ -53,8 +66,60 @@ impl PictureEffectMode {
         match self {
             PictureEffectMode::Off => 0x00,
             PictureEffectMode::BlackAndWhite => 0x04,
-            PictureEffectMode::Unknown(value) => *value,
+            PictureEffectMode::Unknown(value) => value.value(),
         }
+    }
+}
+
+/// A model-specific picture-effect code distinct from every known spelling.
+///
+/// `00` (command Off), `02` (inquiry Off), and `04` (black and white) are
+/// represented by the named [`PictureEffectMode`] variants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(try_from = "u8", into = "u8"))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+pub struct UnknownPictureEffect(u8);
+
+impl UnknownPictureEffect {
+    /// Validates a model-specific code, rejecting the known mode spellings.
+    pub fn new(value: u8) -> Result<Self, crate::Error> {
+        if matches!(value, 0x00 | 0x02 | 0x04) {
+            return Err(crate::Error::invalid_parameter(
+                "picture_effect",
+                value.to_string(),
+                "use the named Off or BlackAndWhite mode for a known code",
+            ));
+        }
+        Ok(Self(value))
+    }
+
+    /// Returns the model-specific wire code.
+    #[must_use]
+    pub const fn value(self) -> u8 {
+        self.0
+    }
+}
+
+impl TryFrom<u8> for UnknownPictureEffect {
+    type Error = crate::Error;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+impl From<UnknownPictureEffect> for u8 {
+    fn from(value: UnknownPictureEffect) -> Self {
+        value.value()
+    }
+}
+
+#[cfg(feature = "schemars")]
+impl schemars::JsonSchema for UnknownPictureEffect {
+    fn schema_name() -> std::borrow::Cow<'static, str> {
+        "UnknownPictureEffect".into()
+    }
+    fn json_schema(_: &mut schemars::SchemaGenerator) -> schemars::Schema {
+        schemars::json_schema!({"type": "integer", "minimum": 0, "maximum": 255, "not": {"enum": [0, 2, 4]}})
     }
 }
 
@@ -163,6 +228,7 @@ impl NdFilterPosition {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::unwrap_used)]
     use super::*;
 
     #[test]
@@ -201,15 +267,51 @@ mod tests {
         assert_eq!(PictureEffectMode::BlackAndWhite.as_byte(), 0x04);
         assert_eq!(
             PictureEffectMode::from_byte(0x01),
-            PictureEffectMode::Unknown(0x01)
+            PictureEffectMode::Unknown(UnknownPictureEffect::new(0x01).unwrap())
         );
+        assert_eq!(PictureEffectMode::from_byte(0x00), PictureEffectMode::Off);
         assert_eq!(
-            PictureEffectMode::from_byte(0x00),
-            PictureEffectMode::Unknown(0x00)
-        );
-        assert_eq!(
-            PictureEffectMode::Unknown(0xFF).description(),
+            PictureEffectMode::Unknown(UnknownPictureEffect::new(0xFF).unwrap()).description(),
             "Unknown picture effect"
         );
+    }
+    #[test]
+    fn picture_effect_command_bytes_have_unique_values() {
+        for byte in 0..=u8::MAX {
+            let value = PictureEffectMode::from_command_byte(byte);
+            if byte == 2 {
+                assert!(value.is_err());
+            } else {
+                let value = value.unwrap();
+                assert_eq!(value.as_byte(), byte);
+                assert_eq!(
+                    PictureEffectMode::from_command_byte(value.as_byte()).unwrap(),
+                    value
+                );
+            }
+            assert_eq!(
+                UnknownPictureEffect::new(byte).is_err(),
+                matches!(byte, 0 | 2 | 4)
+            );
+        }
+        assert_eq!(PictureEffectMode::from_byte(2), PictureEffectMode::Off);
+        assert_eq!(PictureEffectMode::Off.as_byte(), 0);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn picture_effect_persistence_cannot_create_aliases() {
+        for byte in 0..=u8::MAX {
+            let decoded = serde_json::from_str::<UnknownPictureEffect>(&byte.to_string());
+            assert_eq!(decoded.is_err(), matches!(byte, 0 | 2 | 4));
+        }
+        for byte in [0, 4, 7] {
+            let effect = PictureEffectMode::from_command_byte(byte).unwrap();
+            let json = serde_json::to_string(&effect).unwrap();
+            assert_eq!(
+                serde_json::from_str::<PictureEffectMode>(&json).unwrap(),
+                effect
+            );
+        }
     }
 }

@@ -27,95 +27,93 @@
     )
 ))]
 
-use grafton_visca_test_support::{facade_matrix, fake_camera, profile_fixtures};
+#[cfg(any(feature = "runtime-tokio", feature = "test-utils"))]
+mod paused {
+    use grafton_visca_test_support::{facade_matrix, fake_camera, profile_fixtures};
 
-use std::time::Duration;
+    use std::time::Duration;
 
-use grafton_visca::{
-    camera::CameraConfig, completion::AppliedOnly, profile::ProfileSpec, profiles::SonyFR7,
-    request, AffectedAxes, CameraId, ControlClass, Error, FailureStage, Inquiry, InquiryRoute,
-    OperationCommand, OperationalTuning, Request, ResponseDecoder, RetryClass, TimeoutClass,
-};
+    use grafton_visca::{
+        camera::CameraConfig, completion::AppliedOnly, profile::ProfileSpec, profiles::SonyFR7,
+        request, AffectedAxes, CameraId, ControlClass, Error, FailureStage, Inquiry,
+        OperationCommand, OperationalTuning, Request, ResponseDecoder, RetryClass, TimeoutClass,
+    };
 
-use fake_camera::FakeCamera;
-use profile_fixtures::sony_session_config;
+    use fake_camera::FakeCamera;
+    use profile_fixtures::sony_session_config;
 
-/// The Sony FR7 profile's acknowledgement deadline (the same on every
-/// built-in profile, see issue #689), read from the profile itself.
-fn profile_ack_timeout() -> Duration {
-    ProfileSpec::from_compile_time::<SonyFR7>()
-        .expect("Sony FR7 profile")
-        .timing()
-        .ack_timeout()
-}
-
-/// A deliberately wide acknowledgement deadline, four times the profile's.
-const WIDE_ACK_TIMEOUT: Duration = Duration::from_secs(2);
-
-/// A never-retried operation, so exactly one acknowledgement deadline decides
-/// when a silent camera fails the request.
-///
-/// A retried request would fail on the sum of several deadlines plus backoff,
-/// which measures the retry budget rather than the acknowledgement deadline
-/// this file is about.
-#[derive(Debug)]
-struct SilentOperation;
-
-impl Request for SilentOperation {
-    type Class = request::Operation<AppliedOnly>;
-    const MAX_SIZE: usize = 3;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
-    const RETRY_CLASS: RetryClass = RetryClass::Never;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
-
-    fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
-        out[..3].copy_from_slice(&[target.to_address_byte(), 0x01, 0xff]);
-        Ok(3)
-    }
-}
-
-impl OperationCommand<AppliedOnly> for SilentOperation {
-    fn affected_axes(&self) -> AffectedAxes {
-        AffectedAxes::ZOOM
-    }
-}
-
-/// A never-retried inquiry, used to prove the *inquiry* deadline follows the
-/// same update.
-#[derive(Debug)]
-struct SilentInquiry;
-
-impl Request for SilentInquiry {
-    type Class = request::Inquiry;
-    const MAX_SIZE: usize = 3;
-    const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
-    const RETRY_CLASS: RetryClass = RetryClass::Never;
-    const CONTROL_CLASS: ControlClass = ControlClass::Normal;
-
-    fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
-        out[..3].copy_from_slice(&[target.to_address_byte(), 0x09, 0xff]);
-        Ok(3)
-    }
-}
-
-impl Inquiry for SilentInquiry {
-    type Response = Vec<u8>;
-
-    fn route(&self) -> InquiryRoute {
-        InquiryRoute::RAW
+    /// The Sony FR7 profile's acknowledgement deadline (the same on every
+    /// built-in profile, see issue #689), read from the profile itself.
+    fn profile_ack_timeout() -> Duration {
+        ProfileSpec::from_compile_time::<SonyFR7>()
+            .expect("Sony FR7 profile")
+            .timing()
+            .ack_timeout()
     }
 
-    fn decoder(&self) -> ResponseDecoder<Self::Response> {
-        ResponseDecoder::from_fn(|payload| Ok(payload.to_vec()))
-    }
-}
+    /// A deliberately wide acknowledgement deadline, four times the profile's.
+    const WIDE_ACK_TIMEOUT: Duration = Duration::from_secs(2);
 
-/// Submits one never-retried operation into silence and evaluates to how long
-/// the owner took to fail it. The camera accepts every frame and answers none
-/// of them, so nothing else can end the request: the wall-clock gap between
-/// submission and failure *is* the deadline that fired. Usable only inside a
-/// `facade_matrix!` body.
-macro_rules! time_to_ack_timeout {
+    /// A never-retried operation, so exactly one acknowledgement deadline decides
+    /// when a silent camera fails the request.
+    ///
+    /// A retried request would fail on the sum of several deadlines plus backoff,
+    /// which measures the retry budget rather than the acknowledgement deadline
+    /// this file is about.
+    #[derive(Debug)]
+    struct SilentOperation;
+
+    impl Request for SilentOperation {
+        type Class = request::Operation<AppliedOnly>;
+        const MAX_SIZE: usize = 3;
+        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
+        const RETRY_CLASS: RetryClass = RetryClass::Never;
+        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+        fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
+            out[..3].copy_from_slice(&[target.to_address_byte(), 0x01, 0xff]);
+            Ok(3)
+        }
+    }
+
+    impl OperationCommand<AppliedOnly> for SilentOperation {
+        fn affected_axes(&self) -> AffectedAxes {
+            AffectedAxes::ZOOM
+        }
+    }
+
+    /// A never-retried inquiry, used to prove the *inquiry* deadline follows the
+    /// same update.
+    #[derive(Debug)]
+    struct SilentInquiry;
+
+    impl Request for SilentInquiry {
+        type Class = request::Inquiry;
+        const MAX_SIZE: usize = 3;
+        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
+        const RETRY_CLASS: RetryClass = RetryClass::Never;
+        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+        fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
+            out[..3].copy_from_slice(&[target.to_address_byte(), 0x09, 0xff]);
+            Ok(3)
+        }
+    }
+
+    impl Inquiry for SilentInquiry {
+        type Response = Vec<u8>;
+
+        fn decoder(&self) -> ResponseDecoder<Self::Response> {
+            ResponseDecoder::from_fn(|payload| Ok(payload.to_vec()))
+        }
+    }
+
+    /// Submits one never-retried operation into silence and evaluates to how long
+    /// the owner took to fail it. The camera accepts every frame and answers none
+    /// of them, so nothing else can end the request: the wall-clock gap between
+    /// submission and failure *is* the deadline that fired. Usable only inside a
+    /// `facade_matrix!` body.
+    macro_rules! time_to_ack_timeout {
     ($session:expr) => {{
         let camera = $session.camera::<SonyFR7>().expect("camera view");
         let started = now!();
@@ -133,371 +131,372 @@ macro_rules! time_to_ack_timeout {
     }};
 }
 
-/// On paused time nothing but the deadline under test advances the clock, so
-/// the measured time *is* that deadline, exactly. On a real clock the bound
-/// assertions beside each use are the contract. Usable only inside a
-/// `facade_matrix!` body.
-macro_rules! assert_exact_on_virtual_time {
-    ($elapsed:expr, $deadline:expr) => {
-        if virtual_clock!() {
-            assert_eq!(
-                $elapsed, $deadline,
-                "virtual time advances only to the deadline"
-            );
-        }
-    };
-}
-
-facade_matrix! {
-    paused:
-
-    /// Widen the acknowledgement deadline on a live session and the next
-    /// submission waits the new, longer time.
-    fn a_widened_ack_timeout_governs_the_next_submission() {
-        let fake = FakeCamera::silent();
-        let session = open!(fake, sony_session_config()).expect("owner session");
-
-        let before = time_to_ack_timeout!(session);
-        assert!(
-            before < WIDE_ACK_TIMEOUT / 2,
-            "the profile's own {:?} deadline should fire well inside \
-             {WIDE_ACK_TIMEOUT:?}, took {before:?}",
-            profile_ack_timeout()
-        );
-        assert_exact_on_virtual_time!(before, profile_ack_timeout());
-
-        wait!(session.set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT)))
-            .expect("widening an acknowledgement deadline is accepted");
-
-        let after = time_to_ack_timeout!(session);
-        assert!(
-            after >= WIDE_ACK_TIMEOUT,
-            "the submission after the update must wait the new {WIDE_ACK_TIMEOUT:?} \
-             deadline, took {after:?}"
-        );
-        assert_exact_on_virtual_time!(after, WIDE_ACK_TIMEOUT);
-
-        assert_eq!(
-            fake.write_count(),
-            2,
-            "neither submission was retried, so each measures exactly one deadline"
-        );
-        session.shutdown().expect("owner shutdown");
+    /// On paused time nothing but the deadline under test advances the clock, so
+    /// the measured time *is* that deadline, exactly. On a real clock the bound
+    /// assertions beside each use are the contract. Usable only inside a
+    /// `facade_matrix!` body.
+    macro_rules! assert_exact_on_virtual_time {
+        ($elapsed:expr, $deadline:expr) => {
+            if virtual_clock!() {
+                assert_eq!(
+                    $elapsed, $deadline,
+                    "virtual time advances only to the deadline"
+                );
+            }
+        };
     }
 
-    /// The other direction: narrowing back is a real update, not a one-way
-    /// ratchet.
-    ///
-    /// An empty tuning completely replaces the runtime-mutable overrides, so
-    /// every deadline returns to its profile default rather than keeping the
-    /// widened value.
-    fn a_narrowed_ack_timeout_governs_the_next_submission() {
-        let fake = FakeCamera::silent();
-        let session = open!(fake, sony_session_config()).expect("owner session");
+    facade_matrix! {
+        paused:
 
-        wait!(session.set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT)))
-            .expect("widening an acknowledgement deadline is accepted");
-        let widened = time_to_ack_timeout!(session);
-        assert!(
-            widened >= WIDE_ACK_TIMEOUT,
-            "the widened deadline must govern first, took {widened:?}"
-        );
-        assert_exact_on_virtual_time!(widened, WIDE_ACK_TIMEOUT);
+        /// Widen the acknowledgement deadline on a live session and the next
+        /// submission waits the new, longer time.
+        fn a_widened_ack_timeout_governs_the_next_submission() {
+            let fake = FakeCamera::silent();
+            let session = open!(fake, sony_session_config()).expect("owner session");
 
-        wait!(session.set_tuning(OperationalTuning::new()))
-            .expect("returning to the profile defaults is accepted");
-        let narrowed = time_to_ack_timeout!(session);
-        assert!(
-            narrowed < WIDE_ACK_TIMEOUT / 2,
-            "clearing the override must return to the profile's {:?} deadline, \
-             took {narrowed:?}",
-            profile_ack_timeout()
-        );
-        assert_exact_on_virtual_time!(narrowed, profile_ack_timeout());
-
-        assert_eq!(
-            fake.write_count(),
-            2,
-            "neither submission was retried, so each measures exactly one deadline"
-        );
-        session.shutdown().expect("owner shutdown");
-    }
-
-    /// The inquiry lane follows the same update, so this is session tuning
-    /// rather than a command-only knob. A camera view taken before the update
-    /// is used on purpose: views read the owner's live tuning instead of a
-    /// copy.
-    fn a_widened_inquiry_timeout_governs_a_pre_existing_view() {
-        let session = open!(FakeCamera::silent(), sony_session_config()).expect("owner session");
-        let camera = session
-            .camera::<SonyFR7>()
-            .expect("camera view taken before the update");
-
-        wait!(session.set_tuning(OperationalTuning::new().inquiry_timeout(Duration::from_secs(2))))
-            .expect("widening an inquiry deadline is accepted");
-
-        let started = now!();
-        let error = wait!(camera.inquire(&SilentInquiry))
-            .expect_err("a silent camera cannot answer an inquiry");
-        let elapsed = now!().duration_since(started);
-        assert!(
-            matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
-            "expected the owner's own deadline, got {error:?}"
-        );
-        assert!(
-            elapsed >= Duration::from_secs(2),
-            "the pre-existing view must prepare under the new two-second deadline, \
-             took {elapsed:?}"
-        );
-        assert_exact_on_virtual_time!(elapsed, Duration::from_secs(2));
-
-        session.shutdown().expect("owner shutdown");
-    }
-
-    /// A camera view taken *before* the update still prepares its next request
-    /// under the new tuning: the view reads the owner's live value rather than
-    /// a copy taken when it was created.
-    fn a_view_taken_before_the_update_prepares_under_the_new_tuning() {
-        let session = open!(FakeCamera::silent(), sony_session_config()).expect("owner session");
-        let camera = session
-            .camera::<SonyFR7>()
-            .expect("camera view taken before the update");
-
-        wait!(session.set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT)))
-            .expect("widening an acknowledgement deadline is accepted");
-
-        let started = now!();
-        let error = wait!(wait!(camera.submit::<AppliedOnly, _>(&SilentOperation))
-            .expect("submission")
-            .applied_with_timeout(Duration::from_secs(30)))
-        .expect_err("a silent camera cannot acknowledge");
-        let elapsed = now!().duration_since(started);
-        assert!(
-            matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
-            "got {error:?}"
-        );
-        assert!(
-            elapsed >= WIDE_ACK_TIMEOUT,
-            "the pre-existing view must pick up the new deadline, took {elapsed:?}"
-        );
-        assert_exact_on_virtual_time!(elapsed, WIDE_ACK_TIMEOUT);
-
-        session.shutdown().expect("owner shutdown");
-    }
-
-    /// An update taken while an operation is outstanding applies to the next
-    /// prepared request and never re-times the handle already being awaited.
-    ///
-    /// The owner writes the admitted frame and stamps its acknowledgement
-    /// deadline; the update is a later owner turn while that deadline runs. The
-    /// operation must resolve on its unchanged deadline, and the caller's next
-    /// preparation must use the new one.
-    fn an_update_while_an_operation_is_outstanding_leaves_it_alone() {
-        let fake = FakeCamera::silent();
-        let session = open!(fake, sony_session_config()).expect("owner session");
-        let camera = session.camera::<SonyFR7>().expect("camera view");
-
-        let submitted = now!();
-        let mut operation =
-            wait!(camera.submit::<AppliedOnly, _>(&SilentOperation)).expect("submission");
-        // Submission returns at admission; the owner writes afterwards. Once
-        // the frame is on the wire its acknowledgement deadline is stamped as
-        // an absolute instant.
-        assert_eq!(
-            wait_for_writes!(fake, 1).len(),
-            1,
-            "exactly the admitted frame is on the wire"
-        );
-
-        // The request is admitted under the profile's 500 ms deadline.
-        // Widening to two seconds now must not extend it.
-        wait!(session.set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT)))
-            .expect("an update mid-flight is accepted");
-
-        let started = now!();
-        let error = wait!(operation.applied_with_timeout(Duration::from_secs(30)))
-            .expect_err("a silent camera cannot acknowledge");
-        let elapsed = now!().duration_since(started);
-        assert!(
-            matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
-            "the in-flight operation must still resolve on its own deadline, got {error:?}"
-        );
-        assert!(
-            elapsed < WIDE_ACK_TIMEOUT,
-            "an admitted request keeps the deadline it was admitted with; \
-             waiting {elapsed:?} means it was re-timed"
-        );
-        // Measured from submission, the operation ends on exactly the
-        // profile's deadline it was admitted under.
-        assert_exact_on_virtual_time!(now!().duration_since(submitted), profile_ack_timeout());
-
-        // The update did land, though: the next submission uses it.
-        assert_eq!(
-            session.tuning(),
-            OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT)
-        );
-        let after = time_to_ack_timeout!(session);
-        assert!(
-            after >= WIDE_ACK_TIMEOUT,
-            "the request prepared after the update must use it, took {after:?}"
-        );
-        assert_exact_on_virtual_time!(after, WIDE_ACK_TIMEOUT);
-
-        session.shutdown().expect("owner shutdown");
-    }
-
-    /// The installed value is readable back through every clone, so a caller
-    /// can confirm what the session is running under without re-deriving it.
-    fn the_installed_tuning_reads_back_through_the_session() {
-        let session = open!(FakeCamera::silent(), sony_session_config()).expect("owner session");
-        let clone = session.clone();
-
-        assert_eq!(
-            session.tuning(),
-            OperationalTuning::new(),
-            "a session opened with no tuning reports none"
-        );
-
-        let tuning = OperationalTuning::new()
-            .ack_timeout(WIDE_ACK_TIMEOUT)
-            .quick_timeout(Duration::from_secs(9))
-            .retry_limit(2);
-        wait!(session.set_tuning(tuning)).expect("accepted");
-        assert_eq!(session.tuning(), tuning, "the getter reports what was set");
-        assert_eq!(
-            clone.tuning(),
-            tuning,
-            "a clone shares the one owner, so it reports the same live value"
-        );
-
-        wait!(session.set_tuning(OperationalTuning::new())).expect("accepted");
-        assert_eq!(
-            session.tuning(),
-            OperationalTuning::new(),
-            "the runtime-mutable update replaces the previous value whole rather than merging"
-        );
-
-        session.shutdown().expect("owner shutdown");
-    }
-
-    /// Strict raw-command recovery is immutable session policy, not a tuning
-    /// override. A strict session therefore exposes only its genuinely mutable
-    /// tuning through `tuning()` and can replace that value normally.
-    fn strict_recovery_policy_is_separate_from_runtime_tuning() {
-        let default_config = sony_session_config();
-        assert!(!default_config.strict_unconfirmed_poison());
-        let strict_config = default_config.with_strict_unconfirmed_poison(true);
-        assert!(strict_config.strict_unconfirmed_poison());
-        let strict_session =
-            open!(FakeCamera::silent(), strict_config).expect("strict owner session");
-        assert_eq!(strict_session.tuning(), OperationalTuning::new());
-
-        let mutable_update = OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT);
-        wait!(strict_session.set_tuning(mutable_update))
-            .expect("runtime-mutable tuning is still replaceable on a strict session");
-        assert_eq!(
-            strict_session.tuning(),
-            mutable_update,
-            "construction policy must not leak into tuning readback"
-        );
-
-        wait!(strict_session.set_tuning(OperationalTuning::new()))
-            .expect("all tuning fields remain runtime-mutable");
-        assert_eq!(
-            strict_session.tuning(),
-            OperationalTuning::new(),
-            "clearing tuning does not claim to change immutable session policy"
-        );
-        strict_session.shutdown().expect("owner shutdown");
-    }
-
-    /// Runtime updates are validated on exactly the grounds construction
-    /// validates on, and a rejected update leaves the live tuning untouched.
-    fn an_invalid_update_is_rejected_and_changes_nothing() {
-        let session = open!(FakeCamera::silent(), sony_session_config()).expect("owner session");
-
-        let accepted = OperationalTuning::new()
-            .ack_timeout(WIDE_ACK_TIMEOUT)
-            .quick_timeout(Duration::from_secs(9))
-            .retry_limit(2);
-        wait!(session.set_tuning(accepted)).expect("accepted");
-
-        // Every rejection below is one `ProfileSpec::validate_tuning` rule, and
-        // each is checked against the same profile that would have rejected it
-        // in `SessionConfig::with_tuning`.
-        let rejected = [
-            // Undercuts the profile's own acknowledgement deadline.
-            OperationalTuning::new().ack_timeout(Duration::from_millis(1)),
-            // A zero deadline is never a deadline.
-            OperationalTuning::new().quick_timeout(Duration::ZERO),
-            // Raises the profile's socket limit.
-            OperationalTuning::new().maximum_command_sockets(3),
-            // Zero sockets is not a capacity.
-            OperationalTuning::new().maximum_command_sockets(0),
-            // Tuning may only lower the default base retry count of 3.
-            OperationalTuning::new().retry_limit(4),
-            // Backoff that is not ordered, with a budget that cannot hold it.
-            OperationalTuning::new().retry_timing(
-                Duration::from_millis(50),
-                Duration::from_millis(10),
-                Duration::from_millis(10),
-            ),
-        ];
-        for tuning in rejected {
-            let error = wait!(session.set_tuning(tuning))
-                .expect_err("construction would have rejected this tuning");
+            let before = time_to_ack_timeout!(session);
             assert!(
-                matches!(error, Error::InvalidRequest(_)),
-                "expected the construction-time rejection, got {error:?}"
+                before < WIDE_ACK_TIMEOUT / 2,
+                "the profile's own {:?} deadline should fire well inside \
+                 {WIDE_ACK_TIMEOUT:?}, took {before:?}",
+                profile_ack_timeout()
             );
+            assert_exact_on_virtual_time!(before, profile_ack_timeout());
+
+            wait!(session.set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT)))
+                .expect("widening an acknowledgement deadline is accepted");
+
+            let after = time_to_ack_timeout!(session);
+            assert!(
+                after >= WIDE_ACK_TIMEOUT,
+                "the submission after the update must wait the new {WIDE_ACK_TIMEOUT:?} \
+                 deadline, took {after:?}"
+            );
+            assert_exact_on_virtual_time!(after, WIDE_ACK_TIMEOUT);
+
+            assert_eq!(
+                fake.write_count(),
+                2,
+                "neither submission was retried, so each measures exactly one deadline"
+            );
+            session.shutdown().expect("owner shutdown");
+        }
+
+        /// The other direction: narrowing back is a real update, not a one-way
+        /// ratchet.
+        ///
+        /// An empty tuning completely replaces the runtime-mutable overrides, so
+        /// every deadline returns to its profile default rather than keeping the
+        /// widened value.
+        fn a_narrowed_ack_timeout_governs_the_next_submission() {
+            let fake = FakeCamera::silent();
+            let session = open!(fake, sony_session_config()).expect("owner session");
+
+            wait!(session.set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT)))
+                .expect("widening an acknowledgement deadline is accepted");
+            let widened = time_to_ack_timeout!(session);
+            assert!(
+                widened >= WIDE_ACK_TIMEOUT,
+                "the widened deadline must govern first, took {widened:?}"
+            );
+            assert_exact_on_virtual_time!(widened, WIDE_ACK_TIMEOUT);
+
+            wait!(session.set_tuning(OperationalTuning::new()))
+                .expect("returning to the profile defaults is accepted");
+            let narrowed = time_to_ack_timeout!(session);
+            assert!(
+                narrowed < WIDE_ACK_TIMEOUT / 2,
+                "clearing the override must return to the profile's {:?} deadline, \
+                 took {narrowed:?}",
+                profile_ack_timeout()
+            );
+            assert_exact_on_virtual_time!(narrowed, profile_ack_timeout());
+
+            assert_eq!(
+                fake.write_count(),
+                2,
+                "neither submission was retried, so each measures exactly one deadline"
+            );
+            session.shutdown().expect("owner shutdown");
+        }
+
+        /// The inquiry lane follows the same update, so this is session tuning
+        /// rather than a command-only knob. A camera view taken before the update
+        /// is used on purpose: views read the owner's live tuning instead of a
+        /// copy.
+        fn a_widened_inquiry_timeout_governs_a_pre_existing_view() {
+            let session = open!(FakeCamera::silent(), sony_session_config()).expect("owner session");
+            let camera = session
+                .camera::<SonyFR7>()
+                .expect("camera view taken before the update");
+
+            wait!(session.set_tuning(OperationalTuning::new().inquiry_timeout(Duration::from_secs(2))))
+                .expect("widening an inquiry deadline is accepted");
+
+            let started = now!();
+            let error = wait!(camera.inquire(&SilentInquiry))
+                .expect_err("a silent camera cannot answer an inquiry");
+            let elapsed = now!().duration_since(started);
+            assert!(
+                matches!(&error, Error::InquiryFailed { source, .. } if matches!(source.as_ref(), Error::Timeout { context, .. } if context.stage == FailureStage::Terminal)),
+                "expected the owner's own inquiry deadline, got {error:?}"
+            );
+            assert!(
+                elapsed >= Duration::from_secs(2),
+                "the pre-existing view must prepare under the new two-second deadline, \
+                 took {elapsed:?}"
+            );
+            assert_exact_on_virtual_time!(elapsed, Duration::from_secs(2));
+
+            session.shutdown().expect("owner shutdown");
+        }
+
+        /// A camera view taken *before* the update still prepares its next request
+        /// under the new tuning: the view reads the owner's live value rather than
+        /// a copy taken when it was created.
+        fn a_view_taken_before_the_update_prepares_under_the_new_tuning() {
+            let session = open!(FakeCamera::silent(), sony_session_config()).expect("owner session");
+            let camera = session
+                .camera::<SonyFR7>()
+                .expect("camera view taken before the update");
+
+            wait!(session.set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT)))
+                .expect("widening an acknowledgement deadline is accepted");
+
+            let started = now!();
+            let error = wait!(wait!(camera.submit::<AppliedOnly, _>(&SilentOperation))
+                .expect("submission")
+                .applied_with_timeout(Duration::from_secs(30)))
+            .expect_err("a silent camera cannot acknowledge");
+            let elapsed = now!().duration_since(started);
+            assert!(
+                matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
+                "got {error:?}"
+            );
+            assert!(
+                elapsed >= WIDE_ACK_TIMEOUT,
+                "the pre-existing view must pick up the new deadline, took {elapsed:?}"
+            );
+            assert_exact_on_virtual_time!(elapsed, WIDE_ACK_TIMEOUT);
+
+            session.shutdown().expect("owner shutdown");
+        }
+
+        /// An update taken while an operation is outstanding applies to the next
+        /// prepared request and never re-times the handle already being awaited.
+        ///
+        /// The owner writes the admitted frame and stamps its acknowledgement
+        /// deadline; the update is a later owner turn while that deadline runs. The
+        /// operation must resolve on its unchanged deadline, and the caller's next
+        /// preparation must use the new one.
+        fn an_update_while_an_operation_is_outstanding_leaves_it_alone() {
+            let fake = FakeCamera::silent();
+            let session = open!(fake, sony_session_config()).expect("owner session");
+            let camera = session.camera::<SonyFR7>().expect("camera view");
+
+            let submitted = now!();
+            let mut operation =
+                wait!(camera.submit::<AppliedOnly, _>(&SilentOperation)).expect("submission");
+            // Submission returns at admission; the owner writes afterwards. Once
+            // the frame is on the wire its acknowledgement deadline is stamped as
+            // an absolute instant.
+            assert_eq!(
+                wait_for_writes!(fake, 1).len(),
+                1,
+                "exactly the admitted frame is on the wire"
+            );
+
+            // The request is admitted under the profile's 500 ms deadline.
+            // Widening to two seconds now must not extend it.
+            wait!(session.set_tuning(OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT)))
+                .expect("an update mid-flight is accepted");
+
+            let started = now!();
+            let error = wait!(operation.applied_with_timeout(Duration::from_secs(30)))
+                .expect_err("a silent camera cannot acknowledge");
+            let elapsed = now!().duration_since(started);
+            assert!(
+                matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
+                "the in-flight operation must still resolve on its own deadline, got {error:?}"
+            );
+            assert!(
+                elapsed < WIDE_ACK_TIMEOUT,
+                "an admitted request keeps the deadline it was admitted with; \
+                 waiting {elapsed:?} means it was re-timed"
+            );
+            // Measured from submission, the operation ends on exactly the
+            // profile's deadline it was admitted under.
+            assert_exact_on_virtual_time!(now!().duration_since(submitted), profile_ack_timeout());
+
+            // The update did land, though: the next submission uses it.
             assert_eq!(
                 session.tuning(),
-                accepted,
-                "a rejected update must leave the live tuning untouched"
+                OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT)
             );
+            let after = time_to_ack_timeout!(session);
+            assert!(
+                after >= WIDE_ACK_TIMEOUT,
+                "the request prepared after the update must use it, took {after:?}"
+            );
+            assert_exact_on_virtual_time!(after, WIDE_ACK_TIMEOUT);
+
+            session.shutdown().expect("owner shutdown");
         }
 
-        // And the session still works afterwards.
-        assert_eq!(session.tuning(), accepted);
-        session.shutdown().expect("owner shutdown");
-    }
+        /// The installed value is readable back through every clone, so a caller
+        /// can confirm what the session is running under without re-deriving it.
+        fn the_installed_tuning_reads_back_through_the_session() {
+            let session = open!(FakeCamera::silent(), sony_session_config()).expect("owner session");
+            let clone = session.clone();
 
-    /// The single-camera session exposes the same capability without reaching
-    /// for its inner `Session`.
-    fn a_camera_session_reconfigures_its_own_session() {
-        let config = CameraConfig::<SonyFR7>::new();
-        let session =
-            open_camera!(FakeCamera::silent(), &config).expect("single-camera session");
+            assert_eq!(
+                session.tuning(),
+                OperationalTuning::new(),
+                "a session opened with no tuning reports none"
+            );
 
-        let widened = session.tuning().ack_timeout(WIDE_ACK_TIMEOUT);
-        wait!(session.set_tuning(widened)).expect("accepted");
-        assert_eq!(session.tuning(), widened);
-        assert_eq!(
-            session.session().tuning(),
-            widened,
-            "the owned session reports the same live value"
-        );
+            let tuning = OperationalTuning::new()
+                .ack_timeout(WIDE_ACK_TIMEOUT)
+                .quick_timeout(Duration::from_secs(9))
+                .retry_limit(2);
+            wait!(session.set_tuning(tuning)).expect("accepted");
+            assert_eq!(session.tuning(), tuning, "the getter reports what was set");
+            assert_eq!(
+                clone.tuning(),
+                tuning,
+                "a clone shares the one owner, so it reports the same live value"
+            );
 
-        let started = now!();
-        let error = wait!(wait!(session
-            .camera()
-            .submit::<AppliedOnly, _>(&SilentOperation))
-        .expect("submission")
-        .applied_with_timeout(Duration::from_secs(30)))
-        .expect_err("a silent camera cannot acknowledge");
-        let elapsed = now!().duration_since(started);
-        assert!(
-            matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
-            "got {error:?}"
-        );
-        assert!(
-            elapsed >= WIDE_ACK_TIMEOUT,
-            "the camera session's next submission must use the new deadline, \
-             took {elapsed:?}"
-        );
-        assert_exact_on_virtual_time!(elapsed, WIDE_ACK_TIMEOUT);
+            wait!(session.set_tuning(OperationalTuning::new())).expect("accepted");
+            assert_eq!(
+                session.tuning(),
+                OperationalTuning::new(),
+                "the runtime-mutable update replaces the previous value whole rather than merging"
+            );
 
-        wait!(session.close()).expect("owner shutdown");
+            session.shutdown().expect("owner shutdown");
+        }
+
+        /// Strict raw-command recovery is immutable session policy, not a tuning
+        /// override. A strict session therefore exposes only its genuinely mutable
+        /// tuning through `tuning()` and can replace that value normally.
+        fn strict_recovery_policy_is_separate_from_runtime_tuning() {
+            let default_config = sony_session_config();
+            assert!(!default_config.strict_unconfirmed_poison());
+            let strict_config = default_config.with_strict_unconfirmed_poison(true);
+            assert!(strict_config.strict_unconfirmed_poison());
+            let strict_session =
+                open!(FakeCamera::silent(), strict_config).expect("strict owner session");
+            assert_eq!(strict_session.tuning(), OperationalTuning::new());
+
+            let mutable_update = OperationalTuning::new().ack_timeout(WIDE_ACK_TIMEOUT);
+            wait!(strict_session.set_tuning(mutable_update))
+                .expect("runtime-mutable tuning is still replaceable on a strict session");
+            assert_eq!(
+                strict_session.tuning(),
+                mutable_update,
+                "construction policy must not leak into tuning readback"
+            );
+
+            wait!(strict_session.set_tuning(OperationalTuning::new()))
+                .expect("all tuning fields remain runtime-mutable");
+            assert_eq!(
+                strict_session.tuning(),
+                OperationalTuning::new(),
+                "clearing tuning does not claim to change immutable session policy"
+            );
+            strict_session.shutdown().expect("owner shutdown");
+        }
+
+        /// Runtime updates are validated on exactly the grounds construction
+        /// validates on, and a rejected update leaves the live tuning untouched.
+        fn an_invalid_update_is_rejected_and_changes_nothing() {
+            let session = open!(FakeCamera::silent(), sony_session_config()).expect("owner session");
+
+            let accepted = OperationalTuning::new()
+                .ack_timeout(WIDE_ACK_TIMEOUT)
+                .quick_timeout(Duration::from_secs(9))
+                .retry_limit(2);
+            wait!(session.set_tuning(accepted)).expect("accepted");
+
+            // Every rejection below is one `ProfileSpec::validate_tuning` rule, and
+            // each is checked against the same profile that would have rejected it
+            // in `SessionConfig::with_tuning`.
+            let rejected = [
+                // Undercuts the profile's own acknowledgement deadline.
+                OperationalTuning::new().ack_timeout(Duration::from_millis(1)),
+                // A zero deadline is never a deadline.
+                OperationalTuning::new().quick_timeout(Duration::ZERO),
+                // Raises the profile's socket limit.
+                OperationalTuning::new().maximum_command_sockets(3),
+                // Zero sockets is not a capacity.
+                OperationalTuning::new().maximum_command_sockets(0),
+                // Tuning may only lower the default base retry count of 3.
+                OperationalTuning::new().retry_limit(4),
+                // Backoff that is not ordered, with a budget that cannot hold it.
+                OperationalTuning::new().retry_timing(
+                    Duration::from_millis(50),
+                    Duration::from_millis(10),
+                    Duration::from_millis(10),
+                ),
+            ];
+            for tuning in rejected {
+                let error = wait!(session.set_tuning(tuning))
+                    .expect_err("construction would have rejected this tuning");
+                assert!(
+                    matches!(error, Error::InvalidRequest(_)),
+                    "expected the construction-time rejection, got {error:?}"
+                );
+                assert_eq!(
+                    session.tuning(),
+                    accepted,
+                    "a rejected update must leave the live tuning untouched"
+                );
+            }
+
+            // And the session still works afterwards.
+            assert_eq!(session.tuning(), accepted);
+            session.shutdown().expect("owner shutdown");
+        }
+
+        /// The single-camera session exposes the same capability without reaching
+        /// for its inner `Session`.
+        fn a_camera_session_reconfigures_its_own_session() {
+            let config = CameraConfig::<SonyFR7>::new();
+            let session =
+                open_camera!(FakeCamera::silent(), &config).expect("single-camera session");
+
+            let widened = session.tuning().ack_timeout(WIDE_ACK_TIMEOUT);
+            wait!(session.set_tuning(widened)).expect("accepted");
+            assert_eq!(session.tuning(), widened);
+            assert_eq!(
+                session.session().tuning(),
+                widened,
+                "the owned session reports the same live value"
+            );
+
+            let started = now!();
+            let error = wait!(wait!(session
+                .camera()
+                .submit::<AppliedOnly, _>(&SilentOperation))
+            .expect("submission")
+            .applied_with_timeout(Duration::from_secs(30)))
+            .expect_err("a silent camera cannot acknowledge");
+            let elapsed = now!().duration_since(started);
+            assert!(
+                matches!(&error, Error::Timeout { context, .. } if context.stage == FailureStage::Terminal),
+                "got {error:?}"
+            );
+            assert!(
+                elapsed >= WIDE_ACK_TIMEOUT,
+                "the camera session's next submission must use the new deadline, \
+                 took {elapsed:?}"
+            );
+            assert_exact_on_virtual_time!(elapsed, WIDE_ACK_TIMEOUT);
+
+            wait!(session.close()).expect("owner shutdown");
+        }
     }
 }
 
@@ -511,7 +510,11 @@ mod concurrent_async_updates {
     use grafton_visca::Executor;
     use grafton_visca_test_support::runtime_matrix;
 
-    use super::{sony_session_config, Duration, FakeCamera, OperationalTuning};
+    use grafton_visca::OperationalTuning;
+    use grafton_visca_test_support::{
+        fake_camera::FakeCamera, profile_fixtures::sony_session_config,
+    };
+    use std::time::Duration;
 
     /// The boundary serializes the two updates, so the result is one of the
     /// two whole values and never a mixture of both.

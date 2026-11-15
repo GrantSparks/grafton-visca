@@ -27,14 +27,17 @@ use crate::{
     command::CommandKind,
     command::PanTiltLimitCorner,
     completion::AppliedOnly,
-    prepared::{prepare_command, prepare_operation, ClassSelection},
+    prepared::{
+        test_support::{prepare_command, prepare_operation},
+        ClassSelection,
+    },
     profile::ProfileSpec,
     profiles::{GenericVisca, SonyFR7},
     protocol::sony::SonyHeader,
     request::builtin::{FocusModeCommand, PanTiltLimitClear, ZoomStop},
     runtime::engine::{
-        CancellationPolicy, ControlPolicy, EncodedMessage, InquiryRoute, ReplyShape,
-        RequestContext, RetryPolicy, TimeoutPolicy,
+        CancellationPolicy, ControlPolicy, EncodedMessage, ReplyShape, RequestContext, RetryPolicy,
+        TimeoutPolicy,
     },
     transport::{
         AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
@@ -44,12 +47,15 @@ use crate::{
 };
 
 mod cancellation_and_budget;
+mod reentry;
 
 const ACK: &[u8] = &[0x90, 0x41, 0xff];
 const COMPLETION: &[u8] = &[0x90, 0x51, 0xff];
 const ZOOM_STOP: &[u8] = &[0x81, 0x01, 0x04, 0x07, 0x00, 0xff];
 /// How long a test waits for something the worker should do promptly.
 const PROMPTLY: Duration = Duration::from_secs(2);
+
+type TransportCallback = Box<dyn FnOnce() + Send>;
 
 /// One scripted transport read.
 enum Read {
@@ -62,7 +68,7 @@ enum Read {
     EndOfStream,
     Fail(Error),
     Panic,
-    Callback(Box<dyn FnOnce() + Send>),
+    Callback(TransportCallback),
 }
 
 /// Receive from `receiver` within `timeout` on `clock`.
@@ -97,6 +103,7 @@ struct ChannelTransport {
     read_calls: Arc<AtomicUsize>,
     dropped: Arc<AtomicBool>,
     scheduled: Option<(Instant, Vec<u8>)>,
+    write_callback: Arc<Mutex<Option<TransportCallback>>>,
 }
 
 impl Drop for ChannelTransport {
@@ -118,8 +125,14 @@ impl BlockingTransport for ChannelTransport {
         _kind: CommandKind,
         _timeout: Duration,
     ) -> Result<(), Error> {
+        let callback = self.write_callback.lock().unwrap().take();
+        if let Some(callback) = callback {
+            callback();
+        }
         if self.fail_writes {
-            return Err(Error::TransportError("injected write failure".into()));
+            return Err(Error::transport_error(std::io::Error::other(
+                "injected write failure",
+            )));
         }
         let _ = self.writes.send(bytes.to_vec());
         Ok(())
@@ -186,6 +199,7 @@ struct Peer {
     writes: flume::Receiver<Vec<u8>>,
     read_calls: Arc<AtomicUsize>,
     dropped: Arc<AtomicBool>,
+    write_callback: Arc<Mutex<Option<TransportCallback>>>,
 }
 
 impl Peer {
@@ -260,6 +274,7 @@ impl Setup {
         let (writes, write_rx) = flume::unbounded();
         let read_calls = Arc::new(AtomicUsize::new(0));
         let dropped = Arc::new(AtomicBool::new(false));
+        let write_callback = Arc::new(Mutex::new(None));
         let transport = ChannelTransport {
             clock: self.clock.clone(),
             config: TransportConfig {
@@ -275,6 +290,7 @@ impl Setup {
             read_calls: Arc::clone(&read_calls),
             dropped: Arc::clone(&dropped),
             scheduled: None,
+            write_callback: Arc::clone(&write_callback),
         };
         let peer = Peer {
             clock: self.clock.clone(),
@@ -282,6 +298,7 @@ impl Setup {
             writes: write_rx,
             read_calls,
             dropped,
+            write_callback,
         };
         (transport, peer, self.profile, self.raw_inquiry_release_hold)
     }
@@ -315,8 +332,11 @@ fn focus_manual() -> crate::prepared::PreparedCommand {
 fn focus_manual_for(profile: &ProfileSpec) -> crate::prepared::PreparedCommand {
     prepare_command(
         &FocusModeCommand::Manual,
-        crate::target::TargetSlot::CAMERA_1,
-        profile,
+        &crate::TargetRegistration::new(
+            (crate::target::TargetSlot::CAMERA_1).camera(),
+            profile.clone(),
+        )
+        .expect("valid target registration"),
         OperationalTuning::new(),
         ClassSelection::Request,
     )
@@ -327,8 +347,11 @@ fn focus_manual_for(profile: &ProfileSpec) -> crate::prepared::PreparedCommand {
 fn limit_clear_for(profile: &ProfileSpec) -> crate::prepared::PreparedCommand {
     prepare_command(
         &PanTiltLimitClear::for_profile(PanTiltLimitCorner::DownLeft, profile).unwrap(),
-        crate::target::TargetSlot::CAMERA_1,
-        profile,
+        &crate::TargetRegistration::new(
+            (crate::target::TargetSlot::CAMERA_1).camera(),
+            profile.clone(),
+        )
+        .expect("valid target registration"),
         OperationalTuning::new(),
         ClassSelection::Request,
     )
@@ -365,8 +388,11 @@ fn await_pan_tilt_limits(owner: &BlockingOwnerHandle) {
 fn zoom_stop() -> crate::prepared::PreparedOperation<AppliedOnly> {
     prepare_operation::<AppliedOnly, _>(
         &ZoomStop,
-        crate::target::TargetSlot::CAMERA_1,
-        &generic_profile(),
+        &crate::TargetRegistration::new(
+            (crate::target::TargetSlot::CAMERA_1).camera(),
+            generic_profile().clone(),
+        )
+        .expect("valid target registration"),
         OperationalTuning::new(),
         ClassSelection::Request,
     )
@@ -376,25 +402,28 @@ fn zoom_stop() -> crate::prepared::PreparedOperation<AppliedOnly> {
 /// A raw inquiry whose own reply deadline is `inquiry`.
 fn raw_inquiry(inquiry: Duration) -> RuntimeRequest {
     RuntimeRequest::Inquiry {
+        payload_shape: crate::PayloadShape::Unknown,
         wire: Arc::new(EncodedMessage::new(&[0x81, 0x09, 0x04, 0x47, 0xff]).unwrap()),
         context: RequestContext {
+            requires_extended_pan_tilt_speed: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
             target: crate::target::TargetSlot::CAMERA_1,
             timeout: TimeoutPolicy {
-                ack: Duration::from_secs(1),
-                completion: Duration::from_secs(1),
-                inquiry,
-                cancellation: Duration::from_secs(1),
-                ambiguity: Duration::from_secs(1),
+                ack: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(1)).unwrap(),
+                completion: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(1))
+                    .unwrap(),
+                inquiry: crate::runtime::engine::NonZeroDuration::new(inquiry).unwrap(),
+                cancellation: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(1))
+                    .unwrap(),
+                ambiguity: crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(1))
+                    .unwrap(),
             },
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
             cancellation: CancellationPolicy::Supported,
-            reply_shape: ReplyShape::AckThenCompletion,
         },
-        route: InquiryRoute::UNKNOWN,
     }
 }
 
@@ -410,7 +439,7 @@ fn submission_succeeds_at_admission_and_a_failed_write_is_the_outcome() {
     let receipt = owner
         .submit_command(focus_manual())
         .expect("admission does not wait for the write");
-    assert!(matches!(receipt.wait(), Err(Error::TransportError(_))));
+    assert!(matches!(receipt.wait(), Err(Error::TransportError { .. })));
     owner.close().unwrap();
 }
 
@@ -483,6 +512,47 @@ fn blocking_owner_matches_canonical_lifecycle_trace() {
     owner.close().unwrap();
     let events = std::iter::from_fn(|| diagnostics.try_recv());
     assert_eq!(canonical_owner_trace(events), CANONICAL_OWNER_TRACE);
+}
+
+/// Diagnostic subscription deadlines participate in the session's virtual clock.
+#[test]
+fn diagnostic_receive_timeout_uses_the_session_clock() {
+    let clock = ManualClock::new();
+    let _participant = clock.enter();
+    let (owner, _peer) = Setup::datagram().on(&clock).spawn();
+    let diagnostics = owner.subscribe_diagnostics(128).unwrap();
+    while diagnostics.try_recv().is_some() {}
+    let start = clock.now();
+    let real_start = Instant::now();
+    assert!(diagnostics
+        .recv_timeout(Duration::from_secs(60))
+        .unwrap()
+        .is_none());
+    assert_eq!(clock.now() - start, Duration::from_secs(60));
+    assert!(real_start.elapsed() < Duration::from_secs(2));
+    owner.close().unwrap();
+}
+
+/// A diagnostic emitted at an owner deadline wakes the virtual subscription wait.
+#[test]
+fn diagnostic_receive_observes_an_owner_deadline_without_wall_time() {
+    let clock = ManualClock::new();
+    let _participant = clock.enter();
+    let (owner, peer) = Setup::datagram().on(&clock).spawn();
+    let receipt = owner.submit_command(focus_manual()).unwrap();
+    peer.next_write();
+    let diagnostics = owner.subscribe_diagnostics(128).unwrap();
+    while diagnostics.try_recv().is_some() {}
+    let start = clock.now();
+    let real_start = Instant::now();
+    assert!(diagnostics
+        .recv_timeout(Duration::from_secs(60))
+        .unwrap()
+        .is_some());
+    assert!(clock.now() > start);
+    assert!(real_start.elapsed() < Duration::from_secs(2));
+    drop(receipt);
+    owner.close().unwrap();
 }
 
 /// Out-of-order peer-receipt retention on the Sony sequence-bearing envelope
@@ -624,7 +694,9 @@ fn a_persistent_transient_fault_run_closes_the_session() {
     let _driver = clock.enter();
     let (owner, peer) = Setup::datagram().on(&clock).spawn();
     for _ in 0..64 {
-        peer.send(Read::Fail(Error::TransportError("transient".into())));
+        peer.send(Read::Fail(Error::transport_error(std::io::Error::other(
+            "transient",
+        ))));
     }
     let closed = clock.now();
     let deadline = closed + Duration::from_secs(5);
@@ -703,7 +775,7 @@ fn a_stale_raw_reply_is_consumed_before_the_successor_is_written() {
     let deadline = owner.deadline_after(PROMPTLY).unwrap();
     assert!(matches!(
         owner.wait_core_until(&first, deadline),
-        Ok(RuntimeOutcome::Failed(Error::Timeout { .. }))
+        Ok(RuntimeOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::Timeout { .. })
     ));
     let timed_out = clock.now();
 
@@ -868,7 +940,7 @@ fn a_failed_startup_leaves_no_worker_and_drops_the_transport() {
         .with_sony_sequence_reset_on_connect(true);
     assert!(matches!(
         crate::blocking::Session::open(transport, config),
-        Err(Error::TransportError(_))
+        Err(Error::TransportError { .. })
     ));
     assert!(peer.transport_dropped());
     assert_eq!(peer.read_calls.load(Ordering::Relaxed), 0);
@@ -1066,7 +1138,10 @@ fn diagnostic_subscriber_capacity_has_its_own_nonretryable_error() {
         error,
         Error::DiagnosticSubscriberLimit { capacity: 4 }
     ));
-    assert!(!error.is_retryable());
+    assert!(!matches!(
+        error.recovery(),
+        crate::Recovery::Resubmit { .. }
+    ));
     subscriptions.pop();
     subscriptions.push(owner.subscribe_diagnostics(1).unwrap());
     owner.close().unwrap();
@@ -1090,8 +1165,10 @@ fn a_stream_completion_after_a_long_idle_read_wins_before_its_deadline() {
     )
     .unwrap();
     let mut context = *raw_inquiry(Duration::from_secs(1)).context();
-    context.timeout.completion = Duration::from_secs(6);
+    context.timeout.completion =
+        crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(6)).unwrap();
     let request = RuntimeRequest::Command {
+        reply_shape: ReplyShape::AckThenCompletion,
         wire: Arc::new(EncodedMessage::new(ZOOM_STOP).unwrap()),
         context,
         applied_state: None,

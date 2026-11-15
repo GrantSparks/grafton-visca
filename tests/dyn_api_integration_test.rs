@@ -161,9 +161,12 @@ fn assert_unknown(camera: &DynSessionCamera) {
     );
 }
 
-fn assert_state(camera: &DynSessionCamera, expected: &[i64]) {
+fn assert_state(camera: &DynSessionCamera, expected: bool) {
     match camera.state_cache().value(StateKey::MulticastStreaming) {
-        StateEntry::Set(value) => assert_eq!(value.as_slice(), expected),
+        StateEntry::Set(value) => assert_eq!(
+            value,
+            grafton_visca::KnownState::MulticastStreaming(expected)
+        ),
         other => panic!("expected multicast state {expected:?}, got {other:?}"),
     }
 }
@@ -176,7 +179,7 @@ async fn dynamic_nouns_preserve_targeted_applied_and_custom_lifecycles<E: Execut
     let nouns: &dyn DynSessionCameraNouns = &camera;
 
     assert_eq!(root.target(), CameraId::CAMERA_1);
-    assert!(root.capabilities().has_zoom);
+    assert!(root.capabilities().has_zoom());
     assert!(!root.supports_typed(TypedSupportSurface::DigitalZoomToggle));
 
     nouns
@@ -231,7 +234,7 @@ async fn dynamic_unsupported_gate_rejects_before_transport_io<E: Executor>(execu
     assert!(matches!(
         error,
         Error::FeatureNotSupported {
-            feature: "digital zoom",
+            feature: "set_digital_zoom",
             ..
         }
     ));
@@ -240,11 +243,9 @@ async fn dynamic_unsupported_gate_rejects_before_transport_io<E: Executor>(execu
     session.shutdown().expect("shutdown");
 }
 
-/// A refining tally marker must never grant the typed noun's base surface.
-/// This is a valid custom spec: it has tally metadata but deliberately omits
-/// typed Tally permission while retaining both vendor refinements.
-async fn dynamic_tally_refinements_require_the_typed_noun_header<E: Executor>(executor: E) {
-    use grafton_visca::{capabilities::TypedSupportSet, profiles::SonyFR7};
+/// Physical tally metadata does not grant permission to the dynamic noun.
+async fn dynamic_tally_metadata_does_not_grant_typed_permission<E: Executor>(executor: E) {
+    use grafton_visca::profiles::SonyFR7;
 
     let source = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7");
     let mut capabilities = source.capabilities().clone();
@@ -252,29 +253,19 @@ async fn dynamic_tally_refinements_require_the_typed_noun_header<E: Executor>(ex
     capabilities.typed_support = capabilities
         .typed_support
         .without(TypedSupportSurface::Tally)
-        .union(TypedSupportSet::from_surfaces(&[
-            TypedSupportSurface::TallyBrightness,
-            TypedSupportSurface::PtzOpticsTally,
-        ]));
-    let coordinates = source.pan_tilt_coordinates().expect("FR7 coordinate facts");
+        .without(TypedSupportSurface::TallyBrightness)
+        .without(TypedSupportSurface::PtzOpticsTally);
     let profile = ProfileSpec::builder(capabilities)
-        .pan_tilt_coordinates(
-            coordinates.coordinate_system(),
-            coordinates.pan_degrees_to_units(),
-            coordinates.tilt_degrees_to_units(),
-        )
-        .pan_tilt_wire_codec(coordinates.wire_codec())
         .transports(source.transports())
         .envelope(source.envelope())
         .timing(source.timing())
         .maximum_command_sockets(source.maximum_command_sockets())
         .supports_operation_complete(source.supports_operation_complete())
         .supports_command_cancel(source.supports_command_cancel())
-        .preset_recall_axes(source.preset_recall_axes())
         .position_inquiries(source.position_inquiries())
         .build()
-        .expect("refinements without the typed Tally grant are representable");
-    assert!(profile.capabilities().has_tally);
+        .expect("physical tally without typed permission is representable");
+    assert!(profile.capabilities().has_tally());
     assert!(!profile
         .capabilities()
         .supports_typed(TypedSupportSurface::Tally));
@@ -293,10 +284,8 @@ async fn dynamic_tally_refinements_require_the_typed_noun_header<E: Executor>(ex
         tally.flash().await,
         tally.on().await,
         tally.off().await,
-        tally.status().await.map(|_| ()),
         tally.red_status().await.map(|_| ()),
         tally.green_status().await.map(|_| ()),
-        tally.auto_adjust_enabled().await.map(|_| ()),
     ] {
         assert!(
             matches!(result, Err(Error::FeatureNotSupported { .. })),
@@ -309,6 +298,42 @@ async fn dynamic_tally_refinements_require_the_typed_noun_header<E: Executor>(ex
         "all tally rows reject before transport I/O"
     );
     session.shutdown().expect("shutdown");
+}
+
+/// Refining grants require a valid base grant before a session can open.
+#[test]
+fn tally_refinements_without_the_base_grant_are_refused() {
+    use grafton_visca::{capabilities::TypedSupportSet, profiles::SonyFR7};
+
+    let source = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7");
+    for refinement in [
+        TypedSupportSurface::TallyBrightness,
+        TypedSupportSurface::PtzOpticsTally,
+    ] {
+        let mut capabilities = source.capabilities().clone();
+        capabilities.profile_id = None;
+        capabilities.typed_support = capabilities
+            .typed_support
+            .without(TypedSupportSurface::Tally)
+            .without(TypedSupportSurface::TallyBrightness)
+            .without(TypedSupportSurface::PtzOpticsTally)
+            .union(TypedSupportSet::from_surfaces(&[refinement]));
+        let error = ProfileSpec::builder(capabilities)
+            .transports(source.transports())
+            .envelope(source.envelope())
+            .timing(source.timing())
+            .maximum_command_sockets(source.maximum_command_sockets())
+            .supports_operation_complete(source.supports_operation_complete())
+            .supports_command_cancel(source.supports_command_cancel())
+            .position_inquiries(source.position_inquiries())
+            .build()
+            .expect_err("orphan tally refinement must fail before session creation");
+        assert!(
+            matches!(&error, Error::InvalidRequest(message)
+                if message.contains(&format!("typed support {refinement:?}"))),
+            "{refinement:?}: {error:?}"
+        );
+    }
 }
 
 async fn dynamic_cache_views_share_state_and_isolate_targets<E: Executor>(executor: E) {
@@ -335,8 +360,8 @@ async fn dynamic_cache_views_share_state_and_isolate_targets<E: Executor>(execut
         .multicast_on()
         .await
         .expect("exact applied multicast effect");
-    assert_state(&first, &[1]);
-    assert_state(&first_view, &[1]);
+    assert_state(&first, true);
+    assert_state(&first_view, true);
     assert_unknown(&second);
 
     first
@@ -344,7 +369,7 @@ async fn dynamic_cache_views_share_state_and_isolate_targets<E: Executor>(execut
         .multicast_off()
         .await
         .expect("exact applied multicast clear effect");
-    assert_state(&first, &[0]);
+    assert_state(&first, false);
     assert_unknown(&second);
     session.shutdown().expect("shutdown");
 
@@ -490,7 +515,7 @@ async fn dynamic_unsupported_gate_and_target_selection_are_preflighted<E: Execut
     assert!(matches!(
         error,
         Error::FeatureNotSupported {
-            feature: "digital zoom",
+            feature: "set_digital_zoom",
             ..
         }
     ));
@@ -542,15 +567,12 @@ async fn dynamic_cache_views_share_and_isolate_owner_state<E: Executor>(executor
         .await
         .expect("owner applied multicast state");
     assert!(matches!(
-        first
-            .state_cache()
-            .value(StateKey::MulticastStreaming),
-        StateEntry::Set(value) if value.get(0) == Some(1)
+        first.state_cache().value(StateKey::MulticastStreaming),
+        StateEntry::Set(grafton_visca::KnownState::MulticastStreaming(true))
     ));
     assert!(matches!(
-        same.state_cache()
-            .value(StateKey::MulticastStreaming),
-        StateEntry::Set(value) if value.get(0) == Some(1)
+        same.state_cache().value(StateKey::MulticastStreaming),
+        StateEntry::Set(grafton_visca::KnownState::MulticastStreaming(true))
     ));
     assert_eq!(
         second.state_cache().value(StateKey::MulticastStreaming),
@@ -562,7 +584,7 @@ async fn dynamic_cache_views_share_and_isolate_owner_state<E: Executor>(executor
 runtime_matrix!(
     dynamic_nouns_preserve_targeted_applied_and_custom_lifecycles,
     dynamic_unsupported_gate_rejects_before_transport_io,
-    dynamic_tally_refinements_require_the_typed_noun_header,
+    dynamic_tally_metadata_does_not_grant_typed_permission,
     dynamic_cache_views_share_state_and_isolate_targets,
     dynamic_target_selection_rejects_implicit_multi_target_view,
     dynamic_queued_targeted_cancel_is_owner_local,

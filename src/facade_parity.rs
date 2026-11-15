@@ -9,6 +9,11 @@
 //! `Camera` getters are not compared here: one consumer
 //! (`crate::noun_facade::static_noun_facade!`) generates both facades' copies.
 //!
+//! The native camera cores share one macro definition. Its two invocations are
+//! expanded by the scanner so their private and crate-visible methods, complete
+//! bounds and forwarding bodies are compared too. Mutation fixtures ensure an
+//! extra helper or a different forwarded argument is observable.
+//!
 //! The reader below is a declaration scanner, intentionally not a Rust parser:
 //! comments, literals, test modules and macro bodies are blanked before
 //! anything is matched.
@@ -154,8 +159,19 @@ fn masked_lines(lines: &[&str], label: &str, macros: bool) -> Vec<bool> {
     let mut index = 0;
     while index < lines.len() {
         let trimmed = lines[index].trim();
-        if trimmed == "#[cfg(test)]" || (macros && trimmed.starts_with("macro_rules!")) {
-            let end = block_end(lines, index, label);
+        let test_only = trimmed == "#[cfg(test)]" || trimmed.starts_with("#[cfg(all(test,");
+        if test_only || (macros && trimmed.starts_with("macro_rules!")) {
+            // An out-of-line test module ends with a semicolon, without a
+            // brace-delimited body in this file.
+            let first_item = lines
+                .iter()
+                .enumerate()
+                .skip(index)
+                .find(|(_, line)| line.contains('{') || line.trim_end().ends_with(';'));
+            let end = match first_item {
+                Some((end, line)) if !line.contains('{') => end + 1,
+                _ => block_end(lines, index, label),
+            };
             for item in masked.iter_mut().take(end).skip(index) {
                 *item = true;
             }
@@ -291,6 +307,15 @@ fn signature_shape(signature: &str) -> String {
 
 /// The public surface of `ty` across a facade's source files.
 fn surface(sources: &[(&str, &str)], ty: &str) -> Surface {
+    scanned_surface(sources, ty, false)
+}
+
+/// Includes private methods and complete bodies for the shared camera cores.
+fn core_contract(sources: &[(&str, &str)], ty: &str) -> Surface {
+    scanned_surface(sources, ty, true)
+}
+
+fn scanned_surface(sources: &[(&str, &str)], ty: &str, core: bool) -> Surface {
     let mut surface = Surface::new();
     for (label, source) in sources {
         let lines = declaration_lines(source, label, true);
@@ -307,7 +332,7 @@ fn surface(sources: &[(&str, &str)], ty: &str) -> Surface {
                 let open = (index..end)
                     .find(|line| lines[*line].contains('{'))
                     .unwrap_or_else(|| panic!("{label}:{}: impl without a body", index + 1));
-                collect_items(&lines[open + 1..end - 1], label, &mut surface);
+                collect_items(&lines[open + 1..end - 1], label, core, &mut surface);
             }
             index = end;
         }
@@ -317,17 +342,14 @@ fn surface(sources: &[(&str, &str)], ty: &str) -> Surface {
 
 /// Records the public methods and shared macro expansions directly inside
 /// one `impl` body (nested items are skipped).
-fn collect_items(body: &[String], label: &str, surface: &mut Surface) {
+fn collect_items(body: &[String], label: &str, core: bool, surface: &mut Surface) {
     let mut depth = 0_i32;
     let mut index = 0;
     while index < body.len() {
         let line = &body[index];
         let trimmed = line.trim_start();
         if depth == 0 {
-            let method = ["pub fn ", "pub async fn ", "pub const fn "]
-                .iter()
-                .find_map(|prefix| trimmed.strip_prefix(prefix));
-            if let Some(rest) = method {
+            if let Some(rest) = method_declaration(trimmed, core) {
                 let name: String = rest
                     .chars()
                     .take_while(|character| character.is_alphanumeric() || *character == '_')
@@ -342,7 +364,15 @@ fn collect_items(body: &[String], label: &str, surface: &mut Surface) {
                 }
                 // Opening legitimately differs: the async facade also takes
                 // the executor its owner actor runs on.
-                let parameters = if name == "open" {
+                let parameters = if core {
+                    let lines: Vec<&str> = body.iter().map(String::as_str).collect();
+                    let end = block_end(&lines, index, label);
+                    let declaration = body[index..end].join(" ");
+                    let start = declaration
+                        .find("fn ")
+                        .unwrap_or_else(|| panic!("{label}: missing fn"));
+                    compact_contract(&declaration[start..])
+                } else if name == "open" {
                     String::from("(facade-specific)")
                 } else {
                     signature_shape(&signature)
@@ -365,6 +395,235 @@ fn collect_items(body: &[String], label: &str, surface: &mut Surface) {
             }
         }
         index += 1;
+    }
+}
+
+/// Reads public signatures, or every inherent method when inspecting a core.
+fn method_declaration(line: &str, core: bool) -> Option<&str> {
+    let declaration = if let Some(rest) = line.strip_prefix("pub ") {
+        rest
+    } else if core {
+        match line.strip_prefix("pub(") {
+            Some(rest) => rest.split_once(')')?.1.trim_start(),
+            None => line,
+        }
+    } else {
+        return None;
+    };
+    let declaration = declaration.trim_start();
+    let declaration = declaration.strip_prefix("async ").unwrap_or(declaration);
+    let declaration = declaration.strip_prefix("const ").unwrap_or(declaration);
+    declaration.strip_prefix("fn ")
+}
+
+fn compact_contract(source: &str) -> String {
+    source
+        .split_whitespace()
+        .collect::<String>()
+        .replace("crate::", "")
+        .replace(".await", "")
+}
+
+/// Returns the byte following a balanced block in cleaned source.
+fn closing_brace(source: &str, open: usize) -> usize {
+    let mut depth = 0_usize;
+    for (offset, character) in source[open..].char_indices() {
+        match character {
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    return open + offset + 1;
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("unterminated camera core block");
+}
+
+/// Expands the one shared core definition with the facade's actual arguments.
+/// Exact native-mode arguments are checked before comparing expanded methods;
+/// a macro marker on its own would miss both visibility and body drift.
+fn expand_camera_core(source: &str, core: &str, owner: &str, asynchronous: bool) -> String {
+    let source = clean_source(source, core);
+    assert_eq!(
+        source.matches("camera_core!").count(),
+        1,
+        "{core}: exactly one shared definition"
+    );
+    let call = source
+        .find("camera_core!")
+        .unwrap_or_else(|| panic!("{core}: no macro invocation"));
+    let open = call
+        + source[call..]
+            .find('{')
+            .unwrap_or_else(|| panic!("{core}: no invocation body"));
+    let end = closing_brace(&source, open);
+    let asynchronous_token = if asynchronous { "async" } else { "" };
+    let await_token = if asynchronous { ".await" } else { "" };
+    let actual = source[open + 1..end - 1]
+        .split_whitespace()
+        .collect::<String>();
+    assert_eq!(
+        actual.trim_end_matches(','),
+        format!("core:{core},owner:{owner},async:[{asynchronous_token}],await:[{await_token}]"),
+        "{core}: native mode arguments"
+    );
+    let definition = clean_source(include_str!("camera_core.rs"), "camera_core.rs");
+    let marker = ") => {";
+    let open = definition
+        .find(marker)
+        .unwrap_or_else(|| panic!("camera core macro has no template"))
+        + marker.len()
+        - 1;
+    let template_end = closing_brace(&definition, open);
+    let template = definition[open + 1..template_end - 1]
+        .replace("$core", core)
+        .replace("$owner", owner)
+        .replace("$($async)*", asynchronous_token)
+        .replace("$($await)*", await_token);
+    let start = source[..call].rfind('\n').map_or(0, |index| index + 1);
+    format!("{}{}{}", &source[..start], template, &source[end..])
+}
+
+#[test]
+fn both_native_camera_cores_have_the_same_methods_and_forwarding_contract() {
+    let blocking = expand_camera_core(
+        include_str!("blocking.rs"),
+        "BlockingCameraCore",
+        "BlockingOwnerHandle",
+        false,
+    );
+    let asynchronous = expand_camera_core(
+        include_str!("async_session.rs"),
+        "AsyncCameraCore",
+        "AsyncOwnerHandle",
+        true,
+    );
+    let blocking = core_contract(&[("blocking core", &blocking)], "BlockingCameraCore");
+    let asynchronous = core_contract(&[("async core", &asynchronous)], "AsyncCameraCore");
+    assert_eq!(
+        blocking, asynchronous,
+        "native camera core contracts differ"
+    );
+    assert_eq!(
+        blocking.keys().map(String::as_str).collect::<Vec<_>>(),
+        [
+            "execute",
+            "inquire",
+            "into_typed",
+            "is_moving",
+            "profile",
+            "registration",
+            "set_submission_class",
+            "state_cache",
+            "stop_all_motion",
+            "submission_class",
+            "submit",
+            "target",
+            "tuning",
+            "wait_until_idle",
+        ],
+        "the scanner must inspect every real core method"
+    );
+}
+
+#[test]
+fn core_contract_detects_private_helpers_and_different_forwarding() {
+    let original = "impl Core {\n pub(crate) fn execute<C>(&self, request: &C) where C: PlainCommand + ?Sized { prepare(self.class); }\n fn tuning(&self) { self.owner.validated_tuning() }\n}\n";
+    let changed_argument =
+        original.replace("prepare(self.class)", "prepare(ClassSelection::Request)");
+    let changed_bound = original.replace("PlainCommand + ?Sized", "PlainCommand + Send");
+    let extra_helper = format!("{original}impl Core {{\n fn extra(&self) {{}}\n}}\n");
+    let reference = core_contract(&[("original", original)], "Core");
+    assert_eq!(reference.len(), 2);
+    assert!(reference.contains_key("tuning"));
+    assert_ne!(
+        reference,
+        core_contract(&[("changed argument", &changed_argument)], "Core")
+    );
+    assert_ne!(
+        reference,
+        core_contract(&[("extra helper", &extra_helper)], "Core")
+    );
+    assert_ne!(
+        reference,
+        core_contract(&[("changed bound", &changed_bound)], "Core")
+    );
+}
+
+#[test]
+#[should_panic(expected = "native mode arguments")]
+fn core_contract_rejects_a_non_native_macro_invocation() {
+    expand_camera_core(
+        "camera_core! { core: Core, owner: Owner, async: [], await: [.await] }",
+        "Core",
+        "Owner",
+        false,
+    );
+}
+
+/// Bind the recording-driver tests to the real native entry points: neither
+/// shell may bypass the shared driver with a handwritten method.
+fn assert_native_driver_binding(source: &str, ty: &str, expected_arguments: &str) {
+    let cleaned = clean_source(source, ty);
+    assert_eq!(
+        cleaned.matches("owner_turn_driver!").count(),
+        1,
+        "{ty}: exactly one shared driver invocation"
+    );
+    let call = cleaned
+        .find("owner_turn_driver!")
+        .unwrap_or_else(|| panic!("{ty}: missing driver invocation"));
+    let open = call
+        + cleaned[call..]
+            .find('{')
+            .unwrap_or_else(|| panic!("{ty}: no driver arguments"));
+    let end = closing_brace(&cleaned, open);
+    let arguments = cleaned[open + 1..end - 1]
+        .split_whitespace()
+        .collect::<String>();
+    assert_eq!(
+        arguments.trim_end_matches(','),
+        expected_arguments,
+        "{ty}: native driver arguments"
+    );
+    let methods = core_contract(&[(ty, source)], ty);
+    for method in ["run", "handle_event", "drive"] {
+        assert!(
+            !methods.contains_key(method),
+            "{ty}::{method} must come from the shared driver"
+        );
+    }
+}
+
+#[test]
+fn both_native_owners_bind_the_shared_driver_without_handwritten_turn_methods() {
+    assert_native_driver_binding(
+        include_str!("runtime/owner/blocking.rs"),
+        "BlockingOwnerWorker",
+        "async:[],await:[],driver:BlockingOwnerDriver",
+    );
+    assert_native_driver_binding(
+        include_str!("runtime/owner/async_actor.rs"),
+        "AsyncOwnerActor",
+        "async:[async],await:[.await],driver:AsyncOwnerDriver",
+    );
+}
+
+#[test]
+fn driver_binding_gate_detects_a_handwritten_override() {
+    let source = "impl Owner {\n owner_turn_driver! { async: [], await: [], driver: Driver }\n}\n";
+    let arguments = "async:[],await:[],driver:Driver";
+    assert_native_driver_binding(source, "Owner", arguments);
+    for method in ["run", "handle_event", "drive"] {
+        let changed = source.replace("\n}\n", &format!("\n fn {method}(&self) {{}}\n}}\n"));
+        assert!(
+            std::panic::catch_unwind(|| assert_native_driver_binding(&changed, "Owner", arguments))
+                .is_err(),
+            "the gate must reject handwritten {method}"
+        );
     }
 }
 
@@ -404,6 +663,7 @@ where
         {}
     }
     fn private(&self) {}
+    pub(crate) fn restricted(&self) {}
     crate::shared::shared_methods!();
 }
 
@@ -441,6 +701,14 @@ mod scanner {
     }
 
     #[test]
+    fn macro_mask_keeps_its_outer_body_even_with_semicolon_only_rules() {
+        let source = "macro_rules! hidden {\n ($value:expr) => ($value);\n}\nimpl Real { pub fn visible(&self) {} }\n";
+        let declarations = declaration_lines(source, "macro fixture", true);
+        assert!(declarations[..3].iter().all(|line| line.trim().is_empty()));
+        assert!(declarations[3].starts_with("impl Real"));
+    }
+
+    #[test]
     fn declaration_scan_drops_in_file_test_data() {
         let source = concat!(
             "pub struct RealAccessor;\n",
@@ -448,6 +716,10 @@ mod scanner {
             "mod tests {\n",
             "    struct GhostAccessor;\n",
             "}\n",
+            "#[cfg(all(test, feature = \"test-utils\"))]\n",
+            "mod mode_tests { struct ModeGhost; }\n",
+            "#[cfg(test)]\n",
+            "mod external_tests;\n",
             "pub struct LaterAccessor;\n",
         );
         let declarations = declaration_lines(source, "fixture", false);
@@ -456,5 +728,7 @@ mod scanner {
         assert!(declarations.contains("RealAccessor"));
         assert!(declarations.contains("LaterAccessor"));
         assert!(!declarations.contains("GhostAccessor"));
+        assert!(!declarations.contains("ModeGhost"));
+        assert!(!declarations.contains("external_tests"));
     }
 }

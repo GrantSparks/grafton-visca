@@ -23,27 +23,20 @@ pub(crate) fn lift_inquiry(
     framing: PanTiltFraming,
 ) -> Result<Response, Error> {
     match basic.kind {
-        BasicKind::Ack => Ok(Response::CmdAck {
-            socket: basic.socket,
-        }),
-        BasicKind::Completion => Ok(Response::Completion {
-            socket: basic.socket,
-        }),
-        BasicKind::Error(code) => Ok(Response::Error(Error::from_code(code))),
-        BasicKind::NetworkChange => Ok(Response::Unknown {
-            response_type: None,
-            data: vec![],
-        }),
-        BasicKind::DataReply => match expected {
-            Some(kind) => dispatch_with_framing(*kind, basic.payload, framing),
+        BasicKind::Ack { socket } => Ok(Response::CmdAck { socket }),
+        BasicKind::Completion { socket } => Ok(Response::Completion { socket }),
+        BasicKind::Error { code, .. } => Ok(Response::Error(Error::from_code(code))),
+        BasicKind::NetworkChange => Ok(Response::NetworkChange),
+        BasicKind::DataReply(payload) => match expected {
+            Some(kind) => dispatch_with_framing(*kind, payload, framing),
             None => Ok(Response::Unknown {
                 response_type: None,
-                data: basic.payload.as_slice().to_vec(),
+                data: payload.as_slice().to_vec(),
             }),
         },
-        BasicKind::Unknown => Ok(Response::Unknown {
+        BasicKind::Unknown(payload) => Ok(Response::Unknown {
             response_type: None,
-            data: basic.payload.as_slice().to_vec(),
+            data: payload.as_slice().to_vec(),
         }),
     }
 }
@@ -68,7 +61,7 @@ fn decode_frame(bytes: &[u8]) -> Result<BasicResponse<'_>, Error> {
 impl Response {
     /// Parse a response from raw bytes.
     ///
-    /// This method is for parsing basic responses (ACK, Completion, Error).
+    /// This method is for parsing basic responses (ACK, Completion, Error, NetworkChange).
     /// For inquiry responses, use `parse_with_type` instead.
     pub fn parse(bytes: &[u8]) -> Result<Self, Error> {
         lift_inquiry(&decode_frame(bytes)?, None, PanTiltFraming::STANDARD)

@@ -29,7 +29,13 @@ fn no_default_pure_request_profile_smoke_and_facade_inventory() {
     let profile = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic profile");
     let request = PowerOn::new();
     request
-        .validate_for_profile(&profile)
+        .validate_for_target(
+            &grafton_visca::TargetRegistration::new(
+                grafton_visca::CameraId::CAMERA_1,
+                profile.clone(),
+            )
+            .expect("target registration"),
+        )
         .expect("power request is valid for GenericVisca");
 
     let mut bytes = [0_u8; 16];

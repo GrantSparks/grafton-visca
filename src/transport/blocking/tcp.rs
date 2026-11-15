@@ -1,7 +1,6 @@
 //! Blocking TCP transport implementation with DNS resolution and IPv6 support.
 
 use std::{
-    io::BufReader,
     net::TcpStream,
     time::{Duration, Instant},
 };
@@ -13,7 +12,7 @@ use crate::{
         address::resolve_blocking,
         blocking::{read_once_bounded, write_all_bounded, TimedIo},
         builder::{AddressingMode, TransportConfig},
-        connect::{connect_deadline, preflight, TcpAttempts},
+        connect::{connect_deadline, preflight, socket_setup, TcpAttempts},
         socket_options::{apply_tcp_socket_options, TcpConnectionConfig},
         stream_read, BlockingTransport, HasTransportConfig, ReceiveOutcome,
     },
@@ -24,27 +23,24 @@ fn arm_write(stream: &mut TcpStream, timeout: Duration) -> std::io::Result<()> {
     stream.set_write_timeout(Some(timeout))
 }
 
-fn arm_read(reader: &mut BufReader<TcpStream>, timeout: Duration) -> std::io::Result<()> {
-    reader.get_mut().set_read_timeout(Some(timeout))
+fn arm_read(stream: &mut TcpStream, timeout: Duration) -> std::io::Result<()> {
+    stream.set_read_timeout(Some(timeout))
 }
 
 /// TCP transport for blocking VISCA communication.
 ///
 /// This transport supports DNS resolution and both IPv4 and IPv6 addresses.
 /// It operates at the stream level, reading/writing raw bytes.
-/// Framing is handled by the runtime layer.
+/// Each receive reads directly into the caller's slice, without reading ahead
+/// into another user-space buffer. Framing is handled by the runtime layer.
 pub struct Tcp {
-    reader: BufReader<TcpStream>,
-    writer: TcpStream,
+    stream: TcpStream,
     config: TransportConfig,
 }
 
 impl std::fmt::Debug for Tcp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Tcp")
-            .field("reader", &self.reader)
-            .field("writer", &self.writer)
-            .finish()
+        f.debug_struct("Tcp").field("stream", &self.stream).finish()
     }
 }
 
@@ -65,13 +61,11 @@ impl Tcp {
         while let Some((address, remaining)) = attempts.next_attempt(Instant::now()) {
             match TcpStream::connect_timeout(&address, remaining) {
                 Ok(stream) => {
-                    apply_tcp_socket_options(socket2::SockRef::from(&stream), options)?;
-                    let reader_stream = stream.try_clone()?;
-                    return Ok(Self {
-                        reader: BufReader::new(reader_stream),
-                        writer: stream,
-                        config,
-                    });
+                    socket_setup(
+                        &endpoint,
+                        apply_tcp_socket_options(socket2::SockRef::from(&stream), options),
+                    )?;
+                    return Ok(Self { stream, config });
                 }
                 Err(error) => attempts.failed(Some(error)),
             }
@@ -98,7 +92,7 @@ impl BlockingTransport for Tcp {
         timeout: Duration,
     ) -> Result<(), Error> {
         let deadline = Deadline::after(Instant::now(), timeout, "write_timeout")?;
-        write_all_bounded(&mut self.writer, arm_write, data, deadline, timeout)
+        write_all_bounded(&mut self.stream, arm_write, data, deadline, timeout)
     }
 
     fn recv_into_with_timeout(
@@ -107,7 +101,7 @@ impl BlockingTransport for Tcp {
         timeout: Duration,
     ) -> Result<ReceiveOutcome, Error> {
         let read = read_once_bounded(
-            &mut self.reader,
+            &mut self.stream,
             arm_read,
             dst,
             timeout,

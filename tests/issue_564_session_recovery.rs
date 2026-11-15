@@ -155,7 +155,9 @@ mod blocking_recovery {
             .multicast_on()
             .expect("the rebuilt session drives a command through to completion");
         match cache.value(StateKey::MulticastStreaming) {
-            StateEntry::Set(value) => assert_eq!(value.as_slice(), &[1]),
+            StateEntry::Set(value) => {
+                assert_eq!(value, grafton_visca::KnownState::MulticastStreaming(true))
+            }
             other => {
                 panic!("expected the rebuilt session to record the applied state, got {other:?}")
             }

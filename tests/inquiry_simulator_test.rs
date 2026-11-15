@@ -2,7 +2,9 @@
 
 #![cfg(all(feature = "runtime-tokio", feature = "test-utils"))]
 
-use grafton_visca::{testing::camera_simulator::ViscaCameraSimulator, transport::AsyncTransport};
+use grafton_visca::{
+    testing::camera_simulator::ViscaCameraSimulator, transport::AsyncTransport, PowerStatus,
+};
 
 #[tokio::test(start_paused = true)]
 async fn test_simulator_power_inquiry_direct() {
@@ -175,4 +177,36 @@ async fn test_simulator_mixed_commands_and_inquiries() {
     assert_eq!(response[0], 0x90);
     assert_eq!(response[1], 0x50, "Should be data reply");
     assert_eq!(response[2], 0x02, "Power should be on");
+}
+
+#[tokio::test(start_paused = true)]
+async fn session_inquiries_observe_applied_simulator_state() {
+    use grafton_visca::{
+        camera::profiles::PtzOpticsG2, types::SpeedLevel, units::Degrees,
+        PanTiltCoordinateConversion, Session, SessionConfig, TokioRuntime,
+    };
+
+    let session = Session::open(
+        ViscaCameraSimulator::new(),
+        SessionConfig::from_compile_time::<PtzOpticsG2>().unwrap(),
+        TokioRuntime::from_current().unwrap(),
+    )
+    .await
+    .unwrap();
+    let camera = session.camera::<PtzOpticsG2>().unwrap();
+    let mut movement = camera
+        .pan_tilt()
+        .absolute(Degrees(-10.0), Degrees(-5.0), SpeedLevel::Medium)
+        .await
+        .unwrap();
+    movement.applied().await.unwrap();
+    let position = camera.pan_tilt().position().await.unwrap();
+    let degrees = PanTiltCoordinateConversion::for_profile::<PtzOpticsG2>().to_degrees(position);
+    assert!((degrees.pan.0 + 10.0).abs() < 0.1);
+    assert!((degrees.tilt.0 + 5.0).abs() < 0.1);
+    camera.power().off().await.unwrap();
+    assert_eq!(camera.power().state().await.unwrap(), PowerStatus::Standby);
+    camera.power().on().await.unwrap();
+    assert_eq!(camera.power().state().await.unwrap(), PowerStatus::On);
+    session.close().await.unwrap();
 }

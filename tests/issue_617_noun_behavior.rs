@@ -38,9 +38,9 @@ const BRC300_RELATIVE_FASTEST: &[u8] = &[
     0x81, 0x01, 0x06, 0x03, 0x18, 0x00, 0x0f, 0x0d, 0x0b, 0x07, 0x00, 0x00, 0x0c, 0x03, 0x00, 0xff,
 ];
 
-// Sony FR7 documents optical max 0x4000 and combined optical+digital max
-// 0x7000.  At 0.5 these become 0x2000 and 0x3800 respectively, encoded as
-// VISCA nibbles in the direct-zoom command.
+// The explicit custom combined-zoom fixture declares optical max 0x4000 and
+// combined optical+digital max 0x7000. At 0.5 these become 0x2000 and 0x3800,
+// encoded as VISCA nibbles in the direct-zoom command.
 const ZOOM_NORMALIZED_OPTICAL_HALF: &[u8] = &[0x81, 0x01, 0x04, 0x47, 0x02, 0x00, 0x00, 0x00, 0xff];
 const ZOOM_NORMALIZED_COMBINED_HALF: &[u8] =
     &[0x81, 0x01, 0x04, 0x47, 0x03, 0x08, 0x00, 0x00, 0xff];
@@ -51,7 +51,7 @@ const MENU_STATUS_INQUIRY: &[u8] = &[0x81, 0x09, 0x06, 0x06, 0xff];
 const BACKLIGHT_ON: &[u8] = &[0x81, 0x01, 0x04, 0x33, 0x02, 0xff];
 const BACKLIGHT_INQUIRY: &[u8] = &[0x81, 0x09, 0x04, 0x33, 0xff];
 
-/// A small in-memory Sony VISCA-over-IP camera. It answers in the framing of
+/// A small in-memory VISCA camera. It answers in the framing of
 /// each request, returning ACK plus completion for commands and a typed
 /// response for the boolean inquiries used below. The tests compare the
 /// recorded VISCA payloads, keeping the noun assertions about command bytes
@@ -79,8 +79,7 @@ mod blocking_surface {
     use grafton_visca::{
         blocking::{Session, SessionConfig},
         command::{
-            ExposureCommand, ExposureMode, ExposureModeInquiry, FocusZone, IrisControlInquiry,
-            PanTiltDirection,
+            ExposureCommand, ExposureMode, ExposureModeInquiry, FocusZone, PanTiltDirection,
         },
         profile::ProfileSpec,
         profiles::{PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300, SonyFR7},
@@ -114,8 +113,9 @@ mod blocking_surface {
 
     #[test]
     fn blocking_power_zoom_focus_and_menu_rows_keep_their_wire_identity() {
-        let (session, fake) = open();
-        let camera = session.camera::<SonyFR7>().expect("camera");
+        let (session, fake) =
+            open_with(ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"));
+        let camera = session.camera::<PtzOpticsG3>().expect("camera");
 
         camera.power().on().expect("power on");
         assert_eq!(fake.take_only_payload(), POWER_ON);
@@ -206,14 +206,47 @@ mod blocking_surface {
             .applied()
             .expect("optical target applied");
         assert_eq!(fake.take_only_payload(), ZOOM_NORMALIZED_OPTICAL_HALF);
+        let written = fake.writes().len();
+        assert!(matches!(
+            camera
+                .zoom()
+                .set_normalized(half, ZoomDomain::OpticalPlusDigital),
+            Err(Error::FeatureNotSupported { .. })
+        ));
+        assert_eq!(
+            fake.writes().len(),
+            written,
+            "FR7 has no sourced shared combined range"
+        );
+
+        session.shutdown().expect("shutdown");
+    }
+
+    #[test]
+    fn blocking_custom_combined_zoom_keeps_the_domain_specific_wire_identity() {
+        use grafton_visca_test_support::profile_fixtures::CombinedZoomTypedSupport;
+        let profile = ProfileSpec::from_compile_time::<CombinedZoomTypedSupport>()
+            .expect("caller-owned profile");
+        assert!(profile.capabilities().profile_id.is_none());
+        let (session, fake) = open_with(profile);
+        let camera = session
+            .camera::<CombinedZoomTypedSupport>()
+            .expect("custom camera");
+        let half = UnitInterval::new(0.5).expect("half");
+        camera
+            .zoom()
+            .set_normalized(half, ZoomDomain::Optical)
+            .expect("optical")
+            .applied()
+            .expect("applied");
+        assert_eq!(fake.take_only_payload(), ZOOM_NORMALIZED_OPTICAL_HALF);
         camera
             .zoom()
             .set_normalized(half, ZoomDomain::OpticalPlusDigital)
-            .expect("combined normalized zoom")
+            .expect("combined")
             .applied()
-            .expect("combined target applied");
+            .expect("applied");
         assert_eq!(fake.take_only_payload(), ZOOM_NORMALIZED_COMBINED_HALF);
-
         session.shutdown().expect("shutdown");
     }
 
@@ -246,7 +279,7 @@ mod blocking_surface {
         let (session, fake) = open();
         let camera = session.camera::<SonyFR7>().expect("camera");
 
-        assert!(camera.power().state().expect("power inquiry"));
+        assert!(camera.power().state().expect("power inquiry").is_on());
         assert_eq!(fake.take_only_payload(), POWER_INQUIRY);
         assert!(!camera.menu().status().expect("menu inquiry"));
         assert_eq!(fake.take_only_payload(), MENU_STATUS_INQUIRY);
@@ -371,39 +404,12 @@ mod blocking_surface {
         );
         session.shutdown().expect("shutdown");
     }
-
-    #[test]
-    fn blocking_direct_iris_control_inquiry_rejects_before_any_write() {
-        let (session, fake) =
-            open_with(ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"));
-        let camera = session.camera::<PtzOpticsG3>().expect("camera");
-
-        let error = camera
-            .inquire(&IrisControlInquiry)
-            .expect_err("G3 does not document the standard iris control-status inquiry");
-        assert!(matches!(
-            error,
-            Error::FeatureNotSupported {
-                feature: "typed inquiry IrisControlInquiry",
-                ..
-            }
-        ));
-        assert!(
-            fake.writes().is_empty(),
-            "rejected direct iris control-status inquiry must not reach the transport"
-        );
-
-        session.shutdown().expect("shutdown");
-    }
 }
 
 #[cfg(all(feature = "async", feature = "runtime-tokio"))]
 mod async_surface {
     use grafton_visca::{
-        command::{
-            ExposureCommand, ExposureMode, ExposureModeInquiry, IrisControlInquiry,
-            PanTiltDirection,
-        },
+        command::{ExposureCommand, ExposureMode, ExposureModeInquiry, PanTiltDirection},
         profile::ProfileSpec,
         profiles::{PtzOpticsG3, SonyBRC300, SonyFR7},
         transport::AddressingMode,
@@ -441,10 +447,10 @@ mod async_surface {
         let fake = probe_camera();
         let session = open_session(
             &fake,
-            ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7 profile"),
+            ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("FR7 profile"),
         )
         .await;
-        let camera = session.camera::<SonyFR7>().expect("camera");
+        let camera = session.camera::<PtzOpticsG3>().expect("camera");
 
         camera.power().on().await.expect("power on");
         assert_eq!(fake.take_only_payload(), POWER_ON);
@@ -559,16 +565,53 @@ mod async_surface {
             .await
             .expect("optical target applied");
         assert_eq!(fake.take_only_payload(), ZOOM_NORMALIZED_OPTICAL_HALF);
+        let written = fake.writes().len();
+        assert!(matches!(
+            camera
+                .zoom()
+                .set_normalized(half, ZoomDomain::OpticalPlusDigital)
+                .await,
+            Err(Error::FeatureNotSupported { .. })
+        ));
+        assert_eq!(
+            fake.writes().len(),
+            written,
+            "FR7 has no sourced shared combined range"
+        );
+
+        session.shutdown().expect("shutdown");
+    }
+
+    #[tokio::test]
+    async fn async_custom_combined_zoom_keeps_the_domain_specific_wire_identity() {
+        use grafton_visca_test_support::profile_fixtures::CombinedZoomTypedSupport;
+        let profile = ProfileSpec::from_compile_time::<CombinedZoomTypedSupport>()
+            .expect("caller-owned profile");
+        assert!(profile.capabilities().profile_id.is_none());
+        let fake = probe_camera();
+        let session = open_session(&fake, profile).await;
+        let camera = session
+            .camera::<CombinedZoomTypedSupport>()
+            .expect("custom camera");
+        let half = UnitInterval::new(0.5).expect("half");
+        camera
+            .zoom()
+            .set_normalized(half, ZoomDomain::Optical)
+            .await
+            .expect("optical")
+            .applied()
+            .await
+            .expect("applied");
+        assert_eq!(fake.take_only_payload(), ZOOM_NORMALIZED_OPTICAL_HALF);
         camera
             .zoom()
             .set_normalized(half, ZoomDomain::OpticalPlusDigital)
             .await
-            .expect("combined normalized zoom")
+            .expect("combined")
             .applied()
             .await
-            .expect("combined target applied");
+            .expect("applied");
         assert_eq!(fake.take_only_payload(), ZOOM_NORMALIZED_COMBINED_HALF);
-
         session.shutdown().expect("shutdown");
     }
 
@@ -615,7 +658,7 @@ mod async_surface {
         .await;
         let camera = session.camera::<SonyFR7>().expect("camera");
 
-        assert!(camera.power().state().await.expect("power inquiry"));
+        assert!(camera.power().state().await.expect("power inquiry").is_on());
         assert_eq!(fake.take_only_payload(), POWER_INQUIRY);
         assert!(!camera.menu().status().await.expect("menu inquiry"));
         assert_eq!(fake.take_only_payload(), MENU_STATUS_INQUIRY);
@@ -681,35 +724,6 @@ mod async_surface {
         session.shutdown().expect("shutdown");
     }
 
-    #[tokio::test]
-    async fn async_direct_iris_control_inquiry_rejects_before_any_write() {
-        let fake = probe_camera();
-        let session = open_session(
-            &fake,
-            ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"),
-        )
-        .await;
-        let camera = session.camera::<PtzOpticsG3>().expect("camera");
-
-        let error = camera
-            .inquire(&IrisControlInquiry)
-            .await
-            .expect_err("G3 does not document the standard iris control-status inquiry");
-        assert!(matches!(
-            error,
-            Error::FeatureNotSupported {
-                feature: "typed inquiry IrisControlInquiry",
-                ..
-            }
-        ));
-        assert!(
-            fake.writes().is_empty(),
-            "rejected direct iris control-status inquiry must not reach the transport"
-        );
-
-        session.shutdown().expect("shutdown");
-    }
-
     #[cfg(feature = "dyn-api")]
     #[tokio::test]
     async fn dynamic_unsupported_capability_fails_before_any_write() {
@@ -728,7 +742,7 @@ mod async_surface {
         assert!(matches!(
             error,
             Error::FeatureNotSupported {
-                feature: "digital zoom",
+                feature: "set_digital_zoom",
                 ..
             }
         ));
@@ -877,36 +891,6 @@ mod async_surface {
         session.shutdown().expect("shutdown");
     }
 
-    #[cfg(feature = "dyn-api")]
-    #[tokio::test]
-    async fn dynamic_iris_control_status_inquiry_requires_its_distinct_marker_before_any_write() {
-        let fake = probe_camera();
-        let session = open_session(
-            &fake,
-            ProfileSpec::from_compile_time::<PtzOpticsG3>().expect("G3 profile"),
-        )
-        .await;
-        let camera = session.camera_dyn().expect("dynamic camera");
-
-        let error = camera
-            .exposure()
-            .iris_control()
-            .await
-            .expect_err("G3 has no model-specific source-backed iris control-status inquiry");
-        assert!(matches!(
-            error,
-            Error::FeatureNotSupported {
-                feature: "typed inquiry IrisControlInquiry",
-                ..
-            }
-        ));
-        assert!(
-            fake.writes().is_empty(),
-            "a rejected dynamic iris control-status inquiry must not reach the transport"
-        );
-        session.shutdown().expect("shutdown");
-    }
-
     /// Unsupported image rows remain unavailable whether a profile lacks the
     /// base noun entirely or exposes only other, independently gated image
     /// rows. The erased facade must refuse them before reaching the transport.
@@ -942,11 +926,6 @@ mod async_surface {
                     .freeze_off()
                     .await
                     .expect_err("image freeze-off must be refused"),
-                camera
-                    .image()
-                    .defog_level()
-                    .await
-                    .expect_err("image defog must be refused"),
             ] {
                 assert!(
                     matches!(error, Error::FeatureNotSupported { .. }),
@@ -985,8 +964,8 @@ mod async_surface {
     }
 
     /// The FR7 exposes only the source-backed red/green tally rows.  Its
-    /// packed PTZOptics status, auto-adjust inquiry, brightness commands, and
-    /// tally-mode commands must remain runtime-gated on the erased surface.
+    /// brightness and tally-mode commands remain runtime-gated on the erased
+    /// surface.
     #[cfg(feature = "dyn-api")]
     #[tokio::test]
     async fn dynamic_fr7_unsupported_tally_rows_fail_before_any_write() {
@@ -1001,8 +980,6 @@ mod async_surface {
         for result in [
             camera.tally().bright_lo().await,
             camera.tally().bright_hi().await,
-            camera.tally().status().await.map(|_| ()),
-            camera.tally().auto_adjust_enabled().await.map(|_| ()),
             camera.tally().on().await,
             camera.tally().off().await,
             camera.tally().flash().await,

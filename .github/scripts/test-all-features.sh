@@ -77,8 +77,11 @@ readonly FEATURE_LEGS=(
     "default + serde|--features serde --all-targets"
     "blocking + test-utils|--features blocking,test-utils --all-targets"
     "runtime-neutral async|--no-default-features --features async --all-targets"
+    "runtime-neutral async + test-utils|--no-default-features --features async,test-utils --all-targets"
     "Tokio runtime|--no-default-features --features runtime-tokio --all-targets"
     "smol runtime|--no-default-features --features runtime-smol --all-targets"
+    "Tokio + test-utils|--no-default-features --features runtime-tokio,test-utils --all-targets"
+    "smol + test-utils|--no-default-features --features runtime-smol,test-utils --all-targets"
     "Tokio + smol runtimes|--no-default-features --features runtime-tokio,runtime-smol --all-targets"
     "blocking + Tokio|--no-default-features --features blocking,runtime-tokio --all-targets"
     "blocking + smol|--no-default-features --features blocking,runtime-smol --all-targets"
@@ -91,13 +94,10 @@ readonly FEATURE_LEGS=(
     "smol + Tokio serial API contract|--no-default-features --features runtime-smol,transport-serial-tokio --test api_stability_test"
     "Tokio + blocking serial transport|--no-default-features --features runtime-tokio,transport-serial --all-targets"
     "serde + schemars + ts-rs|--no-default-features --features serde,schemars,ts-rs --all-targets"
-    # `test-utils` alone proves the toolkit compiles with no facade selected; it
-    # cannot run it, because `ScriptedBlockingTransport` needs `blocking` and
-    # `ScriptedTransport`/`DeterministicExecutor` need `async`. The union below is
-    # the entry that actually executes the shipped toolkit and the tests built on
-    # it; without it the 53 test-utils tests (11 issue-566 scripted, 5 inquiry
-    # simulator, 4 timeout, 15 deterministic-executor, 11 scripted-transport,
-    # and 7 `testing::frame_tests`) run in no CI job at all.
+    # The facade-less shape compiles the shared script vocabulary. Dedicated
+    # runtime-free async, blocking, Tokio and smol test-utils legs execute their
+    # native virtual-time cases;
+    # the all-features job also runs their union.
     "test-utils|--no-default-features --features test-utils --all-targets"
     "test-utils + blocking + Tokio|--no-default-features --features test-utils,blocking,runtime-tokio --all-targets"
     "macro derives|-p grafton-visca-macros"
@@ -164,6 +164,10 @@ doc_args() {
     fi
     echo "${out[*]}"
 }
+
+if [[ "$MODE" == list-json || "$MODE" == test ]]; then
+    python3 "$(dirname "${BASH_SOURCE[0]}")/check-paused-matrix-tests.py" --self-test
+fi
 
 if [[ "$MODE" == list-json ]]; then
     for leg in "${FEATURE_LEGS[@]}"; do
@@ -265,6 +269,8 @@ test_leg() {
     cargo_stable test "${args[@]}" -- "${libtest_args[@]}" 2>&1 | tee "$log" || verdict=1
     if ((verdict == 0)); then
         check_engine_model_tests "$leg_name" "$log" || verdict=1
+        python3 "$(dirname "${BASH_SOURCE[0]}")/check-paused-matrix-tests.py" \
+            --command="$leg_command" "$log" || verdict=1
     fi
     rm -f "$log"
     return "$verdict"

@@ -43,7 +43,7 @@ impl AppliedStateAuthority {
     }
 }
 
-#[cfg(any(feature = "blocking", feature = "async"))]
+#[cfg(any(test, feature = "blocking", feature = "async"))]
 impl RequestContractAuthority {
     pub(crate) const fn new() -> Self {
         Self(private::SealedToken)
@@ -488,55 +488,23 @@ impl From<AffectedAxes> for u8 {
     }
 }
 
-/// A response-correlation route chosen before inquiry admission.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct InquiryRoute(u16);
-
-impl InquiryRoute {
-    /// The unclassified route used for raw custom inquiries.
-    pub const RAW: Self = Self(0);
-
-    /// Constructs an application-defined route.
-    #[must_use]
-    pub const fn custom(identifier: u16) -> Self {
-        Self(identifier)
-    }
-
-    /// Constructs an application-defined route, rejecting the reserved raw
-    /// FIFO identifier.
-    pub fn try_custom(identifier: u16) -> Result<Self> {
-        if identifier == 0 {
-            return Err(Error::InvalidRequest(
-                "inquiry route identifier 0 is reserved for InquiryRoute::RAW".into(),
-            ));
-        }
-        Ok(Self(identifier))
-    }
-
-    /// Returns whether this route requests the explicit raw FIFO path.
-    #[must_use]
-    pub const fn is_raw(self) -> bool {
-        self.0 == 0
-    }
-
-    /// Returns the stable route identifier.
-    #[must_use]
-    pub const fn identifier(self) -> u16 {
-        self.0
-    }
-}
-
 type SharedDecoder<R> = dyn Fn(&[u8]) -> Result<R> + Send + Sync + 'static;
 
 enum DecoderInner<R> {
     Function(fn(&[u8]) -> Result<R>),
+    Builtin {
+        kind: crate::command::InquiryKind,
+        framing: Option<crate::command::pan_tilt::PanTiltFraming>,
+        lift: fn(crate::command::Response) -> Result<R>,
+    },
     Shared(Arc<SharedDecoder<R>>),
 }
 
 /// An owned typed inquiry decoder.
 ///
-/// Function decoders are stored without allocation. Context-bearing decoders
-/// use shared immutable storage so a prepared request remains movable.
+/// Function decoders and built-in profile decoding facts are stored inline.
+/// Custom context-bearing decoders use shared immutable storage so a prepared
+/// request remains movable.
 pub struct ResponseDecoder<R> {
     inner: DecoderInner<R>,
 }
@@ -547,6 +515,23 @@ impl<R> ResponseDecoder<R> {
     pub const fn from_fn(decode: fn(&[u8]) -> Result<R>) -> Self {
         Self {
             inner: DecoderInner::Function(decode),
+        }
+    }
+
+    /// Store the canonical table decoder and its profile framing inline.
+    pub(crate) fn for_builtin_profile(
+        kind: crate::command::InquiryKind,
+        profile: &crate::ProfileSpec,
+        lift: fn(crate::command::Response) -> Result<R>,
+    ) -> Self {
+        Self {
+            inner: DecoderInner::Builtin {
+                kind,
+                framing: profile
+                    .pan_tilt_coordinates()
+                    .map(crate::command::pan_tilt::PanTiltFraming::for_conversion),
+                lift,
+            },
         }
     }
 
@@ -566,6 +551,27 @@ impl<R> ResponseDecoder<R> {
     pub fn decode(&self, payload: &[u8]) -> Result<R> {
         match &self.inner {
             DecoderInner::Function(decode) => decode(payload),
+            DecoderInner::Builtin {
+                kind,
+                framing,
+                lift,
+            } => {
+                use crate::command::{
+                    inquiry_structs, pan_tilt::PanTiltFraming, InquiryKind, Payload,
+                };
+                let framing = match (kind, framing) {
+                    (InquiryKind::PanTiltPosition, None) => {
+                        return Err(Error::FeatureNotSupported {
+                            feature: "pan/tilt coordinate conversion",
+                        });
+                    }
+                    (_, Some(framing)) => *framing,
+                    _ => PanTiltFraming::STANDARD,
+                };
+                inquiry_structs::dispatch_with_framing(*kind, Payload::new(payload), framing)
+                    .and_then(lift)
+                    .map_err(|error| inquiry_structs::reply_value_error(error, payload))
+            }
             DecoderInner::Shared(decode) => decode(payload),
         }
     }
@@ -575,6 +581,15 @@ impl<R> Clone for ResponseDecoder<R> {
     fn clone(&self) -> Self {
         let inner = match &self.inner {
             DecoderInner::Function(decode) => DecoderInner::Function(*decode),
+            DecoderInner::Builtin {
+                kind,
+                framing,
+                lift,
+            } => DecoderInner::Builtin {
+                kind: *kind,
+                framing: *framing,
+                lift: *lift,
+            },
             DecoderInner::Shared(decode) => DecoderInner::Shared(Arc::clone(decode)),
         };
         Self { inner }
@@ -585,6 +600,7 @@ impl<R> fmt::Debug for ResponseDecoder<R> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         let storage = match self.inner {
             DecoderInner::Function(_) => "function",
+            DecoderInner::Builtin { .. } => "inline-builtin",
             DecoderInner::Shared(_) => "shared-context",
         };
         formatter
@@ -599,7 +615,8 @@ pub trait Request: Send + Sync {
     /// Closed semantic request class.
     type Class: request::Class;
 
-    /// Maximum encoded byte length for this request type.
+    /// Maximum encoded byte length for this request type, including the target
+    /// address and final terminator. The encoder may write a shorter frame.
     const MAX_SIZE: usize;
     /// Deadline family for this request.
     const TIMEOUT_CLASS: TimeoutClass;
@@ -693,34 +710,45 @@ pub trait Request: Send + Sync {
         crate::raw::RawReplyShape::AckThenCompletion
     }
 
-    /// Returns the exact encoded byte length for this value.
-    #[must_use]
-    fn encoded_size(&self) -> usize {
-        Self::MAX_SIZE
-    }
-
     /// Returns the fixed encoded-size declaration used for owner admission.
     ///
     /// The default is exactly [`Self::MAX_SIZE`]. The hidden authority lets an
-    /// internal erased adapter project the original concrete request's bound
-    /// without allowing a downstream implementation to relax its static
-    /// declaration.
+    /// internal erased adapter project the original concrete request's bound,
+    /// or a crate-owned raw value tighten it to its already validated frame
+    /// length, without allowing a downstream implementation to relax its
+    /// static declaration.
     #[doc(hidden)]
     #[allow(private_interfaces)]
     fn declared_max_size(&self, _authority: RequestContractAuthority) -> usize {
         Self::MAX_SIZE
     }
 
-    /// Writes the complete terminated VISCA request into `buffer`.
+    /// Writes the complete terminated VISCA request into `buffer` and returns
+    /// the number of bytes written, at most [`Self::MAX_SIZE`].
     ///
     /// This is only the profile-free encoding hook: it receives the explicit
     /// target address, but not a [`crate::ProfileSpec`]. Do not use it for
     /// capability or profile-range validation. Shared preparation calls
-    /// [`Self::validate_for_profile`] first and encodes only after that check
+    /// [`Self::validate_for_target`] first and encodes only after that check
     /// succeeds.
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize>;
 
-    /// Validates value-specific capability and range facts before encoding.
+    /// Encodes a reviewed built-in request against the selected target.
+    ///
+    /// The private authority reserves profile-dependent packet selection for
+    /// crate-owned requests. Downstream requests retain their explicit bytes.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn write_for_target(
+        &self,
+        target: &crate::TargetRegistration,
+        buffer: &mut [u8],
+        _authority: RequestContractAuthority,
+    ) -> Result<usize> {
+        self.write_into(target.target(), buffer)
+    }
+
+    /// Validates target-specific capability, range and installation facts before encoding.
     ///
     /// Every request submitted through a direct generic or noun path reaches
     /// this hook during preparation, before encoding, owner admission, or
@@ -733,8 +761,15 @@ pub trait Request: Send + Sync {
     /// custom request with no profile-specific constraints may use the default.
     /// The direct generic APIs intentionally do not replace the noun/accessor
     /// `Has*` marker bounds with request-specific compile-time `P` bounds.
-    fn validate_for_profile(&self, _profile: &crate::ProfileSpec) -> Result<()> {
+    fn validate_for_target(&self, _target: &crate::TargetRegistration) -> Result<()> {
         Ok(())
+    }
+
+    /// Carries the largest reviewed built-in pan/tilt speed to owner admission.
+    #[doc(hidden)]
+    #[allow(private_interfaces)]
+    fn pan_tilt_max_speed(&self, _authority: RequestContractAuthority) -> Option<u8> {
+        None
     }
 
     /// Returns a crate-selected state effect for exact application.
@@ -774,18 +809,94 @@ pub(crate) fn applied_state_projection<R: Request + ?Sized>(
     request.applied_state_projection(AppliedStateAuthority::new())
 }
 
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) fn write_for_target<R: Request + ?Sized>(
+    request: &R,
+    target: &crate::TargetRegistration,
+    buffer: &mut [u8],
+) -> Result<usize> {
+    request.write_for_target(target, buffer, RequestContractAuthority::new())
+}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) fn pan_tilt_max_speed<R: Request + ?Sized>(request: &R) -> Option<u8> {
+    request.pan_tilt_max_speed(RequestContractAuthority::new())
+}
+
 /// A command with no physical-operation handle semantics.
 pub trait PlainCommand: Request<Class = request::Plain> {}
 
 impl<T> PlainCommand for T where T: Request<Class = request::Plain> + ?Sized {}
+
+/// Structural evidence describing an inquiry's decoded data payload.
+///
+/// Lengths count data bytes, excluding the VISCA address, reply header and
+/// terminator. Shape constrains framing and nibble width; the response decoder
+/// remains responsible for documented values, padding and profile ranges.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
+pub enum PayloadShape {
+    /// No declared structure. Admits every payload and overlaps every shape.
+    #[default]
+    Unknown,
+    /// Exactly this many data bytes, with unrestricted byte values.
+    Bytes(usize),
+    /// Exactly this many data bytes, each in `0x00..=0x0F`.
+    Nibbles(usize),
+}
+
+impl PayloadShape {
+    /// Returns whether decoded data satisfies this structural declaration.
+    #[must_use]
+    pub fn admits(self, payload: &[u8]) -> bool {
+        match self {
+            Self::Unknown => true,
+            Self::Bytes(length) => payload.len() == length,
+            Self::Nibbles(length) => {
+                payload.len() == length && payload.iter().all(|byte| *byte <= 0x0F)
+            }
+        }
+    }
+
+    /// Returns whether one payload could satisfy both shapes.
+    ///
+    /// Known shapes overlap exactly when their lengths agree. `Unknown`
+    /// overlaps every shape, so overlap is pairwise and is not transitive:
+    /// two different lengths each overlap `Unknown` without overlapping each other.
+    #[must_use]
+    pub const fn overlaps(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Unknown, _) | (_, Self::Unknown) => true,
+            (
+                Self::Bytes(left) | Self::Nibbles(left),
+                Self::Bytes(right) | Self::Nibbles(right),
+            ) => left == right,
+        }
+    }
+}
 
 /// A typed inquiry request.
 pub trait Inquiry: Request<Class = request::Inquiry> {
     /// Successfully decoded response value.
     type Response: Send + 'static;
 
-    /// Returns the response-correlation route.
-    fn route(&self) -> InquiryRoute;
+    /// Returns the structural shape accepted by this inquiry's decoder.
+    ///
+    /// Custom inquiries may declare a shape to supply correlation evidence for
+    /// raw VISCA replies. The default retains conservative positional behavior.
+    /// A raw target reserves at most 16 exact declarations across admitted
+    /// inquiries, unpaid replies and skew holds. A new declaration at that
+    /// limit fails with [`Error::InquiryShapeCapacityExhausted`]; releasing its
+    /// retained evidence frees a reservation. Equal-length declarations overlap
+    /// even when their byte/nibble restrictions differ.
+    fn payload_shape(&self) -> PayloadShape {
+        PayloadShape::Unknown
+    }
+
+    /// Selects profile-dependent reply framing during pure preparation.
+    #[doc(hidden)]
+    fn payload_shape_for_profile(&self, _profile: &crate::ProfileSpec) -> PayloadShape {
+        self.payload_shape()
+    }
 
     /// Returns the owned response decoder.
     fn decoder(&self) -> ResponseDecoder<Self::Response>;
@@ -914,5 +1025,109 @@ mod affected_axes_tests {
             AffectedAxes::from_bits(AffectedAxes::MOVEMENT.bits()).expect("MOVEMENT is non-empty"),
             AffectedAxes::MOVEMENT
         );
+    }
+}
+
+#[cfg(test)]
+mod payload_shape_tests {
+    use super::{Inquiry, PayloadShape, Request, ResponseDecoder};
+
+    #[test]
+    fn payload_shape_admission_checks_exact_length_and_every_nibble() {
+        assert_eq!(PayloadShape::default(), PayloadShape::Unknown);
+        for payload in [vec![], vec![0], vec![0xFF; 32]] {
+            assert!(PayloadShape::Unknown.admits(&payload));
+        }
+        assert!(PayloadShape::Bytes(0).admits(&[]));
+        assert!(PayloadShape::Nibbles(0).admits(&[]));
+        assert!(PayloadShape::Bytes(4).admits(&[0xFF; 4]));
+        assert!(PayloadShape::Nibbles(4).admits(&[0, 1, 14, 15]));
+        for length in [0, 1, 3, 5, 10] {
+            assert!(!PayloadShape::Bytes(4).admits(&vec![0; length]));
+            assert!(!PayloadShape::Nibbles(4).admits(&vec![0; length]));
+        }
+        for index in 0..4 {
+            for byte in 0x10..=u8::MAX {
+                let mut payload = [0; 4];
+                payload[index] = byte;
+                assert!(!PayloadShape::Nibbles(4).admits(&payload));
+                assert!(PayloadShape::Bytes(4).admits(&payload));
+            }
+        }
+        assert!(!PayloadShape::Bytes(usize::MAX).admits(&[]));
+        assert!(!PayloadShape::Nibbles(usize::MAX).admits(&[]));
+    }
+
+    #[test]
+    fn payload_shape_overlap_is_symmetric_and_pairwise_not_transitive() {
+        use PayloadShape::{Bytes, Nibbles, Unknown};
+        let shapes = [
+            Unknown,
+            Bytes(0),
+            Nibbles(0),
+            Bytes(1),
+            Nibbles(1),
+            Bytes(4),
+            Nibbles(4),
+        ];
+        let expected = [
+            [true, true, true, true, true, true, true],
+            [true, true, true, false, false, false, false],
+            [true, true, true, false, false, false, false],
+            [true, false, false, true, true, false, false],
+            [true, false, false, true, true, false, false],
+            [true, false, false, false, false, true, true],
+            [true, false, false, false, false, true, true],
+        ];
+        for (left_index, left) in shapes.into_iter().enumerate() {
+            for (right_index, right) in shapes.into_iter().enumerate() {
+                assert_eq!(
+                    left.overlaps(right),
+                    expected[left_index][right_index],
+                    "{left:?} against {right:?}"
+                );
+                assert_eq!(left.overlaps(right), right.overlaps(left));
+            }
+        }
+        const UNKNOWN_OVERLAPS_BYTE: bool = Unknown.overlaps(Bytes(1));
+        assert_eq!(UNKNOWN_OVERLAPS_BYTE, shapes[0].overlaps(shapes[3]));
+        assert!(Bytes(usize::MAX).overlaps(Nibbles(usize::MAX)));
+        assert!(!Bytes(usize::MAX).overlaps(Bytes(1)));
+    }
+
+    struct UndeclaredInquiry;
+
+    impl Request for UndeclaredInquiry {
+        type Class = crate::request::Inquiry;
+        const MAX_SIZE: usize = 4;
+        const TIMEOUT_CLASS: crate::TimeoutClass = crate::TimeoutClass::Inquiry;
+        const RETRY_CLASS: crate::RetryClass = crate::RetryClass::Never;
+        const CONTROL_CLASS: crate::ControlClass = crate::ControlClass::Normal;
+        fn write_into(&self, target: crate::CameraId, buffer: &mut [u8]) -> crate::Result<usize> {
+            let available = buffer.len();
+            let frame = buffer
+                .get_mut(..4)
+                .ok_or_else(|| crate::Error::buffer_too_small(4, available))?;
+            frame.copy_from_slice(&[target.to_address_byte(), 0x09, 0x04, 0xFF]);
+            Ok(4)
+        }
+    }
+
+    impl Inquiry for UndeclaredInquiry {
+        type Response = usize;
+        fn decoder(&self) -> ResponseDecoder<usize> {
+            ResponseDecoder::from_fn(|payload| Ok(payload.len()))
+        }
+    }
+
+    #[test]
+    fn custom_inquiries_default_to_unknown_shape_with_and_without_a_profile() -> crate::Result<()> {
+        let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()?;
+        assert_eq!(UndeclaredInquiry.payload_shape(), PayloadShape::Unknown);
+        assert_eq!(
+            UndeclaredInquiry.payload_shape_for_profile(&profile),
+            PayloadShape::Unknown
+        );
+        Ok(())
     }
 }

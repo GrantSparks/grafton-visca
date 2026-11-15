@@ -69,7 +69,7 @@ facade_matrix! {
                     .unwrap()
                     .state_cache();
                 match cache.value(StateKey::MulticastStreaming) {
-                    StateEntry::Set(value) if check <= id => assert_eq!(value.as_slice(), &[1]),
+                    StateEntry::Set(value) if check <= id => assert_eq!(value, grafton_visca::KnownState::MulticastStreaming(true)),
                     StateEntry::Unknown if check > id => {}
                     state => panic!("finishing target {id} changed target {check}: {state:?}"),
                 }

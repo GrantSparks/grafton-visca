@@ -6,8 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use smallvec::SmallVec;
-
+use crate::session_config::ValidatedTuning;
 #[cfg(test)]
 use crate::CameraId;
 use crate::{
@@ -24,12 +23,12 @@ use crate::{
     target::TargetSlot,
     timeout::CommandCategory,
     types::{FocusPosition, IrisLevel, ZoomPosition},
-    AffectedAxes, ControlClass, Inquiry, InquiryRoute, OperationCommand, OperationalTuning,
-    PlainCommand, ProfileSpec, Request, ResponseDecoder, RetryClass, SubmissionClass, TimeoutClass,
+    AffectedAxes, ControlClass, Inquiry, OperationCommand, OperationalTuning, PlainCommand,
+    ProfileSpec, Request, ResponseDecoder, RetryClass, SubmissionClass, TimeoutClass,
 };
 use crate::{Error, Result};
 
-use crate::raw::{INLINE_BYTES, MAX_BYTES};
+use crate::raw::MAX_BYTES;
 use crate::runtime::engine::{
     AppliedStateProjection, CancellationPolicy, ControlPolicy, EncodedMessage, ReplyShape,
     RequestContext, RetryPolicy, RuntimeRequest, TimeoutPolicy,
@@ -100,23 +99,48 @@ pub(crate) enum SettlementPlan {
     },
 }
 
+/// Wire bytes are owned during ordinary preparation. A polling template shares
+/// its already prepared bytes across repeated samples.
+#[derive(Debug)]
+enum PreparedWire {
+    Owned(EncodedMessage),
+    Shared(Arc<EncodedMessage>),
+}
+
+impl PreparedWire {
+    #[cfg(test)]
+    fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Owned(message) => message.as_bytes(),
+            Self::Shared(message) => message.as_bytes(),
+        }
+    }
+
+    fn into_shared(self) -> Arc<EncodedMessage> {
+        match self {
+            Self::Owned(message) => Arc::new(message),
+            Self::Shared(message) => message,
+        }
+    }
+}
+
 /// Reusable, inert lowering of one typed inquiry. Re-instantiation preserves
-/// the exact wire, route, decoder, target, and protocol policy selected during
+/// the exact wire, decoder, target, and protocol policy selected during
 /// operation preparation.
 #[derive(Debug, Clone)]
 pub(crate) struct PreparedInquiryTemplate<R> {
     wire: Arc<EncodedMessage>,
     context: RequestContext,
-    route: InquiryRoute,
+    payload_shape: crate::PayloadShape,
     decoder: ResponseDecoder<R>,
 }
 
 impl<R> PreparedInquiryTemplate<R> {
     pub(crate) fn instantiate(&self) -> PreparedInquiry<R> {
         PreparedInquiry {
-            wire: Arc::clone(&self.wire),
+            wire: PreparedWire::Shared(Arc::clone(&self.wire)),
             context: self.context,
-            route: self.route,
+            payload_shape: self.payload_shape,
             decoder: self.decoder.clone(),
         }
     }
@@ -131,49 +155,157 @@ impl SettlementPlan {
     }
 }
 
+/// One selected position inquiry and the answer from its preceding sample.
+/// Absence means no baseline has been sampled yet, never an omitted axis.
+#[derive(Debug, Clone)]
+pub(crate) struct PositionQuery<R> {
+    inquiry: PreparedInquiryTemplate<R>,
+    previous: Option<R>,
+}
+
+impl<R> PositionQuery<R> {
+    fn new(inquiry: PreparedInquiryTemplate<R>) -> Self {
+        Self {
+            inquiry,
+            previous: None,
+        }
+    }
+
+    pub(crate) fn instantiate(&self) -> PreparedInquiry<R> {
+        self.inquiry.instantiate()
+    }
+}
+
+pub(crate) trait PositionReading: Copy {
+    fn moved(self, previous: Self, tolerance: MovementTolerance) -> bool;
+}
+
+impl PositionReading for PanTiltPosition {
+    fn moved(self, previous: Self, tolerance: MovementTolerance) -> bool {
+        let (pan, tilt) = self.raw_values();
+        let (previous_pan, previous_tilt) = previous.raw_values();
+        let tolerance = u64::from(tolerance.pan_tilt.unsigned_abs());
+        (i64::from(pan) - i64::from(previous_pan)).unsigned_abs() > tolerance
+            || (i64::from(tilt) - i64::from(previous_tilt)).unsigned_abs() > tolerance
+    }
+}
+
+macro_rules! scalar_position_readings {
+    ($($type:ty => $field:ident),+ $(,)?) => {$(
+        impl PositionReading for $type {
+            fn moved(self, previous: Self, tolerance: MovementTolerance) -> bool {
+                u64::from(self.value().abs_diff(previous.value())) > u64::from(tolerance.$field)
+            }
+        }
+    )+};
+}
+
+scalar_position_readings! {
+    ZoomPosition => zoom, FocusPosition => focus, IrisLevel => iris, NdFilterValue => nd_filter,
+}
+
+impl<R: PositionReading> PositionQuery<R> {
+    /// Records a successful reply. A first sample needs a second one before
+    /// it can prove stability, so it conservatively reports movement.
+    pub(crate) fn record(&mut self, value: R, tolerance: MovementTolerance) -> bool {
+        self.previous
+            .replace(value)
+            .is_none_or(|previous| value.moved(previous, tolerance))
+    }
+}
+
 /// Complete set of typed position inquiries selected for one operation.
 #[derive(Debug, Clone)]
 pub(crate) struct PositionQueryPlan {
-    pub(crate) pan_tilt: Option<PreparedInquiryTemplate<PanTiltPosition>>,
-    pub(crate) zoom: Option<PreparedInquiryTemplate<ZoomPosition>>,
-    pub(crate) focus: Option<PreparedInquiryTemplate<FocusPosition>>,
-    pub(crate) iris: Option<PreparedInquiryTemplate<IrisLevel>>,
-    pub(crate) nd_filter: Option<PreparedInquiryTemplate<NdFilterValue>>,
+    pub(crate) pan_tilt: Option<PositionQuery<PanTiltPosition>>,
+    pub(crate) zoom: Option<PositionQuery<ZoomPosition>>,
+    pub(crate) focus: Option<PositionQuery<FocusPosition>>,
+    pub(crate) iris: Option<PositionQuery<IrisLevel>>,
+    pub(crate) nd_filter: Option<PositionQuery<NdFilterValue>>,
 }
 
 impl PositionQueryPlan {
+    /// Budget one complete sample from the exact inquiries the plan lowers.
+    /// Each inquiry's observer covers its own retry budget, and pacing may
+    /// delay its admission after the preceding query.
+    fn snapshot_budget(&self) -> Option<Duration> {
+        [
+            self.pan_tilt.as_ref().map(|query| &query.inquiry.context),
+            self.zoom.as_ref().map(|query| &query.inquiry.context),
+            self.focus.as_ref().map(|query| &query.inquiry.context),
+            self.iris.as_ref().map(|query| &query.inquiry.context),
+            self.nd_filter.as_ref().map(|query| &query.inquiry.context),
+        ]
+        .into_iter()
+        .flatten()
+        .try_fold(Duration::ZERO, |budget, context| {
+            budget
+                .checked_add(observation_timeout(context, context.timeout.inquiry.get()))?
+                .checked_add(context.control.minimum_spacing)
+        })
+    }
+
     fn prepare(
-        target: TargetSlot,
-        profile: &ProfileSpec,
-        tuning: OperationalTuning,
+        registration: &crate::TargetRegistration,
+        tuning: ValidatedTuning,
         axes: AffectedAxes,
     ) -> Result<Self> {
         Ok(Self {
             pan_tilt: axes
                 .contains(AffectedAxes::PAN_TILT)
-                .then(|| prepare_builtin_inquiry(&PanTiltPositionInquiry, target, profile, tuning))
+                .then(|| {
+                    prepare_inquiry(
+                        &PanTiltPositionInquiry,
+                        registration,
+                        tuning,
+                        ClassSelection::Request,
+                    )
+                })
                 .transpose()?
-                .map(PreparedInquiry::into_template),
+                .map(|prepared| PositionQuery::new(prepared.into_template())),
             zoom: axes
                 .contains(AffectedAxes::ZOOM)
-                .then(|| prepare_builtin_inquiry(&ZoomPositionInquiry, target, profile, tuning))
+                .then(|| {
+                    prepare_inquiry(
+                        &ZoomPositionInquiry,
+                        registration,
+                        tuning,
+                        ClassSelection::Request,
+                    )
+                })
                 .transpose()?
-                .map(PreparedInquiry::into_template),
+                .map(|prepared| PositionQuery::new(prepared.into_template())),
             focus: axes
                 .contains(AffectedAxes::FOCUS)
-                .then(|| prepare_builtin_inquiry(&FocusPositionInquiry, target, profile, tuning))
+                .then(|| {
+                    prepare_inquiry(
+                        &FocusPositionInquiry,
+                        registration,
+                        tuning,
+                        ClassSelection::Request,
+                    )
+                })
                 .transpose()?
-                .map(PreparedInquiry::into_template),
+                .map(|prepared| PositionQuery::new(prepared.into_template())),
             iris: axes
                 .contains(AffectedAxes::IRIS)
-                .then(|| prepare_builtin_inquiry(&IrisInquiry, target, profile, tuning))
+                .then(|| {
+                    prepare_inquiry(&IrisInquiry, registration, tuning, ClassSelection::Request)
+                })
                 .transpose()?
-                .map(PreparedInquiry::into_template),
+                .map(|prepared| PositionQuery::new(prepared.into_template())),
             nd_filter: axes
                 .contains(AffectedAxes::ND_FILTER)
-                .then(|| prepare_builtin_inquiry(&NdFilterInquiry, target, profile, tuning))
+                .then(|| {
+                    prepare_inquiry(
+                        &NdFilterInquiry,
+                        registration,
+                        tuning,
+                        ClassSelection::Request,
+                    )
+                })
                 .transpose()?
-                .map(PreparedInquiry::into_template),
+                .map(|prepared| PositionQuery::new(prepared.into_template())),
         })
     }
 }
@@ -185,11 +317,11 @@ impl PositionQueryPlan {
 /// observation and targeted-operation settlement cannot drift in either their
 /// profile admission checks or their selected wire queries.
 pub(crate) fn prepare_position_queries(
-    target: TargetSlot,
-    profile: &ProfileSpec,
-    tuning: OperationalTuning,
+    registration: &crate::TargetRegistration,
+    tuning: ValidatedTuning,
     axes: AffectedAxes,
 ) -> Result<PositionQueryPlan> {
+    let profile = registration.profile();
     if !profile.supports_axes(axes) {
         return Err(Error::FeatureNotSupported {
             feature: "selected motion axes are not supported by the profile",
@@ -200,52 +332,7 @@ pub(crate) fn prepare_position_queries(
             feature: "position inquiries required for the selected motion axes",
         });
     }
-    PositionQueryPlan::prepare(target, profile, tuning, axes)
-}
-
-/// One complete position sample for an explicitly selected axis set.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) struct PositionSnapshot {
-    pub(crate) pan_tilt: Option<PanTiltPosition>,
-    pub(crate) zoom: Option<ZoomPosition>,
-    pub(crate) focus: Option<FocusPosition>,
-    pub(crate) iris: Option<IrisLevel>,
-    pub(crate) nd_filter: Option<NdFilterValue>,
-}
-
-/// Pure selected-axis movement detector shared by both execution modes.
-///
-/// It exists only once a complete baseline snapshot was taken, so every
-/// comparison has a previous snapshot by construction.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct MotionDetector {
-    axes: AffectedAxes,
-    tolerance: MovementTolerance,
-    previous: PositionSnapshot,
-}
-
-impl MotionDetector {
-    /// Starts detection from `baseline`, which must hold every selected axis.
-    pub(crate) fn from_baseline(
-        axes: AffectedAxes,
-        tolerance: MovementTolerance,
-        baseline: PositionSnapshot,
-    ) -> Result<Self> {
-        baseline.validate(axes)?;
-        Ok(Self {
-            axes,
-            tolerance,
-            previous: baseline,
-        })
-    }
-
-    /// Whether any selected axis moved beyond its tolerance between the
-    /// previous snapshot and `snapshot`, which then becomes the previous one.
-    pub(crate) fn moved(&mut self, snapshot: PositionSnapshot) -> Result<bool> {
-        snapshot.validate(self.axes)?;
-        let previous = std::mem::replace(&mut self.previous, snapshot);
-        snapshots_moved(self.axes, self.tolerance, previous, snapshot)
-    }
+    PositionQueryPlan::prepare(registration, tuning, axes)
 }
 
 /// Temporal contract for one `is_moving` observation, shared by every facade
@@ -258,14 +345,14 @@ impl MotionDetector {
 /// least `window`, however quickly the camera answers each inquiry.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct MotionWindow {
-    query: MotionQuery,
+    window: Duration,
+    tolerance: MovementTolerance,
 }
 
 /// A [`MotionWindow`] whose baseline snapshot was received: the final
 /// snapshot may start at [`Self::final_not_before`].
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct OpenMotionWindow {
-    detector: MotionDetector,
     final_not_before: Instant,
 }
 
@@ -279,22 +366,26 @@ impl MotionWindow {
                 reason: "a movement observation needs a positive window".into(),
             });
         }
-        Ok(Self { query })
+        Ok(Self {
+            window: query.window,
+            tolerance: query.tolerance,
+        })
     }
 
-    /// The budget for both snapshots' inquiries, admission and replies, on
-    /// top of the window itself.
-    const INQUIRY_BUDGET: Duration = Duration::from_secs(30);
+    pub(crate) const fn tolerance(&self) -> MovementTolerance {
+        self.tolerance
+    }
 
     /// The single absolute budget for the whole observation: both snapshots'
     /// admission and replies plus the intervening wait.
-    pub(crate) fn budget(&self) -> Result<Duration> {
-        self.query
-            .window
-            .checked_add(Self::INQUIRY_BUDGET)
+    pub(crate) fn budget(&self, queries: &PositionQueryPlan) -> Result<Duration> {
+        queries
+            .snapshot_budget()
+            .and_then(|snapshot| snapshot.checked_mul(2))
+            .and_then(|snapshots| self.window.checked_add(snapshots))
             .ok_or_else(|| Error::InvalidParameter {
                 parameter: "MotionQuery::window",
-                value: format!("{:?}", self.query.window).into(),
+                value: format!("{:?}", self.window).into(),
                 reason: "the observation deadline is not representable".into(),
             })
     }
@@ -305,20 +396,14 @@ impl MotionWindow {
     /// and fails with [`Error::Timeout`] rather than reporting no movement.
     pub(crate) fn observe_baseline(
         self,
-        snapshot: PositionSnapshot,
         received_at: Instant,
         deadline: Instant,
     ) -> Result<OpenMotionWindow> {
-        let detector =
-            MotionDetector::from_baseline(self.query.axes, self.query.tolerance, snapshot)?;
         let final_not_before = received_at
-            .checked_add(self.query.window)
+            .checked_add(self.window)
             .filter(|not_before| *not_before < deadline)
             .ok_or_else(Error::query_timeout)?;
-        Ok(OpenMotionWindow {
-            detector,
-            final_not_before,
-        })
+        Ok(OpenMotionWindow { final_not_before })
     }
 }
 
@@ -328,19 +413,15 @@ impl OpenMotionWindow {
         self.final_not_before
     }
 
-    /// Compares the final snapshot, whose first inquiry started at
-    /// `started_at`, with the baseline. Returns whether movement was observed.
-    pub(crate) fn observe_final(
-        mut self,
-        snapshot: PositionSnapshot,
-        started_at: Instant,
-    ) -> Result<bool> {
+    /// Accepts the plan's final comparison, whose first inquiry started at
+    /// `started_at`, only once the observation window has elapsed.
+    pub(crate) fn observe_final(self, moving: bool, started_at: Instant) -> Result<bool> {
         if started_at < self.final_not_before {
             return Err(Error::InvalidState(
                 "final movement snapshot started before the observation window elapsed".into(),
             ));
         }
-        self.detector.moved(snapshot)
+        Ok(moving)
     }
 }
 
@@ -358,55 +439,23 @@ pub(crate) enum SettlementStep {
 ///
 /// A baseline snapshot, then one every `interval`, until two consecutive
 /// snapshots agree within tolerance, all before one absolute `deadline`. The
-/// driver supplies each snapshot and its owner-clock instant and performs the
-/// sleep this returns; every decision is made here.
+/// selected query slots compare their answers. The driver supplies that
+/// movement verdict and its owner-clock instant; this type selects the next
+/// pause or the deadline failure.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct SettlementPoll {
-    axes: AffectedAxes,
-    tolerance: MovementTolerance,
     interval: Duration,
     deadline: Instant,
-    detector: Option<MotionDetector>,
 }
 
 impl SettlementPoll {
-    pub(crate) const fn new(
-        axes: AffectedAxes,
-        tolerance: MovementTolerance,
-        interval: Duration,
-        deadline: Instant,
-    ) -> Self {
-        Self {
-            axes,
-            tolerance,
-            interval,
-            deadline,
-            detector: None,
-        }
+    pub(crate) const fn new(interval: Duration, deadline: Instant) -> Self {
+        Self { interval, deadline }
     }
 
-    /// Records the snapshot that finished at `now` and decides the next step.
-    ///
-    /// The baseline never settles on its own. Once the deadline has passed
-    /// with the axes still moving, the poll fails with [`Error::Timeout`]; a
-    /// pause is clipped to the deadline, and the driver's next inquiry
-    /// rechecks it before admission.
-    pub(crate) fn observe(
-        &mut self,
-        snapshot: PositionSnapshot,
-        now: Instant,
-    ) -> Result<SettlementStep> {
-        let moving = match &mut self.detector {
-            None => {
-                self.detector = Some(MotionDetector::from_baseline(
-                    self.axes,
-                    self.tolerance,
-                    snapshot,
-                )?);
-                true
-            }
-            Some(detector) => detector.moved(snapshot)?,
-        };
+    /// A plan's first sample always reports movement, so only two successful
+    /// agreeing samples can settle. Replies are compared in their own slots.
+    pub(crate) fn observe(&mut self, moving: bool, now: Instant) -> Result<SettlementStep> {
         if !moving {
             return Ok(SettlementStep::Settled);
         }
@@ -418,122 +467,21 @@ impl SettlementPoll {
     }
 }
 
-impl PositionSnapshot {
-    fn validate(self, axes: AffectedAxes) -> Result<()> {
-        let complete = (!axes.contains(AffectedAxes::PAN_TILT) || self.pan_tilt.is_some())
-            && (!axes.contains(AffectedAxes::ZOOM) || self.zoom.is_some())
-            && (!axes.contains(AffectedAxes::FOCUS) || self.focus.is_some())
-            && (!axes.contains(AffectedAxes::IRIS) || self.iris.is_some())
-            && (!axes.contains(AffectedAxes::ND_FILTER) || self.nd_filter.is_some());
-        if complete {
-            Ok(())
-        } else {
-            Err(Error::InvalidState(
-                "position snapshot omitted a selected settlement axis".into(),
-            ))
-        }
-    }
-}
-
-fn snapshots_moved(
-    axes: AffectedAxes,
-    tolerance: MovementTolerance,
-    previous: PositionSnapshot,
-    current: PositionSnapshot,
-) -> Result<bool> {
-    if axes.contains(AffectedAxes::PAN_TILT) {
-        let (previous_pan, previous_tilt) = previous
-            .pan_tilt
-            .ok_or_else(|| {
-                Error::InvalidState("previous snapshot omitted selected pan/tilt".into())
-            })?
-            .raw_values();
-        let (current_pan, current_tilt) = current
-            .pan_tilt
-            .ok_or_else(|| {
-                Error::InvalidState("current snapshot omitted selected pan/tilt".into())
-            })?
-            .raw_values();
-        let tolerance = u64::from(tolerance.pan_tilt.unsigned_abs());
-        if (i64::from(previous_pan) - i64::from(current_pan)).unsigned_abs() > tolerance
-            || (i64::from(previous_tilt) - i64::from(current_tilt)).unsigned_abs() > tolerance
-        {
-            return Ok(true);
-        }
-    }
-    if axes.contains(AffectedAxes::ZOOM) {
-        let previous = previous
-            .zoom
-            .ok_or_else(|| Error::InvalidState("previous snapshot omitted selected zoom".into()))?
-            .value();
-        let current = current
-            .zoom
-            .ok_or_else(|| Error::InvalidState("current snapshot omitted selected zoom".into()))?
-            .value();
-        if previous.abs_diff(current) > tolerance.zoom {
-            return Ok(true);
-        }
-    }
-    if axes.contains(AffectedAxes::FOCUS) {
-        let previous = previous
-            .focus
-            .ok_or_else(|| Error::InvalidState("previous snapshot omitted selected focus".into()))?
-            .value();
-        let current = current
-            .focus
-            .ok_or_else(|| Error::InvalidState("current snapshot omitted selected focus".into()))?
-            .value();
-        if previous.abs_diff(current) > tolerance.focus {
-            return Ok(true);
-        }
-    }
-    if axes.contains(AffectedAxes::IRIS) {
-        let previous = previous
-            .iris
-            .ok_or_else(|| Error::InvalidState("previous snapshot omitted selected iris".into()))?
-            .value();
-        let current = current
-            .iris
-            .ok_or_else(|| Error::InvalidState("current snapshot omitted selected iris".into()))?
-            .value();
-        if u16::from(previous.abs_diff(current)) > tolerance.iris {
-            return Ok(true);
-        }
-    }
-    if axes.contains(AffectedAxes::ND_FILTER) {
-        let previous = previous
-            .nd_filter
-            .ok_or_else(|| {
-                Error::InvalidState("previous snapshot omitted selected ND filter".into())
-            })?
-            .value();
-        let current = current
-            .nd_filter
-            .ok_or_else(|| {
-                Error::InvalidState("current snapshot omitted selected ND filter".into())
-            })?
-            .value();
-        if previous.abs_diff(current) > tolerance.nd_filter {
-            return Ok(true);
-        }
-    }
-    Ok(false)
-}
-
 /// A fully lowered ordinary command.
 #[derive(Debug)]
 pub(crate) struct PreparedCommand {
-    wire: Arc<EncodedMessage>,
+    wire: PreparedWire,
     context: RequestContext,
+    reply_shape: ReplyShape,
     applied_state: Option<AppliedStateProjection>,
 }
 
 /// A fully lowered typed inquiry. Decoding remains outside the engine.
 #[derive(Debug)]
 pub(crate) struct PreparedInquiry<R> {
-    wire: Arc<EncodedMessage>,
+    wire: PreparedWire,
     context: RequestContext,
-    route: InquiryRoute,
+    payload_shape: crate::PayloadShape,
     decoder: ResponseDecoder<R>,
 }
 
@@ -543,8 +491,9 @@ pub(crate) struct PreparedOperation<K>
 where
     K: completion::Kind,
 {
-    wire: Arc<EncodedMessage>,
+    wire: PreparedWire,
     context: RequestContext,
+    reply_shape: ReplyShape,
     affected_axes: AffectedAxes,
     settlement: completion::Settlement<K>,
     applied_state: Option<AppliedStateProjection>,
@@ -552,12 +501,12 @@ where
 }
 
 pub(crate) fn lower_targeted_settlement(
-    target: TargetSlot,
-    profile: &ProfileSpec,
-    tuning: OperationalTuning,
+    registration: &crate::TargetRegistration,
+    tuning: ValidatedTuning,
     axes: AffectedAxes,
     default_budget: Duration,
 ) -> Result<SettlementPlan> {
+    let profile = registration.profile();
     if !profile.supports_axes(axes) {
         return Err(Error::FeatureNotSupported {
             feature: "affected operation axes are not supported by the profile",
@@ -572,9 +521,10 @@ pub(crate) fn lower_targeted_settlement(
         });
     }
     Ok(SettlementPlan::Poll {
-        queries: prepare_position_queries(target, profile, tuning, axes)?,
+        queries: prepare_position_queries(registration, tuning, axes)?,
         tolerance: MovementTolerance::default(),
         interval: tuning
+            .get()
             .inquiry_spacing_override()
             .unwrap_or_else(|| profile.timing().minimum_inquiry_spacing())
             .max(Duration::from_millis(25)),
@@ -583,12 +533,12 @@ pub(crate) fn lower_targeted_settlement(
 }
 
 pub(crate) fn lower_applied_only_settlement(
-    _target: TargetSlot,
-    profile: &ProfileSpec,
-    _tuning: OperationalTuning,
+    registration: &crate::TargetRegistration,
+    _tuning: ValidatedTuning,
     axes: AffectedAxes,
     _default_budget: Duration,
 ) -> Result<()> {
+    let profile = registration.profile();
     if profile.supports_axes(axes) {
         Ok(())
     } else {
@@ -601,9 +551,8 @@ pub(crate) fn lower_applied_only_settlement(
 /// Prepares a generic plain command through the shared lowering path.
 pub(crate) fn prepare_command<C>(
     command: &C,
-    target: TargetSlot,
-    profile: &ProfileSpec,
-    tuning: OperationalTuning,
+    registration: &crate::TargetRegistration,
+    tuning: ValidatedTuning,
     class: ClassSelection,
 ) -> Result<PreparedCommand>
 where
@@ -611,8 +560,7 @@ where
 {
     prepare_command_with_state(
         command,
-        target,
-        profile,
+        registration,
         tuning,
         class,
         crate::requests::applied_state_projection(command),
@@ -623,38 +571,36 @@ where
 #[cfg(test)]
 pub(crate) fn prepare_builtin_command<C>(
     command: &C,
-    target: TargetSlot,
-    profile: &ProfileSpec,
-    tuning: OperationalTuning,
+    registration: &crate::TargetRegistration,
+    tuning: ValidatedTuning,
 ) -> Result<PreparedCommand>
 where
     C: PlainCommand + crate::request::builtin::BuiltinValidation + ?Sized,
 {
-    prepare_command(command, target, profile, tuning, ClassSelection::Request)
+    prepare_command(command, registration, tuning, ClassSelection::Request)
 }
 
 fn prepare_command_with_state<C>(
     command: &C,
-    target: TargetSlot,
-    profile: &ProfileSpec,
-    tuning: OperationalTuning,
+    registration: &crate::TargetRegistration,
+    tuning: ValidatedTuning,
     class: ClassSelection,
     applied_state: Option<AppliedStateProjection>,
 ) -> Result<PreparedCommand>
 where
     C: PlainCommand + ?Sized,
 {
-    profile.validate_tuning(tuning)?;
     validate_timeout_class(command.timeout_class(), false)?;
-    command.validate_for_profile(profile)?;
-    let wire = encode(command, target)?;
-    let mut context = request_context(command, target, profile, tuning, class, false, false)?;
+    command.validate_for_target(registration)?;
+    let wire = encode(command, registration)?;
+    let mut context = request_context(command, registration, tuning, class, false)?;
     context.motion = command
         .motion_axes()
         .map(|axes| crate::runtime::engine::MotionEffect { axes, stop: false });
     Ok(PreparedCommand {
         wire,
         context,
+        reply_shape: lower_reply_shape(command.reply_shape()),
         applied_state,
     })
 }
@@ -662,57 +608,14 @@ where
 /// Prepares a generic typed inquiry through the shared lowering path.
 pub(crate) fn prepare_inquiry<Q>(
     inquiry: &Q,
-    target: TargetSlot,
-    profile: &ProfileSpec,
-    tuning: OperationalTuning,
+    registration: &crate::TargetRegistration,
+    tuning: ValidatedTuning,
     class: ClassSelection,
 ) -> Result<PreparedInquiry<Q::Response>>
 where
     Q: Inquiry + ?Sized,
 {
-    prepare_inquiry_with_policy(
-        inquiry,
-        target,
-        profile,
-        tuning,
-        class,
-        crate::requests::builtin_inquiry_syntax_retry(inquiry),
-    )
-}
-
-/// Prepares a crate-generated inquiry with its closed protocol retry policy.
-pub(crate) fn prepare_builtin_inquiry<Q>(
-    inquiry: &Q,
-    target: TargetSlot,
-    profile: &ProfileSpec,
-    tuning: OperationalTuning,
-) -> Result<PreparedInquiry<Q::Response>>
-where
-    Q: Inquiry + BuiltinInquiryRequest + ?Sized,
-{
-    prepare_inquiry_with_policy(
-        inquiry,
-        target,
-        profile,
-        tuning,
-        ClassSelection::Request,
-        true,
-    )
-}
-
-pub(crate) trait BuiltinInquiryRequest: Inquiry {}
-
-fn prepare_inquiry_with_policy<Q>(
-    inquiry: &Q,
-    target: TargetSlot,
-    profile: &ProfileSpec,
-    tuning: OperationalTuning,
-    class: ClassSelection,
-    builtin_inquiry_syntax: bool,
-) -> Result<PreparedInquiry<Q::Response>>
-where
-    Q: Inquiry + ?Sized,
-{
+    let profile = registration.profile();
     // An inquiry has exactly one protocol lifecycle: its reply is the
     // terminal evidence. Do not merely ignore a downstream override here;
     // doing so would let an erased/custom inquiry advertise a reply shape the
@@ -728,7 +631,6 @@ where
         ));
     }
     validate_timeout_class(inquiry.timeout_class(), true)?;
-    profile.validate_tuning(tuning)?;
     if matches!(
         profile.capabilities().inquiry_support,
         crate::capabilities::InquirySupport::None
@@ -737,21 +639,14 @@ where
             feature: "VISCA inquiries",
         });
     }
-    inquiry.validate_for_profile(profile)?;
-    let wire = encode(inquiry, target)?;
-    let context = request_context(
-        inquiry,
-        target,
-        profile,
-        tuning,
-        class,
-        true,
-        builtin_inquiry_syntax,
-    )?;
+    inquiry.validate_for_target(registration)?;
+    let wire = encode(inquiry, registration)?;
+    let mut context = request_context(inquiry, registration, tuning, class, true)?;
+    context.retry.builtin_inquiry_syntax = crate::requests::builtin_inquiry_syntax_retry(inquiry);
     Ok(PreparedInquiry {
         wire,
         context,
-        route: inquiry.route(),
+        payload_shape: inquiry.payload_shape_for_profile(profile),
         decoder: inquiry.decoder_for_profile(profile),
     })
 }
@@ -759,9 +654,8 @@ where
 /// Prepares a generic operation through the shared lowering path.
 pub(crate) fn prepare_operation<K, O>(
     operation: &O,
-    target: TargetSlot,
-    profile: &ProfileSpec,
-    tuning: OperationalTuning,
+    registration: &crate::TargetRegistration,
+    tuning: ValidatedTuning,
     class: ClassSelection,
 ) -> Result<PreparedOperation<K>>
 where
@@ -770,8 +664,7 @@ where
 {
     prepare_operation_with_state(
         operation,
-        target,
-        profile,
+        registration,
         tuning,
         class,
         crate::requests::applied_state_projection(operation),
@@ -782,22 +675,20 @@ where
 #[cfg(test)]
 pub(crate) fn prepare_builtin_operation<K, O>(
     operation: &O,
-    target: TargetSlot,
-    profile: &ProfileSpec,
-    tuning: OperationalTuning,
+    registration: &crate::TargetRegistration,
+    tuning: ValidatedTuning,
 ) -> Result<PreparedOperation<K>>
 where
     K: completion::Kind,
     O: OperationCommand<K> + crate::request::builtin::BuiltinValidation + ?Sized,
 {
-    prepare_operation::<K, _>(operation, target, profile, tuning, ClassSelection::Request)
+    prepare_operation::<K, _>(operation, registration, tuning, ClassSelection::Request)
 }
 
 fn prepare_operation_with_state<K, O>(
     operation: &O,
-    target: TargetSlot,
-    profile: &ProfileSpec,
-    tuning: OperationalTuning,
+    registration: &crate::TargetRegistration,
+    tuning: ValidatedTuning,
     class: ClassSelection,
     applied_state: Option<AppliedStateProjection>,
 ) -> Result<PreparedOperation<K>>
@@ -805,6 +696,7 @@ where
     K: completion::Kind,
     O: OperationCommand<K> + ?Sized,
 {
+    let profile = registration.profile();
     // An operation handle's `applied()` is a protocol-evidence promise. A
     // no-reply command can prove only a successful local write, so keep that
     // fire-and-forget shape on the plain-command path even for downstream or
@@ -816,14 +708,13 @@ where
         ));
     }
     validate_timeout_class(operation.timeout_class(), false)?;
-    profile.validate_tuning(tuning)?;
     // Domain/profile admission must complete before lowering settlement
     // inquiries or encoding the command.  In particular, an unsupported
     // targeted built-in must not even prepare an inquiry plan as a side
     // effect of discovering that its operation class is unavailable.
-    operation.validate_for_profile(profile)?;
+    operation.validate_for_target(registration)?;
     let affected_axes = operation.affected_axes();
-    let mut context = request_context(operation, target, profile, tuning, class, false, false)?;
+    let mut context = request_context(operation, registration, tuning, class, false)?;
     let stop = context.control.class == crate::runtime::engine::ControlClass::Urgent;
     context.motion = Some(crate::runtime::engine::MotionEffect {
         axes: affected_axes,
@@ -837,20 +728,20 @@ where
         // promptly. Capacity rejections (`0x03`/`0x05`) still retry (#795).
         context.retry.movement_not_executable = false;
     }
-    let settlement = K::lower_settlement(
-        target.camera(),
-        profile,
+    let settlement = completion::lower_settlement::<K>(
+        registration,
         tuning,
         affected_axes,
         observation_timeout(
             &context,
-            settlement_budget(operation.timeout_class(), profile, tuning),
+            settlement_budget(operation.timeout_class(), profile, tuning.get()),
         ),
     )?;
-    let wire = encode(operation, target)?;
+    let wire = encode(operation, registration)?;
     Ok(PreparedOperation {
         wire,
         context,
+        reply_shape: lower_reply_shape(operation.reply_shape()),
         affected_axes,
         settlement,
         applied_state,
@@ -858,31 +749,40 @@ where
     })
 }
 
-fn encode<R>(request: &R, target: TargetSlot) -> Result<Arc<EncodedMessage>>
+fn encode<R>(request: &R, registration: &crate::TargetRegistration) -> Result<PreparedWire>
 where
     R: Request + ?Sized,
 {
-    let size = request.encoded_size();
-    if size == 0 || size > crate::requests::declared_max_size(request) || size > MAX_BYTES {
+    let target = registration.slot();
+    let profile = registration.profile();
+    let declared_max = crate::requests::declared_max_size(request);
+    let capacity = declared_max.min(MAX_BYTES);
+    if capacity < 2 {
         return Err(Error::InvalidRequest(
-            "encoded_size must be non-zero and no larger than MAX_SIZE or the protocol bound"
-                .into(),
+            "MAX_SIZE must allow a VISCA target address and message body".into(),
         ));
     }
-    let mut bytes = SmallVec::<[u8; INLINE_BYTES]>::from_elem(0, size);
-    let written = request.write_into(target.camera(), &mut bytes)?;
-    if written != size || written > bytes.len() {
-        return Err(Error::InvalidRequest(
-            "write_into must report exactly encoded_size bytes within the supplied buffer".into(),
+    let message = EncodedMessage::encode(capacity, |bytes| {
+        let written = match crate::requests::write_for_target(request, registration, bytes) {
+            Err(Error::BufferTooSmall { required, .. }) if required > capacity => {
+                return Err(Error::InvalidRequest(
+                format!("encoded request needs {required} bytes, exceeding MAX_SIZE ({declared_max}) or raw::MAX_BYTES ({MAX_BYTES})").into(),
+            ));
+            }
+            result => result?,
+        };
+        if written > capacity {
+            return Err(Error::InvalidRequest(
+            format!("write_into reported {written} bytes, exceeding MAX_SIZE ({declared_max}) or raw::MAX_BYTES ({MAX_BYTES})").into(),
         ));
-    }
-    if written < 2 {
-        return Err(Error::InvalidRequest(
-            "encoded request must contain a VISCA target address and message body".into(),
-        ));
-    }
-    if bytes[0] != target.camera().to_address_byte() {
-        return Err(Error::InvalidRequest(
+        }
+        if written < 2 {
+            return Err(Error::InvalidRequest(
+                "encoded request must contain a VISCA target address and message body".into(),
+            ));
+        }
+        if bytes[0] != target.camera().to_address_byte() {
+            return Err(Error::InvalidRequest(
             format!(
                 "request targets VISCA address 0x{:02x}, but the selected camera target is {} (0x{:02x})",
                 bytes[0],
@@ -891,30 +791,27 @@ where
             )
             .into(),
         ));
-    }
+        }
+        Ok(written)
+    })?;
     // The raw namespace and downstream `Request` implementations share this
     // final owner-only primitive guard.  Constructing the inert message first
     // preserves the existing terminator/size validation order; a rejection
     // here returns before the prepared request can be admitted or written to a
     // transport.
-    let message = EncodedMessage::new(&bytes[..written])?;
     crate::raw::reject_owner_only_primitive(message.as_bytes())?;
-    Ok(Arc::new(message))
+    let maximum = profile.maximum_request_bytes();
+    if message.as_bytes().len() > maximum {
+        return Err(Error::InvalidRequest(format!(
+            "encoded request has {} bytes, exceeding this profile's supported envelope payload bound ({maximum})",
+            message.as_bytes().len(),
+        ).into()));
+    }
+    Ok(PreparedWire::Owned(message))
 }
 
 fn validate_timeout_class(class: TimeoutClass, inquiry: bool) -> Result<()> {
-    let valid = if inquiry {
-        matches!(class, TimeoutClass::Inquiry)
-    } else {
-        matches!(
-            class,
-            TimeoutClass::Quick
-                | TimeoutClass::Movement
-                | TimeoutClass::Preset
-                | TimeoutClass::LongRunning
-                | TimeoutClass::Network
-        )
-    };
+    let valid = CommandCategory::of(class).is_none() == inquiry;
     if valid {
         Ok(())
     } else {
@@ -926,30 +823,31 @@ fn validate_timeout_class(class: TimeoutClass, inquiry: bool) -> Result<()> {
 
 fn request_context<R>(
     request: &R,
-    target: TargetSlot,
-    profile: &ProfileSpec,
-    tuning: OperationalTuning,
+    registration: &crate::TargetRegistration,
+    tuning: ValidatedTuning,
     class: ClassSelection,
     inquiry: bool,
-    builtin_inquiry_syntax: bool,
 ) -> Result<RequestContext>
 where
     R: Request + ?Sized,
 {
+    let target = registration.slot();
+    let profile = registration.profile();
+    let tuning = tuning.get();
     let timing = profile.timing();
     let completion = completion_timeout(request.timeout_class(), profile, tuning);
     let inquiry_timeout = tuning
         .inquiry_timeout_override()
         .unwrap_or(timing.inquiry_timeout());
-    let timeout = TimeoutPolicy {
-        ack: tuning
+    let timeout = TimeoutPolicy::new(
+        tuning
             .ack_timeout_override()
             .unwrap_or(timing.ack_timeout()),
         completion,
-        inquiry: inquiry_timeout,
-        cancellation: timing.cancellation_timeout(),
-        ambiguity: timing.ambiguity_timeout(),
-    };
+        inquiry_timeout,
+        timing.cancellation_timeout(),
+        timing.ambiguity_timeout(),
+    )?;
     let spacing = if inquiry {
         tuning
             .inquiry_spacing_override()
@@ -961,11 +859,15 @@ where
     };
     let reply_shape = lower_reply_shape(request.reply_shape());
     let governing_deadline = if inquiry {
-        timeout.inquiry
+        timeout.inquiry.get()
     } else {
         command_attempt_timeout(&timeout, reply_shape)
     };
     Ok(RequestContext {
+        requires_extended_pan_tilt_speed: profile.pan_tilt_coordinates().is_some_and(
+            |conversion| conversion.wire_codec() == crate::capabilities::PanTiltWireCodec::SonyFr7,
+        ) && crate::requests::pan_tilt_max_speed(request)
+            .is_some_and(|speed| speed > 24),
         motion: None,
         submission_order: 0,
         dispatch_deadline: None,
@@ -977,13 +879,12 @@ where
             tuning,
             timing.busy_timeout(),
             if inquiry {
-                timeout.inquiry
+                timeout.inquiry.get()
             } else {
-                timeout.completion
+                timeout.completion.get()
             },
             governing_deadline,
-            builtin_inquiry_syntax,
-        ),
+        )?,
         control: ControlPolicy {
             class: lower_control(class.resolve(crate::requests::admission_control_class(request)?)),
             minimum_spacing: spacing,
@@ -993,12 +894,6 @@ where
         } else {
             CancellationPolicy::Unsupported
         },
-        // The reply shape is a caller-declared protocol fact, lowered here from
-        // the request rather than inferred from the wire bytes. Inquiry
-        // preparation has already rejected every non-default shape, so an
-        // inquiry's value is the protocol it actually awaits rather than an
-        // override the engine silently ignores.
-        reply_shape,
     })
 }
 
@@ -1030,11 +925,11 @@ fn settlement_budget(
 
 /// Bounded retry count for one timeout category.
 ///
-/// Budgets are keyed on the request's [`TimeoutClass`]: quick work gets two extra attempts because
-/// it is cheap to replay, network work gets one fewer because a failing link rarely recovers within
-/// a retry, and a long-running command gets exactly one attempt to spare the camera a second
-/// multi-minute operation. Inquiries retain their own retry class while their response deadline is
-/// selected from the inquiry timing fact.
+/// Quick work and inquiries get two extra retries; network work gets one fewer
+/// (with a minimum of one). Long-running work permits one retry, hence at most
+/// two attempts. Replay eligibility narrows these bounds: a command is never
+/// rewritten after its ACK, and an ambiguous successfully sent raw command is
+/// not replayed. Inquiries retain their own retry class and response deadline.
 const fn retry_budget(base: u32, class: TimeoutClass) -> u32 {
     match class {
         TimeoutClass::Quick | TimeoutClass::Inquiry => base.saturating_add(2),
@@ -1063,8 +958,7 @@ fn retry_policy(
     busy_timeout: Duration,
     deadline: Duration,
     attempt: Duration,
-    builtin_inquiry_syntax: bool,
-) -> RetryPolicy {
+) -> Result<RetryPolicy> {
     let bounds =
         tuning.lengthen_retry_bounds(RetryBounds::for_request(busy_timeout, deadline, attempt));
     let base = tuning.reduce_retry_base(DEFAULT_RETRY_BASE);
@@ -1082,18 +976,20 @@ fn retry_policy(
     // envelope (#795): `completion_timeout` only governs a command that has no
     // ACK phase.
     let replayable = !matches!(retry_class, RetryClass::Never);
-    RetryPolicy {
+    Ok(RetryPolicy {
         max_retries,
         initial_backoff: bounds.initial_backoff,
         maximum_backoff: bounds.maximum_backoff,
-        total_budget: bounds.total_budget,
+        total_budget: Some(crate::runtime::engine::NonZeroDuration::new(
+            bounds.total_budget,
+        )?),
         ack_timeout: replayable,
         completion_timeout: replayable,
         inquiry_timeout: matches!(retry_class, RetryClass::Inquiry),
         buffer_full: replayable,
         movement_not_executable: matches!(retry_class, RetryClass::Movement | RetryClass::Preset),
-        builtin_inquiry_syntax,
-    }
+        builtin_inquiry_syntax: false,
+    })
 }
 
 const fn lower_control(class: ControlClass) -> crate::runtime::engine::ControlClass {
@@ -1117,10 +1013,11 @@ impl PreparedCommand {
     pub(crate) fn admit_with<T>(self, admit: impl FnOnce(RuntimeRequest, Duration) -> T) -> T {
         let timeout = observation_timeout(
             &self.context,
-            command_attempt_timeout(&self.context.timeout, self.context.reply_shape),
+            command_attempt_timeout(&self.context.timeout, self.reply_shape),
         );
         let request = RuntimeRequest::Command {
-            wire: self.wire,
+            reply_shape: self.reply_shape,
+            wire: self.wire.into_shared(),
             context: self.context,
             applied_state: self.applied_state,
         };
@@ -1142,31 +1039,30 @@ pub(crate) struct OperationTimeouts {
 /// An observer that expires while its request can still be retried would turn
 /// detach into an unintentional physical fire-and-forget operation. Keep the
 /// command, operation, and inquiry paths on this one rule: an automatic retry
-/// can never outlive the default observer. A zero total budget remains the
-/// engine's explicit no-total-budget mode and therefore leaves the governing
-/// deadline unchanged.
+/// can never outlive the default observer. A policy without a total budget
+/// leaves the governing deadline unchanged.
 fn command_attempt_timeout(timeout: &TimeoutPolicy, shape: ReplyShape) -> Duration {
     match shape {
-        ReplyShape::AckThenCompletion => timeout.ack.saturating_add(timeout.completion),
-        ReplyShape::CompletionOnly | ReplyShape::NoReply => timeout.completion,
+        ReplyShape::AckThenCompletion => timeout.ack.get().saturating_add(timeout.completion.get()),
+        ReplyShape::CompletionOnly | ReplyShape::NoReply => timeout.completion.get(),
     }
 }
 
 fn observation_timeout(context: &RequestContext, governing_deadline: Duration) -> Duration {
-    let timeout = governing_deadline.max(context.retry.total_budget);
-    debug_assert!(
-        timeout >= context.retry.total_budget,
-        "a default observer must outlive its request's retry budget"
-    );
-    timeout
+    context
+        .retry
+        .total_budget
+        .map_or(governing_deadline, |budget| {
+            governing_deadline.max(budget.get())
+        })
 }
 
 impl<R> PreparedInquiry<R> {
     fn into_template(self) -> PreparedInquiryTemplate<R> {
         PreparedInquiryTemplate {
-            wire: self.wire,
+            wire: self.wire.into_shared(),
             context: self.context,
-            route: self.route,
+            payload_shape: self.payload_shape,
             decoder: self.decoder,
         }
     }
@@ -1175,11 +1071,11 @@ impl<R> PreparedInquiry<R> {
         self,
         admit: impl FnOnce(RuntimeRequest, ResponseDecoder<R>, Duration) -> T,
     ) -> T {
-        let timeout = observation_timeout(&self.context, self.context.timeout.inquiry);
+        let timeout = observation_timeout(&self.context, self.context.timeout.inquiry.get());
         let request = RuntimeRequest::Inquiry {
-            wire: self.wire,
+            wire: self.wire.into_shared(),
             context: self.context,
-            route: crate::runtime::engine::InquiryRoute(self.route.identifier()),
+            payload_shape: self.payload_shape,
         };
         admit(request, self.decoder, timeout)
     }
@@ -1200,7 +1096,7 @@ where
     ) -> T {
         let applied = observation_timeout(
             &self.context,
-            command_attempt_timeout(&self.context.timeout, self.context.reply_shape),
+            command_attempt_timeout(&self.context.timeout, self.reply_shape),
         );
         // Once cancellation is requested, the engine concludes the operation
         // within its cancellation ambiguity window plus the cancellation
@@ -1210,10 +1106,12 @@ where
             self.context
                 .timeout
                 .ambiguity
-                .saturating_add(self.context.timeout.cancellation),
+                .get()
+                .saturating_add(self.context.timeout.cancellation.get()),
         );
         let request = RuntimeRequest::Command {
-            wire: self.wire,
+            reply_shape: self.reply_shape,
+            wire: self.wire.into_shared(),
             context: self.context,
             applied_state: self.applied_state,
         };
@@ -1230,10 +1128,97 @@ where
 }
 
 #[cfg(test)]
+pub(crate) mod test_support {
+    use super::*;
+
+    fn validated(
+        registration: &crate::TargetRegistration,
+        tuning: OperationalTuning,
+    ) -> Result<ValidatedTuning> {
+        ValidatedTuning::validate(tuning, [registration.profile()])
+    }
+
+    pub(crate) fn prepare_command<C: PlainCommand + ?Sized>(
+        command: &C,
+        registration: &crate::TargetRegistration,
+        tuning: OperationalTuning,
+        class: ClassSelection,
+    ) -> Result<PreparedCommand> {
+        super::prepare_command(
+            command,
+            registration,
+            validated(registration, tuning)?,
+            class,
+        )
+    }
+
+    pub(crate) fn prepare_inquiry<Q: Inquiry + ?Sized>(
+        inquiry: &Q,
+        registration: &crate::TargetRegistration,
+        tuning: OperationalTuning,
+        class: ClassSelection,
+    ) -> Result<PreparedInquiry<Q::Response>> {
+        super::prepare_inquiry(
+            inquiry,
+            registration,
+            validated(registration, tuning)?,
+            class,
+        )
+    }
+
+    pub(crate) fn prepare_operation<K: completion::Kind, O: OperationCommand<K> + ?Sized>(
+        operation: &O,
+        registration: &crate::TargetRegistration,
+        tuning: OperationalTuning,
+        class: ClassSelection,
+    ) -> Result<PreparedOperation<K>> {
+        super::prepare_operation(
+            operation,
+            registration,
+            validated(registration, tuning)?,
+            class,
+        )
+    }
+
+    pub(crate) fn prepare_builtin_command<
+        C: PlainCommand + crate::request::builtin::BuiltinValidation + ?Sized,
+    >(
+        command: &C,
+        registration: &crate::TargetRegistration,
+        tuning: OperationalTuning,
+    ) -> Result<PreparedCommand> {
+        super::prepare_builtin_command(command, registration, validated(registration, tuning)?)
+    }
+
+    pub(crate) fn prepare_builtin_operation<
+        K: completion::Kind,
+        O: OperationCommand<K> + crate::request::builtin::BuiltinValidation + ?Sized,
+    >(
+        operation: &O,
+        registration: &crate::TargetRegistration,
+        tuning: OperationalTuning,
+    ) -> Result<PreparedOperation<K>> {
+        super::prepare_builtin_operation(operation, registration, validated(registration, tuning)?)
+    }
+
+    pub(crate) fn prepare_position_queries(
+        registration: &crate::TargetRegistration,
+        tuning: OperationalTuning,
+        axes: AffectedAxes,
+    ) -> Result<PositionQueryPlan> {
+        super::prepare_position_queries(registration, validated(registration, tuning)?, axes)
+    }
+}
+
+#[cfg(test)]
 #[allow(clippy::expect_used, clippy::panic, unused_qualifications)]
 mod tests {
     use std::cell::Cell;
 
+    use super::test_support::{
+        prepare_builtin_command, prepare_builtin_operation, prepare_command, prepare_inquiry,
+        prepare_operation, prepare_position_queries,
+    };
     use super::*;
     use crate::{
         capabilities::{Capabilities, InquirySupport, TypedSupportSet},
@@ -1255,8 +1240,164 @@ mod tests {
         TransportCompatibility,
     };
 
+    #[test]
+    fn profile_payload_shape_is_selected_once_and_retained_through_templates_and_admission() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        struct ProfileSelectedInquiry(AtomicUsize);
+        impl Request for ProfileSelectedInquiry {
+            type Class = crate::request::Inquiry;
+            const MAX_SIZE: usize = 5;
+            const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
+            const RETRY_CLASS: RetryClass = RetryClass::Never;
+            const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+            fn write_into(&self, target: crate::CameraId, buffer: &mut [u8]) -> Result<usize> {
+                let available = buffer.len();
+                let frame = buffer
+                    .get_mut(..5)
+                    .ok_or_else(|| Error::buffer_too_small(5, available))?;
+                frame.copy_from_slice(&[target.to_address_byte(), 0x09, 0x04, 0x99, 0xFF]);
+                Ok(5)
+            }
+        }
+        impl Inquiry for ProfileSelectedInquiry {
+            type Response = usize;
+            fn payload_shape(&self) -> crate::PayloadShape {
+                crate::PayloadShape::Bytes(1)
+            }
+            fn payload_shape_for_profile(&self, _: &ProfileSpec) -> crate::PayloadShape {
+                self.0.fetch_add(1, Ordering::Relaxed);
+                crate::PayloadShape::Nibbles(4)
+            }
+            fn decoder(&self) -> ResponseDecoder<usize> {
+                ResponseDecoder::from_fn(|payload| {
+                    if crate::PayloadShape::Bytes(1).admits(payload) {
+                        Ok(payload.len())
+                    } else {
+                        Err(Error::InvalidResponseFormat)
+                    }
+                })
+            }
+            fn decoder_for_profile(&self, _: &ProfileSpec) -> ResponseDecoder<usize> {
+                ResponseDecoder::from_fn(|payload| {
+                    if crate::PayloadShape::Nibbles(4).admits(payload) {
+                        Ok(payload.len())
+                    } else {
+                        Err(Error::InvalidResponseFormat)
+                    }
+                })
+            }
+        }
+        let query = ProfileSelectedInquiry(AtomicUsize::new(0));
+        let profile =
+            ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().expect("profile");
+        let registration =
+            crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile).expect("target");
+        let prepared = prepare_inquiry(
+            &query,
+            &registration,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("prepare");
+        assert_eq!(query.payload_shape(), crate::PayloadShape::Bytes(1));
+        assert_eq!(prepared.payload_shape, crate::PayloadShape::Nibbles(4));
+        assert_eq!(query.0.load(Ordering::Relaxed), 1);
+        let template = prepared.into_template();
+        for template in [template.clone(), template] {
+            template.instantiate().admit_with(|request, decoder, _| {
+                assert!(matches!(
+                    request,
+                    RuntimeRequest::Inquiry {
+                        payload_shape: crate::PayloadShape::Nibbles(4),
+                        ..
+                    }
+                ));
+                assert_eq!(decoder.decode(&[0, 1, 14, 15]).expect("profile decoder"), 4);
+                assert!(decoder.decode(&[0]).is_err());
+            });
+        }
+        assert_eq!(
+            query.0.load(Ordering::Relaxed),
+            1,
+            "instantiation and admission reuse the selected evidence"
+        );
+    }
+
     std::thread_local! {
         static WRITE_COUNT: Cell<usize> = const { Cell::new(0) };
+    }
+
+    #[test]
+    fn fr7_extended_pan_tilt_speeds_carry_a_dispatch_prerequisite() {
+        use crate::request::builtin::PanTiltDrive;
+        let registration = crate::TargetRegistration::new(
+            CameraId::CAMERA_1,
+            ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("FR7"),
+        )
+        .expect("target");
+        for speed in [1, 24, 25, 50] {
+            let pan = PanSpeed::new(speed).expect("pan syntax");
+            let tilt = TiltSpeed::new(speed).expect("tilt syntax");
+            let drive =
+                PanTiltDrive::new(crate::command::PanTiltDirection::Up, pan, tilt).expect("drive");
+            let prepared = prepare_operation::<completion::AppliedOnly, _>(
+                &drive,
+                &registration,
+                OperationalTuning::new(),
+                ClassSelection::Request,
+            )
+            .expect("FR7 drive");
+            assert_eq!(
+                prepared.context.requires_extended_pan_tilt_speed,
+                speed > 24
+            );
+            let absolute =
+                PanTiltAbsolute::for_target(Degrees(1.0), Degrees(1.0), pan, tilt, &registration)
+                    .expect("target");
+            let prepared = prepare_operation::<completion::Targeted, _>(
+                &absolute,
+                &registration,
+                OperationalTuning::new(),
+                ClassSelection::Request,
+            )
+            .expect("FR7 position");
+            assert_eq!(
+                prepared.context.requires_extended_pan_tilt_speed,
+                speed > 24
+            );
+            let relative =
+                PanTiltRelative::for_target(Degrees(1.0), Degrees(1.0), pan, tilt, &registration)
+                    .expect("offset");
+            let prepared = prepare_operation::<completion::Targeted, _>(
+                &relative,
+                &registration,
+                OperationalTuning::new(),
+                ClassSelection::Request,
+            )
+            .expect("FR7 offset");
+            assert_eq!(
+                prepared.context.requires_extended_pan_tilt_speed,
+                speed > 24
+            );
+        }
+        let normal = crate::TargetRegistration::new(
+            CameraId::CAMERA_1,
+            ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2"),
+        )
+        .expect("target");
+        let drive = PanTiltDrive::new(
+            crate::command::PanTiltDirection::Up,
+            PanSpeed::new(25).expect("syntax"),
+            TiltSpeed::new(25).expect("syntax"),
+        )
+        .expect("drive");
+        assert!(prepare_operation::<completion::AppliedOnly, _>(
+            &drive,
+            &normal,
+            OperationalTuning::new(),
+            ClassSelection::Request
+        )
+        .is_err());
     }
 
     fn reset_write_count() {
@@ -1277,14 +1418,11 @@ mod tests {
         position_inquiries: PositionInquirySupport,
         preset_axes: AffectedAxes,
     ) -> ProfileSpec {
-        capabilities.supports_operation_complete = operation_complete;
+        if let Some(presets) = &mut capabilities.presets {
+            presets.recall_axes = preset_axes;
+        }
         let transports = TransportCompatibility::new(Some(5678), Some(1259), false);
         ProfileSpec::builder(capabilities)
-            .pan_tilt_coordinates(
-                crate::capabilities::CoordinateSystem::SignedCentered,
-                16.0,
-                16.0,
-            )
             .transports(transports)
             .envelope(ProfileEnvelope::RawVisca)
             .timing(
@@ -1304,7 +1442,6 @@ mod tests {
             .maximum_command_sockets(1)
             .supports_operation_complete(operation_complete)
             .supports_command_cancel(false)
-            .preset_recall_axes(Some(preset_axes))
             .position_inquiries(position_inquiries)
             .build()
             .expect("valid test profile")
@@ -1329,10 +1466,6 @@ mod tests {
 
     impl Inquiry for CountingInquiry {
         type Response = Vec<u8>;
-
-        fn route(&self) -> InquiryRoute {
-            InquiryRoute::RAW
-        }
 
         fn decoder(&self) -> ResponseDecoder<Self::Response> {
             ResponseDecoder::from_fn(|payload| Ok(payload.to_vec()))
@@ -1446,10 +1579,6 @@ mod tests {
     impl Inquiry for ClassifiedInquiry {
         type Response = Vec<u8>;
 
-        fn route(&self) -> InquiryRoute {
-            InquiryRoute::RAW
-        }
-
         fn decoder(&self) -> ResponseDecoder<Self::Response> {
             ResponseDecoder::from_fn(|payload| Ok(payload.to_vec()))
         }
@@ -1481,10 +1610,6 @@ mod tests {
 
     impl Inquiry for NonDefaultReplyShapeInquiry {
         type Response = Vec<u8>;
-
-        fn route(&self) -> InquiryRoute {
-            InquiryRoute::RAW
-        }
 
         fn decoder(&self) -> ResponseDecoder<Self::Response> {
             ResponseDecoder::from_fn(|payload| Ok(payload.to_vec()))
@@ -1575,15 +1700,185 @@ mod tests {
         const RETRY_CLASS: RetryClass = RetryClass::Never;
         const CONTROL_CLASS: ControlClass = ControlClass::Normal;
 
-        fn encoded_size(&self) -> usize {
-            self.frame.len()
-        }
-
         fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
             buffer[..self.frame.len()].copy_from_slice(self.frame);
             buffer[0] = target.to_address_byte();
             Ok(self.frame.len())
         }
+    }
+
+    struct BoundedPlain<const MAX_SIZE: usize> {
+        frame: &'static [u8],
+        reported_length: Option<usize>,
+    }
+
+    impl<const MAX_SIZE: usize> Request for BoundedPlain<MAX_SIZE> {
+        type Class = crate::request::Plain;
+
+        const MAX_SIZE: usize = MAX_SIZE;
+        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
+        const RETRY_CLASS: RetryClass = RetryClass::Never;
+        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+        fn write_into(&self, _: CameraId, buffer: &mut [u8]) -> Result<usize> {
+            increment_write_count();
+            let available = buffer.len();
+            let destination = buffer
+                .get_mut(..self.frame.len())
+                .ok_or_else(|| Error::buffer_too_small(self.frame.len(), available))?;
+            destination.copy_from_slice(self.frame);
+            Ok(self.reported_length.unwrap_or(self.frame.len()))
+        }
+    }
+
+    #[test]
+    fn request_max_size_is_a_bound_and_written_length_is_authoritative() {
+        const FRAME: &[u8] = &[0x81, 0x01, 0x04, 0x00, 0x02, 0xff];
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("generic profile");
+        let check = |prepared: PreparedCommand| {
+            assert_eq!(prepared.wire.as_bytes(), FRAME);
+            assert_eq!(write_count(), 1, "preparation encodes exactly once");
+        };
+        reset_write_count();
+        check(
+            prepare_command(
+                &BoundedPlain::<8> {
+                    frame: FRAME,
+                    reported_length: None,
+                },
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
+                OperationalTuning::new(),
+                ClassSelection::Request,
+            )
+            .expect("a frame shorter than MAX_SIZE prepares"),
+        );
+        reset_write_count();
+        check(
+            prepare_command(
+                &BoundedPlain::<6> {
+                    frame: FRAME,
+                    reported_length: None,
+                },
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
+                OperationalTuning::new(),
+                ClassSelection::Request,
+            )
+            .expect("a frame exactly MAX_SIZE bytes long prepares"),
+        );
+
+        for request in [
+            BoundedPlain::<8> {
+                frame: &[0x81, 0x01, 0x04, 0, 0, 0, 0, 0, 0xff],
+                reported_length: None,
+            },
+            BoundedPlain::<8> {
+                frame: FRAME,
+                reported_length: Some(9),
+            },
+        ] {
+            let error = prepare_command(
+                &request,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
+                OperationalTuning::new(),
+                ClassSelection::Request,
+            )
+            .expect_err("an encoder cannot exceed MAX_SIZE");
+            assert!(
+                matches!(error, Error::InvalidRequest(message) if message.contains("MAX_SIZE"))
+            );
+        }
+        let error = prepare_command(
+            &BoundedPlain::<8> {
+                frame: &[0x81],
+                reported_length: None,
+            },
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect_err("a frame needs at least two bytes");
+        assert!(matches!(error, Error::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn envelope_bounds_are_checked_before_admission_and_follow_the_profile_codec() {
+        const FRAME: &[u8] = &[0x81, 1, 6, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff];
+        let sony =
+            ProfileSpec::from_compile_time::<crate::profiles::SonyBRCH900>().expect("Sony profile");
+        let request = BoundedPlain::<18> {
+            frame: FRAME,
+            reported_length: None,
+        };
+        let error = prepare_command(
+            &request,
+            &crate::TargetRegistration::from_profile(TargetSlot::CAMERA_1, sony.clone()),
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect_err("the ordinary Sony envelope capacity is checked during preparation");
+        assert!(
+            matches!(error, Error::InvalidRequest(message) if message.contains("envelope payload bound (16)"))
+        );
+
+        let mut capabilities = Capabilities::from_profile::<crate::profiles::GenericVisca>();
+        capabilities.profile_id = None;
+        let raw = runtime_profile(
+            capabilities,
+            true,
+            PositionInquirySupport::new(true, true, true),
+            AffectedAxes::PAN_TILT,
+        );
+        prepare_command(
+            &request,
+            &crate::TargetRegistration::from_profile(TargetSlot::CAMERA_1, raw.clone()),
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("raw framing supports larger bounded requests");
+        let mut fr7_caps = raw.capabilities().clone();
+        fr7_caps.pan_tilt.as_mut().expect("pan/tilt").coordinates =
+            crate::PanTiltCoordinateConversion::new(
+                crate::capabilities::CoordinateSystem::SignedCentered,
+                crate::capabilities::PanTiltWireCodec::SonyFr7,
+                16.0,
+                16.0,
+            )
+            .expect("FR7 framing");
+        let fr7 = ProfileSpec::builder(fr7_caps)
+            .transports(raw.transports())
+            .envelope(ProfileEnvelope::SonyEncapsulated)
+            .timing(raw.timing())
+            .maximum_command_sockets(raw.maximum_command_sockets())
+            .supports_operation_complete(raw.supports_operation_complete())
+            .supports_command_cancel(raw.supports_command_cancel())
+            .position_inquiries(raw.position_inquiries())
+            .build()
+            .expect("FR7-format runtime profile");
+        prepare_command(
+            &request,
+            &crate::TargetRegistration::from_profile(TargetSlot::CAMERA_1, fr7.clone()),
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("documented FR7 seventeen-byte frames fit");
+        let oversize = BoundedPlain::<18> {
+            frame: &[0x81, 1, 6, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff],
+            reported_length: None,
+        };
+        assert!(matches!(
+            prepare_command(
+                &oversize,
+                &crate::TargetRegistration::from_profile(TargetSlot::CAMERA_1, fr7.clone()),
+                OperationalTuning::new(),
+                ClassSelection::Request
+            ),
+            Err(Error::InvalidRequest(_))
+        ));
     }
 
     /// Owner-only byte patterns must be rejected for every typed request
@@ -1603,8 +1898,8 @@ mod tests {
         ] {
             let error = prepare_command(
                 &DownstreamPlain { frame },
-                target,
-                &profile,
+                &crate::TargetRegistration::new((target).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -1621,8 +1916,8 @@ mod tests {
             &DownstreamPlain {
                 frame: &[0x81, 0x2a, 0x02, 0xa0, 0x04, 0x02, VISCA_TERMINATOR],
             },
-            target,
-            &profile,
+            &crate::TargetRegistration::new((target).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1647,8 +1942,8 @@ mod tests {
         );
         assert!(prepare_inquiry(
             &CountingInquiry,
-            TargetSlot::CAMERA_1,
-            &no_inquiry,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), no_inquiry.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1657,7 +1952,7 @@ mod tests {
 
         let mut missing_custom_zoom = Capabilities::from_profile::<crate::profiles::GenericVisca>();
         missing_custom_zoom.profile_id = None;
-        missing_custom_zoom.supports_direct_zoom = false;
+        missing_custom_zoom.zoom.as_mut().expect("zoom").direct = false;
         missing_custom_zoom.typed_support = TypedSupportSet::empty();
         let missing_custom_zoom = runtime_profile(
             missing_custom_zoom,
@@ -1667,8 +1962,11 @@ mod tests {
         );
         assert!(prepare_operation::<completion::Targeted, _>(
             &CountingTargeted,
-            TargetSlot::CAMERA_1,
-            &missing_custom_zoom,
+            &crate::TargetRegistration::new(
+                (TargetSlot::CAMERA_1).camera(),
+                missing_custom_zoom.clone()
+            )
+            .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1683,8 +1981,8 @@ mod tests {
         reset_write_count();
         let error = prepare_operation::<completion::AppliedOnly, _>(
             &CountingAppliedOnly,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1703,8 +2001,8 @@ mod tests {
 
         let error = prepare_inquiry(
             &FocusNearLimitInquiry,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1716,14 +2014,15 @@ mod tests {
     fn profile_rejected_generated_inquiries_fail_before_encoding() {
         fn assert_rejected_before_encoding<Q>(inquiry: &Q, profile: &ProfileSpec, name: &str)
         where
-            Q: Inquiry + BuiltinInquiryRequest,
+            Q: Inquiry,
         {
             crate::command::inquiry_structs::reset_generated_inquiry_write_count();
-            match prepare_builtin_inquiry(
+            match prepare_inquiry(
                 inquiry,
-                TargetSlot::CAMERA_1,
-                profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
+                ClassSelection::Request,
             ) {
                 Err(error) => assert!(
                     matches!(error, Error::FeatureNotSupported { .. }),
@@ -1761,17 +2060,15 @@ mod tests {
             ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("Sony FR7 profile");
         let auto_iris = crate::raw::Inquiry::from_fn(
             [0x81, 0x09, 0x05, 0x34, VISCA_TERMINATOR],
-            crate::InquiryRoute::RAW,
             decode_raw,
-            TimeoutClass::Inquiry,
             RetryClass::Inquiry,
             ControlClass::Normal,
         )
         .expect("valid raw FR7 auto-iris inquiry");
         let prepared_inquiry = prepare_inquiry(
             &auto_iris,
-            TargetSlot::CAMERA_1,
-            &fr7,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), fr7.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1800,8 +2097,8 @@ mod tests {
         .expect("valid raw FR7 iris-step command");
         let prepared_command = prepare_command(
             &iris_step,
-            TargetSlot::CAMERA_1,
-            &fr7,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), fr7.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -1856,7 +2153,6 @@ mod tests {
                 .maximum_command_sockets(1)
                 .supports_operation_complete(false)
                 .supports_command_cancel(false)
-                .preset_recall_axes(None)
                 .position_inquiries(PositionInquirySupport::new(false, false, false))
                 .build()
                 .expect("valid minimal profile")
@@ -1868,8 +2164,8 @@ mod tests {
         {
             prepare_inquiry(
                 query,
-                TargetSlot::CAMERA_1,
-                profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -1899,8 +2195,13 @@ mod tests {
         // the still-absent zoom domain keeps its inquiry refused: the erased
         // gate tracks each noun's base marker independently.
         let power_only = minimal_profile(|capabilities| {
-            capabilities.has_power = true;
-            capabilities.power_on_time = Duration::from_millis(750);
+            capabilities.power = Some(crate::capabilities::PowerCaps {
+                on_time: Duration::from_millis(750),
+                standby: None,
+                wake_on_lan: false,
+                retains_settings: false,
+                home_on_up: false,
+            });
         });
         assert!(admits(&PowerInquiry, &power_only));
         assert!(!admits(&ZoomPositionInquiry, &power_only));
@@ -1920,17 +2221,20 @@ mod tests {
         let tuning = OperationalTuning::new()
             .inquiry_spacing(Duration::from_millis(40))
             .movement_timeout(Duration::from_secs(31))
-            .settlement_timeout(Duration::from_secs(9));
+            .settlement_timeout(Duration::from_secs(62));
         let prepared = prepare_operation::<completion::Targeted, _>(
             &CountingTargeted,
-            TargetSlot::CAMERA_2,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), profile.clone())
+                .expect("valid target registration"),
             tuning,
             ClassSelection::Request,
         )
         .expect("targeted poll preparation");
 
-        assert_eq!(prepared.context.timeout.completion, Duration::from_secs(31));
+        assert_eq!(
+            prepared.context.timeout.completion.get(),
+            Duration::from_secs(31)
+        );
         let SettlementPlan::Poll {
             queries,
             tolerance,
@@ -1953,8 +2257,7 @@ mod tests {
         assert!(queries.focus.is_none());
         let zoom = queries.zoom.expect("selected zoom query").instantiate();
         assert_eq!(zoom.context.target.camera(), CameraId::CAMERA_2);
-        assert_eq!(zoom.context.timeout.inquiry, Duration::from_secs(1));
-        assert_eq!(zoom.route, ZoomPositionInquiry.route());
+        assert_eq!(zoom.context.timeout.inquiry.get(), Duration::from_secs(1));
         assert_eq!(
             zoom.wire.as_bytes(),
             &[
@@ -1973,11 +2276,25 @@ mod tests {
         );
     }
 
-    fn zoom_snapshot(value: u16) -> PositionSnapshot {
-        PositionSnapshot {
-            zoom: Some(ZoomPosition::new(value).expect("zoom")),
-            ..PositionSnapshot::default()
-        }
+    fn position_query<R>() -> PositionQuery<R> {
+        let profile =
+            ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().expect("profile");
+        let registration =
+            crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("registration");
+        let template = prepare_inquiry(
+            &ZoomPositionInquiry,
+            &registration,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("inquiry")
+        .into_template();
+        PositionQuery::new(PreparedInquiryTemplate {
+            wire: template.wire,
+            context: template.context,
+            payload_shape: template.payload_shape,
+            decoder: ResponseDecoder::from_fn(|_| Err(Error::InvalidResponseFormat)),
+        })
     }
 
     /// Runs the shared #781 window contract over synthetic owner-clock
@@ -1986,11 +2303,15 @@ mod tests {
     fn windowed_zoom(query: MotionQuery, baseline: u16, last: u16) -> Result<bool> {
         let start = Instant::now();
         let deadline = start + Duration::from_secs(30);
-        let window =
-            MotionWindow::new(query)?.observe_baseline(zoom_snapshot(baseline), start, deadline)?;
+        let mut position = position_query::<ZoomPosition>();
+        assert!(position.record(ZoomPosition::new(baseline)?, query.tolerance));
+        let window = MotionWindow::new(query)?.observe_baseline(start, deadline)?;
         let not_before = window.final_not_before();
         assert_eq!(not_before, start + query.window);
-        window.observe_final(zoom_snapshot(last), not_before)
+        window.observe_final(
+            position.record(ZoomPosition::new(last)?, query.tolerance),
+            not_before,
+        )
     }
 
     /// Issue #802: the one settlement-polling decision both owners drive.
@@ -1999,47 +2320,43 @@ mod tests {
         let start = Instant::now();
         let interval = Duration::from_millis(100);
         let deadline = start + Duration::from_millis(250);
-        let mut poll = SettlementPoll::new(
-            AffectedAxes::ZOOM,
-            MovementTolerance::default(),
-            interval,
-            deadline,
-        );
-        // The baseline never settles on its own, even when the next sample
-        // will agree with it.
+        let tolerance = MovementTolerance::default();
+        let mut query = position_query::<ZoomPosition>();
+        let mut poll = SettlementPoll::new(interval, deadline);
         assert_eq!(
-            poll.observe(zoom_snapshot(10), start).expect("baseline"),
+            poll.observe(
+                query.record(ZoomPosition::new(10).expect("zoom"), tolerance),
+                start
+            )
+            .expect("baseline"),
             SettlementStep::SampleAfter(interval)
         );
-        // Movement keeps polling; the pause is clipped to the deadline.
-        let late = start + Duration::from_millis(200);
         assert_eq!(
-            poll.observe(zoom_snapshot(500), late).expect("moving"),
+            poll.observe(
+                query.record(ZoomPosition::new(500).expect("zoom"), tolerance),
+                start + Duration::from_millis(200)
+            )
+            .expect("moving"),
             SettlementStep::SampleAfter(Duration::from_millis(50))
         );
-        // Two agreeing samples settle, regardless of the clock.
         assert_eq!(
-            poll.observe(zoom_snapshot(500), deadline).expect("settled"),
+            poll.observe(
+                query.record(ZoomPosition::new(500).expect("zoom"), tolerance),
+                deadline
+            )
+            .expect("stable"),
             SettlementStep::Settled
         );
-
-        // Still moving at the deadline is a timeout, never "settled".
-        let mut moving = SettlementPoll::new(
-            AffectedAxes::ZOOM,
-            MovementTolerance::default(),
-            interval,
-            deadline,
-        );
-        moving.observe(zoom_snapshot(10), start).expect("baseline");
+        let mut moving = SettlementPoll::new(interval, deadline);
         let timeout = moving
-            .observe(zoom_snapshot(900), deadline)
+            .observe(true, deadline)
             .expect_err("still moving at the deadline");
         assert!(matches!(timeout, Error::Timeout { .. }));
         assert_eq!(
             timeout.failure_context(),
             Some(crate::FailureContext::new(
                 crate::FailureStage::Observation,
-                crate::Certainty::NotAccepted
+                crate::Certainty::NotAccepted,
             ))
         );
     }
@@ -2062,18 +2379,18 @@ mod tests {
         let start = Instant::now();
         let window = MotionWindow::new(query)
             .expect("valid window")
-            .observe_baseline(zoom_snapshot(10), start, start + Duration::from_secs(30))
+            .observe_baseline(start, start + Duration::from_secs(30))
             .expect("baseline");
         let not_before = window.final_not_before();
         // A pair taken back to back cannot report "no movement" for a window
         // it did not span, even when the readings are identical.
         let early = not_before - Duration::from_nanos(1);
         assert!(matches!(
-            window.observe_final(zoom_snapshot(10), early),
+            window.observe_final(false, early),
             Err(Error::InvalidState(_))
         ));
         assert!(!window
-            .observe_final(zoom_snapshot(10), not_before)
+            .observe_final(false, not_before)
             .expect("a sample at the window edge is valid"));
     }
 
@@ -2087,23 +2404,114 @@ mod tests {
         // never a report of no movement (and with no open window, no final
         // snapshot can be compared at all).
         assert!(matches!(
-            window.observe_baseline(zoom_snapshot(10), start, start + Duration::from_secs(1)),
+            window.observe_baseline(start, start + Duration::from_secs(1)),
             Err(Error::Timeout { .. })
         ));
     }
 
     #[test]
     fn motion_window_budget_covers_the_window_and_every_inquiry() {
-        let query = MotionQuery::new(AffectedAxes::ZOOM).with_window(Duration::from_millis(250));
-        let window = MotionWindow::new(query).expect("valid window");
-        assert_eq!(
-            window.budget().expect("budget"),
-            Duration::from_millis(30_250)
-        );
-        let huge =
-            MotionWindow::new(MotionQuery::new(AffectedAxes::ZOOM).with_window(Duration::MAX))
-                .expect("a positive window is structurally valid");
-        assert!(matches!(huge.budget(), Err(Error::InvalidParameter { .. })));
+        let profile =
+            ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2 profile");
+        let window = MotionWindow::new(
+            MotionQuery::new(AffectedAxes::ZOOM).with_window(Duration::from_millis(250)),
+        )
+        .expect("valid window");
+        for tuning in [
+            OperationalTuning::new(),
+            OperationalTuning::new()
+                .inquiry_timeout(Duration::from_secs(20))
+                .inquiry_spacing(
+                    profile.timing().minimum_inquiry_spacing() + Duration::from_millis(50),
+                ),
+        ] {
+            let prepared = prepare_inquiry(
+                &ZoomPositionInquiry,
+                &crate::TargetRegistration::from_profile(TargetSlot::CAMERA_1, profile.clone()),
+                tuning,
+                ClassSelection::Request,
+            )
+            .expect("prepared inquiry");
+            let context = prepared.context;
+            let per_axis = observation_timeout(&context, context.timeout.inquiry.get())
+                + context.control.minimum_spacing;
+            fn template<R>(context: RequestContext) -> PositionQuery<R> {
+                PositionQuery::new(PreparedInquiryTemplate {
+                    wire: Arc::new(EncodedMessage::new(&[0x81, 0x09, 0xff]).expect("inert wire")),
+                    context,
+                    payload_shape: crate::PayloadShape::Unknown,
+                    decoder: ResponseDecoder::from_fn(|_| Err(Error::InvalidResponseFormat)),
+                })
+            }
+            let one_axis = PositionQueryPlan {
+                pan_tilt: None,
+                zoom: Some(template(context)),
+                focus: None,
+                iris: None,
+                nd_filter: None,
+            };
+            let all_axes = PositionQueryPlan {
+                pan_tilt: Some(template(context)),
+                zoom: Some(template(context)),
+                focus: Some(template(context)),
+                iris: Some(template(context)),
+                nd_filter: Some(template(context)),
+            };
+            assert_eq!(
+                window.budget(&one_axis).expect("one axis budget"),
+                Duration::from_millis(250) + per_axis * 2
+            );
+            assert_eq!(
+                window.budget(&all_axes).expect("five axis budget"),
+                Duration::from_millis(250) + per_axis * 10
+            );
+            let huge =
+                MotionWindow::new(MotionQuery::new(AffectedAxes::ZOOM).with_window(Duration::MAX))
+                    .expect("positive window");
+            assert!(matches!(
+                huge.budget(&one_axis),
+                Err(Error::InvalidParameter { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn settlement_overrides_lengthen_each_operations_own_retry_floor() {
+        let profile =
+            ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2 profile");
+        fn check<O: OperationCommand<completion::Targeted>>(
+            operation: &O,
+            profile: &ProfileSpec,
+            seconds: u64,
+        ) {
+            let prepared = prepare_operation::<completion::Targeted, _>(
+                operation,
+                &crate::TargetRegistration::from_profile(TargetSlot::CAMERA_1, profile.clone()),
+                OperationalTuning::new().settlement_timeout(Duration::from_secs(seconds)),
+                ClassSelection::Request,
+            )
+            .expect("accepted settlement override");
+            assert_eq!(
+                prepared.settlement.default_budget(),
+                Duration::from_secs(seconds).max(
+                    prepared
+                        .context
+                        .retry
+                        .total_budget
+                        .expect("prepared budget")
+                        .get()
+                )
+            );
+        }
+        let preset = crate::request::builtin::PresetRecall::for_profile(
+            PresetNumber::new(1).expect("preset"),
+            &profile,
+        )
+        .expect("preset recall");
+        for seconds in [60, 90, 120, 180] {
+            check(&crate::request::builtin::PanTiltHome, &profile, seconds);
+            check(&preset, &profile, seconds);
+        }
     }
 
     #[test]
@@ -2128,22 +2536,32 @@ mod tests {
 
     #[test]
     fn motion_window_ignores_unselected_axes() {
-        let query = MotionQuery::new(AffectedAxes::ZOOM);
-        let start = Instant::now();
-        let mut baseline = zoom_snapshot(10);
-        baseline.focus = Some(FocusPosition::new(0));
-        let window = MotionWindow::new(query)
-            .expect("valid window")
-            .observe_baseline(baseline, start, start + Duration::from_secs(30))
-            .expect("baseline");
-        let not_before = window.final_not_before();
-        let mut last = zoom_snapshot(10);
-        last.focus = Some(FocusPosition::new(0x0fff));
-        assert!(!window.observe_final(last, not_before).expect("final"));
+        let profile =
+            ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().expect("profile");
+        let registration =
+            crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("registration");
+        let mut plan =
+            prepare_position_queries(&registration, OperationalTuning::new(), AffectedAxes::ZOOM)
+                .expect("selected zoom plan");
+        assert!(
+            plan.pan_tilt.is_none()
+                && plan.focus.is_none()
+                && plan.iris.is_none()
+                && plan.nd_filter.is_none()
+        );
+        let zoom = plan.zoom.as_mut().expect("selected zoom");
+        assert!(zoom.record(
+            ZoomPosition::new(10).expect("zoom"),
+            MovementTolerance::default()
+        ));
+        assert!(!zoom.record(
+            ZoomPosition::new(10).expect("zoom"),
+            MovementTolerance::default()
+        ));
     }
 
     #[test]
-    fn motion_detector_is_pure_selected_axis_tolerant_and_overflow_safe() {
+    fn position_queries_compare_typed_values_without_overflow() {
         let tolerance = MovementTolerance {
             pan_tilt: 2,
             zoom: 10,
@@ -2151,107 +2569,33 @@ mod tests {
             iris: 0,
             nd_filter: 0,
         };
-        let all = AffectedAxes::PAN_TILT
-            .union(AffectedAxes::ZOOM)
-            .union(AffectedAxes::FOCUS);
-        let mut detector = MotionDetector::from_baseline(
-            all,
-            tolerance,
-            PositionSnapshot {
-                pan_tilt: Some(PanTiltPosition::new(i32::MIN, i32::MAX)),
-                zoom: Some(ZoomPosition::new(100).expect("zoom")),
-                focus: Some(FocusPosition::new(200)),
-                iris: None,
-                nd_filter: None,
-            },
-        )
-        .expect("complete baseline");
-        assert!(detector
-            .moved(PositionSnapshot {
-                pan_tilt: Some(PanTiltPosition::new(i32::MAX, i32::MIN)),
-                zoom: Some(ZoomPosition::new(110).expect("zoom")),
-                focus: Some(FocusPosition::new(205)),
-                iris: None,
-                nd_filter: None,
-            })
-            .expect("complete moving sample"));
-        assert!(!detector
-            .moved(PositionSnapshot {
-                pan_tilt: Some(PanTiltPosition::new(i32::MAX - 2, i32::MIN + 2)),
-                zoom: Some(ZoomPosition::new(100).expect("zoom")),
-                focus: Some(FocusPosition::new(200)),
-                iris: None,
-                nd_filter: None,
-            })
-            .expect("tolerance-bound sample"));
-
-        let mut zoom_only = MotionDetector::from_baseline(
-            AffectedAxes::ZOOM,
-            tolerance,
-            PositionSnapshot {
-                pan_tilt: Some(PanTiltPosition::new(i32::MIN, i32::MAX)),
-                zoom: Some(ZoomPosition::new(10).expect("zoom")),
-                focus: None,
-                iris: None,
-                nd_filter: None,
-            },
-        )
-        .expect("zoom baseline");
-        assert!(!zoom_only
-            .moved(PositionSnapshot {
-                pan_tilt: Some(PanTiltPosition::new(i32::MAX, i32::MIN)),
-                zoom: Some(ZoomPosition::new(10).expect("zoom")),
-                focus: Some(FocusPosition::new(u16::MAX)),
-                iris: None,
-                nd_filter: None,
-            })
-            .expect("unselected changes are ignored"));
+        let mut pan_tilt = position_query::<PanTiltPosition>();
+        assert!(pan_tilt.record(PanTiltPosition::new(i32::MIN, i32::MAX), tolerance));
+        assert!(pan_tilt.record(PanTiltPosition::new(i32::MAX, i32::MIN), tolerance));
+        assert!(!pan_tilt.record(PanTiltPosition::new(i32::MAX - 2, i32::MIN + 2), tolerance));
+        let mut zoom = position_query::<ZoomPosition>();
+        assert!(zoom.record(ZoomPosition::new(100).expect("zoom"), tolerance));
+        assert!(!zoom.record(ZoomPosition::new(110).expect("zoom"), tolerance));
+        assert!(zoom.record(ZoomPosition::new(99).expect("zoom"), tolerance));
+        let mut focus = position_query::<FocusPosition>();
+        assert!(focus.record(FocusPosition::new(200), tolerance));
+        assert!(!focus.record(FocusPosition::new(205), tolerance));
+        assert!(focus.record(FocusPosition::new(199), tolerance));
     }
 
     #[test]
-    fn motion_detector_accepts_brc300_width_pan_tilt_tolerances() {
-        // Sony BRC-300's signed 20-bit pan range exceeds i16. A 40_000-unit
-        // tolerance is meaningful within its documented endpoints and must
-        // neither truncate nor overflow while comparing two snapshots.
+    fn position_queries_preserve_brc300_width_pan_tilt_tolerances() {
         let tolerance = MovementTolerance {
             pan_tilt: 40_000,
             ..MovementTolerance::default()
         };
         let endpoint = PanTiltPosition::new(0x08A58, 0x493D);
-        let within_tolerance = PanTiltPosition::new(0x08A58 - 40_000, 0x493D);
-        let beyond_tolerance = PanTiltPosition::new(0x08A58 - 40_001, 0x493D);
-
-        let mut stable = MotionDetector::from_baseline(
-            AffectedAxes::PAN_TILT,
-            tolerance,
-            PositionSnapshot {
-                pan_tilt: Some(endpoint),
-                ..PositionSnapshot::default()
-            },
-        )
-        .expect("BRC-300 baseline");
-        assert!(!stable
-            .moved(PositionSnapshot {
-                pan_tilt: Some(within_tolerance),
-                ..PositionSnapshot::default()
-            })
-            .expect("BRC-300 tolerance-bound sample"));
-
-        let mut moving = MotionDetector::from_baseline(
-            AffectedAxes::PAN_TILT,
-            tolerance,
-            PositionSnapshot {
-                pan_tilt: Some(endpoint),
-                ..PositionSnapshot::default()
-            },
-        )
-        .expect("BRC-300 moving baseline");
-        assert!(moving
-            .moved(PositionSnapshot {
-                pan_tilt: Some(beyond_tolerance),
-                ..PositionSnapshot::default()
-            })
-            .expect("BRC-300 beyond-tolerance sample"));
+        let mut stable = position_query::<PanTiltPosition>();
+        assert!(stable.record(endpoint, tolerance));
+        assert!(!stable.record(PanTiltPosition::new(0x08A58 - 40_000, 0x493D), tolerance));
+        let mut moving = position_query::<PanTiltPosition>();
+        assert!(moving.record(endpoint, tolerance));
+        assert!(moving.record(PanTiltPosition::new(0x08A58 - 40_001, 0x493D), tolerance));
     }
 
     #[test]
@@ -2259,8 +2603,8 @@ mod tests {
         let fr7 =
             ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("Sony FR7 profile");
         let error = prepare_position_queries(
-            TargetSlot::CAMERA_2,
-            &fr7,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), fr7.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             AffectedAxes::IRIS,
         )
@@ -2268,8 +2612,8 @@ mod tests {
         assert!(matches!(error, Error::FeatureNotSupported { .. }));
 
         let error = prepare_position_queries(
-            TargetSlot::CAMERA_2,
-            &fr7,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), fr7.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             AffectedAxes::IRIS.union(AffectedAxes::ND_FILTER),
         )
@@ -2277,8 +2621,8 @@ mod tests {
         assert!(matches!(error, Error::FeatureNotSupported { .. }));
 
         let plan = prepare_position_queries(
-            TargetSlot::CAMERA_2,
-            &fr7,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), fr7.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             AffectedAxes::ND_FILTER,
         )
@@ -2312,8 +2656,8 @@ mod tests {
         reset_request_write_count();
         let error = prepare_builtin_operation::<completion::Targeted, _>(
             &IrisReset,
-            TargetSlot::CAMERA_2,
-            &fr7,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), fr7.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect_err("FR7 does not support shared typed iris operations");
@@ -2322,8 +2666,8 @@ mod tests {
 
         let nd = prepare_builtin_operation::<completion::Targeted, _>(
             &NdFilterStepUp,
-            TargetSlot::CAMERA_2,
-            &fr7,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), fr7.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("FR7 ND operation");
@@ -2341,8 +2685,8 @@ mod tests {
             ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("PTZ profile");
         let completed = prepare_builtin_operation::<completion::Targeted, _>(
             &IrisReset,
-            TargetSlot::CAMERA_2,
-            &ptz,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), ptz.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("PTZ iris operation");
@@ -2359,8 +2703,8 @@ mod tests {
         let level = IrisLevel::new(0x14).expect("BRC-H900 iris level");
         let prepared = prepare_builtin_operation::<completion::Targeted, _>(
             &IrisDirect::new(level),
-            TargetSlot::CAMERA_2,
-            &h900,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), h900.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("BRC-H900 high iris operation");
@@ -2378,11 +2722,8 @@ mod tests {
         assert!(queries.focus.is_none());
         assert!(queries.nd_filter.is_none());
 
-        let iris = queries
-            .iris
-            .expect("selected iris settlement inquiry")
-            .instantiate();
-        assert_eq!(iris.route, IrisInquiry.route());
+        let mut sampled_iris = queries.iris.expect("selected iris settlement inquiry");
+        let iris = sampled_iris.instantiate();
         assert_eq!(
             iris.wire.as_bytes(),
             &[
@@ -2399,14 +2740,8 @@ mod tests {
             .expect("BRC-H900 iris readback 0x14");
         assert_eq!(decoded, level);
 
-        let snapshot = PositionSnapshot {
-            iris: Some(decoded),
-            ..PositionSnapshot::default()
-        };
-        let mut detector =
-            MotionDetector::from_baseline(prepared.affected_axes, tolerance, snapshot)
-                .expect("iris baseline");
-        assert!(!detector.moved(snapshot).expect("stable iris readback"));
+        assert!(sampled_iris.record(decoded, tolerance));
+        assert!(!sampled_iris.record(decoded, tolerance));
     }
 
     #[test]
@@ -2414,8 +2749,8 @@ mod tests {
         let generic = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
             .expect("generic profile");
         let error = prepare_position_queries(
-            TargetSlot::CAMERA_1,
-            &generic,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), generic.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             AffectedAxes::ND_FILTER,
         )
@@ -2424,53 +2759,34 @@ mod tests {
     }
 
     #[test]
-    fn scalar_position_detector_honors_iris_and_nd_tolerance() {
-        let axes = AffectedAxes::IRIS.union(AffectedAxes::ND_FILTER);
-        let first = PositionSnapshot {
-            iris: Some(IrisLevel::new(4).expect("iris")),
-            nd_filter: Some(NdFilterValue::new(0).expect("minimum ND density")),
-            ..PositionSnapshot::default()
-        };
-        let mut detector = MotionDetector::from_baseline(axes, MovementTolerance::default(), first)
-            .expect("baseline");
-        let same = PositionSnapshot {
-            iris: Some(IrisLevel::new(4).expect("iris")),
-            nd_filter: Some(NdFilterValue::new(0).expect("minimum ND density")),
-            ..PositionSnapshot::default()
-        };
-        assert!(!detector.moved(same).expect("stable"));
-        let changed = PositionSnapshot {
-            iris: Some(IrisLevel::new(5).expect("iris")),
-            nd_filter: Some(NdFilterValue::new(4).expect("one-eighth ND density")),
-            ..PositionSnapshot::default()
-        };
-        assert!(detector.moved(changed).expect("moving"));
+    fn scalar_position_queries_honor_iris_and_nd_tolerance() {
+        let tolerance = MovementTolerance::default();
+        let mut iris = position_query::<IrisLevel>();
+        let mut nd = position_query::<NdFilterValue>();
+        let iris_value = IrisLevel::new(4).expect("iris");
+        let nd_value = NdFilterValue::new(0).expect("ND");
+        assert!(iris.record(iris_value, tolerance));
+        assert!(nd.record(nd_value, tolerance));
+        assert!(!iris.record(iris_value, tolerance));
+        assert!(!nd.record(nd_value, tolerance));
+        assert!(iris.record(IrisLevel::new(5).expect("iris"), tolerance));
+        assert!(nd.record(NdFilterValue::new(4).expect("ND"), tolerance));
     }
 
     #[test]
-    fn motion_detector_rejects_an_incomplete_selected_snapshot_without_panicking() {
-        let axes = AffectedAxes::PAN_TILT.union(AffectedAxes::ZOOM);
-        let incomplete = PositionSnapshot {
-            pan_tilt: Some(PanTiltPosition::new(0, 0)),
-            zoom: None,
-            focus: None,
-            iris: None,
-            nd_filter: None,
-        };
-        let error = MotionDetector::from_baseline(axes, MovementTolerance::default(), incomplete)
-            .expect_err("missing selected zoom must be rejected");
-        assert!(matches!(error, Error::InvalidState(_)));
-        let complete = PositionSnapshot {
-            zoom: Some(ZoomPosition::new(0).expect("zoom")),
-            ..incomplete
-        };
-        let mut detector =
-            MotionDetector::from_baseline(axes, MovementTolerance::default(), complete)
-                .expect("complete baseline");
-        let error = detector
-            .moved(incomplete)
-            .expect_err("missing selected zoom must be rejected");
-        assert!(matches!(error, Error::InvalidState(_)));
+    fn each_selected_query_needs_two_successful_answers_to_prove_stability() {
+        let tolerance = MovementTolerance::default();
+        let mut pan_tilt = position_query::<PanTiltPosition>();
+        let mut zoom = position_query::<ZoomPosition>();
+        let pan_tilt_value = PanTiltPosition::new(0, 0);
+        let zoom_value = ZoomPosition::new(0).expect("zoom");
+        assert!(pan_tilt.record(pan_tilt_value, tolerance));
+        assert!(!pan_tilt.record(pan_tilt_value, tolerance));
+        assert!(
+            zoom.record(zoom_value, tolerance),
+            "another axis's baseline is not zoom evidence"
+        );
+        assert!(!zoom.record(zoom_value, tolerance));
     }
 
     #[test]
@@ -2479,8 +2795,8 @@ mod tests {
             .expect("built-in profile");
         assert!(prepare_command(
             &WrongAddress,
-            TargetSlot::CAMERA_2,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_2).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -2493,8 +2809,8 @@ mod tests {
             .expect("built-in profile");
         let custom = prepare_inquiry(
             &DownstreamDerivedInquiry,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -2504,8 +2820,8 @@ mod tests {
 
         let builtin = prepare_inquiry(
             &PowerInquiry,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -2513,11 +2829,12 @@ mod tests {
         assert!(builtin.context.retry.inquiry_timeout);
         assert!(builtin.context.retry.builtin_inquiry_syntax);
 
-        let settlement_builtin = prepare_builtin_inquiry(
+        let settlement_builtin = prepare_inquiry(
             &PowerInquiry,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
+            ClassSelection::Request,
         )
         .expect("settlement built-in inquiry preparation");
         assert!(settlement_builtin.context.retry.builtin_inquiry_syntax);
@@ -2538,71 +2855,91 @@ mod tests {
             (
                 prepare_command(
                     &QuickTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     tuning,
                     ClassSelection::Request,
                 )
                 .expect("quick preparation")
                 .context
                 .timeout
-                .completion,
+                .completion
+                .get(),
                 Duration::from_secs(11),
             ),
             (
                 prepare_command(
                     &MovementTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     tuning,
                     ClassSelection::Request,
                 )
                 .expect("movement preparation")
                 .context
                 .timeout
-                .completion,
+                .completion
+                .get(),
                 Duration::from_secs(32),
             ),
             (
                 prepare_command(
                     &PresetTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     tuning,
                     ClassSelection::Request,
                 )
                 .expect("preset preparation")
                 .context
                 .timeout
-                .completion,
+                .completion
+                .get(),
                 Duration::from_secs(62),
             ),
             (
                 prepare_command(
                     &LongRunningTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     tuning,
                     ClassSelection::Request,
                 )
                 .expect("long-running preparation")
                 .context
                 .timeout
-                .completion,
+                .completion
+                .get(),
                 Duration::from_secs(302),
             ),
             (
                 prepare_command(
                     &NetworkTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     tuning,
                     ClassSelection::Request,
                 )
                 .expect("network preparation")
                 .context
                 .timeout
-                .completion,
+                .completion
+                .get(),
                 Duration::from_secs(15),
             ),
         ];
@@ -2613,13 +2950,16 @@ mod tests {
         let profile_default = OperationalTuning::new();
         let quick = prepare_command(
             &QuickTimeoutCommand,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             profile_default,
             ClassSelection::Request,
         )
         .expect("default quick preparation");
-        assert_eq!(quick.context.timeout.completion, Duration::from_secs(5));
+        assert_eq!(
+            quick.context.timeout.completion.get(),
+            Duration::from_secs(5)
+        );
     }
 
     #[test]
@@ -2631,37 +2971,44 @@ mod tests {
             .inquiry_timeout(Duration::from_secs(17));
         let prepared = prepare_inquiry(
             &CountingInquiry,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             tuning,
             ClassSelection::Request,
         )
         .expect("inquiry preparation");
-        assert_eq!(prepared.context.timeout.inquiry, Duration::from_secs(17));
+        assert_eq!(
+            prepared.context.timeout.inquiry.get(),
+            Duration::from_secs(17)
+        );
     }
 
     #[test]
     fn default_observers_cover_the_total_retry_budget_for_every_request_class() {
-        fn prepared_with_budget(total_budget: Duration) -> PreparedInquiry<Vec<u8>> {
+        fn prepared_with_budget(total_budget: Option<Duration>) -> PreparedInquiry<Vec<u8>> {
             let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
                 .expect("built-in profile");
             let mut prepared = prepare_inquiry(
                 &CountingInquiry,
-                TargetSlot::CAMERA_1,
-                &profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
             .expect("inquiry preparation");
-            prepared.context.timeout.inquiry = Duration::from_secs(1);
-            prepared.context.retry.total_budget = total_budget;
+            prepared.context.timeout.inquiry =
+                crate::runtime::engine::NonZeroDuration::new(Duration::from_secs(1))
+                    .expect("positive fixture timeout");
+            prepared.context.retry.total_budget = total_budget.map(|budget| {
+                crate::runtime::engine::NonZeroDuration::new(budget).expect("positive budget")
+            });
             prepared
         }
 
         for (budget, expected) in [
-            (Duration::from_millis(500), Duration::from_secs(1)),
-            (Duration::from_secs(3), Duration::from_secs(3)),
-            (Duration::ZERO, Duration::from_secs(1)),
+            (Some(Duration::from_millis(500)), Duration::from_secs(1)),
+            (Some(Duration::from_secs(3)), Duration::from_secs(3)),
+            (None, Duration::from_secs(1)),
         ] {
             let admitted =
                 prepared_with_budget(budget).admit_with(|_request, _decoder, timeout| timeout);
@@ -2680,8 +3027,11 @@ mod tests {
                 "quick",
                 prepare_command(
                     &QuickTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     OperationalTuning::new(),
                     ClassSelection::Request,
                 )
@@ -2692,8 +3042,11 @@ mod tests {
                 "movement",
                 prepare_command(
                     &MovementTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     OperationalTuning::new(),
                     ClassSelection::Request,
                 )
@@ -2704,8 +3057,11 @@ mod tests {
                 "preset",
                 prepare_command(
                     &PresetTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     OperationalTuning::new(),
                     ClassSelection::Request,
                 )
@@ -2716,8 +3072,11 @@ mod tests {
                 "long-running",
                 prepare_command(
                     &LongRunningTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     OperationalTuning::new(),
                     ClassSelection::Request,
                 )
@@ -2728,8 +3087,11 @@ mod tests {
                 "network",
                 prepare_command(
                     &NetworkTimeoutCommand,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     OperationalTuning::new(),
                     ClassSelection::Request,
                 )
@@ -2748,13 +3110,18 @@ mod tests {
         // receipt constructor. Pin that seam separately from plain commands.
         let operation = prepare_operation::<completion::Targeted, _>(
             &CountingTargeted,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
         .expect("targeted operation preparation");
-        let operation_budget = operation.context.retry.total_budget;
+        let operation_budget = operation
+            .context
+            .retry
+            .total_budget
+            .expect("prepared budget")
+            .get();
         assert!(
             operation.settlement.default_budget() >= operation_budget,
             "targeted settlement observer must cover retry budget"
@@ -2769,17 +3136,23 @@ mod tests {
         // engine's cancellation ambiguity plus observation windows (#777).
         assert!(timeouts.cancellation >= timeouts.applied);
         assert!(
-            timeouts.cancellation >= request_timeouts.ambiguity + request_timeouts.cancellation
+            timeouts.cancellation
+                >= request_timeouts.ambiguity.get() + request_timeouts.cancellation.get()
         );
 
         let applied_only = prepare_builtin_operation::<completion::AppliedOnly, _>(
             &ZoomStop,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("applied-only operation preparation");
-        let applied_only_budget = applied_only.context.retry.total_budget;
+        let applied_only_budget = applied_only
+            .context
+            .retry
+            .total_budget
+            .expect("prepared budget")
+            .get();
         let observer =
             applied_only.admit_with(|_request, _axes, _settlement, timeouts| timeouts.applied);
         assert!(
@@ -2802,13 +3175,18 @@ mod tests {
         // 30 s, so a later replay could move the camera after Timeout.
         let movement = prepare_command(
             &RetryingMovementCommand,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new().movement_timeout(Duration::from_secs(30)),
             ClassSelection::Request,
         )
         .expect("movement preparation");
-        let movement_budget = movement.context.retry.total_budget;
+        let movement_budget = movement
+            .context
+            .retry
+            .total_budget
+            .expect("prepared budget")
+            .get();
         let movement_observer = movement.admit_with(|_request, timeout| timeout);
         assert_eq!(movement_budget, Duration::from_secs(60));
         assert!(
@@ -2821,8 +3199,8 @@ mod tests {
         // for that whole window, not merely the first completion deadline.
         let busy = prepare_command(
             &RetryingQuickCommand,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new().retry_timing(
                 Duration::from_millis(50),
                 Duration::from_millis(500),
@@ -2831,7 +3209,12 @@ mod tests {
             ClassSelection::Request,
         )
         .expect("busy-command preparation");
-        let busy_budget = busy.context.retry.total_budget;
+        let busy_budget = busy
+            .context
+            .retry
+            .total_budget
+            .expect("prepared budget")
+            .get();
         let busy_observer = busy.admit_with(|_request, timeout| timeout);
         // A shorter budget override never shortens the request's own budget:
         // twice Generic VISCA's 10 s quick deadline (#828 M3).
@@ -2851,13 +3234,18 @@ mod tests {
             ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("Sony FR7 profile");
         let sony_operation = prepare_operation::<completion::Targeted, _>(
             &CountingTargeted,
-            TargetSlot::CAMERA_1,
-            &sony,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), sony.clone())
+                .expect("valid target registration"),
             OperationalTuning::new().movement_timeout(Duration::from_secs(30)),
             ClassSelection::Request,
         )
         .expect("Sony operation preparation");
-        let sony_budget = sony_operation.context.retry.total_budget;
+        let sony_budget = sony_operation
+            .context
+            .retry
+            .total_budget
+            .expect("prepared budget")
+            .get();
         let sony_observer =
             sony_operation.admit_with(|_request, _axes, _settlement, timeouts| timeouts.applied);
         assert_eq!(sony_budget, Duration::from_secs(60));
@@ -2874,8 +3262,8 @@ mod tests {
             .expect("built-in profile");
         assert!(prepare_inquiry(
             &ClassifiedInquiry,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -2892,8 +3280,8 @@ mod tests {
         ] {
             let error = prepare_inquiry(
                 &NonDefaultReplyShapeInquiry(reply_shape),
-                TargetSlot::CAMERA_1,
-                &profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -2912,8 +3300,8 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(5),
             Duration::ZERO,
-            false,
-        );
+        )
+        .expect("valid retry policy");
         let standard = retry_policy(
             RetryClass::Standard,
             TimeoutClass::Movement,
@@ -2921,8 +3309,8 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(5),
             Duration::ZERO,
-            false,
-        );
+        )
+        .expect("valid retry policy");
 
         assert_eq!(never.max_retries, 0);
         // `retry_limit` sets the base; a movement budget is the base itself.
@@ -2942,8 +3330,8 @@ mod tests {
                 Duration::ZERO,
                 Duration::from_secs(5),
                 Duration::ZERO,
-                false,
             )
+            .expect("valid retry policy")
             .max_retries
         };
 
@@ -2991,19 +3379,27 @@ mod tests {
                         let tuning = OperationalTuning::new().ack_timeout(ack);
                         let prepared = prepare_command(
                             &command,
-                            TargetSlot::CAMERA_1,
-                            &profile,
+                            &crate::TargetRegistration::new(
+                                (TargetSlot::CAMERA_1).camera(),
+                                profile.clone(),
+                            )
+                            .expect("valid target registration"),
                             tuning,
                             ClassSelection::Request,
                         )
                         .expect("valid preparation");
-                        let completion = prepared.context.timeout.completion;
+                        let completion = prepared.context.timeout.completion.get();
                         let attempt = if shape == crate::raw::RawReplyShape::AckThenCompletion {
                             ack + completion
                         } else {
                             completion
                         };
-                        let budget = prepared.context.retry.total_budget;
+                        let budget = prepared
+                            .context
+                            .retry
+                            .total_budget
+                            .expect("prepared budget")
+                            .get();
                         let legacy = MINIMUM_RETRY_BUDGET
                             .max(completion * 2)
                             .max(profile.timing().busy_timeout());
@@ -3022,9 +3418,7 @@ mod tests {
             }
             let inquiry = crate::raw::Inquiry::from_fn(
                 [0x81, 0x09, 0x04, 0x00, 0xff],
-                crate::InquiryRoute::RAW,
                 |_payload: &[u8]| Ok(0_u8),
-                TimeoutClass::Inquiry,
                 RetryClass::Inquiry,
                 ControlClass::Normal,
             )
@@ -3038,15 +3432,23 @@ mod tests {
             ] {
                 let prepared = prepare_inquiry(
                     &inquiry,
-                    TargetSlot::CAMERA_1,
-                    &profile,
+                    &crate::TargetRegistration::new(
+                        (TargetSlot::CAMERA_1).camera(),
+                        profile.clone(),
+                    )
+                    .expect("valid target registration"),
                     OperationalTuning::new().ack_timeout(ack),
                     ClassSelection::Request,
                 )
                 .expect("inquiries keep their single reply deadline");
-                let budget = prepared.context.retry.total_budget;
+                let budget = prepared
+                    .context
+                    .retry
+                    .total_budget
+                    .expect("prepared budget")
+                    .get();
                 let expected = MINIMUM_RETRY_BUDGET
-                    .max(prepared.context.timeout.inquiry * 2)
+                    .max(prepared.context.timeout.inquiry.get() * 2)
                     .max(profile.timing().busy_timeout());
                 assert_eq!(budget, expected, "ACK tuning changed an inquiry budget");
                 prepared.admit_with(|_, _, observer| assert!(observer >= budget));
@@ -3075,10 +3477,11 @@ mod tests {
                 .quick_timeout(Duration::from_millis(quick_ms));
             let command = crate::raw::Plain::new([0x81, 0x01, 0x04, 0x00, 0x02, 0xff],
                 TimeoutClass::Quick, RetryClass::Standard, ControlClass::Normal).expect("command");
-            let prepared = prepare_command(&command, TargetSlot::CAMERA_1, &profile,
+            let prepared = prepare_command(&command,
+        &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone()).expect("valid target registration"),
                 tuning, ClassSelection::Request).expect("valid tuning");
-            let attempt = prepared.context.timeout.ack + prepared.context.timeout.completion;
-            let budget = prepared.context.retry.total_budget;
+            let attempt = prepared.context.timeout.ack.get() + prepared.context.timeout.completion.get();
+            let budget = prepared.context.retry.total_budget.expect("prepared budget").get();
             proptest::prop_assert!(budget >= attempt);
             prepared.admit_with(|_, observer| assert!(observer >= budget));
         }
@@ -3102,8 +3505,8 @@ mod tests {
                 Duration::ZERO,
                 deadline,
                 Duration::ZERO,
-                false,
-            );
+            )
+            .expect("valid retry policy");
             assert_eq!(policy.initial_backoff, Duration::from_millis(50));
             assert_eq!(
                 policy.maximum_backoff,
@@ -3111,7 +3514,11 @@ mod tests {
                 "{class:?}"
             );
             let expected_budget = Duration::from_secs(10).max(deadline.saturating_mul(2));
-            assert_eq!(policy.total_budget, expected_budget, "{class:?}");
+            assert_eq!(
+                policy.total_budget.expect("prepared budget").get(),
+                expected_budget,
+                "{class:?}"
+            );
             assert_eq!(policy.max_retries, retries, "{class:?}");
         }
 
@@ -3126,11 +3533,14 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(1),
             Duration::ZERO,
-            false,
-        );
+        )
+        .expect("valid retry policy");
         assert_eq!(tuned.initial_backoff, Duration::from_millis(100));
         assert_eq!(tuned.maximum_backoff, Duration::from_millis(750));
-        assert_eq!(tuned.total_budget, Duration::from_secs(30));
+        assert_eq!(
+            tuned.total_budget.expect("prepared budget").get(),
+            Duration::from_secs(30)
+        );
     }
 
     /// #828 M3: retry timing is a profile bound that tuning may only
@@ -3152,11 +3562,14 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(1),
             Duration::ZERO,
-            false,
-        );
+        )
+        .expect("valid retry policy");
         assert_eq!(quick.initial_backoff, Duration::from_millis(50));
         assert_eq!(quick.maximum_backoff, Duration::from_millis(500));
-        assert_eq!(quick.total_budget, MINIMUM_RETRY_BUDGET);
+        assert_eq!(
+            quick.total_budget.expect("prepared budget").get(),
+            MINIMUM_RETRY_BUDGET
+        );
 
         let raised_budget = OperationalTuning::new().retry_timing(
             Duration::from_millis(50),
@@ -3170,9 +3583,12 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(300),
             Duration::ZERO,
-            false,
+        )
+        .expect("valid retry policy");
+        assert_eq!(
+            long.total_budget.expect("prepared budget").get(),
+            Duration::from_secs(600)
         );
-        assert_eq!(long.total_budget, Duration::from_secs(600));
         let short = retry_policy(
             RetryClass::Standard,
             TimeoutClass::Quick,
@@ -3180,9 +3596,12 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(1),
             Duration::ZERO,
-            false,
+        )
+        .expect("valid retry policy");
+        assert_eq!(
+            short.total_budget.expect("prepared budget").get(),
+            Duration::from_secs(20)
         );
-        assert_eq!(short.total_budget, Duration::from_secs(20));
     }
 
     /// A network budget never reaches zero: the clamp keeps one attempt.
@@ -3196,8 +3615,8 @@ mod tests {
                 Duration::ZERO,
                 Duration::from_secs(5),
                 Duration::ZERO,
-                false,
-            );
+            )
+            .expect("valid retry policy");
             assert_eq!(policy.max_retries, 1, "base {base}");
         }
     }
@@ -3221,8 +3640,8 @@ mod tests {
                 Duration::ZERO,
                 Duration::from_secs(5),
                 Duration::ZERO,
-                false,
-            );
+            )
+            .expect("valid retry policy");
             assert!(policy.ack_timeout, "{class:?} must retry a lost ACK");
             assert!(
                 policy.completion_timeout,
@@ -3239,8 +3658,8 @@ mod tests {
             Duration::ZERO,
             Duration::from_secs(5),
             Duration::ZERO,
-            false,
-        );
+        )
+        .expect("valid retry policy");
         assert!(!never.ack_timeout);
         assert!(!never.completion_timeout);
         assert!(!never.buffer_full);
@@ -3262,8 +3681,8 @@ mod tests {
                 Duration::ZERO,
                 Duration::from_secs(5),
                 Duration::ZERO,
-                false,
             )
+            .expect("valid retry policy")
             .movement_not_executable
         };
 
@@ -3286,15 +3705,15 @@ mod tests {
         let stop_policies = [
             prepare_builtin_operation::<completion::AppliedOnly, _>(
                 &FocusStop,
-                TargetSlot::CAMERA_1,
-                &profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
             )
             .expect("focus stop"),
             prepare_builtin_operation::<completion::AppliedOnly, _>(
                 &ZoomStop,
-                TargetSlot::CAMERA_1,
-                &profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
             )
             .expect("zoom stop"),
@@ -3306,8 +3725,8 @@ mod tests {
         }
         let drive = prepare_builtin_operation::<completion::AppliedOnly, _>(
             &ZoomDrive::Tele,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("zoom drive");
@@ -3323,15 +3742,23 @@ mod tests {
             .expect("built-in profile");
         let prepared = prepare_builtin_operation::<completion::AppliedOnly, _>(
             &crate::request::builtin::ZoomStop,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("preparation");
 
-        let completion_deadline = prepared.context.timeout.completion;
+        let completion_deadline = prepared.context.timeout.completion.get();
         let expected_budget = Duration::from_secs(10).max(completion_deadline.saturating_mul(2));
-        assert_eq!(prepared.context.retry.total_budget, expected_budget);
+        assert_eq!(
+            prepared
+                .context
+                .retry
+                .total_budget
+                .expect("prepared budget")
+                .get(),
+            expected_budget
+        );
 
         // A short deadline still gets the ten-second floor, while a longer
         // deadline and a profile busy timeout can raise the total budget.
@@ -3343,10 +3770,10 @@ mod tests {
             Duration::ZERO,
             quick_deadline,
             Duration::ZERO,
-            false,
-        );
+        )
+        .expect("valid retry policy");
         assert_eq!(
-            quick.total_budget,
+            quick.total_budget.expect("prepared budget").get(),
             MINIMUM_RETRY_BUDGET.max(quick_deadline.saturating_mul(2))
         );
         let busy_timeout = Duration::from_secs(17);
@@ -3358,10 +3785,10 @@ mod tests {
             busy_timeout,
             long_deadline,
             Duration::ZERO,
-            false,
-        );
+        )
+        .expect("valid retry policy");
         assert_eq!(
-            long.total_budget,
+            long.total_budget.expect("prepared budget").get(),
             MINIMUM_RETRY_BUDGET
                 .max(long_deadline.saturating_mul(2))
                 .max(busy_timeout)
@@ -3388,47 +3815,50 @@ mod tests {
         let tilt_speed = TiltSpeed::new(7).expect("speed");
         let sony_tilt_speed = TiltSpeed::new(9).expect("matching Sony BRC-300 speed");
 
-        let sony_absolute = PanTiltAbsolute::for_profile(
+        let sony_absolute = PanTiltAbsolute::for_target(
             Degrees(45.0),
             Degrees(15.0),
             pan_speed,
             sony_tilt_speed,
-            &sony,
+            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, sony.clone())
+                .expect("target registration"),
         )
         .expect("Sony BRC-300 absolute");
-        let sony_relative = PanTiltRelative::for_profile(
+        let sony_relative = PanTiltRelative::for_target(
             Degrees(45.0),
             Degrees(15.0),
             pan_speed,
             sony_tilt_speed,
-            &sony,
+            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, sony.clone())
+                .expect("target registration"),
         )
         .expect("Sony BRC-300 relative");
-        let sony_limit = PanTiltLimitSet::for_profile(
+        let sony_limit = PanTiltLimitSet::for_target(
             PanTiltLimitCorner::UpRight,
             Degrees(45.0),
             Degrees(15.0),
-            &sony,
+            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, sony.clone())
+                .expect("target registration"),
         )
         .expect("Sony BRC-300 limit");
         let prepared_sony_absolute = prepare_builtin_operation::<completion::Targeted, _>(
             &sony_absolute,
-            TargetSlot::CAMERA_1,
-            &sony,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), sony.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("prepared Sony BRC-300 absolute");
         let prepared_sony_relative = prepare_builtin_operation::<completion::Targeted, _>(
             &sony_relative,
-            TargetSlot::CAMERA_1,
-            &sony,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), sony.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("prepared Sony BRC-300 relative");
         let prepared_sony_limit = prepare_builtin_command(
             &sony_limit,
-            TargetSlot::CAMERA_1,
-            &sony,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), sony.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("prepared Sony BRC-300 limit");
@@ -3455,8 +3885,8 @@ mod tests {
         );
         let sony_inquiry = prepare_inquiry(
             &PanTiltPositionInquiry,
-            TargetSlot::CAMERA_1,
-            &sony,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), sony.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -3475,43 +3905,46 @@ mod tests {
         {
             let profile = &nearus;
             let prepared_absolute = prepare_builtin_operation::<completion::Targeted, _>(
-                &PanTiltAbsolute::for_profile(
+                &PanTiltAbsolute::for_target(
                     Degrees(45.0),
                     Degrees(15.0),
                     pan_speed,
                     sony_tilt_speed,
-                    profile,
+                    &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
+                        .expect("target registration"),
                 )
                 .expect("Nearus absolute"),
-                TargetSlot::CAMERA_1,
-                profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
             )
             .expect("prepared Nearus absolute");
             let prepared_relative = prepare_builtin_operation::<completion::Targeted, _>(
-                &PanTiltRelative::for_profile(
+                &PanTiltRelative::for_target(
                     Degrees(45.0),
                     Degrees(15.0),
                     pan_speed,
                     sony_tilt_speed,
-                    profile,
+                    &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
+                        .expect("target registration"),
                 )
                 .expect("Nearus relative"),
-                TargetSlot::CAMERA_1,
-                profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
             )
             .expect("prepared Nearus relative");
             let prepared_limit = prepare_builtin_command(
-                &PanTiltLimitSet::for_profile(
+                &PanTiltLimitSet::for_target(
                     PanTiltLimitCorner::UpRight,
                     Degrees(45.0),
                     Degrees(15.0),
-                    profile,
+                    &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
+                        .expect("target registration"),
                 )
                 .expect("Nearus limit"),
-                TargetSlot::CAMERA_1,
-                profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
             )
             .expect("prepared Nearus limit");
@@ -3528,19 +3961,20 @@ mod tests {
                 prepared_sony_limit.wire.as_bytes()
             );
             assert!(matches!(
-                PanTiltAbsolute::for_profile(
+                PanTiltAbsolute::for_target(
                     Degrees(45.0),
                     Degrees(15.0),
                     pan_speed,
                     tilt_speed,
-                    profile,
+                    &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
+                        .expect("target registration"),
                 ),
                 Err(Error::InvalidRequest(_))
             ));
             let inquiry = prepare_inquiry(
                 &PanTiltPositionInquiry,
-                TargetSlot::CAMERA_1,
-                profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
@@ -3558,8 +3992,8 @@ mod tests {
             .expect("Sony BRC-300 limit clear");
         let prepared_clear = prepare_command(
             &clear,
-            TargetSlot::CAMERA_1,
-            &sony,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), sony.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -3573,24 +4007,22 @@ mod tests {
         );
         assert!(matches!(
             prepared_clear.applied_state,
-            Some(AppliedStateProjection::Clear {
-                key: crate::StateKey::PanTiltLimits,
-                ..
-            })
+            Some(AppliedStateProjection::Set(crate::KnownState::PanTiltLimits(update))) if update.is_cleared() && update.corner() == PanTiltLimitCorner::DownLeft
         ));
 
-        let absolute = PanTiltAbsolute::for_profile(
+        let absolute = PanTiltAbsolute::for_target(
             Degrees(45.0),
             Degrees(-15.0),
             pan_speed,
             tilt_speed,
-            &signed,
+            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, signed.clone())
+                .expect("target registration"),
         )
         .expect("signed absolute");
         let prepared = prepare_builtin_operation::<completion::Targeted, _>(
             &absolute,
-            TargetSlot::CAMERA_1,
-            &signed,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), signed.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .expect("prepared signed absolute");
@@ -3605,8 +4037,8 @@ mod tests {
         );
         let inquiry = prepare_inquiry(
             &PanTiltPositionInquiry,
-            TargetSlot::CAMERA_1,
-            &signed,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), signed.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -3634,19 +4066,20 @@ mod tests {
             .expect("built-in profile");
         let generic = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
             .expect("generic built-in profile");
-        let pan_tilt = PanTiltAbsolute::for_profile(
+        let pan_tilt = PanTiltAbsolute::for_target(
             Degrees(100.0),
             Degrees(0.0),
             PanSpeed::new(18).expect("conservative range"),
             TiltSpeed::new(17).expect("conservative range"),
-            &generic,
+            &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, generic.clone())
+                .expect("target registration"),
         )
         .expect("valid for the source profile");
         reset_request_write_count();
         assert!(prepare_operation::<completion::Targeted, _>(
             &pan_tilt,
-            TargetSlot::CAMERA_1,
-            &nearus,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), nearus.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -3655,7 +4088,7 @@ mod tests {
 
         let mut no_direct_caps = Capabilities::from_profile::<crate::profiles::GenericVisca>();
         no_direct_caps.profile_id = None;
-        no_direct_caps.supports_direct_zoom = false;
+        no_direct_caps.zoom.as_mut().expect("zoom").direct = false;
         no_direct_caps.typed_support = TypedSupportSet::empty();
         let no_direct = runtime_profile(
             no_direct_caps,
@@ -3667,8 +4100,8 @@ mod tests {
         reset_request_write_count();
         assert!(prepare_operation::<completion::Targeted, _>(
             &zoom,
-            TargetSlot::CAMERA_1,
-            &no_direct,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), no_direct.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -3677,9 +4110,9 @@ mod tests {
 
         let mut bounded_zoom_caps = Capabilities::from_profile::<crate::profiles::GenericVisca>();
         bounded_zoom_caps.profile_id = None;
-        bounded_zoom_caps.zoom_range_optical = 0..=0x4000;
-        bounded_zoom_caps.zoom_range_digital = Some(0x4000..=0x5000);
-        bounded_zoom_caps.supports_direct_zoom = true;
+        bounded_zoom_caps.zoom.as_mut().expect("zoom").optical_max = 0x4000;
+        bounded_zoom_caps.zoom.as_mut().expect("zoom").digital_max = Some(0x5000);
+        bounded_zoom_caps.zoom.as_mut().expect("zoom").direct = true;
         bounded_zoom_caps.typed_support = TypedSupportSet::from_surfaces(&[
             crate::capabilities::TypedSupportSurface::DirectZoom,
             crate::capabilities::TypedSupportSurface::DigitalZoomRange,
@@ -3695,8 +4128,8 @@ mod tests {
         reset_request_write_count();
         assert!(prepare_builtin_operation::<completion::Targeted, _>(
             &outside_zoom,
-            TargetSlot::CAMERA_1,
-            &bounded_zoom,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), bounded_zoom.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
         )
         .is_err());
@@ -3705,8 +4138,8 @@ mod tests {
         reset_request_write_count();
         assert!(prepare_operation::<completion::AppliedOnly, _>(
             &FocusTrigger::Snap,
-            TargetSlot::CAMERA_1,
-            &no_direct,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), no_direct.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -3717,8 +4150,8 @@ mod tests {
         reset_request_write_count();
         assert!(prepare_command(
             &preset,
-            TargetSlot::CAMERA_1,
-            &nearus,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), nearus.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -3783,8 +4216,8 @@ mod tests {
         fn submission_class(class: ClassSelection) -> EngineControlClass {
             prepare_command(
                 &BackgroundPlain,
-                TargetSlot::CAMERA_1,
-                &profile(),
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile().clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 class,
             )
@@ -3797,8 +4230,8 @@ mod tests {
         fn inquiry_class(class: ClassSelection) -> EngineControlClass {
             prepare_inquiry(
                 &CountingInquiry,
-                TargetSlot::CAMERA_1,
-                &profile(),
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile().clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 class,
             )
@@ -3813,8 +4246,8 @@ mod tests {
         ) -> Result<PreparedOperation<completion::AppliedOnly>> {
             prepare_operation::<completion::AppliedOnly, _>(
                 &DownstreamUrgentStop,
-                TargetSlot::CAMERA_1,
-                &profile(),
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile().clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 class,
             )
@@ -3823,8 +4256,8 @@ mod tests {
         fn builtin_stop_class(class: ClassSelection) -> EngineControlClass {
             prepare_operation::<completion::AppliedOnly, _>(
                 &ZoomStop,
-                TargetSlot::CAMERA_1,
-                &profile(),
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile().clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 class,
             )
@@ -3955,8 +4388,8 @@ mod tests {
             .expect("plain");
         let undeclared = prepare_command(
             &command,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -3964,8 +4397,8 @@ mod tests {
         assert!(undeclared.context.motion.is_none());
         let declared = prepare_command(
             &command.with_motion_axes(AffectedAxes::ZOOM),
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -4009,13 +4442,13 @@ mod tests {
                 crate::raw::Plain::with_policy([0x81, 0x01, 0x02, 0xff], policy).expect("plain");
             let prepared = prepare_command(
                 &command,
-                TargetSlot::CAMERA_1,
-                &profile,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
                 OperationalTuning::new(),
                 ClassSelection::Request,
             )
             .expect("prepares");
-            assert_eq!(prepared.context.reply_shape, expected);
+            assert_eq!(prepared.reply_shape, expected);
         }
 
         // A raw command built with no explicit shape — and, by the same trait
@@ -4029,13 +4462,13 @@ mod tests {
         .expect("plain");
         let prepared = prepare_command(
             &default_command,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
         .expect("prepares");
-        assert_eq!(prepared.context.reply_shape, ReplyShape::AckThenCompletion);
+        assert_eq!(prepared.reply_shape, ReplyShape::AckThenCompletion);
     }
 
     #[test]
@@ -4044,8 +4477,8 @@ mod tests {
             .expect("built-in profile");
         let error = prepare_operation::<completion::AppliedOnly, _>(
             &NoReplyAppliedOnly,
-            TargetSlot::CAMERA_1,
-            &profile,
+            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                .expect("valid target registration"),
             OperationalTuning::new(),
             ClassSelection::Request,
         )
@@ -4066,12 +4499,13 @@ pub(crate) struct PreparedHalt {
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 pub(crate) fn prepare_halt(
-    target: TargetSlot,
-    profile: &ProfileSpec,
-    tuning: OperationalTuning,
+    registration: &crate::TargetRegistration,
+    tuning: ValidatedTuning,
 ) -> PreparedHalt {
+    let target = registration.slot();
+    let profile = registration.profile();
     use crate::request::builtin::{FocusStop, ZoomStop};
-    let mut budget = completion_timeout(TimeoutClass::Movement, profile, tuning);
+    let mut budget = completion_timeout(TimeoutClass::Movement, profile, tuning.get());
     let mut lower = |prepared: Result<PreparedOperation<completion::AppliedOnly>>| {
         prepared.map(|prepared| {
             prepared.admit_with(|request, _, _, timeouts| {
@@ -4083,15 +4517,14 @@ pub(crate) fn prepare_halt(
     let pan_tilt = profile.supports_axes(AffectedAxes::PAN_TILT).then(|| {
         lower(
             crate::stop_request::pan_tilt_stop_request(profile).and_then(|stop| {
-                prepare_operation(&stop, target, profile, tuning, ClassSelection::Request)
+                prepare_operation(&stop, registration, tuning, ClassSelection::Request)
             }),
         )
     });
     let zoom = profile.supports_axes(AffectedAxes::ZOOM).then(|| {
         lower(prepare_operation(
             &ZoomStop,
-            target,
-            profile,
+            registration,
             tuning,
             ClassSelection::Request,
         ))
@@ -4099,8 +4532,7 @@ pub(crate) fn prepare_halt(
     let focus = profile.supports_axes(AffectedAxes::FOCUS).then(|| {
         lower(prepare_operation(
             &FocusStop,
-            target,
-            profile,
+            registration,
             tuning,
             ClassSelection::Request,
         ))

@@ -4,10 +4,14 @@
 //! retry, correlation, and protocol cancellation. It performs no I/O and knows
 //! nothing about channels, executors, facade cameras, or observers.
 
+mod inquiry_shape;
 mod lifecycle;
 mod stream_ledger;
 pub(crate) use lifecycle::*;
 mod types;
+
+use inquiry_shape::InquiryShapes;
+pub(crate) use inquiry_shape::MAX_RAW_INQUIRY_SHAPE_CLASSES_PER_TARGET;
 
 use stream_ledger::{
     Answer, Answered, Evidence, LaneState, NamedFrame, Outstanding, Owes, Resolved, Retro,
@@ -16,10 +20,9 @@ use stream_ledger::{
 pub(crate) use types::*;
 
 use std::{
-    array,
     borrow::Cow,
     cmp::Ordering,
-    collections::{BTreeMap, VecDeque},
+    collections::BTreeMap,
     num::NonZeroU64,
     sync::Arc,
     time::{Duration, Instant},
@@ -29,7 +32,14 @@ use smallvec::SmallVec;
 
 use crate::protocol::framer::RawIncompletePrefix;
 use crate::target::{PerTarget, TargetSlot};
-use crate::{Certainty, Error, FailureContext, FailureStage, ViscaSocket};
+use crate::{Certainty, Error, FailureContext, FailureStage, PayloadShape, ViscaSocket};
+
+mod decision;
+mod entry_table;
+use decision::Decision;
+use entry_table::{AdmissionFacts, EntryChange, EntryPlacement, EntryTable};
+mod framing;
+pub(crate) use framing::{ProtocolEncoder, WireProtocol, WriteFraming};
 
 #[cfg(test)]
 mod tests;
@@ -43,7 +53,6 @@ enum CorrelationKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct CorrelationOwner {
     request: RequestId,
-    generation: GenerationTicket,
     kind: CorrelationKind,
 }
 
@@ -51,49 +60,13 @@ struct CorrelationOwner {
 struct SequenceRecord {
     sequence: u32,
     kind: CorrelationKind,
-    target: TargetSlot,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct SocketOwner {
-    request: RequestId,
-    generation: GenerationTicket,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct TransmissionOwner {
     request: RequestId,
-    generation: GenerationTicket,
-    attempt: u32,
     kind: CorrelationKind,
-    requested_sequence: Option<u32>,
-}
-
-/// A camera ACK that reached the engine before the write result for the very
-/// frame it answers.
-///
-/// Issue #297: an owner whose reader and writer are not strictly ordered can
-/// deliver the ACK first. The engine latches it on the entry instead of
-/// dropping it, and applies it verbatim as soon as the transmission is
-/// confirmed, so the race cannot silently reopen.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct DeferredAck {
-    socket: Option<ViscaSocket>,
-}
-
-/// A camera completion that reached the engine before the write result for the
-/// very frame it answers, for a completion-only raw command.
-///
-/// The mirror of [`DeferredAck`] for [`ReplyShape::CompletionOnly`]: a
-/// completion-only command receives no ACK, so its terminal frame is the
-/// completion. An owner whose reader is not strictly ordered behind its writer
-/// can deliver that completion first; the engine latches it on the entry while
-/// the write is still `Sending` and applies it as soon as the send is confirmed,
-/// so the race cannot silently drop the completion and strand the command until
-/// its completion deadline.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct DeferredCompletion {
-    socket: Option<ViscaSocket>,
+    framing: RequestFraming,
 }
 
 /// One raw-VISCA correlation scope retained after its live owner can no longer
@@ -101,25 +74,27 @@ pub(crate) struct DeferredCompletion {
 ///
 /// Every bounded quarantine is keyed through this vocabulary. `Socket` is an
 /// exact command-completion identity, `PreAck` is the target-local positional
-/// command slot, `InquiryUnkeyed` is target/data-only inquiry correlation, and
+/// command slot, `Inquiry(shape)` retains the exact inquiry declaration, and
 /// `AllResponses` is the broad hold left by a command that never earned a wire
 /// identity.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RawHoldScope {
     Socket(ViscaSocket),
     PreAck,
-    InquiryUnkeyed,
+    Inquiry(PayloadShape),
     AllResponses,
 }
 
 impl RawHoldScope {
-    const fn order(self) -> u8 {
+    const fn order(self) -> (u8, usize) {
         match self {
-            Self::Socket(ViscaSocket::S1) => 0,
-            Self::Socket(ViscaSocket::S2) => 1,
-            Self::PreAck => 2,
-            Self::InquiryUnkeyed => 3,
-            Self::AllResponses => 4,
+            Self::Socket(ViscaSocket::S1) => (0, 0),
+            Self::Socket(ViscaSocket::S2) => (1, 0),
+            Self::PreAck => (2, 0),
+            Self::Inquiry(PayloadShape::Unknown) => (3, 0),
+            Self::Inquiry(PayloadShape::Bytes(length)) => (4, length),
+            Self::Inquiry(PayloadShape::Nibbles(length)) => (5, length),
+            Self::AllResponses => (6, 0),
         }
     }
 }
@@ -186,25 +161,35 @@ struct RawReleaseGate {
     await_until: Instant,
 }
 
+/// Socketless completions that could belong to a held predecessor or a live
+/// holder. Identity snapshots prevent an old frame from completing a successor
+/// after socket reuse; only a complete count proves that every candidate ended.
+#[derive(Debug, Clone, Copy)]
+struct PendingSocketlessCompletions {
+    candidates: [Option<RequestId>; 2],
+    count: u8,
+}
+
 /// The one authoritative lifecycle record for an admitted request.
 #[derive(Debug)]
 pub(crate) struct Entry {
     request: RuntimeRequest,
-    lifecycle: Lifecycle,
+    lifecycle: EntryPlacement,
     admission_order: u64,
     submitted_at: Instant,
     attempt: u32,
     last_error: Option<Error>,
     generation: GenerationTicket,
-    queue_generation: u64,
     /// The most recently successful Sony sequence for this logical request.
     /// Retries reuse it; cancellation has its own sequence and never changes
     /// this value.
     current_sequence: Option<u32>,
     sequence_history: SmallVec<[SequenceRecord; MAX_SEQUENCE_HISTORY]>,
     slot: AdmissionSlot,
-    /// Whether an earlier written attempt may have reached the camera without
-    /// a conclusive rejection. A request that was never written, or whose
+    /// Whether a written attempt may have reached the camera without
+    /// a conclusive rejection. Retained across retry waiting, and recorded
+    /// before a physical write result terminalizes directly from Sending.
+    /// A request that was never written, or whose
     /// every written attempt the camera rejected before ACK, has had no
     /// effect; supersession then reports `NotAccepted` rather than
     /// `Unconfirmed`.
@@ -212,81 +197,67 @@ pub(crate) struct Entry {
 }
 
 impl Entry {
+    const fn lifecycle(&self) -> Lifecycle {
+        self.lifecycle.logical()
+    }
+
+    fn reply_family(&self) -> SendingReply {
+        self.lifecycle()
+            .reply_family()
+            .unwrap_or_else(|| SendingReply::new(&self.request))
+    }
+
+    fn may_have_effect(&self, outcome: &RuntimeOutcome) -> bool {
+        self.effect_possible
+            || match self.lifecycle() {
+                Lifecycle::AwaitingAck { .. } | Lifecycle::AwaitingCompletion { .. } => {
+                    !matches!(outcome, RuntimeOutcome::Failed(error) if conclusive_camera_rejection(error))
+                }
+                Lifecycle::Executing { .. } | Lifecycle::AwaitingCancellationResolution { .. } => {
+                    true
+                }
+                Lifecycle::Ready { .. }
+                | Lifecycle::Sending { .. }
+                | Lifecycle::AwaitingReply { .. }
+                | Lifecycle::Backoff { .. } => false,
+            }
+    }
+
     fn retry_budget_deadline(&self) -> Option<Instant> {
-        self.lifecycle
+        self.lifecycle()
             .retry_budget_deadline(self.submitted_at, self.request.context().retry.total_budget)
     }
     fn correlated_response_deadline(&self) -> Option<Instant> {
-        self.lifecycle
+        self.lifecycle()
             .correlated_response_deadline(self.retry_budget_deadline())
     }
-    fn deferred_ack(&self) -> Option<DeferredAck> {
-        self.lifecycle.deferred_ack()
-    }
-    #[cfg(test)]
-    fn deferred_completion(&self) -> Option<DeferredCompletion> {
-        self.lifecycle.deferred_completion()
-    }
     fn dispatched_socket_capacity(&self) -> Option<u8> {
-        self.lifecycle
+        self.lifecycle()
             .attempt()
             .and_then(|attempt| attempt.socket_capacity)
     }
     fn stream_order(&self) -> Option<u64> {
-        self.lifecycle
+        self.lifecycle()
             .attempt()
             .and_then(|attempt| attempt.stream_order)
     }
     fn cancel_attempted_socket(&self) -> Option<ViscaSocket> {
-        self.lifecycle.attempted_socket()
+        self.lifecycle().attempted_socket()
     }
     fn cancellation_observation_open(&self) -> bool {
-        self.lifecycle.observer_open()
+        self.lifecycle().observer_open()
     }
 
     fn due(&self, id: RequestId) -> Option<DueWork> {
-        let entry = self;
-        let phase_due = match entry.lifecycle.phase() {
-            Phase::AwaitingAck { deadline, .. } => Some((deadline, DueKind::Deadline, 0)),
-            Phase::AwaitingCompletion { deadline, .. } => Some((deadline, DueKind::Deadline, 0)),
-            Phase::Executing { deadline, .. } => Some((deadline, DueKind::Deadline, 0)),
-            Phase::AwaitingCancellationResolution { deadline, .. } => {
-                Some((deadline, DueKind::Deadline, 0))
-            }
-            Phase::AwaitingReply { deadline, .. } => Some((deadline, DueKind::Deadline, 0)),
-            Phase::Backoff {
-                ready_at,
-                queue_generation,
-            } => Some((ready_at, DueKind::RetryReady, queue_generation)),
-            Phase::Ready { .. } | Phase::Sending { .. } => None,
-        };
-        let retry_budget_due = entry.retry_budget_deadline();
-        let mut selected = phase_due;
-        if let Some(budget) = retry_budget_due {
-            if selected.is_none_or(|(at, _, _)| budget <= at) {
-                selected = Some((budget, DueKind::Deadline, 0));
-            }
-        }
-        if let Some(ambiguity) = entry.lifecycle.active_cancellation_ambiguity() {
-            if selected.is_none_or(|(at, _, _)| ambiguity <= at) {
-                selected = Some((ambiguity, DueKind::CancellationAmbiguity, 0));
-            }
-        }
-        let (mut at, mut kind, mut queue_generation) = selected?;
-        if let Some(observation_deadline) = entry.lifecycle.cancellation_observation_deadline() {
-            if observation_deadline < at {
-                at = observation_deadline;
-                kind = DueKind::Deadline;
-                queue_generation = 0;
-            }
-        }
+        let (at, action) = self
+            .lifecycle
+            .active()?
+            .due_action(self.retry_budget_deadline(), terminal_certainty(self))?;
         Some(DueWork {
             at,
-            admission_order: entry.admission_order,
-            kind,
+            admission_order: self.admission_order,
+            action,
             request: id,
-            generation: entry.generation,
-            queue_generation,
         })
     }
 
@@ -294,13 +265,13 @@ impl Entry {
     /// and `OwnerState::request_state`.
     #[cfg(test)]
     pub(crate) fn phase(&self) -> Phase {
-        self.lifecycle.phase()
+        self.lifecycle().phase()
     }
 
     /// Test projection of the entry's cancellation state.
     #[cfg(test)]
     pub(crate) const fn cancellation(&self) -> CancelState {
-        self.lifecycle.cancellation()
+        self.lifecycle().cancellation()
     }
 }
 
@@ -335,27 +306,15 @@ impl IdAllocator {
 
 #[derive(Debug, Clone, Copy)]
 struct DispatchSelection {
-    lane: Lane,
-    priority: usize,
-    index: usize,
-    ticket: QueueTicket,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-enum DueKind {
-    CancellationAmbiguity,
-    Deadline,
-    RetryReady,
+    request: RequestId,
 }
 
 #[derive(Debug, Clone, Copy)]
 struct DueWork {
     at: Instant,
     admission_order: u64,
-    kind: DueKind,
+    action: DueAction,
     request: RequestId,
-    generation: GenerationTicket,
-    queue_generation: u64,
 }
 
 /// One owner-sampled instant shared by an ordered external-input turn.
@@ -371,18 +330,17 @@ pub(crate) struct InputTurn {
 }
 
 impl DueWork {
-    fn key(self) -> (Instant, u64, DueKind) {
-        (self.at, self.admission_order, self.kind)
+    fn key(self) -> (Instant, u64, u8) {
+        (self.at, self.admission_order, self.action.priority())
     }
 }
 
 #[derive(Debug)]
 struct TargetState {
     policy: Option<TargetPolicy>,
-    socket_owners: [Option<SocketOwner>; 2],
-    raw_inquiries: VecDeque<CorrelationOwner>,
     completion_sockets: CompletionSockets,
     unlearned_completions: u32,
+    pending_socketless_completions: Option<PendingSocketlessCompletions>,
     retired_completion_only: u32,
     motion_fences: [u64; 5],
 }
@@ -390,10 +348,9 @@ impl Default for TargetState {
     fn default() -> Self {
         Self {
             policy: None,
-            socket_owners: [None; 2],
-            raw_inquiries: VecDeque::new(),
             completion_sockets: CompletionSockets::Unknown,
             unlearned_completions: 0,
+            pending_socketless_completions: None,
             retired_completion_only: 0,
             motion_fences: [0; 5],
         }
@@ -405,12 +362,7 @@ impl Default for TargetState {
 pub(crate) struct ProtocolEngine {
     policy: ProtocolPolicy,
     targets: PerTarget<TargetState>,
-    entries: BTreeMap<RequestId, Entry>,
-    command_queues: [VecDeque<QueueTicket>; 4],
-    inquiry_queues: [VecDeque<QueueTicket>; 4],
-    transmissions: BTreeMap<TransmissionId, TransmissionOwner>,
-    sequences: BTreeMap<u32, SmallVec<[CorrelationOwner; 2]>>,
-    lower_sequences: BTreeMap<u16, SmallVec<[CorrelationOwner; 2]>>,
+    entries: EntryTable,
     /// Every time-bounded raw correlation quarantine, keyed by target and
     /// protocol scope. Live correlation owners remain in their exact indexes;
     /// once ownership becomes unsafe it moves here instead of being encoded in
@@ -421,13 +373,6 @@ pub(crate) struct ProtocolEngine {
     /// target and in write order (#795). Always empty on a datagram transport
     /// or the Sony envelope.
     ledger: StreamLedger,
-    /// Frames a proven dispute assigns to their requests, applied before the
-    /// frame that proved it (#795).
-    retro: SmallVec<[Retro; 4]>,
-    /// Executing commands a frame proved no longer run in the socket the
-    /// engine indexes them to — a late cancellation reached them there, or
-    /// an owed command's ACK named it — ended with the frame's other effects.
-    displaced_unseen: SmallVec<[RequestId; 2]>,
     /// The instant of the input turn or due pass being applied. A request that
     /// ends without its first answer starts its debt's window here.
     turn_at: Option<Instant>,
@@ -446,26 +391,20 @@ pub(crate) struct ProtocolEngine {
 
 impl ProtocolEngine {
     /// Constructs an empty session engine. Targets are registered separately.
-    pub(crate) fn new(policy: ProtocolPolicy) -> Result<Self, Error> {
+    pub(crate) fn new(policy: ProtocolPolicy, now: Instant) -> Result<Self, Error> {
         if policy.capacity == 0 || policy.inquiry_capacity == 0 {
             return Err(Error::InvalidRequest(
                 "engine and inquiry capacity must be non-zero".into(),
             ));
         }
+        policy.validate_at(now)?;
         Ok(Self {
             policy,
             targets: PerTarget::default(),
-            entries: BTreeMap::new(),
-            command_queues: array::from_fn(|_| VecDeque::new()),
-            inquiry_queues: array::from_fn(|_| VecDeque::new()),
-            transmissions: BTreeMap::new(),
-            sequences: BTreeMap::new(),
-            lower_sequences: BTreeMap::new(),
+            entries: EntryTable::new(),
             holds: BTreeMap::new(),
             raw_release_gate: None,
             ledger: StreamLedger::new(),
-            retro: SmallVec::new(),
-            displaced_unseen: SmallVec::new(),
             turn_at: None,
             next_request_id: IdAllocator::new(),
             next_transmission_id: IdAllocator::new(),
@@ -521,6 +460,7 @@ impl ProtocolEngine {
         command_spacing: Duration,
         inquiry_spacing: Duration,
         command_sockets: PerTarget<Option<u8>>,
+        now: Instant,
     ) -> Result<(), Error> {
         for (target, slot) in self.targets.iter() {
             if let (Some(_), Some(sockets)) = (slot.policy, command_sockets[target]) {
@@ -531,6 +471,10 @@ impl ProtocolEngine {
                 }
             }
         }
+        let mut policy = self.policy.clone();
+        policy.command_spacing = command_spacing;
+        policy.inquiry_spacing = inquiry_spacing;
+        policy.validate_at(now)?;
         self.policy.command_spacing = command_spacing;
         self.policy.inquiry_spacing = inquiry_spacing;
         for (target, slot) in self.targets.iter_mut() {
@@ -552,11 +496,9 @@ impl ProtocolEngine {
     /// and every engine-initiated verdict alike (deadline expiry, the strict
     /// `strict_unconfirmed_poison` opt-in, a stream/framing self-poison) — is
     /// funneled through [`Self::terminate_session`], which stamps this field
-    /// before emitting [`Effect::SessionChanged`]. The effect itself carries no
-    /// payload, so the owner reads this to learn the true terminal cause and
-    /// latch it into its own `session_error` (issue #680); without it an
-    /// engine-initiated poison is invisible to `shutdown()`/`close()` and the
-    /// documented recovery loop re-latches `RuntimeShutdown` instead.
+    /// before emitting [`Effect::SessionChanged`]. Owners read this retained
+    /// cause directly, including engine-initiated poison, rather than deriving
+    /// a second verdict from the input boundary.
     pub(crate) fn terminal_error(&self) -> Option<Error> {
         self.terminal_error.clone()
     }
@@ -591,16 +533,39 @@ impl ProtocolEngine {
         );
     }
 
+    /// A returned transmit is performed immediately. Its identified result is
+    /// the only permitted input until that write has finished.
+    pub(crate) fn assert_input_boundary(&self) -> Result<(), Box<str>> {
+        if self
+            .entries
+            .values()
+            .any(|entry| matches!(entry.lifecycle(), Lifecycle::Sending { .. }))
+        {
+            return Err("no entry may be Sending at an input boundary".into());
+        }
+        Ok(())
+    }
+
+    fn debug_assert_input_boundary(&self) {
+        debug_assert!(
+            self.assert_input_boundary().is_ok(),
+            "no entry may be Sending at an input boundary"
+        );
+    }
+
     /// Applies one ordered external input first, then all work due at `now`.
     pub(crate) fn handle(&mut self, input: Input, now: Instant) -> Vec<Effect> {
-        self.handle_turn(input, now, EngineTurn::COMPLETE)
+        self.handle_turn(input, now, EngineTurn::Complete)
     }
 
     /// Applies one ordered external input and completes it under `turn`.
     ///
     /// This is the single runtime-neutral entry point for the scheduler
     /// boundaries needed by both owner shells. The ordinary [`Self::handle`]
-    /// convenience path selects [`EngineTurn::COMPLETE`].
+    /// convenience path selects [`EngineTurn::Complete`].
+    /// Every returned transmit must be written and completed before applying
+    /// another input or running due work; both owners share this write-first
+    /// contract.
     pub(crate) fn handle_turn(
         &mut self,
         input: Input,
@@ -631,14 +596,16 @@ impl ProtocolEngine {
     /// remain in the exact order produced by this input; the owner drains them
     /// before passing the next wire frame.
     pub(crate) fn handle_in_turn(&mut self, turn: &InputTurn, input: Input) -> Vec<Effect> {
+        if !matches!(input, Input::TransmissionFinished { .. }) {
+            self.debug_assert_input_boundary();
+        }
         #[cfg(test)]
         if let Input::Cancel { id } = input {
             return self.cancel_in_turn(turn, id).0;
         }
-        let mut effects = Vec::new();
+        let mut effects = Decision::new();
         self.apply_input(input, turn.now, &mut effects);
-        self.debug_assert_invariants();
-        effects
+        self.finish_decision(Some(turn.now), effects)
     }
 
     /// Applies cancellation in an input turn and returns synchronous refusal
@@ -648,11 +615,11 @@ impl ProtocolEngine {
         turn: &InputTurn,
         id: RequestId,
     ) -> (Vec<Effect>, Result<(), Error>) {
+        self.debug_assert_input_boundary();
         self.turn_at = Some(turn.now);
-        let mut effects = Vec::new();
+        let mut effects = Decision::new();
         let result = self.cancel(id, turn.now, &mut effects);
-        self.debug_assert_invariants();
-        (effects, result)
+        (self.finish_decision(Some(turn.now), effects), result)
     }
 
     /// Ends an ordered input turn, then runs due work, pending cancellation,
@@ -666,19 +633,26 @@ impl ProtocolEngine {
         input_turn: InputTurn,
         engine_turn: EngineTurn,
     ) -> Vec<Effect> {
-        let mut effects = Vec::new();
+        let mut effects = Decision::new();
         if engine_turn.runs_due() {
             self.run_due(input_turn.now, &mut effects);
             self.drain_pending_cancellations(input_turn.now, &mut effects);
-            if engine_turn.allows_dispatch() {
-                self.dispatch_one(input_turn.now, &mut effects);
+            self.dispatch_one(input_turn.now, &mut effects);
+        }
+        self.finish_decision(Some(input_turn.now), effects)
+    }
+
+    fn finish_decision(&mut self, now: Option<Instant>, mut decision: Decision) -> Vec<Effect> {
+        if let Some(now) = now {
+            while decision.has_deferred() {
+                self.apply_retro(now, &mut decision);
             }
         }
         self.debug_assert_invariants();
-        effects
+        decision.into_effects()
     }
 
-    fn apply_input(&mut self, input: Input, now: Instant, effects: &mut Vec<Effect>) {
+    fn apply_input(&mut self, input: Input, now: Instant, effects: &mut Decision) {
         self.turn_at = Some(now);
         match input {
             Input::Admit {
@@ -687,9 +661,10 @@ impl ProtocolEngine {
                 slot,
             } => self.admit(ticket, request, slot, now, effects),
             Input::TransmissionFinished {
+                request,
                 transmission,
                 result,
-            } => self.transmission_finished(transmission, result, now, effects),
+            } => self.transmission_finished(request, transmission, result, now, effects),
             Input::Frame(frame) => self.frame(frame, now, effects),
             #[cfg(test)]
             Input::Cancel { id } => {
@@ -722,21 +697,18 @@ impl ProtocolEngine {
 
     /// Runs due internal work, pending cancellation, and ordinary dispatch.
     pub(crate) fn advance(&mut self, now: Instant) -> Vec<Effect> {
-        self.advance_turn(now, EngineTurn::COMPLETE)
+        self.advance_turn(now, EngineTurn::Complete)
     }
 
     /// Runs the scheduler work selected by `turn` at `now`.
     pub(crate) fn advance_turn(&mut self, now: Instant, turn: EngineTurn) -> Vec<Effect> {
-        let mut effects = Vec::new();
+        let mut effects = Decision::new();
         if turn.runs_due() {
             self.run_due(now, &mut effects);
             self.drain_pending_cancellations(now, &mut effects);
-            if turn.allows_dispatch() {
-                self.dispatch_one(now, &mut effects);
-            }
+            self.dispatch_one(now, &mut effects);
         }
-        self.debug_assert_invariants();
-        effects
+        self.finish_decision(Some(now), effects)
     }
 
     /// Entries holding `slot`, for `target` when the slot is a control
@@ -819,13 +791,13 @@ impl ProtocolEngine {
             .iter()
             .filter_map(|(id, entry)| {
                 (matches!(
-                    entry.lifecycle.phase(),
-                    Phase::Ready { .. } | Phase::Backoff { .. }
+                    entry.lifecycle().phase(),
+                    Phase::Ready | Phase::Backoff { .. }
                 ) && self.motion_superseded(entry.request.context()).is_some())
                 .then_some((*id, entry.effect_possible))
             })
             .collect();
-        let mut effects = Vec::new();
+        let mut effects = Decision::new();
         for (id, effect_possible) in ids {
             // A queued or backed-off request is not on the wire. It can have
             // affected the camera only through an earlier attempt that the
@@ -839,43 +811,32 @@ impl ProtocolEngine {
                 &mut effects,
             );
         }
-        effects
+        self.finish_decision(self.turn_at, effects)
     }
 
     /// A staged write is still unsent. Expire an overdue halt STOP here,
     /// without fabricating a transport failure or poisoning a healthy stream.
     pub(crate) fn expire_unwritten_halt(
         &mut self,
+        request: RequestId,
         transmission: TransmissionId,
         now: Instant,
     ) -> Option<Vec<Effect>> {
-        let effects = self.expire_unwritten_halt_inner(transmission, now);
+        let effects = self.expire_unwritten_halt_inner(request, transmission, now);
         self.debug_assert_invariants();
         effects
     }
 
     fn expire_unwritten_halt_inner(
         &mut self,
+        request: RequestId,
         transmission: TransmissionId,
         now: Instant,
     ) -> Option<Vec<Effect>> {
         self.turn_at = Some(now);
-        let Some(owner) = self.transmissions.get(&transmission).copied() else {
+        let Some(owner) = self.transmission_owner(request, transmission) else {
             return Some(vec![Effect::Ignored(IgnoreReason::StaleTransmission)]);
         };
-        let compatible = self.entries.get(&owner.request).is_some_and(|entry| {
-            entry.generation == owner.generation && entry.attempt == owner.attempt
-                && match owner.kind {
-                    CorrelationKind::Request => matches!(entry.lifecycle.phase(), Phase::Sending { transmission: active, .. } if active == transmission),
-                    CorrelationKind::Cancellation => entry.lifecycle.cancellation_transmission() == Some(transmission),
-                }
-        });
-        if !compatible {
-            self.transmissions.remove(&transmission);
-            return Some(vec![Effect::Ignored(
-                IgnoreReason::IncompatibleTransmissionResult,
-            )]);
-        }
         if owner.kind != CorrelationKind::Request {
             return None;
         }
@@ -897,7 +858,7 @@ impl ProtocolEngine {
         } else {
             Certainty::NotAccepted
         };
-        let mut effects = Vec::new();
+        let mut effects = Decision::new();
         self.finish(
             owner.request,
             RuntimeOutcome::Failed(Error::timeout(FailureStage::Terminal, certainty)),
@@ -905,7 +866,7 @@ impl ProtocolEngine {
         );
         // A STOP that never left may decide a dispute naming it.
         self.apply_retro(now, &mut effects);
-        Some(effects)
+        Some(self.finish_decision(Some(now), effects))
     }
 
     fn motion_superseded(&self, context: &RequestContext) -> Option<crate::AffectedAxes> {
@@ -928,7 +889,7 @@ impl ProtocolEngine {
         request: RuntimeRequest,
         slot: AdmissionSlot,
         now: Instant,
-        effects: &mut Vec<Effect>,
+        effects: &mut Decision,
     ) {
         if self.state != SessionState::Running {
             effects.push(Effect::AdmissionRejected {
@@ -941,6 +902,10 @@ impl ProtocolEngine {
             return;
         }
         let context = *request.context();
+        if let Err(error) = context.validate_at(now) {
+            effects.push(Effect::AdmissionRejected { ticket, error });
+            return;
+        }
         if let Some(axes) = self.motion_superseded(&context) {
             effects.push(Effect::AdmissionRejected {
                 ticket,
@@ -965,6 +930,27 @@ impl ProtocolEngine {
             });
             return;
         };
+        if let Some(shape) = request
+            .payload_shape()
+            .filter(|_| self.policy.wire.kind() == EnvelopeKind::Raw)
+        {
+            let available = self
+                .tracked_inquiry_shapes(context.target)
+                .is_ok_and(|tracked| {
+                    tracked.contains(shape)
+                        || tracked.len() < MAX_RAW_INQUIRY_SHAPE_CLASSES_PER_TARGET
+                });
+            if !available {
+                effects.push(Effect::AdmissionRejected {
+                    ticket,
+                    error: Error::inquiry_shape_capacity_exhausted(
+                        context.target.camera(),
+                        MAX_RAW_INQUIRY_SHAPE_CLASSES_PER_TARGET,
+                    ),
+                });
+                return;
+            }
+        }
         if let Some(error) = self.latched_raw_lane_error(&request) {
             effects.push(Effect::AdmissionRejected { ticket, error });
             return;
@@ -994,186 +980,86 @@ impl ProtocolEngine {
         };
         let admission_order = self.next_admission_order;
         self.next_admission_order = self.next_admission_order.wrapping_add(1);
-        let queue_generation = 1;
-        let queue_ticket = QueueTicket {
-            request: id,
-            generation,
-            queue_generation,
-        };
-        let priority = request.context().control.class.priority_index();
-        let lane = request.lane();
-        self.entries.insert(
+        let admitted = self.entries.admit(
             id,
-            Entry {
-                request,
-                lifecycle: Lifecycle::Ready {
-                    ticket: queue_ticket,
-                },
-                admission_order,
+            request,
+            AdmissionFacts {
+                order: admission_order,
                 submitted_at: now,
-                attempt: 0,
-                last_error: None,
                 generation,
-                queue_generation,
-                current_sequence: None,
-                sequence_history: SmallVec::new(),
                 slot,
-                effect_possible: false,
             },
         );
-        self.queue_mut(lane, priority).push_back(queue_ticket);
+        if !admitted {
+            effects.push(Effect::AdmissionRejected {
+                ticket,
+                error: Error::RuntimeIdentityExhausted,
+            });
+            return;
+        }
         effects.push(Effect::Admitted { ticket, id });
     }
 
     fn allocate_request_id(&mut self) -> Option<RequestId> {
-        for _ in 0..=self.entries.len() {
-            let candidate = RequestId::from_nonzero(self.next_request_id.candidate()?);
-            if !self.entries.contains_key(&candidate) {
-                return Some(candidate);
-            }
-        }
-        None
+        self.next_request_id
+            .candidate()
+            .map(RequestId::from_nonzero)
     }
 
     fn allocate_transmission_id(&mut self) -> Option<TransmissionId> {
-        for _ in 0..=self.transmissions.len() {
-            let candidate = TransmissionId::from_nonzero(self.next_transmission_id.candidate()?);
-            if !self.transmissions.contains_key(&candidate) {
-                return Some(candidate);
-            }
-        }
-        None
+        self.next_transmission_id
+            .candidate()
+            .map(TransmissionId::from_nonzero)
     }
 
     fn allocate_generation(&mut self) -> Option<GenerationTicket> {
-        for _ in 0..=self.entries.len() {
-            let candidate = GenerationTicket(self.next_generation.candidate()?.get());
-            if self
-                .entries
-                .values()
-                .all(|entry| entry.generation != candidate)
-            {
-                return Some(candidate);
-            }
-        }
-        None
+        self.next_generation
+            .candidate()
+            .map(|value| GenerationTicket(value.get()))
     }
 
-    fn queue(&self, lane: Lane, priority: usize) -> &VecDeque<QueueTicket> {
-        match lane {
-            Lane::Command => &self.command_queues[priority],
-            Lane::Inquiry => &self.inquiry_queues[priority],
-        }
-    }
-
-    fn queue_mut(&mut self, lane: Lane, priority: usize) -> &mut VecDeque<QueueTicket> {
-        match lane {
-            Lane::Command => &mut self.command_queues[priority],
-            Lane::Inquiry => &mut self.inquiry_queues[priority],
-        }
-    }
-
-    /// Whether `ticket`, found in the `lane`/`priority` queue, still names its
-    /// request's current ready state. Superseded tickets are pruned lazily.
-    fn ticket_current(
-        entries: &BTreeMap<RequestId, Entry>,
-        ticket: QueueTicket,
-        lane: Lane,
-        priority: usize,
-    ) -> bool {
-        entries.get(&ticket.request).is_some_and(|entry| {
-            entry.generation == ticket.generation
-                && entry.queue_generation == ticket.queue_generation
-                && matches!(entry.lifecycle.phase(), Phase::Ready { ticket: active } if active == ticket)
-                && entry.request.lane() == lane
-                && entry.request.context().control.class.priority_index() == priority
-        })
-    }
-
-    fn prune_queue(&mut self, lane: Lane, priority: usize) {
-        let mut queue = std::mem::take(self.queue_mut(lane, priority));
-        queue.retain(|ticket| Self::ticket_current(&self.entries, *ticket, lane, priority));
-        *self.queue_mut(lane, priority) = queue;
-    }
-
-    fn eligible_ticket_readonly(
-        &self,
-        lane: Lane,
-        priority: usize,
-        now: Instant,
-    ) -> Option<(usize, QueueTicket)> {
-        self.queue(lane, priority)
+    fn eligible_request(&self, lane: Lane, priority: usize, now: Instant) -> Option<RequestId> {
+        self.entries
+            .ready(lane, priority)
             .iter()
             .copied()
-            .enumerate()
-            .find(|(_, ticket)| {
-                Self::ticket_current(&self.entries, *ticket, lane, priority)
-                    && self.dispatch_eligible(*ticket, now)
-            })
+            .find(|id| self.dispatch_eligible(*id, now))
     }
 
     fn select_dispatch(&self, now: Instant) -> Option<DispatchSelection> {
         for priority in (0..4).rev() {
-            let inquiry = self.eligible_ticket_readonly(Lane::Inquiry, priority, now);
-            let command = self.eligible_ticket_readonly(Lane::Command, priority, now);
-            let selected = match (inquiry, command) {
-                (Some((index, ticket)), None) => Some(DispatchSelection {
-                    lane: Lane::Inquiry,
-                    priority,
-                    index,
-                    ticket,
-                }),
-                (None, Some((index, ticket))) => Some(DispatchSelection {
-                    lane: Lane::Command,
-                    priority,
-                    index,
-                    ticket,
-                }),
-                (Some((inquiry_index, inquiry_ticket)), Some((command_index, command_ticket))) => {
+            let inquiry = self.eligible_request(Lane::Inquiry, priority, now);
+            let command = self.eligible_request(Lane::Command, priority, now);
+            let request = match (inquiry, command) {
+                (Some(inquiry), Some(command)) => {
                     let inquiry_first = self
                         .entries
-                        .get(&inquiry_ticket.request)
-                        .zip(self.entries.get(&command_ticket.request))
+                        .get(&inquiry)
+                        .zip(self.entries.get(&command))
                         .is_some_and(|(inquiry, command)| {
                             inquiry.admission_order <= command.admission_order
                         });
-                    let (lane, index, ticket) = if inquiry_first {
-                        (Lane::Inquiry, inquiry_index, inquiry_ticket)
+                    if inquiry_first {
+                        inquiry
                     } else {
-                        (Lane::Command, command_index, command_ticket)
-                    };
-                    Some(DispatchSelection {
-                        lane,
-                        priority,
-                        index,
-                        ticket,
-                    })
+                        command
+                    }
                 }
-                (None, None) => None,
+                (Some(id), None) | (None, Some(id)) => id,
+                (None, None) => continue,
             };
-            if selected.is_some() {
-                return selected;
-            }
+            return Some(DispatchSelection { request });
         }
         None
     }
 
-    fn remove_ticket(&mut self, lane: Lane, priority: usize, index: usize) -> Option<QueueTicket> {
-        self.queue_mut(lane, priority).remove(index)
-    }
-
-    fn dispatch_one(&mut self, now: Instant, effects: &mut Vec<Effect>) {
+    fn dispatch_one(&mut self, now: Instant, effects: &mut Decision) {
         if self.state != SessionState::Running {
             return;
         }
-        for priority in 0..4 {
-            self.prune_queue(Lane::Command, priority);
-            self.prune_queue(Lane::Inquiry, priority);
+        if let Some(selected) = self.select_dispatch(now) {
+            self.dispatch_selected(selected, now, effects);
         }
-        let Some(selected) = self.select_dispatch(now) else {
-            return;
-        };
-        self.dispatch_selected(selected, now, effects);
     }
 
     /// Sends every pacing-eligible cancellation whose ACK has already
@@ -1182,7 +1068,7 @@ impl ProtocolEngine {
     /// command spacing deadline.  Re-scan after each write so zero-spacing
     /// profiles drain the complete urgent set; a positive spacing naturally
     /// stops the scan after the first write advances [`Self::last_request_sent`].
-    fn drain_pending_cancellations(&mut self, now: Instant, effects: &mut Vec<Effect>) {
+    fn drain_pending_cancellations(&mut self, now: Instant, effects: &mut Decision) {
         if self.state != SessionState::Running {
             return;
         }
@@ -1191,7 +1077,7 @@ impl ProtocolEngine {
                 .entries
                 .iter()
                 .filter_map(|(id, entry)| {
-                    let pending = entry.lifecycle.pending_cancellation()?;
+                    let pending = entry.lifecycle().pending_cancellation()?;
                     if self.cancellation_send_at(entry) > now {
                         return None;
                     }
@@ -1201,10 +1087,10 @@ impl ProtocolEngine {
             let Some((_, id, pending)) = pending else {
                 return;
             };
-            let before = self.entries.get(&id).map(|entry| entry.lifecycle);
+            let before = self.entries.get(&id).map(|entry| entry.lifecycle());
             let last_sent = self.last_request_sent;
             self.emit_cancel(id, pending, now, effects);
-            let after = self.entries.get(&id).map(|entry| entry.lifecycle);
+            let after = self.entries.get(&id).map(|entry| entry.lifecycle());
             if before == after && self.last_request_sent == last_sent {
                 return;
             }
@@ -1215,74 +1101,52 @@ impl ProtocolEngine {
         &mut self,
         selected: DispatchSelection,
         now: Instant,
-        effects: &mut Vec<Effect>,
+        effects: &mut Decision,
     ) {
-        let DispatchSelection {
-            lane,
-            priority,
-            index,
-            ticket,
-        } = selected;
-        let _ = self.remove_ticket(lane, priority, index);
+        let request = selected.request;
         let Some(transmission) = self.allocate_transmission_id() else {
             self.finish(
-                ticket.request,
+                request,
                 RuntimeOutcome::Failed(Error::RuntimeIdentityExhausted),
                 effects,
             );
             return;
         };
-        let Some(entry) = self.entries.get(&ticket.request) else {
-            effects.push(Effect::Ignored(IgnoreReason::StaleQueueTicket));
+        let Some(entry) = self.entries.get(&request) else {
             return;
         };
-        if entry.generation != ticket.generation
-            || entry.queue_generation != ticket.queue_generation
-            || !matches!(entry.lifecycle.phase(), Phase::Ready { ticket: active } if active == ticket)
-        {
-            effects.push(Effect::Ignored(IgnoreReason::StaleQueueTicket));
-            return;
-        }
+        let lane = entry.request.lane();
         let generation = entry.generation;
-        let attempt = entry.attempt;
         let target = entry.request.context().target;
-        let dispatched_socket_capacity = (!entry.request.is_inquiry()).then(|| {
-            self.targets[target]
-                .policy
-                .map_or(1, |policy| policy.command_sockets)
-        });
+        let dispatched_socket_capacity =
+            (entry.reply_family() != SendingReply::Inquiry).then(|| {
+                self.targets[target]
+                    .policy
+                    .map_or(1, |policy| policy.command_sockets)
+            });
         let wire = Arc::clone(entry.request.wire());
         let owes = self.ledger_owes(entry);
-        let requested_sequence = if self.policy.envelope == EnvelopeKind::Sony {
-            entry.current_sequence
-        } else {
-            None
+        let framing = match self.policy.wire.encoder() {
+            ProtocolEncoder::Raw(encoder) => encoder.plan(),
+            ProtocolEncoder::Sony(encoder) => encoder.plan(entry.current_sequence.map_or(
+                SonyRequestSequence::AllocateFresh,
+                SonyRequestSequence::Replay,
+            )),
         };
-        let stream_order =
-            owes.map(|owes| self.ledger.push(target, ticket.request, generation, owes));
+        let requires_extended_pan_tilt_speed =
+            entry.request.context().requires_extended_pan_tilt_speed;
+        let stream_order = owes.map(|owes| self.ledger.push(target, request, generation, owes));
         let lifecycle = Lifecycle::Sending {
             transmission,
+            framing: framing.expectation(),
             started_at: now,
             attempt: AttemptFacts {
                 socket_capacity: dispatched_socket_capacity,
                 stream_order,
             },
-            reply: SendingReply::new(
-                entry.request.is_inquiry(),
-                entry.request.context().reply_shape,
-            ),
+            reply: SendingReply::new(&entry.request),
         };
-        self.transition(ticket.request, lifecycle, effects);
-        self.transmissions.insert(
-            transmission,
-            TransmissionOwner {
-                request: ticket.request,
-                generation,
-                attempt,
-                kind: CorrelationKind::Request,
-                requested_sequence,
-            },
-        );
+        self.transition(request, lifecycle, effects);
         self.last_request_sent = Some(now);
         if lane == Lane::Inquiry {
             self.last_inquiry_sent = Some(now);
@@ -1291,11 +1155,13 @@ impl ProtocolEngine {
         }
         effects.push(Effect::Transmit {
             transmission,
-            request: ticket.request,
+            request,
             kind: Transmission::Request {
                 target,
                 wire,
-                requested_sequence,
+                framing,
+                lane,
+                requires_extended_pan_tilt_speed,
             },
         });
     }
@@ -1314,7 +1180,11 @@ impl ProtocolEngine {
                 self.raw_hold_blocks_dispatch(entry, target)
                     || self.inquiries_inflight_for(target) >= self.policy.inquiry_capacity
                     || self.uncorrelated_raw_shape_blocked(entry, target)
-                    || self.ledger.lane_state(target, Lane::Inquiry) != LaneState::Clear
+                    || (self.policy.wire.kind() == EnvelopeKind::Raw
+                        && entry.request.payload_shape().is_some_and(|shape| {
+                            self.overlapping_raw_inquiry_inflight(target, shape)
+                                || self.ledger.inquiry_state(target, shape) != LaneState::Clear
+                        }))
                     || self.ledger.forbids_crossing(target)
             }
             Lane::Command => {
@@ -1331,8 +1201,8 @@ impl ProtocolEngine {
         }
     }
 
-    fn dispatch_eligible(&self, ticket: QueueTicket, now: Instant) -> bool {
-        self.entries.get(&ticket.request).is_some_and(|entry| {
+    fn dispatch_eligible(&self, id: RequestId, now: Instant) -> bool {
+        self.entries.get(&id).is_some_and(|entry| {
             !self.dispatch_blocked(entry, Some(now)) && self.candidate_send_at(entry) <= now
         })
     }
@@ -1345,7 +1215,7 @@ impl ProtocolEngine {
         // Urgent controls retain command-to-command physical pacing, but an
         // inquiry does not start their safety-lane clock (#712). Ordinary work
         // keeps the established session-wide pacing floor.
-        let last_spacing_write = if !entry.request.is_inquiry()
+        let last_spacing_write = if entry.reply_family() != SendingReply::Inquiry
             && entry.request.context().control.class == ControlClass::Urgent
         {
             self.last_command_sent
@@ -1355,7 +1225,7 @@ impl ProtocolEngine {
         let mut at = last_spacing_write.map_or(entry.submitted_at, |last| {
             add_duration(last, request_spacing)
         });
-        if entry.request.is_inquiry() {
+        if entry.reply_family() == SendingReply::Inquiry {
             if let Some(last) = self.last_inquiry_sent {
                 at = at.max(add_duration(last, self.policy.inquiry_spacing));
             }
@@ -1383,11 +1253,11 @@ impl ProtocolEngine {
         self.entries
             .values()
             .filter(|entry| {
-                entry.request.is_inquiry()
-                    && (self.policy.envelope != EnvelopeKind::Raw
+                entry.reply_family() == SendingReply::Inquiry
+                    && (self.policy.wire.kind() != EnvelopeKind::Raw
                         || entry.request.context().target == target)
                     && matches!(
-                        entry.lifecycle.phase(),
+                        entry.lifecycle().phase(),
                         Phase::Sending { .. } | Phase::AwaitingReply { .. }
                     )
             })
@@ -1398,10 +1268,10 @@ impl ProtocolEngine {
         self.entries
             .values()
             .filter(|entry| {
-                !entry.request.is_inquiry()
+                entry.reply_family() != SendingReply::Inquiry
                     && entry.request.context().target == target
                     && matches!(
-                        entry.lifecycle.phase(),
+                        entry.lifecycle().phase(),
                         Phase::Sending { .. }
                             | Phase::AwaitingAck { .. }
                             | Phase::AwaitingCompletion { .. }
@@ -1458,7 +1328,8 @@ impl ProtocolEngine {
             context
                 .timeout
                 .ack
-                .saturating_add(context.timeout.ambiguity),
+                .get()
+                .saturating_add(context.timeout.ambiguity.get()),
         );
         Some(context.dispatch_deadline.map_or(bound, |deadline| {
             bound.min(add_duration(
@@ -1472,10 +1343,14 @@ impl ProtocolEngine {
     /// `target` is in flight.
     fn uncorrelated_write_in_flight(&self, target: TargetSlot) -> bool {
         self.entries.values().any(|entry| {
-            !entry.request.is_inquiry()
-                && entry.request.context().target == target
-                && entry.request.context().reply_shape != ReplyShape::AckThenCompletion
-                && matches!(entry.lifecycle.phase(), Phase::Sending { .. })
+            entry.request.context().target == target
+                && matches!(
+                    entry.lifecycle(),
+                    Lifecycle::Sending {
+                        reply: SendingReply::CompletionOnly | SendingReply::NoReply,
+                        ..
+                    }
+                )
         })
     }
 
@@ -1518,16 +1393,72 @@ impl ProtocolEngine {
     /// the narrow inquiry skew blocks only another inquiry. A second `NoReply`
     /// consumes no response at all, so it can safely write and extend a broad
     /// hold.
+    fn raw_inquiry_holds(
+        &self,
+        target: TargetSlot,
+    ) -> impl Iterator<Item = (PayloadShape, RawHold)> + '_ {
+        self.holds
+            .iter()
+            .filter_map(move |(key, hold)| match key.scope {
+                RawHoldScope::Inquiry(shape) if key.target == target => Some((shape, *hold)),
+                _ => None,
+            })
+    }
+
+    fn raw_inquiry_hold_deadline(
+        &self,
+        target: TargetSlot,
+        shape: PayloadShape,
+    ) -> Option<Instant> {
+        self.raw_inquiry_holds(target)
+            .filter(|(held, _)| held.overlaps(shape))
+            .map(|(_, hold)| hold.until)
+            .max()
+    }
+
+    /// Derives the exact reservation union at this instant. Queued inquiries
+    /// reserve their declaration without excluding disjoint wire scheduling;
+    /// retired requests retain it through their debt or reply-skew hold.
+    fn tracked_inquiry_shapes(&self, target: TargetSlot) -> Result<InquiryShapes, Box<str>> {
+        let mut shapes = InquiryShapes::default();
+        let admitted = self
+            .entries
+            .values()
+            .filter(|entry| entry.request.context().target == target)
+            .filter_map(|entry| entry.request.payload_shape());
+        let owed = self.ledger.inquiry_shapes(target);
+        let held = self.raw_inquiry_holds(target).map(|(shape, _)| shape);
+        for shape in admitted.chain(owed).chain(held) {
+            if !shapes.try_insert(shape) {
+                return Err("raw inquiry declaration reservation exceeds its bound".into());
+            }
+        }
+        Ok(shapes)
+    }
+
+    fn overlapping_raw_inquiry_inflight(&self, target: TargetSlot, shape: PayloadShape) -> bool {
+        self.entries.values().any(|entry| {
+            entry.request.context().target == target
+                && entry
+                    .request
+                    .payload_shape()
+                    .is_some_and(|live| live.overlaps(shape))
+                && matches!(
+                    entry.lifecycle().phase(),
+                    Phase::Sending { .. } | Phase::AwaitingReply { .. }
+                )
+        })
+    }
+
     fn raw_hold_blocks_dispatch(&self, entry: &Entry, target: TargetSlot) -> bool {
         self.raw_hold_dispatch_deadline_for(entry, target).is_some()
     }
 
     fn raw_hold_dispatch_deadline_for(&self, entry: &Entry, target: TargetSlot) -> Option<Instant> {
-        if self.policy.envelope != EnvelopeKind::Raw {
+        if self.policy.wire.kind() != EnvelopeKind::Raw {
             return None;
         }
-        let response_bearing = entry.request.is_inquiry()
-            || entry.request.context().reply_shape != ReplyShape::NoReply;
+        let response_bearing = entry.reply_family() != SendingReply::NoReply;
         // A STOP is never held back by a hold (#795): a frame it makes
         // ambiguous binds to neither request.
         let stop = urgent_stop(entry);
@@ -1540,11 +1471,9 @@ impl ProtocolEngine {
         // ordinary or urgent command (#712).
         let inquiry_unkeyed = entry
             .request
-            .is_inquiry()
-            .then(|| self.raw_hold(target, RawHoldScope::InquiryUnkeyed))
-            .flatten()
-            .map(|hold| hold.until);
-        let pre_ack = (!entry.request.is_inquiry()
+            .payload_shape()
+            .and_then(|shape| self.raw_inquiry_hold_deadline(target, shape));
+        let pre_ack = (entry.reply_family() != SendingReply::Inquiry
             && !self.raw_preack_hold_bypass_available(entry, target))
         .then(|| self.raw_hold(target, RawHoldScope::PreAck))
         .flatten()
@@ -1552,16 +1481,17 @@ impl ProtocolEngine {
         // Exact socket holds consume physical command capacity. If live work
         // alone still leaves room, the earliest held socket release is the
         // deterministic point at which this request can be reconsidered.
-        let socket_capacity = if entry.request.is_inquiry() || self.raw_stream() || stop {
-            None
-        } else {
-            let capacity = self.command_sockets(target);
-            let live = self.commands_inflight(target);
-            let held = self.raw_socket_hold_count(target);
-            (live < capacity && live.saturating_add(held) >= capacity)
-                .then(|| self.raw_socket_hold_wake(target))
-                .flatten()
-        };
+        let socket_capacity =
+            if entry.reply_family() == SendingReply::Inquiry || self.raw_stream() || stop {
+                None
+            } else {
+                let capacity = self.command_sockets(target);
+                let live = self.commands_inflight(target);
+                let held = self.raw_socket_hold_count(target);
+                (live < capacity && live.saturating_add(held) >= capacity)
+                    .then(|| self.raw_socket_hold_wake(target))
+                    .flatten()
+            };
         all_responses
             .into_iter()
             .chain(inquiry_unkeyed)
@@ -1571,9 +1501,8 @@ impl ProtocolEngine {
     }
 
     fn raw_preack_hold_bypass_available(&self, entry: &Entry, target: TargetSlot) -> bool {
-        !entry.request.is_inquiry()
+        entry.reply_family() == SendingReply::AckThenCompletion
             && entry.request.context().control.class == ControlClass::Urgent
-            && entry.request.context().reply_shape == ReplyShape::AckThenCompletion
             && self.raw_unacknowledged_command_count(target) == 0
     }
 
@@ -1613,13 +1542,11 @@ impl ProtocolEngine {
     /// command would otherwise be indistinguishable from this new command's
     /// terminal frame.
     fn raw_target_hold_active(&self, target: TargetSlot) -> bool {
-        if self.policy.envelope != EnvelopeKind::Raw {
+        if self.policy.wire.kind() != EnvelopeKind::Raw {
             return false;
         }
         self.raw_hold(target, RawHoldScope::AllResponses).is_some()
-            || self
-                .raw_hold(target, RawHoldScope::InquiryUnkeyed)
-                .is_some()
+            || self.raw_inquiry_holds(target).next().is_some()
     }
 
     /// Raw VISCA has no request identity before the camera assigns a socket.
@@ -1632,7 +1559,7 @@ impl ProtocolEngine {
     /// dispatched to the target, which is what keeps its completion (and any
     /// socketless error) attributable to it alone.
     fn raw_command_unacknowledged(&self, target: TargetSlot) -> bool {
-        self.policy.envelope == EnvelopeKind::Raw
+        self.policy.wire.kind() == EnvelopeKind::Raw
             && self.entries.values().any(|entry| {
                 entry.request.context().target == target
                     && raw_unacknowledged_command_candidate(entry)
@@ -1640,7 +1567,7 @@ impl ProtocolEngine {
     }
 
     fn raw_unacknowledged_command_count(&self, target: TargetSlot) -> usize {
-        if self.policy.envelope != EnvelopeKind::Raw {
+        if self.policy.wire.kind() != EnvelopeKind::Raw {
             return 0;
         }
         self.entries
@@ -1659,8 +1586,8 @@ impl ProtocolEngine {
     /// see multiple candidates and bind to neither; no temporal guess is made.
     /// A third candidate is never admitted through this exception.
     fn raw_urgent_gate_bypass_available(&self, entry: &Entry, target: TargetSlot) -> bool {
-        self.policy.envelope == EnvelopeKind::Raw
-            && !entry.request.is_inquiry()
+        self.policy.wire.kind() == EnvelopeKind::Raw
+            && entry.reply_family() != SendingReply::Inquiry
             && entry.request.context().control.class == ControlClass::Urgent
             && self.raw_unacknowledged_command_count(target) == 1
             // A disputed STOP's own answer must stay decisive, and behind a
@@ -1676,8 +1603,8 @@ impl ProtocolEngine {
                 candidate.request.context().target != target
                     || !raw_unacknowledged_command_candidate(candidate)
                     || (self.raw_stream()
-                        && candidate.request.context().reply_shape == ReplyShape::CompletionOnly)
-                    || (candidate.request.context().reply_shape == ReplyShape::AckThenCompletion
+                        && candidate.reply_family() == SendingReply::CompletionOnly)
+                    || (candidate.reply_family() == SendingReply::AckThenCompletion
                         // Sibling STOPs in one halt may dispatch after ACK,
                         // without awaiting completion. Crossing each other's
                         // pre-ACK window would destroy raw attribution.
@@ -1709,19 +1636,19 @@ impl ProtocolEngine {
     /// starting: a socketless error received during either phase otherwise has
     /// two possible owners.
     fn raw_uncorrelated_command_inflight(&self, target: TargetSlot) -> bool {
-        self.policy.envelope == EnvelopeKind::Raw
+        self.policy.wire.kind() == EnvelopeKind::Raw
             && self.entries.values().any(|entry| {
-                !entry.request.is_inquiry()
+                entry.reply_family() != SendingReply::Inquiry
                     && entry.request.context().target == target
-                    && match entry.request.context().reply_shape {
-                        ReplyShape::NoReply => {
-                            matches!(entry.lifecycle.phase(), Phase::Sending { .. })
+                    && match entry.reply_family() {
+                        SendingReply::NoReply => {
+                            matches!(entry.lifecycle().phase(), Phase::Sending { .. })
                         }
-                        ReplyShape::CompletionOnly => matches!(
-                            entry.lifecycle.phase(),
+                        SendingReply::CompletionOnly => matches!(
+                            entry.lifecycle().phase(),
                             Phase::Sending { .. } | Phase::AwaitingCompletion { .. }
                         ),
-                        ReplyShape::AckThenCompletion => false,
+                        SendingReply::Inquiry | SendingReply::AckThenCompletion => false,
                     }
             })
     }
@@ -1745,17 +1672,17 @@ impl ProtocolEngine {
     /// longer delays work.) The rule is raw-only: Sony correlates by
     /// sequence, so these shapes need no exclusivity there.
     fn uncorrelated_raw_shape_blocked(&self, entry: &Entry, target: TargetSlot) -> bool {
-        if self.policy.envelope != EnvelopeKind::Raw {
+        if self.policy.wire.kind() != EnvelopeKind::Raw {
             return false;
         }
-        if entry.request.is_inquiry() {
+        if entry.reply_family() == SendingReply::Inquiry {
             return self.raw_uncorrelated_command_inflight(target);
         }
-        match entry.request.context().reply_shape {
-            ReplyShape::NoReply => {
+        match entry.reply_family() {
+            SendingReply::NoReply => {
                 self.command_capacity_used(target) > 0 || self.raw_inquiry_inflight(target)
             }
-            ReplyShape::CompletionOnly => {
+            SendingReply::CompletionOnly => {
                 self.command_capacity_used(target) > 0
                     || self.raw_inquiry_inflight(target)
                     || self.raw_target_hold_active(target)
@@ -1764,69 +1691,144 @@ impl ProtocolEngine {
                         && !(self.raw_stream()
                             && self.targets[target].completion_sockets == CompletionSockets::Named))
             }
-            ReplyShape::AckThenCompletion => false,
+            SendingReply::Inquiry | SendingReply::AckThenCompletion => false,
         }
     }
 
-    fn transition(&mut self, id: RequestId, to: Lifecycle, effects: &mut Vec<Effect>) {
-        let Some(entry) = self.entries.get_mut(&id) else {
-            return;
-        };
-        let from = entry.lifecycle;
-        entry.lifecycle = to;
-        effects.push(Effect::Transition { id, from, to });
+    fn transition(&mut self, id: RequestId, to: Lifecycle, effects: &mut Decision) {
+        match self.entries.transition(id, EntryChange::Lifecycle(to)) {
+            Ok(Some(changed)) => effects.push(Effect::Transition {
+                id,
+                from: changed.from,
+                to: changed.to,
+            }),
+            Ok(None) => {}
+            Err(conflict) => self.finish_after_ack(
+                id,
+                Error::InvalidState(
+                    format!(
+                        "socket {} is already owned by {:?}",
+                        conflict.socket, conflict.owner
+                    )
+                    .into(),
+                ),
+                false,
+                effects,
+            ),
+        }
+    }
+
+    /// A write receipt is owned by the named entry's active sending phase.
+    /// Transmission identities never repeat, so a retired phase cannot accept
+    /// a late receipt and needs no second ownership map.
+    fn transmission_owner(
+        &self,
+        request: RequestId,
+        transmission: TransmissionId,
+    ) -> Option<TransmissionOwner> {
+        let lifecycle = self.entries.get(&request)?.lifecycle.active()?;
+        if let Lifecycle::Sending {
+            transmission: active,
+            framing,
+            ..
+        } = lifecycle
+        {
+            return (active == transmission).then_some(TransmissionOwner {
+                request,
+                kind: CorrelationKind::Request,
+                framing,
+            });
+        }
+        let send = lifecycle.sending_cancellation()?;
+        (send.transmission == transmission).then_some(TransmissionOwner {
+            request,
+            kind: CorrelationKind::Cancellation,
+            framing: send.framing,
+        })
     }
 
     fn transmission_finished(
         &mut self,
+        request: RequestId,
         transmission: TransmissionId,
-        result: Result<TransmissionMeta, Error>,
+        result: WriteOutcome,
         now: Instant,
-        effects: &mut Vec<Effect>,
+        effects: &mut Decision,
     ) {
-        let Some(owner) = self.transmissions.get(&transmission).copied() else {
-            effects.push(Effect::Ignored(IgnoreReason::StaleTransmission));
+        let Some(owner) = self.transmission_owner(request, transmission) else {
+            let reason = if self
+                .entries
+                .active_entries()
+                .any(|(id, _)| self.transmission_owner(*id, transmission).is_some())
+            {
+                IgnoreReason::IncompatibleTransmissionResult
+            } else {
+                IgnoreReason::StaleTransmission
+            };
+            effects.push(Effect::Ignored(reason));
             return;
         };
-        let compatible = self.entries.get(&owner.request).is_some_and(|entry| {
-            entry.generation == owner.generation
-                && entry.attempt == owner.attempt
-                && match owner.kind {
-                    CorrelationKind::Request => {
-                        matches!(entry.lifecycle.phase(), Phase::Sending { transmission: active, .. } if active == transmission)
-                    }
-                    CorrelationKind::Cancellation => {
-                        entry.lifecycle.cancellation_transmission() == Some(transmission)
-                    }
-                }
-        });
-        if !compatible {
-            self.transmissions.remove(&transmission);
-            effects.push(Effect::Ignored(
-                IgnoreReason::IncompatibleTransmissionResult,
-            ));
-            return;
-        }
         match result {
-            // A stream write error is a session verdict even when the owner
-            // samples it after this request's total budget. The transport seam
-            // cannot prove that no byte reached the wire, so the authoritative
-            // failed-transmission path must poison before any per-request
-            // late-result policy can classify it.
-            Err(error) if self.policy.transport == TransportKind::Stream => {
+            WriteOutcome::NotSent(error) => self.transmission_not_sent(owner, error, now, effects),
+            // A failed stream send has an unknowable parser position even if
+            // its result outlives this request's total budget.
+            WriteOutcome::Failed(error) if self.policy.transport == TransportKind::Stream => {
+                self.record_possible_write_effect(owner);
                 self.failed_transmission(owner, error, effects);
             }
-            result => {
-                if self.write_result_after_total_budget(owner, result.is_ok(), now, effects) {
-                    return;
+            WriteOutcome::Failed(error) => {
+                self.record_possible_write_effect(owner);
+                if !self.write_result_after_total_budget(owner, false, now, effects) {
+                    self.failed_transmission(owner, error, effects);
                 }
-                self.transmissions.remove(&transmission);
-                match result {
-                    Ok(meta) => self.successful_transmission(owner, meta, now, effects),
-                    Err(error) => self.failed_transmission(owner, error, effects),
+            }
+            WriteOutcome::Sent(meta) => {
+                if !self.write_result_after_total_budget(owner, true, now, effects) {
+                    self.successful_transmission(owner, meta, now, effects);
                 }
             }
         }
+    }
+
+    /// Only a physical send can make this attempt possibly effective. A
+    /// refused preparation leaves earlier attempts' facts intact.
+    fn record_possible_write_effect(&mut self, owner: TransmissionOwner) {
+        if owner.kind == CorrelationKind::Request {
+            let _ = self
+                .entries
+                .transition(owner.request, EntryChange::PossibleEffect);
+        }
+    }
+
+    fn transmission_not_sent(
+        &mut self,
+        owner: TransmissionOwner,
+        source: Error,
+        now: Instant,
+        effects: &mut Decision,
+    ) {
+        if owner.kind == CorrelationKind::Cancellation {
+            self.failed_cancellation_transmission(owner, source, effects);
+            return;
+        }
+        let Some(entry) = self.entries.get(&owner.request) else {
+            return;
+        };
+        let possible = entry.effect_possible;
+        let error = Error::transmission_not_sent(
+            source,
+            if possible {
+                Certainty::Unconfirmed
+            } else {
+                Certainty::NotAccepted
+            },
+        );
+        // No current bytes left, but an earlier attempt's owed answers and
+        // raw ambiguity must survive this logical request's terminal.
+        if possible && self.policy.wire.kind() == EnvelopeKind::Raw {
+            self.quarantine_unconfirmed_raw(owner.request, now);
+        }
+        self.finish(owner.request, RuntimeOutcome::Failed(error), effects);
     }
 
     /// Applies the admission-to-terminal budget before an active request write
@@ -1836,31 +1838,30 @@ impl ProtocolEngine {
     /// result sampled strictly later is outside the request's total budget.
     /// This ordering covers `Ok` and datagram `Err`: once the result is late, a
     /// raw command write can no longer prove whether the camera observed the
-    /// frame, while a Sony write must not register a sequence or consume a
-    /// deferred response. A compatible stream `Err` is handled first by
+    /// frame, while a Sony write must not register a sequence. A compatible stream `Err` is handled first by
     /// [`Self::failed_transmission`], because no per-request boundary can make
     /// an unknowable stream position safe. Cancellation writes deliberately
     /// bypass this guard because their ambiguity window, rather than the
     /// request retry budget, owns the active cancellation lifecycle.
     ///
     /// Keeping this at the engine's one transmission-result ingress also makes
-    /// an [`EngineTurn::INPUT_ONLY`] write-result turn obey the same boundary
+    /// an [`EngineTurn::InputOnly`] write-result turn obey the same boundary
     /// as an ordinary [`Self::handle`] turn.
     fn write_result_after_total_budget(
         &mut self,
         owner: TransmissionOwner,
         written: bool,
         now: Instant,
-        effects: &mut Vec<Effect>,
+        effects: &mut Decision,
     ) -> bool {
         let Some((deadline, raw_active_command, error)) =
             self.entries.get(&owner.request).and_then(|entry| {
                 entry.retry_budget_deadline().map(|deadline| {
                     (
                         deadline,
-                        self.policy.envelope == EnvelopeKind::Raw
-                            && !entry.request.is_inquiry()
-                            && matches!(entry.lifecycle.phase(), Phase::Sending { .. }),
+                        self.policy.wire.kind() == EnvelopeKind::Raw
+                            && entry.reply_family() != SendingReply::Inquiry
+                            && matches!(entry.lifecycle().phase(), Phase::Sending { .. }),
                         entry
                             .last_error
                             .clone()
@@ -1875,20 +1876,19 @@ impl ProtocolEngine {
             return false;
         }
         if written {
+            self.record_possible_write_effect(owner);
             self.mark_stream_answer_written(owner.request, false);
         }
 
         if raw_active_command {
-            // This also removes the active transmission and clears any ACK or
-            // completion latch that raced the write, then retains raw
-            // correlation through its ambiguity window (or poisons in strict
+            // Remove the active transmission and retain raw correlation through its ambiguity window (or poisons in strict
             // recovery mode).
             self.terminate_unconfirmed_raw(owner.request, now, effects);
         } else {
-            // A raw single-flight inquiry can be physically uncertain while
+            // A raw inquiry can be physically uncertain while
             // its write result is still pending too. Retain the same bounded
-            // target hold before normal terminal cleanup so a delayed reply
-            // cannot bind to its same-target successor. A successful stream
+            // shape hold before normal terminal cleanup so a delayed reply
+            // cannot bind to an overlapping successor. A successful stream
             // write proves the bytes entered the stream, so there the reply
             // is owed instead (`retire_stream_answers`).
             if !(written && self.raw_stream()) {
@@ -1907,40 +1907,51 @@ impl ProtocolEngine {
         owner: TransmissionOwner,
         meta: TransmissionMeta,
         now: Instant,
-        effects: &mut Vec<Effect>,
+        effects: &mut Decision,
     ) {
-        let metadata_valid = match self.policy.envelope {
-            EnvelopeKind::Raw => meta.sequence.is_none(),
-            EnvelopeKind::Sony => meta.sequence.is_some(),
+        let metadata_valid = match (owner.framing, meta) {
+            (RequestFraming::Raw, TransmissionMeta::Raw) => true,
+            (
+                RequestFraming::Sony {
+                    sequence: SonyRequestSequence::AllocateFresh,
+                },
+                TransmissionMeta::Sony { .. },
+            ) => true,
+            (
+                RequestFraming::Sony {
+                    sequence: SonyRequestSequence::Replay(requested),
+                },
+                TransmissionMeta::Sony { sequence },
+            ) => requested == sequence,
+            (RequestFraming::Raw, TransmissionMeta::Sony { .. })
+            | (RequestFraming::Sony { .. }, TransmissionMeta::Raw) => false,
         };
-        let requested_sequence_valid = owner
-            .requested_sequence
-            .is_none_or(|requested| meta.sequence == Some(requested));
-        if !metadata_valid || !requested_sequence_valid {
+        if !metadata_valid {
+            self.record_possible_write_effect(owner);
             self.finish(
                 owner.request,
                 RuntimeOutcome::Failed(Error::InvalidState(
-                    "transmission metadata conflicts with session envelope".into(),
+                    "transmission metadata conflicts with requested framing".into(),
                 )),
                 effects,
             );
             return;
         }
-        if let Some(sequence) = meta.sequence {
-            self.register_sequence(owner.request, sequence, owner.kind);
-        }
+        let _ = self.entries.transition(
+            owner.request,
+            EntryChange::Written {
+                receipt: meta,
+                kind: owner.kind,
+            },
+        );
         self.mark_stream_answer_written(owner.request, owner.kind == CorrelationKind::Cancellation);
-        let Some(entry) = self.entries.get_mut(&owner.request) else {
+        let Some(entry) = self.entries.get(&owner.request) else {
             return;
         };
-        let lifecycle = entry.lifecycle;
+        let lifecycle = entry.lifecycle();
         match owner.kind {
             CorrelationKind::Request => {
-                if self.policy.envelope == EnvelopeKind::Sony {
-                    entry.current_sequence = meta.sequence;
-                }
                 let context = *entry.request.context();
-                let generation = entry.generation;
                 let Lifecycle::Sending { attempt, reply, .. } = lifecycle else {
                     effects.push(Effect::Ignored(
                         IgnoreReason::IncompatibleTransmissionResult,
@@ -1953,63 +1964,37 @@ impl ProtocolEngine {
                             owner.request,
                             Lifecycle::AwaitingReply {
                                 sent_at: now,
-                                deadline: add_duration(now, context.timeout.inquiry),
+                                deadline: add_duration(now, context.timeout.inquiry.get()),
                                 attempt,
                             },
                             effects,
                         );
-                        if self.policy.envelope == EnvelopeKind::Raw {
-                            self.targets[context.target].raw_inquiries.push_back(
-                                CorrelationOwner {
-                                    request: owner.request,
-                                    generation,
-                                    kind: CorrelationKind::Request,
-                                },
-                            );
-                        }
                     }
-                    SendingReply::AckThenCompletion {
-                        deferred,
-                        cancellation,
-                    } => {
+                    SendingReply::AckThenCompletion => {
                         self.transition(
                             owner.request,
                             Lifecycle::AwaitingAck {
                                 sent_at: now,
-                                deadline: add_duration(now, context.timeout.ack),
+                                deadline: add_duration(now, context.timeout.ack.get()),
                                 attempt,
-                                cancellation,
+                                cancellation: None,
                             },
                             effects,
                         );
-                        if let Some(deferred) = deferred {
-                            self.ack(owner.request, deferred.socket, now, effects);
-                        }
                     }
-                    SendingReply::CompletionOnly {
-                        deferred,
-                        cancellation,
-                    } => {
-                        if cancellation.is_some() {
-                            effects.push(Effect::CancellationObservation {
-                                id: owner.request,
-                                observation: CancellationObservation::Failed(Error::NotSupported),
-                            });
-                        }
+                    SendingReply::CompletionOnly => {
                         self.transition(
                             owner.request,
                             Lifecycle::AwaitingCompletion {
                                 sent_at: now,
-                                deadline: add_duration(now, context.timeout.completion),
+                                deadline: add_duration(now, context.timeout.completion.get()),
                                 attempt,
                             },
                             effects,
                         );
-                        if let Some(deferred) = deferred {
-                            self.completion(owner.request, deferred.socket, now, effects);
-                        }
                     }
-                    SendingReply::NoReply { .. } => {
+                    SendingReply::NoReply => {
+                        self.record_possible_write_effect(owner);
                         self.quarantine_raw_terminal(owner.request, now);
                         self.finish(owner.request, RuntimeOutcome::Written, effects);
                     }
@@ -2057,7 +2042,7 @@ impl ProtocolEngine {
                     }
                 };
                 let observation_deadline =
-                    add_duration(now, entry.request.context().timeout.cancellation);
+                    add_duration(now, entry.request.context().timeout.cancellation.get());
                 self.transition(
                     owner.request,
                     Lifecycle::AwaitingCancellationResolution {
@@ -2083,18 +2068,17 @@ impl ProtocolEngine {
     /// so a failed write cannot corrupt any other transmission.
     ///
     /// **Stream**: the session is poisoned. This is a deliberate, explicit
-    /// policy rather than an accident. The write seam is `Result<(), Error>`
-    /// for every transport implementation, public ones included, so a failed
-    /// stream write cannot prove that no byte of the frame reached the wire;
+    /// policy rather than an accident. Public transport sends return
+    /// `Result<(), Error>`, so a physical `WriteOutcome::Failed` cannot prove
+    /// that no byte of the frame reached the wire;
     /// a partially written frame desynchronizes the camera's parser for every
     /// frame that follows, which makes the byte-stream position unknowable.
     /// Fail-one-command would therefore leave the caller believing a session
     /// that is already unusable is healthy, and [`Error::StreamPoisoned`] is
     /// the one terminal error that answers
     /// [`Error::requires_new_session`](crate::Error::requires_new_session)
-    /// correctly (issue #564). Narrowing this to "poison only on a genuine
-    /// partial write" needs a write seam that reports how many bytes reached
-    /// the wire, which no transport trait in this crate offers.
+    /// correctly (issue #564). Refusal before transport I/O has its own
+    /// `WriteOutcome::NotSent` path and never enters this handler.
     ///
     /// The exact transport cause is never lost: it is carried in the poison
     /// reason. The failed command is failed individually and the stream
@@ -2104,7 +2088,7 @@ impl ProtocolEngine {
         &mut self,
         owner: TransmissionOwner,
         error: Error,
-        effects: &mut Vec<Effect>,
+        effects: &mut Decision,
     ) {
         if self.policy.transport == TransportKind::Stream {
             self.terminate_session(
@@ -2130,12 +2114,15 @@ impl ProtocolEngine {
         &mut self,
         owner: TransmissionOwner,
         error: Error,
-        effects: &mut Vec<Effect>,
+        effects: &mut Decision,
     ) {
+        // A refused cancellation wrote no bytes. Drop its staged first-answer
+        // entry while the acknowledged operation keeps its socket and deadline.
+        self.retire_stream_answers(owner.request, effects);
         let Some(entry) = self.entries.get(&owner.request) else {
             return;
         };
-        let lifecycle = match entry.lifecycle {
+        let lifecycle = match entry.lifecycle() {
             Lifecycle::Executing {
                 socket,
                 started_at,
@@ -2222,7 +2209,7 @@ impl ProtocolEngine {
     /// The scan is deliberately conservative: inquiries are untouched (only commands are examined),
     /// and a request with cancellation in flight is left to its ambiguity deadline, because
     /// retrying it would abandon the quarantine that owns its socket.
-    fn receive_fault(&mut self, error: &Error, now: Instant, effects: &mut Vec<Effect>) {
+    fn receive_fault(&mut self, error: &Error, now: Instant, effects: &mut Decision) {
         if self.state != SessionState::Running {
             effects.push(Effect::Ignored(IgnoreReason::SessionNotRunning));
             return;
@@ -2230,103 +2217,31 @@ impl ProtocolEngine {
         let mut affected: Vec<_> = self
             .entries
             .iter()
-            .filter(|(_, entry)| {
-                !entry.request.is_inquiry()
-                    && matches!(entry.lifecycle.phase(), Phase::AwaitingAck { .. })
-                    && entry.lifecycle.cancellation_ambiguity().is_none()
+            .filter_map(|(id, entry)| {
+                if entry.reply_family() == SendingReply::Inquiry
+                    || !matches!(entry.lifecycle().phase(), Phase::AwaitingAck { .. })
+                    || entry.lifecycle().cancellation_ambiguity().is_some()
+                {
+                    return None;
+                }
+                entry
+                    .lifecycle()
+                    .retry_eligibility(false)
+                    .map(|retry| (entry.admission_order, *id, retry))
             })
-            .map(|(id, entry)| (entry.admission_order, *id))
             .collect();
-        affected.sort_unstable_by_key(|(order, _)| *order);
+        affected.sort_unstable_by_key(|(order, _, _)| *order);
         if self.raw_unconfirmed_poison() && !affected.is_empty() {
             self.poison_strict_unconfirmed(effects);
             return;
         }
-        if self.policy.envelope == EnvelopeKind::Raw {
+        if self.policy.wire.kind() == EnvelopeKind::Raw {
             // Default: leave any unacknowledged raw command to its own ACK
             // deadline; never replay an unconfirmed raw command.
             return;
         }
-        for (_, id) in affected {
-            self.schedule_retry(id, now, error.clone(), Backoff::Uncapped, effects);
-        }
-    }
-
-    fn register_sequence(&mut self, id: RequestId, sequence: u32, kind: CorrelationKind) {
-        let Some(entry) = self.entries.get(&id) else {
-            return;
-        };
-        let owner = CorrelationOwner {
-            request: id,
-            generation: entry.generation,
-            kind,
-        };
-        if entry
-            .sequence_history
-            .iter()
-            .any(|record| record.sequence == sequence && record.kind == kind)
-        {
-            return;
-        }
-        let evicted = if entry.sequence_history.len() == MAX_SEQUENCE_HISTORY {
-            entry.sequence_history.first().copied()
-        } else {
-            None
-        };
-        if let Some(evicted) = evicted {
-            self.remove_correlation_owner(
-                evicted.sequence,
-                owner.request,
-                owner.generation,
-                evicted.kind,
-            );
-            if let Some(entry) = self.entries.get_mut(&id) {
-                entry.sequence_history.remove(0);
-            }
-        }
-        if let Some(entry) = self.entries.get_mut(&id) {
-            entry.sequence_history.push(SequenceRecord {
-                sequence,
-                kind,
-                target: entry.request.context().target,
-            });
-        }
-        add_unique_owner(self.sequences.entry(sequence).or_default(), owner);
-        add_unique_owner(
-            self.lower_sequences.entry(sequence as u16).or_default(),
-            owner,
-        );
-    }
-
-    fn remove_correlation_owner(
-        &mut self,
-        sequence: u32,
-        request: RequestId,
-        generation: GenerationTicket,
-        kind: CorrelationKind,
-    ) {
-        let remove_exact = if let Some(owners) = self.sequences.get_mut(&sequence) {
-            owners.retain(|owner| {
-                !(owner.request == request && owner.generation == generation && owner.kind == kind)
-            });
-            owners.is_empty()
-        } else {
-            false
-        };
-        if remove_exact {
-            self.sequences.remove(&sequence);
-        }
-        let lower = sequence as u16;
-        let remove_lower = if let Some(owners) = self.lower_sequences.get_mut(&lower) {
-            owners.retain(|owner| {
-                !(owner.request == request && owner.generation == generation && owner.kind == kind)
-            });
-            owners.is_empty()
-        } else {
-            false
-        };
-        if remove_lower {
-            self.lower_sequences.remove(&lower);
+        for (_, id, retry) in affected {
+            self.schedule_retry(id, retry, now, error.clone(), Backoff::Uncapped, effects);
         }
     }
 
@@ -2335,10 +2250,7 @@ impl ProtocolEngine {
         target: TargetSlot,
         sequence: EnvelopeSequence,
     ) -> Result<(RequestId, CorrelationKind), IgnoreReason> {
-        let exact_candidates = self
-            .sequences
-            .get(&sequence.value)
-            .map_or_else(SmallVec::new, |owners| self.valid_owners(owners, None));
+        let exact_candidates = self.entries.exact_owners(sequence.value);
         if sequence.width == SequenceWidth::Full32 {
             if exact_candidates.is_empty() {
                 return Err(IgnoreReason::UnmatchedSequencedFrame);
@@ -2355,13 +2267,13 @@ impl ProtocolEngine {
                 _ => Err(IgnoreReason::UnmatchedSequencedFrame),
             };
         }
-        let lower_candidates = self
-            .lower_sequences
-            .get(&(sequence.value as u16))
-            .map_or_else(SmallVec::new, |owners| {
-                self.valid_owners(owners, Some(target))
-            });
-        let unique = unique_requests(lower_candidates.iter().copied());
+        let unique = unique_requests(
+            self.entries
+                .lower_owners(sequence.value as u16)
+                .iter()
+                .copied()
+                .filter(|owner| self.owner_target(*owner) == Some(target)),
+        );
         match unique.as_slice() {
             [owner] => Ok((owner.request, owner.kind)),
             [] => Err(IgnoreReason::UnmatchedSequencedFrame),
@@ -2369,36 +2281,22 @@ impl ProtocolEngine {
         }
     }
 
-    fn valid_owners(
-        &self,
-        owners: &[CorrelationOwner],
-        target: Option<TargetSlot>,
-    ) -> SmallVec<[CorrelationOwner; 4]> {
-        owners
-            .iter()
-            .copied()
-            .filter(|owner| {
-                self.entries.get(&owner.request).is_some_and(|entry| {
-                    entry.generation == owner.generation
-                        && target.is_none_or(|expected| entry.request.context().target == expected)
-                        && correlation_phase_compatible(entry, owner.kind)
-                })
-            })
-            .collect()
-    }
-
     fn owner_target(&self, owner: CorrelationOwner) -> Option<TargetSlot> {
         self.entries
             .get(&owner.request)
-            .filter(|entry| entry.generation == owner.generation)
             .map(|entry| entry.request.context().target)
     }
 
-    fn frame(&mut self, frame: DecodedFrame, now: Instant, effects: &mut Vec<Effect>) {
+    fn frame(&mut self, frame: DecodedFrame, now: Instant, effects: &mut Decision) {
         if self.state != SessionState::Running {
             effects.push(Effect::Ignored(IgnoreReason::SessionNotRunning));
             return;
         }
+        let unmatched = if self.raw_reply_shape_mismatch(&frame) {
+            IgnoreReason::ReplyShapeMismatch
+        } else {
+            IgnoreReason::UnmatchedFrame
+        };
         // Sony transport-control replies are observable protocol diagnostics,
         // never VISCA request-correlation evidence.
         if matches!(frame.response, DecodedResponse::SonyControl { .. }) {
@@ -2409,40 +2307,44 @@ impl ProtocolEngine {
         // every unsequenced frame (#795). On a raw datagram transport, an
         // unsequenced terminal response cannot identify which released
         // correlation it answers: check the fixed-size tombstones before the
-        // ordinary raw resolver, which could otherwise latch an ACK on a
-        // successor that is still Sending, advance a successor awaiting its
-        // ACK, finish a successor inquiry with stale payload, or fail/retry
+        // ordinary raw resolver, which could otherwise advance a successor
+        // awaiting its ACK, finish a successor inquiry with stale payload, or fail/retry
         // either on a socketless error.
-        if self.policy.envelope == EnvelopeKind::Raw
+        if self.policy.wire.kind() == EnvelopeKind::Raw
             && frame.sequence.is_none()
             && !self.raw_stream()
             && self.raw_held_response(&frame)
         {
-            effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+            effects.push(Effect::Ignored(unmatched));
             return;
         }
         let resolved = if let Some(sequence) = frame.sequence {
             match self.resolve_sequence(frame.target, sequence) {
-                Ok(owner) => Some(owner),
+                Ok(owner) => {
+                    self.retire_stale_correlated_request(owner.0, now, effects);
+                    Some(owner)
+                }
                 Err(reason) => {
                     effects.push(Effect::Ignored(reason));
                     return;
                 }
             }
-        } else if self.policy.envelope == EnvelopeKind::Sony {
+        } else if self.policy.wire.kind() == EnvelopeKind::Sony {
             effects.push(Effect::Ignored(IgnoreReason::MalformedFrame));
             return;
         } else if self.raw_stream() {
             self.retire_stale_stream_candidates(&frame, now, effects);
-            self.resolve_raw_stream(&frame, now)
+            self.resolve_raw_stream(&frame, now, effects)
                 .map(|id| (id, CorrelationKind::Request))
         } else {
-            self.resolve_raw(&frame)
-                .map(|id| (id, CorrelationKind::Request))
+            self.resolve_raw(&frame).and_then(|id| {
+                self.retire_stale_correlated_request(id, now, effects);
+                (!self.raw_held_response(&frame)).then_some((id, CorrelationKind::Request))
+            })
         };
         self.apply_retro(now, effects);
         let Some((id, correlation_kind)) = resolved else {
-            effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
+            effects.push(Effect::Ignored(unmatched));
             return;
         };
         let compatible_target = self
@@ -2450,19 +2352,6 @@ impl ProtocolEngine {
             .get(&id)
             .is_some_and(|entry| entry.request.context().target == frame.target);
         if !compatible_target {
-            effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
-            return;
-        }
-        // An external frame at the exact response deadline wins, but a frame
-        // received strictly later must not revive or mutate the expired phase.
-        // Resolve it first: a deadline on one request must never make an
-        // unrelated frame inert. `finish_input_turn` will then apply the normal
-        // due transition for this still-active entry.
-        if self.entries.get(&id).is_some_and(|entry| {
-            entry
-                .correlated_response_deadline()
-                .is_some_and(|deadline| deadline < now)
-        }) {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
         }
@@ -2475,20 +2364,11 @@ impl ProtocolEngine {
                     self.completion(id, socket, now, effects);
                 }
             }
-            DecodedResponse::InquiryReply {
-                #[cfg(test)]
-                route,
-                payload,
-                ..
-            } => {
+            DecodedResponse::InquiryReply { payload } => {
                 if correlation_kind == CorrelationKind::Cancellation {
                     effects.push(Effect::Ignored(IgnoreReason::MalformedFrame));
                 } else {
-                    let reply = RuntimeOutcome::Reply {
-                        #[cfg(test)]
-                        route,
-                        payload,
-                    };
+                    let reply = RuntimeOutcome::Reply { payload };
                     self.inquiry_reply(id, reply, effects);
                 }
             }
@@ -2507,7 +2387,8 @@ impl ProtocolEngine {
     /// order (TCP or serial), which makes an unanswered request's answer owed
     /// rather than possibly lost.
     fn raw_stream(&self) -> bool {
-        self.policy.envelope == EnvelopeKind::Raw && self.policy.transport == TransportKind::Stream
+        self.policy.wire.kind() == EnvelopeKind::Raw
+            && self.policy.transport == TransportKind::Stream
     }
 
     /// Whether an unsequenced raw response must be ignored because a released
@@ -2542,9 +2423,7 @@ impl ProtocolEngine {
                 _ => false,
             };
         }
-        let inquiry_unkeyed = self
-            .raw_hold(target, RawHoldScope::InquiryUnkeyed)
-            .is_some();
+        let inquiry_unkeyed = self.raw_inquiry_holds(target).next().is_some();
         let pre_ack = self.raw_hold(target, RawHoldScope::PreAck).is_some();
         let any_socket = self.raw_socket_hold_count(target) != 0;
         match &frame.response {
@@ -2556,11 +2435,13 @@ impl ProtocolEngine {
             }
             // An inquiry reply is target/data-correlated and a socketless error
             // has no command/inquiry discriminator, so both remain inert.
-            DecodedResponse::InquiryReply { .. } => inquiry_unkeyed,
+            DecodedResponse::InquiryReply { payload } => self
+                .raw_inquiry_holds(target)
+                .any(|(shape, _)| shape.admits(payload)),
             DecodedResponse::Error { socket: None, .. } => inquiry_unkeyed || pre_ack || any_socket,
             // A named terminal is safe only when the exact socket is still
             // owned. An unowned named frame must not fall through to any
-            // successor or inquiry FIFO while this hold is active.
+            // successor inquiry while this hold is active.
             DecodedResponse::Completion {
                 socket: Some(socket),
             }
@@ -2607,29 +2488,12 @@ impl ProtocolEngine {
                     .sole_socket_holder(target)
                     .or_else(|| self.completion_only_candidate(target)),
             },
-            DecodedResponse::InquiryReply { route, .. } => {
-                if let Some(route) = route.filter(|route| *route != InquiryRoute::UNKNOWN) {
-                    let matches: SmallVec<[RequestId; 4]> = self
-                        .entries
-                        .iter()
-                        .filter(|(_, entry)| {
-                            entry.request.context().target == target
-                                && entry.request.inquiry_route() == Some(route)
-                                && matches!(entry.lifecycle.phase(), Phase::AwaitingReply { .. })
-                        })
-                        .map(|(id, _)| *id)
-                        .collect();
-                    if let [id] = matches.as_slice() {
-                        return Some(*id);
-                    }
-                }
-                self.raw_inquiry_front(target)
-            }
+            DecodedResponse::InquiryReply { payload } => self.raw_inquiry_matching(target, payload),
             DecodedResponse::Error { socket, code } => {
                 if let Some(socket) = socket {
                     return self.resolve_raw_named_error(target, *socket, *code);
                 }
-                let inquiry_owner = self.raw_inquiry_front(target);
+                let inquiry_owner = self.sole_raw_inquiry(target);
                 let inquiry_live = inquiry_owner.is_some() || self.raw_inquiry_inflight(target);
                 if self.raw_command_unacknowledged(target) {
                     // A socketless error can identify a command only when it
@@ -2701,45 +2565,87 @@ impl ProtocolEngine {
         self.unique_raw_command_candidate(target)
     }
 
-    fn raw_inquiry_front(&self, target: TargetSlot) -> Option<RequestId> {
-        self.targets[target]
-            .raw_inquiries
+    fn sole_raw_inquiry(&self, target: TargetSlot) -> Option<RequestId> {
+        let mut candidates = self
+            .entries
             .iter()
-            .find(|owner| {
-                self.entries.get(&owner.request).is_some_and(|entry| {
-                    entry.generation == owner.generation
-                        && entry.request.context().target == target
-                        && matches!(entry.lifecycle.phase(), Phase::AwaitingReply { .. })
-                })
+            .filter(|(_, entry)| {
+                entry.request.context().target == target
+                    && entry.request.is_inquiry()
+                    && matches!(entry.lifecycle().phase(), Phase::AwaitingReply { .. })
             })
-            .map(|owner| owner.request)
+            .map(|(id, _)| *id);
+        let candidate = candidates.next()?;
+        candidates.next().is_none().then_some(candidate)
     }
 
-    /// Whether a raw inquiry has been sent or is awaiting its reply on
-    /// `target`.  `raw_inquiry_front` is the authoritative FIFO owner for
-    /// routing, but a Sending inquiry is still live and must make a concurrent
-    /// socketless error ambiguous with an unacknowledged command.
+    fn raw_inquiry_matching(&self, target: TargetSlot, payload: &[u8]) -> Option<RequestId> {
+        let mut candidates = self
+            .entries
+            .iter()
+            .filter(|(_, entry)| {
+                entry.request.context().target == target
+                    && entry
+                        .request
+                        .payload_shape()
+                        .is_some_and(|shape| shape.admits(payload))
+                    && matches!(entry.lifecycle().phase(), Phase::AwaitingReply { .. })
+            })
+            .map(|(id, _)| *id);
+        let candidate = candidates.next()?;
+        // Overlap exclusion guarantees uniqueness. Retaining this closed check
+        // also makes an invalid private state fail without guessing an owner.
+        candidates.next().is_none().then_some(candidate)
+    }
+
+    fn raw_reply_shape_mismatch(&self, frame: &DecodedFrame) -> bool {
+        let DecodedResponse::InquiryReply { payload } = &frame.response else {
+            return false;
+        };
+        if self.policy.wire.kind() != EnvelopeKind::Raw || frame.sequence.is_some() {
+            return false;
+        }
+        let target = frame.target;
+        let live = self
+            .entries
+            .values()
+            .filter(|entry| {
+                entry.request.context().target == target
+                    && matches!(
+                        entry.lifecycle().phase(),
+                        Phase::Sending { .. } | Phase::AwaitingReply { .. }
+                    )
+            })
+            .filter_map(|entry| entry.request.payload_shape());
+        let mut expected = false;
+        for shape in live
+            .chain(self.ledger.inquiry_shapes(target))
+            .chain(self.raw_inquiry_holds(target).map(|(shape, _)| shape))
+        {
+            expected = true;
+            if shape.admits(payload) {
+                return false;
+            }
+        }
+        expected
+    }
+
+    /// Whether an inquiry has reached the raw wire on this target. Inquiry
+    /// data has structural evidence; a socketless error has none and remains
+    /// ambiguous with every outstanding inquiry and pre-ACK command.
     fn raw_inquiry_inflight(&self, target: TargetSlot) -> bool {
         self.entries.values().any(|entry| {
-            entry.request.is_inquiry()
+            entry.reply_family() == SendingReply::Inquiry
                 && entry.request.context().target == target
                 && matches!(
-                    entry.lifecycle.phase(),
+                    entry.lifecycle().phase(),
                     Phase::Sending { .. } | Phase::AwaitingReply { .. }
                 )
         })
     }
 
     fn socket_owner(&self, target: TargetSlot, socket: ViscaSocket) -> Option<RequestId> {
-        let owner = self.targets[target].socket_owners[socket.as_index()]?;
-        self.entries
-            .get(&owner.request)
-            .filter(|entry| {
-                entry.generation == owner.generation
-                    && entry.request.context().target == target
-                    && phase_owns_socket(entry.lifecycle.phase(), socket)
-            })
-            .map(|_| owner.request)
+        self.entries.socket_owner(target, socket)
     }
 
     /// The single request currently holding a command socket on `target`, if
@@ -2762,22 +2668,14 @@ impl ProtocolEngine {
     /// Issue #714 permits one intrinsically Urgent command to cross one open
     /// positional candidate. This resolver is the safety boundary for that
     /// explicit two-candidate state: it returns `None` and never turns
-    /// admission order or recency into an ACK/error guess. The
-    /// `Sending` phase is included for the deferred-ACK latch. Only an
-    /// `AckThenCompletion` command is eligible: `NoReply` has no response
-    /// lifecycle, and `CompletionOnly` deliberately has no ACK/socket
-    /// lifecycle, so either shape must keep an ACK racing its local write inert.
+    /// admission order or recency into an ACK/error guess. `AwaitingAck` is
+    /// the only phase eligible for a new socket assignment.
     fn unique_raw_command_candidate(&self, target: TargetSlot) -> Option<RequestId> {
         let mut sole = None;
         for (id, entry) in &self.entries {
-            if self.policy.envelope != EnvelopeKind::Raw
-                || entry.request.is_inquiry()
+            if self.policy.wire.kind() != EnvelopeKind::Raw
                 || entry.request.context().target != target
-                || entry.request.context().reply_shape != ReplyShape::AckThenCompletion
-                || !matches!(
-                    entry.lifecycle.phase(),
-                    Phase::Sending { .. } | Phase::AwaitingAck { .. }
-                )
+                || !matches!(entry.lifecycle(), Lifecycle::AwaitingAck { .. })
             {
                 continue;
             }
@@ -2795,21 +2693,14 @@ impl ProtocolEngine {
     /// A completion-only command owns no socket, so a completion for it cannot be
     /// resolved by [`Self::socket_owner`]/[`Self::sole_socket_holder`]. It is the
     /// sole in-flight command on its target (the dispatch gate guarantees it), so
-    /// its completion is unambiguous. [`Phase::Sending`] is included so a
-    /// completion that races ahead of the write result can be latched and applied
-    /// once the send is confirmed, mirroring the deferred-ACK latch. Fails closed
-    /// (returns `None`) if a second candidate is ever present, so it never guesses.
+    /// its completion is unambiguous. It fails closed if a second candidate
+    /// exists; `AwaitingCompletion` itself proves the command's reply family.
     fn completion_only_candidate(&self, target: TargetSlot) -> Option<RequestId> {
         let mut sole = None;
         for (id, entry) in &self.entries {
-            if self.policy.envelope != EnvelopeKind::Raw
-                || entry.request.is_inquiry()
+            if self.policy.wire.kind() != EnvelopeKind::Raw
                 || entry.request.context().target != target
-                || entry.request.context().reply_shape != ReplyShape::CompletionOnly
-                || !matches!(
-                    entry.lifecycle.phase(),
-                    Phase::Sending { .. } | Phase::AwaitingCompletion { .. }
-                )
+                || !matches!(entry.lifecycle(), Lifecycle::AwaitingCompletion { .. })
             {
                 continue;
             }
@@ -2835,21 +2726,16 @@ impl ProtocolEngine {
     fn unique_raw_error_candidate(&self, target: TargetSlot) -> Option<RequestId> {
         let mut sole = None;
         for (id, entry) in &self.entries {
-            if self.policy.envelope != EnvelopeKind::Raw
-                || entry.request.is_inquiry()
+            if self.policy.wire.kind() != EnvelopeKind::Raw
+                || entry.reply_family() == SendingReply::Inquiry
                 || entry.request.context().target != target
             {
                 continue;
             }
-            let ack_lifecycle = matches!(
-                entry.lifecycle.phase(),
-                Phase::Sending { .. } | Phase::AwaitingAck { .. }
-            );
-            let is_candidate = entry.request.context().reply_shape != ReplyShape::NoReply
-                && (ack_lifecycle
-                    || (entry.request.context().reply_shape == ReplyShape::CompletionOnly
-                        && matches!(entry.lifecycle.phase(), Phase::AwaitingCompletion { .. })));
-            if !is_candidate {
+            if !matches!(
+                entry.lifecycle(),
+                Lifecycle::AwaitingAck { .. } | Lifecycle::AwaitingCompletion { .. }
+            ) {
                 continue;
             }
             if sole.is_some() {
@@ -2874,7 +2760,14 @@ impl ProtocolEngine {
         let current = self.command_sockets(target);
         self.entries
             .get(&id)
-            .and_then(|entry| entry.dispatched_socket_capacity())
+            .and_then(|entry| {
+                entry.dispatched_socket_capacity().or_else(|| {
+                    entry
+                        .lifecycle()
+                        .previous_attempt()
+                        .and_then(|attempt| attempt.socket_capacity)
+                })
+            })
             .map_or(current, |dispatched| current.max(usize::from(dispatched)))
     }
 
@@ -2908,7 +2801,7 @@ impl ProtocolEngine {
             if self.socket_available(target, socket, id) {
                 return Some(socket);
             }
-            if self.policy.envelope == EnvelopeKind::Raw {
+            if self.policy.wire.kind() == EnvelopeKind::Raw {
                 return None;
             }
             let other = other_socket(socket);
@@ -2938,9 +2831,9 @@ impl ProtocolEngine {
         requested: Option<ViscaSocket>,
         id: RequestId,
         now: Instant,
-        effects: &mut Vec<Effect>,
+        effects: &mut Decision,
     ) -> Option<ViscaSocket> {
-        if self.policy.envelope == EnvelopeKind::Raw {
+        if self.policy.wire.kind() == EnvelopeKind::Raw {
             if let Some(socket) = requested {
                 if let Some(stale) = self
                     .socket_owner(target, socket)
@@ -2968,6 +2861,9 @@ impl ProtocolEngine {
         let Some(hold) = self.holds.remove(&key) else {
             return;
         };
+        // A buffered completion could have been this predecessor's. Reuse
+        // proves it ended, but cannot prove whose completion we received.
+        self.targets[target].pending_socketless_completions = None;
         if !self.raw_stream() {
             self.extend_raw_hold(target, RawHoldScope::PreAck, hold.until, hold.owner);
         }
@@ -2980,13 +2876,13 @@ impl ProtocolEngine {
         &mut self,
         stale: RequestId,
         now: Instant,
-        effects: &mut Vec<Effect>,
+        effects: &mut Decision,
     ) {
         let Some((target, ambiguity)) = self.entries.get(&stale).map(|entry| {
-            debug_assert_eq!(self.policy.envelope, EnvelopeKind::Raw);
+            debug_assert_eq!(self.policy.wire.kind(), EnvelopeKind::Raw);
             (
                 entry.request.context().target,
-                entry.request.context().timeout.ambiguity,
+                entry.request.context().timeout.ambiguity.get(),
             )
         }) else {
             return;
@@ -3009,50 +2905,32 @@ impl ProtocolEngine {
         id: RequestId,
         socket: Option<ViscaSocket>,
         now: Instant,
-        effects: &mut Vec<Effect>,
+        effects: &mut Decision,
     ) {
         let Some(entry) = self.entries.get(&id) else {
             effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
             return;
         };
-        let (attempt, cancellation) = match entry.lifecycle {
+        let (attempt, cancellation) = match entry.lifecycle() {
             Lifecycle::AwaitingAck {
                 attempt,
                 cancellation,
                 ..
             } => (attempt, cancellation),
-            Lifecycle::Sending {
-                transmission,
-                started_at,
-                attempt,
-                reply:
-                    SendingReply::AckThenCompletion {
-                        deferred,
-                        cancellation,
-                    },
-            } => {
-                if deferred.is_some() {
-                    effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
-                } else if let Some(entry) = self.entries.get_mut(&id) {
-                    entry.lifecycle = Lifecycle::Sending {
-                        transmission,
-                        started_at,
-                        attempt,
-                        reply: SendingReply::AckThenCompletion {
-                            deferred: Some(DeferredAck { socket }),
-                            cancellation,
-                        },
-                    };
-                }
-                return;
-            }
-            Lifecycle::Sending {
-                reply:
-                    SendingReply::Inquiry
-                    | SendingReply::CompletionOnly { .. }
-                    | SendingReply::NoReply { .. },
+            Lifecycle::Ready {
+                previous_attempt: Some(attempt),
                 ..
             }
+            | Lifecycle::Backoff {
+                previous_attempt: attempt,
+                ..
+            } if self.policy.wire.kind() == EnvelopeKind::Sony
+                && entry.reply_family() == SendingReply::AckThenCompletion
+                && entry.current_sequence.is_some() =>
+            {
+                (attempt, None)
+            }
+            Lifecycle::Sending { .. }
             | Lifecycle::Ready { .. }
             | Lifecycle::Backoff { .. }
             | Lifecycle::AwaitingCompletion { .. }
@@ -3064,16 +2942,21 @@ impl ProtocolEngine {
             }
         };
         let target = entry.request.context().target;
-        let generation = entry.generation;
-        let deadline = add_duration(now, entry.request.context().timeout.completion);
+        let deadline = add_duration(now, entry.request.context().timeout.completion.get());
         let Some(socket) = self.assign_ack_socket(target, socket, id, now, effects) else {
             effects.push(Effect::Ignored(IgnoreReason::SocketConflict));
+            if self.policy.wire.kind() == EnvelopeKind::Sony {
+                // The exact sequence still proves acceptance. A conflicting
+                // local socket index cannot make that command safe to replay.
+                self.finish_after_ack(
+                    id,
+                    Error::InvalidState("accepted command has no uncontested socket".into()),
+                    false,
+                    effects,
+                );
+            }
             return;
         };
-        self.targets[target].socket_owners[socket.as_index()] = Some(SocketOwner {
-            request: id,
-            generation,
-        });
         let next = Lifecycle::Executing {
             socket,
             started_at: now,
@@ -3095,51 +2978,31 @@ impl ProtocolEngine {
         id: RequestId,
         socket: Option<ViscaSocket>,
         now: Instant,
-        effects: &mut Vec<Effect>,
+        effects: &mut Decision,
     ) {
         let Some(entry) = self.entries.get(&id) else {
             effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
             return;
         };
-        let accept = match entry.lifecycle {
+        let accept = match entry.lifecycle() {
             Lifecycle::Executing { socket: owned, .. }
             | Lifecycle::AwaitingCancellationResolution { socket: owned, .. } => {
                 socket.is_none_or(|socket| socket == owned)
             }
-            Lifecycle::AwaitingAck { .. } => self.policy.envelope == EnvelopeKind::Sony,
-            Lifecycle::AwaitingCompletion { .. } => true,
-            Lifecycle::Sending {
-                transmission,
-                started_at,
-                attempt,
-                reply:
-                    SendingReply::CompletionOnly {
-                        deferred,
-                        cancellation,
-                    },
-            } => {
-                if deferred.is_some() {
-                    effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
-                } else if let Some(entry) = self.entries.get_mut(&id) {
-                    entry.lifecycle = Lifecycle::Sending {
-                        transmission,
-                        started_at,
-                        attempt,
-                        reply: SendingReply::CompletionOnly {
-                            deferred: Some(DeferredCompletion { socket }),
-                            cancellation,
-                        },
-                    };
-                }
-                return;
-            }
-            Lifecycle::Sending {
-                reply:
-                    SendingReply::Inquiry
-                    | SendingReply::AckThenCompletion { .. }
-                    | SendingReply::NoReply { .. },
+            Lifecycle::AwaitingAck { .. } => self.policy.wire.kind() == EnvelopeKind::Sony,
+            Lifecycle::Ready {
+                previous_attempt: Some(_),
                 ..
             }
+            | Lifecycle::Backoff { .. }
+                if self.policy.wire.kind() == EnvelopeKind::Sony
+                    && entry.reply_family() != SendingReply::Inquiry
+                    && entry.current_sequence.is_some() =>
+            {
+                true
+            }
+            Lifecycle::AwaitingCompletion { .. } => true,
+            Lifecycle::Sending { .. }
             | Lifecycle::Ready { .. }
             | Lifecycle::Backoff { .. }
             | Lifecycle::AwaitingReply { .. } => false,
@@ -3165,15 +3028,14 @@ impl ProtocolEngine {
     /// so it leaves no hold (#795).
     fn quarantine_raw_terminal(&mut self, id: RequestId, now: Instant) {
         let Some((target, ambiguity)) = self.entries.get(&id).and_then(|entry| {
-            let uncorrelatable_command = !entry.request.is_inquiry()
-                && match entry.request.context().reply_shape {
-                    ReplyShape::NoReply => true,
-                    ReplyShape::CompletionOnly => !self.raw_stream(),
-                    ReplyShape::AckThenCompletion => false,
-                };
-            (self.policy.envelope == EnvelopeKind::Raw && uncorrelatable_command).then_some((
+            let uncorrelatable_command = match entry.reply_family() {
+                SendingReply::NoReply => true,
+                SendingReply::CompletionOnly => !self.raw_stream(),
+                SendingReply::Inquiry | SendingReply::AckThenCompletion => false,
+            };
+            (self.policy.wire.kind() == EnvelopeKind::Raw && uncorrelatable_command).then_some((
                 entry.request.context().target,
-                entry.request.context().timeout.ambiguity,
+                entry.request.context().timeout.ambiguity.get(),
             ))
         }) else {
             return;
@@ -3186,30 +3048,24 @@ impl ProtocolEngine {
         );
     }
 
-    /// Retains one bounded raw inquiry hold when timeout, error, or retry
-    /// release leaves a late target-only reply possible. A matched reply never
-    /// enters this path (#712). The hold is a bounded ambiguity policy rather
-    /// than a claim of permanent identity: stale frames are inert until expiry,
-    /// then a queued inquiry may acquire the lane. This helper's single-flight
-    /// precondition is intentional: a wider raw FIFO cannot distinguish a late
-    /// reply from an already-live next inquiry. Production raw owners enter
-    /// this engine through the adapter with `inquiry_capacity == 1`.
+    /// Retains the exact declaration's reply skew after an uncertain raw
+    /// datagram release. A matched reply exhausts its response immediately;
+    /// unrelated declarations never inherit this quarantine.
     fn quarantine_raw_inquiry_correlation(&mut self, id: RequestId, now: Instant) {
-        let Some(target) = self.entries.get(&id).and_then(|entry| {
-            (self.policy.envelope == EnvelopeKind::Raw
-                && self.policy.inquiry_capacity == 1
-                && entry.request.is_inquiry()
+        let Some((target, shape)) = self.entries.get(&id).and_then(|entry| {
+            let shape = entry.request.payload_shape()?;
+            (self.policy.wire.kind() == EnvelopeKind::Raw
                 && matches!(
-                    entry.lifecycle.phase(),
+                    entry.lifecycle().phase(),
                     Phase::Sending { .. } | Phase::AwaitingReply { .. }
                 ))
-            .then_some(entry.request.context().target)
+            .then_some((entry.request.context().target, shape))
         }) else {
             return;
         };
         self.extend_raw_hold(
             target,
-            RawHoldScope::InquiryUnkeyed,
+            RawHoldScope::Inquiry(shape),
             add_duration(now, self.policy.raw_inquiry_release_hold),
             Some(id),
         );
@@ -3219,16 +3075,10 @@ impl ProtocolEngine {
     // The raw byte-stream correlation ledger (#795). See `stream_ledger`.
     // ---------------------------------------------------------------------
 
-    /// Whether `entry` is a raw single-flight inquiry on a stream transport.
-    ///
-    /// A stream loses nothing it accepted, so once such an inquiry's bytes
-    /// were written a missed reply deadline means the reply is late — a
-    /// stalled connection or a slow camera — not lost, and the camera will
-    /// answer it unless it never answers that inquiry at all. A resend could
-    /// only multiply late replies, so the inquiry retry policy never resends
-    /// it on a reply timeout.
-    fn raw_stream_single_flight_inquiry(&self, entry: &Entry) -> bool {
-        self.raw_stream() && self.policy.inquiry_capacity == 1 && entry.request.is_inquiry()
+    /// A written inquiry on a lossless raw stream is never resent for a
+    /// missing reply: its first answer remains owed in this shape class.
+    fn raw_stream_inquiry(&self, entry: &Entry) -> bool {
+        self.raw_stream() && entry.request.is_inquiry()
     }
 
     /// The first answer `entry`'s write will be owed, when it is written on a
@@ -3238,18 +3088,11 @@ impl ProtocolEngine {
         if !self.raw_stream() {
             return None;
         }
-        if entry.request.is_inquiry() {
-            return Some(Owes::Reply(
-                entry
-                    .request
-                    .inquiry_route()
-                    .unwrap_or(InquiryRoute::UNKNOWN),
-            ));
-        }
-        match entry.request.context().reply_shape {
-            ReplyShape::AckThenCompletion => Some(Owes::Ack),
-            ReplyShape::CompletionOnly => Some(Owes::Completion),
-            ReplyShape::NoReply => Some(Owes::Rejection),
+        match entry.reply_family() {
+            SendingReply::Inquiry => entry.request.payload_shape().map(Owes::Reply),
+            SendingReply::AckThenCompletion => Some(Owes::Ack),
+            SendingReply::CompletionOnly => Some(Owes::Completion),
+            SendingReply::NoReply => Some(Owes::Rejection),
         }
     }
 
@@ -3258,14 +3101,14 @@ impl ProtocolEngine {
     ///
     /// A debt's window is the request's ambiguity interval (an inquiry's is at
     /// least the reply skew), started now. An owed raw stream inquiry reply
-    /// also retains the target's `InquiryUnkeyed` hold through that window, so
-    /// same-target inquiries wait; it then latches instead of expiring.
-    fn retire_stream_answers(&mut self, id: RequestId) {
-        let Some((target, timeout, single_flight)) = self.entries.get(&id).map(|entry| {
+    /// also retains the declaration's inquiry hold through that window, so
+    /// overlapping inquiries wait; that class then latches instead of expiring.
+    fn retire_stream_answers(&mut self, id: RequestId, effects: &mut Decision) {
+        let Some((target, timeout, shape)) = self.entries.get(&id).map(|entry| {
             (
                 entry.request.context().target,
                 entry.request.context().timeout,
-                self.raw_stream_single_flight_inquiry(entry),
+                entry.request.payload_shape(),
             )
         }) else {
             return;
@@ -3278,33 +3121,36 @@ impl ProtocolEngine {
         }
         let mut reply_window_end = add_duration(
             now,
-            timeout.ambiguity.max(self.policy.raw_inquiry_release_hold),
+            timeout
+                .ambiguity
+                .get()
+                .max(self.policy.raw_inquiry_release_hold),
         );
         let reply_written = self
             .ledger
             .live(target, id)
             .any(|entry| entry.written && matches!(entry.owes, Owes::Reply(_)));
-        if single_flight && reply_written {
+        if let (Some(shape), true) = (shape, reply_written) {
             self.extend_raw_hold(
                 target,
-                RawHoldScope::InquiryUnkeyed,
+                RawHoldScope::Inquiry(shape),
                 reply_window_end,
                 Some(id),
             );
-            if let Some(hold) = self.raw_hold(target, RawHoldScope::InquiryUnkeyed) {
+            if let Some(hold) = self.raw_hold(target, RawHoldScope::Inquiry(shape)) {
                 reply_window_end = hold.until;
             }
         }
-        let command_window_end = add_duration(now, timeout.ambiguity);
+        let command_window_end = add_duration(now, timeout.ambiguity.get());
         let answered = self.ledger.retire(target, id, |owes| match owes {
             Owes::Reply(_) => (reply_window_end, Duration::ZERO),
             Owes::Ack
             | Owes::Completion
             | Owes::AcceptedCompletion
             | Owes::Rejection
-            | Owes::Cancel(_) => (command_window_end, timeout.completion),
+            | Owes::Cancel(_) => (command_window_end, timeout.completion.get()),
         });
-        self.absorb_answered(target, &answered, now);
+        self.absorb_answered(target, answered, now, effects);
     }
 
     /// Keeps the socket of a raw request that ends while its emitted
@@ -3317,13 +3163,13 @@ impl ProtocolEngine {
     /// naming the socket — all of which precede any rejection of a new
     /// command the camera allocates that socket (#795).
     fn hold_socket_of_unanswered_cancel(&mut self, id: RequestId) {
-        if self.policy.envelope != EnvelopeKind::Raw {
+        if self.policy.wire.kind() != EnvelopeKind::Raw {
             return;
         }
         let Some(entry) = self.entries.get(&id) else {
             return;
         };
-        let (socket, until) = match entry.lifecycle {
+        let (socket, until) = match entry.lifecycle() {
             Lifecycle::Executing {
                 socket,
                 cancellation: ExecutingCancellation::Sending(send),
@@ -3398,17 +3244,12 @@ impl ProtocolEngine {
         &mut self,
         frame: &DecodedFrame,
         now: Instant,
-        effects: &mut Vec<Effect>,
+        effects: &mut Decision,
     ) {
         let target = frame.target;
         let (answer, socket) = match &frame.response {
             DecodedResponse::Ack { .. } => (Some(Answer::Ack), None),
-            DecodedResponse::InquiryReply { route, .. } => (
-                Some(Answer::Reply(
-                    route.filter(|route| *route != InquiryRoute::UNKNOWN),
-                )),
-                None,
-            ),
+            DecodedResponse::InquiryReply { payload } => (Some(Answer::Reply(payload)), None),
             DecodedResponse::Completion { socket } => {
                 (socket.is_none().then_some(Answer::Completion), *socket)
             }
@@ -3435,6 +3276,19 @@ impl ProtocolEngine {
         if let Some(owner) = socket.and_then(|socket| self.socket_owner(target, socket)) {
             requests.push(owner);
         }
+        if matches!(frame.response, DecodedResponse::Completion { socket: None })
+            && self.targets[target].completion_sockets != CompletionSockets::Named
+            && !self.ledger.owes_completion(target)
+            && self.raw_socket_hold_count(target) == 0
+            && self.raw_hold(target, RawHoldScope::AllResponses).is_none()
+            && self.raw_hold(target, RawHoldScope::PreAck).is_none()
+        {
+            if let Some(owner) = self.sole_socket_holder(target) {
+                if !requests.contains(&owner) {
+                    requests.push(owner);
+                }
+            }
+        }
         for candidate in candidates
             .into_iter()
             .flatten()
@@ -3453,19 +3307,38 @@ impl ProtocolEngine {
             if !stale {
                 continue;
             }
-            // A sole ACK is proof that the staged request reached the camera,
-            // even when the writer has not yet reported its result (#297).
-            if matches!(answer, Some(Answer::Ack)) && candidates[1].is_none() {
-                self.mark_stream_answer_written(id, false);
-            }
-            while let Some(due) = self
-                .entries
-                .get(&id)
-                .and_then(|entry| entry.due(id))
-                .filter(|due| due.at < now)
-            {
-                self.apply_due(due, now, effects);
-            }
+            self.retire_stale_correlated_request(id, now, effects);
+        }
+    }
+
+    /// Preserve evidence even when its owner expired: retire the lifecycle
+    /// first, then resolve the frame against the retained identity or debt.
+    /// Equality belongs to input, and unrelated requests never advance here.
+    fn retire_stale_correlated_request(
+        &mut self,
+        id: RequestId,
+        now: Instant,
+        effects: &mut Decision,
+    ) {
+        if !self.entries.get(&id).is_some_and(|entry| {
+            [
+                entry.correlated_response_deadline(),
+                entry.retry_budget_deadline(),
+            ]
+            .into_iter()
+            .flatten()
+            .min()
+            .is_some_and(|deadline| deadline < now)
+        }) {
+            return;
+        }
+        while let Some(due) = self
+            .entries
+            .get(&id)
+            .and_then(|entry| entry.due(id))
+            .filter(|due| due.at < now)
+        {
+            self.apply_due(due, now, effects);
         }
     }
 
@@ -3477,7 +3350,12 @@ impl ProtocolEngine {
     /// entry is a debt the frame is discarded. A completion, or an error naming
     /// an executing command's socket, answers that command rather than any
     /// first answer.
-    fn resolve_raw_stream(&mut self, frame: &DecodedFrame, now: Instant) -> Option<RequestId> {
+    fn resolve_raw_stream(
+        &mut self,
+        frame: &DecodedFrame,
+        now: Instant,
+        effects: &mut Decision,
+    ) -> Option<RequestId> {
         let target = frame.target;
         let evidence = match frame.response {
             DecodedResponse::Ack { socket } => Evidence::Ack(socket),
@@ -3487,11 +3365,10 @@ impl ProtocolEngine {
         match &frame.response {
             DecodedResponse::Ack { socket } => {
                 let answered = self.ledger.answer(target, Answer::Ack, evidence);
-                self.absorb_answered(target, &answered, now);
-                match answered.resolved {
+                match self.absorb_answered(target, answered, now, effects) {
                     Resolved::Live(entry) => Some(entry.request),
                     Resolved::Debt(debt) => {
-                        self.displace_stale_socket_owner(target, *socket);
+                        self.displace_stale_socket_owner(target, *socket, effects);
                         self.hold_owed_command_socket(target, *socket, debt, now);
                         None
                     }
@@ -3500,18 +3377,16 @@ impl ProtocolEngine {
                     // so that its completion or error is never taken for
                     // another command's (or released as a held one's).
                     Resolved::Disputed(candidates) => {
-                        self.displace_stale_socket_owner(target, *socket);
+                        self.displace_stale_socket_owner(target, *socket, effects);
                         self.hold_disputed_command_socket(target, *socket, &candidates, now);
                         None
                     }
                     Resolved::Nothing => None,
                 }
             }
-            DecodedResponse::InquiryReply { route, .. } => {
-                let route = route.filter(|route| *route != InquiryRoute::UNKNOWN);
-                self.take_stream_answer(target, Answer::Reply(route), evidence, now)?
-                    .ok()
-            }
+            DecodedResponse::InquiryReply { payload } => self
+                .take_stream_answer(target, Answer::Reply(payload), evidence, now, effects)?
+                .ok(),
             // A completion naming a socket is the completion of a command
             // that earned that socket: its live owner's, or the late one of a
             // quarantined or owed command (whose hold it releases). It never
@@ -3525,7 +3400,7 @@ impl ProtocolEngine {
                     *learned = CompletionSockets::Named;
                 }
                 if let Some(owner) = self.socket_owner(target, *socket) {
-                    self.settle_before_owner(target, owner, now);
+                    self.settle_before_owner(target, owner, now, effects);
                     return Some(owner);
                 }
                 if self.ledger.follow(target, NamedFrame::Completion(*socket)) {
@@ -3547,7 +3422,7 @@ impl ProtocolEngine {
             DecodedResponse::Completion { socket: None }
                 if self.learn_socketless_completion(target) == CompletionSockets::Named =>
             {
-                self.take_stream_answer(target, Answer::Completion, evidence, now)?
+                self.take_stream_answer(target, Answer::Completion, evidence, now, effects)?
                     .ok()
             }
             DecodedResponse::Completion { socket: None } => {
@@ -3568,12 +3443,13 @@ impl ProtocolEngine {
                     if holders != 0 || !held.is_empty() {
                         let index = target;
                         if self.targets[index].completion_sockets == CompletionSockets::Unknown {
-                            self.targets[index].unlearned_completions += 1;
+                            self.targets[index].unlearned_completions =
+                                self.targets[index].unlearned_completions.saturating_add(1);
                         }
                         return None;
                     }
                     return self
-                        .take_stream_answer(target, Answer::Completion, evidence, now)?
+                        .take_stream_answer(target, Answer::Completion, evidence, now, effects)?
                         .ok();
                 }
                 if self.raw_hold(target, RawHoldScope::AllResponses).is_some()
@@ -3583,12 +3459,23 @@ impl ProtocolEngine {
                 }
                 match (holders, held.as_slice()) {
                     (0, [socket]) => {
+                        self.targets[target].pending_socketless_completions = None;
                         self.holds
                             .remove(&RawHoldKey::new(target, RawHoldScope::Socket(*socket)));
                         None
                     }
-                    (_, []) => self.sole_socket_holder(target),
-                    _ => None,
+                    (_, []) => {
+                        if holders > 1 {
+                            self.retain_ambiguous_socketless_completion(target, now, effects);
+                            return None;
+                        }
+                        self.targets[target].pending_socketless_completions = None;
+                        self.sole_socket_holder(target)
+                    }
+                    _ => {
+                        self.retain_ambiguous_socketless_completion(target, now, effects);
+                        None
+                    }
                 }
             }
             DecodedResponse::Error {
@@ -3601,6 +3488,7 @@ impl ProtocolEngine {
                         Answer::CancelReply(*socket),
                         evidence,
                         now,
+                        effects,
                     )? {
                         Ok(id) => Some(id),
                         // The late answer of an ended command's cancellation:
@@ -3609,7 +3497,7 @@ impl ProtocolEngine {
                             self.holds
                                 .remove(&RawHoldKey::new(target, RawHoldScope::Socket(*socket)));
                             self.end_command_a_late_cancel_reached(
-                                target, *socket, *code, debt.order,
+                                target, *socket, *code, debt.order, effects,
                             );
                             None
                         }
@@ -3636,7 +3524,7 @@ impl ProtocolEngine {
                     {
                         return None;
                     }
-                    self.settle_before_owner(target, owner, now);
+                    self.settle_before_owner(target, owner, now, effects);
                     return Some(owner);
                 }
                 if self
@@ -3669,18 +3557,71 @@ impl ProtocolEngine {
                 if !is_rejection(*code) {
                     return None;
                 }
-                self.take_stream_answer(target, Answer::NamedRejection, evidence, now)?
+                self.take_stream_answer(target, Answer::NamedRejection, evidence, now, effects)?
                     .ok()
             }
             // A socketless error is a rejection: an execution error names its
             // socket. It is therefore the first answer of the oldest
             // outstanding request.
             DecodedResponse::Error { socket: None, .. } => self
-                .take_stream_answer(target, Answer::SocketlessError, evidence, now)?
+                .take_stream_answer(target, Answer::SocketlessError, evidence, now, effects)?
                 .ok(),
             DecodedResponse::SonyControl { .. }
             | DecodedResponse::NetworkChange
             | DecodedResponse::Unknown => None,
+        }
+    }
+
+    /// A completion cannot choose between a held and a live socket. Keep its
+    /// candidate identities, and account it only when a terminal count proves
+    /// that every one ended. An ACK reusing a held socket alone is insufficient:
+    /// the retained frame might have been that predecessor's completion.
+    fn retain_ambiguous_socketless_completion(
+        &mut self,
+        target: TargetSlot,
+        now: Instant,
+        effects: &mut Decision,
+    ) {
+        let mut candidates = [None; 2];
+        for socket in [ViscaSocket::S1, ViscaSocket::S2] {
+            candidates[socket.as_index()] = self.socket_owner(target, socket);
+            if let Some(hold) = self.raw_hold(target, RawHoldScope::Socket(socket)) {
+                let Some(owner) = hold.owner else {
+                    self.targets[target].pending_socketless_completions = None;
+                    return;
+                };
+                candidates[socket.as_index()] = Some(owner);
+            }
+        }
+        let mut pending = self.targets[target]
+            .pending_socketless_completions
+            .take()
+            .filter(|pending| pending.candidates == candidates)
+            .unwrap_or(PendingSocketlessCompletions {
+                candidates,
+                count: 0,
+            });
+        pending.count = pending.count.saturating_add(1);
+        if usize::from(pending.count) < candidates.iter().flatten().count() {
+            self.targets[target].pending_socketless_completions = Some(pending);
+            return;
+        }
+        for id in candidates.into_iter().flatten() {
+            self.retire_stale_correlated_request(id, now, effects);
+        }
+        for socket in [ViscaSocket::S1, ViscaSocket::S2] {
+            self.holds
+                .remove(&RawHoldKey::new(target, RawHoldScope::Socket(socket)));
+            if let Some(id) = self.socket_owner(target, socket) {
+                self.settle_before_owner(target, id, now, effects);
+                if let Some(entry) = self.entries.get(&id) {
+                    effects.defer_frame(Retro {
+                        request: id,
+                        generation: entry.generation,
+                        evidence: Evidence::Named(NamedFrame::Completion(socket)),
+                    });
+                }
+            }
         }
     }
 
@@ -3693,16 +3634,17 @@ impl ProtocolEngine {
     /// unwritten halt STOP expires. Applying a frame never decides another
     /// dispute (the dispute it came from is already settled, and a request it
     /// ends was written), so one pass leaves nothing pending.
-    fn apply_retro(&mut self, now: Instant, effects: &mut Vec<Effect>) {
-        for id in std::mem::take(&mut self.displaced_unseen) {
+    fn apply_retro(&mut self, now: Instant, effects: &mut Decision) {
+        let deferred = effects.take_deferred();
+        for id in deferred.displaced {
             self.quarantine_displaced_raw_socket_owner(id, now, effects);
         }
-        for retro in std::mem::take(&mut self.retro) {
+        for retro in deferred.retro {
             let awaiting = self.entries.get(&retro.request).is_some_and(|entry| {
                 entry.generation == retro.generation
                     && !matches!(
-                        entry.lifecycle.phase(),
-                        Phase::Ready { .. } | Phase::Backoff { .. }
+                        entry.lifecycle().phase(),
+                        Phase::Ready | Phase::Backoff { .. }
                     )
             });
             if !awaiting {
@@ -3732,10 +3674,6 @@ impl ProtocolEngine {
                 Evidence::Other => {}
             }
         }
-        debug_assert!(
-            self.retro.is_empty() && self.displaced_unseen.is_empty(),
-            "applying a dispute's frames decided another dispute"
-        );
     }
 
     /// Once a camera is known to name its sockets in completions, the
@@ -3743,7 +3681,7 @@ impl ProtocolEngine {
     /// commands': each completes the oldest such command still owed (or pays
     /// its debt), and any left over are forgotten. Once the camera is known
     /// to omit them, they stay dropped.
-    fn pay_unlearned_completions(&mut self, now: Instant, effects: &mut Vec<Effect>) {
+    fn pay_unlearned_completions(&mut self, now: Instant, effects: &mut Decision) {
         for index in TargetSlot::ALL {
             if self.targets[index].completion_sockets == CompletionSockets::Omitted {
                 self.targets[index].unlearned_completions = 0;
@@ -3761,10 +3699,10 @@ impl ProtocolEngine {
                     break;
                 };
                 self.targets[index].unlearned_completions -= 1;
-                self.absorb_answered(target, &answered, now);
+                self.absorb_answered(target, answered, now, effects);
                 let awaiting = self.entries.get(&entry.request).is_some_and(|live| {
                     live.generation == entry.generation
-                        && matches!(live.lifecycle.phase(), Phase::AwaitingCompletion { .. })
+                        && matches!(live.lifecycle().phase(), Phase::AwaitingCompletion { .. })
                 });
                 if awaiting {
                     self.completion(entry.request, None, now, effects);
@@ -3782,13 +3720,13 @@ impl ProtocolEngine {
     fn take_stream_answer(
         &mut self,
         target: TargetSlot,
-        answer: Answer,
+        answer: Answer<'_>,
         evidence: Evidence,
         now: Instant,
+        effects: &mut Decision,
     ) -> Option<Result<RequestId, Outstanding>> {
         let answered = self.ledger.answer(target, answer, evidence);
-        self.absorb_answered(target, &answered, now);
-        match answered.resolved {
+        match self.absorb_answered(target, answered, now, effects) {
             Resolved::Live(entry) => Some(Ok(entry.request)),
             Resolved::Debt(entry) => Some(Err(entry)),
             Resolved::Nothing | Resolved::Disputed(_) => None,
@@ -3808,6 +3746,7 @@ impl ProtocolEngine {
         socket: ViscaSocket,
         code: u8,
         cancel_order: u64,
+        effects: &mut Decision,
     ) {
         if code != 0x04 {
             return;
@@ -3821,34 +3760,47 @@ impl ProtocolEngine {
             .and_then(|entry| entry.stream_order())
             .is_some_and(|order| order < cancel_order);
         if reached {
-            self.displaced_unseen.push(owner);
+            effects.displace(owner);
         }
     }
 
     /// Applies what the ledger settled: retroactive dispute assignments, a
     /// `CompletionOnly` entry a dispute retired, and an owed inquiry reply
     /// paid or retired (which keeps only the ordinary reply skew from now).
-    fn absorb_answered(&mut self, target: TargetSlot, answered: &Answered, now: Instant) {
+    fn absorb_answered(
+        &mut self,
+        target: TargetSlot,
+        answered: Answered,
+        now: Instant,
+        effects: &mut Decision,
+    ) -> Resolved {
         if answered.completion_only_retired {
             self.targets[target].retired_completion_only += 1;
         }
-        self.retro.extend(answered.retro.iter().copied());
-        if answered.reply_settled {
-            let skew_until = add_duration(now, self.policy.raw_inquiry_release_hold);
+        effects.defer_frames(answered.retro);
+        let skew_until = add_duration(now, self.policy.raw_inquiry_release_hold);
+        for shape in answered.replies_settled.iter() {
             if let Some(hold) = self
                 .holds
-                .get_mut(&RawHoldKey::new(target, RawHoldScope::InquiryUnkeyed))
+                .get_mut(&RawHoldKey::new(target, RawHoldScope::Inquiry(shape)))
             {
                 hold.until = skew_until;
             }
         }
+        answered.resolved
     }
 
     /// A completion or execution error naming the socket of `owner`, which
     /// executes there, follows `owner`'s first answer and so every first
     /// answer written before it (#795): whatever the stream still owes for
     /// those is settled, whatever time it is.
-    fn settle_before_owner(&mut self, target: TargetSlot, owner: RequestId, now: Instant) {
+    fn settle_before_owner(
+        &mut self,
+        target: TargetSlot,
+        owner: RequestId,
+        now: Instant,
+        effects: &mut Decision,
+    ) {
         let Some(order) = self
             .entries
             .get(&owner)
@@ -3857,24 +3809,30 @@ impl ProtocolEngine {
             return;
         };
         let answered = self.ledger.settle_before(target, order);
-        self.absorb_answered(target, &answered, now);
+        self.absorb_answered(target, answered, now, effects);
     }
 
     /// An ACK that binds to no live request names `socket`: the camera put
     /// another command there, so a command the engine still indexes there
     /// lost its completion and has ended (#721). It is released now and
     /// ended with the frame's other effects.
-    fn displace_stale_socket_owner(&mut self, target: TargetSlot, socket: Option<ViscaSocket>) {
+    fn displace_stale_socket_owner(
+        &mut self,
+        target: TargetSlot,
+        socket: Option<ViscaSocket>,
+        effects: &mut Decision,
+    ) {
         if let Some(stale) = socket.and_then(|socket| self.socket_owner(target, socket)) {
             self.release_attempt_ownership(stale);
-            self.displaced_unseen.push(stale);
+            effects.displace(stale);
         }
     }
 
     /// Holds the socket a disputed ACK names, since one of its two
     /// `candidates` executes there, for the longer of their completion
-    /// deadlines (a candidate still being written counts: its answer may
-    /// overtake its write result). Like an owed command's hold, evidence
+    /// windows. The write-first input contract ensures each candidate's write
+    /// result is already known when this ACK is processed. Like an owed
+    /// command's hold, evidence
     /// releases it: a completion or error naming the socket, or another ACK
     /// naming it.
     fn hold_disputed_command_socket(
@@ -3895,7 +3853,7 @@ impl ProtocolEngine {
                 Standing::Live => self
                     .entries
                     .get(&candidate.request)
-                    .map(|entry| entry.request.context().timeout.completion),
+                    .map(|entry| entry.request.context().timeout.completion.get()),
             })
             .max();
         if let Some(completion) = completion {
@@ -3974,9 +3932,13 @@ impl ProtocolEngine {
     fn latched_raw_lane_error(&self, request: &RuntimeRequest) -> Option<Error> {
         let context = request.context();
         let target = context.target;
-        let completion_only = context.reply_shape == ReplyShape::CompletionOnly;
-        if (request.is_inquiry() || completion_only)
-            && self.ledger.lane_state(target, Lane::Inquiry) == LaneState::Latched
+        let family = SendingReply::new(request);
+        let completion_only = family == SendingReply::CompletionOnly;
+        if request
+            .payload_shape()
+            .is_some_and(|shape| self.ledger.inquiry_state(target, shape) == LaneState::Latched)
+            || (completion_only
+                && self.ledger.lane_state(target, Lane::Inquiry) == LaneState::Latched)
         {
             return Some(Error::inquiry_correlation_lost(target.camera()));
         }
@@ -3985,7 +3947,7 @@ impl ProtocolEngine {
         // from the owed answer (nor, at the debt cap, be owed at all).
         let command_lane = !request.is_inquiry()
             && (completion_only
-                || context.reply_shape == ReplyShape::NoReply
+                || family == SendingReply::NoReply
                 || context.control.class != ControlClass::Urgent);
         // A `CompletionOnly` command's socketless rejection could not be told
         // from a `NoReply` command's still owed past its window.
@@ -3998,14 +3960,14 @@ impl ProtocolEngine {
     /// Fails every queued (`Ready`/`Backoff`) request that a latched target
     /// lane blocks ([`Self::latched_raw_lane_error`]). Such a request was
     /// never written.
-    fn fail_latched_raw_lanes(&mut self, effects: &mut Vec<Effect>) {
+    fn fail_latched_raw_lanes(&mut self, effects: &mut Decision) {
         let failed: SmallVec<[(RequestId, Error); 4]> = self
             .entries
             .iter()
             .filter(|(_, entry)| {
                 matches!(
-                    entry.lifecycle.phase(),
-                    Phase::Ready { .. } | Phase::Backoff { .. }
+                    entry.lifecycle().phase(),
+                    Phase::Ready | Phase::Backoff { .. }
                 )
             })
             .filter_map(|(id, entry)| {
@@ -4018,10 +3980,10 @@ impl ProtocolEngine {
         }
     }
 
-    fn inquiry_reply(&mut self, id: RequestId, reply: RuntimeOutcome, effects: &mut Vec<Effect>) {
+    fn inquiry_reply(&mut self, id: RequestId, reply: RuntimeOutcome, effects: &mut Decision) {
         let compatible = self.entries.get(&id).is_some_and(|entry| {
-            entry.request.is_inquiry()
-                && matches!(entry.lifecycle.phase(), Phase::AwaitingReply { .. })
+            entry.reply_family() == SendingReply::Inquiry
+                && matches!(entry.lifecycle().phase(), Phase::AwaitingReply { .. })
         });
         if !compatible {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
@@ -4037,7 +3999,7 @@ impl ProtocolEngine {
         socket: Option<ViscaSocket>,
         code: u8,
         now: Instant,
-        effects: &mut Vec<Effect>,
+        effects: &mut Decision,
     ) {
         let Some(entry) = self.entries.get(&id) else {
             effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
@@ -4045,7 +4007,7 @@ impl ProtocolEngine {
         };
         if let Some(socket) = socket {
             if matches!(
-                entry.lifecycle.phase(),
+                entry.lifecycle().phase(),
                 Phase::Executing { socket: owned, .. }
                     | Phase::AwaitingCancellationResolution { socket: owned, .. }
                     if owned != socket
@@ -4066,7 +4028,7 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::UnmatchedFrame));
             return;
         }
-        let cancellation_active = entry.lifecycle.cancellation_ambiguity().is_some();
+        let cancellation_active = entry.lifecycle().cancellation_ambiguity().is_some();
         if code == 0x04
             && (cancellation_active || correlation_kind == CorrelationKind::Cancellation)
         {
@@ -4084,28 +4046,30 @@ impl ProtocolEngine {
         // socketless cancel intent instead leaves `0x05` as the original
         // request's retryable rejection below.
         let acknowledged = matches!(
-            entry.lifecycle.phase(),
+            entry.lifecycle().phase(),
             Phase::Executing { .. } | Phase::AwaitingCancellationResolution { .. }
         );
         if acknowledged {
-            let cancellation_answered = self.policy.envelope == EnvelopeKind::Raw
+            let cancellation_answered = self.policy.wire.kind() == EnvelopeKind::Raw
                 && code == 0x05
                 && raw_cancellation_no_socket_response(entry);
             self.finish_after_ack(id, Error::from_code(code), cancellation_answered, effects);
             return;
         }
-        let retryable = correlation_kind == CorrelationKind::Request
-            && self.camera_error_retryable(entry, code);
+        let retry = (correlation_kind == CorrelationKind::Request
+            && self.camera_error_retryable(entry, code))
+        .then(|| entry.lifecycle().retry_eligibility(true))
+        .flatten();
         let error = Error::from_code(code);
         // A raw inquiry error can race a late data reply. Retain the bounded
         // inquiry-only skew before a retry or terminal failure exposes another
         // inquiry to that stale frame class (#712).
         self.quarantine_raw_inquiry_correlation(id, now);
-        if retryable {
+        if let Some(retry) = retry {
             if cancellation_active {
                 self.finish(id, RuntimeOutcome::Cancelled, effects);
             } else {
-                self.schedule_retry(id, now, error, Backoff::Uncapped, effects);
+                self.schedule_retry(id, retry, now, error, Backoff::Uncapped, effects);
             }
         } else {
             self.finish(id, RuntimeOutcome::Failed(error), effects);
@@ -4120,14 +4084,14 @@ impl ProtocolEngine {
         id: RequestId,
         error: Error,
         cancellation_answered: bool,
-        effects: &mut Vec<Effect>,
+        effects: &mut Decision,
     ) {
-        if let Some(entry) = self
+        if self
             .entries
-            .get_mut(&id)
-            .filter(|entry| entry.cancellation_observation_open())
+            .get(&id)
+            .is_some_and(Entry::cancellation_observation_open)
         {
-            entry.lifecycle.close_observer();
+            let _ = self.entries.transition(id, EntryChange::CloseObserver);
             effects.push(Effect::CancellationObservation {
                 id,
                 observation: CancellationObservation::Failed(error.clone()),
@@ -4146,16 +4110,16 @@ impl ProtocolEngine {
         match code {
             0x03 | 0x05 => retry.buffer_full,
             0x41 => retry.movement_not_executable,
-            0x02 => entry.request.is_inquiry() && retry.builtin_inquiry_syntax,
+            0x02 => entry.reply_family() == SendingReply::Inquiry && retry.builtin_inquiry_syntax,
             _ => false,
         }
     }
 
-    fn confirm_cancelled(&mut self, id: RequestId, effects: &mut Vec<Effect>) {
+    fn confirm_cancelled(&mut self, id: RequestId, effects: &mut Decision) {
         let active = self
             .entries
             .get(&id)
-            .is_some_and(|entry| entry.lifecycle.cancellation_ambiguity().is_some());
+            .is_some_and(|entry| entry.lifecycle().cancellation_ambiguity().is_some());
         if !active {
             self.finish(id, RuntimeOutcome::Failed(Error::CommandCanceled), effects);
             return;
@@ -4163,29 +4127,24 @@ impl ProtocolEngine {
         self.finish_with_cancel_hold(id, RuntimeOutcome::Cancelled, false, effects);
     }
 
-    fn cancel(
-        &mut self,
-        id: RequestId,
-        now: Instant,
-        effects: &mut Vec<Effect>,
-    ) -> Result<(), Error> {
+    fn cancel(&mut self, id: RequestId, now: Instant, effects: &mut Decision) -> Result<(), Error> {
         let Some(entry) = self.entries.get(&id) else {
             effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
             return Ok(());
         };
         // Inquiry refusal is request-kind authority; a queued inquiry must not
         // take the local command-cancellation path.
-        let queued_inquiry = entry.request.is_inquiry()
+        let queued_inquiry = entry.reply_family() == SendingReply::Inquiry
             && matches!(
-                entry.lifecycle.phase(),
-                Phase::Ready { .. } | Phase::Backoff { .. }
+                entry.lifecycle().phase(),
+                Phase::Ready | Phase::Backoff { .. }
             );
         let decision = if queued_inquiry {
             CancellationDecision::Refused(Error::InquiryNotCancelable)
         } else {
-            entry.lifecycle.cancellation_decision(
+            entry.lifecycle().cancellation_decision(
                 entry.request.context().cancellation == CancellationPolicy::Supported,
-                add_duration(now, entry.request.context().timeout.ambiguity),
+                add_duration(now, entry.request.context().timeout.ambiguity.get()),
             )
         };
         match decision {
@@ -4227,7 +4186,7 @@ impl ProtocolEngine {
         id: RequestId,
         pending: PendingCancellation,
         now: Instant,
-        effects: &mut Vec<Effect>,
+        effects: &mut Decision,
     ) {
         let Some(entry) = self.entries.get(&id) else {
             return;
@@ -4235,13 +4194,17 @@ impl ProtocolEngine {
         if self.cancellation_send_at(entry) > now {
             return;
         }
-        let ambiguity_deadline = pending
-            .ambiguity_deadline()
-            .max(add_duration(now, entry.request.context().timeout.ambiguity));
+        let ambiguity_deadline = pending.ambiguity_deadline().max(add_duration(
+            now,
+            entry.request.context().timeout.ambiguity.get(),
+        ));
         let target = entry.request.context().target;
         let generation = entry.generation;
-        let attempt = entry.attempt;
         let socket = pending.socket();
+        let framing = match self.policy.wire.encoder() {
+            ProtocolEncoder::Raw(encoder) => encoder.plan(),
+            ProtocolEncoder::Sony(encoder) => encoder.plan(SonyRequestSequence::AllocateFresh),
+        };
         let Some(transmission) = self.allocate_transmission_id() else {
             self.finish(
                 id,
@@ -4252,21 +4215,8 @@ impl ProtocolEngine {
         };
         self.transition(
             id,
-            pending.emitted(transmission, ambiguity_deadline),
+            pending.emitted(transmission, ambiguity_deadline, framing.expectation()),
             effects,
-        );
-        self.transmissions.insert(
-            transmission,
-            TransmissionOwner {
-                request: id,
-                generation,
-                attempt,
-                kind: CorrelationKind::Cancellation,
-                // A cancellation is not a retry of the command.  It must get
-                // a fresh Sony identity even when the command already has a
-                // successful sequence recorded.
-                requested_sequence: None,
-            },
         );
         if self.raw_stream() {
             self.ledger
@@ -4278,7 +4228,7 @@ impl ProtocolEngine {
             kind: Transmission::Cancel {
                 target,
                 socket,
-                requested_sequence: None,
+                framing,
             },
         });
         self.last_request_sent = Some(now);
@@ -4288,10 +4238,11 @@ impl ProtocolEngine {
     fn schedule_retry(
         &mut self,
         id: RequestId,
+        retry: RetryEligibility,
         now: Instant,
         error: Error,
         backoff: Backoff,
-        effects: &mut Vec<Effect>,
+        effects: &mut Decision,
     ) {
         // The attempt that just ended was written. Only the camera's own
         // pre-ACK rejection proves that it had no effect; a lost ACK,
@@ -4318,7 +4269,7 @@ impl ProtocolEngine {
         let Some((cancellation, policy, submitted_at, attempt)) =
             self.entries.get(&id).map(|entry| {
                 (
-                    entry.lifecycle.cancellation_ambiguity().is_some(),
+                    entry.lifecycle().cancellation_ambiguity().is_some(),
                     entry.request.context().retry,
                     entry.submitted_at,
                     entry.attempt,
@@ -4331,17 +4282,18 @@ impl ProtocolEngine {
             self.finish(id, RuntimeOutcome::Failed(error), effects);
             return;
         }
-        // Releasing a raw inquiry FIFO owner for a retry would otherwise let a
-        // delayed attempt-N reply bind to the requeued attempt or its next
-        // same-target inquiry. The target tombstone is the bounded policy; it
+        // Releasing a raw inquiry for a retry could let a delayed attempt-N
+        // reply bind to the requeued attempt or an overlapping successor.
+        // The exact declaration's skew hold is the bounded policy; it
         // intentionally cannot make unidentifiable raw traffic safe forever.
         // A stream never reaches this path on a reply timeout: its reply is
         // owed instead (`retire_stream_answers`).
         self.quarantine_raw_inquiry_correlation(id, now);
         let next_attempt = attempt.saturating_add(1);
         let elapsed = now.saturating_duration_since(submitted_at);
-        let within_duration =
-            policy.total_budget == Duration::ZERO || elapsed < policy.total_budget;
+        let within_duration = policy
+            .total_budget
+            .is_none_or(|budget| elapsed < budget.get());
         if next_attempt > policy.max_retries || !within_duration {
             self.finish(id, RuntimeOutcome::Failed(error), effects);
             return;
@@ -4353,37 +4305,42 @@ impl ProtocolEngine {
             self.jitter.fraction(id, next_attempt),
         );
         let ready_at = add_duration(now, delay);
-        if policy.total_budget != Duration::ZERO
-            && ready_at >= add_duration(submitted_at, policy.total_budget)
+        if policy
+            .total_budget
+            .is_some_and(|budget| ready_at >= add_duration(submitted_at, budget.get()))
         {
             self.finish(id, RuntimeOutcome::Failed(error), effects);
             return;
         }
-        self.retire_stream_answers(id);
+        self.retire_stream_answers(id, effects);
         self.release_attempt_ownership(id);
-        let Some(entry) = self.entries.get_mut(&id) else {
-            return;
+        let to = Lifecycle::Backoff {
+            ready_at,
+            previous_attempt: retry.attempt(),
         };
-        entry.attempt = next_attempt;
-        entry.last_error = Some(error);
-        entry.effect_possible = effect_possible;
-        entry.queue_generation = entry.queue_generation.wrapping_add(1).max(1);
-        let queue_generation = entry.queue_generation;
-        self.transition(
+        if let Ok(Some(changed)) = self.entries.transition(
             id,
-            Lifecycle::Backoff {
-                ready_at,
-                queue_generation,
+            EntryChange::Retry {
+                to,
+                attempt: next_attempt,
+                error,
+                effect_possible,
             },
-            effects,
-        );
+        ) {
+            effects.push(Effect::Transition {
+                id,
+                from: changed.from,
+                to: changed.to,
+            });
+        }
         effects.push(Effect::RetryScheduled {
             id,
             attempt: next_attempt,
             ready_at,
         });
         if self.entries.get(&id).is_some_and(|entry| {
-            entry.request.is_inquiry() && matches!(entry.last_error, Some(Error::SyntaxError))
+            entry.reply_family() == SendingReply::Inquiry
+                && matches!(entry.last_error, Some(Error::SyntaxError))
         }) {
             let cooldown = add_duration(now, self.policy.inquiry_cooldown.max(delay));
             self.inquiry_cooldown_until = Some(
@@ -4391,29 +4348,17 @@ impl ProtocolEngine {
                     .map_or(cooldown, |existing| existing.max(cooldown)),
             );
         }
+        if ready_at <= now {
+            self.promote_retry(id, retry.attempt(), effects);
+        }
     }
 
     fn release_attempt_ownership(&mut self, id: RequestId) {
-        if let Some(target) = self
-            .entries
-            .get(&id)
-            .map(|entry| entry.request.context().target)
-        {
-            for socket in 0..2 {
-                if self.targets[target].socket_owners[socket]
-                    .is_some_and(|owner| owner.request == id)
-                {
-                    self.targets[target].socket_owners[socket] = None;
-                }
-            }
-            self.targets[target]
-                .raw_inquiries
-                .retain(|owner| owner.request != id);
-        }
-        self.transmissions.retain(|_, owner| owner.request != id);
+        let _ = self.entries.transition(id, EntryChange::DisplaceSocket);
     }
 
-    fn run_due(&mut self, now: Instant, effects: &mut Vec<Effect>) {
+    fn run_due(&mut self, now: Instant, effects: &mut Decision) {
+        self.debug_assert_input_boundary();
         self.turn_at = Some(now);
         // A frame delivered at the exact deadline is still processed before
         // this function by an input turn, so it is conservatively ignored by
@@ -4423,14 +4368,18 @@ impl ProtocolEngine {
         self.ledger.latch_due(now);
         self.pay_unlearned_completions(now, effects);
         self.expire_raw_holds(now);
+        #[cfg(debug_assertions)]
+        let iteration_bound = self.entries.len().saturating_add(1);
+        #[cfg(debug_assertions)]
+        let mut iterations = 0;
         while let Some(due) = self.next_due().filter(|due| due.at <= now) {
-            let valid = self.entries.get(&due.request).is_some_and(|entry| {
-                entry.generation == due.generation
-                    && (due.queue_generation == 0 || entry.queue_generation == due.queue_generation)
-            });
-            if !valid {
-                effects.push(Effect::Ignored(IgnoreReason::StaleQueueTicket));
-                continue;
+            #[cfg(debug_assertions)]
+            {
+                iterations += 1;
+                debug_assert!(
+                    iterations <= iteration_bound,
+                    "due work exceeded its entry progress bound"
+                );
             }
             self.apply_due(due, now, effects);
         }
@@ -4459,8 +4408,9 @@ impl ProtocolEngine {
     /// True only in the strict opt-in mode on the raw envelope (issue #671).
     /// Sony correlation never needs the quarantine, so the flag is inert there
     /// even if a caller set it.
-    const fn raw_unconfirmed_poison(&self) -> bool {
-        matches!(self.policy.envelope, EnvelopeKind::Raw) && self.policy.strict_unconfirmed_poison
+    fn raw_unconfirmed_poison(&self) -> bool {
+        matches!(self.policy.wire.kind(), EnvelopeKind::Raw)
+            && self.policy.strict_unconfirmed_poison
     }
 
     /// Poisons the whole session for the strict opt-in mode (issue #671).
@@ -4474,7 +4424,7 @@ impl ProtocolEngine {
     /// session must never be reported by the same verdict. [`Error::StreamPoisoned`]
     /// is the crate's session-poison error, and its recovery guidance already
     /// covers a raw command whose completion is uncertain.
-    fn poison_strict_unconfirmed(&mut self, effects: &mut Vec<Effect>) {
+    fn poison_strict_unconfirmed(&mut self, effects: &mut Decision) {
         self.terminate_session(
             SessionState::Poisoned,
             Error::StreamPoisoned {
@@ -4484,6 +4434,77 @@ impl ProtocolEngine {
             },
             effects,
         );
+    }
+
+    /// Retains the attempt's raw response scope without choosing its terminal
+    /// error or treating a refused current write as a transport failure.
+    fn quarantine_unconfirmed_raw(&mut self, id: RequestId, now: Instant) {
+        let Some(entry) = self.entries.get(&id) else {
+            return;
+        };
+        let target = entry.request.context().target;
+        let reply_shape = entry.reply_family();
+        // A cancellation can end before its original protocol window. Keep
+        // every response from that attempt away from successors through both
+        // windows and a fresh ambiguity interval, even if due work was delayed.
+        let phase_deadline = match entry.lifecycle().phase() {
+            Phase::AwaitingAck { deadline, .. }
+            | Phase::AwaitingCompletion { deadline, .. }
+            | Phase::Executing { deadline, .. }
+            | Phase::AwaitingReply { deadline, .. }
+            | Phase::AwaitingCancellationResolution { deadline, .. } => deadline,
+            Phase::Ready | Phase::Sending { .. } | Phase::Backoff { .. } => now,
+        };
+        let hold_base = if let Some(cancel_deadline) = entry.lifecycle().cancellation_ambiguity() {
+            now.max(phase_deadline).max(cancel_deadline)
+        } else {
+            now
+        };
+        let ambiguity_deadline =
+            add_duration(hold_base, entry.request.context().timeout.ambiguity.get());
+        let scope = match entry.lifecycle().phase() {
+            // Exact socket identity remains unusable until its bounded stale
+            // completion window closes.
+            Phase::Executing { socket, .. }
+            | Phase::AwaitingCancellationResolution { socket, .. } => {
+                Some(RawHoldScope::Socket(socket))
+            }
+            // A command which never earned a socket leaves positional ACK
+            // evidence behind.
+            Phase::AwaitingAck { .. } => Some(RawHoldScope::PreAck),
+            // Completion-only commands and physically uncertain writes have no
+            // narrower response identity, so their hold covers every response
+            // class on the target.
+            Phase::AwaitingCompletion { .. } => Some(RawHoldScope::AllResponses),
+            Phase::Sending { .. } => match reply_shape {
+                SendingReply::AckThenCompletion => Some(RawHoldScope::PreAck),
+                SendingReply::CompletionOnly | SendingReply::NoReply => {
+                    Some(RawHoldScope::AllResponses)
+                }
+                SendingReply::Inquiry => None,
+            },
+            Phase::Ready | Phase::AwaitingReply { .. } | Phase::Backoff { .. } => None,
+        };
+        // On a byte stream the ledger owes a pre-ACK command's answer, and a
+        // `CompletionOnly` command's, until it arrives
+        // (`retire_stream_answers`), so no time-bounded `PreAck` or
+        // `AllResponses` hold is needed for them; and a staged write that
+        // never left reached nothing.
+        let scope = if self.raw_stream() {
+            let staged_only = matches!(entry.lifecycle().phase(), Phase::Sending { .. })
+                && !self.ledger.live(target, id).any(|entry| entry.written);
+            let owed = |scope: &RawHoldScope| {
+                *scope == RawHoldScope::PreAck
+                    || (*scope == RawHoldScope::AllResponses
+                        && reply_shape == SendingReply::CompletionOnly)
+            };
+            scope.filter(|scope| !owed(scope) && !staged_only)
+        } else {
+            scope
+        };
+        if let Some(scope) = scope {
+            self.extend_raw_hold(target, scope, ambiguity_deadline, Some(id));
+        }
     }
 
     /// Terminates one raw command whose ACK or completion can no longer be
@@ -4498,107 +4519,12 @@ impl ProtocolEngine {
     /// inert keyed hold, rather than a hidden still-live request phase, prevents
     /// late input from binding to a successor. The session and every unrelated
     /// request keep running.
-    fn terminate_unconfirmed_raw(
-        &mut self,
-        id: RequestId,
-        now: Instant,
-        effects: &mut Vec<Effect>,
-    ) {
+    fn terminate_unconfirmed_raw(&mut self, id: RequestId, now: Instant, effects: &mut Decision) {
         if self.raw_unconfirmed_poison() {
             self.poison_strict_unconfirmed(effects);
             return;
         }
-        let Some(entry) = self.entries.get(&id) else {
-            effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
-            return;
-        };
-        let target = entry.request.context().target;
-        let reply_shape = entry.request.context().reply_shape;
-        // A cancellation can end before its original protocol window. Keep
-        // every response from that attempt away from successors through both
-        // windows and a fresh ambiguity interval, even if due work was delayed.
-        let phase_deadline = match entry.lifecycle.phase() {
-            Phase::AwaitingAck { deadline, .. }
-            | Phase::AwaitingCompletion { deadline, .. }
-            | Phase::Executing { deadline, .. }
-            | Phase::AwaitingReply { deadline, .. }
-            | Phase::AwaitingCancellationResolution { deadline, .. } => deadline,
-            Phase::Ready { .. } | Phase::Sending { .. } | Phase::Backoff { .. } => now,
-        };
-        let hold_base = if let Some(cancel_deadline) = entry.lifecycle.cancellation_ambiguity() {
-            now.max(phase_deadline).max(cancel_deadline)
-        } else {
-            now
-        };
-        let ambiguity_deadline = add_duration(hold_base, entry.request.context().timeout.ambiguity);
-        let scope = match entry.lifecycle.phase() {
-            // Exact socket identity remains unusable until its bounded stale
-            // completion window closes.
-            Phase::Executing { socket, .. }
-            | Phase::AwaitingCancellationResolution { socket, .. } => {
-                Some(RawHoldScope::Socket(socket))
-            }
-            // A command which never earned a socket leaves positional ACK
-            // evidence behind.
-            Phase::AwaitingAck { .. } => Some(RawHoldScope::PreAck),
-            // Completion-only commands and physically uncertain writes have no
-            // narrower response identity, so their hold covers every response
-            // class on the target.
-            Phase::AwaitingCompletion { .. } => Some(RawHoldScope::AllResponses),
-            Phase::Sending { .. } => Some(match reply_shape {
-                ReplyShape::AckThenCompletion => RawHoldScope::PreAck,
-                ReplyShape::CompletionOnly | ReplyShape::NoReply => RawHoldScope::AllResponses,
-            }),
-            Phase::Ready { .. } | Phase::AwaitingReply { .. } | Phase::Backoff { .. } => None,
-        };
-        // On a byte stream the ledger owes a pre-ACK command's answer, and a
-        // `CompletionOnly` command's, until it arrives
-        // (`retire_stream_answers`), so no time-bounded `PreAck` or
-        // `AllResponses` hold is needed for them; and a staged write that
-        // never left reached nothing.
-        let raced_ack = self.raw_stream().then_some(entry.deferred_ack()).flatten();
-        let raced_completion = entry.request.context().timeout.completion;
-        let scope = if self.raw_stream() {
-            let staged_only = matches!(entry.lifecycle.phase(), Phase::Sending { .. })
-                && raced_ack.is_none()
-                && !self.ledger.live(target, id).any(|entry| entry.written);
-            let owed = |scope: &RawHoldScope| {
-                *scope == RawHoldScope::PreAck
-                    || (*scope == RawHoldScope::AllResponses
-                        && reply_shape == ReplyShape::CompletionOnly)
-            };
-            scope.filter(|scope| !owed(scope) && !staged_only)
-        } else {
-            scope
-        };
-        if let Some(ack) = raced_ack {
-            let socket = ack.socket.or_else(|| {
-                [ViscaSocket::S1, ViscaSocket::S2]
-                    .into_iter()
-                    .take(self.assignment_socket_count(target, id))
-                    .find(|socket| self.socket_available(target, *socket, id))
-            });
-            if let Some(socket) = socket {
-                // A latched ACK proves reuse just like an ordinary ACK. End
-                // the predecessor before retaining this command's completion
-                // debt; its late completion must never apply the predecessor.
-                if let Some(stale) = self
-                    .socket_owner(target, socket)
-                    .filter(|owner| *owner != id)
-                {
-                    self.quarantine_displaced_raw_socket_owner(stale, now, effects);
-                }
-                self.extend_raw_hold(
-                    target,
-                    RawHoldScope::Socket(socket),
-                    add_duration(now, raced_completion),
-                    Some(id),
-                );
-            }
-        }
-        if let Some(scope) = scope {
-            self.extend_raw_hold(target, scope, ambiguity_deadline, Some(id));
-        }
+        self.quarantine_unconfirmed_raw(id, now);
         self.finish(
             id,
             RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
@@ -4606,317 +4532,264 @@ impl ProtocolEngine {
         );
     }
 
-    fn apply_due(&mut self, due: DueWork, now: Instant, effects: &mut Vec<Effect>) {
-        let Some(entry) = self.entries.get(&due.request) else {
+    fn finish_cancellation_unconfirmed(
+        &mut self,
+        id: RequestId,
+        now: Instant,
+        effects: &mut Decision,
+    ) {
+        match self.policy.wire.kind() {
+            EnvelopeKind::Raw => self.terminate_unconfirmed_raw(id, now, effects),
+            EnvelopeKind::Sony => self.finish(
+                id,
+                RuntimeOutcome::Failed(Error::CancellationUnconfirmed),
+                effects,
+            ),
+        }
+    }
+
+    fn close_cancellation_observer(&mut self, id: RequestId, effects: &mut Decision) {
+        let _ = self.entries.transition(id, EntryChange::CloseObserver);
+        effects.push(Effect::CancellationObservation {
+            id,
+            observation: CancellationObservation::Failed(Error::timeout(
+                FailureStage::CancellationAttempt,
+                Certainty::StillLive,
+            )),
+        });
+    }
+
+    fn apply_due(&mut self, due: DueWork, now: Instant, effects: &mut Decision) {
+        let id = due.request;
+        let Some(entry) = self.entries.get(&id) else {
             return;
         };
-        let phase = entry.lifecycle.phase();
-        let ambiguity_due = entry
-            .lifecycle
-            .active_cancellation_ambiguity()
-            .is_some_and(|deadline| deadline <= now);
-        if due.kind == DueKind::CancellationAmbiguity && ambiguity_due {
-            // Unconfirmed cancellation has the same late-response debt as an
-            // uncancelled command. Its terminal must retain the phase's scope.
-            if self.policy.envelope == EnvelopeKind::Raw {
-                self.terminate_unconfirmed_raw(due.request, now, effects);
-                return;
+        let context = *entry.request.context();
+        match due.action {
+            DueAction::CancellationAmbiguity => {
+                self.finish_cancellation_unconfirmed(id, now, effects)
             }
-            let error = if self.policy.envelope == EnvelopeKind::Raw {
-                Error::UnsequencedCommandUnconfirmed
-            } else {
-                Error::CancellationUnconfirmed
-            };
-            if self.raw_unconfirmed_poison() {
-                self.poison_strict_unconfirmed(effects);
-            } else {
-                self.finish(due.request, RuntimeOutcome::Failed(error), effects);
+            DueAction::CancellationObservation { terminal_at } => {
+                self.close_cancellation_observer(id, effects);
+                if terminal_at <= now {
+                    self.finish_cancellation_unconfirmed(id, now, effects);
+                }
             }
-            return;
-        }
-        let cancellation_observation_due = entry
-            .lifecycle
-            .cancellation_observation_deadline()
-            .is_some_and(|deadline| deadline <= now);
-        if due.kind == DueKind::Deadline && cancellation_observation_due {
-            if let Some(entry) = self.entries.get_mut(&due.request) {
-                entry.lifecycle.close_observer();
+            DueAction::CancellationResolution {
+                observation_deadline,
+            } => {
+                if observation_deadline.is_some_and(|deadline| deadline <= now) {
+                    self.close_cancellation_observer(id, effects);
+                }
+                self.finish_cancellation_unconfirmed(id, now, effects);
             }
-            effects.push(Effect::CancellationObservation {
-                id: due.request,
-                // The cancellation could not be resolved in time; the
-                // original request keeps running under its own deadlines.
-                observation: CancellationObservation::Failed(Error::timeout(
-                    FailureStage::CancellationAttempt,
-                    Certainty::StillLive,
-                )),
-            });
-            return;
-        }
-        let retry_budget_at = entry.retry_budget_deadline();
-        let retry_budget_due = retry_budget_at.is_some_and(|deadline| deadline <= now);
-        if due.kind == DueKind::Deadline
-            && retry_budget_due
-            && retry_budget_at.is_some_and(|deadline| deadline == due.at)
-        {
-            let error = entry
-                .last_error
-                .clone()
-                .unwrap_or_else(|| terminal_timeout(entry));
-            let raw_active_command = self.policy.envelope == EnvelopeKind::Raw
-                && !entry.request.is_inquiry()
-                && matches!(
-                    phase,
-                    Phase::Sending { .. }
-                        | Phase::AwaitingAck { .. }
-                        | Phase::AwaitingCompletion { .. }
-                        | Phase::Executing { .. }
-                );
-            if raw_active_command {
-                // The active attempt still owns correlation (socket or the
-                // unacknowledged-command slot); quarantine it and fail this one
-                // request, or poison in strict mode. Issue #671.
-                self.terminate_unconfirmed_raw(due.request, now, effects);
-            } else if matches!(phase, Phase::AwaitingReply { .. }) {
-                // A written inquiry ends unanswered: on a stream its reply
-                // remains owed (`retire_stream_answers`).
-                self.retain_unanswered_inquiry(due.request, now);
-                self.finish(due.request, RuntimeOutcome::Failed(error), effects);
-            } else {
-                // A `Sending` request here has no write in progress (neither
-                // owner runs the due pass during a write), so its staged
-                // transmission is dropped as stale and nothing reached the
-                // stream: the ordinary skew hold suffices.
-                self.quarantine_raw_inquiry_correlation(due.request, now);
-                self.finish(due.request, RuntimeOutcome::Failed(error), effects);
+            DueAction::RetryBudget {
+                retirement,
+                certainty,
+            } => {
+                let error = entry
+                    .last_error
+                    .clone()
+                    .unwrap_or_else(|| Error::timeout(FailureStage::Terminal, certainty));
+                match retirement {
+                    BudgetRetirement::Command if self.policy.wire.kind() == EnvelopeKind::Raw => {
+                        self.terminate_unconfirmed_raw(id, now, effects)
+                    }
+                    BudgetRetirement::Inquiry => {
+                        self.retain_unanswered_inquiry(id, now);
+                        self.finish(id, RuntimeOutcome::Failed(error), effects);
+                    }
+                    BudgetRetirement::Queued | BudgetRetirement::Command => {
+                        self.finish(id, RuntimeOutcome::Failed(error), effects)
+                    }
+                }
             }
-            return;
-        }
-        match phase {
-            Phase::AwaitingAck { sent_at, deadline } if deadline <= now => {
-                let Lifecycle::AwaitingAck {
-                    attempt,
-                    cancellation,
-                    ..
-                } = entry.lifecycle
-                else {
-                    return;
-                };
+            DueAction::Ack {
+                sent_at,
+                deadline,
+                budget_at,
+                retry,
+                cancellation,
+            } => {
                 let mark = effects.len();
                 if let Some(request) = cancellation {
-                    let ambiguity_deadline = request.ambiguity_deadline;
-                    self.transition(
-                        due.request,
-                        Lifecycle::AwaitingAck {
-                            sent_at,
-                            deadline: ambiguity_deadline,
-                            attempt,
-                            cancellation,
-                        },
-                        effects,
-                    );
-                } else if self.raw_stream()
-                    && self
-                        .ledger
-                        .awaits_dispute(entry.request.context().target, due.request)
-                    && deadline.saturating_duration_since(sent_at)
-                        <= entry.request.context().timeout.ack
-                {
-                    // A dispute may already hold this command's answer: wait
-                    // one ambiguity interval for it to be proven (#795).
-                    let extended = add_duration(now, entry.request.context().timeout.ambiguity);
-                    self.transition(
-                        due.request,
-                        Lifecycle::AwaitingAck {
-                            sent_at,
-                            deadline: extended,
-                            attempt,
-                            cancellation,
-                        },
-                        effects,
-                    );
-                } else if self.policy.envelope == EnvelopeKind::Raw {
-                    // Default: fail the sole unacknowledged raw command now and
-                    // leave its positional slot as an inert keyed hold through
-                    // the ambiguity interval; strict: poison. Issues #671/#723.
-                    self.terminate_unconfirmed_raw(due.request, now, effects);
-                } else if entry.request.context().retry.ack_timeout {
-                    self.schedule_retry(
-                        due.request,
-                        now,
-                        terminal_timeout(entry),
-                        Backoff::AckCapped,
-                        effects,
-                    );
-                } else {
-                    self.finish(
-                        due.request,
-                        RuntimeOutcome::Failed(terminal_timeout(entry)),
-                        effects,
-                    );
-                }
-                record_deadline_expiry(due.request, DeadlineKind::Ack, mark, effects);
-            }
-            Phase::AwaitingCompletion { deadline, .. } if deadline <= now => {
-                let mark = effects.len();
-                if self.policy.envelope == EnvelopeKind::Raw {
-                    // Issue #700: the completion never arrived. This shape has no
-                    // ACK-timeout path; the completion deadline governs. Fail
-                    // this request now and leave the sole-command slot as an
-                    // inert keyed hold through the ambiguity interval (default),
-                    // or poison (strict) — the #671/#723 per-request model.
-                    self.terminate_unconfirmed_raw(due.request, now, effects);
-                } else if entry.request.context().retry.completion_timeout {
-                    self.schedule_retry(
-                        due.request,
-                        now,
-                        terminal_timeout(entry),
-                        Backoff::Uncapped,
-                        effects,
-                    );
-                } else {
-                    self.finish(
-                        due.request,
-                        RuntimeOutcome::Failed(terminal_timeout(entry)),
-                        effects,
-                    );
-                }
-                record_deadline_expiry(due.request, DeadlineKind::Completion, mark, effects);
-            }
-            Phase::Executing {
-                socket, deadline, ..
-            } if deadline <= now => {
-                let mark = effects.len();
-                if entry.lifecycle.cancellation_ambiguity().is_some() {
-                    if entry
-                        .lifecycle
-                        .cancellation_ambiguity()
-                        .is_some_and(|deadline| deadline > now)
-                    {
-                        let Lifecycle::Executing {
-                            attempt,
-                            cancellation,
-                            ..
-                        } = entry.lifecycle
-                        else {
-                            return;
-                        };
-                        let cancellation = match cancellation {
-                            ExecutingCancellation::Requested(request) => {
-                                ResolvingCancellation::Requested(request)
-                            }
-                            ExecutingCancellation::Sending(send) => {
-                                ResolvingCancellation::Sending(send)
-                            }
-                            ExecutingCancellation::ObservationFailed { ambiguity_deadline } => {
-                                ResolvingCancellation::ObservationFailed { ambiguity_deadline }
-                            }
-                            ExecutingCancellation::None => return,
-                        };
+                    if request.ambiguity_deadline > now {
                         self.transition(
-                            due.request,
-                            Lifecycle::AwaitingCancellationResolution {
-                                socket,
-                                deadline,
-                                attempt,
+                            id,
+                            Lifecycle::AwaitingAck {
+                                sent_at,
+                                deadline: request.ambiguity_deadline,
+                                attempt: retry.attempt(),
                                 cancellation,
                             },
                             effects,
                         );
                     } else {
-                        let error = if self.policy.envelope == EnvelopeKind::Raw {
-                            Error::UnsequencedCommandUnconfirmed
-                        } else {
-                            Error::CancellationUnconfirmed
-                        };
-                        if self.policy.envelope == EnvelopeKind::Raw {
-                            self.terminate_unconfirmed_raw(due.request, now, effects);
-                        } else {
-                            self.finish(due.request, RuntimeOutcome::Failed(error), effects);
-                        }
+                        self.finish_cancellation_unconfirmed(id, now, effects);
                     }
-                } else if self.policy.envelope == EnvelopeKind::Raw {
-                    // Default: correlation is exact (this request owns the
-                    // socket); hold the socket quarantined and fail this one
-                    // request UnsequencedCommandUnconfirmed at the ambiguity
-                    // deadline; strict: poison. Issue #671.
-                    self.terminate_unconfirmed_raw(due.request, now, effects);
+                } else if self.raw_stream()
+                    && self.ledger.awaits_dispute(context.target, id)
+                    && deadline.saturating_duration_since(sent_at) <= context.timeout.ack.get()
+                    && budget_at.is_none_or(|at| at > now)
+                {
+                    // A tracked first answer may still be proven. A positive
+                    // ambiguity interval buys one later deadline; a saturated
+                    // clock with no later instant terminalizes instead.
+                    let extended = add_duration(now, context.timeout.ambiguity.get());
+                    if extended > now {
+                        self.transition(
+                            id,
+                            Lifecycle::AwaitingAck {
+                                sent_at,
+                                deadline: extended,
+                                attempt: retry.attempt(),
+                                cancellation: None,
+                            },
+                            effects,
+                        );
+                    } else {
+                        self.terminate_unconfirmed_raw(id, now, effects);
+                    }
+                } else if self.policy.wire.kind() == EnvelopeKind::Raw {
+                    self.terminate_unconfirmed_raw(id, now, effects);
+                } else if context.retry.ack_timeout {
+                    self.schedule_retry(
+                        id,
+                        retry,
+                        now,
+                        Error::timeout(FailureStage::Terminal, Certainty::Unconfirmed),
+                        Backoff::AckCapped,
+                        effects,
+                    );
                 } else {
-                    // A Sony command that was ACKed is never written again,
-                    // even with its original sequence (#795). The register's
-                    // same-sequence retransmission (docs/visca_reference.md
-                    // §5.3 and the §11.5 "Sony encapsulated UDP" row) recovers
-                    // a *lost message* and lets the controller infer whether
-                    // the camera accepted it; an ACK already proved
-                    // acceptance, and no cited source says the camera ignores
-                    // a repeated sequence once it is executing.
                     self.finish(
-                        due.request,
-                        RuntimeOutcome::Failed(terminal_timeout(entry)),
+                        id,
+                        RuntimeOutcome::Failed(Error::timeout(
+                            FailureStage::Terminal,
+                            Certainty::Unconfirmed,
+                        )),
                         effects,
                     );
                 }
-                record_deadline_expiry(due.request, DeadlineKind::Completion, mark, effects);
+                record_deadline_expiry(id, DeadlineKind::Ack, mark, effects);
             }
-            Phase::AwaitingCancellationResolution { deadline, .. } if deadline <= now => {
-                let error = if self.policy.envelope == EnvelopeKind::Raw {
-                    Error::UnsequencedCommandUnconfirmed
-                } else {
-                    Error::CancellationUnconfirmed
-                };
-                if self.policy.envelope == EnvelopeKind::Raw {
-                    self.terminate_unconfirmed_raw(due.request, now, effects);
-                } else {
-                    self.finish(due.request, RuntimeOutcome::Failed(error), effects);
-                }
-            }
-            Phase::AwaitingReply { deadline, .. } if deadline <= now => {
+            DueAction::Completion(completion) => {
                 let mark = effects.len();
-                // A raw stream inquiry is never resent after a reply timeout:
-                // the stream has not lost the first copy, so a resend could
-                // only be written after that copy's owed reply is absorbed and
-                // would add latency and late replies, never an answer.
-                let retry_inquiry_timeout = entry.request.context().retry.inquiry_timeout
-                    && !self.raw_stream_single_flight_inquiry(entry);
-                let error = terminal_timeout(entry);
-                self.retain_unanswered_inquiry(due.request, now);
-                if retry_inquiry_timeout {
-                    self.schedule_retry(due.request, now, error, Backoff::Uncapped, effects);
-                } else {
-                    self.finish(due.request, RuntimeOutcome::Failed(error), effects);
+                match completion {
+                    CompletionDeadline::Unacknowledged { retry } => {
+                        if self.policy.wire.kind() == EnvelopeKind::Raw {
+                            self.terminate_unconfirmed_raw(id, now, effects);
+                        } else if context.retry.completion_timeout {
+                            self.schedule_retry(
+                                id,
+                                retry,
+                                now,
+                                Error::timeout(FailureStage::Terminal, Certainty::Unconfirmed),
+                                Backoff::Uncapped,
+                                effects,
+                            );
+                        } else {
+                            self.finish(
+                                id,
+                                RuntimeOutcome::Failed(Error::timeout(
+                                    FailureStage::Terminal,
+                                    Certainty::Unconfirmed,
+                                )),
+                                effects,
+                            );
+                        }
+                    }
+                    CompletionDeadline::Accepted => {
+                        if self.policy.wire.kind() == EnvelopeKind::Raw {
+                            self.terminate_unconfirmed_raw(id, now, effects);
+                        } else {
+                            // Acceptance permanently forbids replay, including
+                            // same-sequence Sony retransmission.
+                            self.finish(
+                                id,
+                                RuntimeOutcome::Failed(Error::timeout(
+                                    FailureStage::Terminal,
+                                    Certainty::Unconfirmed,
+                                )),
+                                effects,
+                            );
+                        }
+                    }
+                    CompletionDeadline::Cancelling {
+                        socket,
+                        original_deadline,
+                        attempt,
+                        cancellation,
+                    } => {
+                        if cancellation.ambiguity_deadline() > now {
+                            self.transition(
+                                id,
+                                Lifecycle::AwaitingCancellationResolution {
+                                    socket,
+                                    deadline: original_deadline,
+                                    attempt,
+                                    cancellation,
+                                },
+                                effects,
+                            );
+                        } else {
+                            self.finish_cancellation_unconfirmed(id, now, effects);
+                        }
+                    }
                 }
-                record_deadline_expiry(due.request, DeadlineKind::InquiryReply, mark, effects);
+                record_deadline_expiry(id, DeadlineKind::Completion, mark, effects);
             }
-            Phase::Backoff {
-                ready_at,
-                queue_generation,
-            } if ready_at <= now && queue_generation == due.queue_generation => {
-                self.promote_retry(due.request, effects);
+            DueAction::InquiryReply { retry } => {
+                let mark = effects.len();
+                let retry_timeout =
+                    context.retry.inquiry_timeout && !self.raw_stream_inquiry(entry);
+                let error = Error::timeout(FailureStage::Terminal, Certainty::FailedConclusively);
+                self.retain_unanswered_inquiry(id, now);
+                if retry_timeout {
+                    self.schedule_retry(id, retry, now, error, Backoff::Uncapped, effects);
+                } else {
+                    self.finish(id, RuntimeOutcome::Failed(error), effects);
+                }
+                record_deadline_expiry(id, DeadlineKind::InquiryReply, mark, effects);
             }
-            _ => effects.push(Effect::Ignored(IgnoreReason::StaleQueueTicket)),
+            DueAction::RetryReady {
+                previous_attempt,
+                budget_at,
+                certainty,
+            } => {
+                if budget_at.is_some_and(|at| at <= now) {
+                    let error = entry
+                        .last_error
+                        .clone()
+                        .unwrap_or_else(|| Error::timeout(FailureStage::Terminal, certainty));
+                    self.finish(id, RuntimeOutcome::Failed(error), effects);
+                } else {
+                    self.promote_retry(id, previous_attempt, effects);
+                }
+            }
         }
+        debug_assert!(
+            self.entries
+                .get(&id)
+                .and_then(|entry| entry.due(id))
+                .is_none_or(|next| next.at > now),
+            "due action left its request due at the sampled instant"
+        );
     }
 
-    fn promote_retry(&mut self, id: RequestId, effects: &mut Vec<Effect>) {
-        let Some(entry) = self.entries.get(&id) else {
-            return;
-        };
-        let Phase::Backoff {
-            queue_generation, ..
-        } = entry.lifecycle.phase()
-        else {
-            effects.push(Effect::Ignored(IgnoreReason::StaleQueueTicket));
-            return;
-        };
-        let ticket = QueueTicket {
-            request: id,
-            generation: entry.generation,
-            queue_generation,
-        };
-        let lane = entry.request.lane();
-        let priority = entry.request.context().control.class.priority_index();
-        self.transition(id, Lifecycle::Ready { ticket }, effects);
-        self.queue_mut(lane, priority).push_back(ticket);
+    fn promote_retry(
+        &mut self,
+        id: RequestId,
+        previous_attempt: AttemptFacts,
+        effects: &mut Decision,
+    ) {
+        self.transition(
+            id,
+            Lifecycle::Ready {
+                previous_attempt: Some(previous_attempt),
+            },
+            effects,
+        );
     }
 
     /// Raw correlation scopes which can be released by advancing at `now`.
@@ -4928,7 +4801,7 @@ impl ProtocolEngine {
     /// for the owner-side retained-prefix decision.
     pub(crate) fn raw_correlation_releases_due(&self, now: Instant) -> RawCorrelationReleaseSet {
         let mut releases = RawCorrelationReleaseSet::default();
-        if self.policy.envelope != EnvelopeKind::Raw {
+        if self.policy.wire.kind() != EnvelopeKind::Raw {
             return releases;
         }
         for (key, hold) in &self.holds {
@@ -4941,7 +4814,7 @@ impl ProtocolEngine {
             match key.scope {
                 RawHoldScope::Socket(socket) => release.release_exact_socket(socket),
                 RawHoldScope::PreAck => release.release_pre_ack_unkeyed(),
-                RawHoldScope::InquiryUnkeyed => release.release_inquiry_unkeyed(),
+                RawHoldScope::Inquiry(_) => release.release_inquiry_unkeyed(),
                 RawHoldScope::AllResponses => release.release_terminal_all(),
             }
         }
@@ -4951,14 +4824,14 @@ impl ProtocolEngine {
             // releases correlation before that input-first turn, so project
             // only the deadline which can actually remove this live entry.
             let due = entry
-                .lifecycle
+                .lifecycle()
                 .raw_cancellation_release_deadline()
                 .is_some_and(|deadline| deadline <= now);
             if !due {
                 continue;
             }
             let release = releases.for_target_mut(entry.request.context().target);
-            match entry.lifecycle.phase() {
+            match entry.lifecycle().phase() {
                 Phase::Executing { socket, .. }
                 | Phase::AwaitingCancellationResolution { socket, .. } => {
                     release.release_exact_socket(socket);
@@ -4967,7 +4840,7 @@ impl ProtocolEngine {
                 Phase::Sending { .. }
                 | Phase::AwaitingAck { .. }
                 | Phase::AwaitingCompletion { .. } => release.release_pre_ack_unkeyed(),
-                Phase::Ready { .. } | Phase::Backoff { .. } => {}
+                Phase::Ready | Phase::Backoff { .. } => {}
             }
         }
         releases
@@ -5112,13 +4985,13 @@ impl ProtocolEngine {
             .chain(self.ledger.wake())
             .min();
         for entry in self.entries.values() {
-            let candidate = if matches!(entry.lifecycle.phase(), Phase::Ready { .. })
+            let candidate = if matches!(entry.lifecycle().phase(), Phase::Ready)
                 && !self.dispatch_blocked(entry, self.turn_at)
             {
                 Some(self.candidate_send_at(entry))
-            } else if entry.lifecycle.pending_cancellation_socket().is_some() {
+            } else if entry.lifecycle().pending_cancellation_socket().is_some() {
                 Some(self.cancellation_send_at(entry))
-            } else if matches!(entry.lifecycle.phase(), Phase::Ready { .. }) {
+            } else if matches!(entry.lifecycle().phase(), Phase::Ready) {
                 // A blocked STOP on a byte stream is written at its bound.
                 self.stop_wait_bound(entry)
                     .map(|bound| bound.max(self.candidate_send_at(entry)))
@@ -5134,7 +5007,7 @@ impl ProtocolEngine {
 
     /// Earliest expiry across the keyed raw quarantine table.
     fn raw_hold_wake(&self) -> Option<Instant> {
-        if self.policy.envelope != EnvelopeKind::Raw {
+        if self.policy.wire.kind() != EnvelopeKind::Raw {
             return None;
         }
         // A hold released by evidence has no deadline of its own: an owed
@@ -5153,11 +5026,11 @@ impl ProtocolEngine {
             .min()
     }
 
-    /// Whether `key` never expires by time: an `InquiryUnkeyed` hold whose
+    /// Whether `key` never expires by time: an inquiry-shape hold whose
     /// target still owes an inquiry reply, or a byte stream's `Socket` hold,
     /// whose late answer is delayed, never lost (#795).
     fn raw_hold_released_by_evidence(&self, key: RawHoldKey) -> bool {
-        (key.scope == RawHoldScope::InquiryUnkeyed && self.ledger.owes_reply(key.target))
+        matches!(key.scope, RawHoldScope::Inquiry(shape) if self.ledger.owes_reply(key.target, shape))
             || (self.raw_stream() && matches!(key.scope, RawHoldScope::Socket(_)))
     }
 
@@ -5165,23 +5038,22 @@ impl ProtocolEngine {
     /// This runs before ordinary dispatch, so a queued successor can make
     /// progress in the same wake that restores the target lane.
     fn expire_raw_holds(&mut self, now: Instant) {
-        if self.policy.envelope != EnvelopeKind::Raw {
+        if self.policy.wire.kind() != EnvelopeKind::Raw {
             return;
         }
         // An owed raw stream inquiry reply is never released by time (its
         // window end latches the lane instead, `StreamLedger::latch_due`), nor
         // is a stream's socket hold.
-        let retained: SmallVec<[RawHoldKey; 4]> = self
-            .holds
-            .keys()
-            .copied()
-            .filter(|key| self.raw_hold_released_by_evidence(*key))
-            .collect();
-        self.holds
-            .retain(|key, hold| hold.until > now || retained.contains(key));
+        let stream = self.raw_stream();
+        let ledger = &self.ledger;
+        self.holds.retain(|key, hold| {
+            hold.until > now
+                || matches!(key.scope, RawHoldScope::Inquiry(shape) if ledger.owes_reply(key.target, shape))
+                || (stream && matches!(key.scope, RawHoldScope::Socket(_)))
+        });
     }
 
-    fn finish(&mut self, id: RequestId, outcome: RuntimeOutcome, effects: &mut Vec<Effect>) {
+    fn finish(&mut self, id: RequestId, outcome: RuntimeOutcome, effects: &mut Decision) {
         self.finish_with_cancel_hold(id, outcome, true, effects);
     }
 
@@ -5190,9 +5062,9 @@ impl ProtocolEngine {
         id: RequestId,
         outcome: RuntimeOutcome,
         keep_cancel_hold: bool,
-        effects: &mut Vec<Effect>,
+        effects: &mut Decision,
     ) {
-        self.retire_stream_answers(id);
+        self.retire_stream_answers(id, effects);
         if keep_cancel_hold {
             self.hold_socket_of_unanswered_cancel(id);
         }
@@ -5200,36 +5072,26 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::UnknownRequest));
             return;
         };
-        for queue in &mut self.command_queues {
-            queue.retain(|ticket| !(ticket.request == id && ticket.generation == entry.generation));
-        }
-        for queue in &mut self.inquiry_queues {
-            queue.retain(|ticket| !(ticket.request == id && ticket.generation == entry.generation));
-        }
-        let target = entry.request.context().target;
-        {
-            for socket in 0..2 {
-                if self.targets[target].socket_owners[socket].is_some_and(|owner| {
-                    owner.request == id && owner.generation == entry.generation
-                }) {
-                    self.targets[target].socket_owners[socket] = None;
-                }
+        let outcome = match outcome {
+            RuntimeOutcome::Failed(error) if entry.reply_family() == SendingReply::Inquiry => {
+                RuntimeOutcome::Failed(Error::inquiry_failed(error))
             }
-            self.targets[target]
-                .raw_inquiries
-                .retain(|owner| !(owner.request == id && owner.generation == entry.generation));
-        }
-        self.transmissions
-            .retain(|_, owner| !(owner.request == id && owner.generation == entry.generation));
-        for record in &entry.sequence_history {
-            self.remove_correlation_owner(record.sequence, id, entry.generation, record.kind);
-        }
-        if matches!(outcome, RuntimeOutcome::Applied) {
-            if let Some(projection) = entry.request.applied_state() {
+            outcome => outcome,
+        };
+        let target = entry.request.context().target;
+        if let Some(projection) = entry.request.applied_state() {
+            let projection = if matches!(outcome, RuntimeOutcome::Applied) {
+                Some(projection)
+            } else if entry.may_have_effect(&outcome) {
+                Some(AppliedStateProjection::invalidate(projection.key()))
+            } else {
+                None
+            };
+            if let Some(projection) = projection {
                 effects.push(Effect::AppliedState {
                     effect: AppliedStateEffect {
                         request: id,
-                        target: entry.request.context().target,
+                        target,
                         projection,
                     },
                 });
@@ -5251,7 +5113,7 @@ impl ProtocolEngine {
         effects.push(Effect::Terminal { id, outcome });
     }
 
-    fn terminate_session(&mut self, state: SessionState, error: Error, effects: &mut Vec<Effect>) {
+    fn terminate_session(&mut self, state: SessionState, error: Error, effects: &mut Decision) {
         if self.state != SessionState::Running {
             return;
         }
@@ -5268,9 +5130,6 @@ impl ProtocolEngine {
         for (_, id) in active {
             self.finish(id, RuntimeOutcome::Failed(error.clone()), effects);
         }
-        self.transmissions.clear();
-        self.sequences.clear();
-        self.lower_sequences.clear();
         self.targets = PerTarget::from_fn(|target| TargetState {
             policy: self.targets[target].policy,
             ..TargetState::default()
@@ -5278,59 +5137,63 @@ impl ProtocolEngine {
         self.holds.clear();
         self.raw_release_gate = None;
         self.ledger.clear();
-        self.retro.clear();
-        self.displaced_unseen.clear();
-        for queue in &mut self.command_queues {
-            queue.clear();
-        }
-        for queue in &mut self.inquiry_queues {
-            queue.clear();
-        }
+        effects.clear_deferred();
     }
 
-    /// Audits every derived index against authoritative entries.
+    /// The declaration cap and overlap exclusion are separate facts: Ready
+    /// entries reserve exact declarations, while only staged/written entries
+    /// can owe a reply. Pairwise exclusion also proves every inquiry debt is a
+    /// single member and charges at most one row per reserved declaration in
+    /// the stream ledger's storage bound.
+    fn check_inquiry_shape_invariants(&self) -> Result<(), Box<str>> {
+        if self.policy.wire.kind() != EnvelopeKind::Raw {
+            return Ok(());
+        }
+        for target in TargetSlot::ALL {
+            self.tracked_inquiry_shapes(target)?;
+            let mut previous = InquiryShapes::default();
+            if self.raw_stream() {
+                for (_, row) in self.ledger.entries().filter(|(owner, _)| *owner == target) {
+                    let Owes::Reply(shape) = row.owes else {
+                        continue;
+                    };
+                    if row.members != 1 || previous.iter().any(|older| older.overlaps(shape)) {
+                        return Err("overlapping staged, live or owed raw stream inquiries".into());
+                    }
+                    if !previous.try_insert(shape) {
+                        return Err("raw stream inquiry rows exceed declaration bound".into());
+                    }
+                }
+            } else {
+                for entry in self.entries.values().filter(|entry| {
+                    entry.request.context().target == target
+                        && matches!(
+                            entry.lifecycle().phase(),
+                            Phase::Sending { .. } | Phase::AwaitingReply { .. }
+                        )
+                }) {
+                    let Some(shape) = entry.request.payload_shape() else {
+                        continue;
+                    };
+                    if previous.iter().any(|older| older.overlaps(shape)) {
+                        return Err("overlapping staged or live raw datagram inquiries".into());
+                    }
+                    if !previous.try_insert(shape) {
+                        return Err("raw datagram inquiries exceed declaration bound".into());
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Audits cross-domain safety rules that construction alone cannot prove.
     pub(crate) fn assert_invariants(&self) -> Result<(), Box<str>> {
+        self.check_inquiry_shape_invariants()?;
         if self.state != SessionState::Running
-            && (!self.entries.is_empty()
-                || !self.transmissions.is_empty()
-                || !self.sequences.is_empty()
-                || !self.lower_sequences.is_empty()
-                || self
-                    .targets
-                    .iter()
-                    .any(|(_, state)| state.socket_owners.iter().any(Option::is_some))
-                || self
-                    .targets
-                    .iter()
-                    .any(|(_, state)| !state.raw_inquiries.is_empty())
-                || !self.holds.is_empty()
-                || !self.ledger.is_empty()
-                || self
-                    .command_queues
-                    .iter()
-                    .chain(&self.inquiry_queues)
-                    .any(|queue| !queue.is_empty())
-                || self.raw_release_gate.is_some()
-                || !self.retro.is_empty()
-                || !self.displaced_unseen.is_empty())
+            && (!self.entries.is_empty() || !self.holds.is_empty() || !self.ledger.is_empty())
         {
             return Err("ended session retains lifecycle or correlation work".into());
-        }
-        if self.transmissions.len() > self.entries.len().saturating_mul(2) {
-            return Err("transmission bound exceeded".into());
-        }
-        if self
-            .targets
-            .iter()
-            .any(|(_, state)| state.raw_inquiries.len() > self.policy.inquiry_capacity)
-        {
-            return Err("raw inquiry FIFO bound exceeded".into());
-        }
-        if self.retro.len() > stream_ledger::MAX_DISPUTE_HANDOFFS + 2 {
-            return Err("retroactive evidence bound exceeded".into());
-        }
-        if self.displaced_unseen.len() > 2 {
-            return Err("displaced socket owner bound exceeded".into());
         }
         let ordinary = self
             .entries
@@ -5360,127 +5223,9 @@ impl ProtocolEngine {
         }) {
             return Err("a non-urgent entry holds a control-reserve slot".into());
         }
-        let mut queued = 0_usize;
-        for (inquiry, queues) in [(false, &self.command_queues), (true, &self.inquiry_queues)] {
-            for (priority, queue) in queues.iter().enumerate() {
-                queued = queued.saturating_add(queue.len());
-                for ticket in queue {
-                    let Some(entry) = self.entries.get(&ticket.request) else {
-                        return Err("dispatch queue refers to missing entry".into());
-                    };
-                    if entry.generation != ticket.generation
-                        || entry.queue_generation != ticket.queue_generation
-                        || entry.request.is_inquiry() != inquiry
-                        || entry.request.context().control.class.priority_index() != priority
-                        || !matches!(entry.lifecycle.phase(), Phase::Ready { ticket: active } if active == *ticket)
-                    {
-                        return Err("dispatch queue ticket is stale or misplaced".into());
-                    }
-                }
-            }
-        }
-        if queued > self.entries.len() {
-            return Err("dispatch queue bound exceeded".into());
-        }
-        let sequence_bound = self.entries.len().saturating_mul(MAX_SEQUENCE_HISTORY);
-        if self.sequences.len() > sequence_bound || self.lower_sequences.len() > sequence_bound {
-            return Err("correlation index bound exceeded".into());
-        }
-        for (transmission, owner) in &self.transmissions {
-            let Some(entry) = self.entries.get(&owner.request) else {
-                return Err("transmission refers to missing entry".into());
-            };
-            if entry.generation != owner.generation || entry.attempt != owner.attempt {
-                return Err("transmission generation or attempt is stale".into());
-            }
-            let compatible = match owner.kind {
-                CorrelationKind::Request => {
-                    matches!(entry.lifecycle.phase(), Phase::Sending { transmission: active, .. } if active == *transmission)
-                }
-                CorrelationKind::Cancellation => {
-                    entry.lifecycle.cancellation_transmission() == Some(*transmission)
-                }
-            };
-            if !compatible {
-                return Err("transmission is incompatible with authoritative state".into());
-            }
-        }
-        for (target, state) in self.targets.iter() {
-            let sockets = &state.socket_owners;
-            for (index, owner) in sockets.iter().enumerate() {
-                let Some(owner) = owner else {
-                    continue;
-                };
-                let Some(entry) = self.entries.get(&owner.request) else {
-                    return Err("socket owner refers to missing entry".into());
-                };
-                let Some(socket) = ViscaSocket::from_index(index) else {
-                    return Err("socket index is invalid".into());
-                };
-                if entry.generation != owner.generation
-                    || entry.request.context().target != target
-                    || !phase_owns_socket(entry.lifecycle.phase(), socket)
-                {
-                    return Err("socket owner is stale or phase-incompatible".into());
-                }
-            }
-        }
-        for (sequence, owners) in &self.sequences {
-            for owner in owners {
-                let Some(entry) = self.entries.get(&owner.request) else {
-                    return Err("sequence owner refers to missing entry".into());
-                };
-                if entry.generation != owner.generation
-                    || !correlation_phase_compatible(entry, owner.kind)
-                    || !entry.sequence_history.iter().any(|record| {
-                        record.sequence == *sequence
-                            && record.kind == owner.kind
-                            && record.target == entry.request.context().target
-                    })
-                {
-                    return Err("sequence owner is stale or phase-incompatible".into());
-                }
-            }
-        }
-        for (lower, owners) in &self.lower_sequences {
-            for owner in owners {
-                let Some(entry) = self.entries.get(&owner.request) else {
-                    return Err("lower16 owner refers to missing entry".into());
-                };
-                if entry.generation != owner.generation
-                    || !correlation_phase_compatible(entry, owner.kind)
-                    || !entry.sequence_history.iter().any(|record| {
-                        record.sequence as u16 == *lower
-                            && record.kind == owner.kind
-                            && record.target == entry.request.context().target
-                    })
-                {
-                    return Err("lower16 owner is stale".into());
-                }
-            }
-        }
-        for (target, state) in self.targets.iter() {
-            let queue = &state.raw_inquiries;
-            let mut seen = SmallVec::<[RequestId; 8]>::new();
-            for owner in queue {
-                if seen.contains(&owner.request) {
-                    return Err("raw inquiry owns more than one FIFO position".into());
-                }
-                seen.push(owner.request);
-                let Some(entry) = self.entries.get(&owner.request) else {
-                    return Err("raw inquiry FIFO refers to missing entry".into());
-                };
-                if entry.generation != owner.generation
-                    || entry.request.context().target != target
-                    || !matches!(entry.lifecycle.phase(), Phase::AwaitingReply { .. })
-                {
-                    return Err("raw inquiry FIFO owner is stale".into());
-                }
-            }
-        }
         // Raw holds are meaningless for a sequenced envelope, and every key
         // must name a valid registered target.
-        if self.policy.envelope != EnvelopeKind::Raw && !self.holds.is_empty() {
+        if self.policy.wire.kind() != EnvelopeKind::Raw && !self.holds.is_empty() {
             return Err("raw correlation hold on a sequenced session".into());
         }
         self.ledger.check_disputes()?;
@@ -5521,21 +5266,23 @@ impl ProtocolEngine {
                     && entry.request.context().target == target
                     && match outstanding.owes {
                         Owes::Ack => matches!(
-                            entry.lifecycle.phase(),
+                            entry.lifecycle().phase(),
                             Phase::Sending { .. } | Phase::AwaitingAck { .. }
                         ),
                         Owes::Reply(_) => matches!(
-                            entry.lifecycle.phase(),
+                            entry.lifecycle().phase(),
                             Phase::Sending { .. } | Phase::AwaitingReply { .. }
                         ),
-                        Owes::Rejection => matches!(entry.lifecycle.phase(), Phase::Sending { .. }),
+                        Owes::Rejection => {
+                            matches!(entry.lifecycle().phase(), Phase::Sending { .. })
+                        }
                         Owes::Completion | Owes::AcceptedCompletion => matches!(
-                            entry.lifecycle.phase(),
+                            entry.lifecycle().phase(),
                             Phase::Sending { .. } | Phase::AwaitingCompletion { .. }
                         ),
                         Owes::Cancel(socket) => {
                             entry.cancel_attempted_socket() == Some(socket)
-                                && entry.lifecycle.awaiting_cancellation_answer()
+                                && entry.lifecycle().awaiting_cancellation_answer()
                         }
                     }
             });
@@ -5549,96 +5296,6 @@ impl ProtocolEngine {
             .any(|key| self.targets[key.target].policy.is_none())
         {
             return Err("raw correlation hold has an unregistered target".into());
-        }
-        for (id, entry) in &self.entries {
-            if entry.sequence_history.len() > MAX_SEQUENCE_HISTORY {
-                return Err("sequence history bound exceeded".into());
-            }
-            if let Phase::Ready { ticket } = entry.lifecycle.phase() {
-                if entry.generation != ticket.generation
-                    || entry.queue_generation != ticket.queue_generation
-                {
-                    return Err("ready queue ticket is stale".into());
-                }
-                let occurrences = self
-                    .command_queues
-                    .iter()
-                    .chain(&self.inquiry_queues)
-                    .flat_map(|queue| queue.iter())
-                    .filter(|queued| **queued == ticket)
-                    .count();
-                if occurrences != 1 {
-                    return Err("ready entry does not own exactly one queue position".into());
-                }
-            }
-            if let Phase::Sending { transmission, .. } = entry.lifecycle.phase() {
-                let Some(owner) = self.transmissions.get(&transmission) else {
-                    return Err("sending entry has no transmission owner".into());
-                };
-                if owner.request != *id
-                    || owner.generation != entry.generation
-                    || owner.kind != CorrelationKind::Request
-                {
-                    return Err("sending entry transmission owner is incompatible".into());
-                }
-            }
-            if let Some(transmission) = entry.lifecycle.cancellation_transmission() {
-                let Some(owner) = self.transmissions.get(&transmission) else {
-                    return Err("cancellation sending entry has no transmission owner".into());
-                };
-                if owner.request != *id
-                    || owner.generation != entry.generation
-                    || owner.kind != CorrelationKind::Cancellation
-                {
-                    return Err("cancellation transmission owner is incompatible".into());
-                }
-            }
-            if let Phase::Executing { socket, .. }
-            | Phase::AwaitingCancellationResolution { socket, .. } = entry.lifecycle.phase()
-            {
-                let target = entry.request.context().target;
-                let owner = self.targets[target].socket_owners[socket.as_index()];
-                if !owner.is_some_and(|owner| {
-                    owner.request == *id && owner.generation == entry.generation
-                }) {
-                    return Err("socket-owning entry is absent from socket index".into());
-                }
-            }
-            if self.policy.envelope == EnvelopeKind::Raw
-                && matches!(entry.lifecycle.phase(), Phase::AwaitingReply { .. })
-            {
-                let target = entry.request.context().target;
-                let occurrences = self.targets[target]
-                    .raw_inquiries
-                    .iter()
-                    .filter(|owner| owner.request == *id && owner.generation == entry.generation)
-                    .count();
-                if occurrences != 1 {
-                    return Err("raw inquiry entry does not own exactly one FIFO position".into());
-                }
-            }
-            for record in &entry.sequence_history {
-                let exact = self.sequences.get(&record.sequence).is_some_and(|owners| {
-                    owners.iter().any(|owner| {
-                        owner.request == *id
-                            && owner.generation == entry.generation
-                            && owner.kind == record.kind
-                    })
-                });
-                let lower = self
-                    .lower_sequences
-                    .get(&(record.sequence as u16))
-                    .is_some_and(|owners| {
-                        owners.iter().any(|owner| {
-                            owner.request == *id
-                                && owner.generation == entry.generation
-                                && owner.kind == record.kind
-                        })
-                    });
-                if !exact || !lower {
-                    return Err("entry sequence history is absent from correlation index".into());
-                }
-            }
         }
         // Issue #671 / D8: audit the raw positional-candidate rule that
         // correlation safety depends on. Raw dispatch normally keeps one
@@ -5654,7 +5311,7 @@ impl ProtocolEngine {
         // “Decisions from this review”, item 7, and architecture_2_0.md,
         // “Correlation before ACK is envelope-specific” and “Operational
         // invariants”.
-        if self.policy.envelope == EnvelopeKind::Raw {
+        if self.policy.wire.kind() == EnvelopeKind::Raw {
             let mut unacknowledged = PerTarget::<u8>::default();
             let mut urgent = PerTarget::<u8>::default();
             let mut uncorrelatable = PerTarget::<u8>::default();
@@ -5668,10 +5325,10 @@ impl ProtocolEngine {
                 if entry.request.context().control.class == ControlClass::Urgent {
                     urgent[target] = urgent[target].saturating_add(1);
                 }
-                if entry.request.context().reply_shape != ReplyShape::AckThenCompletion {
+                if entry.reply_family() != SendingReply::AckThenCompletion {
                     uncorrelatable[target] = uncorrelatable[target].saturating_add(1);
                 }
-                if entry.request.context().reply_shape == ReplyShape::NoReply {
+                if entry.reply_family() == SendingReply::NoReply {
                     no_reply[target] = no_reply[target].saturating_add(1);
                 }
                 // On a byte stream the ledger binds every frame by write
@@ -5719,15 +5376,10 @@ impl ProtocolEngine {
         self.next_transmission_id = IdAllocator::seeded(transmission);
         self.next_generation = IdAllocator::seeded(generation);
     }
-
-    #[cfg(test)]
-    fn inject_queue_ticket(&mut self, lane: Lane, priority: usize, ticket: QueueTicket) {
-        self.queue_mut(lane, priority).push_front(ticket);
-    }
 }
 
 fn add_duration(at: Instant, duration: Duration) -> Instant {
-    at.checked_add(duration).unwrap_or(at)
+    crate::timeout::saturating_deadline(at, duration)
 }
 
 /// A raw command which has no socket identity and therefore occupies the
@@ -5737,11 +5389,16 @@ fn add_duration(at: Instant, duration: Duration) -> Instant {
 /// predicate, so extending one cannot leave the other with a divergent phase
 /// list.
 fn raw_unacknowledged_command_candidate(entry: &Entry) -> bool {
-    !entry.request.is_inquiry()
-        && matches!(
-            entry.lifecycle.phase(),
-            Phase::Sending { .. } | Phase::AwaitingAck { .. } | Phase::AwaitingCompletion { .. }
-        )
+    matches!(
+        entry.lifecycle(),
+        Lifecycle::Sending {
+            reply: SendingReply::AckThenCompletion
+                | SendingReply::CompletionOnly
+                | SendingReply::NoReply,
+            ..
+        } | Lifecycle::AwaitingAck { .. }
+            | Lifecycle::AwaitingCompletion { .. }
+    )
 }
 
 /// The error for a request whose protocol lifecycle reached a terminal
@@ -5755,15 +5412,18 @@ fn raw_unacknowledged_command_candidate(entry: &Entry) -> bool {
 /// on the wire, or was, may have reached the camera, so its outcome is
 /// unconfirmed. A command still waiting for its first write was never
 /// accepted.
-fn terminal_timeout(entry: &Entry) -> Error {
-    let certainty = if entry.request.is_inquiry() {
+fn terminal_certainty(entry: &Entry) -> Certainty {
+    if entry.reply_family() == SendingReply::Inquiry {
         Certainty::FailedConclusively
-    } else if matches!(entry.lifecycle.phase(), Phase::Ready { .. }) && entry.last_error.is_none() {
+    } else if matches!(entry.lifecycle(), Lifecycle::Ready { .. }) && entry.last_error.is_none() {
         Certainty::NotAccepted
     } else {
         Certainty::Unconfirmed
-    };
-    Error::timeout(FailureStage::Terminal, certainty)
+    }
+}
+
+fn terminal_timeout(entry: &Entry) -> Error {
+    Error::timeout(FailureStage::Terminal, terminal_certainty(entry))
 }
 
 /// Whether a VISCA error code answers a socket cancellation packet (`0x04`
@@ -5814,9 +5474,9 @@ const fn conclusive_camera_rejection(error: &Error) -> bool {
 /// Whether `entry` is an urgent ACK-bearing command (a STOP), which no hold
 /// keeps from being written (#795).
 fn urgent_stop(entry: &Entry) -> bool {
-    !entry.request.is_inquiry()
+    entry.reply_family() != SendingReply::Inquiry
         && entry.request.context().control.class == ControlClass::Urgent
-        && entry.request.context().reply_shape == ReplyShape::AckThenCompletion
+        && entry.reply_family() == SendingReply::AckThenCompletion
 }
 
 /// Records one expired request deadline ahead of whatever the expiry produced.
@@ -5836,9 +5496,9 @@ fn record_deadline_expiry(
     id: RequestId,
     deadline: DeadlineKind,
     mark: usize,
-    effects: &mut Vec<Effect>,
+    effects: &mut Decision,
 ) {
-    let will_retry = effects[mark..].iter().any(
+    let will_retry = effects.as_slice()[mark..].iter().any(
         |effect| matches!(effect, Effect::RetryScheduled { id: retried, .. } if *retried == id),
     );
     effects.insert(
@@ -5963,12 +5623,6 @@ fn retry_delay(policy: RetryPolicy, attempt: u32, backoff: Backoff, jitter: u64)
     ))
 }
 
-fn add_unique_owner(owners: &mut SmallVec<[CorrelationOwner; 2]>, owner: CorrelationOwner) {
-    if !owners.contains(&owner) {
-        owners.push(owner);
-    }
-}
-
 fn unique_requests(
     owners: impl Iterator<Item = CorrelationOwner>,
 ) -> SmallVec<[CorrelationOwner; 4]> {
@@ -5988,24 +5642,18 @@ fn correlation_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
         // Sony sequences deliberately outlive an attempt across retry. A
         // queued/backoff owner therefore needs evidence of an earlier attempt;
         // the ordinary response phases must also agree with the reply shape.
-        CorrelationKind::Request => match entry.lifecycle.phase() {
-            Phase::Ready { .. } | Phase::Backoff { .. } => {
+        CorrelationKind::Request => match entry.lifecycle().phase() {
+            Phase::Ready | Phase::Backoff { .. } => {
                 entry.attempt > 0 && entry.current_sequence.is_some()
             }
-            Phase::Sending { .. } => true,
-            Phase::AwaitingReply { .. } => entry.request.is_inquiry(),
-            Phase::AwaitingAck { .. }
+            Phase::Sending { .. }
+            | Phase::AwaitingReply { .. }
+            | Phase::AwaitingAck { .. }
             | Phase::Executing { .. }
-            | Phase::AwaitingCancellationResolution { .. } => {
-                !entry.request.is_inquiry()
-                    && entry.request.context().reply_shape == ReplyShape::AckThenCompletion
-            }
-            Phase::AwaitingCompletion { .. } => {
-                !entry.request.is_inquiry()
-                    && entry.request.context().reply_shape == ReplyShape::CompletionOnly
-            }
+            | Phase::AwaitingCancellationResolution { .. }
+            | Phase::AwaitingCompletion { .. } => true,
         },
-        CorrelationKind::Cancellation => entry.lifecycle.awaiting_cancellation_answer(),
+        CorrelationKind::Cancellation => entry.lifecycle().awaiting_cancellation_answer(),
     }
 }
 
@@ -6021,19 +5669,15 @@ fn correlation_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
 /// while its transmission/terminal window is open.
 fn camera_error_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
     match kind {
-        CorrelationKind::Request if entry.request.is_inquiry() => {
-            matches!(entry.lifecycle.phase(), Phase::AwaitingReply { .. })
-        }
-        CorrelationKind::Request => {
-            matches!(
-                entry.lifecycle.phase(),
-                Phase::AwaitingAck { .. }
-                    | Phase::Executing { .. }
-                    | Phase::AwaitingCancellationResolution { .. }
-            ) || (entry.request.context().reply_shape == ReplyShape::CompletionOnly
-                && matches!(entry.lifecycle.phase(), Phase::AwaitingCompletion { .. }))
-        }
-        CorrelationKind::Cancellation => entry.lifecycle.awaiting_cancellation_answer(),
+        CorrelationKind::Request => matches!(
+            entry.lifecycle(),
+            Lifecycle::AwaitingReply { .. }
+                | Lifecycle::AwaitingAck { .. }
+                | Lifecycle::AwaitingCompletion { .. }
+                | Lifecycle::Executing { .. }
+                | Lifecycle::AwaitingCancellationResolution { .. }
+        ),
+        CorrelationKind::Cancellation => entry.lifecycle().awaiting_cancellation_answer(),
     }
 }
 
@@ -6049,7 +5693,7 @@ fn camera_error_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
 /// resolved the cancellation write failure, so neither may steal the original
 /// command's retryable `0x05` classification.
 fn raw_cancellation_no_socket_response(entry: &Entry) -> bool {
-    entry.lifecycle.awaiting_cancellation_answer()
+    entry.lifecycle().awaiting_cancellation_answer()
 }
 
 /// The other of a target's two command sockets.
@@ -6058,15 +5702,6 @@ const fn other_socket(socket: ViscaSocket) -> ViscaSocket {
         ViscaSocket::S1 => ViscaSocket::S2,
         ViscaSocket::S2 => ViscaSocket::S1,
     }
-}
-
-fn phase_owns_socket(phase: Phase, socket: ViscaSocket) -> bool {
-    matches!(
-        phase,
-        Phase::Executing { socket: owned, .. }
-            | Phase::AwaitingCancellationResolution { socket: owned, .. }
-            if owned == socket
-    )
 }
 
 #[cfg(test)]
@@ -6082,7 +5717,7 @@ mod cancellation_regression_tests {
 
     fn policy(envelope: EnvelopeKind, command_spacing: Duration) -> ProtocolPolicy {
         ProtocolPolicy {
-            envelope,
+            wire: WireProtocol::new(envelope, crate::transport::AddressingMode::Ip),
             command_spacing,
             inquiry_cooldown: Duration::ZERO,
             ..ProtocolPolicy::test_default()
@@ -6091,21 +5726,22 @@ mod cancellation_regression_tests {
 
     fn context() -> RequestContext {
         RequestContext {
+            requires_extended_pan_tilt_speed: false,
             motion: None,
             submission_order: 0,
             dispatch_deadline: None,
             target: camera(),
-            timeout: TimeoutPolicy {
-                ack: Duration::from_secs(1),
-                completion: Duration::from_millis(5),
-                inquiry: Duration::from_secs(1),
-                cancellation: Duration::from_secs(1),
-                ambiguity: Duration::from_millis(50),
-            },
+            timeout: TimeoutPolicy::new(
+                Duration::from_secs(1),
+                Duration::from_millis(5),
+                Duration::from_secs(1),
+                Duration::from_secs(1),
+                Duration::from_millis(50),
+            )
+            .expect("valid fixture timing"),
             retry: RetryPolicy::NEVER,
             control: ControlPolicy::default(),
             cancellation: CancellationPolicy::Supported,
-            reply_shape: ReplyShape::AckThenCompletion,
         }
     }
 
@@ -6114,7 +5750,9 @@ mod cancellation_regression_tests {
             max_retries: 1,
             initial_backoff: Duration::from_millis(1),
             maximum_backoff: Duration::from_millis(1),
-            total_budget: Duration::from_secs(1),
+            total_budget: Some(
+                NonZeroDuration::new(Duration::from_secs(1)).expect("valid fixture timing"),
+            ),
             buffer_full: true,
             ..RetryPolicy::NEVER
         }
@@ -6122,9 +5760,10 @@ mod cancellation_regression_tests {
 
     fn command_with(reply_shape: ReplyShape, retry: RetryPolicy) -> RuntimeRequest {
         let mut request_context = context();
-        request_context.reply_shape = reply_shape;
+
         request_context.retry = retry;
         RuntimeRequest::Command {
+            reply_shape,
             wire: Arc::new(EncodedMessage::new(&[0x81, 0x01, 0xff]).expect("test wire")),
             context: request_context,
             applied_state: None,
@@ -6136,7 +5775,8 @@ mod cancellation_regression_tests {
     }
 
     fn engine(envelope: EnvelopeKind, command_spacing: Duration) -> ProtocolEngine {
-        let mut engine = ProtocolEngine::new(policy(envelope, command_spacing)).expect("engine");
+        let mut engine =
+            ProtocolEngine::new(policy(envelope, command_spacing), Instant::now()).expect("engine");
         engine
             .register_target(camera(), TargetPolicy::test_default())
             .expect("target");
@@ -6212,8 +5852,9 @@ mod cancellation_regression_tests {
         let sequence = (envelope == EnvelopeKind::Sony).then_some(0x1001);
         engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission: request_transmission,
-                result: Ok(TransmissionMeta { sequence }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(sequence)),
             },
             now,
         );
@@ -6333,8 +5974,9 @@ mod cancellation_regression_tests {
         let id = admitted(&admitted_effects);
         engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission: request_transmission(&admitted_effects),
-                result: Ok(TransmissionMeta { sequence: None }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
             },
             now,
         );
@@ -6408,8 +6050,9 @@ mod cancellation_regression_tests {
         let id = admitted(&admitted_effects);
         engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission: request_transmission(&admitted_effects),
-                result: Ok(TransmissionMeta { sequence: None }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
             },
             now,
         );
@@ -6468,8 +6111,9 @@ mod cancellation_regression_tests {
         let id = admitted(&admitted_effects);
         engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission: request_transmission(&admitted_effects),
-                result: Ok(TransmissionMeta { sequence: None }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
             },
             now,
         );
@@ -6506,8 +6150,9 @@ mod cancellation_regression_tests {
         let cancel_transmission = cancel_transmission(&cancel);
         engine.handle(
             Input::TransmissionFinished {
+                request: id,
                 transmission: cancel_transmission,
-                result: Ok(TransmissionMeta { sequence: None }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
             },
             now,
         );

@@ -3,10 +3,10 @@
 # delivery remain until each late terminal response safely removes its entry.
 0 input session transport=datagram capacity=4 cancel=supported
 0 effect session state=running transport=datagram capacity=4 cancel=supported
-1 input subscribe-applied target-one target=1
-1 effect subscriber-added observer=target-one target=1
-2 input subscribe-applied target-two target=2
-2 effect subscriber-added observer=target-two target=2
+1 input observe-state target-one target=1
+1 effect cache-observer-added observer=target-one target=1
+2 input observe-state target-two target=2
+2 effect cache-observer-added observer=target-two target=2
 3 input admit timed target=1 wire=81010604ff observer=async
 3 effect admitted ticket=timed id=1 target=1 permit=acquired state=ready observer=async
 3 outcome admission ticket=timed id=1

@@ -100,19 +100,8 @@ fn assert_unknown(cache: &StateCache, key: StateKey) {
 }
 
 #[cfg(any(feature = "blocking", feature = "runtime-tokio"))]
-fn assert_set(cache: &StateCache, key: StateKey, values: &[i64]) {
-    match cache.value(key) {
-        StateEntry::Set(value) => assert_eq!(value.as_slice(), values),
-        other => panic!("expected Set({values:?}), got {other:?}"),
-    }
-}
-
-#[cfg(feature = "blocking")]
-fn assert_clear(cache: &StateCache, key: StateKey, values: &[i64]) {
-    match cache.value(key) {
-        StateEntry::Clear(value) => assert_eq!(value.as_slice(), values),
-        other => panic!("expected Clear({values:?}), got {other:?}"),
-    }
+fn assert_set(cache: &StateCache, value: grafton_visca::KnownState) {
+    assert_eq!(cache.value(value.key()), StateEntry::Set(value));
 }
 
 #[cfg(feature = "blocking")]
@@ -154,14 +143,15 @@ mod blocking_observability {
         let diagnostics = session.subscribe_diagnostics(128).unwrap();
         assert!(diagnostics.try_recv().is_none());
         camera.advanced().multicast_on().unwrap();
-        assert_set(&cache, StateKey::MulticastStreaming, &[1]);
+        assert_set(&cache, grafton_visca::KnownState::MulticastStreaming(true));
         camera
             .execute(&PanTiltLimitClear::new(PanTiltLimitCorner::UpRight))
             .unwrap();
-        assert_clear(
+        assert_set(
             &cache,
-            StateKey::PanTiltLimits,
-            &[PanTiltLimitCorner::UpRight.to_byte().into()],
+            grafton_visca::KnownState::PanTiltLimits(grafton_visca::PanTiltLimitUpdate::clear(
+                PanTiltLimitCorner::UpRight,
+            )),
         );
         let received = std::iter::from_fn(|| diagnostics.try_recv()).count();
         assert!((1..=128).contains(&received));
@@ -191,8 +181,14 @@ mod blocking_observability {
         assert_unknown(&first_view, StateKey::MulticastStreaming);
         assert_unknown(&second_view, StateKey::MulticastStreaming);
         first.advanced().multicast_on().unwrap();
-        assert_set(&first_view, StateKey::MulticastStreaming, &[1]);
-        assert_set(&first_clone, StateKey::MulticastStreaming, &[1]);
+        assert_set(
+            &first_view,
+            grafton_visca::KnownState::MulticastStreaming(true),
+        );
+        assert_set(
+            &first_clone,
+            grafton_visca::KnownState::MulticastStreaming(true),
+        );
         assert_unknown(&second_view, StateKey::MulticastStreaming);
         session.shutdown().unwrap();
 
@@ -391,7 +387,7 @@ mod tokio_observability {
         assert_unknown(&view, StateKey::MulticastStreaming);
         assert_unknown(&second, StateKey::MulticastStreaming);
         first.advanced().multicast_on().await.unwrap();
-        assert_set(&view, StateKey::MulticastStreaming, &[1]);
+        assert_set(&view, grafton_visca::KnownState::MulticastStreaming(true));
         assert_unknown(&second, StateKey::MulticastStreaming);
         session.shutdown().unwrap();
 

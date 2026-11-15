@@ -88,7 +88,7 @@ mod tests {
     fn sony_brc300_declares_the_base_image_surface() {
         let profile = ProfileSpec::from_compile_time::<SonyBRC300>()
             .expect("Sony BRC-300 must lower to a runtime profile");
-        assert!(profile.capabilities().has_image_processing);
+        assert!(profile.capabilities().has_image_processing());
     }
 
     #[test]
@@ -97,7 +97,7 @@ mod tests {
         assert_eq!(PictureEffectMode::BlackAndWhite.as_byte(), 0x04);
         assert!(matches!(
             PictureEffectMode::from_byte(0x7f),
-            PictureEffectMode::Unknown(0x7f)
+            PictureEffectMode::Unknown(value) if value.value() == 0x7f
         ));
     }
 }

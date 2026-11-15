@@ -1,10 +1,16 @@
 //! VISCA Camera Simulator for Testing
 //!
-//! This module provides a high-fidelity simulator of selected Standard VISCA
-//! camera behavior for integration testing without requiring real hardware.
-//! Pan/tilt position inquiries always emit the standard signed 4+4-nibble reply
-//! form. It is not a profile- or codec-selectable simulator and does not model
-//! Sony BRC-300's profile-owned 5+4 position codec.
+//! Simulates Standard VISCA wire replies, per-camera command sockets, timing,
+//! cancellation and selected camera state without hardware. Power, pan/tilt
+//! absolute/home, zoom/focus direct, and the exposure, white-balance, image,
+//! noise-reduction, focus and USB-audio registers answered by inquiries change
+//! when their commands complete. Cancellation before completion applies nothing.
+//!
+//! Continuous drives, relative moves and preset motion do not change reported
+//! positions; the simulator does not integrate physical motion or scene-driven
+//! auto exposure/focus. It models wire register values without profile-specific
+//! limits. Position replies use standard signed 4+4-nibble words; Sony BRC-300's
+//! 5+4 and FR7's 5+5 profile codecs are not modeled.
 
 #![allow(clippy::expect_used)]
 
@@ -43,6 +49,7 @@ enum SocketState {
         ack_at: Instant,
         completion_at: Instant,
         ack_pending: bool,
+        effect: Option<CommandEffect>,
     },
 }
 
@@ -144,6 +151,7 @@ struct CameraState {
     image_flip_horizontal: bool,
 
     // Noise reduction
+    noise_reduction_2d_mode: u8,
     noise_reduction_2d: u8,
     noise_reduction_3d: u8,
 
@@ -186,6 +194,7 @@ impl Default for CameraState {
             hue: 0x07,
             image_flip_vertical: false,
             image_flip_horizontal: false,
+            noise_reduction_2d_mode: 0x02,
             noise_reduction_2d: 0x01,
             noise_reduction_3d: 0x01,
             focus_mode: 0x02,        // Auto
@@ -194,6 +203,240 @@ impl Default for CameraState {
             usb_audio_enabled: true, // 0x02 = on
         }
     }
+}
+
+/// A well-formed command's modeled effect, held by its executing socket.
+#[derive(Debug, Clone, Copy)]
+enum CommandEffect {
+    PanTilt { pan: i16, tilt: i16 },
+    CombinedFlip(u8),
+    ToggleFocus,
+    Power(bool),
+    Zoom(u16),
+    Focus(u16),
+    FocusNearLimit(u16),
+    ExposureMode(u8),
+    Compensation(i8),
+    CompensationEnabled(bool),
+    Iris(u16),
+    Shutter(u8),
+    Brightness(u8),
+    Gain(u8),
+    GainLimit(u8),
+    Backlight(bool),
+    WhiteBalance(u8),
+    ColorTemperature(u16),
+    Contrast(u8),
+    Luminance(u8),
+    Saturation(u8),
+    Hue(u8),
+    VerticalFlip(bool),
+    HorizontalFlip(bool),
+    Noise2dMode(u8),
+    Noise2d(u8),
+    Noise3d(u8),
+    FocusMode(u8),
+    FocusZone(u8),
+    PictureEffect(u8),
+    UsbAudio(bool),
+    AdjustCompensation(Adjustment),
+    AdjustIris(Adjustment),
+    AdjustShutter(Adjustment),
+    AdjustBrightness(Adjustment),
+    AdjustGain(Adjustment),
+    AdjustColorTemperature(Adjustment),
+}
+
+#[derive(Debug, Clone, Copy)]
+enum Adjustment {
+    Reset,
+    Up,
+    Down,
+}
+
+impl Adjustment {
+    fn parse(byte: u8) -> Option<Self> {
+        match byte {
+            0x00 => Some(Self::Reset),
+            0x02 => Some(Self::Up),
+            0x03 => Some(Self::Down),
+            _ => None,
+        }
+    }
+
+    fn apply(self, value: i32, reset: i32, lower: i32, upper: i32) -> i32 {
+        match self {
+            Self::Reset => reset,
+            Self::Up => (value + 1).clamp(lower, upper),
+            Self::Down => (value - 1).clamp(lower, upper),
+        }
+    }
+}
+
+impl CommandEffect {
+    fn parse(data: &[u8]) -> Option<Self> {
+        let body = data.get(1..data.len().checked_sub(1)?)?;
+        match body {
+            [0x01, 0x06, 0x04] => Some(Self::PanTilt { pan: 0, tilt: 0 }),
+            [0x01, 0x06, 0x02, _, _, positions @ ..] if positions.len() == 8 => {
+                let pan = decode_position(&positions[..4])?;
+                let tilt = decode_position(&positions[4..])?;
+                Some(Self::PanTilt {
+                    pan: i16::from_be_bytes(pan.to_be_bytes()),
+                    tilt: i16::from_be_bytes(tilt.to_be_bytes()),
+                })
+            }
+            [0x2A, 0x02, 0xA0, 0x04, value @ (0x02 | 0x03)] => Some(Self::UsbAudio(*value == 0x02)),
+            [0x01, 0x04, register, value @ ..] => match (*register, value) {
+                (0x00, [value @ (0x02 | 0x03)]) => Some(Self::Power(*value == 0x02)),
+                (0x3E, [value @ (0x02 | 0x03)]) => Some(Self::CompensationEnabled(*value == 0x02)),
+                (0x33, [value @ (0x02 | 0x03)]) => Some(Self::Backlight(*value == 0x02)),
+                (0x66, [value @ (0x02 | 0x03)]) => Some(Self::VerticalFlip(*value == 0x02)),
+                (0x61, [value @ (0x02 | 0x03)]) => Some(Self::HorizontalFlip(*value == 0x02)),
+                (0x38, [0x10]) => Some(Self::ToggleFocus),
+                (0xA4, [value @ 0x00..=0x03]) => Some(Self::CombinedFlip(*value)),
+                (0x39, [value]) => Some(Self::ExposureMode(*value)),
+                (0x35, [value]) => Some(Self::WhiteBalance(*value)),
+                (0x2C, [value]) => Some(Self::GainLimit(*value)),
+                (0x50, [value]) => Some(Self::Noise2dMode(*value)),
+                (0x53, [value]) => Some(Self::Noise2d(*value)),
+                (0x54, [value]) => Some(Self::Noise3d(*value)),
+                (0x38, [value]) => Some(Self::FocusMode(*value)),
+                (0xAA, [value]) => Some(Self::FocusZone(*value)),
+                (0x63, [value]) => Some(Self::PictureEffect(*value)),
+                (0x47, value) if value.len() == 4 => Some(Self::Zoom(decode_position(value)?)),
+                (0x48, value) if value.len() == 4 => Some(Self::Focus(decode_position(value)?)),
+                (0x28, value) if value.len() == 4 => {
+                    Some(Self::FocusNearLimit(decode_position(value)?))
+                }
+                (0x4B, value) if value.len() == 4 => Some(Self::Iris(decode_position(value)?)),
+                (0x4A, value) if value.len() == 4 => {
+                    Some(Self::Shutter(u8::try_from(decode_position(value)?).ok()?))
+                }
+                (0x4D, value) if value.len() == 4 => Some(Self::Brightness(
+                    u8::try_from(decode_position(value)?).ok()?,
+                )),
+                (0x4C, value) if value.len() == 4 => {
+                    Some(Self::Gain(u8::try_from(decode_position(value)?).ok()?))
+                }
+                (0xA2, value) if value.len() == 4 => {
+                    Some(Self::Contrast(u8::try_from(decode_position(value)?).ok()?))
+                }
+                (0xA1, value) if value.len() == 4 => {
+                    Some(Self::Luminance(u8::try_from(decode_position(value)?).ok()?))
+                }
+                (0x49, value) if value.len() == 4 => Some(Self::Saturation(
+                    u8::try_from(decode_position(value)?).ok()?,
+                )),
+                (0x4F, value) if value.len() == 4 => {
+                    Some(Self::Hue(u8::try_from(decode_position(value)?).ok()?))
+                }
+                (0x4E, value) if value.len() == 4 => {
+                    let value = decode_position(value)?;
+                    (value <= 14).then(|| {
+                        Self::Compensation(
+                            i8::try_from(value).expect("compensation is at most fourteen") - 7,
+                        )
+                    })
+                }
+                (0x20, value) if value.len() == 2 => {
+                    Some(Self::ColorTemperature(decode_position(value)?))
+                }
+                (0x0E, [step]) => Some(Self::AdjustCompensation(Adjustment::parse(*step)?)),
+                (0x0B, [step]) => Some(Self::AdjustIris(Adjustment::parse(*step)?)),
+                (0x0A, [step]) => Some(Self::AdjustShutter(Adjustment::parse(*step)?)),
+                (0x0D, [step]) => Some(Self::AdjustBrightness(Adjustment::parse(*step)?)),
+                (0x0C, [step]) => Some(Self::AdjustGain(Adjustment::parse(*step)?)),
+                (0x20, [step]) => Some(Self::AdjustColorTemperature(Adjustment::parse(*step)?)),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+
+    fn apply(self, state: &mut CameraState) {
+        match self {
+            Self::PanTilt { pan, tilt } => {
+                state.pan_position = pan;
+                state.tilt_position = tilt;
+            }
+            Self::CombinedFlip(value) => {
+                state.image_flip_horizontal = value & 1 != 0;
+                state.image_flip_vertical = value & 2 != 0;
+            }
+            Self::ToggleFocus => {
+                state.focus_mode = if state.focus_mode == 0x02 { 0x03 } else { 0x02 }
+            }
+            Self::Power(value) => state.power_on = value,
+            Self::Zoom(value) => state.zoom_position = value,
+            Self::Focus(value) => state.focus_position = value,
+            Self::FocusNearLimit(value) => state.focus_near_limit = value,
+            Self::ExposureMode(value) => state.exposure_mode = value,
+            Self::Compensation(value) => state.exposure_compensation = value,
+            Self::CompensationEnabled(value) => state.exposure_compensation_enabled = value,
+            Self::Iris(value) => state.iris_position = value,
+            Self::Shutter(value) => state.shutter_speed = value,
+            Self::Brightness(value) => state.brightness = value,
+            Self::Gain(value) => state.gain_level = value,
+            Self::GainLimit(value) => state.gain_limit = value,
+            Self::Backlight(value) => state.backlight_enabled = value,
+            Self::WhiteBalance(value) => state.white_balance_mode = value,
+            Self::ColorTemperature(value) => state.color_temperature = value,
+            Self::Contrast(value) => state.contrast = value,
+            Self::Luminance(value) => state.luminance = value,
+            Self::Saturation(value) => state.saturation = value,
+            Self::Hue(value) => state.hue = value,
+            Self::VerticalFlip(value) => state.image_flip_vertical = value,
+            Self::HorizontalFlip(value) => state.image_flip_horizontal = value,
+            Self::Noise2dMode(value) => state.noise_reduction_2d_mode = value,
+            Self::Noise2d(value) => state.noise_reduction_2d = value,
+            Self::Noise3d(value) => state.noise_reduction_3d = value,
+            Self::FocusMode(value) => state.focus_mode = value,
+            Self::FocusZone(value) => state.focus_zone = value,
+            Self::PictureEffect(value) => state.picture_effect = value,
+            Self::UsbAudio(value) => state.usb_audio_enabled = value,
+            Self::AdjustCompensation(step) => {
+                state.exposure_compensation =
+                    i8::try_from(step.apply(i32::from(state.exposure_compensation), 0, -7, 7))
+                        .expect("adjustment stays in the register range")
+            }
+            Self::AdjustIris(step) => {
+                state.iris_position =
+                    u16::try_from(step.apply(i32::from(state.iris_position), 0, 0, 255))
+                        .expect("adjustment stays in the register range")
+            }
+            Self::AdjustShutter(step) => {
+                state.shutter_speed =
+                    u8::try_from(step.apply(i32::from(state.shutter_speed), 1, 0, 255))
+                        .expect("adjustment stays in the register range")
+            }
+            Self::AdjustBrightness(step) => {
+                state.brightness = u8::try_from(step.apply(i32::from(state.brightness), 7, 0, 255))
+                    .expect("adjustment stays in the register range")
+            }
+            Self::AdjustGain(step) => {
+                state.gain_level = u8::try_from(step.apply(i32::from(state.gain_level), 0, 0, 255))
+                    .expect("adjustment stays in the register range")
+            }
+            Self::AdjustColorTemperature(step) => {
+                state.color_temperature =
+                    u16::try_from(step.apply(i32::from(state.color_temperature), 3, 0, 255))
+                        .expect("adjustment stays in the register range")
+            }
+        }
+    }
+}
+
+/// Standard position and register words are nibble-clean, most significant first.
+fn decode_position(nibbles: &[u8]) -> Option<u16> {
+    if nibbles.len() > 4 || nibbles.iter().any(|nibble| *nibble > 0x0F) {
+        return None;
+    }
+    Some(
+        nibbles
+            .iter()
+            .fold(0, |value, nibble| (value << 4) | u16::from(*nibble)),
+    )
 }
 
 struct SimulatorInner {
@@ -209,9 +452,6 @@ struct SimulatorInner {
     // Statistics
     stats: RwLock<SimulatorStats>,
 
-    // Camera state
-    camera_state: RwLock<CameraState>,
-
     changed: Arc<Notify>,
     processor: StdMutex<Option<AbortHandle>>,
     random: AtomicU64,
@@ -226,6 +466,8 @@ struct ScheduledReply {
 }
 
 struct SimulatorState {
+    /// State and sockets share one lock, making completion/application atomic.
+    cameras: [CameraState; 7],
     socket_states: [Vec<SocketState>; 7],
     replies: VecDeque<ScheduledReply>,
 }
@@ -305,6 +547,7 @@ impl ViscaCameraSimulator {
 
         let inner = Arc::new(SimulatorInner {
             state: Mutex::new(SimulatorState {
+                cameras: std::array::from_fn(|_| CameraState::default()),
                 socket_states: std::array::from_fn(|_| vec![SocketState::Free; config.max_sockets]),
                 replies: VecDeque::new(),
             }),
@@ -312,7 +555,6 @@ impl ViscaCameraSimulator {
             response_broadcaster: tx,
             config,
             stats: RwLock::new(SimulatorStats::default()),
-            camera_state: RwLock::new(CameraState::default()),
             changed: Arc::new(Notify::new()),
             processor: StdMutex::new(None),
             random: AtomicU64::new(0x517c_c1b7_2722_0a95),
@@ -372,6 +614,7 @@ impl ViscaCameraSimulator {
         let mut due = Vec::new();
         let mut next = None;
         let mut completed = 0;
+        let mut completed_effects = Vec::new();
         {
             let mut state = inner.state.lock().await;
             for (camera_idx, sockets) in state.socket_states.iter_mut().enumerate() {
@@ -381,6 +624,7 @@ impl ViscaCameraSimulator {
                         ack_at,
                         completion_at,
                         ack_pending,
+                        effect,
                     } = socket
                     {
                         let number = u8::try_from(socket_idx + 1).expect("two VISCA sockets");
@@ -393,6 +637,9 @@ impl ViscaCameraSimulator {
                             }
                         }
                         if now >= *completion_at {
+                            if let Some(effect) = effect.take() {
+                                completed_effects.push((*completion_at, camera_idx, effect));
+                            }
                             due.push((*completion_at, addressed(camera, frames::complete(number))));
                             *socket = SocketState::Free;
                             completed += 1;
@@ -401,6 +648,11 @@ impl ViscaCameraSimulator {
                         }
                     }
                 }
+            }
+            // A later completion wins even when it occupied the lower socket.
+            completed_effects.sort_by_key(|(at, _, _)| *at);
+            for (_, camera_idx, effect) in completed_effects {
+                effect.apply(&mut state.cameras[camera_idx]);
             }
             state.replies.retain(|reply| {
                 if now >= reply.at {
@@ -439,9 +691,9 @@ impl ViscaCameraSimulator {
 
         match (data[1], data.get(2)) {
             (0x01, Some(0x04)) if data.get(3) == Some(&0x3F) => CommandType::Preset,
-            (0x01, Some(0x06)) if data.get(3) == Some(&0x01) => CommandType::PanTilt,
-            (0x01, Some(0x04)) if data.get(3) == Some(&0x07) => CommandType::Zoom,
-            (0x01, Some(0x04)) if data.get(3) == Some(&0x08) => CommandType::Focus,
+            (0x01, Some(0x06)) if matches!(data.get(3), Some(0x01..=0x05)) => CommandType::PanTilt,
+            (0x01, Some(0x04)) if matches!(data.get(3), Some(0x07 | 0x47)) => CommandType::Zoom,
+            (0x01, Some(0x04)) if matches!(data.get(3), Some(0x08 | 0x48)) => CommandType::Focus,
             (0x01, Some(0x04)) if data.get(3) == Some(&0x00) => CommandType::Power,
             (0x09, _) => CommandType::Inquiry,
             _ => CommandType::Other,
@@ -463,7 +715,9 @@ impl ViscaCameraSimulator {
             return None;
         }
 
-        let state = self.inner.camera_state.read().await;
+        let camera_index = usize::from(data.first()?.checked_sub(0x81)?);
+        let state = self.inner.state.lock().await;
+        let state = state.cameras.get(camera_index)?;
 
         tracing::debug!(
             "Processing inquiry: cmd[2]={:02X?}, cmd[3]={:02X?}, full command: {:02X?}",
@@ -687,7 +941,9 @@ impl ViscaCameraSimulator {
             }
 
             // Noise reduction 2D mode inquiry: 0x81 0x09 0x04 0x50 0xFF
-            (Some(0x04), Some(0x50)) => Some(frames::inquiry_reply(&[0x02])),
+            (Some(0x04), Some(0x50)) => {
+                Some(frames::inquiry_reply(&[state.noise_reduction_2d_mode]))
+            }
 
             // Noise reduction 2D inquiry: 0x81 0x09 0x04 0x53 0xFF
             (Some(0x04), Some(0x53)) => Some(frames::inquiry_reply(&[state.noise_reduction_2d])),
@@ -866,6 +1122,7 @@ impl AsyncTransport for ViscaCameraSimulator {
                     ack_at,
                     completion_at,
                     ack_pending: true,
+                    effect: CommandEffect::parse(data),
                 };
                 drop(state);
                 self.inner.changed.notify_one();
@@ -990,25 +1247,289 @@ fn encode_position(value: u16) -> [u8; 4] {
 }
 
 fn encode_signed_position(value: i16) -> [u8; 4] {
-    let abs_val = value.unsigned_abs();
-    let nibbles = encode_position(abs_val);
-
-    if value >= 0 {
-        nibbles
-    } else {
-        // For negative values, set high bit of each nibble
-        [
-            nibbles[0] | 0x0F,
-            nibbles[1] | 0x0F,
-            nibbles[2] | 0x0F,
-            nibbles[3] | 0x0F,
-        ]
-    }
+    encode_position(u16::from_be_bytes(value.to_be_bytes()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    async fn reply(simulator: &mut ViscaCameraSimulator) -> Vec<u8> {
+        let mut bytes = [0; 32];
+        let count = simulator
+            .recv_into(&mut bytes)
+            .await
+            .expect("simulator reply")
+            .copied_len();
+        bytes[..count].to_vec()
+    }
+
+    async fn complete(simulator: &mut ViscaCameraSimulator, command: &[u8]) {
+        simulator.send(command).await.expect("send command");
+        assert_eq!(reply(simulator).await[1] & 0xF0, 0x40, "ACK");
+        assert_eq!(reply(simulator).await[1] & 0xF0, 0x50, "completion");
+    }
+
+    async fn inquire(simulator: &mut ViscaCameraSimulator, command: &[u8]) -> Vec<u8> {
+        simulator.send(command).await.expect("send inquiry");
+        reply(simulator).await
+    }
+
+    #[allow(clippy::panic)]
+    fn decoded_position(bytes: &[u8]) -> (i32, i32) {
+        use crate::command::{InquiryData, InquiryKind, Response};
+        let decoded = Response::parse_with_type(bytes, &InquiryKind::PanTiltPosition)
+            .expect("the production decoder accepts simulator positions");
+        match decoded {
+            Response::Inquiry(InquiryData::PanTiltPosition { pan, tilt }) => (pan, tilt),
+            other => panic!("expected position, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn every_signed_position_round_trips_through_the_production_decoder() {
+        for position in i16::MIN..=i16::MAX {
+            let encoded = encode_signed_position(position);
+            let payload = [encoded, encoded].concat();
+            let response = frames::inquiry_reply(&payload);
+            assert_eq!(
+                decoded_position(&response),
+                (i32::from(position), i32::from(position))
+            );
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn power_inquiries_follow_completed_commands() {
+        let mut simulator = ViscaCameraSimulator::new();
+        for power in [0x03, 0x02] {
+            complete(
+                &mut simulator,
+                &[0x81, 0x01, 0x04, 0x00, power, VISCA_TERMINATOR],
+            )
+            .await;
+            let response =
+                inquire(&mut simulator, &[0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR]).await;
+            assert_eq!(response, [0x90, 0x50, power, VISCA_TERMINATOR]);
+        }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn absolute_and_home_positions_follow_completion_but_cancelled_moves_do_not() {
+        let mut simulator = ViscaCameraSimulator::new();
+        // Standard two's-complement targets: pan -1000, tilt -200.
+        let absolute = [
+            0x81,
+            0x01,
+            0x06,
+            0x02,
+            1,
+            1,
+            0x0F,
+            0x0C,
+            1,
+            8,
+            0x0F,
+            0x0F,
+            3,
+            8,
+            VISCA_TERMINATOR,
+        ];
+        let inquiry = [0x81, 0x09, 0x06, 0x12, VISCA_TERMINATOR];
+        simulator.send(&absolute).await.expect("send move");
+        assert_eq!(reply(&mut simulator).await, frames::ack(1));
+        assert_eq!(
+            decoded_position(
+                &simulator
+                    .generate_inquiry_response(&inquiry)
+                    .await
+                    .expect("position inquiry")
+            ),
+            (0, 0),
+            "ACK has no applied effect"
+        );
+        simulator
+            .send(&[0x81, 0x21, VISCA_TERMINATOR])
+            .await
+            .expect("cancel move");
+        assert_eq!(reply(&mut simulator).await, frames::canceled(1));
+        tokio::time::advance(Duration::from_secs(60)).await;
+        assert_eq!(
+            decoded_position(&inquire(&mut simulator, &inquiry).await),
+            (0, 0)
+        );
+
+        complete(&mut simulator, &absolute).await;
+        assert_eq!(
+            decoded_position(&inquire(&mut simulator, &inquiry).await),
+            (-1000, -200)
+        );
+        complete(&mut simulator, &[0x81, 0x01, 0x06, 0x04, VISCA_TERMINATOR]).await;
+        assert_eq!(
+            decoded_position(&inquire(&mut simulator, &inquiry).await),
+            (0, 0)
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn addressed_cameras_keep_independent_power_and_positions() {
+        let mut simulator = ViscaCameraSimulator::new();
+        complete(
+            &mut simulator,
+            &[0x82, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR],
+        )
+        .await;
+        complete(
+            &mut simulator,
+            &[
+                0x82,
+                0x01,
+                0x06,
+                0x02,
+                1,
+                1,
+                0x0F,
+                0x0C,
+                1,
+                8,
+                0,
+                0,
+                0,
+                5,
+                VISCA_TERMINATOR,
+            ],
+        )
+        .await;
+        assert_eq!(
+            inquire(&mut simulator, &[0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR]).await,
+            [0x90, 0x50, 0x02, VISCA_TERMINATOR]
+        );
+        assert_eq!(
+            inquire(&mut simulator, &[0x82, 0x09, 0x04, 0x00, VISCA_TERMINATOR]).await,
+            [0xA0, 0x50, 0x03, VISCA_TERMINATOR]
+        );
+        assert_eq!(
+            decoded_position(
+                &inquire(&mut simulator, &[0x81, 0x09, 0x06, 0x12, VISCA_TERMINATOR]).await
+            ),
+            (0, 0)
+        );
+        assert_eq!(
+            decoded_position(
+                &inquire(&mut simulator, &[0x82, 0x09, 0x06, 0x12, VISCA_TERMINATOR]).await
+            ),
+            (-1000, 5)
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn dropped_completion_replies_still_apply_commands() {
+        let mut simulator = ViscaCameraSimulator::builder()
+            .with_packet_loss(1.0)
+            .build();
+        simulator
+            .send(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR])
+            .await
+            .expect("command accepted");
+        tokio::time::advance(Duration::from_secs(2)).await;
+        ViscaCameraSimulator::process_responses(&simulator.inner).await;
+        assert_eq!(
+            simulator
+                .generate_inquiry_response(&[0x81, 0x09, 0x04, 0x00, VISCA_TERMINATOR])
+                .await
+                .expect("power inquiry"),
+            [0x90, 0x50, 0x03, VISCA_TERMINATOR]
+        );
+    }
+
+    #[tokio::test(start_paused = true)]
+    #[allow(clippy::panic)]
+    async fn simultaneous_due_effects_follow_completion_order_across_sockets() {
+        let mut simulator = ViscaCameraSimulator::builder()
+            .with_command_execution_time(CommandType::Power, Duration::from_secs(1))
+            .with_command_execution_time(CommandType::Other, Duration::from_millis(50))
+            .build();
+        // Socket 1 completes after socket 2: its late off must win.
+        simulator
+            .send(&[0x81, 0x01, 0x04, 0x00, 0x03, VISCA_TERMINATOR])
+            .await
+            .expect("command accepted");
+        let mut state = simulator.inner.state.lock().await;
+        let SocketState::Executing { completion_at, .. } = state.socket_states[0][0].clone() else {
+            panic!("executing")
+        };
+        state.socket_states[0][1] = SocketState::Executing {
+            ack_at: Instant::now(),
+            completion_at: completion_at - Duration::from_millis(10),
+            ack_pending: false,
+            effect: Some(CommandEffect::Power(true)),
+        };
+        drop(state);
+        tokio::time::advance(Duration::from_secs(2)).await;
+        ViscaCameraSimulator::process_responses(&simulator.inner).await;
+        assert!(!simulator.inner.state.lock().await.cameras[0].power_on);
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn modeled_register_setters_are_reported_by_their_inquiries() {
+        let mut simulator = ViscaCameraSimulator::new();
+        let cases: &[(u8, &[u8], &[u8])] = &[
+            (0x47, &[1, 2, 3, 4], &[1, 2, 3, 4]),
+            (0x48, &[2, 3, 4, 5], &[2, 3, 4, 5]),
+            (0x28, &[0, 1, 2, 3], &[0, 1, 2, 3]),
+            (0x39, &[3], &[3]),
+            (0x4E, &[0, 0, 0, 12], &[0, 0, 0, 12]),
+            (0x3E, &[2], &[2]),
+            (0x4B, &[0, 0, 0, 9], &[0, 0, 0, 9]),
+            (0x4A, &[0, 0, 1, 0], &[0, 0, 1, 0]),
+            (0x4D, &[0, 0, 0, 8], &[0, 0, 0, 8]),
+            (0x4C, &[0, 0, 0, 6], &[0, 0, 0, 6]),
+            (0x2C, &[5], &[5]),
+            (0x33, &[2], &[2]),
+            (0x35, &[4], &[4]),
+            (0x20, &[1, 2], &[0x12]),
+            (0xA2, &[0, 0, 0, 5], &[0, 0, 0, 5]),
+            (0xA1, &[0, 0, 0, 4], &[0, 0, 0, 4]),
+            (0x49, &[0, 0, 0, 3], &[0, 0, 0, 3]),
+            (0x4F, &[0, 0, 0, 2], &[0, 0, 0, 2]),
+            (0xA4, &[3], &[3]),
+            (0x50, &[3], &[3]),
+            (0x53, &[4], &[4]),
+            (0x54, &[5], &[5]),
+            (0x38, &[3], &[3]),
+            (0xAA, &[2], &[2]),
+            (0x63, &[1], &[1]),
+        ];
+        for (register, value, expected) in cases {
+            let mut command = vec![0x81, 0x01, 0x04, *register];
+            command.extend_from_slice(value);
+            command.push(VISCA_TERMINATOR);
+            complete(&mut simulator, &command).await;
+            let response = inquire(
+                &mut simulator,
+                &[0x81, 0x09, 0x04, *register, VISCA_TERMINATOR],
+            )
+            .await;
+            assert_eq!(
+                response,
+                frames::inquiry_reply(expected),
+                "register {register:02X}"
+            );
+        }
+        complete(
+            &mut simulator,
+            &[0x81, 0x2A, 0x02, 0xA0, 0x04, 0x03, VISCA_TERMINATOR],
+        )
+        .await;
+        assert_eq!(
+            inquire(
+                &mut simulator,
+                &[0x81, 0x2A, 0x02, 0xA0, 0x04, VISCA_TERMINATOR]
+            )
+            .await,
+            frames::inquiry_reply(&[0x03])
+        );
+    }
 
     #[test]
     fn construction_needs_no_runtime_and_socket_counts_are_bounded() {
@@ -1253,7 +1774,7 @@ mod tests {
             Some(vec![0x90, 0x50, 0x02, VISCA_TERMINATOR])
         );
 
-        simulator.inner.camera_state.write().await.usb_audio_enabled = false;
+        simulator.inner.state.lock().await.cameras[0].usb_audio_enabled = false;
         assert_eq!(
             simulator
                 .generate_inquiry_response(&[0x81, 0x2A, 0x02, 0xA0, 0x04, VISCA_TERMINATOR])

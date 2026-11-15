@@ -12,8 +12,11 @@
 
 use grafton_visca_test_support::{fake_camera, profile_fixtures, runtime_matrix};
 
+#[path = "common/counting_executor.rs"]
+mod counting_executor;
+use counting_executor::CountingExecutor;
+
 use std::{
-    future::Future,
     sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -32,8 +35,8 @@ use grafton_visca::{
     profiles::{ProfileId, PtzOpticsG2, SonyFR7},
     request,
     transport::{AddressingMode, TransportConfig},
-    Camera, CameraId, ControlClass, Error, Executor, Inquiry, InquiryRoute, Operation,
-    OperationCommand, Request, ResponseDecoder, RetryClass, Session, SessionConfig, TimeoutClass,
+    Camera, CameraId, ControlClass, Error, Executor, Inquiry, Operation, OperationCommand, Request,
+    ResponseDecoder, RetryClass, Session, SessionConfig, TimeoutClass,
 };
 
 use fake_camera::{frames, AsyncWire, FakeCamera};
@@ -85,10 +88,6 @@ impl Request for RawInquiry {
 
 impl Inquiry for RawInquiry {
     type Response = Vec<u8>;
-
-    fn route(&self) -> InquiryRoute {
-        InquiryRoute::RAW
-    }
 
     fn decoder(&self) -> ResponseDecoder<Self::Response> {
         ResponseDecoder::from_fn(|payload| Ok(payload.to_vec()))
@@ -153,59 +152,9 @@ fn unsupported_focus_profile() -> ProfileSpec {
         .maximum_command_sockets(1)
         .supports_operation_complete(false)
         .supports_command_cancel(false)
-        .preset_recall_axes(None)
         .position_inquiries(PositionInquirySupport::new(false, false, false))
         .build()
         .expect("unsupported profile")
-}
-
-/// An executor that counts the tasks spawned through it and otherwise defers
-/// to the wrapped runtime.
-#[derive(Clone)]
-struct CountingExecutor<E> {
-    inner: E,
-    spawned: Arc<AtomicUsize>,
-}
-
-impl<E: Executor> Executor for CountingExecutor<E> {
-    type Join<T>
-        = <E as Executor>::Join<T>
-    where
-        T: Send + 'static;
-    type Detach = <E as Executor>::Detach;
-
-    fn spawn_with_detach<F>(&self, future: F) -> (Self::Join<F::Output>, Self::Detach)
-    where
-        F: Future + Send + 'static,
-        F::Output: Send + 'static,
-    {
-        self.spawned.fetch_add(1, Ordering::SeqCst);
-        self.inner.spawn_with_detach(future)
-    }
-
-    fn block_on<F: Future>(&self, future: F) -> F::Output {
-        self.inner.block_on(future)
-    }
-
-    fn sleep(&self, duration: Duration) -> impl Future<Output = ()> + Send + '_ {
-        self.inner.sleep(duration)
-    }
-
-    fn timeout<'a, F, T>(
-        &'a self,
-        duration: Duration,
-        future: F,
-    ) -> impl Future<Output = Result<T, Error>> + Send + 'a
-    where
-        F: Future<Output = T> + Send + 'a,
-        T: Send + 'a,
-    {
-        self.inner.timeout(duration, future)
-    }
-
-    fn now(&self) -> std::time::Instant {
-        self.inner.now()
-    }
 }
 
 async fn one_owner_admits_plain_inquiry_and_typed_operations<E: Executor>(executor: E) {
@@ -307,6 +256,7 @@ async fn incompatible_standard_transport_fails_before_send_or_owner_spawn<E: Exe
     let executor = CountingExecutor {
         inner: executor,
         spawned: Arc::clone(&spawned),
+        timer_calls: Arc::new(AtomicUsize::new(0)),
     };
 
     let error = Session::open(
@@ -382,6 +332,7 @@ async fn non_default_downstream_profile_projects_and_clones_without_new_owner<E:
     let executor = CountingExecutor {
         inner: executor,
         spawned: Arc::clone(&spawned),
+        timer_calls: Arc::new(AtomicUsize::new(0)),
     };
     let session = Session::open(
         fake.async_wire(),

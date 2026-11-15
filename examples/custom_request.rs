@@ -20,7 +20,10 @@ use std::{env, time::Duration};
 
 use grafton_visca::{
     blocking::Session,
-    capabilities::{Capabilities, CoordinateSystem},
+    capabilities::{
+        Capabilities, CapabilityRange, CoordinateSystem, EndpointQuantization, PanTiltCaps,
+        PanTiltWireCodec, TiltRanges,
+    },
     completion::AppliedOnly,
     dynapi::BlockingDynSessionCamera,
     profile::{
@@ -149,23 +152,29 @@ fn runtime_profile_spec() -> Result<ProfileSpec, Error> {
         .build()?;
 
     ProfileSpec::builder(capabilities)
-        .pan_tilt(
-            -1_000..=1_000,
-            -500..=500,
-            8,
-            8,
-            10.0,
-            10.0,
-            CoordinateSystem::SignedCentered,
-            true,
-        )
+        .pan_tilt(PanTiltCaps {
+            pan_range: CapabilityRange::<i32>::new(-1_000, 1_000),
+            tilt_ranges: TiltRanges::Single(CapabilityRange::<i32>::new(-500, 500)),
+            pan_speed: CapabilityRange::<u8>::new(1, 8),
+            tilt_speed: CapabilityRange::<u8>::new(1, 8),
+            coordinates: grafton_visca::PanTiltCoordinateConversion::new(
+                CoordinateSystem::SignedCentered,
+                PanTiltWireCodec::StandardVisca,
+                10.0,
+                10.0,
+            )?,
+            endpoint_quantization: EndpointQuantization::Exact,
+            simultaneous: true,
+            preset_recovery_time: Duration::ZERO,
+            variable_speed: false,
+            motion_sync_speed_range: None,
+        })
         .transports(TransportCompatibility::new(Some(5678), None, false))
         .envelope(ProfileEnvelope::RawVisca)
         .timing(timing)
         .maximum_command_sockets(1)
         .supports_operation_complete(true)
         .supports_command_cancel(false)
-        .preset_recall_axes(None)
         .position_inquiries(PositionInquirySupport::new(false, false, false))
         .build()
 }

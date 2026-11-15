@@ -26,8 +26,8 @@
 use bytes::BytesMut;
 use grafton_visca::{
     command::{
-        CommandKind, DirectMenuControl, PowerInquiry, PowerOn, PowerStandby, TallyGreenInquiry,
-        ZoomPositionInquiry, VISCA_TERMINATOR,
+        CommandKind, PowerInquiry, PowerOn, PowerStandby, TallyGreenInquiry, ZoomPositionInquiry,
+        VISCA_TERMINATOR,
     },
     raw,
     request::builtin::{
@@ -135,13 +135,6 @@ fn final_ff_data_byte_is_not_mistaken_for_the_terminator() {
         preset,
         [0x81, 0x01, 0x04, 0x3F, 0x01, 0xFF, VISCA_TERMINATOR]
     );
-
-    let direct_menu =
-        encode(&DirectMenuControl::new(0x00, 0xFF).expect("0xFF is valid as the final data byte"));
-    assert_eq!(
-        direct_menu,
-        [0x81, 0x01, 0x7E, 0x04, 0x72, 0x00, 0xFF, VISCA_TERMINATOR,]
-    );
 }
 
 /// Inquiries travel the same encode path and carry the same terminator.
@@ -201,7 +194,11 @@ fn transport_envelopes_preserve_the_encoded_terminator() {
     let meta = raw_envelope
         .frame_into(&frame, CommandKind::Command, &mut framed)
         .expect("the encoded raw VISCA frame is valid");
-    assert_eq!(meta.sequence, None, "raw VISCA carries no sequence number");
+    assert_eq!(
+        meta.sequence(),
+        None,
+        "raw VISCA carries no sequence number"
+    );
     assert_terminated("RawVisca frame", &framed);
     assert_eq!(
         &framed[..],
@@ -215,7 +212,7 @@ fn transport_envelopes_preserve_the_encoded_terminator() {
         .frame_into(&frame, CommandKind::Command, &mut framed)
         .expect("the encoded Sony VISCA frame is within the envelope limit");
     assert!(
-        meta.sequence.is_some(),
+        meta.sequence().is_some(),
         "Sony encapsulation must allocate a sequence number"
     );
     assert_eq!(

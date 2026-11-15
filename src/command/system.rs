@@ -18,7 +18,8 @@ use crate::{
         encode::WireEncode,
     },
     error::Error,
-    visca_command, CameraId, ViscaSocket,
+    macros::consolidated::visca_command,
+    CameraId, ViscaSocket,
 };
 
 /// Command to set camera address (broadcast, serial only).

@@ -13,6 +13,14 @@ The following boundaries are release gates:
   path.
 * Standard payloads remain in inline storage; a command does not allocate once
   merely because it is prepared for a target.
+* Successful raw and Sony receive decoding for standard payloads that fit
+  inline storage borrows each frame and recycles bounded batch storage without
+  allocating after warm-up, for both stream and datagram reads. Larger custom
+  data replies and detailed malformed-frame errors can allocate owned payloads.
+* One immutable wire authority adds one shared allocation at session construction.
+  Raw write plans
+  copy their encoder; Sony plans clone the existing allocator handle. Neither
+  minting nor executing a write plan allocates per-write storage.
 * Raw and Sony framing reuse their warmed buffers. Where policy has proof that
   replay is safe (same-sequence Sony recovery or a conclusive camera
   rejection), a retry reuses the already encoded command rather than rebuilding
@@ -22,8 +30,20 @@ The following boundaries are release gates:
   awaiting ACK, or after active retry-budget expiry in `Sending`, `AwaitingAck`,
   `AwaitingCompletion`, or `Executing`; ambiguity is never converted into a
   replay merely to preserve this allocation property.
+* Async owners retain their four read, write, pacing and wake timers for the
+  actor lifetime. A turn resets an existing timer instead of constructing a
+  fresh timer future.
+* Standard TCP receives read directly into the caller's slice, with no extra
+  user-space read-ahead buffer. The owner requests at most `recv_buffer_size`
+  bytes from the kernel per read.
+* Each raw target retains at most 16 exact inquiry declarations across
+  admitted requests, unpaid stream replies and reply-skew holds. The reservation
+  union and ledger settlement sets stay inline; declarations are never merged
+  through overlap. Stream ledger rows are bounded by `5A + 76` per target,
+  where `A` includes that target's control reserve. New declaration admission
+  fails before allocation when its fixed reservation set is full.
 * Lifecycle storage is bounded by owner admission, completion observers,
-  cancellation waiters, and the diagnostic/applied-state queue limits.
+  cancellation waiters, and bounded diagnostic staging and subscriber queues.
 * Private request, transmission, and correlation-generation identifiers are
   monotonic within a session and are never reused. Exhausting a 64-bit identity
   space fails admission/transmission with `RuntimeIdentityExhausted` instead of
@@ -43,8 +63,13 @@ The stable test boundaries are:
 | Contract | Test |
 | --- | --- |
 | Representative built-in and typed request encoding | `tests/issue_548_allocation_baselines.rs`, zero-allocation tests near the end of the file |
+| Pure built-in command and inquiry preparation | `tests/issue_548_allocation_baselines.rs::built_in_command_and_inquiry_preparation_stay_inline`, through `testing::preparation` with `test-utils` |
+| Profile-aware position preparation and decoder cloning | `tests/issue_548_allocation_baselines.rs::profiled_position_inquiry_preparation_and_decoder_clones_stay_inline`, for G2, BRC-300 and FR7 |
+| Warmed receive lowering, decoding and batch recycling | `tests/issue_548_allocation_baselines.rs::warmed_receive_decoding_and_batch_recycling_do_not_allocate`, through `testing::receive::ReceiveProbe` for raw/Sony streams and datagrams |
 | Warmed raw/Sony framing reuse | `tests/issue_548_allocation_baselines.rs`, framing test near the end of the file |
 | Safe retry encoded-command reuse | `runtime::engine` unit test `inert_wire_is_inline_and_reused_across_retry_without_reallocation`, plus `runtime::owner` unit test `warmed_raw_and_sony_retries_reuse_owner_buffers`; raw coverage must be limited to conclusive rejection, never ambiguity or active-budget expiry |
+| Warmed owner-thread executor timer reset | `tests/issue_548_allocation_baselines.rs::{warmed_tokio_timer_resets_do_not_allocate,warmed_smol_timer_resets_do_not_allocate,warmed_manual_clock_timer_resets_do_not_allocate}`. The generic executor checks keep timers pending; ManualClock additionally checks immediate wakes, completed rearming and duplicate pending resets with a retained noop waker. Its wake batch stores four wakes inline; larger fanouts may spill. The actual runtime-free `ManualClockExecutor::local` retains four factories across forty applied commands, control and idle turns in `tests/issue_866_owner_timers.rs::local_manual_clock_actor_reuses_four_timer_factories`; `owner_turns_reuse_the_same_four_manual_timers` also covers the private owner clock fixture. |
+| TCP read size and kernel retention | Linux `transport::entry_point_tests::tcp_queue::{blocking_reads_leave_unrequested_bytes_in_kernel,tokio_reads_leave_unrequested_bytes_in_kernel,smol_reads_leave_unrequested_bytes_in_kernel}` compare the receive queue after one-byte and 256-byte caller reads; async coverage includes split transports |
 | Bounded submission and completion observers | `tests/issue_561_blocking_queue.rs` and the `runtime::owner` unit tests |
 | Dynamic/static future construction | `tests/dyn_api_integration_test.rs`, `tokio_dynamic_future_construction_matches_one_explicit_static_box` |
 | Downstream derive encoding | `tests/issue_517_inquiry_encoding` coverage |
@@ -58,6 +83,20 @@ named boundaries in the release review so a cfg change cannot turn a local
 release check into zero executed tests.
 
 ## Runtime validation and retry matrix
+
+Engine timeout fields carry positive intervals; an absent retry budget is
+`None`, never a zero-duration sentinel. Construction, retuning and request
+admission validate absolute representability using the native owner's sampled
+clock. Preparation reads no clock and does not repeat full tuning validation.
+The admission check includes composed ACK/completion, cancellation/ambiguity,
+and queued-attempt windows. Overflow during defensive deadline construction
+saturates toward the latest representable instant, preserving monotonic order.
+
+The one-hour bound applies to explicit retry-timing overrides. It does not cap
+profile deadlines or their derived budgets and backoff: a valid two-hour
+completion deadline may produce a four-hour retry budget. Engine validation
+preserves that domain while rejecting zero timeouts, unordered backoffs and
+intervals that cannot fit the sampled clock (#861).
 
 This compact matrix ties the safety-critical runtime rules to their source
 seams and characterization tests. The larger profile, noun, and feature
@@ -75,30 +114,22 @@ inventories remain in their dedicated gates.
 
 ## Feature and API validation
 
-The canonical local/release validation matrix must cover, at minimum. This is
-the maintainer command surface; the GitHub Actions feature matrix runs its
-feature combinations as separate jobs rather than claiming to execute every
-line below verbatim:
+The canonical feature matrix is maintained in
+`.github/scripts/test-all-features.sh`. Inspect its `list-json` output for the
+exact commands and run its test, clippy and doc modes; CI builds its jobs from
+that same list rather than a copied command block:
 
 ```text
-cargo test --no-default-features --features blocking
-cargo test --no-default-features --features async
-cargo test --no-default-features --features runtime-tokio
-cargo test --no-default-features --features runtime-smol
-cargo check --no-default-features --features runtime-tokio,runtime-smol
-cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils \
-  --test dyn_api_integration_test
-cargo test --no-default-features --features runtime-smol,dyn-api,test-utils \
-  --test dyn_api_smol_integration_test
-cargo test --no-default-features --features serde,schemars,ts-rs
-cargo test --no-default-features --features test-utils
+bash .github/scripts/test-all-features.sh list-json
+bash .github/scripts/test-all-features.sh
+bash .github/scripts/test-all-features.sh clippy
+bash .github/scripts/test-all-features.sh doc
 bash .github/scripts/check-blocking-dependency-boundary.sh
 ```
 
-Add blocking+async coexistence and the applicable serial combinations. The
-blocking dependency gate is a release contract: `blocking` and
-`transport-serial` must remain native synchronous graphs with no Tokio, smol,
-or async executor dependency. The
+The blocking dependency gate is a release contract: `blocking` and
+`transport-serial` remain native synchronous graphs without an async executor.
+The
 `issue_548_supported_surface_inventory` test is the closed inventory authority
 for profiles, transports, capability gates, nouns, derives, and test utilities;
 the built-in command ledger in `src/command/semantics.rs` remains the sole

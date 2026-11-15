@@ -63,8 +63,8 @@ impl<K, H> OperationReceipt<K, H>
 where
     K: completion::Kind,
 {
-    pub(crate) fn id(&self) -> u64 {
-        self.observation.id().get()
+    pub(crate) fn id(&self) -> std::num::NonZeroU64 {
+        self.observation.id().as_nonzero()
     }
 
     /// The `Debug` output of both facades' public `Operation`: its identity
@@ -75,7 +75,7 @@ where
     ) -> std::fmt::Result {
         formatter
             .debug_struct("Operation")
-            .field("id", &crate::OperationId::from_raw(self.id()))
+            .field("id", &crate::OperationId::from_nonzero(self.id()))
             .finish()
     }
 }
@@ -237,7 +237,6 @@ pub(super) fn settlement_budget(
 #[derive(Debug, Clone, Copy)]
 pub(super) struct PositionPoll<'a> {
     pub(super) queries: &'a PositionQueryPlan,
-    pub(super) axes: AffectedAxes,
     pub(super) tolerance: MovementTolerance,
     pub(super) interval: Duration,
 }
@@ -247,7 +246,6 @@ pub(super) struct PositionPoll<'a> {
 /// completion to be the settlement evidence.
 pub(super) fn position_poll(
     settlement: &completion::Settlement<completion::Targeted>,
-    affected_axes: AffectedAxes,
 ) -> Option<PositionPoll<'_>> {
     match settlement.plan() {
         SettlementPlan::CompletionIsSettled { .. } => None,
@@ -258,7 +256,6 @@ pub(super) fn position_poll(
             ..
         } => Some(PositionPoll {
             queries,
-            axes: affected_axes,
             tolerance: *tolerance,
             interval: *interval,
         }),

@@ -225,9 +225,7 @@ pub(in crate::runtime::owner) enum Disposition {
 #[derive(Debug, Clone, Copy, Default)]
 struct Planned {
     wake: Option<Instant>,
-    releases: RawCorrelationReleaseSet,
-    release_pending: bool,
-    release_fenced: bool,
+    release: RawReleaseTurn,
 }
 
 /// Executor-free source arbitration for one owner. See the module docs.
@@ -308,9 +306,7 @@ impl<B> OwnerCoordinator<B> {
         let release_fenced = self.release.is_fenced(releases);
         self.planned = Planned {
             wake: next_wake,
-            releases,
-            release_pending,
-            release_fenced,
+            release: self.release,
         };
         // Do not carry a consumed allowance over to an absent, future, or
         // replaced timer, including a replacement that is already due.
@@ -436,7 +432,7 @@ impl<B> OwnerCoordinator<B> {
                 // A raw deadline matured while an ordinary selection was
                 // parked. This timer was selected from the pre-expiry view and
                 // has not earned the receive-first release pass.
-                Selected::Timer if !planned.release_pending => {
+                Selected::Timer if !planned.release.is_pending() => {
                     self.phase = SourcePhase::ReceiveFirst;
                     return Disposition::Restart;
                 }
@@ -460,10 +456,13 @@ impl<B> OwnerCoordinator<B> {
         // that was not latched at plan time is latched afresh by the next plan,
         // which starts its own proof, so a crossing no-input read records
         // nothing. A crossing transient fault still suppresses due work.
-        let probes_latched = planned.release_pending && !planned.release_fenced;
-        let crossed_into_release = !planned.release_pending && !due_at_receive.is_empty();
-        if probes_latched && class == Some(ReceiveClass::NoInput) {
-            self.release.fence_no_input(planned.releases);
+        let probe_scope = planned.release.probe_scope();
+        let probes_latched = probe_scope.is_some();
+        let crossed_into_release = !planned.release.is_pending() && !due_at_receive.is_empty();
+        if class == Some(ReceiveClass::NoInput) {
+            if let Some(scope) = probe_scope {
+                self.release.fence_no_input(scope);
+            }
         }
         let probe = probes_latched || crossed_into_release;
         if selected == Selected::Timer {

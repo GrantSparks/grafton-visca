@@ -20,10 +20,10 @@
 //! give them. The blocking and smol cases wait them out on the real clock.
 
 #![cfg(any(
-    feature = "blocking",
+    feature = "runtime-tokio",
     all(
-        feature = "async",
-        any(feature = "runtime-tokio", feature = "runtime-smol")
+        feature = "test-utils",
+        any(feature = "blocking", feature = "runtime-smol")
     )
 ))]
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
@@ -49,7 +49,7 @@ use grafton_visca::{
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
 use fake_camera::AsyncWire;
-#[cfg(feature = "blocking")]
+#[cfg(all(feature = "blocking", feature = "test-utils"))]
 use fake_camera::BlockingWire;
 use fake_camera::FakeCamera;
 
@@ -165,7 +165,7 @@ impl Bench {
     }
 
     /// The blocking wire, in the shape `open!` asks its camera for.
-    #[cfg(feature = "blocking")]
+    #[cfg(all(feature = "blocking", feature = "test-utils"))]
     fn blocking_wire(&self) -> BlockingWire {
         self.camera
             .blocking_wire()
@@ -245,22 +245,34 @@ fn conclusive_timeout<T>(result: &Result<T, Error>) -> bool {
 
 /// The latched-lane failure: nothing written, not retryable on this
 /// session, and the session itself still live.
-fn latched_inquiry_failure<T: fmt::Debug>(result: &Result<T, Error>) {
+fn latched_inquiry_failure<T: fmt::Debug>(result: &Result<T, Error>, already_admitted: bool) {
     let Err(error) = result else {
         panic!("expected InquiryCorrelationLost, got {result:?}");
     };
-    assert!(
-        matches!(error, Error::InquiryCorrelationLost { camera, .. } if *camera == CameraId::CAMERA_1),
-        "{error:?}"
-    );
+    let certainty = if already_admitted {
+        assert!(
+            matches!(error, Error::InquiryFailed { source, .. }
+            if matches!(source.as_ref(), Error::InquiryCorrelationLost { camera, .. }
+                if *camera == CameraId::CAMERA_1)),
+            "{error:?}"
+        );
+        Certainty::FailedConclusively
+    } else {
+        assert!(
+            matches!(error, Error::InquiryCorrelationLost { camera, .. }
+            if *camera == CameraId::CAMERA_1),
+            "{error:?}"
+        );
+        Certainty::NotAccepted
+    };
     assert_eq!(
         error.failure_context(),
-        Some(FailureContext::new(
-            FailureStage::Terminal,
-            Certainty::NotAccepted
-        ))
+        Some(FailureContext::new(FailureStage::Terminal, certainty))
     );
-    assert!(!error.is_retryable());
+    assert!(!matches!(
+        error.recovery(),
+        grafton_visca::Recovery::Resubmit { .. }
+    ));
     assert!(!error.requires_new_session(), "{error}");
 }
 
@@ -287,7 +299,7 @@ facade_matrix! {
             "a stale power reply must never be returned as the focus mode: {mode:?}"
         );
         // The owed reply was absorbed; the session keeps serving correct data.
-        assert!(wait!(camera.power().state()).expect("power after recovery"));
+        assert!(wait!(camera.power().state()).expect("power after recovery").is_on());
         assert!(matches!(wait!(camera.focus().mode()), Ok(FocusMode::Manual)));
         session.shutdown().expect("shutdown");
     }
@@ -299,7 +311,7 @@ facade_matrix! {
         let bench = Bench::new(SendSemantics::Stream);
         let session = open!(bench, bench.config()).expect("session");
         let camera = session.camera::<PtzOpticsG2>().expect("camera");
-        assert!(wait!(camera.power().state()).expect("pre-fault inquiry"));
+        assert!(wait!(camera.power().state()).expect("pre-fault inquiry").is_on());
 
         bench.start_fault();
         let started = now!();
@@ -358,7 +370,7 @@ facade_matrix! {
                 "the queued inquiry fails when the ambiguity window closes"
             );
         }
-        latched_inquiry_failure(&queued);
+        latched_inquiry_failure(&queued, true);
 
         let started = now!();
         let rejected = wait!(first.focus().mode());
@@ -370,7 +382,7 @@ facade_matrix! {
         if virtual_clock!() {
             assert_eq!(elapsed, Duration::ZERO, "a latched lane fails without waiting");
         }
-        latched_inquiry_failure(&rejected);
+        latched_inquiry_failure(&rejected, false);
         assert_eq!(bench.count(1, &FOCUS_MODE_INQUIRY), 0);
         assert_eq!(bench.count(1, &POWER_INQUIRY), 1);
 
@@ -378,7 +390,7 @@ facade_matrix! {
             .expect("STOP admitted")
             .applied())
         .expect("STOP to the latched camera still applies");
-        assert!(wait!(second.power().state()).expect("other camera unaffected"));
+        assert!(wait!(second.power().state()).expect("other camera unaffected").is_on());
         assert!(matches!(wait!(second.focus().mode()), Ok(FocusMode::Manual)));
         session.shutdown().expect("session was never poisoned");
     }
@@ -396,7 +408,7 @@ facade_matrix! {
         assert!(conclusive_timeout(&power), "{power:?}");
 
         let queued = wait!(camera.focus().mode());
-        latched_inquiry_failure(&queued);
+        latched_inquiry_failure(&queued, true);
         let started = now!();
         let rejected = wait!(camera.focus().mode());
         let elapsed = now!().duration_since(started);
@@ -407,7 +419,7 @@ facade_matrix! {
         if virtual_clock!() {
             assert_eq!(elapsed, Duration::ZERO, "a latched lane fails without waiting");
         }
-        latched_inquiry_failure(&rejected);
+        latched_inquiry_failure(&rejected, false);
         assert_eq!(bench.count(1, &FOCUS_MODE_INQUIRY), 0);
 
         wait!(wait!(camera.pan_tilt().stop())
@@ -429,7 +441,7 @@ facade_matrix! {
         let power = wait!(camera.power().state());
         assert!(conclusive_timeout(&power), "{power:?}");
         let during = wait!(camera.focus().mode());
-        latched_inquiry_failure(&during);
+        latched_inquiry_failure(&during, true);
 
         after!(RETRANSMIT_AFTER, bench.lift_fault());
         let deadline = now!() + Duration::from_secs(3);
@@ -445,7 +457,7 @@ facade_matrix! {
             pause!(Duration::from_millis(50));
         };
         assert!(matches!(mode, Ok(FocusMode::Manual)), "{mode:?}");
-        assert!(wait!(camera.power().state()).expect("power after recovery"));
+        assert!(wait!(camera.power().state()).expect("power after recovery").is_on());
         session.shutdown().expect("shutdown");
     }
 
@@ -461,7 +473,7 @@ facade_matrix! {
         assert!(conclusive_timeout(&power), "{power:?}");
         assert_eq!(bench.count(1, &POWER_INQUIRY), 6);
         after!(RETRANSMIT_AFTER, bench.lift_fault());
-        assert!(wait!(camera.power().state()).expect("datagram recovers"));
+        assert!(wait!(camera.power().state()).expect("datagram recovers").is_on());
         session.shutdown().expect("shutdown");
     }
 

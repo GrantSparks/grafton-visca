@@ -66,14 +66,6 @@ fn usage() -> &'static str {
     "usage: cargo run --example quickstart_async --features runtime-tokio -- [address] [--move]"
 }
 
-fn power_label(is_on: bool) -> &'static str {
-    if is_on {
-        "on"
-    } else {
-        "off"
-    }
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = tracing_subscriber::fmt::try_init();
@@ -88,7 +80,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let run_result = async {
         let power = camera.power().state().await?;
-        println!("Power: {}", power_label(power));
+        println!("Power: {power:?}");
 
         let position = camera.zoom().position().await?;
         println!("Zoom position: 0x{:04X}", position.value());

@@ -169,6 +169,13 @@ impl HasTransportConfig for BlockingTransportHandle {
 ///     }
 /// }
 /// ```
+/// # Session callbacks
+///
+/// A transport must not call into its own session from a read or write.
+/// Calls that would wait for the owner fail immediately with
+/// [`Error::InvalidState`], since the worker cannot answer its own request.
+/// Calling `close` also requests shutdown before returning that error; an
+/// external caller can then join the worker and release the transport.
 pub trait BlockingTransport: Send {
     /// Send raw bytes to the device with command kind and a deadline (blocking).
     ///
@@ -270,16 +277,12 @@ pub trait BlockingTransport: Send {
     ///   a connected TCP socket can report the latter when OS keepalive
     ///   exhausts, and the runtime treats that as session death.
     /// - A session-fatal error — any error for which
-    ///   [`Error::requires_new_session`] is true, plus [`Error::Io`] carrying
-    ///   `TimedOut`, `ConnectionReset`, `ConnectionAborted`, `BrokenPipe`,
-    ///   `UnexpectedEof`, `NotConnected` or `InvalidInput`. Configuration
-    ///   exposed through [`HasTransportConfig`] is validated before owner
-    ///   construction; a later `InvalidInput` therefore means the transport
-    ///   cannot satisfy its live I/O contract. The runtime ends the session as
-    ///   [`Error::ConnectionClosed`] and retains the transport cause's text in
-    ///   its reason. A failed read consumed nothing, so it is not a stream
-    ///   framing poison; [`Error::StreamPoisoned`] is reserved for an
-    ///   unknowable stream position caused by framing loss or a failed write.
+    ///   [`Error::requires_new_session`] is true, runtime shutdown, or a raw
+    ///   I/O error listed in [`crate::transport::FATAL_RECEIVE_IO_KINDS`].
+    ///   That shared table defines the fatal kinds for both transport traits.
+    ///   The runtime ends the session as [`Error::ConnectionClosed`] and retains
+    ///   the original cause. A failed read consumed nothing and does not lose
+    ///   the stream's framing position.
     /// - Any other error is a *transient* fault: the read failed but the
     ///   connection may still be usable — a UDP `recv` reporting ECONNREFUSED
     ///   after an ICMP port-unreachable is the canonical case. The engine may

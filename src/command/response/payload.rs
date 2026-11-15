@@ -20,19 +20,20 @@ use crate::error::Error;
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```rust
 /// use grafton_visca::command::{BoolConvention, Payload};
 ///
 /// let data = [0x02];
 /// let payload = Payload::new(&data);
 ///
 /// // Standard convention: 0x02 = on
-/// let powered = payload.parse_bool("power", BoolConvention::OnIs02)?;
+/// let powered = payload.parse_bool("digital_zoom", BoolConvention::OnIs02)?;
 /// assert!(powered);
 ///
 /// // Use the opposite convention only for a register that documents it.
 /// let enabled = payload.parse_bool("vendor_setting", BoolConvention::OnIs03)?;
 /// assert!(!enabled);
+/// # Ok::<(), grafton_visca::Error>(())
 /// ```
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BoolConvention {
@@ -117,12 +118,16 @@ impl<'a> Payload<'a> {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```rust
+    /// use grafton_visca::command::{BoolConvention, Payload};
+    /// let payload = Payload::new(&[0x02]);
     /// // Standard convention (0x02 = on)
-    /// let powered = payload.parse_bool("power", BoolConvention::OnIs02)?;
+    /// let powered = payload.parse_bool("digital_zoom", BoolConvention::OnIs02)?;
     ///
     /// // Opposite polarity, only for a register that documents it.
     /// let enabled = payload.parse_bool("vendor_setting", BoolConvention::OnIs03)?;
+    /// assert!(powered && !enabled);
+    /// # Ok::<(), grafton_visca::Error>(())
     /// ```
     pub fn parse_bool(
         &self,

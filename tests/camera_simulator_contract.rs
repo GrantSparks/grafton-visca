@@ -10,9 +10,9 @@ use grafton_visca::{
     raw,
     testing::camera_simulator::{CommandType, ViscaCameraSimulator},
     transport::{AsyncTransport, SendSemantics},
-    CameraId, CancellationOutcome, ControlClass, Error, Inquiry, InquiryRoute, Request,
-    ResponseDecoder, RetryClass, Session, SessionConfig, SessionStatus, TimeoutClass,
-    TokioExecutor,
+    CameraId, CancellationOutcome, Certainty, ControlClass, Error, ErrorKind, FailureContext,
+    FailureStage, Inquiry, Recovery, Request, ResponseDecoder, RetryClass, Session, SessionConfig,
+    SessionStatus, TimeoutClass, TokioExecutor,
 };
 
 const POWER_ON: &[u8] = &[0x81, 0x01, 0x04, 0x00, 0x02, 0xff];
@@ -217,10 +217,6 @@ impl Request for UnknownInquiry {
 impl Inquiry for UnknownInquiry {
     type Response = ();
 
-    fn route(&self) -> InquiryRoute {
-        InquiryRoute::RAW
-    }
-
     fn decoder(&self) -> ResponseDecoder<()> {
         ResponseDecoder::from_fn(|_| Ok(()))
     }
@@ -233,12 +229,37 @@ async fn unknown_inquiry_gets_a_syntax_error_instead_of_ack_and_completion() {
     let session = open(simulator).await;
     let camera = session.camera::<GenericVisca>().expect("generic camera");
 
-    assert!(matches!(
-        camera.inquire(&UnknownInquiry).await,
-        Err(Error::SyntaxError)
-    ));
+    let error = camera
+        .inquire(&UnknownInquiry)
+        .await
+        .expect_err("an unknown inquiry receives the camera's syntax refusal");
+    let Error::InquiryFailed { source, .. } = &error else {
+        panic!("the unknown inquiry must report its terminal failure, got {error:?}");
+    };
+    assert!(matches!(source.as_ref(), Error::SyntaxError));
+    assert_eq!(error.kind(), ErrorKind::InvalidParameter);
+    assert_eq!(
+        error.failure_context(),
+        Some(FailureContext::new(
+            FailureStage::Terminal,
+            Certainty::FailedConclusively
+        ))
+    );
+    assert_eq!(error.recovery(), Recovery::Abandon);
+    assert!(!error.requires_new_session());
     assert_eq!(reply(&mut monitor).await, [0x90, 0x60, 0x02, 0xff]);
-    assert_eq!(session.metrics().await.expect("metrics").received_frames, 1);
+    let metrics = session.metrics().await.expect("metrics");
+    assert_eq!(
+        metrics.received_frames, 1,
+        "no ACK or completion follows the refusal"
+    );
+    assert_eq!(
+        metrics.writes, 1,
+        "a custom syntax refusal is never replayed"
+    );
+    assert_eq!(metrics.retries_scheduled, 0);
+    assert_eq!(metrics.active, 0);
+    assert_eq!(metrics.session, SessionStatus::Running);
     session.close().await.expect("close");
 }
 

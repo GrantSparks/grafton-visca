@@ -75,7 +75,7 @@ where
     /// Returns the opaque identity assigned when this operation was admitted.
     #[must_use]
     pub fn id(&self) -> OperationId {
-        OperationId::from_raw(self.receipt.id())
+        OperationId::from_nonzero(self.receipt.id())
     }
 
     /// Waits for the exact submitted command to reach `Applied`, bounded by
@@ -150,7 +150,9 @@ where
 
 impl Operation<completion::Targeted> {
     /// Waits for exact application and then the profile-selected protocol
-    /// settlement condition, bounded by the configured settlement budget.
+    /// settlement condition. The default budget is the larger of the configured
+    /// settlement override and this request's retry budget. Use
+    /// [`settled_with_timeout`](Self::settled_with_timeout) for an exact bound.
     ///
     /// Application is cached, so calling this after
     /// [`applied`](Operation::applied) continues from it. Polled settlement proves observed stability, not arrival at the requested endpoint.

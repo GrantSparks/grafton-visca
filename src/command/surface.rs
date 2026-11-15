@@ -33,6 +33,47 @@ pub(crate) enum RowGate {
     Typed(TypedSupportSet),
 }
 
+impl RowGate {
+    /// Enforces the same noun-row contract for commands and inquiries.
+    pub(crate) fn validate(
+        self,
+        profile: &crate::ProfileSpec,
+        feature: &'static str,
+    ) -> crate::Result<()> {
+        let denied = match self {
+            Self::Always => return Ok(()),
+            Self::Domain(domain) if domain.permits(profile) => return Ok(()),
+            Self::Domain(_) => feature,
+            Self::Typed(surfaces) => {
+                let Some(surface) = surfaces
+                    .iter()
+                    .find(|surface| !profile.capabilities().permits_typed(*surface))
+                else {
+                    return Ok(());
+                };
+                if surface == crate::capabilities::TypedSupportSurface::ExposureMode {
+                    crate::command::exposure::SHARED_EXPOSURE_MODE_FEATURE
+                } else {
+                    feature
+                }
+            }
+        };
+        Err(crate::Error::FeatureNotSupported { feature: denied })
+    }
+
+    /// Const comparison used by the generated request inventory.
+    pub(crate) const fn same_as(self, other: Self) -> bool {
+        match (self, other) {
+            (Self::Always, Self::Always) => true,
+            (Self::Domain(left), Self::Domain(right)) => left as u8 == right as u8,
+            (Self::Typed(left), Self::Typed(right)) => {
+                left.contains_all(right) && right.contains_all(left)
+            }
+            _ => false,
+        }
+    }
+}
+
 /// The base-domain marker of a noun header's `[domain <Marker>]` gate.
 ///
 /// There is one variant per domain that some noun-table row inherits.  The
@@ -71,13 +112,13 @@ impl DomainGate {
     pub(crate) fn permits(self, profile: &crate::ProfileSpec) -> bool {
         let capabilities = profile.capabilities();
         match self {
-            Self::Power => capabilities.has_power,
-            Self::Zoom => capabilities.has_zoom,
-            Self::PanTilt => capabilities.has_pan_tilt && profile.pan_tilt_coordinates().is_some(),
-            Self::Focus => capabilities.has_focus,
-            Self::Exposure => capabilities.has_exposure,
-            Self::WhiteBalance => capabilities.has_white_balance,
-            Self::Presets => capabilities.has_presets,
+            Self::Power => capabilities.has_power(),
+            Self::Zoom => capabilities.has_zoom(),
+            Self::PanTilt => capabilities.has_pan_tilt(),
+            Self::Focus => capabilities.has_focus(),
+            Self::Exposure => capabilities.has_exposure(),
+            Self::WhiteBalance => capabilities.has_white_balance(),
+            Self::Presets => capabilities.has_presets(),
             Self::MenuControl => true,
         }
     }
@@ -208,6 +249,15 @@ pub(crate) struct StaticSurfaceEntry {
 }
 
 impl StaticSurfaceEntry {
+    /// Canonical method spelling for a refused row's diagnostic.
+    pub(crate) const fn feature(self) -> &'static str {
+        match self.disposition {
+            StaticSurfaceDisposition::Noun { method, .. }
+            | StaticSurfaceDisposition::BroadcastHandshake { method }
+            | StaticSurfaceDisposition::InternalCancellation { method } => method,
+        }
+    }
+
     /// Returns whether the row may become a target camera noun method.
     #[must_use]
     #[cfg(test)]
@@ -259,6 +309,11 @@ macro_rules! exception_disposition {
 /// Implements [`BuiltinInquiryGate`] for the request type of an `inquiry`
 /// row; every other row kind owns no inquiry.
 macro_rules! inquiry_gate {
+    (inquiry [$module:ident :: $request:ident :: new($($argument:expr),*)] $gate:tt $base:tt) => {
+        impl BuiltinInquiryGate for $module::$request {
+            const GATE: RowGate = row_gate!($gate, $base);
+        }
+    };
     (inquiry [$($request:tt)*] $gate:tt $base:tt) => {
         impl BuiltinInquiryGate for $($request)* {
             const GATE: RowGate = row_gate!($gate, $base);
@@ -389,21 +444,17 @@ macro_rules! surface_registry {
 
 noun_table!(surface_registry);
 
-/// Returns all runtime typed-support surfaces required by one static command row.
+/// Returns the full capability gate of one static command row.
 ///
-/// Request validation uses this projection for vendor commands whose typed
-/// permission is represented by noun and row markers. Dynamic admission
-/// therefore follows both bounds that govern static method resolution.
+/// Every built-in request checks this projection before validating its values.
+/// Dynamic admission therefore follows the same noun and row bounds as static
+/// method resolution, including base-domain gates.
 #[must_use]
-pub(crate) const fn typed_surface_for_command(command: BuiltinCommand) -> Option<TypedSupportSet> {
+pub(crate) const fn row_gate(command: BuiltinCommand) -> RowGate {
     match surface_entry(command).disposition {
-        StaticSurfaceDisposition::Noun {
-            gate: RowGate::Typed(surface),
-            ..
-        } => Some(surface),
-        StaticSurfaceDisposition::Noun { .. }
-        | StaticSurfaceDisposition::BroadcastHandshake { .. }
-        | StaticSurfaceDisposition::InternalCancellation { .. } => None,
+        StaticSurfaceDisposition::Noun { gate, .. } => gate,
+        StaticSurfaceDisposition::BroadcastHandshake { .. }
+        | StaticSurfaceDisposition::InternalCancellation { .. } => RowGate::Always,
     }
 }
 
@@ -448,7 +499,7 @@ mod tests {
         // regression this assertion exists to surface.
         assert_eq!(
             (plain, applied_only, targeted),
-            (117, 17, 15),
+            (164, 22, 15),
             "the semantic class distribution of the closed ledger changed",
         );
         assert_eq!(seen.len(), BuiltinCommand::ALL.len());

@@ -20,10 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = SessionConfig::from_compile_time::<PtzOpticsG2>()?;
     let session = Session::open(transport, config)?;
     let camera = session.camera::<PtzOpticsG2>()?;
-    println!(
-        "Power: {}",
-        if camera.power().state()? { "on" } else { "off" }
-    );
+    println!("Power: {:?}", camera.power().state()?);
     session.close()?;
     Ok(())
 }

@@ -76,13 +76,13 @@ fn assert_request_encoding_does_not_allocate<R: Request>(label: &str, request: &
 }
 
 macro_rules! assert_generated_inquiry_inventory {
-    ($(($label:literal, $inquiry:ty)),+ $(,)?) => {
+    ($(($label:literal, $inquiry:expr)),+ $(,)?) => {
         #[test]
         fn all_queryable_generated_inquiries_encode_without_heap_allocation() {
             const QUERYABLE_GENERATED_INQUIRY_COUNT: usize = [$(stringify!($inquiry)),+].len();
-            assert_eq!(QUERYABLE_GENERATED_INQUIRY_COUNT, 53);
+            assert_eq!(QUERYABLE_GENERATED_INQUIRY_COUNT, 74);
             $(
-                let inquiry = <$inquiry>::default();
+                let inquiry = $inquiry;
                 assert_request_encoding_does_not_allocate($label, &inquiry);
             )+
         }
@@ -90,7 +90,7 @@ macro_rules! assert_generated_inquiry_inventory {
 }
 
 // Keep this list synchronized with the queryable section of the built-in
-// inquiry table. The two intentionally untyped query requests remain present.
+// inquiry table. Retired, unsourced requests are deliberately absent.
 assert_generated_inquiry_inventory!(
     ("PowerInquiry", grafton_visca::command::PowerInquiry),
     ("VersionInquiry", grafton_visca::command::VersionInquiry),
@@ -173,25 +173,12 @@ assert_generated_inquiry_inventory!(
         "MenuOpenCloseInquiry",
         grafton_visca::command::MenuOpenCloseInquiry
     ),
-    (
-        "TallyStatusInquiry",
-        grafton_visca::command::TallyStatusInquiry
-    ),
     ("NdFilterInquiry", grafton_visca::command::NdFilterInquiry),
     (
         "PictureEffectInquiry",
         grafton_visca::command::PictureEffectInquiry
     ),
     ("FlipStateInquiry", grafton_visca::command::FlipStateInquiry),
-    (
-        "IrisControlInquiry",
-        grafton_visca::command::IrisControlInquiry
-    ),
-    ("DefogModeInquiry", grafton_visca::command::DefogModeInquiry),
-    (
-        "DefogLevelInquiry",
-        grafton_visca::command::DefogLevelInquiry
-    ),
     (
         "AutoWhiteBalanceSensitivityInquiry",
         grafton_visca::command::AutoWhiteBalanceSensitivityInquiry
@@ -223,10 +210,6 @@ assert_generated_inquiry_inventory!(
         "NdFilterPresetInquiry",
         grafton_visca::command::NdFilterPresetInquiry
     ),
-    (
-        "TallyAutoAdjustInquiry",
-        grafton_visca::command::TallyAutoAdjustInquiry
-    ),
     ("TallyRedInquiry", grafton_visca::command::TallyRedInquiry),
     (
         "TallyGreenInquiry",
@@ -238,6 +221,112 @@ assert_generated_inquiry_inventory!(
     ),
     ("ContrastInquiry", grafton_visca::command::ContrastInquiry),
     ("LuminanceInquiry", grafton_visca::command::LuminanceInquiry),
+    (
+        "Fr7AeLevelInquiry",
+        grafton_visca::command::Fr7AeLevelInquiry
+    ),
+    (
+        "Fr7AutoGainInquiry",
+        grafton_visca::command::Fr7AutoGainInquiry
+    ),
+    (
+        "Fr7AutoShutterInquiry",
+        grafton_visca::command::Fr7AutoShutterInquiry
+    ),
+    (
+        "Fr7AutoIrisInquiry",
+        grafton_visca::command::Fr7AutoIrisInquiry
+    ),
+    (
+        "Fr7PresetWhiteInquiry",
+        grafton_visca::command::Fr7PresetWhiteInquiry
+    ),
+    (
+        "Fr7MemoryColorTemperatureInquiry",
+        grafton_visca::command::Fr7MemoryColorTemperatureInquiry
+    ),
+    (
+        "Fr7MemoryRedGainInquiry",
+        grafton_visca::command::Fr7MemoryRedGainInquiry
+    ),
+    (
+        "Fr7MemoryBlueGainInquiry",
+        grafton_visca::command::Fr7MemoryBlueGainInquiry
+    ),
+    (
+        "Fr7MemoryTintInquiry",
+        grafton_visca::command::Fr7MemoryTintInquiry
+    ),
+    (
+        "Fr7AtwColorTemperatureOffsetInquiry",
+        grafton_visca::command::Fr7AtwColorTemperatureOffsetInquiry
+    ),
+    (
+        "Fr7AtwTintOffsetInquiry",
+        grafton_visca::command::Fr7AtwTintOffsetInquiry
+    ),
+    (
+        "Fr7MasterBlackInquiry",
+        grafton_visca::command::Fr7MasterBlackInquiry
+    ),
+    (
+        "Fr7RedBlackInquiry",
+        grafton_visca::command::Fr7RedBlackInquiry
+    ),
+    (
+        "Fr7BlueBlackInquiry",
+        grafton_visca::command::Fr7BlueBlackInquiry
+    ),
+    ("Fr7DetailInquiry", grafton_visca::command::Fr7DetailInquiry),
+    ("Fr7KneeInquiry", grafton_visca::command::Fr7KneeInquiry),
+    (
+        "Fr7KneeModeInquiry",
+        grafton_visca::command::Fr7KneeModeInquiry
+    ),
+    (
+        "Fr7KneeSlopeInquiry",
+        grafton_visca::command::Fr7KneeSlopeInquiry
+    ),
+    (
+        "Fr7KneePointInquiry",
+        grafton_visca::command::Fr7KneePointInquiry
+    ),
+    (
+        "Fr7KneePermissionInquiry",
+        grafton_visca::command::Fr7KneePermissionInquiry::new(
+            grafton_visca::command::Fr7KneeParameter::Setting
+        )
+    ),
+    (
+        "Fr7ClearImageZoomPositionInquiry",
+        grafton_visca::command::Fr7ClearImageZoomPositionInquiry
+    ),
+    (
+        "Fr7PresetSpeedSelectionInquiry",
+        grafton_visca::command::Fr7PresetSpeedSelectionInquiry
+    ),
+    (
+        "Fr7CommonPresetSpeedInquiry",
+        grafton_visca::command::Fr7CommonPresetSpeedInquiry
+    ),
+    (
+        "Fr7SeparatePresetModeInquiry",
+        grafton_visca::command::Fr7SeparatePresetModeInquiry::new(
+            grafton_visca::types::Fr7PresetNumber::MIN
+        )
+    ),
+    (
+        "Fr7SeparatePresetSpeedInquiry",
+        grafton_visca::command::Fr7SeparatePresetSpeedInquiry::new(
+            grafton_visca::types::Fr7PresetNumber::MIN
+        )
+    ),
+    (
+        "Fr7SeparatePresetDurationInquiry",
+        grafton_visca::command::Fr7SeparatePresetDurationInquiry::new(
+            grafton_visca::types::Fr7PresetNumber::MIN
+        )
+    ),
 );
 
 fn speed() -> PanSpeed {
@@ -338,4 +427,198 @@ fn raw_and_sony_framing_reuse_one_warmed_buffer() {
         "Sony encapsulation",
         SonyEncapsulated::new(AddressingMode::Ip),
     );
+}
+
+/// Preparation is measured before admission, where the engine starts sharing
+/// the inert frame with its transmit effects.
+#[cfg(all(feature = "test-utils", any(feature = "blocking", feature = "async")))]
+#[test]
+fn built_in_command_and_inquiry_preparation_stay_inline() {
+    use grafton_visca::{
+        profiles::PtzOpticsG2, testing::preparation, OperationalTuning, ProfileSpec,
+    };
+    let profile = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
+    let target = grafton_visca::TargetRegistration::new(CameraId::CAMERA_1, profile)
+        .expect("target registration");
+    let tuning = OperationalTuning::new();
+    let raw = grafton_visca::raw::Plain::new(
+        [0x81, 1, 4, 0, 2, 0xff],
+        grafton_visca::TimeoutClass::Quick,
+        grafton_visca::RetryClass::Never,
+        grafton_visca::ControlClass::Normal,
+    )
+    .expect("inline raw request");
+    let allocations = allocations_during(|| {
+        preparation::check_command(&raw, &target, tuning)
+            .expect("an owned inline raw frame stays inline in preparation");
+        preparation::check_command(&grafton_visca::command::PowerOn::new(), &target, tuning)
+            .expect("power command prepares");
+        preparation::check_inquiry(&PowerInquiry, &target, tuning).expect("power inquiry prepares");
+    });
+    assert_eq!(allocations, 0, "pure built-in preparation allocated");
+}
+
+#[cfg(all(feature = "test-utils", any(feature = "blocking", feature = "async")))]
+#[test]
+fn profiled_position_inquiry_preparation_and_decoder_clones_stay_inline() {
+    use grafton_visca::{
+        command::PanTiltPositionInquiry,
+        profiles::{PtzOpticsG2, SonyBRC300, SonyFR7},
+        testing::preparation,
+        Inquiry, OperationalTuning, ProfileSpec,
+    };
+    let profiles = [
+        ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2"),
+        ProfileSpec::from_compile_time::<SonyBRC300>().expect("BRC-300"),
+        ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7"),
+    ];
+    let targets = profiles.map(|profile| {
+        grafton_visca::TargetRegistration::new(CameraId::CAMERA_1, profile)
+            .expect("target registration")
+    });
+    for target in &targets {
+        let allocations = allocations_during(|| {
+            for _ in 0..100 {
+                preparation::check_inquiry(
+                    &PanTiltPositionInquiry,
+                    target,
+                    OperationalTuning::new(),
+                )
+                .expect("position inquiry prepares");
+                let decoder = PanTiltPositionInquiry.decoder_for_profile(target.profile());
+                std::hint::black_box(decoder.clone());
+            }
+        });
+        assert_eq!(allocations, 0, "profiled position preparation allocated");
+    }
+}
+
+#[cfg(any(
+    feature = "runtime-tokio",
+    feature = "runtime-smol",
+    all(feature = "async", feature = "test-utils")
+))]
+// Counts allocations on the owner thread. External reactor bookkeeping is
+// outside this boundary; the actor regression separately pins timer factories.
+fn assert_timer_reset_does_not_allocate(runtime: &impl grafton_visca::Executor) {
+    use grafton_visca::ResettableTimer;
+    use std::{future::Future, task::Context, time::Duration};
+    let initial = runtime.now();
+    let mut timer = Box::pin(runtime.timer(initial + Duration::from_secs(60)));
+    let mut context = Context::from_waker(std::task::Waker::noop());
+    assert!(timer.as_mut().poll(&mut context).is_pending());
+    let allocations = allocations_during(|| {
+        for seconds in 61..=160 {
+            timer.as_mut().reset(initial + Duration::from_secs(seconds));
+            assert!(timer.as_mut().poll(&mut context).is_pending());
+        }
+    });
+    assert_eq!(allocations, 0, "rearming a warmed owner timer allocated");
+}
+
+#[cfg(feature = "runtime-tokio")]
+#[test]
+fn warmed_tokio_timer_resets_do_not_allocate() {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    let executor = grafton_visca::TokioExecutor::from_handle(runtime.handle().clone());
+    assert_timer_reset_does_not_allocate(&executor);
+}
+
+#[cfg(feature = "runtime-smol")]
+#[test]
+fn warmed_smol_timer_resets_do_not_allocate() {
+    assert_timer_reset_does_not_allocate(&grafton_visca::SmolExecutor::new());
+}
+
+#[cfg(all(feature = "async", feature = "test-utils"))]
+#[test]
+fn warmed_manual_clock_timer_resets_do_not_allocate() {
+    use grafton_visca::testing::testkit::{ManualClock, ManualClockExecutor};
+    use grafton_visca::{Executor, ResettableTimer};
+    use std::{future::Future, task::Context, time::Duration};
+    let clock = ManualClock::new();
+    // A noop waker cannot participate in quiescence. Keep this thread runnable
+    // so the baseline measures pending resets, not automatic clock advances.
+    let _participant = clock.enter();
+    let executor = ManualClockExecutor::local(&clock);
+    assert_timer_reset_does_not_allocate(&executor);
+
+    let mut timer = Box::pin(executor.timer(clock.now() + Duration::from_secs(1)));
+    let mut context = Context::from_waker(std::task::Waker::noop());
+    assert!(timer.as_mut().poll(&mut context).is_pending());
+    clock.advance(Duration::from_secs(1));
+    assert!(timer.as_mut().poll(&mut context).is_ready());
+    let next = clock.now() + Duration::from_secs(1);
+    let allocations = allocations_during(|| {
+        timer.as_mut().reset(next);
+        assert!(timer.as_mut().poll(&mut context).is_pending());
+    });
+    assert_eq!(allocations, 0, "rearming a completed owned timer allocated");
+    let now = clock.now();
+    let allocations = allocations_during(|| {
+        timer.as_mut().reset(now);
+        assert!(timer.as_mut().poll(&mut context).is_ready());
+        timer.as_mut().reset(now + Duration::from_secs(1));
+        assert!(timer.as_mut().poll(&mut context).is_pending());
+        timer.as_mut().reset(now + Duration::from_secs(1));
+        assert!(timer.as_mut().poll(&mut context).is_pending());
+        timer.as_mut().reset(now);
+        assert!(timer.as_mut().poll(&mut context).is_ready());
+    });
+    assert_eq!(
+        allocations, 0,
+        "owned timer reset/wake bookkeeping allocated"
+    );
+    let deadline = clock.now() + Duration::from_secs(1);
+    let mut batch: [_; 4] = std::array::from_fn(|_| Box::pin(executor.timer(deadline)));
+    for timer in &mut batch {
+        assert!(timer.as_mut().poll(&mut context).is_pending());
+    }
+    let allocations = allocations_during(|| {
+        clock.advance(Duration::from_secs(1));
+        for timer in &mut batch {
+            assert!(timer.as_mut().poll(&mut context).is_ready());
+        }
+    });
+    assert_eq!(allocations, 0, "the four-timer wake batch allocated");
+}
+
+#[cfg(all(feature = "test-utils", any(feature = "blocking", feature = "async")))]
+#[test]
+fn warmed_receive_decoding_and_batch_recycling_do_not_allocate() {
+    use grafton_visca::{
+        profiles::{GenericVisca, SonyFR7},
+        testing::receive::ReceiveProbe,
+        transport::{SendSemantics, TransportConfig},
+        ProfileSpec,
+    };
+    const RAW: &[u8] = &[0x90, 0x41, 0xff, 0x90, 0x51, 0xff];
+    const SONY: &[u8] = &[
+        0x01, 0x11, 0x00, 0x03, 0, 0, 0, 1, 0x90, 0x41, 0xff, 0x01, 0x11, 0x00, 0x03, 0, 0, 0, 2,
+        0x90, 0x51, 0xff,
+    ];
+    for (profile, chunk) in [
+        (
+            ProfileSpec::from_compile_time::<GenericVisca>().unwrap(),
+            RAW,
+        ),
+        (ProfileSpec::from_compile_time::<SonyFR7>().unwrap(), SONY),
+    ] {
+        for semantics in [SendSemantics::Stream, SendSemantics::Datagram] {
+            let mut probe =
+                ReceiveProbe::new(&profile, TransportConfig::default(), semantics).unwrap();
+            assert_eq!(probe.receive(chunk).unwrap(), 2);
+            let mut observed = 0;
+            let allocations = allocations_during(|| {
+                for _ in 0..128 {
+                    observed += probe.receive(std::hint::black_box(chunk)).unwrap();
+                }
+            });
+            assert_eq!(observed, 256);
+            assert_eq!(allocations, 0, "warmed receive allocated: {semantics:?}");
+        }
+    }
 }

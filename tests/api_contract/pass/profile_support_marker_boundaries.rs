@@ -98,7 +98,6 @@ fn main() {
     requires_picture_effect::<PtzOptics30X>();
 
     requires_spotlight::<SonyFR7>();
-    requires_spotlight::<SonyBRCH900>();
     requires_auto_slow_shutter::<SonyEVIH100>();
     requires_auto_slow_shutter::<SonyBRC300>();
 }

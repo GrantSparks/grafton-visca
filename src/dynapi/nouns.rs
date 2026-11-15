@@ -34,13 +34,13 @@ use super::{DynAppliedOperation, DynFuture, DynSessionCamera, DynTargetedOperati
 /// [`DynSessionCamera`]; once, it emits [`DynSessionCameraNouns`] and the
 /// inherent `DynSessionCamera` getters, each documented by its noun's `doc`.
 /// The erased surface carries no compile-time capability bounds — its
-/// enforcement is the runtime `validate_for_profile` check inside
+/// enforcement is the runtime `validate_for_target` check inside
 /// [`crate::prepared::prepare_command`] — so the row `where` clauses and the
 /// header gates are ignored here.
 macro_rules! dyn_noun_facade {
-    (@declare [$(#[$doc:meta])*] inquiry $method:ident() -> $ret:ty) => {
+    (@declare [$(#[$doc:meta])*] inquiry $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty) => {
         $(#[$doc])*
-        fn $method(&self) -> DynFuture<'_, Result<$ret, Error>>;
+        fn $method(&self $(, $arg: $ty)*) -> DynFuture<'_, Result<$ret, Error>>;
     };
     (@declare [$(#[$doc:meta])*] plain $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty) => {
         $(#[$doc])*
@@ -55,15 +55,15 @@ macro_rules! dyn_noun_facade {
         fn $method(&self, $($arg: $ty),*) -> DynFuture<'_, Result<DynTargetedOperation, Error>>;
     };
 
-    (@implement inquiry $method:ident() -> $ret:ty; [$($request:tt)*]) => {
-        fn $method(&self) -> DynFuture<'_, Result<$ret, Error>> {
+    (@implement inquiry $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty; [$($request:tt)*]) => {
+        fn $method(&self $(, $arg: $ty)*) -> DynFuture<'_, Result<$ret, Error>> {
             Box::pin(async move { self.inquire(&$($request)*).await })
         }
     };
     (@implement plain $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty; [$($request:tt)*]) => {
         fn $method(&self, $($arg: $ty),*) -> DynFuture<'_, Result<(), Error>> {
             Box::pin(async move {
-                let request = noun_request!(self.profile(); $ret; $($request)*)?;
+                let request = noun_request!(self.profile(), self.registration(); $ret; $($request)*)?;
                 self.execute(&request).await
             })
         }
@@ -71,7 +71,7 @@ macro_rules! dyn_noun_facade {
     (@implement applied $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty; [$($request:tt)*]) => {
         fn $method(&self, $($arg: $ty),*) -> DynFuture<'_, Result<DynAppliedOperation, Error>> {
             Box::pin(async move {
-                let request = noun_request!(self.profile(); $ret; $($request)*)?;
+                let request = noun_request!(self.profile(), self.registration(); $ret; $($request)*)?;
                 self.submit_applied(&request).await
             })
         }
@@ -79,7 +79,7 @@ macro_rules! dyn_noun_facade {
     (@implement targeted $method:ident($($arg:ident: $ty:ty),*) -> $ret:ty; [$($request:tt)*]) => {
         fn $method(&self, $($arg: $ty),*) -> DynFuture<'_, Result<DynTargetedOperation, Error>> {
             Box::pin(async move {
-                let request = noun_request!(self.profile(); $ret; $($request)*)?;
+                let request = noun_request!(self.profile(), self.registration(); $ret; $($request)*)?;
                 self.submit_targeted(&request).await
             })
         }

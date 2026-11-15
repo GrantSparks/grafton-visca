@@ -106,17 +106,14 @@ use grafton_visca::{
         ShutterSpeedEntry, SupportsTcp,
     },
     command::{
-        ExposureCommand, ExposureMode, FocusZone, NoiseReduction2DMode, PanTiltDirection, Shutter,
-        ShutterInquiry,
+        ExposureCommand, ExposureMode, FocusZone, NoiseReduction2D, NoiseReduction2DMode,
+        NoiseReduction3D, PanTiltDirection, Shutter, ShutterInquiry,
     },
     raw,
-    types::{
-        NoiseReduction2DLevel, NoiseReduction3DLevel, PanSpeed, ShutterSpeed, SpeedLevel,
-        TiltSpeed, ZoomPosition,
-    },
+    types::{PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed, ZoomPosition},
     units::{Degrees, UnitInterval},
-    AffectedAxes, CameraId, CompileTimeProfile, ControlClass, Error, InquiryRoute,
-    PanTiltCoordinateConversion, Request, RetryClass, TimeoutClass, ZoomDomain,
+    AffectedAxes, CameraId, CompileTimeProfile, ControlClass, Error, PanTiltCoordinateConversion,
+    Request, RetryClass, ZoomDomain,
 };
 
 use hardware::{
@@ -329,13 +326,13 @@ fn corrected_inquiries<P: WireRowProfile>(hw: &Hw, ip: &str) {
 // HW-05.2: NR level zero round trip (settings)
 // ---------------------------------------------------------------------------
 
-fn level2(result: &Result<NoiseReduction2DLevel, Error>) -> String {
+fn level2(result: &Result<NoiseReduction2D, Error>) -> String {
     result
         .as_ref()
         .map_or_else(|_| "ERR".to_owned(), |level| level.value().to_string())
 }
 
-fn level3(result: &Result<NoiseReduction3DLevel, Error>) -> String {
+fn level3(result: &Result<NoiseReduction3D, Error>) -> String {
     result
         .as_ref()
         .map_or_else(|_| "ERR".to_owned(), |level| level.value().to_string())
@@ -354,9 +351,9 @@ fn mode2(result: &Result<NoiseReduction2DMode, Error>) -> String {
 struct NrGuard<'a, P: WireRowProfile> {
     camera: &'a Camera<P>,
     hw: Hw,
-    orig_2d: Option<NoiseReduction2DLevel>,
+    orig_2d: Option<NoiseReduction2D>,
     orig_mode: Option<NoiseReduction2DMode>,
-    orig_3d: Option<NoiseReduction3DLevel>,
+    orig_3d: Option<NoiseReduction3D>,
     dirty_2d: Cell<bool>,
     dirty_3d: Cell<bool>,
 }
@@ -372,7 +369,10 @@ impl<P: WireRowProfile> NrGuard<'_, P> {
         }
         let hw = &self.hw;
         if let Some(level) = self.orig_2d {
-            let result = self.camera.image().set_noise_reduction_2d(level);
+            let result = match level {
+                NoiseReduction2D::Off => self.camera.image().disable_noise_reduction_2d(),
+                NoiseReduction2D::Level(level) => self.camera.image().set_noise_reduction_2d(level),
+            };
             observe(hw, "restore.nr2d.set", &result);
             sleep(SETTLE_DELAY);
         }
@@ -394,7 +394,10 @@ impl<P: WireRowProfile> NrGuard<'_, P> {
         }
         let hw = &self.hw;
         if let Some(level) = self.orig_3d {
-            let result = self.camera.image().set_noise_reduction_3d(level);
+            let result = match level {
+                NoiseReduction3D::Off => self.camera.image().disable_noise_reduction_3d(),
+                NoiseReduction3D::Level(level) => self.camera.image().set_noise_reduction_3d(level),
+            };
             observe(hw, "restore.nr3d.set", &result);
             sleep(SETTLE_DELAY);
         }
@@ -405,9 +408,9 @@ impl<P: WireRowProfile> NrGuard<'_, P> {
     fn report_restored(
         &self,
     ) -> (
-        Result<NoiseReduction2DLevel, Error>,
+        Result<NoiseReduction2D, Error>,
         Result<NoiseReduction2DMode, Error>,
-        Result<NoiseReduction3DLevel, Error>,
+        Result<NoiseReduction3D, Error>,
     ) {
         let hw = &self.hw;
         let nr2d = self.camera.image().noise_reduction_2d();
@@ -489,9 +492,8 @@ fn nr_zero_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Checks
     // 2D first. The mode is never changed by the test body itself; whether the
     // level setter changes it is recorded, not asserted.
     if guard.orig_2d.is_some() {
-        let zero = NoiseReduction2DLevel::new(0)?;
         guard.dirty_2d.set(true);
-        let set = camera.image().set_noise_reduction_2d(zero);
+        let set = camera.image().disable_noise_reduction_2d();
         observe(hw, "nr2d.set_level_zero", &set);
         sleep(SETTLE_DELAY);
         let level = camera.image().noise_reduction_2d();
@@ -515,9 +517,8 @@ fn nr_zero_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Checks
 
     // Then 3D.
     if guard.orig_3d.is_some() {
-        let zero = NoiseReduction3DLevel::new(0)?;
         guard.dirty_3d.set(true);
-        let set = camera.image().set_noise_reduction_3d(zero);
+        let set = camera.image().disable_noise_reduction_3d();
         observe(hw, "nr3d.set_level_zero", &set);
         sleep(SETTLE_DELAY);
         let level = camera.image().noise_reduction_3d();
@@ -701,17 +702,38 @@ fn direct_zoom_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Ch
     let before = before?;
 
     let capabilities = camera.capabilities();
-    let optical_max = *capabilities.zoom_range_optical.end();
+    let optical_max = *capabilities
+        .zoom
+        .as_ref()
+        .expect("zoom domain")
+        .optical_range()
+        .as_inclusive()
+        .end();
     hw!(
         hw,
         "profile.zoom model_name={:?} optical_range=0x{:04X}..=0x{:04X} digital_range={:?} \
          optical_zoom_ratio={:?} supports_direct={}",
         capabilities.model_name,
-        capabilities.zoom_range_optical.start(),
+        capabilities
+            .zoom
+            .as_ref()
+            .expect("zoom domain")
+            .optical_range()
+            .as_inclusive()
+            .start(),
         optical_max,
-        capabilities.zoom_range_digital,
-        capabilities.optical_zoom_ratio,
-        capabilities.supports_direct_zoom
+        capabilities
+            .zoom
+            .as_ref()
+            .expect("zoom domain")
+            .digital_range()
+            .map(|range| range.as_inclusive()),
+        capabilities
+            .zoom
+            .as_ref()
+            .expect("zoom domain")
+            .optical_ratio,
+        capabilities.supports_direct_zoom()
     );
     hw!(
         hw,
@@ -774,7 +796,11 @@ fn direct_zoom_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Ch
              profile_optical_zoom_ratio={:?} model_name={:?}",
             position.value(),
             magnification(capabilities, position.value()),
-            capabilities.optical_zoom_ratio,
+            capabilities
+                .zoom
+                .as_ref()
+                .expect("zoom domain")
+                .optical_ratio,
             capabilities.model_name
         );
     }
@@ -845,21 +871,54 @@ fn absolute_pan_tilt_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Res
         hw,
         "profile.pan_tilt pan_range={:?} tilt_range={:?} pan_speed_range={:?} \
          tilt_speed_range={:?} pan_degrees_to_units={pan_units} tilt_degrees_to_units={tilt_units}",
-        capabilities.pan_range,
-        capabilities.tilt_range,
-        capabilities.pan_speed,
-        capabilities.tilt_speed
+        capabilities
+            .pan_tilt
+            .as_ref()
+            .expect("pan/tilt domain")
+            .pan_range
+            .as_inclusive(),
+        capabilities
+            .pan_tilt
+            .as_ref()
+            .expect("pan/tilt domain")
+            .tilt_ranges
+            .range(None)
+            .as_inclusive(),
+        capabilities
+            .pan_tilt
+            .as_ref()
+            .expect("pan/tilt domain")
+            .pan_speed
+            .as_inclusive(),
+        capabilities
+            .pan_tilt
+            .as_ref()
+            .expect("pan/tilt domain")
+            .tilt_speed
+            .as_inclusive()
     );
 
     let target_pan = p0.pan + PAN_OFFSET_RAW;
     let target_tilt = p0.tilt;
-    if !capabilities.pan_range.contains(&target_pan) {
+    if !capabilities
+        .pan_tilt
+        .as_ref()
+        .expect("pan/tilt domain")
+        .pan_range
+        .as_inclusive()
+        .contains(&target_pan)
+    {
         // The typed API would reject this target; never substitute another
         // direction or offset silently.
         hw!(
             hw,
             "SKIP_RANGE pan target {target_pan} is outside {:?}; no motion issued",
-            capabilities.pan_range
+            capabilities
+                .pan_tilt
+                .as_ref()
+                .expect("pan/tilt domain")
+                .pan_range
+                .as_inclusive()
         );
         report_restored(camera, hw);
         checks.check(hw, "pan_target_in_range", false);
@@ -869,8 +928,24 @@ fn absolute_pan_tilt_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Res
     let conversion = PanTiltCoordinateConversion::for_profile::<P>();
     let pan_degrees = conversion.pan_degrees(target_pan);
     let tilt_degrees = conversion.tilt_degrees(target_tilt);
-    let pan_speed = slowest_speed(&capabilities.pan_speed, slowest.to_pan_speed());
-    let tilt_speed = slowest_speed(&capabilities.tilt_speed, slowest.to_tilt_speed());
+    let pan_speed = slowest_speed(
+        &capabilities
+            .pan_tilt
+            .as_ref()
+            .expect("pan/tilt domain")
+            .pan_speed
+            .as_inclusive(),
+        slowest.to_pan_speed(),
+    );
+    let tilt_speed = slowest_speed(
+        &capabilities
+            .pan_tilt
+            .as_ref()
+            .expect("pan/tilt domain")
+            .tilt_speed
+            .as_inclusive(),
+        slowest.to_tilt_speed(),
+    );
     hw!(
         hw,
         "pan_tilt.target raw=({target_pan},{target_tilt}) degrees=({pan_degrees},{tilt_degrees}) \
@@ -931,7 +1006,7 @@ fn slowest_speed(range: &std::ops::RangeInclusive<u8>, level_speed: u8) -> u8 {
 
 /// Encodes `request` for `target` through the request's own wire encoder.
 fn encode<R: Request>(request: &R, target: CameraId) -> Result<Vec<u8>, Error> {
-    let mut buffer = vec![0; request.encoded_size()];
+    let mut buffer = vec![0; R::MAX_SIZE];
     let written = request.write_into(target, &mut buffer)?;
     buffer.truncate(written);
     Ok(buffer)
@@ -1142,7 +1217,11 @@ fn shutter_body<P: WireRowProfile>(
 ) -> Result<Checks, Error> {
     let mut checks = Checks::default();
     let capabilities = camera.capabilities();
-    let table = &capabilities.shutter_speeds;
+    let table = &capabilities
+        .exposure
+        .as_ref()
+        .expect("exposure domain")
+        .shutter_speeds;
     for entry in table {
         hw!(
             hw,
@@ -1188,9 +1267,7 @@ fn shutter_body<P: WireRowProfile>(
         hw: *hw,
         raw_inquiry: raw::Inquiry::from_fn(
             encode(&ShutterInquiry, target)?,
-            InquiryRoute::RAW,
             payload_bytes,
-            TimeoutClass::Inquiry,
             RetryClass::Inquiry,
             ControlClass::Normal,
         )?,
@@ -1419,16 +1496,40 @@ fn tilt_polarity_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<
     hw!(
         hw,
         "profile.pan_tilt tilt_range={:?} tilt_degrees_to_units={} pan_tolerance_raw={PAN_TOLERANCE_RAW}",
-        capabilities.tilt_range,
+        capabilities.pan_tilt.as_ref().expect("pan/tilt domain").tilt_ranges.range(None).as_inclusive(),
         <P as PanTilt>::TILT_DEGREES_TO_UNITS
     );
     // An axis at a limit cannot show a change; never move it there.
-    if p0.tilt <= *capabilities.tilt_range.start() || p0.tilt >= *capabilities.tilt_range.end() {
+    if p0.tilt
+        <= *capabilities
+            .pan_tilt
+            .as_ref()
+            .expect("pan/tilt domain")
+            .tilt_ranges
+            .range(None)
+            .as_inclusive()
+            .start()
+        || p0.tilt
+            >= *capabilities
+                .pan_tilt
+                .as_ref()
+                .expect("pan/tilt domain")
+                .tilt_ranges
+                .range(None)
+                .as_inclusive()
+                .end()
+    {
         hw!(
             hw,
             "SKIP_RANGE tilt {} is at a limit of {:?}; no motion issued",
             p0.tilt,
-            capabilities.tilt_range
+            capabilities
+                .pan_tilt
+                .as_ref()
+                .expect("pan/tilt domain")
+                .tilt_ranges
+                .range(None)
+                .as_inclusive()
         );
         report_restored(camera, hw);
         checks.check(hw, "tilt_start_inside_range", false);

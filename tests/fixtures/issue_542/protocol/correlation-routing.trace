@@ -1,37 +1,38 @@
-# Replayable boundary trace format: issue-542-protocol-correlation/v1
+# Replayable boundary trace format: issue-542-protocol-correlation/v3
 #
 # Records are ordered exactly as written. The first column is monotonic elapsed
 # time in microseconds. `transmit` and `frame` are engine inputs; `expect` is the
 # corresponding state effect or observer-visible outcome. The final column on
-# every expectation states the normative issue #542 rule being frozen.
-trace issue-542-protocol-correlation/v1
+# every expectation states the normative rule being frozen. Inquiry transmit
+# records declare their payload shape; textual payloads are decoded fixture bytes.
+trace issue-542-protocol-correlation/v3
 
 scenario sony-exact-out-of-order-and-target-compatible
-000000 | transmit | id=power-a target=1 kind=inquiry envelope=sony sequence=0x12340001 route=power
-000001 | transmit | id=zoom-a target=1 kind=inquiry envelope=sony sequence=0x12340002 route=zoom
-000002 | transmit | id=power-b target=2 kind=inquiry envelope=sony sequence=0x12340003 route=power
-000010 | frame | target=1 envelope=sony sequence=0x12340002 response=reply route=zoom payload=0x2345
-000010 | expect | observer=zoom-a outcome=reply:zoom:0x2345 | #542 exact Sony sequence matches are authoritative and target-compatible.
-000011 | frame | target=2 envelope=sony sequence=0x12340001 response=reply route=power payload=on
+000000 | transmit | id=power-a target=1 kind=inquiry envelope=sony sequence=0x12340001 shape=unknown
+000001 | transmit | id=zoom-a target=1 kind=inquiry envelope=sony sequence=0x12340002 shape=unknown
+000002 | transmit | id=power-b target=2 kind=inquiry envelope=sony sequence=0x12340003 shape=unknown
+000010 | frame | target=1 envelope=sony sequence=0x12340002 response=reply payload=0x2345
+000010 | expect | observer=zoom-a outcome=reply:0x2345 | #542 exact Sony sequence matches are authoritative and target-compatible.
+000011 | frame | target=2 envelope=sony sequence=0x12340001 response=reply payload=on
 000011 | expect | observer=diagnostics outcome=ignored:target-incompatible-sequence | #542 exact Sony sequence matches are authoritative and target-compatible.
-000012 | frame | target=1 envelope=sony sequence=0x12340001 response=reply route=power payload=on
-000012 | expect | observer=power-a outcome=reply:power:on | #542 exact Sony sequence matches are authoritative and target-compatible.
-000013 | frame | target=2 envelope=sony sequence=0x12340003 response=reply route=power payload=off
-000013 | expect | observer=power-b outcome=reply:power:off | #542 decoded frames carry explicit target identity and the engine never recovers it from request bytes.
+000012 | frame | target=1 envelope=sony sequence=0x12340001 response=reply payload=on
+000012 | expect | observer=power-a outcome=reply:on | #542 exact Sony sequence matches are authoritative and target-compatible.
+000013 | frame | target=2 envelope=sony sequence=0x12340003 response=reply payload=off
+000013 | expect | observer=power-b outcome=reply:off | #542 decoded frames carry explicit target identity and the engine never recovers it from request bytes.
 end
 
 scenario sony-unique-lower16-collision-and-truncation
-000000 | transmit | id=unique target=1 kind=inquiry envelope=sony sequence=0x11115678 route=power
-000005 | frame | target=1 envelope=sony sequence=0x00005678 sequence-width=lower16 response=reply route=power payload=on
-000005 | expect | observer=unique outcome=reply:power:on | #542 unique lower-16-bit fallback is collision-safe.
-000010 | transmit | id=collision-a target=1 kind=inquiry envelope=sony sequence=0x2222BEEF route=zoom
-000011 | transmit | id=collision-b target=1 kind=inquiry envelope=sony sequence=0x3333BEEF route=focus
-000020 | frame | target=1 envelope=sony sequence=0x0000BEEF sequence-width=lower16 response=reply route=zoom payload=0x0100
+000000 | transmit | id=unique target=1 kind=inquiry envelope=sony sequence=0x11115678 shape=unknown
+000005 | frame | target=1 envelope=sony sequence=0x00005678 sequence-width=lower16 response=reply payload=on
+000005 | expect | observer=unique outcome=reply:on | #542 unique lower-16-bit fallback is collision-safe.
+000010 | transmit | id=collision-a target=1 kind=inquiry envelope=sony sequence=0x2222BEEF shape=unknown
+000011 | transmit | id=collision-b target=1 kind=inquiry envelope=sony sequence=0x3333BEEF shape=unknown
+000020 | frame | target=1 envelope=sony sequence=0x0000BEEF sequence-width=lower16 response=reply payload=0x0100
 000020 | expect | observer=diagnostics outcome=ignored:ambiguous-lower16-sequence | #542 unique lower-16-bit fallback is collision-safe.
-000021 | frame | target=1 envelope=sony sequence=0x3333BEEF response=reply route=focus payload=0x0200
-000021 | expect | observer=collision-b outcome=reply:focus:0x0200 | #542 exact Sony sequence matches are authoritative and target-compatible.
-000022 | frame | target=1 envelope=sony sequence=0x0000BEEF sequence-width=lower16 response=reply route=zoom payload=0x0100
-000022 | expect | observer=collision-a outcome=reply:zoom:0x0100 | #542 unique lower-16-bit fallback becomes valid only when exactly one target-compatible owner remains active.
+000021 | frame | target=1 envelope=sony sequence=0x3333BEEF response=reply payload=0x0200
+000021 | expect | observer=collision-b outcome=reply:0x0200 | #542 exact Sony sequence matches are authoritative and target-compatible.
+000022 | frame | target=1 envelope=sony sequence=0x0000BEEF sequence-width=lower16 response=reply payload=0x0100
+000022 | expect | observer=collision-a outcome=reply:0x0100 | #542 unique lower-16-bit fallback becomes valid only when exactly one target-compatible owner remains active.
 end
 
 scenario raw-command-target-and-socket
@@ -49,59 +50,62 @@ scenario raw-command-target-and-socket
 000014 | expect | observer=target1-command outcome=applied | #542 completion releases all target and socket ownership and emits Applied for the exact request.
 end
 
-scenario raw-inquiry-content-then-per-target-fifo
-000000 | transmit | id=t1-power-first target=1 kind=inquiry envelope=raw route=power
-000001 | transmit | id=t1-zoom target=1 kind=inquiry envelope=raw route=zoom
-000002 | transmit | id=t1-power-second target=1 kind=inquiry envelope=raw route=power
-000003 | transmit | id=t2-power target=2 kind=inquiry envelope=raw route=power
-000010 | frame | target=1 envelope=raw response=reply route=zoom payload=0x3456
-000010 | expect | observer=t1-zoom outcome=reply:zoom:0x3456 | #542 raw inquiry replies use route and content matching before FIFO fallback.
-000011 | frame | target=2 envelope=raw response=reply route=unknown payload=off
-000011 | expect | observer=t2-power outcome=reply:unknown:off | #542 raw inquiry FIFO fallback is established independently for each target.
-000012 | frame | target=1 envelope=raw response=reply route=power payload=on
-000012 | expect | observer=t1-power-first outcome=reply:power:on | #542 ambiguous raw inquiry content matching falls back to the established per-target FIFO.
-000013 | frame | target=1 envelope=raw response=reply route=unknown payload=off
-000013 | expect | observer=t1-power-second outcome=reply:unknown:off | #542 absent raw inquiry content matching falls back to the established per-target FIFO.
+scenario raw-inquiry-per-target-disjoint-shapes
+000000 | transmit | id=t1-power-first target=1 kind=inquiry envelope=raw shape=bytes:6
+000001 | transmit | id=t1-zoom target=1 kind=inquiry envelope=raw shape=bytes:2
+000002 | transmit | id=t1-power-second target=1 kind=inquiry envelope=raw shape=bytes:3
+000003 | transmit | id=t2-power target=2 kind=inquiry envelope=raw shape=bytes:3
+000010 | frame | target=1 envelope=raw response=reply payload=0x3456
+000010 | expect | observer=t1-power-first outcome=reply:0x3456 | #892 raw inquiry data binds only a live target-compatible declaration that admits its payload.
+000011 | frame | target=2 envelope=raw response=reply payload=off
+000011 | expect | observer=t2-power outcome=reply:off | #892 shape routing remains independent for each target.
+000012 | frame | target=1 envelope=raw response=reply payload=on
+000012 | expect | observer=t1-zoom outcome=reply:on | #892 raw inquiry data binds only a live target-compatible declaration that admits its payload.
+000013 | frame | target=1 envelope=raw response=reply payload=off
+000013 | expect | observer=t1-power-second outcome=reply:off | #892 raw inquiry data binds only a live target-compatible declaration that admits its payload.
 end
 
 scenario raw-error-unique-evidence-and-authority
 000000 | transmit | id=command-alone target=1 kind=command envelope=raw
 000001 | frame | target=1 envelope=raw response=error code=0x01
 000001 | expect | observer=command-alone outcome=error:0x01 | #542 socketless raw errors route a unique unacknowledged command only without an inquiry owner.
-000002 | transmit | id=inquiry-first target=1 kind=inquiry envelope=raw route=power
-000003 | transmit | id=inquiry-second target=1 kind=inquiry envelope=raw route=zoom
+000002 | transmit | id=inquiry-first target=1 kind=inquiry envelope=raw shape=bytes:2
+000003 | transmit | id=inquiry-second target=1 kind=inquiry envelope=raw shape=bytes:3
 000004 | frame | target=1 envelope=raw response=error code=0x01
-000004 | expect | observer=inquiry-first outcome=error:0x01 | #542 socketless raw errors use per-target inquiry FIFO only without an unacknowledged command.
+000004 | expect | observer=diagnostics outcome=ignored:unmatched-raw-frame | #892 a socketless error carries no shape and cannot choose between two disjoint live inquiries.
+000005 | frame | target=1 envelope=raw response=reply payload=on
+000005 | expect | observer=inquiry-first outcome=reply:on | #892 structural data resolves the matching declaration.
 000005 | frame | target=1 envelope=raw response=error code=0x01
-000005 | expect | observer=inquiry-second outcome=error:0x01 | #542 socketless raw errors use per-target inquiry FIFO only without an unacknowledged command.
-000006 | transmit | id=collision-inquiry target=1 kind=inquiry envelope=raw route=power
-000007 | transmit | id=collision-command target=1 kind=command envelope=raw
-000008 | frame | target=1 envelope=raw response=error code=0x03
-000008 | expect | observer=diagnostics outcome=ignored:unmatched-raw-frame | #542 ambiguous socketless raw errors leave both live requests authoritative without terminal or retry.
-000009 | frame | target=1 envelope=raw response=reply route=power payload=on
-000009 | expect | observer=collision-inquiry outcome=reply:power:on | #542 raw inquiry replies use route and content matching before FIFO fallback.
-000010 | frame | target=1 envelope=raw response=ack socket=1
-000010 | expect | observer=engine outcome=ack:collision-command:target=1:socket=1 | #542 raw command ACK and completion attribution is keyed by target and socket together.
-000011 | frame | target=1 envelope=raw response=completion socket=1
-000011 | expect | observer=collision-command outcome=applied | #542 completion releases all target and socket ownership and emits Applied for the exact request.
-000012 | transmit | id=free-socket-inquiry target=1 kind=inquiry envelope=raw route=power
-000013 | transmit | id=free-socket-command target=1 kind=command envelope=raw
-000014 | frame | target=1 envelope=raw response=error socket=2 code=0x01
-000014 | expect | observer=free-socket-command outcome=error:0x01 | #542 a named raw error on a free, unheld socket routes the unique unacknowledged command; an inquiry is never allocated a socket, so its error is socketless.
-000015 | frame | target=1 envelope=raw response=reply route=power payload=on
-000015 | expect | observer=free-socket-inquiry outcome=reply:power:on | #542 raw inquiry replies use route and content matching before FIFO fallback.
-000016 | transmit | id=executing-command target=1 kind=command envelope=raw
-000017 | frame | target=1 envelope=raw response=ack socket=1
-000017 | expect | observer=engine outcome=ack:executing-command:target=1:socket=1 | #542 raw command ACK and completion attribution is keyed by target and socket together.
-000018 | frame | target=1 envelope=raw response=error code=0x01
-000018 | expect | observer=diagnostics outcome=ignored:unmatched-raw-frame | #542 socketless raw errors never target an already Executing command.
-000019 | transmit | id=pending-command target=1 kind=command envelope=raw
-000020 | frame | target=1 envelope=raw response=error socket=1 code=0x01
-000020 | expect | observer=diagnostics outcome=ignored:unmatched-raw-frame | #542 a named raw error on a busy socket is ambiguous while another command is unacknowledged.
-000021 | frame | target=1 envelope=raw response=ack socket=2
-000021 | expect | observer=engine outcome=ack:pending-command:target=1:socket=2 | #542 raw command ACK and completion attribution is keyed by target and socket together.
-000022 | frame | target=1 envelope=raw response=error socket=1 code=0x01
-000022 | expect | observer=executing-command outcome=error-after-ack:0x01 | #542 a named raw error socket resolves only its exact target/socket owner.
+000005 | expect | observer=inquiry-second outcome=error:0x01 | #542 a socketless error resolves a unique inquiry only without an unacknowledged command.
+# Allow the prior inquiry error's 50ms reply-skew hold to end before the independent collision and socket cases.
+050006 | transmit | id=collision-inquiry target=1 kind=inquiry envelope=raw shape=bytes:2
+050007 | transmit | id=collision-command target=1 kind=command envelope=raw
+050008 | frame | target=1 envelope=raw response=error code=0x03
+050008 | expect | observer=diagnostics outcome=ignored:unmatched-raw-frame | #542 ambiguous socketless raw errors leave both live requests authoritative without terminal or retry.
+050009 | frame | target=1 envelope=raw response=reply payload=on
+050009 | expect | observer=collision-inquiry outcome=reply:on | #892 raw inquiry data binds only a live target-compatible declaration that admits its payload.
+050010 | frame | target=1 envelope=raw response=ack socket=1
+050010 | expect | observer=engine outcome=ack:collision-command:target=1:socket=1 | #542 raw command ACK and completion attribution is keyed by target and socket together.
+050011 | frame | target=1 envelope=raw response=completion socket=1
+050011 | expect | observer=collision-command outcome=applied | #542 completion releases all target and socket ownership and emits Applied for the exact request.
+050012 | transmit | id=free-socket-inquiry target=1 kind=inquiry envelope=raw shape=bytes:2
+050013 | transmit | id=free-socket-command target=1 kind=command envelope=raw
+050014 | frame | target=1 envelope=raw response=error socket=2 code=0x01
+050014 | expect | observer=free-socket-command outcome=error:0x01 | #542 a named raw error on a free, unheld socket routes the unique unacknowledged command; an inquiry is never allocated a socket, so its error is socketless.
+050015 | frame | target=1 envelope=raw response=reply payload=on
+050015 | expect | observer=free-socket-inquiry outcome=reply:on | #892 raw inquiry data binds only a live target-compatible declaration that admits its payload.
+050016 | transmit | id=executing-command target=1 kind=command envelope=raw
+050017 | frame | target=1 envelope=raw response=ack socket=1
+050017 | expect | observer=engine outcome=ack:executing-command:target=1:socket=1 | #542 raw command ACK and completion attribution is keyed by target and socket together.
+050018 | frame | target=1 envelope=raw response=error code=0x01
+050018 | expect | observer=diagnostics outcome=ignored:unmatched-raw-frame | #542 socketless raw errors never target an already Executing command.
+050019 | transmit | id=pending-command target=1 kind=command envelope=raw
+050020 | frame | target=1 envelope=raw response=error socket=1 code=0x01
+050020 | expect | observer=diagnostics outcome=ignored:unmatched-raw-frame | #542 a named raw error on a busy socket is ambiguous while another command is unacknowledged.
+050021 | frame | target=1 envelope=raw response=ack socket=2
+050021 | expect | observer=engine outcome=ack:pending-command:target=1:socket=2 | #542 raw command ACK and completion attribution is keyed by target and socket together.
+050022 | frame | target=1 envelope=raw response=error socket=1 code=0x01
+050022 | expect | observer=executing-command outcome=error-after-ack:0x01 | #542 a named raw error socket resolves only its exact target/socket owner.
 end
 
 scenario sony-stale-duplicate-and-unmatched-never-fallback

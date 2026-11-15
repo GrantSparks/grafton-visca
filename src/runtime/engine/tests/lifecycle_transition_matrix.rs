@@ -32,7 +32,7 @@ impl State {
 
     fn of(phase: Phase) -> Self {
         match phase {
-            Phase::Ready { .. } => Self::Ready,
+            Phase::Ready => Self::Ready,
             Phase::Sending { .. } => Self::Sending,
             Phase::AwaitingAck { .. } => Self::AwaitingAck,
             Phase::AwaitingCompletion { .. } => Self::AwaitingCompletion,
@@ -190,15 +190,16 @@ const EXPECTED: [[Expected; 9]; 8] = [
     ],
 ];
 
-/// The architecture's sixteen admissible flattened pairs, independently of
+/// The architecture's fifteen admissible flattened pairs, independently of
 /// which combinations the stored lifecycle type can represent.
 fn pair_is_admissible(phase: Phase, cancellation: CancelState) -> bool {
     match phase {
-        Phase::Ready { .. }
+        Phase::Ready
+        | Phase::Sending { .. }
         | Phase::Backoff { .. }
         | Phase::AwaitingReply { .. }
         | Phase::AwaitingCompletion { .. } => matches!(cancellation, CancelState::None),
-        Phase::Sending { .. } | Phase::AwaitingAck { .. } => {
+        Phase::AwaitingAck { .. } => {
             matches!(
                 cancellation,
                 CancelState::None | CancelState::Requested { .. }
@@ -231,7 +232,7 @@ pub(super) fn all_entries_have_admissible_pairs(engine: &ProtocolEngine) -> bool
 }
 
 fn checked_input(engine: &mut ProtocolEngine, input: Input, now: Instant) -> Vec<Effect> {
-    let effects = engine.handle_turn(input, now, EngineTurn::INPUT_ONLY);
+    let effects = engine.handle_turn(input, now, EngineTurn::InputOnly);
     assert!(all_entries_have_admissible_pairs(engine));
     engine.assert_invariants().unwrap();
     effects
@@ -249,7 +250,7 @@ impl Fixture {
         let now = Instant::now();
         let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
         let mut request = match state {
-            AwaitingReply => inquiry(1, POWER),
+            AwaitingReply => inquiry(1),
             AwaitingCompletion => command_with_reply_shape(
                 1,
                 CancellationPolicy::Supported,
@@ -279,8 +280,9 @@ impl Fixture {
                 checked_input(
                     &mut engine,
                     Input::TransmissionFinished {
+                        request: id,
                         transmission,
-                        result: Ok(TransmissionMeta { sequence: None }),
+                        result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
                     },
                     now,
                 );
@@ -319,8 +321,9 @@ impl Fixture {
             checked_input(
                 &mut engine,
                 Input::TransmissionFinished {
+                    request: id,
                     transmission,
-                    result: Ok(TransmissionMeta { sequence: None }),
+                    result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
                 },
                 now,
             );
@@ -338,12 +341,16 @@ impl Fixture {
         let input = match action {
             Action::Dispatch => return self.engine.advance(self.now),
             Action::WriteOk => Input::TransmissionFinished {
+                request: self.id,
                 transmission: self.transmission,
-                result: Ok(TransmissionMeta { sequence: None }),
+                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
             },
             Action::WriteFailed => Input::TransmissionFinished {
+                request: self.id,
                 transmission: self.transmission,
-                result: Err(Error::TransportError("matrix write failed".into())),
+                result: WriteOutcome::Failed(Error::transport_error(std::io::Error::other(
+                    "matrix write failed",
+                ))),
             },
             Action::Ack => frame(
                 1,
@@ -365,8 +372,9 @@ impl Fixture {
             Action::Due => {
                 let entry = self.engine.entry(self.id).unwrap();
                 let due = match entry.phase() {
-                    Phase::Ready { .. } | Phase::Sending { .. } => {
-                        entry.submitted_at + entry.request.context().retry.total_budget
+                    Phase::Ready | Phase::Sending { .. } => {
+                        entry.submitted_at
+                            + entry.request.context().retry.total_budget.unwrap().get()
                     }
                     Phase::Backoff { ready_at, .. } => ready_at,
                     Phase::AwaitingAck { deadline, .. }
@@ -378,7 +386,9 @@ impl Fixture {
                 return self.engine.advance(due);
             }
             Action::ReceiveFault => Input::ReceiveFault {
-                error: Error::TransportError("matrix transient receive fault".into()),
+                error: Error::transport_error(std::io::Error::other(
+                    "matrix transient receive fault",
+                )),
             },
         };
         checked_input(&mut self.engine, input, self.now)
@@ -400,22 +410,34 @@ fn assert_expected(fixture: &Fixture, effects: &[Effect], expected: Expected) {
     }
     assert!(fixture.engine.entry(fixture.id).is_none());
     let outcome = terminal_outcome(effects, fixture.id).expect("one terminal outcome");
-    let correct = match expected {
-        Applied => matches!(&outcome, RuntimeOutcome::Applied),
-        Cancelled => matches!(&outcome, RuntimeOutcome::Cancelled),
-        WriteFailure => {
-            matches!(&outcome, RuntimeOutcome::Failed(Error::TransportError(message)) if message.as_ref() == "matrix write failed")
+    let protocol_outcome = match &outcome {
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) => {
+            RuntimeOutcome::Failed(source.as_ref().clone())
         }
-        SyntaxFailure => matches!(&outcome, RuntimeOutcome::Failed(Error::SyntaxError)),
+        outcome => outcome.clone(),
+    };
+    let correct = match expected {
+        Applied => matches!(&protocol_outcome, RuntimeOutcome::Applied),
+        Cancelled => matches!(&protocol_outcome, RuntimeOutcome::Cancelled),
+        WriteFailure => {
+            matches!(&protocol_outcome, RuntimeOutcome::Failed(Error::TransportError { source: message, .. }) if message.to_string().ends_with("matrix write failed"))
+        }
+        SyntaxFailure => matches!(
+            &protocol_outcome,
+            RuntimeOutcome::Failed(Error::SyntaxError)
+        ),
         AfterAckFailure => {
-            matches!(&outcome, RuntimeOutcome::Failed(Error::CommandFailedAfterAck { source, .. }) if matches!(source.as_ref(), Error::SyntaxError))
+            matches!(&protocol_outcome, RuntimeOutcome::Failed(Error::CommandFailedAfterAck { source, .. }) if matches!(source.as_ref(), Error::SyntaxError))
         }
         Unconfirmed => matches!(
-            outcome,
+            protocol_outcome,
             RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed)
         ),
         UnwrittenBudgetTimeout | InquiryTimeout => {
-            matches!(&outcome, RuntimeOutcome::Failed(Error::Timeout { .. }))
+            matches!(
+                &protocol_outcome,
+                RuntimeOutcome::Failed(Error::Timeout { .. })
+            )
         }
         Live(_) => unreachable!("live outcome was checked above"),
     };
@@ -448,6 +470,9 @@ fn every_lifecycle_state_matches_the_architecture_input_table() {
     let mut cells = 0;
     for (row, state) in State::ALL.into_iter().enumerate() {
         for (column, action) in Action::ALL.into_iter().enumerate() {
+            if state == Sending && !matches!(action, Action::WriteOk | Action::WriteFailed) {
+                continue; // A write result precedes every unrelated boundary input.
+            }
             let mut fixture = Fixture::new(state);
             let effects = fixture.apply(action);
             assert_expected(&fixture, &effects, EXPECTED[row][column]);
@@ -459,7 +484,8 @@ fn every_lifecycle_state_matches_the_architecture_input_table() {
 
             if action == Action::Cancel {
                 match state {
-                    Sending | AwaitingAck => assert!(matches!(
+                    Sending => unreachable!("Sending accepts only its write result"),
+                    AwaitingAck => assert!(matches!(
                         fixture.engine.entry(fixture.id).unwrap().cancellation(),
                         CancelState::Requested { .. }
                     )),
@@ -510,34 +536,14 @@ fn every_lifecycle_state_matches_the_architecture_input_table() {
                     Ready | Backoff => assert!(cancel_transmit_optional(&effects).is_none()),
                 }
             }
-            if action == Action::Ack && state == Sending {
-                // A raced ACK is latched, not merely ignored: confirming its
-                // write must use it immediately and establish the socket.
-                checked_input(
-                    &mut fixture.engine,
-                    Input::TransmissionFinished {
-                        transmission: fixture.transmission,
-                        result: Ok(TransmissionMeta { sequence: None }),
-                    },
-                    fixture.now,
-                );
-                assert_eq!(
-                    State::of(fixture.engine.entry(fixture.id).unwrap().phase()),
-                    Executing
-                );
-                assert_eq!(
-                    fixture.engine.socket_owner(camera(1), ViscaSocket::S1),
-                    Some(fixture.id)
-                );
-            }
             cells += 1;
         }
     }
-    assert_eq!(cells, 72);
+    assert_eq!(cells, 65);
 }
 
 #[test]
-fn flattened_pair_oracle_has_exactly_the_sixteen_documented_pairs() {
+fn flattened_pair_oracle_has_exactly_the_fifteen_documented_pairs() {
     let now = Instant::now();
     let transmission = TransmissionId::from_nonzero(NonZeroU64::new(999_999).unwrap());
     let cancellations = [
@@ -567,5 +573,5 @@ fn flattened_pair_oracle_has_exactly_the_sixteen_documented_pairs() {
             legal += usize::from(pair_is_admissible(phase, cancellation));
         }
     }
-    assert_eq!(legal, 16, "the documented pair set changed");
+    assert_eq!(legal, 15, "the documented pair set changed");
 }

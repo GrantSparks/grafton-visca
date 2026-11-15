@@ -2,7 +2,8 @@
 set -euo pipefail
 
 script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-helper="${script_directory}/verify-crate-payload.sh"
+helper="${VERIFY_CRATE_PAYLOAD_HELPER:-${script_directory}/verify-crate-payload.sh}"
+source "${script_directory}/expect-failure.sh"
 fixture_directory="$(mktemp -d)"
 trap 'rm -rf "${fixture_directory}"' EXIT
 
@@ -73,13 +74,17 @@ if [[ "$(<"${user_agent_record}")" != "${expected_user_agent}" ]]; then
 fi
 
 printf 'different fixture crate payload\n' > "${registry_directory}/download"
-if "${helper}" \
+expect_failure "${crate_name}@${crate_version} registry payload SHA-256 mismatch" \
+    "${helper}" \
     "${crate_name}" \
     "${crate_version}" \
     "${local_payload}" \
-    "file://${fixture_directory}/registry"; then
-    echo "expected a mismatched registry payload to fail" >&2
-    exit 1
-fi
+    "file://${fixture_directory}/registry"
+
+
+# Prove an unrelated command failure cannot stand in for a payload mismatch.
+expect_failure "failure did not contain: expected-payload-mismatch" \
+    expect_failure expected-payload-mismatch \
+    bash -c 'echo unrelated-download-failure >&2; exit 1'
 
 echo "verify-crate-payload self-test passed"

@@ -60,8 +60,8 @@ where
     );
     println!(
         "  Tilt range: {}..{} VISCA units",
-        P::TILT_RANGE.min(),
-        P::TILT_RANGE.max()
+        P::TILT_RANGES.range(None).min(),
+        P::TILT_RANGES.range(None).max()
     );
     println!("  Optical zoom max: 0x{:04X}", P::OPTICAL_ZOOM_MAX);
     println!("  Digital zoom max: {:?}", P::DIGITAL_ZOOM_MAX);
@@ -95,8 +95,8 @@ fn demonstrate_value_validation() {
     }
 
     println!(
-        "  Sony FR7 variable ND accepts midpoint value: {}",
-        sony.validate_nd_filter(128).is_ok()
+        "  Sony FR7 variable ND accepts maximum density code: {}",
+        sony.validate_nd_filter(0x14).is_ok()
     );
     println!();
 }
@@ -109,13 +109,13 @@ fn demonstrate_optional_capability_bounds() {
     requires_nd_filter::<SonyFR7>();
     requires_variable_speed::<SonyFR7>();
     requires_exposure_compensation::<PtzOpticsG2>();
-    requires_exposure_compensation::<SonyFR7>();
 
     // These lines intentionally do not compile if uncommented:
     // requires_nd_filter::<PtzOpticsG2>();
     // requires_variable_speed::<PtzOpticsG2>();
     // requires_push_af::<PtzOpticsG2>();
     // requires_focus_lock::<SonyFR7>();
+    // requires_exposure_compensation::<SonyFR7>(); // FR7 uses its own AE level family.
 }
 
 fn requires_focus_lock<P>()

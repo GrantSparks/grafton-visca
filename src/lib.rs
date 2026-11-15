@@ -346,19 +346,21 @@
 //! The library provides comprehensive parameter validation at multiple levels, ensuring
 //! commands are correct before being sent to the camera:
 //!
-//! ### Type-Safe Parameters with Conservative Defaults
-//! All parameter types provide conservative VISCA-compliant ranges by default:
+//! ### Checked Wire Parameters
+//! Parameter types cover the wire values used by the built-in profiles. Request
+//! preparation enforces the selected model's range. FR7 pan/tilt speeds above
+//! 24 also require session-confirmed Extended speed-step mode.
 //! ```rust
 //! use grafton_visca::types::{PanSpeed, SpeedLevel, ZoomSpeed};
 //!
 //! // All range types expose MIN/MAX constants for validation
 //! assert_eq!(PanSpeed::MIN.value(), 0);
-//! assert_eq!(PanSpeed::MAX.value(), 24);
+//! assert_eq!(PanSpeed::MAX.value(), 50);
 //!
 //! // Validated constructors provide clear error messages
-//! let speed = PanSpeed::new(15).expect("0..=24 is in range");
+//! let speed = PanSpeed::new(15).expect("0..=50 is in the wire domain");
 //! assert_eq!(speed.value(), 15);
-//! let error = PanSpeed::new(30).expect_err("25..=255 is out of range");
+//! let error = PanSpeed::new(51).expect_err("51..=255 is outside the wire domain");
 //! println!("{error}");
 //!
 //! // Speed types work seamlessly with SpeedLevel enum
@@ -414,9 +416,9 @@
 //!     let camera = session.camera();
 //!
 //!     // Quick starts are read-only by default.
-//!     let is_on = camera.power().state()?;
+//!     let power_status = camera.power().state()?;
 //!     let zoom = camera.zoom().position()?;
-//!     println!("Power: {is_on}, zoom: 0x{:04X}", zoom.value());
+//!     println!("Power: {power_status:?}, zoom: 0x{:04X}", zoom.value());
 //!
 //!     session.close()
 //! }
@@ -433,9 +435,9 @@
 //!     let session = Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
 //!     let camera = session.camera();
 //!
-//!     let is_on = camera.power().state().await?;
+//!     let power_status = camera.power().state().await?;
 //!     let zoom = camera.zoom().position().await?;
-//!     println!("Power: {is_on}, zoom: 0x{:04X}", zoom.value());
+//!     println!("Power: {power_status:?}, zoom: 0x{:04X}", zoom.value());
 //!
 //!     session.close().await
 //! }
@@ -461,8 +463,8 @@
 //!             Connect::open_tcp::<PtzOpticsG2, _>("192.168.0.110", runtime).await?;
 //!         let camera = session.camera();
 //!
-//!         let is_on = camera.power().state().await?;
-//!         println!("Power: {is_on}");
+//!         let power_status = camera.power().state().await?;
+//!         println!("Power: {power_status:?}");
 //!
 //!         session.close().await
 //!     })
@@ -487,8 +489,8 @@
 //!         let session = config.open_async(SmolRuntime::new()).await?;
 //!         let camera = session.camera();
 //!
-//!         let is_on = camera.power().state().await?;
-//!         println!("Power: {is_on}");
+//!         let power_status = camera.power().state().await?;
+//!         println!("Power: {power_status:?}");
 //!
 //!         session.close().await
 //!     })
@@ -554,8 +556,32 @@
 //! Runtime discovery metadata is available for every profile through
 //! `Capabilities::from_profile::<P>()`. Typed optional vendor controls use
 //! separate support markers, so the public API exposes only documented support:
-//! `SonyFR7` has typed ND filter and variable speed controls. Dyn-api callers
-//! can query the same permission model with `Capabilities::supports_typed(...)`;
+//! `SonyFR7` has typed ND filter and variable speed controls, plus separate
+//! exposure, white-balance, image, zoom and preset-setting families.
+//! For example, these settings configure white balance and a later preset
+//! recall without starting a recall:
+//!
+//! ```rust
+//! # #[cfg(feature = "blocking")]
+//! fn configure_fr7(
+//!     camera: &grafton_visca::blocking::Camera<grafton_visca::profiles::SonyFR7>,
+//! ) -> Result<(), grafton_visca::Error> {
+//!     use grafton_visca::{
+//!         command::{Fr7PresetSeparateMode, Fr7PresetSpeedSelection},
+//!         types::{Fr7PresetNumber, PresetDuration, WhiteKelvin},
+//!     };
+//!     camera.white_balance().preset()?;
+//!     camera.white_balance().set_preset_white(WhiteKelvin::new(5600)?)?;
+//!     let preset = Fr7PresetNumber::new(0)?;
+//!     camera.presets().select_speed(Fr7PresetSpeedSelection::Separate)?;
+//!     camera.presets().set_separate_mode(preset, Fr7PresetSeparateMode::Duration)?;
+//!     camera.presets().set_separate_duration(preset, PresetDuration::from_seconds(2.5)?)?;
+//!     Ok(())
+//! }
+//! ```
+//!
+//! Dyn-api callers can query the same permission model with
+//! `Capabilities::supports_typed(...)`;
 //! overlapping metadata fields remain discovery facts, not typed permission
 //! checks. Built-in PTZOptics profiles are not marked for typed Motion Sync from
 //! the current model capability specs.
@@ -939,7 +965,7 @@
 
 pub use grafton_visca_macros::{ViscaEnum, ViscaInquiry, ViscaValue};
 
-/// Implementation details used by exported declarative macros.
+/// Implementation details used by `visca_range_type!` and the supported derives.
 ///
 /// This is not a supported public API. It exists so macro expansions can refer
 /// to optional dependencies through the defining crate even when a downstream
@@ -953,14 +979,29 @@ pub mod __macro_support {
         crate::command::inquiry_structs::reply_value_error(error, payload)
     }
 
+    /// Build the canonical profile-aware inquiry decoder without boxed context.
+    #[doc(hidden)]
+    pub fn inquiry_decoder<R>(
+        kind: crate::command::InquiryKind,
+        profile: &crate::ProfileSpec,
+        lift: fn(crate::command::Response) -> crate::Result<R>,
+    ) -> crate::ResponseDecoder<R> {
+        crate::ResponseDecoder::for_builtin_profile(kind, profile, lift)
+    }
+
+    /// Return structural payload evidence from the canonical inquiry table.
+    #[doc(hidden)]
+    pub fn inquiry_payload_shape(
+        kind: crate::command::InquiryKind,
+        profile: Option<&crate::ProfileSpec>,
+    ) -> crate::PayloadShape {
+        crate::command::inquiry_structs::payload_shape_for_profile(kind, profile)
+    }
+
     #[doc(hidden)]
     pub use crate::command::bytes::constants::INQUIRY;
     #[doc(hidden)]
     pub use crate::command::bytes::{frame_len, write_frame};
-    #[doc(hidden)]
-    pub use crate::command::encode::WireEncode;
-    #[doc(hidden)]
-    pub use crate::macros::param::{IntoParamBuf, ParamBuf};
     #[doc(hidden)]
     pub use crate::macros::public::RangeInner;
     #[doc(hidden)]
@@ -974,25 +1015,25 @@ pub mod __macro_support {
 }
 
 pub use crate::{
-    camera_id::CameraId,
+    camera_id::{CameraId, IndividualCameraId},
     command::{
         AutoFocusSensitivity, AutoWhiteBalanceSensitivity, ExposureMode, FocusMode, MotionSyncMode,
         MotionSyncPreset, NdFilterMode, NdFilterPosition, PanTiltDirection, PanTiltLimitCorner,
-        PictureEffectMode, PresetNumber, WhiteBalanceMode,
+        PictureEffectMode, PowerStatus, PresetNumber, WhiteBalanceMode,
     },
-    error::{Certainty, Error, ErrorKind, FailureContext, FailureStage, Result},
+    error::{Certainty, Error, ErrorKind, FailureContext, FailureStage, Recovery, Result},
     inquiry_conversions::{zoom_from_normalized, PanTiltPositionDeg, ZoomDomain},
     types::{FocusSpeed, MotionSyncSpeed, SpeedLevel, ZoomSpeed},
     units::UnitInterval,
     visca_socket::ViscaSocket,
 };
 
-#[cfg(all(feature = "async", feature = "runtime-smol"))]
-pub use crate::executor::SmolExecutor;
-#[cfg(all(feature = "async", feature = "runtime-tokio"))]
-pub use crate::executor::TokioExecutor;
 #[cfg(feature = "async")]
-pub use crate::executor::{ExecError, Executor};
+pub use crate::executor::{ExecError, Executor, ResettableTimer};
+#[cfg(all(feature = "async", feature = "runtime-smol"))]
+pub use crate::executor::{SmolExecutor, SmolTimer};
+#[cfg(all(feature = "async", feature = "runtime-tokio"))]
+pub use crate::executor::{TokioExecutor, TokioTimer};
 
 #[cfg(all(feature = "async", feature = "runtime-smol"))]
 pub use crate::runtime::SmolRuntime;
@@ -1006,6 +1047,10 @@ pub(crate) mod macros;
 
 /// The single row table behind all three noun facades.
 pub(crate) mod noun_table;
+
+/// Shared native preparation and forwarding for camera views.
+#[cfg(any(feature = "blocking", feature = "async"))]
+mod camera_core;
 
 /// Shared expansion helpers for the noun facades.
 #[cfg(any(feature = "blocking", feature = "async"))]
@@ -1052,8 +1097,8 @@ pub mod raw;
 
 mod requests;
 pub use requests::{
-    AffectedAxes, AffectedAxis, AffectedAxisIter, ControlClass, Inquiry, InquiryRoute,
-    OperationCommand, PlainCommand, Request, ResponseDecoder, RetryClass, SubmissionClass,
+    AffectedAxes, AffectedAxis, AffectedAxisIter, ControlClass, Inquiry, OperationCommand,
+    PayloadShape, PlainCommand, Request, ResponseDecoder, RetryClass, SubmissionClass,
     TimeoutClass,
 };
 
@@ -1080,11 +1125,14 @@ pub use observability::{
 };
 #[cfg(any(feature = "blocking", feature = "async"))]
 pub use state_cache::StateCache;
-pub use state_cache::{PanTiltLimitUpdate, StateEntry, StateKey, StateValue};
+pub use state_cache::{KnownState, PanTiltLimitUpdate, StateEntry, StateKey};
 
 mod session_config;
 mod target;
 pub use session_config::{SessionConfig, DEFAULT_ADMISSION_CAPACITY};
+mod source_evidence;
+mod target_registration;
+pub use target_registration::{MountPosition, TargetRegistration};
 
 mod outcome;
 pub use outcome::{CancellationOutcome, HaltOutcome, HaltReport, Settlement};
@@ -1255,3 +1303,6 @@ mod usage_guide_snippets {}
 // Exhaustive literal-byte inventory tied to the built-in semantic ledger.
 #[cfg(test)]
 mod issue_715_wire_golden;
+
+#[cfg(all(test, any(feature = "blocking", feature = "async")))]
+mod issue_871_gates;

@@ -45,66 +45,86 @@ const EXPECTED_PROFILES: &[&str] = &[
     "GenericVisca",
 ];
 
-const EXPECTED_TYPED_GATES: &[&str] = &[
-    "DirectZoom",
-    "DigitalZoomToggle",
-    "DigitalZoomRange",
-    "IrisControl",
-    "OnePushFocus",
-    "PtzOpticsSnapFocus",
-    "FocusLock",
-    "PushAutoFocus",
-    "FocusZone",
-    "AutoFocusSensitivity",
-    "FocusNearLimitInquiry",
-    "BacklightCompensation",
-    "WideDynamicRange",
-    "ExposureCompensation",
-    "BrightnessControl",
-    "OnePushWhiteBalance",
-    "AutoTrackingWhiteBalance",
-    "AutoWhiteBalanceSensitivity",
-    "ColorTemperature",
-    "RgbGain",
-    "RgbTuning",
-    "ImageFlip",
-    "ImageMirror",
-    "CombinedImageFlip",
-    "ContrastControl",
-    "SharpnessControl",
-    "SaturationControl",
-    "HueControl",
-    "LuminanceControl",
-    "GammaControl",
-    "NoiseReduction2D",
-    "NoiseReduction3D",
-    "PictureEffect",
-    "Tally",
-    "DirectMenu",
-    "NdFilter",
-    "VariableSpeed",
-    "MotionSync",
-    "FocusZoneInquiry",
-    "UsbAudio",
-    "PtzOpticsAntiFlicker",
-    "PtzOpticsSettingsSave",
-    "PtzOpticsPresetRecallSpeed",
-    "SonySpotlight",
-    "SonyAutoSlowShutter",
-    "PtzOpticsMulticastStreaming",
-    "PtzOpticsNdiQuality",
-    "ExposureMode",
-    "IrisControlInquiry",
-    "NoiseReduction2DControl",
-    "NoiseReduction3DControl",
-    "ImageFreeze",
-    "DefogLevel",
-    "TallyBrightness",
-    "PtzOpticsTally",
-    "VersionInquiry",
-    "ColorTemperatureInquiry",
-    "NoiseReduction2DMode",
-];
+fn marked_names(document: &str, section: &str) -> Vec<String> {
+    let begin = format!("<!-- BEGIN {section} -->");
+    let end = format!("<!-- END {section} -->");
+    let (_, body) = document
+        .split_once(&begin)
+        .unwrap_or_else(|| panic!("missing {begin}"));
+    let (body, _) = body
+        .split_once(&end)
+        .unwrap_or_else(|| panic!("missing {end}"));
+    body.split('`')
+        .enumerate()
+        .filter(|(index, name)| {
+            index % 2 == 1
+                && !name.is_empty()
+                && name.chars().all(|ch| ch.is_alphanumeric() || ch == '_')
+        })
+        .map(|(_, name)| name.to_owned())
+        .collect()
+}
+
+fn assert_same_names(mut actual: Vec<String>, mut documented: Vec<String>, label: &str) {
+    actual.sort_unstable();
+    documented.sort_unstable();
+    assert!(
+        actual.windows(2).all(|pair| pair[0] != pair[1]),
+        "duplicate {label} source name"
+    );
+    assert!(
+        documented.windows(2).all(|pair| pair[0] != pair[1]),
+        "duplicate {label} document name"
+    );
+    assert_eq!(
+        actual, documented,
+        "{label} document must match production source"
+    );
+}
+
+/// Names exported by top-level `pub use` declarations, including aliases and
+/// grouped paths. Private and nested-module imports cannot satisfy this gate.
+fn public_use_names(source: &str) -> Vec<String> {
+    let tokens = source_scan::production_tokens(source);
+    let mut names = Vec::new();
+    let mut depth = 0;
+    let mut index = 0;
+    while index < tokens.len() {
+        if depth == 0
+            && tokens[index] == "pub"
+            && tokens.get(index + 1).is_some_and(|token| token == "use")
+        {
+            let start = index + 2;
+            let end = start
+                + tokens[start..]
+                    .iter()
+                    .position(|token| token == ";")
+                    .unwrap_or_else(|| panic!("unterminated public use"));
+            for (offset, token) in tokens[start..end].iter().enumerate() {
+                assert_ne!(
+                    token, "*",
+                    "closed utility inventories require explicit exports"
+                );
+                let next = tokens.get(start + offset + 1).map(String::as_str);
+                if token.chars().all(|ch| ch.is_alphanumeric() || ch == '_')
+                    && matches!(next, Some("," | "}" | ";"))
+                {
+                    assert_ne!(token, "self", "name a self export with an explicit alias");
+                    names.push(token.clone());
+                }
+            }
+            index = end + 1;
+            continue;
+        }
+        match tokens[index].as_str() {
+            "{" => depth += 1,
+            "}" => depth -= 1,
+            _ => {}
+        }
+        index += 1;
+    }
+    names
+}
 
 /// Pins the public static accessor names and makes each one a compile-time
 /// fact: every name must resolve in each enabled facade, so a renamed or
@@ -309,7 +329,14 @@ fn typed_capability_gate_inventory_is_closed() {
         .iter()
         .map(|gate| format!("{gate:?}"))
         .collect();
-    assert_eq!(actual, EXPECTED_TYPED_GATES);
+    assert_same_names(
+        actual,
+        marked_names(
+            include_str!("../docs/architecture_inventory.md"),
+            "OPTIONAL TYPED GATES",
+        ),
+        "optional typed gates",
+    );
 }
 
 #[test]
@@ -328,6 +355,26 @@ fn static_noun_and_control_inventory_is_closed() {
     blocking_accessors_resolve::<
         grafton_visca_test_support::profile_fixtures::OptionalSurfacesTypedSupport,
     >();
+
+    let noun_tokens = source_scan::production_tokens(include_str!("../src/noun_table.rs"));
+    let source_names: Vec<_> = noun_tokens
+        .windows(3)
+        .filter(|tokens| {
+            tokens[0] == "accessor" && tokens[1] == ":" && tokens[2].ends_with("Accessor")
+        })
+        .map(|tokens| tokens[2].clone())
+        .collect();
+    let documented = marked_names(
+        include_str!("../docs/architecture_inventory.md"),
+        "STATIC NOUNS",
+    );
+    assert_same_names(source_names.clone(), documented, "static nouns");
+    let mut compiled_names: Vec<_> = EXPECTED_ACCESSORS
+        .iter()
+        .map(|name| (*name).to_owned())
+        .collect();
+    compiled_names.push("MotionAccessor".to_owned());
+    assert_same_names(source_names, compiled_names, "compiled static nouns");
 
     let surface = declarations(include_str!("../src/command/surface.rs"));
     assert!(surface.contains("pub(crate) const fn surface_entry"));
@@ -408,7 +455,7 @@ fn ecosystem_derive_test_and_extension_inventory_is_documented() {
         "ViscaValue",
         "ScriptedBlockingTransport",
         "ScriptedTransport",
-        "DeterministicExecutor",
+        "ManualClockExecutor",
         "ViscaCameraSimulator",
         "Connect",
         "CameraConfig",
@@ -434,7 +481,6 @@ fn downstream_derive_inventory_compiles_and_preserves_behavior() {
         .write_into(CameraId::CAMERA_1, &mut wire)
         .expect("inventory inquiry must encode");
     assert_eq!(&wire[..len], &[0x81, 0x09, 0x04, 0x00, 0xFF]);
-    let _route = Inquiry::route(&InventoryInquiry);
     let _decoder = Inquiry::decoder(&InventoryInquiry);
 
     assert_eq!(
@@ -506,6 +552,44 @@ fn tcp_is_not_a_feature() {
     }
 }
 
+#[test]
+fn test_utility_inventory_matches_public_exports() {
+    let mut actual = public_use_names(include_str!("../src/testing/testkit/mod.rs"));
+    actual.extend(public_use_names(include_str!("../src/testing/mod.rs")));
+    assert_same_names(
+        actual,
+        marked_names(
+            include_str!("../docs/architecture_inventory.md"),
+            "STABLE TEST UTILITIES",
+        ),
+        "stable test utilities",
+    );
+}
+
+#[test]
+fn export_inventory_ignores_decoys_and_tracks_aliases() {
+    let source = r#"
+        // pub use fake::Comment;
+        const TEXT: &str = "pub use fake::Literal;";
+        #[cfg(test)]
+        mod tests { pub use fake::TestOnly; }
+        mod nested { pub use fake::Nested; }
+        pub(crate) use fake::Private;
+        pub use real::{One, Two as Renamed, nested::{Three}};
+        pub use real::Four;
+    "#;
+    assert_same_names(
+        public_use_names(source),
+        vec![
+            "One".into(),
+            "Renamed".into(),
+            "Three".into(),
+            "Four".into(),
+        ],
+        "export scanner fixture",
+    );
+}
+
 #[cfg(feature = "test-utils")]
 #[test]
 fn test_utility_inventory_compiles_in_the_selected_mode() {
@@ -516,6 +600,13 @@ fn test_utility_inventory_compiles_in_the_selected_mode() {
 
     let _ = helpers::ack(1);
     let _ = Step::after(Duration::ZERO, vec![]);
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    {
+        use grafton_visca::testing::testkit::{ClockJoinHandle, ClockParticipant, ManualClock};
+        let _: PhantomData<ManualClock> = PhantomData;
+        let _: PhantomData<ClockParticipant> = PhantomData;
+        let _: PhantomData<ClockJoinHandle<()>> = PhantomData;
+    }
 
     #[cfg(feature = "blocking")]
     {
@@ -526,16 +617,13 @@ fn test_utility_inventory_compiles_in_the_selected_mode() {
     #[cfg(feature = "async")]
     {
         use grafton_visca::testing::testkit::{
-            DeterministicClock, DeterministicExecutor, DeterministicExecutorExt, ScriptedTransport,
-            TestExecutorSelector, TestExecutorType, TestExecutors,
+            LocalExecutor, ManualClockExecutor, ManualClockTimer, ScriptedTransport, TaskJoin,
         };
-        let _: PhantomData<DeterministicClock> = PhantomData;
-        let _: PhantomData<DeterministicExecutor> = PhantomData;
-        let _: PhantomData<ScriptedTransport<()>> = PhantomData;
-        let _: PhantomData<TestExecutorType> = PhantomData;
-        let _: PhantomData<TestExecutors> = PhantomData;
-        fn _requires_deterministic_ext<T: DeterministicExecutorExt>() {}
-        fn _requires_selector<T: TestExecutorSelector>() {}
+        let _: PhantomData<ManualClockExecutor> = PhantomData;
+        let _: PhantomData<ManualClockTimer> = PhantomData;
+        let _: PhantomData<LocalExecutor> = PhantomData;
+        let _: PhantomData<TaskJoin<()>> = PhantomData;
+        let _: PhantomData<ScriptedTransport> = PhantomData;
     }
 
     #[cfg(feature = "runtime-tokio")]

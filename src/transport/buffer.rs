@@ -21,7 +21,8 @@ const SERIAL_FRAME_LIMIT: usize = 256;
 /// Stream retention bound shared by every preset.
 const DEFAULT_RETENTION_LIMIT: usize = 8192;
 
-/// The VISCA protocol bounds every message, replies included, to 16 bytes.
+/// The largest documented reply currently supported is sixteen bytes.
+/// Request capacity is separate: FR7 position commands need seventeen bytes.
 const MAX_VISCA_MESSAGE: usize = 16;
 
 /// Sony VISCA-over-IP prefixes each message with an 8-byte header.
@@ -38,10 +39,11 @@ const SONY_HEADER: usize = 8;
 ///   most bytes a single transport read requests. A larger datagram is
 ///   discarded. A larger raw stream frame that ends in `0xFF` is discarded
 ///   and counted as malformed input; the terminator preserves the next frame's
-///   boundary. An oversized Sony header is a framing failure that ends the
-///   session. The largest VISCA reply is 16 bytes (24 with a Sony header),
-///   which is [`BufferConfig::MIN_RECV_BUFFER_SIZE`]; every preset leaves
-///   ample headroom above it.
+///   boundary. An oversized Sony header ends a stream session because its
+///   next boundary is unknowable; a datagram is independently discarded and
+///   counted as malformed input. The receive floor reserves 16 payload bytes
+///   plus a Sony header ([`BufferConfig::MIN_RECV_BUFFER_SIZE`]); every preset
+///   leaves ample headroom above it.
 /// - [`max_buffer_size`](Self::max_buffer_size) bounds the **stream input
 ///   carried between reads**: an incomplete frame, or complete frames the
 ///   owner has not yet delivered. The framer always has room for one more full

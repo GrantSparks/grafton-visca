@@ -63,7 +63,7 @@ fn check_tcp(address: &str) -> Result<(), Error> {
     let camera = session.camera();
     let state = camera.power().state()?;
     session.close()?;
-    println!("  connected; power {}", if state { "on" } else { "off" });
+    println!("  connected; power {state:?}");
     Ok(())
 }
 
@@ -72,7 +72,7 @@ fn check_udp(address: &str) -> Result<(), Error> {
     let camera = session.camera();
     let state = camera.power().state()?;
     session.close()?;
-    println!("  connected; power {}", if state { "on" } else { "off" });
+    println!("  connected; power {state:?}");
     Ok(())
 }
 

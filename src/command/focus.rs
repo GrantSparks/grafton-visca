@@ -18,8 +18,8 @@ use crate::{
         encode::WireEncode,
     },
     error::Error,
+    macros::consolidated::visca_command,
     types::{FocusPosition, FocusSpeed},
-    visca_command,
 };
 
 /// Focus mode setting.
@@ -33,27 +33,6 @@ pub enum FocusMode {
     Auto = 0x02,
     /// Manual focus mode.
     Manual = 0x03,
-}
-
-/// Focus range setting.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub enum FocusRange {
-    /// Normal focus range.
-    Normal = 0x00,
-    /// 10x focus range.
-    Range10x = 0x01,
-    /// 4.3x focus range.
-    Range4_3x = 0x02,
-    /// 2.1x focus range.
-    Range2_1x = 0x03,
-    /// 1x focus range.
-    Range1x = 0x04,
-    /// 0.35x focus range.
-    Range0_35x = 0x05,
 }
 
 /// Focus control commands.
@@ -138,7 +117,7 @@ impl WireEncode for Focus {
 ///
 /// Decoding accepts every variant from any camera. Sending is gated per
 /// profile: the typed setter refuses a value outside
-/// [`Capabilities::focus_zones`](crate::capabilities::Capabilities::focus_zones)
+/// [`FocusCaps::zones`](crate::capabilities::FocusCaps::zones)
 /// before any I/O.
 #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]

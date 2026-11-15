@@ -11,7 +11,7 @@ fn main() {
     config.buffer_config = BufferConfig::for_raw_ip();
     let mut tolerance = MovementTolerance::default();
     tolerance.zoom = 1;
-    let _ = (config, tolerance, FrameMeta::new(Some(FrameSequence::Full32(1))));
+    let _ = (config, tolerance, FrameMeta::Sony { sequence: FrameSequence::Full32(1) });
     let error = Error::invalid_parameter("zoom", "invalid", "outside range");
     match error {
         Error::InvalidParameter { parameter, value, reason, .. } => {
@@ -46,8 +46,8 @@ fn main() {
         InquiryKind::Power => true,
         _ => false,
     };
-    let _ = match (InquiryData::Power { on: true }) {
-        InquiryData::Power { on } => on,
+    let _ = match (InquiryData::Power { status: grafton_visca::PowerStatus::On }) {
+        InquiryData::Power { status } => status.is_on(),
         _ => false,
     };
     let _ = FlipState { horizontal: false, vertical: true };

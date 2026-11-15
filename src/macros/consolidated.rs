@@ -1,39 +1,10 @@
-//! Consolidated macros for VISCA command implementation.
+//! Crate-private fixed-body and single-parameter built-in encoders.
 //!
-//! This module provides the unified macro interface as specified in issue #397.
-//! Primary macro: `visca_command!` for commands.
+//! Bodies omit the target address and terminator. The shared frame writer
+//! supplies both; parameter expressions are evaluated exactly once.
 
-/// Create a VISCA command that expects ACK/Completion responses.
-///
-/// `bytes` and `prefix` take the command's address-free body as an array
-/// expression — a literal list or a `[u8; N]` constant. The generated
-/// encoder writes the camera address byte, the body (and, for a parameter
-/// command, the encoded parameter) and the terminator through the crate's one
-/// frame writer.
-///
-/// A unit command also gets `Default` and a `const fn new()`.
-///
-/// # Examples
-///
-/// Simple command without parameters:
-/// ```ignore
-/// visca_command! {
-///     /// Power on the camera
-///     pub struct PowerOn;
-///     bytes = [0x01, 0x04, 0x00, 0x02];
-/// }
-/// ```
-///
-/// Command with parameters:
-/// ```ignore
-/// visca_command! {
-///     pub struct BacklightCommand { enabled: bool };
-///     prefix = [0x01, 0x04, 0x33];
-///     param = if *enabled { 0x02 } else { 0x03 };
-///     max_param_size = 1;
-/// }
-/// ```
-#[macro_export]
+/// Generate a built-in encoder with a fixed body or one bounded parameter.
+/// Unit commands also receive `Default` and a `const fn new()`.
 macro_rules! visca_command {
     // Simple command without parameters
     (
@@ -53,13 +24,13 @@ macro_rules! visca_command {
             }
         }
 
-        impl $crate::__macro_support::WireEncode for $name {
+        impl $crate::command::encode::WireEncode for $name {
             fn write_into(
                 &self,
                 camera_id: $crate::CameraId,
                 buffer: &mut [u8],
             ) -> ::core::result::Result<usize, $crate::Error> {
-                $crate::__macro_support::write_frame(camera_id, &[&$bytes], buffer)
+                $crate::command::bytes::write_frame(camera_id, &[&$bytes], buffer)
             }
         }
     };
@@ -80,16 +51,16 @@ macro_rules! visca_command {
             pub $field: $ftype,)*
         }
 
-        impl $crate::__macro_support::WireEncode for $name {
+        impl $crate::command::encode::WireEncode for $name {
             fn write_into(
                 &self,
                 camera_id: $crate::CameraId,
                 buffer: &mut [u8],
             ) -> ::core::result::Result<usize, $crate::Error> {
                 let Self { $($field),* } = self;
-                let params: $crate::__macro_support::ParamBuf<$max_param_size> =
-                    $crate::__macro_support::IntoParamBuf::<$max_param_size>::encode_param($param_expr);
-                $crate::__macro_support::write_frame(
+                let params: $crate::macros::param::ParamBuf<$max_param_size> =
+                    $crate::macros::param::IntoParamBuf::<$max_param_size>::encode_param($param_expr);
+                $crate::command::bytes::write_frame(
                     camera_id,
                     &[&$prefix, params.as_slice()],
                     buffer,
@@ -98,6 +69,8 @@ macro_rules! visca_command {
         }
     };
 }
+
+pub(crate) use visca_command;
 
 #[cfg(test)]
 #[allow(clippy::expect_used)]
@@ -121,6 +94,44 @@ mod tests {
 
     fn get_counter() -> usize {
         EVAL_COUNTER.with(|c| c.get())
+    }
+
+    const CONSTANT_BODY: [u8; 4] = [0x01, 0x04, 0x00, 0x03];
+    visca_command! {
+        /// Unit command with a constant array body.
+        pub struct FixedBody;
+        bytes = CONSTANT_BODY;
+    }
+    const FIXED: FixedBody = FixedBody::new();
+
+    #[test]
+    fn fixed_body_preserves_const_default_and_checked_capacity() {
+        fn default_value<T: Default>() -> T {
+            T::default()
+        }
+        let mut bytes = [0; 6];
+        assert_eq!(
+            FIXED
+                .write_into(CameraId::CAMERA_1, &mut bytes)
+                .expect("fixed body"),
+            6
+        );
+        assert_eq!(bytes, [0x81, 0x01, 0x04, 0x00, 0x03, 0xff]);
+        assert_eq!(
+            default_value::<FixedBody>()
+                .write_into(CameraId::CAMERA_2, &mut bytes)
+                .expect("default body"),
+            6
+        );
+        assert_eq!(bytes[0], 0x82);
+        assert!(matches!(
+            FIXED.write_into(CameraId::CAMERA_1, &mut []),
+            Err(crate::Error::BufferTooSmall {
+                required: 6,
+                actual: 0,
+                ..
+            })
+        ));
     }
 
     // Define a test command that uses a function with side effects

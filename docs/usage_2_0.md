@@ -23,6 +23,8 @@ Cargo feature a snippet needs.
 | Serialization/schema/typescript | `serde`, `schemars`, and `ts-rs` as needed |
 | Testkit steps and helpers | `test-utils` |
 | Scripted blocking transport | `test-utils,blocking` |
+| Manual owner clock and participation guard (`ManualClock`, `ClockParticipant`) | `test-utils,blocking` or `test-utils,async` |
+| Manual-clock async executor (`ManualClockExecutor`, `LocalExecutor`) | `test-utils,async` |
 | Async scripted transport and deterministic clock/executor | `test-utils,async` |
 | VISCA camera simulator | `test-utils,runtime-tokio` |
 
@@ -142,7 +144,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     use std::time::Duration;
     use grafton_visca::{
         blocking::Session,
-        capabilities::Capabilities,
+        capabilities::{Capabilities, PowerCaps},
         command::PowerOn,
         profile::{
             PositionInquirySupport, ProfileEnvelope, ProfileSpec, ProfileTiming,
@@ -153,8 +155,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     };
 
     let mut capabilities = Capabilities::runtime_baseline("Custom camera", 1)?;
-    capabilities.has_power = true;
-    capabilities.power_on_time = Duration::from_secs(1);
+    capabilities.power = Some(PowerCaps {
+        on_time: Duration::from_secs(1),
+        standby: None,
+        wake_on_lan: false,
+        retains_settings: false,
+        home_on_up: false,
+    });
 
     let timing = ProfileTiming::builder()
         .ack_timeout(Duration::from_millis(100))
@@ -174,7 +181,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .maximum_command_sockets(1)
         .supports_operation_complete(true)
         .supports_command_cancel(false)
-        .preset_recall_axes(None)
         .position_inquiries(PositionInquirySupport::new(false, false, false))
         .build()?;
 
@@ -457,12 +463,16 @@ it; see the scoped stop-on-exit guard in
 features describe data interchange and do not change protocol semantics.
 Persisted runtime profiles include every current fact key; an absent optional
 fact is explicit `null`, and a missing key requires rebuilding and persisting
-the current `ProfileSpec` (#855).
+the current `ProfileSpec` (#855). Unknown keys are refused at every level,
+including operational tuning, and the JSON Schema requires the same complete
+set of nullable fact keys. Standalone `ProfileTiming` deserialization runs
+the builder's validation (#875).
 
 `ViscaInquiry`, `ViscaEnum`, and `ViscaValue` are the supported downstream
 derive entry points. `test-utils` alone exposes `testkit::{Step, helpers}` for
 tests. Add `blocking` for `ScriptedBlockingTransport`; add `async` for
-`ScriptedTransport`, `DeterministicClock`, and `DeterministicExecutor`; and add
+`ScriptedTransport`, `LocalExecutor` and `ManualClockExecutor`; either facade exposes
+`ManualClock`, `ClockParticipant`, and `ClockJoinHandle`. Add
 `runtime-tokio` for `ViscaCameraSimulator`. It is not required by production
 applications.
 

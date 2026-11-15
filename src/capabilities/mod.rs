@@ -88,6 +88,11 @@ mod validation;
 pub use validation::ValidationError;
 
 // Structured capabilities response
+mod domains;
+pub use domains::{
+    EndpointQuantization, ExposureCaps, FocusCaps, FocusNearEnd, ImageCaps, PanTiltCaps, PowerCaps,
+    PresetCaps, RgbGainRanges, RgbTuningRanges, TiltRanges, WhiteBalanceCaps, ZoomCaps,
+};
 mod discovery;
 pub use discovery::Capabilities;
 #[cfg(test)]
@@ -100,14 +105,16 @@ pub(crate) use discovery::SurfaceMetadata;
 /// feature traits plus optional-feature metadata for runtime discovery.
 ///
 /// # Example
-/// ```ignore
-/// fn use_camera<P: Profile>(camera: &Camera<P>) {
+/// ```rust
+/// use grafton_visca::{capabilities::Profile, profiles::SonyFR7};
+///
+/// fn profile_facts<P: Profile>() {
 ///     // All capability traits are available
-///     let model = P::MODEL_NAME;
-///     let zoom_range = P::ZOOM_SPEED_RANGE;
-///     let inquiry = P::INQUIRY_SUPPORT;
-///     let has_motion_sync = P::MOTION_SYNC_SPEED_RANGE.is_some();
+///     let _facts = (P::MODEL_NAME, P::ZOOM_SPEED_RANGE, P::INQUIRY_SUPPORT);
+///     let _motion_sync = P::MOTION_SYNC_SPEED_RANGE;
+///     assert!((1..=7).contains(&P::DEFAULT_CAMERA_ID.value()));
 /// }
+/// profile_facts::<SonyFR7>();
 /// ```
 pub trait Profile:
     ProfileMetadata

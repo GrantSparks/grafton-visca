@@ -86,7 +86,7 @@ pub trait ProfileMetadata {
 
     /// Default camera ID (usually 1).
     /// This is the VISCA address identifier for the camera.
-    const DEFAULT_CAMERA_ID: u8;
+    const DEFAULT_CAMERA_ID: crate::IndividualCameraId;
 
     /// Protocol envelope type for compile-time protocol selection.
     /// This determines whether commands use raw VISCA or Sony encapsulation.
@@ -108,8 +108,8 @@ pub trait ProfileMetadata {
     /// and to what extent. See [`InquirySupport`] for detailed descriptions of
     /// each level.
     ///
-    /// Default: [`InquirySupport::Full`] — most VISCA cameras support all inquiries.
-    const INQUIRY_SUPPORT: InquirySupport = InquirySupport::Full;
+    /// Every profile must declare this protocol fact explicitly.
+    const INQUIRY_SUPPORT: InquirySupport;
 
     /// Whether this camera sends operation complete messages (0x51) after movements.
     ///
@@ -122,7 +122,7 @@ pub trait ProfileMetadata {
     ///
     /// This controls cancellation after a command has been sent. Commands that
     /// are still queued can always be removed locally without camera support.
-    const SUPPORTS_COMMAND_CANCEL: bool = true;
+    const SUPPORTS_COMMAND_CANCEL: bool;
 
     /// Minimum time spacing between consecutive inquiry sends.
     ///
@@ -293,8 +293,12 @@ mod tests {
     struct TestCamera;
 
     impl ProfileMetadata for TestCamera {
+        const INQUIRY_SUPPORT: InquirySupport = InquirySupport::Full;
+        const SUPPORTS_COMMAND_CANCEL: bool = true;
+
         const MODEL_NAME: &'static str = "Test Camera";
-        const DEFAULT_CAMERA_ID: u8 = 1;
+        const DEFAULT_CAMERA_ID: crate::IndividualCameraId =
+            crate::IndividualCameraId::new(1).expect("individual profile default");
         type Envelope = crate::transport::RawVisca;
         const ACK_TIMEOUT: Duration = Duration::from_millis(100);
         const COMMAND_TIMEOUTS: crate::CommandTimeouts = crate::CommandTimeouts::new(

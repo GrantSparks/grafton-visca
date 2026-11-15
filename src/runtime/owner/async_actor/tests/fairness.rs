@@ -101,7 +101,6 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
         .handle_event(
             OwnerEvent::Admission(Ok(predecessor_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -111,7 +110,7 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::CommandNotExecutable)
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
 
     // Establish the due retained-prefix gate without starting the flood yet.
@@ -124,7 +123,6 @@ async fn raw_release_flood_admits_and_writes_urgent_within_the_fairness_bound() 
             .handle_event(
                 OwnerEvent::Wake,
                 &mut driver,
-                &runtime,
                 Executor::now(&runtime),
                 false,
             )
@@ -212,7 +210,6 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
             .handle_event(
                 OwnerEvent::Admission(Ok(predecessor)),
                 &mut driver,
-                &runtime,
                 Executor::now(&runtime),
                 false,
             )
@@ -222,7 +219,7 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
         reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
         assert!(matches!(
             completion.recv_async().await.unwrap(),
-            RuntimeOutcome::Failed(Error::CommandNotExecutable)
+            RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
         ));
 
         runtime.advance(HOLD);
@@ -231,7 +228,6 @@ async fn raw_release_flood_boundary_cadence(latched_raw_release: bool) -> (u64, 
                 .handle_event(
                     OwnerEvent::Wake,
                     &mut driver,
-                    &runtime,
                     Executor::now(&runtime),
                     false,
                 )
@@ -296,7 +292,7 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
     // The actor's bounded control lane is intentionally full before it
     // starts, making this a deterministic chain rather than a scheduler
     // race between the caller and the ready timer.
-    owner_policy.limits.applied_subscribers = CONTROL_CHAIN;
+    owner_policy.limits.control_requests = CONTROL_CHAIN;
     let (handle, mut actor) = AsyncOwnerActor::new(owner_policy, runtime.clone()).unwrap();
     let (_frames, receives) = flume::bounded(1);
     let mut driver = UngatedDriver { receives };
@@ -314,7 +310,6 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
         .handle_event(
             OwnerEvent::Admission(Ok(admission)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -366,7 +361,7 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
     );
     assert!(matches!(
         completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout { .. })
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::Timeout { .. })
     ));
 
     for control in controls {
@@ -387,7 +382,7 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
 async fn parked_future_wake_charges_the_first_ready_control() {
     let runtime = ManualRuntime::with_polling_sleeps(Instant::now());
     let mut owner_policy = policy(1);
-    owner_policy.limits.applied_subscribers = 2;
+    owner_policy.limits.control_requests = 2;
     // Keep the receive timeout after the inquiry deadline so the parked
     // receive arm cannot become the source that wakes this test.
     owner_policy.read_timeout = Duration::from_secs(10);
@@ -406,7 +401,6 @@ async fn parked_future_wake_charges_the_first_ready_control() {
         .handle_event(
             OwnerEvent::Admission(Ok(admission)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -455,7 +449,7 @@ async fn parked_future_wake_charges_the_first_ready_control() {
     );
     assert!(matches!(
         completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::Timeout { .. })
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::Timeout { .. })
     ));
 }
 #[cfg(feature = "runtime-tokio")]
@@ -673,7 +667,6 @@ async fn raw_release_flood_resolves_without_a_prior_timer_turn() {
         .handle_event(
             OwnerEvent::Admission(Ok(predecessor_boundary)),
             &mut driver,
-            &runtime,
             Executor::now(&runtime),
             false,
         )
@@ -683,7 +676,7 @@ async fn raw_release_flood_resolves_without_a_prior_timer_turn() {
     reject_raw_stream_predecessor(&mut actor, &mut driver, &runtime).await;
     assert!(matches!(
         predecessor_completion.recv_async().await.unwrap(),
-        RuntimeOutcome::Failed(Error::CommandNotExecutable)
+        RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
 
     let (_urgent_completion, urgent_admitted) = handle

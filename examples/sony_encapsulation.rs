@@ -35,11 +35,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let camera = session.camera();
 
     let inquiry_result: Result<(), Error> = async {
-        let is_on = camera.power().state().await?;
+        let power_status = camera.power().state().await?;
         let pan_tilt = camera.pan_tilt().position().await?;
         let zoom = camera.zoom().position().await?;
 
-        println!("Power: {}", if is_on { "on" } else { "off" });
+        println!("Power: {power_status:?}");
         println!("Pan/tilt: pan={}, tilt={}", pan_tilt.pan, pan_tilt.tilt);
         println!("Zoom: 0x{:04X}", zoom.value());
         Ok(())

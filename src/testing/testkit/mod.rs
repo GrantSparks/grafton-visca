@@ -5,26 +5,18 @@
 
 #![cfg(feature = "test-utils")]
 
-#[cfg(feature = "async")]
-pub mod deterministic_executor;
-#[cfg(feature = "async")]
-pub mod executor_selection;
 pub mod scripted_transport;
 
-#[cfg(feature = "async")]
-pub use deterministic_executor::{
-    DeterministicClock, DeterministicExecutor, DeterministicExecutorExt,
-};
-#[cfg(feature = "async")]
-pub use executor_selection::{TestExecutorSelector, TestExecutorType, TestExecutors};
 #[cfg(feature = "async")]
 pub use scripted_transport::ScriptedTransport;
 
 #[cfg(feature = "blocking")]
 pub use scripted_transport::ScriptedBlockingTransport;
 
-#[cfg(feature = "async")]
-pub use crate::testing::manual_clock::ManualClockExecutor;
 #[cfg(any(feature = "blocking", feature = "async"))]
-pub use crate::testing::manual_clock::{ClockParticipant, ManualClock};
+pub use crate::testing::manual_clock::{ClockJoinHandle, ClockParticipant, ManualClock};
+#[cfg(feature = "async")]
+pub use crate::testing::manual_clock::{
+    LocalExecutor, ManualClockExecutor, ManualClockTimer, TaskJoin,
+};
 pub use scripted_transport::{helpers, Step};

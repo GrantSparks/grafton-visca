@@ -108,10 +108,14 @@ repos:
     rev: v4.6.0
     hooks:
       - id: check-byte-order-marker
+        exclude: ^(fuzz/corpus/|tests/fixtures/serial_startup/)
       - id: check-case-conflict
       - id: check-merge-conflict
       - id: check-symlinks
       - id: check-yaml
       - id: end-of-file-fixer
+        exclude: ^(fuzz/corpus/|tests/fixtures/serial_startup/)
       - id: mixed-line-ending
+        exclude: ^(fuzz/corpus/|tests/fixtures/serial_startup/)
       - id: trailing-whitespace
+        exclude: ^(fuzz/corpus/|tests/fixtures/serial_startup/)

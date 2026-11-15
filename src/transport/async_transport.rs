@@ -132,13 +132,12 @@ pub trait AsyncTransport: Send {
     ///   a connected TCP socket can report the latter when OS keepalive
     ///   exhausts, and the runtime treats that as session death.
     /// - A session-fatal error — any error for which
-    ///   [`Error::requires_new_session`] is true, plus [`Error::Io`] carrying
-    ///   `TimedOut`, `ConnectionReset`, `ConnectionAborted`, `BrokenPipe`,
-    ///   `UnexpectedEof` or `NotConnected`. The runtime ends the session as
-    ///   [`Error::ConnectionClosed`] and retains the transport cause's text in
-    ///   its reason. A failed read consumed nothing, so it is not a stream
-    ///   framing poison; [`Error::StreamPoisoned`] is reserved for an
-    ///   unknowable stream position caused by framing loss or a failed write.
+    ///   [`Error::requires_new_session`] is true, runtime shutdown, or a raw
+    ///   I/O error listed in [`crate::transport::FATAL_RECEIVE_IO_KINDS`].
+    ///   That shared table defines the fatal kinds for both transport traits.
+    ///   The runtime ends the session as [`Error::ConnectionClosed`] and retains
+    ///   the original cause. A failed read consumed nothing and does not lose
+    ///   the stream's framing position.
     /// - Any other error is a *transient* fault: the read failed but the
     ///   connection may still be usable — a UDP `recv` reporting ECONNREFUSED
     ///   after an ICMP port-unreachable is the canonical case. The engine may

@@ -83,7 +83,6 @@ impl RetainedRelease {
             .handle_event(
                 OwnerEvent::Admission(Ok(a_boundary)),
                 &mut driver,
-                &runtime,
                 Executor::now(&runtime),
                 false,
             )
@@ -106,7 +105,6 @@ impl RetainedRelease {
                 .handle_event(
                     OwnerEvent::Admission(Ok(boundary)),
                     &mut driver,
-                    &runtime,
                     Executor::now(&runtime),
                     false,
                 )
@@ -118,14 +116,13 @@ impl RetainedRelease {
         let mut live_receipts = Vec::with_capacity(live_commands);
         for _ in 0..live_commands {
             let request = command();
-            let timeout = request.context().timeout.completion;
+            let timeout = request.context().timeout.completion.get();
             let (completion, admitted) = handle.core.enqueue_admission(request, None).unwrap();
             let boundary = actor.core.receivers.admissions.try_recv().unwrap();
             actor
                 .handle_event(
                     OwnerEvent::Admission(Ok(boundary)),
                     &mut driver,
-                    &runtime,
                     Executor::now(&runtime),
                     false,
                 )
@@ -146,7 +143,7 @@ impl RetainedRelease {
         let at_h = Executor::now(&runtime);
         assert_eq!(
             actor
-                .handle_event(OwnerEvent::Wake, &mut driver, &runtime, at_h, false)
+                .handle_event(OwnerEvent::Wake, &mut driver, at_h, false)
                 .await,
             TurnOutcome::ContinueBuffered,
             "the retained prefix holds the release in its grace"
@@ -317,7 +314,7 @@ async fn two_live_admissions_at_h_each_receive_their_own_reply() {
     assert!(
         matches!(
             c_completion.recv_async().await.unwrap(),
-            RuntimeOutcome::Failed(Error::RuntimeShutdown)
+            RuntimeOutcome::Failed(Error::InquiryFailed { source }) if matches!(source.as_ref(), Error::RuntimeShutdown)
         ),
         "C, still queued behind B's inquiry, terminalizes at shutdown"
     );
@@ -490,7 +487,7 @@ async fn buffered_terminal_cancellation_waits_behind_retained_admission() {
         .expect("a concluded request answers its cancellation with Ok");
     assert!(matches!(
         a.completion.try_recv(),
-        Some(RuntimeOutcome::Failed(Error::CommandNotExecutable))
+        Some(RuntimeOutcome::Failed(Error::InquiryFailed { source })) if matches!(source.as_ref(), Error::CommandNotExecutable)
     ));
     assert!(
         observer.try_recv().is_none(),

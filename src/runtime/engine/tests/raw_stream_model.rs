@@ -77,11 +77,17 @@ const HOSTILE: Link = Link {
     long_stall_ppm: 0,
     long_stall_max: 0,
     timeout: TimeoutPolicy {
-        ack: Duration::from_millis(20),
-        completion: Duration::from_millis(40),
-        inquiry: Duration::from_millis(30),
-        cancellation: Duration::from_millis(10),
-        ambiguity: Duration::from_millis(50),
+        ack: NonZeroDuration::from_millis(NonZeroU64::new(20).expect("positive model timeout")),
+        completion: NonZeroDuration::from_millis(
+            NonZeroU64::new(40).expect("positive model timeout"),
+        ),
+        inquiry: NonZeroDuration::from_millis(NonZeroU64::new(30).expect("positive model timeout")),
+        cancellation: NonZeroDuration::from_millis(
+            NonZeroU64::new(10).expect("positive model timeout"),
+        ),
+        ambiguity: NonZeroDuration::from_millis(
+            NonZeroU64::new(50).expect("positive model timeout"),
+        ),
     },
     stop_budget: Duration::from_millis(250),
     hostile: true,
@@ -100,11 +106,19 @@ const REALISTIC: Link = Link {
     long_stall_ppm: 150,
     long_stall_max: 3_000,
     timeout: TimeoutPolicy {
-        ack: Duration::from_millis(500),
-        completion: Duration::from_millis(2_000),
-        inquiry: Duration::from_millis(1_000),
-        cancellation: Duration::from_millis(500),
-        ambiguity: Duration::from_millis(1_000),
+        ack: NonZeroDuration::from_millis(NonZeroU64::new(500).expect("positive model timeout")),
+        completion: NonZeroDuration::from_millis(
+            NonZeroU64::new(2_000).expect("positive model timeout"),
+        ),
+        inquiry: NonZeroDuration::from_millis(
+            NonZeroU64::new(1_000).expect("positive model timeout"),
+        ),
+        cancellation: NonZeroDuration::from_millis(
+            NonZeroU64::new(500).expect("positive model timeout"),
+        ),
+        ambiguity: NonZeroDuration::from_millis(
+            NonZeroU64::new(1_000).expect("positive model timeout"),
+        ),
     },
     // Production: a halt's budget is at least the movement completion
     // timeout, 30 s in every built-in profile.
@@ -157,7 +171,7 @@ const fn kind(name: &'static str, seeds: u64, link: Link) -> Kind {
     }
 }
 
-const KINDS: [Kind; 7] = [
+const KINDS: [Kind; 8] = [
     kind("names sockets, hostile link", 96, HOSTILE),
     kind("names sockets, G2-like link", 96, REALISTIC),
     Kind {
@@ -179,6 +193,15 @@ const KINDS: [Kind; 7] = [
     Kind {
         due_interval: 17,
         ..kind("late frames before delayed due turns", 48, HOSTILE)
+    },
+    Kind {
+        named_completions: 0,
+        due_interval: 17,
+        ..kind(
+            "late socketless completions before delayed due turns",
+            48,
+            HOSTILE,
+        )
     },
 ];
 
@@ -502,6 +525,9 @@ struct Session {
     stalled_until: Instant,
     ticket: u64,
     acknowledged: BTreeSet<RequestId>,
+    /// Camera-tagged completions already delivered, including retained frames
+    /// assigned only when a later terminal count resolves their candidates.
+    delivered_socketless_completions: BTreeSet<RequestId>,
     ended: BTreeSet<RequestId>,
     /// STOPs admitted, with their dispatch deadline and first write.
     stops: BTreeMap<RequestId, (Instant, Option<Instant>)>,
@@ -532,7 +558,7 @@ impl Session {
         let start = Instant::now();
         let mut configured = policy(EnvelopeKind::Raw, TransportKind::Stream);
         configured.inquiry_capacity = 1;
-        let mut engine = ProtocolEngine::new(configured).unwrap();
+        let mut engine = ProtocolEngine::new(configured, Instant::now()).unwrap();
         for target in [camera(1), camera(2)] {
             engine
                 .register_target(
@@ -558,6 +584,7 @@ impl Session {
             stalled_until: start,
             ticket: 0,
             acknowledged: BTreeSet::new(),
+            delivered_socketless_completions: BTreeSet::new(),
             ended: BTreeSet::new(),
             stops: BTreeMap::new(),
             stop_admitted: BTreeMap::new(),
@@ -583,7 +610,7 @@ impl Session {
         for step in 0..DRAIN_STEPS {
             if step % 50 == 0 {
                 for target in [1, 2] {
-                    let request = inquiry(target, InquiryRoute::UNKNOWN);
+                    let request = inquiry(target);
                     session.admit(request, AdmissionSlot::Ordinary);
                     if step % 200 == 0 {
                         let now = session.now;
@@ -616,10 +643,7 @@ impl Session {
                 for target in [camera(1), camera(2)] {
                     if !session.owes_only_completions(target) {
                         let now = session.now;
-                        session.admit(
-                            inquiry(target.camera().id(), InquiryRoute::UNKNOWN),
-                            AdmissionSlot::Ordinary,
-                        );
+                        session.admit(inquiry(target.camera().id()), AdmissionSlot::Ordinary);
                         session.admit(
                             stop(
                                 target.camera().id(),
@@ -651,7 +675,7 @@ impl Session {
             }
             if self.roll(1_000_000) < self.kind.link.long_stall_ppm {
                 let ambiguity =
-                    u64::try_from(self.kind.link.timeout.ambiguity.as_millis()).unwrap();
+                    u64::try_from(self.kind.link.timeout.ambiguity.get().as_millis()).unwrap();
                 let stall = ambiguity + self.roll(self.kind.link.long_stall_max - ambiguity);
                 self.stalled_until = self
                     .stalled_until
@@ -737,10 +761,7 @@ impl Session {
                 ),
                 AdmissionSlot::ControlReserve,
             ),
-            3..=8 => (
-                inquiry(target, InquiryRoute::UNKNOWN),
-                AdmissionSlot::Ordinary,
-            ),
+            3..=8 => (inquiry(target), AdmissionSlot::Ordinary),
             9..=15 => (
                 command(target, CancellationPolicy::Supported),
                 AdmissionSlot::Ordinary,
@@ -831,9 +852,14 @@ impl Session {
                                 if entry.request.is_inquiry() {
                                     Job::Inquiry(request)
                                 } else {
+                                    let RuntimeRequest::Command { reply_shape, .. } =
+                                        &entry.request
+                                    else {
+                                        unreachable!("the inquiry branch was handled above")
+                                    };
                                     Job::Command {
                                         id: request,
-                                        shape: entry.request.context().reply_shape,
+                                        shape: *reply_shape,
                                     }
                                 }
                             }
@@ -859,7 +885,7 @@ impl Session {
                                 // one ambiguity interval, at most half its
                                 // budget (the step is one millisecond).
                                 let timeout = self.kind.link.timeout;
-                                let bound = (timeout.ack + timeout.ambiguity)
+                                let bound = (timeout.ack.get() + timeout.ambiguity.get())
                                     .min((*deadline - admitted) / 2);
                                 assert!(
                                     wait <= bound + Duration::from_millis(u64::try_from(self.kind.due_interval).unwrap()),
@@ -893,13 +919,18 @@ impl Session {
                         self.written_order.entry(request).or_insert(self.writes);
                         self.coverage.written += 1;
                         self.unread.push_back((target, job));
-                        next.extend(self.engine.handle(
+                        next.extend(self.engine.handle_turn(
                             Input::TransmissionFinished {
+                                request,
                                 transmission,
-                                result: Ok(TransmissionMeta { sequence: None }),
+                                result: WriteOutcome::Sent(TransmissionMeta::for_sequence(None)),
                             },
                             self.now,
+                            EngineTurn::InputOnly,
                         ));
+                        if self.engine.assert_input_boundary().is_ok() {
+                            next.extend(self.engine.advance(self.now));
+                        }
                     }
                     Effect::Transition {
                         id,
@@ -970,7 +1001,6 @@ impl Session {
                     DecodedResponse::Error { socket: None, code }
                 } else {
                     DecodedResponse::InquiryReply {
-                        route: None,
                         payload: SmallVec::from_slice(&id.get().to_le_bytes()),
                     }
                 };
@@ -1151,6 +1181,24 @@ impl Session {
     fn deliver_all(&mut self) {
         while let Some((target, response, originator)) = self.outbound.pop_front() {
             let camera_id = camera(target);
+            let buffered_candidates = self.engine.targets[camera_id]
+                .pending_socketless_completions
+                .map(|pending| pending.candidates);
+            let expired_candidates: BTreeSet<_> = self
+                .engine
+                .entries
+                .iter()
+                .filter(|(_, entry)| {
+                    entry.request.context().target == camera_id
+                        && entry
+                            .correlated_response_deadline()
+                            .is_some_and(|deadline| deadline < self.now)
+                })
+                .map(|(id, _)| *id)
+                .collect();
+            if matches!(response, DecodedResponse::Completion { socket: None }) {
+                self.delivered_socketless_completions.insert(originator);
+            }
             let exact = self.certain(target, originator);
             let accepted_before = self.accepted_completions(camera_id);
             let disputes_before = self.engine.ledger.disputes_seen;
@@ -1163,7 +1211,7 @@ impl Session {
             let effects = self.engine.handle_turn(
                 frame(target, None, response.clone()),
                 self.now,
-                EngineTurn::INPUT_ONLY,
+                EngineTurn::InputOnly,
             );
             let accepted_after = self.accepted_completions(camera_id);
             let mut bound = false;
@@ -1177,6 +1225,43 @@ impl Session {
                 };
                 if id == originator {
                     bound = true;
+                    continue;
+                }
+                // Retire-before-account applies the ordinary due lifecycle of
+                // each proven candidate, rather than reviving an overdue one.
+                if expired_candidates.contains(&id)
+                    && matches!(
+                        effect,
+                        Effect::Terminal {
+                            outcome: RuntimeOutcome::Failed(Error::UnsequencedCommandUnconfirmed),
+                            ..
+                        } | Effect::CancellationObservation {
+                            observation: CancellationObservation::Failed(
+                                Error::UnsequencedCommandUnconfirmed
+                            ),
+                            ..
+                        }
+                    )
+                {
+                    continue;
+                }
+                // Several socketless completions can together prove every
+                // snapshotted candidate ended. A foreign terminal is valid
+                // only if this exact request's own camera-tagged completion
+                // was delivered earlier and was among the retained candidates.
+                if matches!(
+                    effect,
+                    Effect::Terminal {
+                        outcome: RuntimeOutcome::Applied,
+                        ..
+                    } | Effect::CancellationObservation {
+                        observation: CancellationObservation::Completed,
+                        ..
+                    }
+                ) && buffered_candidates.is_some_and(|candidates| candidates.contains(&Some(id)))
+                    && self.delivered_socketless_completions.contains(&id)
+                {
+                    self.coverage.assigned += 1;
                     continue;
                 }
                 // A camera ACK naming a socket the engine still indexes to an
@@ -1399,7 +1484,7 @@ fn stop(target: u8, now: Instant, budget: Duration, order: u64) -> RuntimeReques
     context.submission_order = order;
     context.retry = RetryPolicy {
         movement_not_executable: false,
-        total_budget: budget,
+        total_budget: Some(NonZeroDuration::new(budget).unwrap()),
         ..retrying()
     };
     context.dispatch_deadline = Some(now + budget);

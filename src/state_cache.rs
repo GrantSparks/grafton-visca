@@ -1,154 +1,151 @@
-//! Owner-backed, read-only state projections for one camera target.
+//! Read-only, target-local projections of write-only camera state.
 //!
-//! The registry is allocated once with the owner and shared by cheap camera
-//! views. It has exactly seven usable target slots, at most the owner's fixed
-//! 64 key projections per target, and a bounded inline value of at most four
-//! `i64`s per key. Values change only when the owner applies an exact
-//! `AppliedStateEffect`; preparing or merely writing a command does not change
-//! this view. A view contains only one target index and an `Arc` clone, so it
-//! adds no per-view state map or unbounded queue.
-
-#[cfg(any(feature = "blocking", feature = "async"))]
-use std::sync::{Arc, Mutex};
+//! A target owns one inline slot per [`StateKey`]. Exact applied effects store
+//! [`KnownState`] values; a write that may have taken effect without confirmation
+//! makes its key unknown. Cloned views share the same fixed table.
 
 #[cfg(any(feature = "blocking", feature = "async"))]
 use crate::{
     target::{PerTarget, TargetSlot},
     CameraId,
 };
+#[cfg(any(feature = "blocking", feature = "async"))]
+use std::{
+    ops::{Index, IndexMut},
+    sync::{Arc, Mutex},
+};
 
-const MAX_VALUES: usize = 4;
+// One row declares the key, its value type and its public typed accessor.
+// Enum values travel directly from the request to the cache; there is no
+// intermediate integer encoding to maintain or decode.
+macro_rules! state_key_ledger {
+    ($(#[doc = $doc:literal] $key:ident($value:ty) => $getter:ident),+ $(,)?) => {
+        /// Closed keys for write-only state maintained by a session owner.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+        #[non_exhaustive]
+        pub enum StateKey { $(#[doc = $doc] $key),+ }
 
-/// A target-local state key for a property without a reliable inquiry.
-///
-/// A value for one of these keys becomes known only after the corresponding
-/// typed request reaches the owner's `Applied` state.  The set is deliberately
-/// separate from the private command-semantics ledger: callers can inspect a
-/// cache without naming an implementation module or semantic classification.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[non_exhaustive]
-pub enum StateKey {
-    /// Pan/tilt limit corners.
-    PanTiltLimits,
-    /// Preset recall speed.
-    PresetRecallSpeed,
-    /// Focus-lock mode.
-    FocusLockMode,
-    /// Spotlight mode.
-    Spotlight,
-    /// Auto slow-shutter mode.
-    AutoSlowShutter,
-    /// Neutral-density filter selection mode.
-    NdFilterMode,
-    /// Automatic neutral-density filter mode.
-    AutoNdFilter,
-    /// Image-freeze mode.
-    ImageFreeze,
-    /// Digital-zoom enablement.
-    DigitalZoomMode,
-    /// Multicast streaming enablement.
-    MulticastStreaming,
-    /// NDI quality selection.
-    NdiQuality,
-    /// Tally brightness selection.
-    TallyBrightness,
-    /// Pan/tilt variable-speed mode.
-    VariableSpeedMode,
-    /// Vendor tally mode where the command has no corresponding inquiry.
-    TallyMode,
-    /// Combined horizontal/vertical image-flip state.
-    Flip,
-}
-
-impl StateKey {
-    /// Every state key represented by the built-in applied-state ledger.
-    pub const ALL: &[Self] = &[
-        Self::PanTiltLimits,
-        Self::PresetRecallSpeed,
-        Self::FocusLockMode,
-        Self::Spotlight,
-        Self::AutoSlowShutter,
-        Self::NdFilterMode,
-        Self::AutoNdFilter,
-        Self::ImageFreeze,
-        Self::DigitalZoomMode,
-        Self::MulticastStreaming,
-        Self::NdiQuality,
-        Self::TallyBrightness,
-        Self::VariableSpeedMode,
-        Self::TallyMode,
-        Self::Flip,
-    ];
-
-    /// Returns every currently supported state key in stable order.
-    #[must_use]
-    pub const fn all() -> &'static [Self] {
-        Self::ALL
-    }
-}
-
-/// Bounded inline values carried by one known state entry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct StateValue {
-    values: [i64; MAX_VALUES],
-    value_count: u8,
-}
-
-impl StateValue {
-    /// Returns the number of scalar values in this entry.
-    #[must_use]
-    pub const fn len(self) -> usize {
-        self.value_count as usize
-    }
-
-    /// Returns the inline values without allocating.
-    #[must_use]
-    pub fn as_slice(&self) -> &[i64] {
-        &self.values[..self.value_count as usize]
-    }
-
-    /// Returns one scalar value, if present.
-    #[must_use]
-    pub fn get(self, index: usize) -> Option<i64> {
-        self.as_slice().get(index).copied()
-    }
-
-    /// Returns whether this entry carries no discriminator values.
-    #[must_use]
-    pub const fn is_empty(self) -> bool {
-        self.value_count == 0
-    }
-
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    pub(crate) fn from_owner(value: crate::runtime::engine::AppliedStateValue) -> Self {
-        Self {
-            values: value.values,
-            value_count: value.value_count,
+        impl StateKey {
+            /// Every supported write-only key in declaration order.
+            pub const ALL: &'static [Self] = &[$(Self::$key),+];
+            #[cfg(any(feature = "blocking", feature = "async"))]
+            const COUNT: usize = Self::ALL.len();
+            /// Returns every supported write-only key.
+            #[must_use]
+            pub const fn all() -> &'static [Self] { Self::ALL }
         }
+
+        /// An exact applied write-only value, with its key implied by its variant.
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+        #[non_exhaustive]
+        pub enum KnownState { $(#[doc = $doc] $key($value)),+ }
+
+        impl KnownState {
+            /// Returns the key whose value this variant establishes.
+            #[must_use]
+            pub const fn key(self) -> StateKey {
+                match self { $(Self::$key(_) => StateKey::$key),+ }
+            }
+        }
+
+        #[cfg(any(feature = "blocking", feature = "async"))]
+        impl StateCache {
+            $(#[doc = $doc]
+            #[must_use]
+            pub fn $getter(&self) -> Option<$value> {
+                match self.value(StateKey::$key) {
+                    StateEntry::Set(KnownState::$key(value)) => Some(value),
+                    _ => None,
+                }
+            })+
+        }
+    };
+}
+
+state_key_ledger! {
+    /// Returns the most recent corner-local limit update, including known clears.
+    PanTiltLimits(PanTiltLimitUpdate) => pan_tilt_limits,
+    /// Returns the last applied preset recall speed in raw VISCA units.
+    PresetRecallSpeed(u8) => preset_recall_speed,
+    /// Returns whether focus lock was last applied as enabled.
+    FocusLockMode(bool) => focus_lock,
+    /// Returns whether spotlight compensation was last applied as enabled.
+    Spotlight(bool) => spotlight,
+    /// Returns whether auto slow shutter was last applied as enabled.
+    AutoSlowShutter(bool) => auto_slow_shutter,
+    /// Returns the last applied ND-filter selection mode.
+    NdFilterMode(crate::command::NdFilterMode) => nd_filter_mode,
+    /// Returns whether automatic ND control was last applied as enabled.
+    AutoNdFilter(bool) => auto_nd_filter,
+    /// Returns whether image freeze was last applied as enabled.
+    ImageFreeze(bool) => image_freeze,
+    /// Returns whether digital zoom was last applied as enabled.
+    DigitalZoomMode(bool) => digital_zoom,
+    /// Returns whether multicast streaming was last applied as enabled.
+    MulticastStreaming(bool) => multicast_streaming,
+    /// Returns the last applied NDI streaming quality.
+    NdiQuality(crate::types::NdiQuality) => ndi_quality,
+    /// Returns whether tally brightness was last applied as high.
+    TallyBrightness(bool) => tally_brightness_is_high,
+    /// Returns the last applied pan/tilt variable-speed mode.
+    VariableSpeedMode(crate::command::VariableSpeedMode) => variable_speed_mode,
+    /// Returns the last applied steady tally mode; a flash leaves it unknown.
+    TallyMode(bool) => tally_mode,
+    /// Returns the last applied combined flip state; a single-axis change leaves it unknown.
+    Flip(crate::command::FlipState) => flip_state,
+}
+
+/// A fixed table with exactly one inline slot per declared state key.
+#[cfg(any(feature = "blocking", feature = "async"))]
+#[derive(Debug)]
+pub(crate) struct PerStateKey<T>([T; StateKey::COUNT]);
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl<T: Default> Default for PerStateKey<T> {
+    fn default() -> Self {
+        Self(std::array::from_fn(|_| T::default()))
+    }
+}
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl<T> Index<StateKey> for PerStateKey<T> {
+    type Output = T;
+    fn index(&self, key: StateKey) -> &Self::Output {
+        &self.0[key as usize]
+    }
+}
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl<T> IndexMut<StateKey> for PerStateKey<T> {
+    fn index_mut(&mut self, key: StateKey) -> &mut Self::Output {
+        &mut self.0[key as usize]
     }
 }
 
-/// Knowledge for one write-only key.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// The owner's current knowledge of one write-only key.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum StateEntry {
-    /// No exact applied effect has established a value in this session.
+    /// No exact applied value is known, or a later uncertain write invalidated it.
+    #[default]
     Unknown,
-    /// The key has a known replacement value.
-    Set(StateValue),
-    /// The key is known to be absent; optional values retain a bounded clear
-    /// discriminator such as a pan/tilt corner.
-    Clear(StateValue),
+    /// An exact applied typed value, including a corner-local limit clear.
+    Set(KnownState),
 }
 
-/// A cheap, target-local, read-only view of the owner's state cache.
+/// Cheap, read-only view into the bounded state table for one target.
 #[cfg(any(feature = "blocking", feature = "async"))]
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct StateCache {
-    pub(crate) registry: Arc<PerTarget<Mutex<crate::runtime::owner::TargetStateCache>>>,
+    registry: Arc<PerTarget<Mutex<crate::runtime::owner::TargetStateCache>>>,
     target: TargetSlot,
 }
-
+#[cfg(any(feature = "blocking", feature = "async"))]
+impl std::fmt::Debug for StateCache {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StateCache")
+            .field("target", &self.target.camera())
+            .finish_non_exhaustive()
+    }
+}
 #[cfg(any(feature = "blocking", feature = "async"))]
 impl StateCache {
     pub(crate) fn from_registry(
@@ -157,241 +154,18 @@ impl StateCache {
     ) -> Self {
         Self { registry, target }
     }
-
-    /// Returns the fixed target represented by this view.
+    /// Returns the individual target addressed by this view.
     #[must_use]
     pub const fn target(&self) -> CameraId {
         self.target.camera()
     }
-
-    /// Reads one state key without allocating or mutating owner state.
-    ///
-    /// A poisoned internal lock is treated as unknown rather than exposing a
-    /// mutable recovery path through the public API.
+    /// Returns the current typed entry for a write-only key.
     #[must_use]
     pub fn value(&self, key: StateKey) -> StateEntry {
-        let Ok(cache) = self.registry[self.target].lock() else {
-            return StateEntry::Unknown;
-        };
-        cache.entry(key)
-    }
-
-    /// Reads one key that stores a single boolean discriminator as `1`/`0`.
-    fn boolean(&self, key: StateKey) -> Option<bool> {
-        match self.value(key) {
-            StateEntry::Set(value) => value.get(0).map(|flag| flag != 0),
-            StateEntry::Unknown | StateEntry::Clear(_) => None,
+        match self.registry[self.target].lock() {
+            Ok(cache) => cache.entry(key),
+            Err(_) => StateEntry::Unknown,
         }
-    }
-
-    /// Reads one key that stores a single scalar discriminator.
-    fn scalar(&self, key: StateKey) -> Option<i64> {
-        match self.value(key) {
-            StateEntry::Set(value) => value.get(0),
-            StateEntry::Unknown | StateEntry::Clear(_) => None,
-        }
-    }
-
-    /// Returns the last known auto slow-shutter setting.
-    ///
-    /// [`StateKey::AutoSlowShutter`] stores `1` when the last applied
-    /// `exposure().auto_slow_shutter_on()` succeeded and `0` for the `_off`
-    /// twin. `None` means no such command has reached `Applied` on this target
-    /// in this session.
-    #[must_use]
-    pub fn auto_slow_shutter(&self) -> Option<bool> {
-        self.boolean(StateKey::AutoSlowShutter)
-    }
-
-    /// Returns the last known spotlight-compensation setting.
-    ///
-    /// [`StateKey::Spotlight`] stores `1` for `spotlight_on` and `0` for
-    /// `spotlight_off`.
-    #[must_use]
-    pub fn spotlight(&self) -> Option<bool> {
-        self.boolean(StateKey::Spotlight)
-    }
-
-    /// Returns the last known focus-lock setting.
-    ///
-    /// [`StateKey::FocusLockMode`] stores `1` for a locked focus and `0` for an
-    /// unlocked one.
-    #[must_use]
-    pub fn focus_lock(&self) -> Option<bool> {
-        self.boolean(StateKey::FocusLockMode)
-    }
-
-    /// Returns the last known image-freeze setting.
-    ///
-    /// [`StateKey::ImageFreeze`] stores `1` for a frozen frame and `0` for live
-    /// output.
-    #[must_use]
-    pub fn image_freeze(&self) -> Option<bool> {
-        self.boolean(StateKey::ImageFreeze)
-    }
-
-    /// Returns the last known digital-zoom enablement.
-    ///
-    /// [`StateKey::DigitalZoomMode`] stores `1` when digital zoom was enabled
-    /// and `0` when it was disabled.
-    #[must_use]
-    pub fn digital_zoom(&self) -> Option<bool> {
-        self.boolean(StateKey::DigitalZoomMode)
-    }
-
-    /// Returns the last known automatic ND-filter setting.
-    ///
-    /// [`StateKey::AutoNdFilter`] stores `1` for `auto_on` and `0` for
-    /// `auto_off`.
-    #[must_use]
-    pub fn auto_nd_filter(&self) -> Option<bool> {
-        self.boolean(StateKey::AutoNdFilter)
-    }
-
-    /// Returns the last known multicast-streaming enablement.
-    ///
-    /// [`StateKey::MulticastStreaming`] stores `1` for `multicast_on` and `0`
-    /// for `multicast_off`.
-    #[must_use]
-    pub fn multicast_streaming(&self) -> Option<bool> {
-        self.boolean(StateKey::MulticastStreaming)
-    }
-
-    /// Returns the last known vendor tally mode.
-    ///
-    /// [`StateKey::TallyMode`] stores `1` for tally on and `0` for tally off.
-    /// A tally *flash* command invalidates the key rather than setting it,
-    /// because the resulting steady-state mode is not determined by the
-    /// request, so this reports `None` after a flash.
-    #[must_use]
-    pub fn tally_mode(&self) -> Option<bool> {
-        self.boolean(StateKey::TallyMode)
-    }
-
-    /// Returns the last known preset recall speed in raw VISCA units.
-    ///
-    /// [`StateKey::PresetRecallSpeed`] stores the profile-validated speed
-    /// exactly as it was sent.
-    #[must_use]
-    pub fn preset_recall_speed(&self) -> Option<u8> {
-        u8::try_from(self.scalar(StateKey::PresetRecallSpeed)?).ok()
-    }
-
-    /// Returns the last known ND-filter selection mode.
-    ///
-    /// [`StateKey::NdFilterMode`] stores `0` for
-    /// [`NdFilterMode::Preset`](crate::command::NdFilterMode::Preset) and `1`
-    /// for [`NdFilterMode::Variable`](crate::command::NdFilterMode::Variable).
-    #[must_use]
-    pub fn nd_filter_mode(&self) -> Option<crate::command::NdFilterMode> {
-        match self.scalar(StateKey::NdFilterMode)? {
-            0 => Some(crate::command::NdFilterMode::Preset),
-            1 => Some(crate::command::NdFilterMode::Variable),
-            _ => None,
-        }
-    }
-
-    /// Returns the last known NDI streaming quality.
-    ///
-    /// [`StateKey::NdiQuality`] stores `1` for `High`, `2` for `Medium`, `3`
-    /// for `Low`, and `4` for `Off`.
-    #[must_use]
-    pub fn ndi_quality(&self) -> Option<crate::types::NdiQuality> {
-        match self.scalar(StateKey::NdiQuality)? {
-            1 => Some(crate::types::NdiQuality::High),
-            2 => Some(crate::types::NdiQuality::Medium),
-            3 => Some(crate::types::NdiQuality::Low),
-            4 => Some(crate::types::NdiQuality::Off),
-            _ => None,
-        }
-    }
-
-    /// Returns the last known pan/tilt variable-speed mode.
-    ///
-    /// [`StateKey::VariableSpeedMode`] stores `1` for
-    /// [`VariableSpeedMode::Standard24`](crate::command::VariableSpeedMode::Standard24)
-    /// and `2` for
-    /// [`VariableSpeedMode::Fine50`](crate::command::VariableSpeedMode::Fine50).
-    #[must_use]
-    pub fn variable_speed_mode(&self) -> Option<crate::command::VariableSpeedMode> {
-        match self.scalar(StateKey::VariableSpeedMode)? {
-            1 => Some(crate::command::VariableSpeedMode::Standard24),
-            2 => Some(crate::command::VariableSpeedMode::Fine50),
-            _ => None,
-        }
-    }
-
-    /// Returns whether the tally light was last set to its high brightness.
-    ///
-    /// [`StateKey::TallyBrightness`] stores `0` for the low setting and `1`
-    /// for the high one.
-    #[must_use]
-    pub fn tally_brightness_is_high(&self) -> Option<bool> {
-        match self.scalar(StateKey::TallyBrightness)? {
-            0 => Some(false),
-            1 => Some(true),
-            _ => None,
-        }
-    }
-
-    /// Returns the last known combined image-flip state.
-    ///
-    /// [`StateKey::Flip`] stores the horizontal axis in slot 0 and the vertical
-    /// axis in slot 1, both as `1`/`0`. Only the combined-flip opcode
-    /// (`image().set_flip_mode()` and `image().set_flip_both()`) establishes
-    /// both axes at once, so only those commands set the key. The single-axis
-    /// opcodes (`enable_flip`, `disable_flip`, `enable_horizontal_flip`,
-    /// `disable_horizontal_flip`) move one axis without saying anything about
-    /// the other and therefore invalidate the key, which reads back as `None`.
-    #[must_use]
-    pub fn flip_state(&self) -> Option<crate::command::FlipState> {
-        let StateEntry::Set(value) = self.value(StateKey::Flip) else {
-            return None;
-        };
-        Some(crate::command::FlipState {
-            horizontal: value.get(0)? != 0,
-            vertical: value.get(1)? != 0,
-        })
-    }
-
-    /// Returns the last recorded pan/tilt movement-limit update.
-    ///
-    /// [`StateKey::PanTiltLimits`] stores the corner discriminator in slot 0
-    /// (`0x00` for [`PanTiltLimitCorner::DownLeft`], `0x01` for
-    /// [`PanTiltLimitCorner::UpRight`]). A `limit_set` additionally stores the
-    /// converted raw pan and tilt in slots 1 and 2; a `limit_clear` stores only
-    /// the corner.
-    ///
-    /// The owner keeps exactly one entry per key, so this reports the most
-    /// recent corner update rather than a merged two-corner rectangle: writing
-    /// the other corner replaces this value.
-    ///
-    /// [`PanTiltLimitCorner::DownLeft`]: crate::command::PanTiltLimitCorner::DownLeft
-    /// [`PanTiltLimitCorner::UpRight`]: crate::command::PanTiltLimitCorner::UpRight
-    #[must_use]
-    pub fn pan_tilt_limits(&self) -> Option<PanTiltLimitUpdate> {
-        let (value, cleared) = match self.value(StateKey::PanTiltLimits) {
-            StateEntry::Set(value) => (value, false),
-            StateEntry::Clear(value) => (value, true),
-            StateEntry::Unknown => return None,
-        };
-        let corner = match value.get(0)? {
-            0x00 => crate::command::PanTiltLimitCorner::DownLeft,
-            0x01 => crate::command::PanTiltLimitCorner::UpRight,
-            _ => return None,
-        };
-        if cleared {
-            return Some(PanTiltLimitUpdate {
-                corner,
-                position: None,
-            });
-        }
-        let pan = i32::try_from(value.get(1)?).ok()?;
-        let tilt = i32::try_from(value.get(2)?).ok()?;
-        Some(PanTiltLimitUpdate {
-            corner,
-            position: Some(crate::camera::PanTiltPosition::new(pan, tilt)),
-        })
     }
 }
 
@@ -406,6 +180,27 @@ pub struct PanTiltLimitUpdate {
 }
 
 impl PanTiltLimitUpdate {
+    /// Records an exact applied limit position for one corner.
+    #[must_use]
+    pub const fn set(
+        corner: crate::command::PanTiltLimitCorner,
+        position: crate::camera::PanTiltPosition,
+    ) -> Self {
+        Self {
+            corner,
+            position: Some(position),
+        }
+    }
+
+    /// Records an exact applied removal of one corner's limit.
+    #[must_use]
+    pub const fn clear(corner: crate::command::PanTiltLimitCorner) -> Self {
+        Self {
+            corner,
+            position: None,
+        }
+    }
+
     /// Returns the corner this update applied to.
     #[must_use]
     pub const fn corner(self) -> crate::command::PanTiltLimitCorner {

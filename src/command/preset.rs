@@ -34,7 +34,7 @@ crate::visca_range_type! {
     /// - PtzOptics G2: 0-127
     /// - PtzOptics G3: 0-127 for raw VISCA until values above 0x7F are target-tested
     /// - Sony FR7: 0-255
-    /// - Sony EVI-H100: 0-6
+    /// - Sony EVI-H100: 0-5
     /// Camera-specific validation is performed when sending commands.
     PresetNumber: u8 {
         min: 0,

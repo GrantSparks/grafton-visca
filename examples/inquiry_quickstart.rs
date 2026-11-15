@@ -16,7 +16,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let pan_tilt = camera.pan_tilt().position()?;
         let zoom = camera.zoom().position()?;
         let focus = camera.focus().position()?;
-        println!("Power: {}", if power { "on" } else { "off" });
+        println!("Power: {power:?}");
         println!("Pan/tilt: pan={}, tilt={}", pan_tilt.pan, pan_tilt.tilt);
         println!("Zoom: 0x{:04X}", zoom.value());
         println!("Focus: {focus:?}");

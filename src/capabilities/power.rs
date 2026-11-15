@@ -62,19 +62,6 @@ pub trait PowerExt: Power {
 // Automatic implementation for all types that support power
 impl<T: Power> PowerExt for T {}
 
-/// Power states for VISCA cameras.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PowerState {
-    /// Camera is fully powered on and operational.
-    On,
-    /// Camera is in standby/sleep mode (if supported).
-    Standby,
-    /// Camera is powered off.
-    Off,
-    /// Power state is unknown or transitioning.
-    Unknown,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

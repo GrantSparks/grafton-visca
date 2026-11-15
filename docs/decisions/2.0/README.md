@@ -1,13 +1,14 @@
 # 2.0 review decisions (#784)
 
 Decision records for the proposals filed under review index #784, drafted
-against `main` @ `894a2e7` (`v2.0.0-rc.2`) and ratified on 2026-10-02. Each
+against `main` @ `894a2e7` (`v2.0.0-rc.2`). D19–D27 were ratified on
+2026-10-02; follow-up D28 carries its own acceptance date. Each
 record keeps its original recommendation; its `## Decision` section is what
 was ratified. Several decisions were expanded beyond the original
 recommendation, on the principle that 2.0 is where breaking changes belong
 and that extra effort now is preferred over a weaker or less stable 2.x API.
 
-The ratified decisions are numbered D19-D27 in
+The ratified decisions are numbered D19-D28 in
 `docs/issue_542_design_review.md` ("Decisions from this review").
 
 ## Summary
@@ -23,6 +24,7 @@ The ratified decisions are numbered D19-D27 in
 | D25 | [#776](decision-776.md) | Shared executor-free coordinator, first, with generated sequence tests | No (internal) | L |
 | D26 | [#778](decision-778.md) | Per-target control reserve for typed stops; capacity is the ordinary bound | Semantic | M |
 | D27 | [#788](decision-788.md) | Extensible public types become `#[non_exhaustive]` before 2.0.0 | Yes | M |
+| D28 | [#868](decision-868.md) | One exhaustive typed recovery verdict; supersedes D20 item 5 and removes the retry predicates | Yes | M |
 
 #775 (P1, raw-release deferred-slot overwrite) is fixed independently in
 PR #785. Its enforced single-slot invariant is the first acceptance example

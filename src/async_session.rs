@@ -14,15 +14,11 @@
 use std::{fmt, marker::PhantomData, sync::Arc};
 
 use crate::{
-    camera::{IdleWait, MotionQuery},
     completion,
     executor::Executor,
     operation::Operation,
-    prepared::{
-        prepare_command, prepare_inquiry, prepare_operation, prepare_position_queries,
-        ClassSelection,
-    },
-    profile::{CompileTimeProfile, OperationalTuning, ProfileSpec},
+    prepared::ClassSelection,
+    profile::{CompileTimeProfile, OperationalTuning},
     runtime::{
         owner::AsyncTransportAdapter,
         owner::{AsyncOwnerActor, AsyncOwnerHandle},
@@ -30,7 +26,7 @@ use crate::{
     target::TargetSlot,
     transport::{AsyncTransport, HasTransportConfig},
     CameraId, DiagnosticSubscription, Inquiry, MetricsSnapshot, OperationCommand, PlainCommand,
-    Result, SessionConfig, StateCache, SubmissionClass,
+    Result, SessionConfig, SubmissionClass,
 };
 
 /// One async serialized owner session.
@@ -80,7 +76,7 @@ impl Session {
         T: AsyncTransport + HasTransportConfig + 'static,
     {
         config.validate_opened_transport(&transport)?;
-        let tuning = config.tuning();
+        let tuning = config.validated_tuning();
         let profiles = config.profile_registry();
         let mut adapter = AsyncTransportAdapter::new_with_targets(
             transport,
@@ -121,16 +117,15 @@ impl Session {
         P: CompileTimeProfile,
     {
         let target = TargetSlot::try_from(target)?;
-        let profile = self.config.registered_profile_for::<P>(target)?;
-        Ok(Camera::from_core(self.core(target, profile)))
+        let profile = self.config.registered_target_for::<P>(target)?;
+        Ok(Camera::from_core(self.core(profile)))
     }
 
     /// The erased view of `target`, registered with `profile`.
-    fn core(&self, target: TargetSlot, profile: Arc<ProfileSpec>) -> AsyncCameraCore {
+    fn core(&self, registration: Arc<crate::TargetRegistration>) -> AsyncCameraCore {
         AsyncCameraCore {
             owner: self.owner.clone(),
-            target,
-            profile,
+            registration,
             class: ClassSelection::Request,
         }
     }
@@ -138,7 +133,7 @@ impl Session {
     /// Returns the runtime-profile camera view for the sole registered target.
     ///
     /// The view performs no compile-time profile matching: every request is
-    /// validated against the registered [`ProfileSpec`] before encoding or
+    /// validated against the registered [`crate::ProfileSpec`] before encoding or
     /// transport I/O.
     #[cfg(feature = "dyn-api")]
     pub fn camera_dyn(&self) -> Result<crate::dynapi::DynSessionCamera> {
@@ -149,10 +144,8 @@ impl Session {
     #[cfg(feature = "dyn-api")]
     pub fn camera_dyn_for(&self, target: CameraId) -> Result<crate::dynapi::DynSessionCamera> {
         let target = TargetSlot::try_from(target)?;
-        let profile = self.config.registered_profile(target)?;
-        Ok(crate::dynapi::DynSessionCamera::new(
-            self.core(target, profile),
-        ))
+        let profile = self.config.registered_target(target)?;
+        Ok(crate::dynapi::DynSessionCamera::new(self.core(profile)))
     }
 
     /// Returns the operational tuning this session is currently preparing
@@ -205,7 +198,7 @@ impl Session {
     /// if the owner has shut down; a retained terminal error takes precedence
     /// over validation of the proposed update.
     pub async fn set_tuning(&self, tuning: OperationalTuning) -> Result<()> {
-        let validated_tuning = self.config.validate_tuning(tuning).map(|()| tuning);
+        let validated_tuning = self.config.validate_tuning(tuning);
         self.owner.reconfigure(validated_tuning).await
     }
 
@@ -300,13 +293,13 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     /// registered from the same `P`.
     ///
     /// This is crate-private and is only reachable from the `P`-typed
-    /// construction paths, where the registered [`ProfileSpec`] was lowered
+    /// construction paths, where the registered [`crate::ProfileSpec`] was lowered
     /// from this exact `P`. That is what makes the bind structural instead of
     /// a runtime profile comparison.
     pub(crate) fn from_session(session: Session, target: CameraId) -> Result<Self> {
         let target = TargetSlot::try_from(target)?;
-        let profile = session.config.registered_profile(target)?;
-        let camera = Camera::from_core(session.core(target, profile));
+        let profile = session.config.registered_target(target)?;
+        let camera = Camera::from_core(session.core(profile));
         Ok(Self { session, camera })
     }
 
@@ -372,7 +365,7 @@ impl<P: CompileTimeProfile> CameraSession<P> {
 
     /// Returns this session's sole camera target.
     #[must_use]
-    pub const fn target(&self) -> CameraId {
+    pub fn target(&self) -> CameraId {
         self.camera.target()
     }
 
@@ -415,161 +408,11 @@ impl<P: CompileTimeProfile> CameraSession<P> {
     }
 }
 
-/// Erased owner-backed target view shared by typed and dynamic projections.
-///
-/// This is crate-private so the public camera type cannot accidentally expose
-/// transport or executor details. It is the only place that retains the owner
-/// handle and performs request preparation.
-#[derive(Clone)]
-pub(crate) struct AsyncCameraCore {
+crate::camera_core::camera_core! {
+    core: AsyncCameraCore,
     owner: AsyncOwnerHandle,
-    target: TargetSlot,
-    profile: Arc<ProfileSpec>,
-    class: ClassSelection,
-}
-
-impl AsyncCameraCore {
-    #[cfg(feature = "dyn-api")]
-    pub(crate) fn into_typed<P>(self) -> Result<Camera<P>>
-    where
-        P: CompileTimeProfile,
-    {
-        self.profile.ensure_compile_time::<P>()?;
-        Ok(Camera {
-            core: self,
-            _profile: PhantomData,
-        })
-    }
-
-    pub(crate) const fn target(&self) -> CameraId {
-        self.target.camera()
-    }
-
-    pub(crate) fn profile(&self) -> &ProfileSpec {
-        self.profile.as_ref()
-    }
-
-    pub(crate) fn state_cache(&self) -> StateCache {
-        self.owner.state_cache(self.target)
-    }
-
-    /// Reads the session's live operational tuning.
-    ///
-    /// This is read once per preparation rather than copied into the view, so a
-    /// [`Camera`] cloned before [`Session::set_tuning`] still prepares its next
-    /// request under the new values (#631).
-    fn tuning(&self) -> OperationalTuning {
-        self.owner.tuning()
-    }
-
-    pub(crate) const fn submission_class(&self) -> Option<SubmissionClass> {
-        self.class.handle_default()
-    }
-
-    pub(crate) fn set_submission_class(&mut self, class: Option<SubmissionClass>) {
-        self.class = ClassSelection::from_handle_default(class);
-    }
-
-    pub(crate) async fn execute<C>(&self, command: &C) -> Result<()>
-    where
-        C: PlainCommand + ?Sized,
-    {
-        self.execute_with_selection(command, self.class).await
-    }
-
-    async fn execute_with_selection<C>(&self, command: &C, class: ClassSelection) -> Result<()>
-    where
-        C: PlainCommand + ?Sized,
-    {
-        let prepared = prepare_command(
-            command,
-            self.target,
-            self.profile.as_ref(),
-            self.tuning(),
-            class,
-        )?;
-        let receipt = self.owner.submit_command(prepared).await?;
-        receipt.wait().await
-    }
-
-    pub(crate) async fn inquire<Q>(&self, inquiry: &Q) -> Result<Q::Response>
-    where
-        Q: Inquiry + ?Sized,
-    {
-        self.inquire_with_selection(inquiry, self.class).await
-    }
-
-    async fn inquire_with_selection<Q>(
-        &self,
-        inquiry: &Q,
-        class: ClassSelection,
-    ) -> Result<Q::Response>
-    where
-        Q: Inquiry + ?Sized,
-    {
-        let prepared = prepare_inquiry(
-            inquiry,
-            self.target,
-            self.profile.as_ref(),
-            self.tuning(),
-            class,
-        )?;
-        let receipt = self.owner.submit_inquiry(prepared).await?;
-        receipt.wait().await
-    }
-
-    pub(crate) async fn submit<K, O>(&self, operation: &O) -> Result<Operation<K>>
-    where
-        K: completion::Kind,
-        O: OperationCommand<K> + ?Sized,
-    {
-        self.submit_with_selection::<K, O>(operation, self.class)
-            .await
-    }
-
-    async fn submit_with_selection<K, O>(
-        &self,
-        operation: &O,
-        class: ClassSelection,
-    ) -> Result<Operation<K>>
-    where
-        K: completion::Kind,
-        O: OperationCommand<K> + ?Sized,
-    {
-        let prepared = prepare_operation::<K, _>(
-            operation,
-            self.target,
-            self.profile.as_ref(),
-            self.tuning(),
-            class,
-        )?;
-        let receipt = self.owner.submit_operation(prepared).await?;
-        Ok(Operation::from_receipt(receipt))
-    }
-
-    pub(crate) async fn stop_all_motion(&self) -> Result<crate::HaltReport> {
-        let started = self.owner.now();
-        let prepared =
-            crate::prepared::prepare_halt(self.target, self.profile.as_ref(), self.tuning());
-        self.owner.halt(prepared, started).await
-    }
-
-    pub(crate) async fn is_moving(&self, query: MotionQuery) -> Result<bool> {
-        let window = crate::prepared::MotionWindow::new(query)?;
-        let queries = prepare_position_queries(
-            self.target,
-            self.profile.as_ref(),
-            self.tuning(),
-            query.axes,
-        )?;
-        self.owner.observe_motion(window, &queries).await
-    }
-
-    pub(crate) async fn wait_until_idle(&self, wait: IdleWait) -> Result<()> {
-        let queries =
-            prepare_position_queries(self.target, self.profile.as_ref(), self.tuning(), wait.axes)?;
-        self.owner.wait_until_idle(wait, &queries).await
-    }
+    async: [async],
+    await: [.await],
 }
 
 /// Profile-generic camera view over one session target.
@@ -595,8 +438,8 @@ impl<P: CompileTimeProfile> fmt::Debug for Camera<P> {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         formatter
             .debug_struct("Camera")
-            .field("target", &self.core.target.camera())
-            .field("profile", &self.core.profile)
+            .field("target", &self.core.target())
+            .field("profile", &self.core.profile())
             .finish_non_exhaustive()
     }
 }
@@ -622,7 +465,7 @@ impl<P: CompileTimeProfile> Camera<P> {
     /// compile-time profile-permission surface; this direct method is the
     /// uniform typed/downstream extension boundary.
     ///
-    /// Preparation calls [`crate::Request::validate_for_profile`] before
+    /// Preparation calls [`crate::Request::validate_for_target`] before
     /// encoding, owner admission, or transport I/O. Crate-provided requests
     /// submitted directly return [`crate::Error::FeatureNotSupported`] there
     /// when the selected profile lacks their required feature. Raw and other
@@ -646,7 +489,7 @@ impl<P: CompileTimeProfile> Camera<P> {
     /// compile-time profile-permission surface; this direct method is the
     /// uniform typed/downstream extension boundary.
     ///
-    /// Preparation calls [`crate::Request::validate_for_profile`] before
+    /// Preparation calls [`crate::Request::validate_for_target`] before
     /// encoding, owner admission, or transport I/O. Crate-provided inquiries
     /// submitted directly return [`crate::Error::FeatureNotSupported`] there
     /// when the selected profile lacks their required feature. Raw and other
@@ -683,13 +526,13 @@ mod tests {
     use crate::{
         capabilities::Capabilities,
         profile::{PositionInquirySupport, ProfileEnvelope, ProfileTiming, TransportCompatibility},
-        testing::testkit::{helpers, DeterministicExecutor, ScriptedTransport, Step},
+        testing::testkit::{helpers, ManualClock, ManualClockExecutor, ScriptedTransport, Step},
         transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
-        CommandTimeouts,
+        CommandTimeouts, ProfileSpec,
     };
 
     struct FailFirstZoomStopSend {
-        inner: ScriptedTransport<DeterministicExecutor>,
+        inner: ScriptedTransport<Arc<ManualClockExecutor>>,
         writes: Arc<Mutex<Vec<Vec<u8>>>>,
         failed: bool,
     }
@@ -697,7 +540,7 @@ mod tests {
     impl FailFirstZoomStopSend {
         fn new(
             steps: impl Into<Vec<Step>>,
-            runtime: Arc<DeterministicExecutor>,
+            runtime: Arc<ManualClockExecutor>,
         ) -> (Self, Arc<Mutex<Vec<Vec<u8>>>>) {
             let writes = Arc::new(Mutex::new(Vec::new()));
             (
@@ -727,9 +570,9 @@ mod tests {
             self.failed |= should_fail;
             async move {
                 if should_fail {
-                    Err(Error::TransportError(
-                        "injected zoom stop send failure".into(),
-                    ))
+                    Err(Error::transport_error(std::io::Error::other(
+                        "injected zoom stop send failure",
+                    )))
                 } else {
                     self.inner.send(bytes).await
                 }
@@ -751,8 +594,9 @@ mod tests {
     fn partial_motion_profile(has_zoom: bool, has_focus: bool) -> ProfileSpec {
         let mut capabilities =
             Capabilities::runtime_baseline("Partial motion test camera", 1).expect("baseline");
-        capabilities.has_zoom = has_zoom;
-        capabilities.has_focus = has_focus;
+        let domains = Capabilities::from_profile::<crate::profiles::GenericVisca>();
+        capabilities.zoom = has_zoom.then(|| domains.zoom.expect("generic zoom domain"));
+        capabilities.focus = has_focus.then(|| domains.focus.expect("generic focus domain"));
 
         ProfileSpec::builder(capabilities)
             .transports(TransportCompatibility::new(Some(5678), None, false))
@@ -774,7 +618,6 @@ mod tests {
             .maximum_command_sockets(1)
             .supports_operation_complete(true)
             .supports_command_cancel(false)
-            .preset_recall_axes(None)
             .position_inquiries(PositionInquirySupport::new(false, false, false))
             .build()
             .expect("valid partial motion profile")
@@ -783,20 +626,21 @@ mod tests {
     fn partial_motion_core(session: &Session) -> AsyncCameraCore {
         let profile = session
             .config
-            .registered_profile(TargetSlot::CAMERA_1)
+            .registered_target(TargetSlot::CAMERA_1)
             .expect("registered partial motion profile");
-        session.core(TargetSlot::CAMERA_1, profile)
+        session.core(profile)
     }
 
     /// Issue #805: an operation's `Debug` output is its identity only, the
     /// same on both facades (this facade used to print its whole receipt).
     #[test]
     fn operation_debug_shows_only_its_identity() {
-        let (runtime, _) = DeterministicExecutor::new();
+        let clock = ManualClock::new();
+        let runtime = Arc::new(ManualClockExecutor::local(&clock));
         let transport =
             ScriptedTransport::new([helpers::auto_respond_step()]).with_executor(runtime.clone());
         let session = runtime
-            .run_until(Session::open::<DeterministicExecutor, _>(
+            .run_until(Session::open::<ManualClockExecutor, _>(
                 transport,
                 SessionConfig::new(partial_motion_profile(true, false)),
                 runtime.clone(),
@@ -822,7 +666,8 @@ mod tests {
     /// any write: an open that would send the Sony RESET writes nothing.
     #[test]
     fn session_open_rejects_invalid_tuning_before_any_write() {
-        let (runtime, _) = DeterministicExecutor::new();
+        let clock = ManualClock::new();
+        let runtime = Arc::new(ManualClockExecutor::local(&clock));
         let transport = ScriptedTransport::new(Vec::<Step>::new()).with_executor(runtime.clone());
         let probe = transport.clone();
         let config = SessionConfig::from_compile_time::<crate::profiles::SonyFR7>()
@@ -830,7 +675,7 @@ mod tests {
             .with_sony_sequence_reset_on_connect(true)
             .with_tuning(OperationalTuning::new().maximum_command_sockets(u8::MAX));
         assert!(matches!(
-            runtime.run_until(Session::open::<DeterministicExecutor, _>(
+            runtime.run_until(Session::open::<ManualClockExecutor, _>(
                 transport,
                 config,
                 runtime.clone(),
@@ -842,7 +687,8 @@ mod tests {
 
     #[test]
     fn session_open_sends_opt_in_sony_sequence_reset_before_owner_work() {
-        let (runtime, _) = DeterministicExecutor::new();
+        let clock = ManualClock::new();
+        let runtime = Arc::new(ManualClockExecutor::local(&clock));
         let transport = ScriptedTransport::new(Vec::<Step>::new()).with_executor(runtime.clone());
         let probe = transport.clone();
         let config = SessionConfig::from_compile_time::<crate::profiles::SonyFR7>()
@@ -850,7 +696,7 @@ mod tests {
             .with_sony_sequence_reset_on_connect(true);
 
         let session = runtime
-            .run_until(Session::open::<DeterministicExecutor, _>(
+            .run_until(Session::open::<ManualClockExecutor, _>(
                 transport,
                 config,
                 runtime.clone(),
@@ -868,12 +714,13 @@ mod tests {
 
     #[test]
     fn stop_all_motion_on_a_zoom_only_runtime_profile_writes_only_zoom_stop() {
-        let (runtime, _) = DeterministicExecutor::new();
+        let clock = ManualClock::new();
+        let runtime = Arc::new(ManualClockExecutor::local(&clock));
         let transport =
             ScriptedTransport::new([helpers::auto_respond_step()]).with_executor(runtime.clone());
         let probe = transport.clone();
         let session = runtime
-            .run_until(Session::open::<DeterministicExecutor, _>(
+            .run_until(Session::open::<ManualClockExecutor, _>(
                 transport,
                 SessionConfig::new(partial_motion_profile(true, false)),
                 runtime.clone(),
@@ -898,11 +745,12 @@ mod tests {
 
     #[test]
     fn stop_all_motion_on_a_profile_without_motion_axes_is_a_successful_no_op() {
-        let (runtime, _) = DeterministicExecutor::new();
+        let clock = ManualClock::new();
+        let runtime = Arc::new(ManualClockExecutor::local(&clock));
         let transport = ScriptedTransport::new(Vec::<Step>::new()).with_executor(runtime.clone());
         let probe = transport.clone();
         let session = runtime
-            .run_until(Session::open::<DeterministicExecutor, _>(
+            .run_until(Session::open::<ManualClockExecutor, _>(
                 transport,
                 SessionConfig::new(partial_motion_profile(false, false)),
                 runtime.clone(),
@@ -926,11 +774,12 @@ mod tests {
 
     #[test]
     fn stop_all_motion_reports_each_supported_axis_after_a_partial_failure() {
-        let (runtime, _) = DeterministicExecutor::new();
+        let clock = ManualClock::new();
+        let runtime = Arc::new(ManualClockExecutor::local(&clock));
         let (transport, writes) =
             FailFirstZoomStopSend::new([helpers::auto_respond_step()], runtime.clone());
         let session = runtime
-            .run_until(Session::open::<DeterministicExecutor, _>(
+            .run_until(Session::open::<ManualClockExecutor, _>(
                 transport,
                 SessionConfig::new(partial_motion_profile(true, true)),
                 runtime.clone(),
@@ -943,7 +792,7 @@ mod tests {
         assert!(matches!(report.pan_tilt, crate::HaltOutcome::Unsupported));
         assert!(matches!(
             report.zoom,
-            crate::HaltOutcome::Failed(Error::TransportError(_))
+            crate::HaltOutcome::Failed(Error::TransportError { .. })
         ));
         assert!(matches!(report.focus, crate::HaltOutcome::Applied));
         assert_eq!(

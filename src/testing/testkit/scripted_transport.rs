@@ -10,14 +10,15 @@
 
 use std::time::Duration;
 
+#[cfg(feature = "blocking")]
+use crate::testing::manual_clock::ManualClock;
+use std::sync::Arc;
 #[cfg(any(feature = "async", feature = "blocking"))]
 use std::{
     collections::VecDeque,
-    sync::{Arc, Mutex, MutexGuard},
+    sync::{Mutex, MutexGuard},
 };
 
-#[cfg(feature = "async")]
-use super::deterministic_executor::ExecutorExt;
 #[cfg(any(feature = "async", feature = "blocking"))]
 use crate::transport::{builder::TransportConfig, HasTransportConfig, ReceiveOutcome};
 use crate::Error;
@@ -29,10 +30,11 @@ use crate::{command::CommandKind, transport::BlockingTransport};
 use crate::{executor::Executor, transport::AsyncTransport};
 
 /// Function type for dynamic response generation.
-pub type DynamicResponseFn = Box<dyn Fn(&[u8]) -> Vec<Vec<u8>> + Send + Sync>;
+pub type DynamicResponseFn = Arc<dyn Fn(&[u8]) -> Vec<Vec<u8>> + Send + Sync>;
 
 /// A step in a transport script defining what should happen when commands are sent.
 #[non_exhaustive]
+#[derive(Clone)]
 pub enum Step {
     /// Respond immediately when the next send occurs.
     /// If `matches` is provided, only respond if the sent bytes start with those bytes.
@@ -59,6 +61,14 @@ pub enum Step {
     /// Generate responses dynamically based on the sent command bytes.
     /// The function receives the sent bytes and returns responses to send back.
     DynamicResponse(DynamicResponseFn),
+
+    /// Persistently answer every subsequent send with this response function.
+    /// This step stays at the front of the script until the transport is dropped.
+    #[non_exhaustive]
+    EverySend {
+        /// Produces the reply batch for each command.
+        respond: DynamicResponseFn,
+    },
 }
 
 impl Step {
@@ -89,25 +99,7 @@ impl std::fmt::Debug for Step {
                 .finish(),
             Step::InjectError(err) => f.debug_tuple("InjectError").field(err).finish(),
             Step::DynamicResponse(_) => f.write_str("DynamicResponse(<function>)"),
-        }
-    }
-}
-
-impl Clone for Step {
-    fn clone(&self) -> Self {
-        match self {
-            Step::OnSend { matches, responses } => Step::OnSend {
-                matches: matches.clone(),
-                responses: responses.clone(),
-            },
-            Step::After { delay, responses } => Step::After {
-                delay: *delay,
-                responses: responses.clone(),
-            },
-            Step::InjectError(err) => Step::InjectError(err.clone()),
-            Step::DynamicResponse(_) => Step::InjectError(Error::InvalidState(
-                "DynamicResponse steps cannot be cloned".into(),
-            )),
+            Step::EverySend { .. } => f.write_str("EverySend(<function>)"),
         }
     }
 }
@@ -120,9 +112,8 @@ enum Delivery {
     Now(Vec<u8>),
     /// Deliver after a virtual delay (a [`Step::After`]).
     After {
-        /// The virtual delay. Only the async transport schedules on it; the
-        /// blocking one delivers the batch immediately.
-        #[cfg(feature = "async")]
+        /// Delay on the selected executor or blocking manual clock; immediate
+        /// delivery modes ignore it.
         delay: Duration,
         /// The frames released together.
         batch: Vec<Vec<u8>>,
@@ -163,6 +154,9 @@ impl ScriptCore {
         self.sent.push(bytes.to_vec());
         let mut deliveries = Vec::new();
         self.release_leading_after(&mut deliveries);
+        if let Some(Step::EverySend { respond }) = self.steps.front() {
+            return (deliveries, Some(Answer::Dynamic(Arc::clone(respond))));
+        }
         let answer = match self.steps.pop_front() {
             Some(Step::OnSend { matches, responses })
                 if matches
@@ -186,14 +180,10 @@ impl ScriptCore {
     fn release_leading_after(&mut self, deliveries: &mut Vec<Delivery>) {
         while matches!(self.steps.front(), Some(Step::After { .. })) {
             if let Some(Step::After {
-                #[cfg(feature = "async")]
-                delay,
-                responses,
-                ..
+                delay, responses, ..
             }) = self.steps.pop_front()
             {
                 deliveries.push(Delivery::After {
-                    #[cfg(feature = "async")]
                     delay,
                     batch: responses,
                 });
@@ -276,6 +266,11 @@ impl Script {
     }
 }
 
+/// Immediate reply delivery for a scripted transport with no executor.
+#[cfg(feature = "async")]
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Immediate;
+
 /// Async transport that follows a predetermined script of responses.
 ///
 /// This transport allows tests to define exactly what responses should be sent
@@ -284,15 +279,15 @@ impl Script {
 /// [`with_executor`](Self::with_executor), or immediately without one.
 #[cfg(feature = "async")]
 #[derive(Debug)]
-pub struct ScriptedTransport<E = ()> {
+pub struct ScriptedTransport<E = Immediate> {
     script: Script,
-    executor: Option<Arc<E>>,
+    executor: E,
     shutdown_rx: Option<flume::Receiver<()>>,
     config: TransportConfig,
 }
 
 #[cfg(feature = "async")]
-impl<E> Clone for ScriptedTransport<E> {
+impl<E: Clone> Clone for ScriptedTransport<E> {
     fn clone(&self) -> Self {
         Self {
             script: self.script.clone(),
@@ -304,24 +299,44 @@ impl<E> Clone for ScriptedTransport<E> {
 }
 
 #[cfg(feature = "async")]
-impl<E> ScriptedTransport<E> {
+impl ScriptedTransport<Immediate> {
     /// Create a new scripted transport with the given steps.
     pub fn new(steps: impl Into<Vec<Step>>) -> Self {
         Self {
             script: Script::new("ScriptedTransport", steps.into()),
-            executor: None,
+            executor: Immediate,
             shutdown_rx: None,
             config: TransportConfig::default(),
         }
     }
 
-    /// Add an executor for handling delayed responses.
-    pub fn with_executor(mut self, executor: Arc<E>) -> Self
-    where
-        E: Executor + ExecutorExt + 'static,
-    {
-        self.executor = Some(executor);
-        self
+    /// A delayed batch is delivered immediately when no executor is selected.
+    pub fn add_after(&self, _delay: Duration, response: Vec<u8>) {
+        self.script.deliver(response);
+    }
+
+    fn deliver(&self, delivery: Delivery) {
+        match delivery {
+            Delivery::Now(reply) => self.script.deliver(reply),
+            Delivery::After { batch, .. } => {
+                for reply in batch {
+                    self.script.deliver(reply);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "async")]
+impl<E> ScriptedTransport<E> {
+    /// Select an executor for delayed replies, preserving the current script.
+    pub fn with_executor<X: Executor>(self, executor: X) -> ScriptedTransport<X> {
+        ScriptedTransport {
+            script: self.script,
+            executor,
+            shutdown_rx: self.shutdown_rx,
+            config: self.config,
+        }
     }
 
     /// Add a shutdown receiver to cleanly exit on shutdown signal.
@@ -349,15 +364,12 @@ impl<E> ScriptedTransport<E> {
     pub fn add_response(&self, response: Vec<u8>) {
         self.script.deliver(response);
     }
+}
 
-    /// Schedule a response to be delivered after `delay`.
-    ///
-    /// Without an executor the response is delivered immediately, as an
-    /// unscheduled [`Step::After`] is.
-    pub fn add_after(&self, delay: Duration, response: Vec<u8>)
-    where
-        E: Executor + ExecutorExt + 'static,
-    {
+#[cfg(feature = "async")]
+impl<E: Executor> ScriptedTransport<E> {
+    /// Schedule a response to be delivered after `delay` on the selected executor.
+    pub fn add_after(&self, delay: Duration, response: Vec<u8>) {
         self.deliver(Delivery::After {
             delay,
             batch: vec![response],
@@ -366,24 +378,23 @@ impl<E> ScriptedTransport<E> {
 
     fn deliver(&self, delivery: Delivery)
     where
-        E: Executor + ExecutorExt + 'static,
+        E: Executor,
     {
-        match (delivery, &self.executor) {
-            (Delivery::Now(reply), _) => self.script.deliver(reply),
-            (Delivery::After { delay, batch }, Some(executor)) => {
+        match delivery {
+            Delivery::Now(reply) => self.script.deliver(reply),
+            Delivery::After { delay, batch } => {
                 let replies_tx = self.script.replies_tx.clone();
-                let sleeper = Arc::clone(executor);
-                executor.spawn_detached(async move {
-                    sleeper.sleep(delay).await;
+                let sleeper = self.executor.clone();
+                let deadline = sleeper.now().checked_add(delay);
+                self.executor.spawn_bg(async move {
+                    match deadline {
+                        Some(deadline) => sleeper.timer(deadline).await,
+                        None => std::future::pending::<()>().await,
+                    }
                     for reply in batch {
                         let _ = replies_tx.send_async(reply).await;
                     }
                 });
-            }
-            (Delivery::After { batch, .. }, None) => {
-                for reply in batch {
-                    self.script.deliver(reply);
-                }
             }
         }
     }
@@ -392,7 +403,7 @@ impl<E> ScriptedTransport<E> {
 #[cfg(feature = "async")]
 impl<E> AsyncTransport for ScriptedTransport<E>
 where
-    E: Executor + ExecutorExt + 'static,
+    E: Executor,
 {
     async fn send(&mut self, bytes: &[u8]) -> Result<()> {
         for delivery in self.script.on_send(bytes) {
@@ -402,6 +413,13 @@ where
     }
 
     async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome> {
+        self.receive(dst).await
+    }
+}
+
+#[cfg(feature = "async")]
+impl<E> ScriptedTransport<E> {
+    async fn receive(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome> {
         use futures_lite::future;
 
         if let Some(error) = self.script.take_injected_error() {
@@ -417,8 +435,8 @@ where
         };
 
         let reply = if let Some(shutdown_rx) = &self.shutdown_rx {
-            // Race between data reception and shutdown signal
-            future::race(
+            // A signalled shutdown wins over a queued reply on the same poll.
+            future::or(
                 async {
                     let _ = shutdown_rx.recv_async().await;
                     Err(Error::ConnectionClosed {
@@ -437,6 +455,20 @@ where
 }
 
 #[cfg(feature = "async")]
+impl AsyncTransport for ScriptedTransport<Immediate> {
+    async fn send(&mut self, bytes: &[u8]) -> Result<()> {
+        for delivery in self.script.on_send(bytes) {
+            self.deliver(delivery);
+        }
+        Ok(())
+    }
+
+    async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome> {
+        self.receive(dst).await
+    }
+}
+
+#[cfg(feature = "async")]
 impl<E> HasTransportConfig for ScriptedTransport<E> {
     fn transport_config(&self) -> &TransportConfig {
         &self.config
@@ -446,13 +478,23 @@ impl<E> HasTransportConfig for ScriptedTransport<E> {
 /// Blocking transport that follows a predetermined script of responses.
 ///
 /// This is the blocking counterpart of the async `ScriptedTransport` and runs
-/// the same step queue. It has no executor, so a [`Step::After`] batch is
-/// delivered immediately and its delay is ignored.
+/// the same step queue. With [`Self::on_clock`], reads and [`Step::After`]
+/// batches wait on virtual time. Without a clock, delayed batches are delivered
+/// immediately.
 #[cfg(feature = "blocking")]
 #[derive(Clone, Debug)]
 pub struct ScriptedBlockingTransport {
     script: Script,
     config: TransportConfig,
+    clock: Option<ManualClock>,
+    scheduled: Arc<Mutex<Vec<ScheduledBatch>>>,
+}
+
+#[cfg(feature = "blocking")]
+#[derive(Debug)]
+struct ScheduledBatch {
+    at: Option<std::time::Instant>,
+    replies: Vec<Vec<u8>>,
 }
 
 #[cfg(feature = "blocking")]
@@ -462,6 +504,62 @@ impl ScriptedBlockingTransport {
         Self {
             script: Script::new("ScriptedBlockingTransport", steps.into()),
             config: TransportConfig::default(),
+            clock: None,
+            scheduled: Arc::new(Mutex::new(Vec::new())),
+        }
+    }
+
+    /// Measure reads and delayed replies on `clock` instead of wall time.
+    #[must_use]
+    pub fn on_clock(mut self, clock: &ManualClock) -> Self {
+        self.clock = Some(clock.clone());
+        self
+    }
+
+    fn release_due(&self, now: std::time::Instant) {
+        let mut scheduled = self
+            .scheduled
+            .lock()
+            .expect("scripted reply schedule mutex poisoned");
+        // Stable ordering preserves script order for equal deadlines.
+        scheduled.sort_by_key(|batch| (batch.at.is_none(), batch.at));
+        let ready = scheduled.partition_point(|batch| batch.at.is_some_and(|at| at <= now));
+        for batch in scheduled.drain(..ready) {
+            for reply in batch.replies {
+                self.script.deliver(reply);
+            }
+        }
+    }
+
+    fn receive_on_clock(&self, clock: &ManualClock, timeout: Duration) -> Option<Vec<u8>> {
+        let expires = clock.now().checked_add(timeout);
+        loop {
+            let now = clock.now();
+            self.release_due(now);
+            if let Ok(reply) = self.script.replies_rx.try_recv() {
+                return Some(reply);
+            }
+            if expires.is_some_and(|deadline| now >= deadline) {
+                return None;
+            }
+            let next = self
+                .scheduled
+                .lock()
+                .expect("scripted reply schedule mutex poisoned")
+                .iter()
+                .filter_map(|batch| batch.at)
+                .min();
+            let deadline = expires.into_iter().chain(next).min();
+            let received = match deadline {
+                Some(deadline) => clock.wait_until(deadline, || {
+                    self.release_due(clock.now());
+                    self.script.replies_rx.try_recv().ok()
+                }),
+                None => clock.wait_on(None, &mut BlockingReplies(self)),
+            };
+            if received.is_some() {
+                return received;
+            }
         }
     }
 
@@ -493,9 +591,19 @@ impl BlockingTransport for ScriptedBlockingTransport {
         for delivery in self.script.on_send(bytes) {
             match delivery {
                 Delivery::Now(reply) => self.script.deliver(reply),
-                Delivery::After { batch, .. } => {
-                    for reply in batch {
-                        self.script.deliver(reply);
+                Delivery::After { delay, batch } => {
+                    if let Some(clock) = &self.clock {
+                        self.scheduled
+                            .lock()
+                            .expect("scripted reply schedule mutex poisoned")
+                            .push(ScheduledBatch {
+                                at: clock.now().checked_add(delay),
+                                replies: batch,
+                            });
+                    } else {
+                        for reply in batch {
+                            self.script.deliver(reply);
+                        }
                     }
                 }
             }
@@ -512,6 +620,13 @@ impl BlockingTransport for ScriptedBlockingTransport {
             return Err(error);
         }
 
+        if let Some(clock) = &self.clock {
+            return self
+                .receive_on_clock(clock, timeout)
+                .map(|reply| ReceiveOutcome::copy_message(&reply, dst))
+                .ok_or_else(Error::io_timeout);
+        }
+
         // A zero timeout polls: check for a queued reply without blocking.
         // A timeout too long to express as a deadline waits indefinitely.
         let timeout = timeout.max(Duration::from_micros(1));
@@ -522,6 +637,28 @@ impl BlockingTransport for ScriptedBlockingTransport {
         reply
             .map(|reply| ReceiveOutcome::copy_message(&reply, dst))
             .ok_or_else(Error::io_timeout)
+    }
+}
+
+#[cfg(feature = "blocking")]
+struct BlockingReplies<'a>(&'a ScriptedBlockingTransport);
+#[cfg(feature = "blocking")]
+impl crate::testing::manual_clock::Source<Vec<u8>> for BlockingReplies<'_> {
+    fn poll(&mut self) -> Option<Vec<u8>> {
+        self.0.script.replies_rx.try_recv().ok()
+    }
+    fn block(
+        &mut self,
+        bell: &flume::Receiver<crate::testing::manual_clock::Bell>,
+    ) -> Result<Vec<u8>, crate::testing::manual_clock::Bell> {
+        flume::Selector::new()
+            .recv(&self.0.script.replies_rx, |reply| {
+                reply.map_err(|_| crate::testing::manual_clock::Bell::Expired)
+            })
+            .recv(bell, |bell| {
+                Err(bell.unwrap_or(crate::testing::manual_clock::Bell::Expired))
+            })
+            .wait()
     }
 }
 
@@ -626,7 +763,9 @@ pub mod helpers {
     /// Auto-response mode: generate appropriate response for any VISCA command
     /// This is useful for tests that don't care about specific command details
     pub fn auto_respond_step() -> Step {
-        standard_command_response(1) // Default to socket 1
+        Step::EverySend {
+            respond: std::sync::Arc::new(|_| vec![ack(1), complete(1)]),
+        }
     }
 
     /// Auto-response mode for Sony cameras: every send is answered with an ACK
@@ -634,13 +773,15 @@ pub mod helpers {
     /// echoes the request's sequence number (sequence 0 for a request that is
     /// not enveloped).
     pub fn sony_auto_respond_step() -> Step {
-        Step::DynamicResponse(Box::new(|sent_bytes| {
-            let sequence = sony_sequence(sent_bytes).unwrap_or(0);
-            vec![
-                sony_reply(sequence, &ack(1)),
-                sony_reply(sequence, &complete(1)),
-            ]
-        }))
+        Step::EverySend {
+            respond: std::sync::Arc::new(|sent_bytes| {
+                let sequence = sony_sequence(sent_bytes).unwrap_or(0);
+                vec![
+                    sony_reply(sequence, &ack(1)),
+                    sony_reply(sequence, &complete(1)),
+                ]
+            }),
+        }
     }
 
     /// Create a power inquiry response
@@ -707,8 +848,173 @@ mod tests {
 
     use crate::command::bytes::VISCA_TERMINATOR;
     #[cfg(feature = "async")]
-    use crate::testing::testkit::DeterministicExecutor;
+    use crate::testing::testkit::{ManualClock, ManualClockExecutor};
     use crate::transport::ReceiveOutcome;
+
+    #[cfg(feature = "async")]
+    fn assert_executor_delivers_at_its_deadline(executor: impl Executor) {
+        let start = executor.now();
+        let mut transport = ScriptedTransport::new(vec![Step::after(
+            Duration::from_secs(30),
+            vec![helpers::ack(1)],
+        )])
+        .with_executor(executor.clone());
+        executor.block_on(async {
+            transport.send(&[0x81]).await.expect("send");
+            let mut buffer = [0; 16];
+            let outcome = transport.recv_into(&mut buffer).await.expect("reply");
+            assert_eq!(&buffer[..outcome.copied_len()], helpers::ack(1));
+        });
+        assert_eq!(executor.now() - start, Duration::from_secs(30));
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[test]
+    fn tokio_scripted_transport_uses_manual_clock_deadlines() {
+        let runtime = tokio::runtime::Runtime::new().expect("Tokio");
+        let clock = ManualClock::new();
+        assert_executor_delivers_at_its_deadline(ManualClockExecutor::new(
+            crate::TokioExecutor::from_handle(runtime.handle().clone()),
+            &clock,
+        ));
+    }
+
+    #[cfg(feature = "runtime-smol")]
+    #[test]
+    fn smol_scripted_transport_uses_manual_clock_deadlines() {
+        let clock = ManualClock::new();
+        assert_executor_delivers_at_its_deadline(ManualClockExecutor::new(
+            crate::SmolExecutor::new(),
+            &clock,
+        ));
+    }
+
+    #[cfg(feature = "blocking")]
+    #[test]
+    fn a_silent_scripted_camera_times_out_without_real_sleep() {
+        let clock = ManualClock::new();
+        let participant = clock.enter();
+        let real = std::time::Instant::now();
+        let session = clock
+            .open_blocking_session(
+                &participant,
+                ScriptedBlockingTransport::new(vec![]).on_clock(&clock),
+                crate::SessionConfig::from_compile_time::<crate::profiles::GenericVisca>()
+                    .expect("profile"),
+            )
+            .expect("session");
+        let camera = session
+            .camera::<crate::profiles::GenericVisca>()
+            .expect("camera");
+        let start = clock.now();
+        assert!(matches!(
+            camera.focus().manual(),
+            Err(Error::UnsequencedCommandUnconfirmed)
+        ));
+        assert!(clock.now() > start);
+        session.close().expect("close");
+        assert!(real.elapsed() < Duration::from_secs(1));
+    }
+
+    #[cfg(feature = "async")]
+    #[test]
+    fn delayed_batch_deadlines_start_at_send_before_the_task_is_polled() {
+        let clock = ManualClock::new();
+        let executor = ManualClockExecutor::local(&clock);
+        let start = clock.now();
+        let mut transport = ScriptedTransport::new(vec![Step::after(
+            Duration::from_secs(30),
+            vec![helpers::ack(1)],
+        )])
+        .with_executor(executor.clone());
+        executor.run_until(async {
+            transport.send(&[0x81]).await.expect("send");
+            clock.advance(Duration::from_secs(10));
+            let mut buffer = [0; 16];
+            let outcome = transport.recv_into(&mut buffer).await.expect("reply");
+            assert_eq!(&buffer[..outcome.copied_len()], helpers::ack(1));
+        });
+        assert_eq!(clock.now() - start, Duration::from_secs(30));
+    }
+
+    #[cfg(feature = "async")]
+    #[test]
+    fn executor_free_transport_clones_dynamic_steps_and_prefers_shutdown() {
+        futures_lite::future::block_on(async {
+            let original = Step::DynamicResponse(Arc::new(|sent| vec![sent.to_vec()]));
+            let mut transport = ScriptedTransport::new(vec![original.clone()]);
+            transport.send(&[0x81, 1]).await.expect("send");
+            let mut buffer = [0; 16];
+            let count = transport
+                .recv_into(&mut buffer)
+                .await
+                .expect("cloned dynamic reply")
+                .copied_len();
+            assert_eq!(&buffer[..count], &[0x81, 1]);
+            for _ in 0..200 {
+                let (signal, shutdown) = flume::bounded(1);
+                let mut transport = ScriptedTransport::new(vec![helpers::auto_respond_step()])
+                    .with_shutdown(shutdown);
+                transport.send(&[0x81, 1]).await.expect("send");
+                signal.send(()).expect("shutdown signal");
+                assert!(matches!(
+                    transport.recv_into(&mut buffer).await,
+                    Err(Error::ConnectionClosed { .. })
+                ));
+            }
+        });
+    }
+
+    #[cfg(feature = "blocking")]
+    #[test]
+    fn automatic_reply_steps_answer_every_send() {
+        for step in [
+            helpers::auto_respond_step(),
+            helpers::sony_auto_respond_step(),
+        ] {
+            let mut transport = ScriptedBlockingTransport::new(vec![step]);
+            for _ in 0..2 {
+                transport
+                    .send_with_timeout(&[0x81, 1], CommandKind::Command, Duration::ZERO)
+                    .expect("send");
+                let mut buffer = [0; 32];
+                for _ in 0..2 {
+                    let outcome = transport
+                        .recv_into_with_timeout(&mut buffer, Duration::ZERO)
+                        .expect("every send gets both replies");
+                    assert!(outcome.copied_len() > 0);
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "blocking")]
+    #[test]
+    fn blocking_reads_and_delayed_batches_wait_on_virtual_time() {
+        let clock = ManualClock::new();
+        let _entered = clock.enter();
+        let mut transport = ScriptedBlockingTransport::new(vec![Step::after(
+            Duration::from_secs(30),
+            vec![helpers::ack(1)],
+        )])
+        .on_clock(&clock);
+        let start = clock.now();
+        let real = std::time::Instant::now();
+        transport
+            .send_with_timeout(&[0x81], CommandKind::Command, Duration::ZERO)
+            .expect("send");
+        let mut buffer = [0; 16];
+        let outcome = transport
+            .recv_into_with_timeout(&mut buffer, Duration::from_secs(60))
+            .expect("delayed reply");
+        assert_eq!(&buffer[..outcome.copied_len()], helpers::ack(1));
+        assert_eq!(clock.now() - start, Duration::from_secs(30));
+        assert!(transport
+            .recv_into_with_timeout(&mut buffer, Duration::from_secs(60))
+            .is_err());
+        assert_eq!(clock.now() - start, Duration::from_secs(90));
+        assert!(real.elapsed() < Duration::from_secs(1));
+    }
 
     #[test]
     #[cfg(feature = "blocking")]
@@ -760,11 +1066,10 @@ mod tests {
     #[tokio::test]
     #[allow(clippy::unwrap_used)]
     async fn test_scripted_async_transport_with_executor() {
-        let (executor, _clock) = DeterministicExecutor::new();
+        let clock = ManualClock::new();
+        let executor = Arc::new(ManualClockExecutor::local(&clock));
 
-        // Test basic functionality without delayed responses for now
-        // The After step with spawned tasks requires more complex integration
-        // between DeterministicExecutor and async-executor
+        // Immediate replies use the same transport over the local executor.
         let mut transport = ScriptedTransport::new(vec![Step::OnSend {
             matches: None,
             responses: vec![vec![0x90, 0x41, VISCA_TERMINATOR]],
@@ -795,7 +1100,7 @@ mod tests {
         let exec = Arc::new(TokioExecutor::from_handle(tokio::runtime::Handle::current()));
 
         // Arrange: first recv() should see a transport-level timeout error
-        let mut transport: ScriptedTransport<TokioExecutor> =
+        let mut transport: ScriptedTransport<Arc<TokioExecutor>> =
             ScriptedTransport::new(vec![errors::transport_timeout()]).with_executor(exec);
 
         // Act: send anything (no response will be produced)
@@ -810,48 +1115,11 @@ mod tests {
         assert!(matches!(err, Error::Timeout { .. }));
     }
 
-    #[cfg(all(test, feature = "test-utils", feature = "async"))]
+    #[cfg(feature = "async")]
     #[test]
-    #[allow(clippy::unwrap_used)]
-    fn test_scripted_transport_delayed_response_with_deterministic_executor() {
-        use crate::testing::testkit::deterministic_executor::DeterministicExecutor;
-        use crate::testing::testkit::Step;
-        use std::time::Duration;
-
-        let (executor, clock) = DeterministicExecutor::new();
-
-        executor.clone().block_on_bg(async move {
-            let cmd = vec![0x81, 0x01, 0x04, 0x00, VISCA_TERMINATOR];
-
-            let steps = vec![
-                Step::OnSend {
-                    matches: None,
-                    responses: vec![],
-                },
-                Step::After {
-                    delay: Duration::from_millis(100),
-                    responses: vec![vec![0x90, 0x41, VISCA_TERMINATOR]],
-                },
-            ];
-
-            let mut transport = ScriptedTransport::new(steps).with_executor(executor.clone());
-
-            // Kick off send, then concurrently wait for recv
-            transport.send(&cmd).await.unwrap();
-
-            // Spawn the recv future and advance time to deliver the delayed response
-            let mut buffer = vec![0u8; 256];
-            let recv_fut = transport.recv_into(&mut buffer);
-            executor.drive_until_idle();
-            clock.advance(Duration::from_millis(100));
-            executor.drive_until_idle();
-
-            let n = recv_fut
-                .await
-                .expect("Delayed response should arrive")
-                .copied_len();
-            assert_eq!(&buffer[..n], &[0x90, 0x41, VISCA_TERMINATOR]);
-        });
+    fn delayed_response_uses_the_one_manual_clock() {
+        let clock = ManualClock::new();
+        assert_executor_delivers_at_its_deadline(ManualClockExecutor::local(&clock));
     }
 
     /// A scripted receive error is surfaced unchanged, not as a timeout.
@@ -896,7 +1164,8 @@ mod tests {
     #[cfg(feature = "async")]
     #[allow(clippy::unwrap_used)]
     fn async_receive_surfaces_the_scripted_error_then_the_script_resumes() {
-        let (executor, _clock) = DeterministicExecutor::new();
+        let clock = ManualClock::new();
+        let executor = Arc::new(ManualClockExecutor::local(&clock));
         let mut transport =
             ScriptedTransport::new(scripted_connection_loss()).with_executor(Arc::clone(&executor));
         executor.run_until(async {
@@ -949,7 +1218,7 @@ mod tests {
     #[cfg(feature = "blocking")]
     fn a_panicking_dynamic_response_does_not_poison_the_script() {
         let transport =
-            ScriptedBlockingTransport::new(vec![Step::DynamicResponse(Box::new(|_| {
+            ScriptedBlockingTransport::new(vec![Step::DynamicResponse(Arc::new(|_| {
                 panic!("dynamic response panics")
             }))]);
         let mut sender = transport.clone();
@@ -973,7 +1242,7 @@ mod tests {
     #[cfg(feature = "async")]
     #[should_panic(expected = "ScriptedTransport script mutex poisoned")]
     fn async_poison_panic_names_the_async_transport() {
-        let transport = ScriptedTransport::<DeterministicExecutor>::new(vec![]);
+        let transport = ScriptedTransport::new(vec![]);
         poison(&transport.script);
         let _ = transport.sent();
     }

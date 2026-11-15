@@ -38,7 +38,7 @@ impl PanTiltPositionDeg {
     /// request preparation does.
     ///
     /// # Errors
-    /// Returns [`crate::Error::InvalidRequest`] if an angle is not finite, is
+    /// Returns [`crate::Error::InvalidParameter`] if an angle is not finite, is
     /// outside the profile's degree range, or converts to units outside the
     /// profile's unit range.
     pub fn to_raw_with_profile<P: Profile>(
@@ -46,16 +46,14 @@ impl PanTiltPositionDeg {
         _profile: &P,
     ) -> Result<PanTiltPosition, crate::Error> {
         let conversion = PanTiltCoordinateConversion::for_profile::<P>();
-        let pan_units = P::PAN_RANGE.as_inclusive();
-        let tilt_units = P::TILT_RANGE.as_inclusive();
         conversion.checked_units(
             *self,
             crate::profile::PanTiltRanges {
-                pan_degrees: &conversion.pan_degree_range(&pan_units),
-                tilt_degrees: &conversion.tilt_degree_range(&tilt_units),
-                pan_units: &pan_units,
-                tilt_units: &tilt_units,
+                pan_units: P::PAN_RANGE,
+                tilt_units: P::TILT_RANGES.range(None),
+                endpoint_quantization: P::ENDPOINT_QUANTIZATION,
             },
+            crate::profile::CoordinateKind::Position,
         )
     }
 }

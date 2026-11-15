@@ -8,6 +8,16 @@
 
 #![allow(clippy::expect_used, clippy::panic)]
 
+#[cfg(all(
+    target_os = "linux",
+    any(
+        feature = "blocking",
+        feature = "runtime-tokio",
+        feature = "runtime-smol"
+    )
+))]
+mod tcp_queue;
+
 #[cfg(feature = "blocking")]
 use crate::transport::HasTransportConfig;
 use crate::transport::{AddressingMode, TransportConfig};
@@ -565,5 +575,86 @@ mod facades {
                 "{facade} reported {error:?}, expected the blocking facade's {first:?}"
             );
         }
+    }
+}
+
+/// Real UDP writes through a hostname must reach the IPv4 camera even when the
+/// system resolver places IPv6 first. The pure selection test supplies both
+/// families deterministically; these cover the actual connector entry points.
+#[cfg(any(
+    feature = "blocking",
+    feature = "runtime-tokio",
+    feature = "runtime-smol"
+))]
+mod udp_address_selection {
+    use crate::transport::TransportConfig;
+    use std::{net::UdpSocket, time::Duration};
+
+    fn peer() -> (UdpSocket, String) {
+        let peer = UdpSocket::bind("127.0.0.1:0").expect("IPv4 camera");
+        peer.set_read_timeout(Some(Duration::from_secs(1)))
+            .expect("bounded receive");
+        let endpoint = format!(
+            "localhost:{}",
+            peer.local_addr().expect("camera address").port()
+        );
+        (peer, endpoint)
+    }
+
+    fn received(peer: UdpSocket) {
+        let mut bytes = [0; 16];
+        let (length, source) = peer
+            .recv_from(&mut bytes)
+            .expect("camera received UDP frame");
+        assert!(source.is_ipv4());
+        assert_eq!(&bytes[..length], &[0x81, 0xff]);
+    }
+
+    #[cfg(feature = "blocking")]
+    #[test]
+    fn blocking_udp_localhost_reaches_the_ipv4_camera() {
+        use crate::{command::CommandKind, transport::BlockingTransport};
+        let (peer, endpoint) = peer();
+        let mut socket = crate::transport::blocking::Udp::connect_with_config(
+            &endpoint,
+            TransportConfig::for_udp(),
+        )
+        .expect("UDP setup");
+        socket
+            .send_with_timeout(&[0x81, 0xff], CommandKind::Command, Duration::from_secs(1))
+            .expect("send");
+        received(peer);
+    }
+
+    #[cfg(feature = "runtime-tokio")]
+    #[tokio::test]
+    async fn tokio_udp_localhost_reaches_the_ipv4_camera() {
+        use crate::transport::AsyncTransport;
+        let (peer, endpoint) = peer();
+        let mut socket = crate::runtime_adapters::tokio::UdpTransport::connect_with_config(
+            &endpoint,
+            TransportConfig::for_udp(),
+        )
+        .await
+        .expect("UDP setup");
+        socket.send(&[0x81, 0xff]).await.expect("send");
+        received(peer);
+    }
+
+    #[cfg(feature = "runtime-smol")]
+    #[test]
+    fn smol_udp_localhost_reaches_the_ipv4_camera() {
+        use crate::transport::AsyncTransport;
+        ::smol::block_on(async {
+            let (peer, endpoint) = peer();
+            let mut socket = crate::runtime_adapters::smol::UdpTransport::connect_with_config(
+                &endpoint,
+                TransportConfig::for_udp(),
+            )
+            .await
+            .expect("UDP setup");
+            socket.send(&[0x81, 0xff]).await.expect("send");
+            received(peer);
+        });
     }
 }

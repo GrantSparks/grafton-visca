@@ -25,6 +25,11 @@ pub(crate) mod resolution;
 pub(crate) mod response;
 /// Authoritative semantic classification ledger for built-in commands.
 pub(crate) mod semantics;
+pub(crate) mod sony_fr7_exposure;
+pub(crate) mod sony_fr7_image;
+pub(crate) mod sony_fr7_presets;
+pub(crate) mod sony_fr7_white_balance;
+pub(crate) mod sony_fr7_zoom;
 pub(crate) mod streaming;
 /// Crate-private noun/method mapping for the final static camera surface.
 ///
@@ -56,6 +61,11 @@ pub(crate) fn test_wire_bytes<C: encode::WireEncode>(
 }
 
 // Re-export command types
+pub use self::sony_fr7_exposure::*;
+pub use self::sony_fr7_image::*;
+pub use self::sony_fr7_presets::*;
+pub use self::sony_fr7_white_balance::*;
+pub use self::sony_fr7_zoom::*;
 pub use self::{
     bytes::VISCA_TERMINATOR,
     color::*,
@@ -67,14 +77,14 @@ pub use self::{
     image::*,
     inquiry::*,
     inquiry_structs::{InquiryData, InquiryKind},
-    inquiry_types::{FlipState, TallyStatusState, VersionInfo},
+    inquiry_types::{FlipState, VersionInfo},
     menu::*,
     motion_sync::{SetMotionSyncMode, SetMotionSyncPreset},
     nd_filter::*,
     pan_tilt::*,
     power::*,
     preset::*,
-    resolution::{NdFilterPosition, PictureEffectMode},
+    resolution::{NdFilterPosition, PictureEffectMode, UnknownPictureEffect},
     response::{
         parse_inquiry_payload, BoolConvention, Nibbles, Payload, RawInquiryPayload, Response,
     },

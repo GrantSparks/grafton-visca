@@ -91,7 +91,10 @@ fn every_rc2_built_in_spec_is_refused_with_a_regeneration_instruction() {
     ] {
         assert_rc2_shape(fixture, missing_tag);
         let error = refusal(fixture);
-        assert!(error.contains("missing field"), "{error}");
+        assert!(
+            error.contains("missing field") || error.contains("unknown field"),
+            "{error}"
+        );
         assert_regeneration_instruction(&error);
     }
 }
@@ -99,12 +102,13 @@ fn every_rc2_built_in_spec_is_refused_with_a_regeneration_instruction() {
 #[test]
 fn a_current_spec_missing_a_current_field_is_refused() {
     let current = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2");
-    for field in ["focus_zones", "optical_zoom_ratio"] {
+    for (domain, field) in [("focus", "zones"), ("zoom", "optical_ratio")] {
         let mut value = serde_json::to_value(&current).expect("serialize");
-        value["capabilities"]
+        value["capabilities"][domain]
             .as_object_mut()
-            .expect("capabilities object")
-            .remove(field);
+            .expect("capability domain object")
+            .remove(field)
+            .expect("required current field");
         let error = refusal(&value.to_string());
         assert!(
             error.contains(&format!("missing field `{field}`")),
@@ -180,11 +184,14 @@ fn removing_any_current_key_is_refused_for_every_builtin_and_custom_spec() {
                 .remove(&key)
                 .expect("enumerated current key");
             let error = refusal(&shortened.to_string());
-            assert!(
-                error.contains("missing field"),
-                "{} {parent}/{key}: {error}",
-                spec.name()
-            );
+            // Externally tagged enums require their sole variant key rather
+            // than reporting it as a missing struct field.
+            let missing_fact = if parent == "/capabilities/pan_tilt/tilt_ranges" {
+                error.contains("expected value")
+            } else {
+                error.contains("missing field")
+            };
+            assert!(missing_fact, "{} {parent}/{key}: {error}", spec.name());
             assert_regeneration_instruction(&error);
         }
     }
@@ -220,7 +227,6 @@ fn stale_builtin_typed_support_keeps_the_invalid_request_variant() {
         .maximum_command_sockets(current.maximum_command_sockets())
         .supports_operation_complete(current.supports_operation_complete())
         .supports_command_cancel(current.supports_command_cancel())
-        .preset_recall_axes(current.preset_recall_axes())
         .position_inquiries(current.position_inquiries())
         .build()
         .expect_err("a stale built-in identity must not build");

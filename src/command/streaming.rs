@@ -5,8 +5,8 @@
 
 use crate::{
     command::bytes::{constants::streaming, FrameWriter},
+    macros::consolidated::visca_command,
     types::NdiQuality,
-    visca_command,
 };
 
 visca_command! {

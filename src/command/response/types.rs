@@ -56,6 +56,11 @@ pub enum Response {
         /// Socket that completed, if available
         socket: Option<ViscaSocket>,
     },
+    /// The camera reports a network change (`z0 38 FF`).
+    ///
+    /// This notification does not complete a command. [`Self::into_result`]
+    /// returns [`Error::UnexpectedResponseType`] for it.
+    NetworkChange,
     /// Command failed with an error
     Error(Error),
     /// Inquiry command response containing requested data
@@ -96,12 +101,14 @@ impl Response {
     ///
     /// Note: ACK responses are treated as an error because they only indicate
     /// the command was queued, not completed. Callers should wait for the
-    /// subsequent Completion response.
+    /// subsequent Completion response. Network-change notifications return
+    /// [`Error::UnexpectedResponseType`] because they are not command outcomes.
     pub fn into_result(self) -> Result<(), Error> {
         match self {
             Response::Completion { .. } => Ok(()),
             Response::CmdAck { .. } => Err(Error::CommandPending), // ACK means command is queued, not completed
             Response::Error(e) => Err(e),
+            Response::NetworkChange => Err(Error::UnexpectedResponseType),
             Response::Inquiry(_) => Ok(()), // Inquiry responses are success
             Response::RawInquiry(_) => Ok(()), // Raw inquiry responses are success
             Response::Unknown { data, .. } => Err(Error::InvalidResponse {

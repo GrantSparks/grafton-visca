@@ -5,7 +5,7 @@
 //! cross-runtime mismatches at compile time.
 
 #[cfg(feature = "async")]
-use std::{future::Future, time::Instant};
+use std::future::Future;
 
 #[cfg(feature = "async")]
 use crate::{
@@ -86,14 +86,6 @@ pub trait Runtime: Executor + Clone + Send + Sync + 'static {
         addr: &'a str,
         cfg: TransportConfig,
     ) -> impl Future<Output = Result<Self::UdpTransport, Error>> + Send + 'a;
-
-    /// Get the current time according to this runtime.
-    ///
-    /// Default implementation delegates to the executor's `now()` method.
-    /// This allows test runtimes to provide virtual time.
-    fn now(&self) -> Instant {
-        <Self as Executor>::now(self)
-    }
 }
 
 /// Runtime trait extension for serial transport support.
@@ -275,6 +267,12 @@ macro_rules! delegate_executor {
 
             type Detach = <$executor as Executor>::Detach;
 
+            type Timer = <$executor as Executor>::Timer;
+
+            fn timer(&self, deadline: std::time::Instant) -> Self::Timer {
+                self.executor.timer(deadline)
+            }
+
             fn spawn_with_detach<F>(&self, fut: F) -> (Self::Join<F::Output>, Self::Detach)
             where
                 F: Future + Send + 'static,
@@ -303,7 +301,7 @@ macro_rules! delegate_executor {
                 self.executor.timeout(duration, fut)
             }
 
-            fn now(&self) -> Instant {
+            fn now(&self) -> std::time::Instant {
                 self.executor.now()
             }
         }

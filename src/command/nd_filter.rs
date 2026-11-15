@@ -125,8 +125,9 @@ impl NdFilterValue {
     /// Create from a stop value (2.0 to 7.0 stops).
     ///
     /// Each raw unit is a quarter stop: `2.0` maps to the minimum density
-    /// (`0x0000`) and `7.0` to the maximum (`0x0014`). A fraction of a
-    /// quarter stop is truncated, so `2.3` maps to `0x0001`.
+    /// (`0x0000`) and `7.0` to the maximum (`0x0014`). Like other unit
+    /// conversions, this uses `f32` arithmetic rounded to the nearest unit,
+    /// with halves away from zero.
     pub fn from_stops(stops: f32) -> Result<Self, Error> {
         if !(2.0..=7.0).contains(&stops) {
             return Err(Error::InvalidParameter {
@@ -137,7 +138,7 @@ impl NdFilterValue {
         }
         // Convert stops to value: 2 stops = 0x0000, 7 stops = 0x0014
         // Linear mapping: (stops - 2) * 4 = value
-        let value = ((stops - 2.0) * 4.0) as u16;
+        let value = ((stops - 2.0) * 4.0).round() as u16;
         Ok(Self { value })
     }
 
@@ -320,6 +321,33 @@ mod tests {
 
         assert!(NdFilterValue::from_stops(1.5).is_err());
         assert!(NdFilterValue::from_stops(8.0).is_err());
+    }
+
+    #[test]
+    fn stop_conversion_rounds_every_half_quarter_stop() {
+        for unit in 0..20 {
+            let half = 2.0 + (f32::from(unit) + 0.5) / 4.0;
+            assert_eq!(
+                NdFilterValue::from_stops(half)
+                    .expect("half-quarter in range")
+                    .value(),
+                unit + 1
+            );
+            assert_eq!(
+                NdFilterValue::from_stops(half - 0.001)
+                    .expect("below half-quarter in range")
+                    .value(),
+                unit
+            );
+        }
+        assert_eq!(
+            NdFilterValue::from_stops(6.99).expect("6.99 stops").value(),
+            0x14
+        );
+        assert_eq!(
+            NdFilterValue::from_stops(2.24).expect("2.24 stops").value(),
+            0x01
+        );
     }
 
     visca_test!(

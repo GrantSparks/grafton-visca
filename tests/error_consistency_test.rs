@@ -49,42 +49,28 @@ fn test_error_code_consistency() {
 }
 
 #[test]
-fn test_error_retryability_consistency() {
-    // Test that retryability is consistent across error types
-
-    // These errors should always be retryable
-    let retryable_errors = [
-        Error::TransportError("datagram send failed".into()),
-        Error::CommandPending,
-        Error::CommandBufferFull,
-        Error::io_timeout(),
-    ];
-
-    for error in &retryable_errors {
-        assert!(error.is_retryable(), "Error {error:?} should be retryable");
-        assert!(
-            error.suggested_retry_delay().is_some(),
-            "Retryable error {error:?} should have a suggested delay"
-        );
-    }
-
-    // These errors should never be retryable
-    let non_retryable_errors = [
-        Error::SyntaxError,
-        Error::CommandNotExecutable,
-        Error::CommandCanceled,
-        Error::MessageLengthError,
-    ];
-
-    for error in &non_retryable_errors {
-        assert!(
-            !error.is_retryable(),
-            "Error {error:?} should not be retryable"
-        );
-        assert!(
-            error.suggested_retry_delay().is_none(),
-            "Non-retryable error {error:?} should not have a suggested delay"
-        );
+fn recovery_distinguishes_capacity_acceptance_and_uncertainty() {
+    use grafton_visca::Recovery;
+    use std::time::Duration;
+    for (error, expected) in [
+        (
+            Error::transport_error(std::io::Error::other("send")),
+            Recovery::Resubmit {
+                after: Duration::from_millis(50),
+            },
+        ),
+        (Error::CommandPending, Recovery::WaitAgain),
+        (
+            Error::CommandBufferFull,
+            Recovery::Resubmit {
+                after: Duration::from_millis(200),
+            },
+        ),
+        (Error::io_timeout(), Recovery::Reconcile),
+        (Error::SyntaxError, Recovery::Abandon),
+        (Error::OwnerTerminated, Recovery::ReopenSession),
+    ] {
+        assert_eq!(error.recovery(), expected);
     }
 }
 
@@ -126,21 +112,30 @@ fn test_internal_external_error_consistency() {
             0x03 | 0x05 => {
                 // Buffer full (0x03) and no socket (0x05) are transient capacity — retryable
                 assert!(
-                    public_error.is_retryable(),
+                    matches!(
+                        public_error.recovery(),
+                        grafton_visca::Recovery::Resubmit { .. }
+                    ),
                     "Error for 0x{code:02X} should be retryable"
                 );
             }
             0x01 | 0x02 | 0x04 => {
                 // These should not be retryable
                 assert!(
-                    !public_error.is_retryable(),
+                    !matches!(
+                        public_error.recovery(),
+                        grafton_visca::Recovery::Resubmit { .. }
+                    ),
                     "Error for 0x{code:02X} should not be retryable"
                 );
             }
             0x41 => {
                 // CommandNotExecutable is context-dependent but base error is not retryable
                 assert!(
-                    !public_error.is_retryable(),
+                    !matches!(
+                        public_error.recovery(),
+                        grafton_visca::Recovery::Resubmit { .. }
+                    ),
                     "Error for 0x{code:02X} (CommandNotExecutable) base should not be retryable"
                 );
             }

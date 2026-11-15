@@ -5,8 +5,8 @@
 
 use crate::{
     command::bytes::{constants::color, constants::white_balance, step_command_encoder},
+    macros::consolidated::visca_command,
     types::{BlueTuning, HueLevel, RedTuning, SaturationLevel},
-    visca_command,
 };
 
 visca_command! {

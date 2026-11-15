@@ -28,11 +28,9 @@ fn main() {
     .expect("plain");
     let inquiry = raw::Inquiry::new(
         [0x81, 0x09, 0x04, 0xff],
-        grafton_visca::InquiryRoute::try_custom(9).expect("route"),
         ResponseDecoder::from_fn(decode),
         grafton_visca::RetryClass::Inquiry,
-        grafton_visca::ControlClass::Normal,
-    )
+        grafton_visca::ControlClass::Normal)
     .expect("inquiry");
     let axes = grafton_visca::AffectedAxes::PAN_TILT;
     let targeted = raw::Targeted::new(

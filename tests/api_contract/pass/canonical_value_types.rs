@@ -1,7 +1,7 @@
 // #806: one public type per value. The root, `types`, command, and request
 // paths all name the same `FocusSpeed`.
 use grafton_visca::{
-    command::{Focus, SetMotionSyncPreset, TallyStatusState, VersionInfo},
+    command::{Focus, SetMotionSyncPreset, VersionInfo},
     request::builtin::FocusDrive,
     types, FocusSpeed, MotionSyncSpeed,
 };
@@ -17,10 +17,6 @@ fn main() {
         model: 0,
         rom_version: 0,
         max_socket: 1,
-    };
-    let _ = TallyStatusState {
-        red_on: true,
-        green_on: false,
     };
     assert_eq!(
         SetMotionSyncPreset::new(MotionSyncSpeed::SLOW).speed(),

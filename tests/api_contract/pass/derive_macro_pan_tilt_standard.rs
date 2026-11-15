@@ -5,7 +5,7 @@ use grafton_visca::{
 
 /// A downstream derive uses only the standard VISCA inquiry and reply forms.
 #[derive(Debug, Copy, Clone, ViscaInquiry)]
-#[visca(opcode = 0x12, subcode = 0x06, response = PanTiltPosition, parser = PanTilt)]
+#[visca(opcode = 0x12, subcode = 0x06, response = PanTiltPosition)]
 struct StandardPanTiltProbeInquiry;
 
 fn main() {

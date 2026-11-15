@@ -4,29 +4,22 @@
 use std::time::Duration;
 
 #[cfg(any(feature = "blocking", feature = "async"))]
-use crate::{AffectedAxes, CameraId, OperationalTuning, ProfileSpec, Result};
+use crate::session_config::ValidatedTuning;
+#[cfg(any(feature = "blocking", feature = "async"))]
+use crate::{AffectedAxes, Result};
 
-/// A closed operation completion kind.
-///
-/// Settlement lowering is an owner implementation detail. Its hidden default
-/// keeps downstream attempts to implement this sealed trait focused on the
-/// sealing diagnostic instead of requiring internal lowering items.
-pub trait Kind: private::Sealed + Send + Sync + 'static {
-    /// Lowers this marker to its matching owner-private settlement plan.
-    #[cfg(any(feature = "blocking", feature = "async"))]
-    #[doc(hidden)]
-    fn lower_settlement(
-        target: CameraId,
-        profile: &ProfileSpec,
-        tuning: OperationalTuning,
-        axes: AffectedAxes,
-        default_budget: Duration,
-    ) -> Result<Settlement<Self>>
-    where
-        Self: Sized,
-    {
-        <Self as private::Sealed>::lower(target, profile, tuning, axes, default_budget)
-    }
+/// A closed operation completion kind. Settlement lowering remains private
+/// to the owner implementation.
+pub trait Kind: private::Sealed + Send + Sync + 'static {}
+
+#[cfg(any(feature = "blocking", feature = "async"))]
+pub(crate) fn lower_settlement<K: Kind>(
+    registration: &crate::TargetRegistration,
+    tuning: ValidatedTuning,
+    axes: AffectedAxes,
+    default_budget: Duration,
+) -> Result<Settlement<K>> {
+    <K as private::Sealed>::lower(registration, tuning, axes, default_budget)
 }
 
 /// An operation with a target state and a profile-selected protocol settlement
@@ -41,6 +34,7 @@ pub struct AppliedOnly;
 impl Kind for Targeted {}
 impl Kind for AppliedOnly {}
 
+#[allow(private_interfaces)]
 mod private {
     /// The plan association lives on the private seal, so it adds no public
     /// implementation obligation or supported API surface.
@@ -50,9 +44,8 @@ mod private {
 
         #[cfg(any(feature = "blocking", feature = "async"))]
         fn lower(
-            target: crate::CameraId,
-            profile: &crate::ProfileSpec,
-            tuning: crate::OperationalTuning,
+            registration: &crate::TargetRegistration,
+            tuning: crate::session_config::ValidatedTuning,
             axes: crate::AffectedAxes,
             default_budget: std::time::Duration,
         ) -> crate::Result<super::Settlement<Self>>
@@ -66,13 +59,12 @@ mod private {
 
         #[cfg(any(feature = "blocking", feature = "async"))]
         fn lower(
-            target: crate::CameraId,
-            profile: &crate::ProfileSpec,
-            tuning: crate::OperationalTuning,
+            registration: &crate::TargetRegistration,
+            tuning: crate::session_config::ValidatedTuning,
             axes: crate::AffectedAxes,
             default_budget: std::time::Duration,
         ) -> crate::Result<super::Settlement<Self>> {
-            super::lowering::targeted(target, profile, tuning, axes, default_budget)
+            super::lowering::targeted(registration, tuning, axes, default_budget)
         }
     }
 
@@ -82,19 +74,18 @@ mod private {
 
         #[cfg(any(feature = "blocking", feature = "async"))]
         fn lower(
-            target: crate::CameraId,
-            profile: &crate::ProfileSpec,
-            tuning: crate::OperationalTuning,
+            registration: &crate::TargetRegistration,
+            tuning: crate::session_config::ValidatedTuning,
             axes: crate::AffectedAxes,
             default_budget: std::time::Duration,
         ) -> crate::Result<super::Settlement<Self>> {
-            super::lowering::applied_only(target, profile, tuning, axes, default_budget)
+            super::lowering::applied_only(registration, tuning, axes, default_budget)
         }
     }
 }
 
 #[cfg(any(feature = "blocking", feature = "async"))]
-pub use lowering::Settlement;
+pub(crate) use lowering::Settlement;
 
 /// Settlement lowering into the owner-private plan; it exists only where an
 /// owner does.
@@ -103,9 +94,11 @@ mod lowering {
     use std::time::Duration;
 
     use super::{AppliedOnly, Kind, Targeted};
-    use crate::{AffectedAxes, CameraId, OperationalTuning, ProfileSpec, Result};
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    use crate::session_config::ValidatedTuning;
+    use crate::{AffectedAxes, Result};
 
-    /// Opaque settlement lowering returned by [`Kind`].
+    /// Owner-private settlement proof returned by the sealed lowering.
     ///
     /// Each kind stores exactly its own plan: targeted operations retain their
     /// prepared settlement plan; applied-only operations retain no plan.
@@ -145,36 +138,22 @@ mod lowering {
     }
 
     pub(super) fn applied_only(
-        target: CameraId,
-        profile: &ProfileSpec,
-        tuning: OperationalTuning,
+        registration: &crate::TargetRegistration,
+        tuning: ValidatedTuning,
         axes: AffectedAxes,
         default_budget: Duration,
     ) -> Result<Settlement<AppliedOnly>> {
-        crate::prepared::lower_applied_only_settlement(
-            crate::target::TargetSlot::try_from(target)?,
-            profile,
-            tuning,
-            axes,
-            default_budget,
-        )?;
+        crate::prepared::lower_applied_only_settlement(registration, tuning, axes, default_budget)?;
         Ok(Settlement::new(()))
     }
 
     pub(super) fn targeted(
-        target: CameraId,
-        profile: &ProfileSpec,
-        tuning: OperationalTuning,
+        registration: &crate::TargetRegistration,
+        tuning: ValidatedTuning,
         axes: AffectedAxes,
         default_budget: Duration,
     ) -> Result<Settlement<Targeted>> {
-        crate::prepared::lower_targeted_settlement(
-            crate::target::TargetSlot::try_from(target)?,
-            profile,
-            tuning,
-            axes,
-            default_budget,
-        )
-        .map(|inner| Settlement::new(TargetedSettlementPlan { inner }))
+        crate::prepared::lower_targeted_settlement(registration, tuning, axes, default_budget)
+            .map(|inner| Settlement::new(TargetedSettlementPlan { inner }))
     }
 }

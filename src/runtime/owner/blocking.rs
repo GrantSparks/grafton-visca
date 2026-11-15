@@ -25,7 +25,6 @@
 //! eligibility can add to a control or STOP request's total latency.
 
 use std::{
-    collections::VecDeque,
     sync::{Arc, Mutex},
     thread::{self, JoinHandle},
     time::{Duration, Instant},
@@ -33,14 +32,14 @@ use std::{
 
 use crate::Error;
 
-use super::boundary::OwnerHandleCore;
+use super::boundary::{OwnerHandleCore, OwnerSnapshot};
 use super::clock::{Clock, Select};
 use super::receipt::{ObservationWake, OperationReceipt};
 use super::shell::{ClassifiedEvent, OwnerEvent, OwnerShellCore, TurnStep};
 use super::turn::{ReceiveArm, Selection, Source, TimerArm, TurnOutcome, TurnPlan};
 use super::{
     CancellationObserver, OwnerBuffers, OwnerInputTurn, OwnerPolicy, OwnerReceive, OwnerState,
-    RetainedStreamInput, TerminalObserver, TransmissionMeta, WireWrite,
+    RetainedStreamInput, TerminalObserver, WireWrite, WriteOutcome,
 };
 use crate::runtime::engine::Effect;
 
@@ -58,84 +57,69 @@ pub(crate) const READY_PROBE: Duration = Duration::from_millis(1);
 /// Blocking transport/framing driver owned by the worker thread.
 pub(crate) trait BlockingOwnerDriver: Send + RetainedStreamInput {
     /// Write one framed request, bounded by the transport's write timeout.
-    fn write(&mut self, write: WireWrite<'_>) -> Result<TransmissionMeta, Error>;
+    fn write(&mut self, write: WireWrite<'_>) -> WriteOutcome;
 
     /// Return complete frames the framer still holds, or read once for at
-    /// most `timeout`. A read that times out reports [`OwnerReceive::NoData`].
+    /// most `timeout`. A read that times out reports [`OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::EagerIdle)`].
     fn receive(
         &mut self,
         buffers: &mut OwnerBuffers,
         frame_limit: usize,
         timeout: Duration,
-    ) -> Result<OwnerReceive, Error>;
+    ) -> OwnerReceive;
 }
 
 /// The worker thread's state. The driver lives on the thread's stack, so the
 /// worker can drop it before the shell core's liveness sender.
 struct BlockingOwnerWorker {
     core: OwnerShellCore,
-    clock: Clock,
+    io: BlockingOwnerIo,
 }
 
 impl BlockingOwnerWorker {
-    fn run<D>(mut self, mut driver: D)
-    where
-        D: BlockingOwnerDriver,
-    {
-        // The caller's advertised read timeout decides when an uninterrupted
-        // read without data is an idle receive, as on the async surface (#675).
-        let read_timeout = self.core.state.policy().read_timeout;
-        // Every arbitration and turn decision below is the shell core's; this
-        // loop only samples the clock, polls the sources the plan describes,
-        // and runs the I/O the selected event's turn asks for.
-        while self.core.is_running() {
-            // Callers enqueue from their own threads, so a boundary-first turn
-            // needs no cooperative handoff before it is planned.
-            self.core.begin_turn();
-            let now = self.clock.now();
-            let event = match self.core.plan(now, &mut driver) {
-                TurnPlan::Redeliver(retained) => self.core.redeliver(retained),
-                TurnPlan::Select(selection) => self.select(selection, &mut driver, read_timeout),
-            };
-            let selected_at = self.clock.now();
-            let Some(ClassifiedEvent {
-                event,
-                selected,
-                suppress_due,
-            }) = self.core.classify(event, selected_at)
-            else {
-                continue;
-            };
-            let control_consumed_wake = match &event {
-                OwnerEvent::Control(_) => self.core.control_consumed_wake(self.clock.now()),
-                _ => None,
-            };
-            let outcome = self.handle_event(event, &mut driver, selected_at, suppress_due);
-            if !self.core.finish(selected, control_consumed_wake, outcome) {
-                break;
-            }
-        }
-        self.core.conclude();
-        // #626: drop the driver first so a waiter using the liveness lane gets
-        // a deterministic transport-release barrier. The shell core's `Drop`
-        // performs one final boundary drain before its alive sender is
-        // dropped, covering messages that race the explicit drain.
-        drop(driver);
+    super::driver::owner_turn_driver! {
+        async: [],
+        await: [],
+        driver: BlockingOwnerDriver,
+    }
+}
+
+struct BlockingOwnerIo {
+    clock: Clock,
+}
+
+impl BlockingOwnerIo {
+    fn now(&self) -> Instant {
+        self.clock.now()
+    }
+
+    fn cooperative_handoff(&self) {}
+
+    fn write<D: BlockingOwnerDriver>(
+        &mut self,
+        driver: &mut D,
+        write: WireWrite<'_>,
+        _write_timeout: Duration,
+    ) -> WriteOutcome {
+        // Native transports bound their write directly; no future or
+        // executor is introduced by the common turn-driver expansion.
+        driver.write(write)
     }
 
     /// Select one event in the planned order. A pass polls every source once;
     /// a pass in which nothing was ready is repeated, so the selection stays
     /// the one the coordinator planned until a source is ready.
-    fn select<D>(
+    fn select_event<D>(
         &mut self,
+        core: &mut OwnerShellCore,
         selection: Selection,
         driver: &mut D,
-        read_timeout: Duration,
     ) -> OwnerEvent
     where
         D: BlockingOwnerDriver,
     {
-        let frame_limit = self.core.state.policy().limits.frames_per_receive;
+        let read_timeout = core.state.policy().read_timeout;
+        let frame_limit = core.state.policy().limits.frames_per_receive;
         // Time this selection has spent reading without data. Like the async
         // read under its timeout, it restarts with every selection.
         let mut idle = Duration::ZERO;
@@ -156,7 +140,7 @@ impl BlockingOwnerWorker {
                             let later_ready = selection
                                 .order()
                                 .skip(position.saturating_add(1))
-                                .any(|later| self.is_ready(later, selection.timer));
+                                .any(|later| self.is_ready(core, later, selection.timer));
                             let timeout = if later_ready {
                                 READY_PROBE
                             } else {
@@ -167,7 +151,7 @@ impl BlockingOwnerWorker {
                                 )
                             };
                             receive(
-                                &mut self.core.state,
+                                &mut core.state,
                                 driver,
                                 &self.clock,
                                 ReadBudget {
@@ -182,7 +166,7 @@ impl BlockingOwnerWorker {
                     Source::Timer => {
                         timer_ready(selection.timer, self.clock.now()).then_some(OwnerEvent::Wake)
                     }
-                    lane => self.try_lane(lane),
+                    lane => self.try_lane(core, lane),
                 };
                 if let Some(event) = event {
                     return event;
@@ -197,8 +181,8 @@ impl BlockingOwnerWorker {
     }
 
     /// Whether `source` would be selected now, without consuming anything.
-    fn is_ready(&self, source: Source, timer: TimerArm) -> bool {
-        let receivers = &self.core.receivers;
+    fn is_ready(&self, core: &OwnerShellCore, source: Source, timer: TimerArm) -> bool {
+        let receivers = &core.receivers;
         match source {
             Source::Shutdown => !receivers.shutdown.is_empty(),
             Source::Cancellation => !receivers.cancellations.is_empty(),
@@ -215,8 +199,8 @@ impl BlockingOwnerWorker {
     /// Poll one boundary lane without blocking. A disconnected shutdown,
     /// cancellation or control lane never becomes ready; a disconnected
     /// admission lane is reported, since it means every handle is gone.
-    fn try_lane(&self, source: Source) -> Option<OwnerEvent> {
-        let receivers = &self.core.receivers;
+    fn try_lane(&self, core: &OwnerShellCore, source: Source) -> Option<OwnerEvent> {
+        let receivers = &core.receivers;
         match source {
             Source::Shutdown => receivers
                 .shutdown
@@ -237,57 +221,6 @@ impl BlockingOwnerWorker {
             },
             Source::Control => receivers.control.try_recv().ok().map(OwnerEvent::Control),
             Source::Receive | Source::Timer => None,
-        }
-    }
-
-    /// Run the engine turn of one classified event, performing the writes and
-    /// pacing its [`TurnStep`]s ask for.
-    fn handle_event<D>(
-        &mut self,
-        event: OwnerEvent,
-        driver: &mut D,
-        selected_at: Instant,
-        suppress_due_for_raw_probe_fault: bool,
-    ) -> TurnOutcome
-    where
-        D: BlockingOwnerDriver,
-    {
-        let mut step =
-            self.core
-                .handle(event, driver, selected_at, suppress_due_for_raw_probe_fault);
-        loop {
-            match step {
-                TurnStep::Drive { effects, then } => {
-                    self.drive(driver, effects, then.input_turn());
-                    step = self.core.resume(then, driver);
-                }
-                TurnStep::Pace { pause, outcome } => {
-                    self.core.pace_receive(pause, self.clock.now());
-                    return outcome;
-                }
-                TurnStep::Done(outcome) => return outcome,
-            }
-        }
-    }
-
-    /// Apply `effects` in order, writing each staged transmit. Inside an input
-    /// `turn`, a transmit finishes in that turn; otherwise it finishes at the
-    /// instant the write returned.
-    fn drive<D>(
-        &mut self,
-        driver: &mut D,
-        mut effects: VecDeque<Effect>,
-        turn: Option<&OwnerInputTurn>,
-    ) where
-        D: BlockingOwnerDriver,
-    {
-        while let Some(staged) = self.core.next_transmit(&mut effects, self.clock.now()) {
-            let result = match self.core.state.prepare_write(&staged) {
-                Ok(write) => driver.write(write),
-                Err(error) => Err(error),
-            };
-            self.core
-                .finish_transmit(turn, &staged, result, self.clock.now(), &mut effects);
         }
     }
 }
@@ -325,7 +258,10 @@ where
     // Sampled after the read returns: only this instant proves that input was
     // sampled at or after a raw hold deadline.
     let received_at = clock.now();
-    if matches!(result, Ok(OwnerReceive::NoData)) {
+    if matches!(
+        result,
+        OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::EagerIdle)
+    ) {
         let waited = received_at.saturating_duration_since(started);
         *idle = idle.saturating_add(waited);
         // A read that answered sooner than asked is an eager idle transport,
@@ -334,7 +270,7 @@ where
             return None;
         }
         if waited >= timeout {
-            result = Ok(OwnerReceive::IdleTimeout);
+            result = OwnerReceive::NoProgress(crate::runtime::owner::NoProgressReason::IdleTimeout);
         }
     }
     Some(OwnerEvent::Receive {
@@ -412,11 +348,13 @@ impl BlockingOwnerHandle {
     where
         D: BlockingOwnerDriver + 'static,
     {
-        let state = OwnerState::new(policy)?;
+        let state = OwnerState::new(policy, clock.now())?;
         let (core, ends) = OwnerHandleCore::new(&state);
         let worker = BlockingOwnerWorker {
             core: OwnerShellCore::new(state, ends),
-            clock: clock.clone(),
+            io: BlockingOwnerIo {
+                clock: clock.clone(),
+            },
         };
         // Registered before the spawn, so a virtual clock never advances
         // while the worker is starting.
@@ -425,7 +363,7 @@ impl BlockingOwnerHandle {
             .name("grafton-visca-owner".into())
             .spawn(move || {
                 let _participation = registration.enter();
-                worker.run(driver);
+                let _ = worker.run(driver);
             })?;
         Ok(Self {
             core,
@@ -435,6 +373,14 @@ impl BlockingOwnerHandle {
         })
     }
 
+    fn bind_diagnostics(
+        &self,
+        mut subscription: super::DiagnosticSubscription,
+    ) -> super::DiagnosticSubscription {
+        subscription.clock = self.clock.clone();
+        subscription
+    }
+
     /// The owner clock every handle wait is measured against.
     pub(crate) fn now(&self) -> Instant {
         self.clock.now()
@@ -442,6 +388,16 @@ impl BlockingOwnerHandle {
 
     fn sleep(&self, duration: Duration) {
         self.clock.sleep(duration);
+    }
+
+    /// A worker callback cannot wait for work only this worker can perform.
+    fn off_worker(&self, call: &str) -> Result<(), Error> {
+        if self.worker_id == thread::current().id() {
+            return Err(Error::InvalidState(
+                format!("blocking owner worker cannot call {call} on its own session").into(),
+            ));
+        }
+        Ok(())
     }
 
     /// A wait for one boundary reply, or for the worker's disappearance.
@@ -535,7 +491,7 @@ impl BlockingOwnerHandle {
     /// Request shutdown and wait for the worker to release its transport.
     ///
     /// The first close joins the worker thread; a worker panic is reported as
-    /// [`Error::InvalidState`]. Any other clone waits on the liveness lane,
+    /// [`Error::OwnerTerminated`]. Any other clone waits on the liveness lane,
     /// which the worker drops only after the transport. A close issued on the
     /// worker thread itself, by a custom transport calling back into its own
     /// session, requests shutdown but returns [`Error::InvalidState`] because

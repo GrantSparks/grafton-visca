@@ -49,7 +49,8 @@ fn root_value_and_transport_contract() {
     assert_eq!(PanSpeed::from(SpeedLevel::Medium).value(), 12);
     assert_eq!(TiltSpeed::from(SpeedLevel::Medium).value(), 10);
     assert_eq!(ZoomSpeed::from(SpeedLevel::Fastest).value(), 7);
-    assert!(PanSpeed::new(25).is_err());
+    assert_eq!(PanSpeed::MAX.value(), 50);
+    assert!(PanSpeed::new(51).is_err());
 
     let zoom = ZoomPosition::new(0x4000).expect("raw zoom is in range");
     assert_eq!(zoom.value(), 0x4000);
@@ -96,11 +97,42 @@ fn root_value_and_transport_contract() {
 }
 
 #[test]
+fn runtime_profile_default_selects_the_registered_individual_target() {
+    use grafton_visca::{
+        profiles::PtzOpticsG2, CameraId, IndividualCameraId, ProfileSpec, SessionConfig,
+    };
+
+    let source = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2");
+    let mut capabilities = source.capabilities().clone();
+    capabilities.profile_id = None;
+    capabilities.default_camera_id = IndividualCameraId::new(2).expect("individual default");
+    let profile = ProfileSpec::builder(capabilities)
+        .transports(source.transports())
+        .envelope(source.envelope())
+        .timing(source.timing())
+        .maximum_command_sockets(source.maximum_command_sockets())
+        .supports_operation_complete(source.supports_operation_complete())
+        .supports_command_cancel(source.supports_command_cancel())
+        .position_inquiries(source.position_inquiries())
+        .build()
+        .expect("runtime profile with camera 2 default");
+
+    let config = SessionConfig::new(profile.clone());
+    assert_eq!(config.sole_target(), Some(CameraId::CAMERA_2));
+    assert_eq!(config.profile(CameraId::CAMERA_2), Some(&profile));
+    assert!(config.profile(CameraId::CAMERA_1).is_none());
+    let explicit =
+        SessionConfig::for_target(CameraId::CAMERA_1, profile).expect("explicit individual target");
+    assert_eq!(explicit.sole_target(), Some(CameraId::CAMERA_1));
+}
+
+#[test]
 fn profile_marker_and_capability_contract() {
     use grafton_visca::{
         capabilities::{
             Capabilities, Exposure, Focus, HasNdFilter, ImageProcessing, InquirySupport, PanTilt,
-            Power, Profile, ProfileMetadata, SupportsTcp, SupportsUdp, WhiteBalance, Zoom,
+            Power, Profile, ProfileMetadata, SupportsTcp, SupportsUdp, TypedSupportSurface,
+            WhiteBalance, Zoom,
         },
         profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
         CompileTimeProfile,
@@ -140,27 +172,42 @@ fn profile_marker_and_capability_contract() {
     raw_ip::<GenericVisca>();
 
     assert_eq!(PtzOpticsG2::MODEL_NAME, "PtzOptics G2");
-    assert_eq!(PtzOpticsG2::DEFAULT_CAMERA_ID, 1);
+    assert_eq!(PtzOpticsG2::DEFAULT_CAMERA_ID.value(), 1);
     for transports in [PtzOpticsG2::TRANSPORTS, GenericVisca::TRANSPORTS] {
         assert_eq!(transports.tcp_port(), Some(5678));
         assert_eq!(transports.udp_port(), Some(1259));
     }
-    assert_eq!(SonyFR7::DEFAULT_CAMERA_ID, 1);
+    assert_eq!(SonyFR7::DEFAULT_CAMERA_ID.value(), 1);
 
     let g2 = Capabilities::from_profile::<PtzOpticsG2>();
     assert!(g2.has_basic_features());
     assert!(g2.has_full_inquiry_support());
     assert_eq!(g2.inquiry_support, InquirySupport::Full);
-    assert_eq!(g2.motion_sync_speed_range, None);
-    assert!(!g2.has_nd_filter);
-    assert!(g2.iris_range.is_some());
-    assert!(g2.has_picture_effect);
+    assert_eq!(
+        g2.pan_tilt
+            .as_ref()
+            .expect("pan/tilt domain")
+            .motion_sync_speed_range,
+        None
+    );
+    assert!(!g2.has_nd_filter());
+    assert!(g2
+        .exposure
+        .as_ref()
+        .expect("exposure domain")
+        .iris_range
+        .is_some());
+    assert!(g2.has_picture_effect());
 
     let fr7 = Capabilities::from_profile::<SonyFR7>();
     assert!(fr7.has_basic_features());
-    assert!(fr7.has_advanced_features());
-    assert!(fr7.has_nd_filter);
-    assert!(fr7.supports_wake_on_lan);
+    // This summary covers shared refinements (digital zoom, one-push modes,
+    // WDR, shared color temperature and tours). FR7 has its own cinema domains.
+    assert!(!fr7.has_advanced_features());
+    assert!(fr7.supports_typed(TypedSupportSurface::SonyFr7Iris));
+    assert!(fr7.supports_typed(TypedSupportSurface::SonyFr7Black));
+    assert!(fr7.has_nd_filter());
+    assert!(fr7.power.as_ref().expect("power domain").wake_on_lan);
     assert_eq!(SonyFR7::TRANSPORTS.tcp_port(), None);
     assert_eq!(SonyFR7::TRANSPORTS.udp_port(), Some(52381));
 }

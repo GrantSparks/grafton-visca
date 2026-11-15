@@ -72,6 +72,14 @@ through the blocking and Tokio APIs, on a Linux x86_64 host with
 | HW-04 | Movement cancellation and owner halt: queued/retry fencing, independently dispatched STOPs and partial reports, then physical-rest observation, disconnect and recovery on representative Raw paths (the Sony path belongs to HW-03) | Pass | PTZOptics G2 bench, all five cameras (firmware as HW-01); disconnect, e1 and e5 runs on cam4 (PT12X-NDI G2 6.3.62/6.4.18SHI) | Halt idle report, halt fences queued motion, async G2 cancel refused then STOP 15/15; recovery after TCP reset and after silent drop; e1 manual-focus halt; e5 stale-reply contract at `6eba1696` (27 correlation refusals, 0 wrong values, then 8 correct answers on the same session) ([P3 runs](../.github/hardware-evidence/2026-10-07-g2-bench/README.md#run-index)) |
 | HW-05 | Representative high-risk corrected and profile-specific wire rows, with exact firmware and a complete transcript | Pass | PTZOptics G2 bench, all five cameras (firmware as HW-01); cam1 with `PtzOptics30X`, cam2-cam5 with `PtzOpticsG2` | Corrected inquiries, NR level zero, focus zone, shutter round trip, direct zoom positions, absolute pan/tilt small offset 30/30; tilt polarity 5/5, with a visible ~9° UP move confirmed physically UP by the operator on all five ([P2 runs](../.github/hardware-evidence/2026-10-07-g2-bench/README.md#run-index)) |
 
+## FR7 pan/tilt verification
+
+Before the stable 2.0.0 release, verify R7 five-nibble pan/tilt moves, limits,
+position polling and settlement on an FR7 in each mount configuration (#893).
+Status: **Blocked** — no FR7 camera is available. Software packet fixtures are
+source validation only; they do not establish hardware support. Record model,
+firmware, mount, operator, full tested commit and a transcript for the bench run.
+
 ## Concurrent multi-camera scenarios
 
 These runs drive all five bench cameras at once from one process. They are
