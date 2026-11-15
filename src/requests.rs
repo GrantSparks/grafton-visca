@@ -599,7 +599,8 @@ pub trait Request: Send + Sync {
     /// Closed semantic request class.
     type Class: request::Class;
 
-    /// Maximum encoded byte length for this request type.
+    /// Maximum encoded byte length for this request type, including the target
+    /// address and final terminator. The encoder may write a shorter frame.
     const MAX_SIZE: usize;
     /// Deadline family for this request.
     const TIMEOUT_CLASS: TimeoutClass;
@@ -693,12 +694,6 @@ pub trait Request: Send + Sync {
         crate::raw::RawReplyShape::AckThenCompletion
     }
 
-    /// Returns the exact encoded byte length for this value.
-    #[must_use]
-    fn encoded_size(&self) -> usize {
-        Self::MAX_SIZE
-    }
-
     /// Returns the fixed encoded-size declaration used for owner admission.
     ///
     /// The default is exactly [`Self::MAX_SIZE`]. The hidden authority lets an
@@ -711,7 +706,8 @@ pub trait Request: Send + Sync {
         Self::MAX_SIZE
     }
 
-    /// Writes the complete terminated VISCA request into `buffer`.
+    /// Writes the complete terminated VISCA request into `buffer` and returns
+    /// the number of bytes written, at most [`Self::MAX_SIZE`].
     ///
     /// This is only the profile-free encoding hook: it receives the explicit
     /// target address, but not a [`crate::ProfileSpec`]. Do not use it for

@@ -182,8 +182,9 @@ impl Request for MyCommand {
 
 ### 2. Define Proper Buffer Sizes
 
-Each request declares `Request::MAX_SIZE`; it includes every byte through the
-final `VISCA_TERMINATOR`.
+Each request declares `Request::MAX_SIZE`, an upper bound including every byte
+through the final `VISCA_TERMINATOR`. `write_into` returns the actual frame
+length, which may be shorter than that bound.
 
 ### 3. Implement Inquiry Pattern
 

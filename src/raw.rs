@@ -308,9 +308,13 @@ impl fmt::Debug for Wire {
 
 fn validate_wire(bytes: &[u8]) -> Result<()> {
     if bytes.len() > MAX_BYTES {
-        return Err(Error::ResponseTooLarge {
-            max_size: MAX_BYTES,
-        });
+        return Err(Error::InvalidRequest(
+            format!(
+                "raw VISCA frame has {} bytes, exceeding raw::MAX_BYTES ({MAX_BYTES})",
+                bytes.len()
+            )
+            .into(),
+        ));
     }
     if bytes.len() < 2 {
         return Err(Error::InvalidRequest(
@@ -491,10 +495,6 @@ macro_rules! raw_request_forwarding {
 
         fn control_class(&self) -> ControlClass {
             self.policy.control_class()
-        }
-
-        fn encoded_size(&self) -> usize {
-            self.wire.len()
         }
 
         fn write_into(&self, _camera_id: CameraId, buffer: &mut [u8]) -> Result<usize> {
@@ -981,7 +981,6 @@ mod tests {
         )
         .expect("valid raw command");
         assert_eq!(command.bytes(), &[0x81, 0x01, 0x02, 0xff]);
-        assert_eq!(command.encoded_size(), 4);
         assert_eq!(command.timeout_class(), TimeoutClass::Quick);
         let mut encoded = [0_u8; 4];
         assert_eq!(
@@ -1112,14 +1111,9 @@ mod tests {
             ControlClass::Normal,
         )
         .expect_err("a frame longer than MAX_BYTES must be rejected");
+        assert_eq!(error.kind(), crate::ErrorKind::InvalidParameter);
         assert!(
-            matches!(
-                error,
-                Error::ResponseTooLarge {
-                    max_size: MAX_BYTES
-                }
-            ),
-            "expected the frame-size bound to reject the frame, got {error:?}"
+            matches!(&error, Error::InvalidRequest(message) if message.contains("raw::MAX_BYTES") && message.contains(&(MAX_BYTES + 1).to_string()))
         );
 
         // The same fixture at exactly the bound is accepted, so the assertion
@@ -1136,6 +1130,15 @@ mod tests {
 
         // Every constructor shares `validate_wire`, so the bound holds for the
         // axis- and route-carrying values too.
+        let inquiry_error = Inquiry::new(
+            frame(MAX_BYTES + 1),
+            InquiryRoute::RAW,
+            ResponseDecoder::from_fn(decode_first),
+            RetryClass::Inquiry,
+            ControlClass::Normal,
+        )
+        .expect_err("oversize inquiry frame");
+        assert_eq!(inquiry_error.kind(), crate::ErrorKind::InvalidParameter);
         assert!(matches!(
             Targeted::new(
                 frame(MAX_BYTES + 1),
@@ -1145,9 +1148,7 @@ mod tests {
                 ControlClass::User,
             )
             .expect_err("oversize targeted frame"),
-            Error::ResponseTooLarge {
-                max_size: MAX_BYTES
-            }
+            Error::InvalidRequest(_)
         ));
         assert!(matches!(
             AppliedOnly::new(
@@ -1158,9 +1159,7 @@ mod tests {
                 ControlClass::User,
             )
             .expect_err("oversize applied-only frame"),
-            Error::ResponseTooLarge {
-                max_size: MAX_BYTES
-            }
+            Error::InvalidRequest(_)
         ));
     }
 

@@ -41,8 +41,6 @@ mod private {
 
         fn reply_shape(&self) -> RawReplyShape;
 
-        fn encoded_size(&self) -> usize;
-
         fn write_into(&self, camera: CameraId, buffer: &mut [u8]) -> Result<usize, Error>;
 
         fn validate_for_profile(&self, profile: &crate::ProfileSpec) -> Result<(), Error>;
@@ -87,10 +85,6 @@ mod private {
 
         fn reply_shape(&self) -> RawReplyShape {
             Request::reply_shape(self)
-        }
-
-        fn encoded_size(&self) -> usize {
-            Request::encoded_size(self)
         }
 
         fn write_into(&self, camera: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
@@ -224,10 +218,6 @@ where
         self.request.reply_shape()
     }
 
-    fn encoded_size(&self) -> usize {
-        self.request.encoded_size()
-    }
-
     fn write_into(&self, camera: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         self.request.write_into(camera, buffer)
     }
@@ -330,7 +320,11 @@ mod tests {
     }
 
     fn write_frame(target: CameraId, buffer: &mut [u8]) -> crate::Result<usize> {
-        buffer[..4].copy_from_slice(&[target.to_address_byte(), 0x01, 0x02, 0xff]);
+        let available = buffer.len();
+        let frame = buffer
+            .get_mut(..4)
+            .ok_or_else(|| Error::buffer_too_small(4, available))?;
+        frame.copy_from_slice(&[target.to_address_byte(), 0x01, 0x02, 0xff]);
         Ok(4)
     }
 
@@ -339,7 +333,7 @@ mod tests {
     impl Request for CompletionOnlyTargeted {
         type Class = request::Operation<Targeted>;
 
-        const MAX_SIZE: usize = 4;
+        const MAX_SIZE: usize = 8;
         const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
         const RETRY_CLASS: RetryClass = RetryClass::Never;
         const CONTROL_CLASS: ControlClass = ControlClass::Normal;
@@ -369,10 +363,6 @@ mod tests {
         const RETRY_CLASS: RetryClass = RetryClass::Never;
         const CONTROL_CLASS: ControlClass = ControlClass::Normal;
 
-        fn encoded_size(&self) -> usize {
-            4
-        }
-
         fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> crate::Result<usize> {
             write_frame(target, buffer)
         }
@@ -385,7 +375,7 @@ mod tests {
     }
 
     macro_rules! applied_request {
-        ($name:ident, $max_size:expr, $encoded_size:expr, $reply_shape:expr, $control:expr) => {
+        ($name:ident, $max_size:expr, $reply_shape:expr, $control:expr) => {
             struct $name;
 
             impl Request for $name {
@@ -398,10 +388,6 @@ mod tests {
 
                 fn reply_shape(&self) -> RawReplyShape {
                     $reply_shape
-                }
-
-                fn encoded_size(&self) -> usize {
-                    $encoded_size
                 }
 
                 fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> crate::Result<usize> {
@@ -420,20 +406,17 @@ mod tests {
     applied_request!(
         NoReplyApplied,
         4,
-        4,
         RawReplyShape::NoReply,
         ControlClass::Normal
     );
     applied_request!(
         OversizedApplied,
         3,
-        4,
         RawReplyShape::AckThenCompletion,
         ControlClass::Normal
     );
     applied_request!(
         DownstreamUrgentApplied,
-        4,
         4,
         RawReplyShape::AckThenCompletion,
         ControlClass::Urgent
@@ -461,7 +444,14 @@ mod tests {
         let Ok(targeted_prepared) = targeted_prepared else {
             return;
         };
-        let targeted_context = targeted_prepared.admit_with(|request, _, _, _| *request.context());
+        let targeted_context = targeted_prepared.admit_with(|request, _, _, _| {
+            assert_eq!(
+                request.wire().as_bytes(),
+                &[0x81, 0x01, 0x02, 0xff],
+                "erasure preserves the shorter frame's actual written length"
+            );
+            *request.context()
+        });
         assert_eq!(targeted_context.reply_shape, ReplyShape::CompletionOnly);
 
         let applied = NoReplyApplied;
@@ -497,7 +487,7 @@ mod tests {
         );
         assert!(
             matches!(static_targeted, Err(Error::InvalidRequest(_))),
-            "static targeted request must reject encoded_size above MAX_SIZE"
+            "static targeted request must reject a frame above MAX_SIZE"
         );
 
         let erased_targeted: &dyn DynTargetedRequest = &targeted;
@@ -524,7 +514,7 @@ mod tests {
         );
         assert!(
             matches!(static_applied, Err(Error::InvalidRequest(_))),
-            "static applied request must reject encoded_size above MAX_SIZE"
+            "static applied request must reject a frame above MAX_SIZE"
         );
 
         let erased: &dyn DynAppliedRequest = &applied;

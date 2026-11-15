@@ -862,18 +862,25 @@ fn encode<R>(request: &R, target: TargetSlot) -> Result<Arc<EncodedMessage>>
 where
     R: Request + ?Sized,
 {
-    let size = request.encoded_size();
-    if size == 0 || size > crate::requests::declared_max_size(request) || size > MAX_BYTES {
+    let declared_max = crate::requests::declared_max_size(request);
+    let capacity = declared_max.min(MAX_BYTES);
+    if capacity < 2 {
         return Err(Error::InvalidRequest(
-            "encoded_size must be non-zero and no larger than MAX_SIZE or the protocol bound"
-                .into(),
+            "MAX_SIZE must allow a VISCA target address and message body".into(),
         ));
     }
-    let mut bytes = SmallVec::<[u8; INLINE_BYTES]>::from_elem(0, size);
-    let written = request.write_into(target.camera(), &mut bytes)?;
-    if written != size || written > bytes.len() {
+    let mut bytes = SmallVec::<[u8; INLINE_BYTES]>::from_elem(0, capacity);
+    let written = match request.write_into(target.camera(), &mut bytes) {
+        Err(Error::BufferTooSmall { required, .. }) if required > capacity => {
+            return Err(Error::InvalidRequest(
+                format!("encoded request needs {required} bytes, exceeding MAX_SIZE ({declared_max}) or raw::MAX_BYTES ({MAX_BYTES})").into(),
+            ));
+        }
+        result => result?,
+    };
+    if written > capacity {
         return Err(Error::InvalidRequest(
-            "write_into must report exactly encoded_size bytes within the supplied buffer".into(),
+            format!("write_into reported {written} bytes, exceeding MAX_SIZE ({declared_max}) or raw::MAX_BYTES ({MAX_BYTES})").into(),
         ));
     }
     if written < 2 {
@@ -1575,15 +1582,109 @@ mod tests {
         const RETRY_CLASS: RetryClass = RetryClass::Never;
         const CONTROL_CLASS: ControlClass = ControlClass::Normal;
 
-        fn encoded_size(&self) -> usize {
-            self.frame.len()
-        }
-
         fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
             buffer[..self.frame.len()].copy_from_slice(self.frame);
             buffer[0] = target.to_address_byte();
             Ok(self.frame.len())
         }
+    }
+
+    struct BoundedPlain<const MAX_SIZE: usize> {
+        frame: &'static [u8],
+        reported_length: Option<usize>,
+    }
+
+    impl<const MAX_SIZE: usize> Request for BoundedPlain<MAX_SIZE> {
+        type Class = crate::request::Plain;
+
+        const MAX_SIZE: usize = MAX_SIZE;
+        const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
+        const RETRY_CLASS: RetryClass = RetryClass::Never;
+        const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+        fn write_into(&self, _: CameraId, buffer: &mut [u8]) -> Result<usize> {
+            increment_write_count();
+            let available = buffer.len();
+            let destination = buffer
+                .get_mut(..self.frame.len())
+                .ok_or_else(|| Error::buffer_too_small(self.frame.len(), available))?;
+            destination.copy_from_slice(self.frame);
+            Ok(self.reported_length.unwrap_or(self.frame.len()))
+        }
+    }
+
+    #[test]
+    fn request_max_size_is_a_bound_and_written_length_is_authoritative() {
+        const FRAME: &[u8] = &[0x81, 0x01, 0x04, 0x00, 0x02, 0xff];
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("generic profile");
+        let check = |prepared: PreparedCommand| {
+            assert_eq!(prepared.wire.as_bytes(), FRAME);
+            assert_eq!(write_count(), 1, "preparation encodes exactly once");
+        };
+        reset_write_count();
+        check(
+            prepare_command(
+                &BoundedPlain::<8> {
+                    frame: FRAME,
+                    reported_length: None,
+                },
+                TargetSlot::CAMERA_1,
+                &profile,
+                OperationalTuning::new(),
+                ClassSelection::Request,
+            )
+            .expect("a frame shorter than MAX_SIZE prepares"),
+        );
+        reset_write_count();
+        check(
+            prepare_command(
+                &BoundedPlain::<6> {
+                    frame: FRAME,
+                    reported_length: None,
+                },
+                TargetSlot::CAMERA_1,
+                &profile,
+                OperationalTuning::new(),
+                ClassSelection::Request,
+            )
+            .expect("a frame exactly MAX_SIZE bytes long prepares"),
+        );
+
+        for request in [
+            BoundedPlain::<8> {
+                frame: &[0x81, 0x01, 0x04, 0, 0, 0, 0, 0, 0xff],
+                reported_length: None,
+            },
+            BoundedPlain::<8> {
+                frame: FRAME,
+                reported_length: Some(9),
+            },
+        ] {
+            let error = prepare_command(
+                &request,
+                TargetSlot::CAMERA_1,
+                &profile,
+                OperationalTuning::new(),
+                ClassSelection::Request,
+            )
+            .expect_err("an encoder cannot exceed MAX_SIZE");
+            assert!(
+                matches!(error, Error::InvalidRequest(message) if message.contains("MAX_SIZE"))
+            );
+        }
+        let error = prepare_command(
+            &BoundedPlain::<8> {
+                frame: &[0x81],
+                reported_length: None,
+            },
+            TargetSlot::CAMERA_1,
+            &profile,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect_err("a frame needs at least two bytes");
+        assert!(matches!(error, Error::InvalidRequest(_)));
     }
 
     /// Owner-only byte patterns must be rejected for every typed request

@@ -931,7 +931,7 @@ fn slowest_speed(range: &std::ops::RangeInclusive<u8>, level_speed: u8) -> u8 {
 
 /// Encodes `request` for `target` through the request's own wire encoder.
 fn encode<R: Request>(request: &R, target: CameraId) -> Result<Vec<u8>, Error> {
-    let mut buffer = vec![0; request.encoded_size()];
+    let mut buffer = vec![0; R::MAX_SIZE];
     let written = request.write_into(target, &mut buffer)?;
     buffer.truncate(written);
     Ok(buffer)

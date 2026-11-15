@@ -424,6 +424,7 @@ ND-filter position inquiries.
 | `InFlightDyn`/legacy dynamic operation wrappers | `DynTargetedOperation` and `DynAppliedOperation`. Applied-only handles have no settled operation. |
 | Dropping an operation handle | Unchanged from 1.x: drop is `detach` and never stops hardware. See [Drop never stops hardware](#drop-never-stops-hardware) for the scoped stop-on-exit pattern. |
 | Raw `command::RawInquiryPayload`/untyped response assumptions | `raw::Plain`, `raw::Inquiry`, `raw::Targeted`, or `raw::AppliedOnly`, with an explicit response parser/spec. |
+| `ViscaCommand::encoded_size` allocation hint | No counterpart. Declare `Request::MAX_SIZE` as the upper bound and return the actual frame length from `write_into`; shorter frames are accepted (#873). |
 | `ViscaCommand` response-associated-type extensions | The typed `Request`/`Inquiry`/`OperationCommand` contract and `ResponseParser` for custom decoding. |
 | Unvalidated vendor opcodes that 1.x let through because it validated nothing on send (e.g. vendor tally mode `0A 02 02 0p` on a PTZOptics profile) | The typed and `execute` routes validate against profile capability, so a profile without the typed surface refuses the opcode (tally mode needs `HasTally`). Send a firmware-confirmed vendor opcode through `raw::Plain` instead. |
 | Plain requests submitted as operations or operations without affected axes | Match the request class exactly: `execute` for plain, `inquire` for inquiry, and `submit` for a typed operation with non-empty affected axes. |

@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING** (#873): `Request::MAX_SIZE` is an upper bound; preparation encodes
+  once and uses the length returned by `write_into`. `Request::encoded_size` is
+  removed. Oversized raw input returns `InvalidRequest` with kind
+  `InvalidParameter`, rather than the inbound `ResponseTooLarge` protocol error.
+
 - **BREAKING** (#829): The minimum supported Rust version is now 1.98 (was 1.88 in
   2.0.0-rc.3). The project builds and tests on one stable toolchain, 1.98.0;
   CI no longer runs a separate MSRV job or Miri.

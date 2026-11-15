@@ -173,10 +173,6 @@ macro_rules! builtin_request {
             const CONTROL_CLASS: ControlClass =
                 builtin_request!(@policy $class $(($timeout, $retry, $control))?).2;
 
-            fn encoded_size(&self) -> usize {
-                encoded_len(&builtin_request!(@wire self $(, $wire)?), Self::MAX_SIZE)
-            }
-
             fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 #[cfg(test)]
                 REQUEST_WRITE_COUNT.with(|count| count.set(count.get().saturating_add(1)));
@@ -218,21 +214,6 @@ macro_rules! builtin_request {
             $($pattern => $value_row),+
         }); )?
     )+};
-}
-
-/// Exact frame length of a built-in wire value, measured by a dry run into an
-/// empty buffer.
-///
-/// Every built-in encoder writes through the crate's frame writer, which
-/// counts a frame that does not fit and reports its exact length. A value the
-/// encoder rejects reports `fallback`; writing it then fails with the same
-/// error.
-fn encoded_len(wire: &impl WireEncode, fallback: usize) -> usize {
-    match WireEncode::write_into(wire, CameraId::CAMERA_1, &mut []) {
-        Ok(length) => length,
-        Err(Error::BufferTooSmall { required, .. }) => required,
-        Err(_) => fallback,
-    }
 }
 
 pub(crate) trait BuiltinValidation {
@@ -3359,9 +3340,9 @@ mod tests {
     ///
     /// Every valid preset number (0..=255) and every direct-menu control
     /// parameter (0..=255) must encode to a frame whose length equals the
-    /// request's own `encoded_size()` and that ends in the terminator. The old
+    /// documented wire length and that ends in the terminator. The old
     /// const builder swallowed a trailing `0xFF` *data* byte as the terminator,
-    /// so `write_into` reported one byte short of `encoded_size()` and
+    /// so `write_into` reported a frame one byte short and
     /// `prepared::encode` rejected preset 255 and `direct(_, 0xFF)` outright.
     /// This test would catch any reintroduction of that last-byte inference.
     #[test]
@@ -3385,16 +3366,14 @@ mod tests {
                     "{label} {number} wire bytes"
                 );
             }
-            assert_eq!(PresetSet::new(preset).encoded_size(), 7);
-            assert_eq!(PresetReset::new(preset).encoded_size(), 7);
 
             // Targeted operation: PresetRecall (needs the profile for its axes).
             let recall = PresetRecall::for_profile(preset, &fr7).expect("FR7 preset recall");
             let recall_bytes = wire(&recall);
             assert_eq!(
                 recall_bytes.len(),
-                recall.encoded_size(),
-                "PresetRecall {number} length must equal encoded_size"
+                7,
+                "PresetRecall {number} terminated length"
             );
             assert_eq!(
                 recall_bytes,
@@ -3416,8 +3395,8 @@ mod tests {
                 let bytes = wire(&command);
                 assert_eq!(
                     bytes.len(),
-                    command.encoded_size(),
-                    "direct menu {control1:#x},{control2:#x} length must equal encoded_size"
+                    8,
+                    "direct menu {control1:#x},{control2:#x} terminated length"
                 );
                 assert_eq!(
                     bytes,
@@ -3432,7 +3411,7 @@ mod tests {
     /// on Sony FR7, the profile that both allows preset 255 and supports direct
     /// menu control. Before the fix these returned an `InvalidRequest`
     /// contract-string error from `encode` because `write_into` fell one byte
-    /// short of `encoded_size()`.
+    /// short of the documented frame length.
     #[test]
     fn preset_255_and_direct_menu_ff_prepare_on_fr7() {
         use crate::command::menu::DirectMenuControl;
@@ -4203,13 +4182,11 @@ mod tests {
         let written = request
             .write_into(CameraId::CAMERA_1, &mut buffer)
             .expect("request must encode");
-        assert_eq!(written, request.encoded_size());
         assert!(written <= R::MAX_SIZE);
     }
 
     fn assert_exact_declared_wire_size<R: Request>(request: &R, expected: usize) {
         assert_eq!(R::MAX_SIZE, expected);
-        assert_eq!(request.encoded_size(), expected);
         let mut buffer = vec![0_u8; R::MAX_SIZE];
         let written = request
             .write_into(CameraId::CAMERA_1, &mut buffer)
