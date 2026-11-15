@@ -91,6 +91,8 @@ record_construction SettlementSuperseded src/runtime/owner/motion.rs \
   'let error = Error::SettlementSuperseded'
 record_construction SettlementObservationFailed src/runtime/owner/mod.rs \
   'Error::SettlementObservationFailed {'
+record_construction CancellationObservationFailed src/error.rs \
+  'Self::CancellationObservationFailed {'
 record_construction ObservationTimeout src/runtime/owner/mod.rs \
   'Error::ObservationTimeout {'
 record_construction ControlReserveExhausted src/runtime/owner/mod.rs \
