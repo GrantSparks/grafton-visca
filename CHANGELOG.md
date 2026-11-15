@@ -84,6 +84,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   controls, submitting requests, halting, cancelling or waiting for operations
   from inside a read or write. Refused callbacks leave the worker available
   for external close and transport teardown (#862).
+- Contributor and release checks (#886) now require unique production error
+  constructors and verify the specific rejection reason in release self-tests.
+
 - Raw completion-only commands refuse cancellation with `NotSupported` after a
   successful write and retain their own completion deadline. Cancellation
   requested during the write is refused when it succeeds. Unconfirmed raw

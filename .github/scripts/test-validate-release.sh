@@ -76,27 +76,7 @@ run_validator() {
         bash "${validator}" "${version}")
 }
 
-expect_failure() {
-    local expected_text="$1"
-    shift
-    local log_file
-    log_file="$(mktemp)"
-    local status=0
-    "$@" >"${log_file}" 2>&1 || status=$?
-    if [[ "${status}" -eq 0 ]]; then
-        cat "${log_file}"
-        rm -f "${log_file}"
-        echo "expected validator failure containing: ${expected_text}" >&2
-        return 1
-    fi
-    if ! grep -Fq "${expected_text}" "${log_file}"; then
-        cat "${log_file}" >&2
-        rm -f "${log_file}"
-        echo "validator failure did not contain: ${expected_text}" >&2
-        return 1
-    fi
-    rm -f "${log_file}"
-}
+source "${script_dir}/expect-failure.sh"
 
 make_checklist() {
     local variant="$1"

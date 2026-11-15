@@ -285,6 +285,19 @@ The short version:
 
 ## Testing
 
+### Error constructor inventory
+
+`bash .github/scripts/test-error-variant-reachability.sh` checks every public
+`Error` variant against one reviewed constructor expression in
+`.github/scripts/error-variant-constructors.tsv`. Expressions are token sequences
+and must occur exactly once in production source. The shared source scanner
+ignores comments, literal contents and test-only items; include construction-only
+syntax, such as a field initializer, rather than a pattern spelling. Update the
+inventory when moving a constructor or intentionally changing the error surface.
+The checker compiles directly with the pinned stable `rustc`, without building
+the library or resolving dependencies. Its mutation fixtures check missing and
+duplicate production constructors and ignore copies inside tests.
+
 ### Unit Tests
 
 Add unit tests for all new functionality:

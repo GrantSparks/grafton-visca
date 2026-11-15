@@ -148,12 +148,12 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-      - name: Check public Error variant production reachability
-        run: bash .github/scripts/test-error-variant-reachability.sh
       - name: Install serial transport dependencies
         timeout-minutes: 15
         uses: ./.github/actions/install-serial-deps
       - uses: dtolnay/rust-toolchain@f8be11a05b1d4f3fcebe6410cc16743212b999b0 # 1.98.0
+      - name: Check public Error variant production reachability
+        run: bash .github/scripts/test-error-variant-reachability.sh
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       - run: cargo check --workspace --all-features --all-targets
 

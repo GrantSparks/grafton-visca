@@ -2,7 +2,8 @@
 set -euo pipefail
 
 script_directory="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
-helper="${script_directory}/verify-release-tag.sh"
+helper="${VERIFY_RELEASE_TAG_HELPER:-${script_directory}/verify-release-tag.sh}"
+source "${script_directory}/expect-failure.sh"
 fixture_directory="$(mktemp -d)"
 trap 'rm -rf -- "${fixture_directory}"' EXIT
 
@@ -19,20 +20,12 @@ git -C "${source_repository}" add payload
 git -C "${source_repository}" commit --quiet -m initial
 git -C "${source_repository}" remote add origin "${remote_repository}"
 git -C "${source_repository}" tag -a "${release_tag}" -m "annotated release tag"
+release_commit="$(git -C "${source_repository}" rev-parse HEAD)"
 annotated_tag_object="$(git -C "${source_repository}" rev-parse "refs/tags/${release_tag}")"
 git -C "${source_repository}" push --quiet origin HEAD:refs/heads/main "refs/tags/${release_tag}"
 
 run_helper() {
     (cd "${source_repository}" && "${helper}" "${release_tag}" "${annotated_tag_object}" "${remote_repository}")
-}
-
-expect_failure() {
-    local description="$1"
-    shift
-    if "$@" >/dev/null 2>&1; then
-        echo "expected ${description} to fail" >&2
-        exit 1
-    fi
 }
 
 # Matching annotated object.
@@ -44,27 +37,30 @@ git -C "${source_repository}" add payload
 git -C "${source_repository}" commit --quiet -m moved
 git -C "${source_repository}" tag --force -a "${release_tag}" -m "moved annotated release tag"
 git -C "${source_repository}" push --quiet --force origin "refs/tags/${release_tag}"
-expect_failure "a moved annotated tag" run_helper
+expect_failure "does not match expected annotated object" run_helper
 
 # A lightweight tag resolving to the commit must not be confused with the
 # original annotated-tag object.
-git -C "${source_repository}" tag --force "${release_tag}"
+git -C "${source_repository}" tag --force "${release_tag}" "${release_commit}"
 git -C "${source_repository}" push --quiet --force origin "refs/tags/${release_tag}"
-expect_failure "a lightweight tag" run_helper
+expect_failure "does not match expected annotated object" run_helper || {
+    echo "lightweight tag at the release commit was not rejected for its object identity" >&2
+    exit 1
+}
 
 # A missing remote ref is also a hard failure.
 git -C "${source_repository}" push --quiet origin ":refs/tags/${release_tag}"
-expect_failure "a missing tag" run_helper
+expect_failure "remote refs/tags/${release_tag} is missing" run_helper
 
 # The helper owns the strict input grammar too; a fully qualified ref is not a
 # valid release-tag argument.
-expect_failure "a fully qualified ref passed as the tag" \
+expect_failure "release tag must match vX.Y.Z" \
     bash -c 'cd "$1" && "$2" "refs/tags/v2.0.0-rc.1" "$3" "$4"' \
     bash "${source_repository}" "${helper}" "${annotated_tag_object}" "${remote_repository}"
 
 # A non-v tag is deliberately not a release identity. It must remain outside
 # the release CI tag pattern and the publication workflow's accepted grammar.
-expect_failure "a non-release tag passed as a release tag" \
+expect_failure "release tag must match vX.Y.Z" \
     bash -c 'cd "$1" && "$2" "qualification-v2.0.0-rc.1" "$3" "$4"' \
     bash "${source_repository}" "${helper}" "${annotated_tag_object}" "${remote_repository}"
 
