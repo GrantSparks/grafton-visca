@@ -74,7 +74,7 @@ fn sending_completion_only_cancel_is_refused_when_write_lands() {
     let result = send_ok(&mut engine, &write, None, now);
     assert!(refused(&result, id));
     assert_eq!(engine.entry(id).unwrap().cancellation(), CancelState::None);
-    assert!(!engine.entry(id).unwrap().cancellation_observation_open);
+    assert!(!engine.entry(id).unwrap().cancellation_observation_open());
     engine.assert_invariants().unwrap();
 }
 

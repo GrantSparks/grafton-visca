@@ -95,9 +95,15 @@ fn sequence_owners_need_target_and_reply_phase_compatibility() {
             .request
             .context_mut()
             .target = camera(2);
-        assert!(
-            engine.assert_invariants().is_err(),
-            "target mismatch must be audited in both indexes"
+        let expected = if lower_only {
+            "lower16 owner is stale"
+        } else {
+            "sequence owner is stale or phase-incompatible"
+        };
+        assert_eq!(
+            engine.assert_invariants().unwrap_err().as_ref(),
+            expected,
+            "target mismatch"
         );
         engine
             .entries
@@ -106,13 +112,18 @@ fn sequence_owners_need_target_and_reply_phase_compatibility() {
             .request
             .context_mut()
             .target = camera(1);
-        engine.entries.get_mut(&id).unwrap().phase = Phase::AwaitingReply {
+        engine.entries.get_mut(&id).unwrap().lifecycle = Lifecycle::AwaitingReply {
             sent_at: start,
             deadline: start + Duration::from_secs(1),
+            attempt: AttemptFacts {
+                socket_capacity: None,
+                stream_order: None,
+            },
         };
-        assert!(
-            engine.assert_invariants().is_err(),
-            "reply shape mismatch must be audited in both indexes"
+        assert_eq!(
+            engine.assert_invariants().unwrap_err().as_ref(),
+            expected,
+            "reply phase mismatch"
         );
     }
 }
@@ -126,4 +137,93 @@ fn representation_size_baseline() {
         size_of::<Entry>(),
         size_of::<ProtocolEngine>()
     );
+}
+
+#[cfg(debug_assertions)]
+fn corrupt_dispatch_index() -> ProtocolEngine {
+    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
+    let (_, id) = admit(
+        &mut engine,
+        1,
+        command(1, CancellationPolicy::Supported),
+        Instant::now(),
+    );
+    engine.inject_queue_ticket(
+        Lane::Command,
+        0,
+        QueueTicket {
+            request: id,
+            generation: GenerationTicket(999),
+            queue_generation: 999,
+        },
+    );
+    engine
+}
+
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "engine invariant violated")]
+fn halt_runs_the_production_invariant_hook() {
+    let mut engine = corrupt_dispatch_index();
+    engine.halt(camera(1), crate::AffectedAxes::PAN_TILT, 0);
+}
+
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "engine invariant violated")]
+fn expire_unwritten_halt_runs_the_hook_even_on_an_unknown_transmission() {
+    let mut engine = corrupt_dispatch_index();
+    engine.expire_unwritten_halt(
+        TransmissionId::from_nonzero(NonZeroU64::new(999).unwrap()),
+        Instant::now(),
+    );
+}
+
+#[test]
+fn ready_and_backoff_have_no_attempt_facts_or_raced_latches() {
+    let start = Instant::now();
+    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+    let (write, id) = admit(
+        &mut engine,
+        1,
+        command(1, CancellationPolicy::Supported),
+        start,
+    );
+    assert!(engine.entry(id).unwrap().lifecycle.attempt().is_some());
+    send_ok(&mut engine, &write, Some(0x1001), start);
+    engine.handle(
+        frame(
+            1,
+            Some((0x1001, SequenceWidth::Full32)),
+            DecodedResponse::Error {
+                socket: None,
+                code: 0x03,
+            },
+        ),
+        start,
+    );
+    assert!(matches!(
+        engine.entry(id).unwrap().phase(),
+        Phase::Backoff { .. }
+    ));
+    for ready in [false, true] {
+        if ready {
+            engine.promote_retry(id, &mut Vec::new());
+        }
+        let entry = engine.entry(id).unwrap();
+        assert!(entry.lifecycle.attempt().is_none());
+        assert!(entry.dispatched_socket_capacity().is_none());
+        assert!(entry.stream_order().is_none());
+        assert!(entry.deferred_ack().is_none());
+        assert!(entry.deferred_completion().is_none());
+        engine.assert_invariants().unwrap();
+    }
+}
+
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "engine invariant violated")]
+fn raw_release_gate_runs_the_hook_even_when_no_input_is_retained() {
+    let mut engine = corrupt_dispatch_index();
+    engine.resolve_raw_release_gate(Instant::now(), None);
 }

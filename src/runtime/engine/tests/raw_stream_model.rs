@@ -903,7 +903,7 @@ impl Session {
                     }
                     Effect::Transition {
                         id,
-                        to: Phase::Executing { .. },
+                        to: Lifecycle::Executing { .. },
                         ..
                     } => {
                         self.acknowledged.insert(id);
@@ -1158,7 +1158,7 @@ impl Session {
             let late = self
                 .engine
                 .entry(originator)
-                .and_then(correlated_response_deadline)
+                .and_then(Entry::correlated_response_deadline)
                 .is_some_and(|deadline| deadline < self.now);
             let effects = self.engine.handle_turn(
                 frame(target, None, response.clone()),

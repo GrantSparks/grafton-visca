@@ -1906,7 +1906,7 @@ fn an_inquiry_reply_ends_a_stop_debt_cascade() {
 /// Whether the dispatch gate itself, not pacing, holds queued `id` back.
 fn dispatch_gated(engine: &ProtocolEngine, id: RequestId) -> bool {
     let entry = engine.entry(id).expect("queued request");
-    matches!(entry.phase, Phase::Ready { .. }) && engine.dispatch_blocked(entry, engine.turn_at)
+    matches!(entry.phase(), Phase::Ready { .. }) && engine.dispatch_blocked(entry, engine.turn_at)
 }
 
 /// The gate blocks a queued ordinary command on a latched lane, not only one
@@ -2692,7 +2692,7 @@ fn a_disputed_ack_holds_its_socket_while_a_candidate_is_still_being_written() {
     assert!(engine
         .entries
         .values()
-        .all(|entry| !matches!(entry.phase, Phase::AwaitingAck { .. })));
+        .all(|entry| !matches!(entry.phase(), Phase::AwaitingAck { .. })));
     let acked = engine.handle_turn(ack(1, ViscaSocket::S1), at, EngineTurn::INPUT_ONLY);
     assert!(terminal_id(&acked).is_none());
     let hold = engine
@@ -2954,7 +2954,7 @@ fn raced_ack_after_budget_does_not_apply_a_displaced_socket_owner() {
     // The camera reused socket 1 after the first command ended unseen.
     engine.handle(ack(1, ViscaSocket::S1), start + Duration::from_millis(2));
     assert_eq!(
-        engine.entry(second).unwrap().deferred_ack.unwrap().socket,
+        engine.entry(second).unwrap().deferred_ack().unwrap().socket,
         Some(ViscaSocket::S1)
     );
     let late = start + Duration::from_millis(12);

@@ -14,6 +14,7 @@ use crate::FailureContext;
 
 mod audit_rules;
 mod cancellation_holds;
+mod lifecycle_transition_matrix;
 mod raw_evidence;
 mod raw_stream_model;
 
@@ -1031,8 +1032,8 @@ fn sony_stale_command_errors_do_not_spend_retry_during_backoff_or_ready() {
         effect,
         Effect::Transition {
             id: seen,
-            from: Phase::Backoff { ready_at, .. },
-            to: Phase::Ready { .. },
+            from: Lifecycle::Backoff { ready_at, .. },
+            to: Lifecycle::Ready { .. },
             ..
         } if *seen == id && *ready_at == retry_ready
     )));
@@ -1559,7 +1560,7 @@ fn raw_error_policy_requires_unique_socketless_evidence() {
             effect,
             Effect::Transition {
                 id,
-                to: Phase::Executing { .. },
+                to: Lifecycle::Executing { .. },
                 ..
             } if *id == command_id
         )));
@@ -3100,7 +3101,7 @@ fn late_ack_ambiguity_keeps_capacity_and_correlation_until_quarantine() {
         effect,
         Effect::Transition {
             id: seen,
-            to: Phase::AwaitingAck { deadline, .. },
+            to: Lifecycle::AwaitingAck { deadline, .. },
             ..
         } if *seen == id && *deadline == start + Duration::from_millis(50)
     )));
@@ -3774,7 +3775,10 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_named_reu
     let second_id = admitted(&second);
     send_ok(&mut engine, &second, None, start);
     assert_eq!(
-        engine.entry(second_id).unwrap().dispatched_socket_capacity,
+        engine
+            .entry(second_id)
+            .unwrap()
+            .dispatched_socket_capacity(),
         Some(2)
     );
 
@@ -3863,7 +3867,7 @@ fn retune_to_one_socket_allows_preexisting_second_command_to_drain_via_named_reu
         "retuned one-socket work dispatches after the stale hold releases"
     );
     assert_eq!(
-        engine.entry(third_id).unwrap().dispatched_socket_capacity,
+        engine.entry(third_id).unwrap().dispatched_socket_capacity(),
         Some(1)
     );
     engine.assert_invariants().unwrap();
@@ -3882,15 +3886,13 @@ fn retune_runs_the_production_debug_invariant_hook() {
         start,
     );
     send_ok(&mut engine, &admission, None, start);
-    let RuntimeRequest::Command { context, .. } = &mut engine
-        .entries
-        .get_mut(&id)
-        .expect("completion-only request remains live")
-        .request
-    else {
-        unreachable!("test admitted a command");
+    let entry = engine.entry(id).unwrap();
+    let ticket = QueueTicket {
+        request: id,
+        generation: entry.generation,
+        queue_generation: entry.queue_generation,
     };
-    context.reply_shape = ReplyShape::AckThenCompletion;
+    engine.inject_queue_ticket(Lane::Command, 0, ticket);
 
     engine
         .retune(Duration::ZERO, Duration::ZERO, PerTarget::default())
@@ -4323,7 +4325,7 @@ fn fixture_observation(
     if let Some((id, socket)) = effects.iter().find_map(|effect| match effect {
         Effect::Transition {
             id,
-            to: Phase::Executing { socket, .. },
+            to: Lifecycle::Executing { socket, .. },
             ..
         } => Some((*id, *socket)),
         _ => None,
@@ -4487,7 +4489,7 @@ fn fuzz_directed_frame(engine: &ProtocolEngine, action: u64) -> Option<Input> {
         .skip(offset)
         .take(engine.entries.len())
         .find(|entry| {
-            !matches!(entry.phase, Phase::Ready { .. } | Phase::Backoff { .. })
+            !matches!(entry.phase(), Phase::Ready { .. } | Phase::Backoff { .. })
                 && (engine.policy.envelope == EnvelopeKind::Raw
                     || !entry.sequence_history.is_empty())
         })?;
@@ -4496,7 +4498,7 @@ fn fuzz_directed_frame(engine: &ProtocolEngine, action: u64) -> Option<Input> {
     } else {
         ViscaSocket::S2
     };
-    let response = match entry.phase {
+    let response = match entry.phase() {
         Phase::Sending { .. } | Phase::AwaitingAck { .. } => DecodedResponse::Ack {
             socket: (action & 0x200 == 0).then_some(other),
         },
@@ -4731,11 +4733,11 @@ impl FuzzCoverage {
         for effect in effects {
             match effect {
                 Effect::Transition {
-                    to: Phase::Executing { .. },
+                    to: Lifecycle::Executing { .. },
                     ..
                 } => self.acknowledged += 1,
                 Effect::Transition {
-                    to: Phase::AwaitingCompletion { .. },
+                    to: Lifecycle::AwaitingCompletion { .. },
                     ..
                 } => self.completion_only += 1,
                 Effect::Terminal {
@@ -4773,7 +4775,7 @@ impl FuzzCoverage {
         if engine.policy.inquiry_capacity == 1
             && engine.entries.values().any(|entry| {
                 entry.request.is_inquiry()
-                    && matches!(entry.phase, Phase::Ready { .. })
+                    && matches!(entry.phase(), Phase::Ready { .. })
                     && engine.inquiries_inflight_for(entry.request.context().target) == 1
             })
         {
@@ -5448,6 +5450,7 @@ mod generated_invariant_properties {
                 );
                 coverage.record(&engine, &effects);
                 prop_assert!(engine.assert_invariants().is_ok());
+                prop_assert!(lifecycle_transition_matrix::all_entries_have_admissible_pairs(&engine));
             }
             prop_assert!(
                 fuzz_coverage_floor_met(configuration, &coverage),
@@ -6444,10 +6447,15 @@ fn sequenced_ack_with_two_live_socket_owners_remains_a_socket_conflict() {
         start,
     );
     let third_id = admitted(&queued);
-    let original_phase = phase_of(&engine, third_id).expect("third request is queued");
-    engine.entries.get_mut(&third_id).unwrap().phase = Phase::AwaitingAck {
+    let original_lifecycle = engine.entry(third_id).unwrap().lifecycle;
+    engine.entries.get_mut(&third_id).unwrap().lifecycle = Lifecycle::AwaitingAck {
         sent_at: start,
         deadline: start + Duration::from_millis(20),
+        attempt: AttemptFacts {
+            socket_capacity: Some(2),
+            stream_order: None,
+        },
+        cancellation: None,
     };
     let mut effects = Vec::new();
     engine.ack(third_id, Some(ViscaSocket::S1), start, &mut effects);
@@ -6455,7 +6463,7 @@ fn sequenced_ack_with_two_live_socket_owners_remains_a_socket_conflict() {
         ignored_reasons(&effects),
         vec![IgnoreReason::SocketConflict]
     );
-    engine.entries.get_mut(&third_id).unwrap().phase = original_phase;
+    engine.entries.get_mut(&third_id).unwrap().lifecycle = original_lifecycle;
     engine.assert_invariants().unwrap();
 }
 
@@ -6732,7 +6740,7 @@ fn ack_racing_its_own_write_result_is_latched_and_applied() {
     assert!(confirmed.iter().any(|effect| matches!(
         effect,
         Effect::Transition {
-            to: Phase::Executing {
+            to: Lifecycle::Executing {
                 socket: ViscaSocket::S2,
                 ..
             },
@@ -6790,7 +6798,7 @@ fn raw_ack_in_awaiting_ack_uses_the_unique_command_candidate() {
         effect,
         Effect::Transition {
             id: seen,
-            to: Phase::Executing {
+            to: Lifecycle::Executing {
                 socket: ViscaSocket::S1,
                 ..
             },
@@ -7050,7 +7058,7 @@ fn a_latched_ack_never_survives_into_the_next_attempt() {
     ));
     assert!(engine
         .entry(id)
-        .is_some_and(|entry| entry.deferred_ack.is_none()));
+        .is_some_and(|entry| entry.deferred_ack().is_none()));
     engine.handle(
         Input::TransmissionFinished {
             transmission: retry_tx,
@@ -8183,7 +8191,7 @@ fn initial_raw_sending_latches_respect_total_budget_boundary() {
         assert!(ignored_reasons(&effects).is_empty());
         assert!(engine
             .entry(id)
-            .is_some_and(|entry| entry.deferred_ack.is_some()));
+            .is_some_and(|entry| entry.deferred_ack().is_some()));
         effects.extend(engine.handle_in_turn(
             &turn,
             Input::TransmissionFinished {
@@ -8265,7 +8273,7 @@ fn initial_raw_sending_latches_respect_total_budget_boundary() {
         assert!(ignored_reasons(&effects).is_empty());
         assert!(engine
             .entry(id)
-            .is_some_and(|entry| entry.deferred_completion.is_some()));
+            .is_some_and(|entry| entry.deferred_completion().is_some()));
         effects.extend(engine.handle_in_turn(
             &turn,
             Input::TransmissionFinished {
@@ -8503,7 +8511,7 @@ fn raw_deferred_completion_write_result_respects_total_budget_boundary() {
         assert!(terminal_outcome(&early, id).is_none());
         assert!(engine
             .entry(id)
-            .is_some_and(|entry| entry.deferred_completion.is_some()));
+            .is_some_and(|entry| entry.deferred_completion().is_some()));
 
         let equal = engine.handle(
             Input::TransmissionFinished {
@@ -8552,7 +8560,7 @@ fn raw_deferred_completion_write_result_respects_total_budget_boundary() {
         );
         assert!(engine
             .entry(id)
-            .is_some_and(|entry| entry.deferred_completion.is_some()));
+            .is_some_and(|entry| entry.deferred_completion().is_some()));
 
         let late_at = budget_deadline + Duration::from_nanos(1);
         let late = engine.handle(
@@ -8679,7 +8687,7 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
             effect,
             Effect::Transition {
                 id: transitioned,
-                to: Phase::AwaitingAck { .. },
+                to: Lifecycle::AwaitingAck { .. },
                 ..
             } if *transitioned == id
         )));
@@ -8892,7 +8900,7 @@ fn cancelled_raw_sending_latches_respect_ambiguity_boundary() {
         assert!(ignored_reasons(&effects).is_empty());
         assert!(engine
             .entry(id)
-            .is_some_and(|entry| entry.deferred_ack.is_some()));
+            .is_some_and(|entry| entry.deferred_ack().is_some()));
         effects.extend(engine.handle_in_turn(
             &turn,
             Input::TransmissionFinished {
@@ -8963,7 +8971,7 @@ fn cancelled_raw_sending_latches_respect_ambiguity_boundary() {
         assert!(ignored_reasons(&effects).is_empty());
         assert!(engine
             .entry(id)
-            .is_some_and(|entry| entry.deferred_completion.is_some()));
+            .is_some_and(|entry| entry.deferred_completion().is_some()));
         effects.extend(engine.handle_in_turn(
             &turn,
             Input::TransmissionFinished {
@@ -9352,7 +9360,7 @@ fn retry_budget_expires_while_executing_sony_command() {
     assert!(acknowledged.iter().any(|effect| matches!(
         effect,
         Effect::Transition {
-            to: Phase::Executing { .. },
+            to: Lifecycle::Executing { .. },
             ..
         }
     )));
@@ -10142,73 +10150,6 @@ fn raw_single_candidate_invariant_includes_completion_only_awaiting_completion()
 }
 
 #[test]
-fn awaiting_completion_invariant_requires_the_completion_only_shape() {
-    let start = Instant::now();
-    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let (admission, id) = admit(
-        &mut engine,
-        1,
-        command_with_reply_shape(1, CancellationPolicy::Supported, ReplyShape::CompletionOnly),
-        start,
-    );
-    send_ok(&mut engine, &admission, None, start);
-    let RuntimeRequest::Command { context, .. } = &mut engine
-        .entries
-        .get_mut(&id)
-        .expect("completion-only request remains live")
-        .request
-    else {
-        unreachable!("test admitted a command");
-    };
-    context.reply_shape = ReplyShape::AckThenCompletion;
-
-    assert_eq!(
-        engine.assert_invariants().unwrap_err().as_ref(),
-        "awaiting-completion phase belongs to a non-completion-only command"
-    );
-}
-
-#[test]
-fn cancellation_resolution_invariant_requires_active_cancellation_state() {
-    let start = Instant::now();
-    let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
-    let (admission, id) = admit(
-        &mut engine,
-        1,
-        command(1, CancellationPolicy::Supported),
-        start,
-    );
-    send_ok(&mut engine, &admission, None, start);
-    engine.handle(
-        frame(
-            1,
-            None,
-            DecodedResponse::Ack {
-                socket: Some(ViscaSocket::S1),
-            },
-        ),
-        start,
-    );
-    let deadline = match phase_of(&engine, id) {
-        Some(Phase::Executing { deadline, .. }) => deadline,
-        phase => panic!("expected executing command, got {phase:?}"),
-    };
-    engine
-        .entries
-        .get_mut(&id)
-        .expect("command remains live")
-        .phase = Phase::AwaitingCancellationResolution {
-        socket: ViscaSocket::S1,
-        deadline,
-    };
-
-    assert_eq!(
-        engine.assert_invariants().unwrap_err().as_ref(),
-        "cancellation-resolution phase has no active cancellation state"
-    );
-}
-
-#[test]
 fn raw_uncorrelatable_command_invariant_rejects_the_urgent_lane_exception() {
     let start = Instant::now();
     let mut runtime = engine(EnvelopeKind::Raw, TransportKind::Datagram);
@@ -10294,7 +10235,7 @@ fn completion_only_command_skips_ack_and_terminates_on_completion() {
         !send.iter().any(|effect| matches!(
             effect,
             Effect::Transition {
-                to: Phase::AwaitingAck { .. },
+                to: Lifecycle::AwaitingAck { .. },
                 ..
             }
         )),
@@ -10656,7 +10597,7 @@ fn no_reply_ignores_every_raced_raw_terminal_frame_before_write_result() {
         assert!(terminal_outcome(&raced, id).is_none());
         assert!(matches!(phase_of(&engine, id), Some(Phase::Sending { .. })));
         assert!(engine.entry(id).is_some_and(|entry| {
-            entry.deferred_ack.is_none() && entry.deferred_completion.is_none()
+            entry.deferred_ack().is_none() && entry.deferred_completion().is_none()
         }));
     }
 
@@ -11068,7 +11009,7 @@ fn raw_inquiry_hold_preserves_live_preack_ack_and_sole_socketless_completion() {
         effect,
         Effect::Transition {
             id,
-            to: Phase::Executing {
+            to: Lifecycle::Executing {
                 socket: ViscaSocket::S1,
                 ..
             },
@@ -11748,7 +11689,7 @@ fn raw_inquiry_timeout_hold_blocks_only_inquiries_and_never_urgent_commands() {
         effect,
         Effect::Transition {
             id,
-            to: Phase::Executing { socket: ViscaSocket::S1, .. },
+            to: Lifecycle::Executing { socket: ViscaSocket::S1, .. },
             ..
         } if *id == urgent_id
     )));
@@ -12035,7 +11976,7 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
                 effect,
                 Effect::Transition {
                     id,
-                    to: Phase::AwaitingReply { .. },
+                    to: Lifecycle::AwaitingReply { .. },
                     ..
                 } if *id == first_id
             )
@@ -12085,7 +12026,7 @@ fn raw_single_flight_sending_inquiry_late_write_result_quarantines_before_succes
         effect,
         Effect::Transition {
             id,
-            to: Phase::AwaitingReply { .. },
+            to: Lifecycle::AwaitingReply { .. },
             ..
         } if *id == first_id
     )));

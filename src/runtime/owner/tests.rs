@@ -1874,8 +1874,8 @@ mod lifecycle_trace {
                             "{} effect state id={} from={} to={}",
                             self.at,
                             id.get(),
-                            phase_name(from),
-                            phase_name(to)
+                            phase_name(from.phase()),
+                            phase_name(to.phase())
                         ));
                     }
                     Effect::Transmit { .. } => {

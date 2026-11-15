@@ -469,13 +469,13 @@ impl DiagnosticSubscription {
 #[cfg(any(feature = "blocking", feature = "async"))]
 impl DiagnosticEvent {
     pub(crate) fn from_owner(event: crate::runtime::owner::DiagnosticEvent) -> Self {
-        use crate::runtime::engine::{DeadlineKind, IgnoreReason, Lane, Phase};
+        use crate::runtime::engine::{DeadlineKind, IgnoreReason, Lane, Lifecycle, Phase};
         use crate::runtime::owner::{
             CancellationDiagnostic, DiagnosticEvent as OwnerEvent, OutcomeDiagnostic,
             ResponseDiagnostic,
         };
 
-        let phase = |value: Phase| match value {
+        let phase = |value: Lifecycle| match value.phase() {
             Phase::Ready { .. } => DiagnosticPhase::Ready,
             Phase::Sending { .. } => DiagnosticPhase::Sending,
             Phase::AwaitingAck { .. } => DiagnosticPhase::AwaitingAck,

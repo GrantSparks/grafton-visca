@@ -76,13 +76,16 @@ use crate::{
 use crate::{raw::MAX_BYTES, CancellationOutcome, Error, ErrorKind, ViscaSocket};
 
 use super::engine::{
-    AdmissionSlot, AdmissionTicket, AppliedStateEffect, AppliedStateProjection, CancelState,
+    AdmissionSlot, AdmissionTicket, AppliedStateEffect, AppliedStateProjection,
     CancellationObservation, CancellationPolicy, ControlClass, DeadlineKind, DecodedFrame,
     DecodedResponse, Effect, EngineTurn, EnvelopeKind, EnvelopeSequence, IgnoreReason, Input,
-    InputTurn, Lane, Phase, ProtocolEngine, ProtocolPolicy, RequestContext, RequestId, RetryPolicy,
-    RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason, TargetPolicy, TimeoutPolicy,
-    Transmission, TransmissionId, TransmissionMeta,
+    InputTurn, Lane, Lifecycle, ProtocolEngine, ProtocolPolicy, RequestContext, RequestId,
+    RetryPolicy, RuntimeOutcome, RuntimeRequest, SessionState, ShutdownReason, TargetPolicy,
+    TimeoutPolicy, Transmission, TransmissionId, TransmissionMeta,
 };
+
+#[cfg(test)]
+use super::engine::{CancelState, Phase};
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 use super::engine::{RawCorrelationReleaseSet, RawPrefixEvidence, RawReleaseGateAction};
@@ -145,26 +148,29 @@ pub(crate) fn canonical_owner_trace(
         .into_iter()
         .filter_map(|event| match event {
             DiagnosticEvent::Admitted { .. } => Some(CanonicalOwnerStep::Admitted),
-            DiagnosticEvent::Transition {
-                to: Phase::Sending { .. },
-                ..
-            } => Some(CanonicalOwnerStep::Sending),
+            DiagnosticEvent::Transition { to, .. }
+                if matches!(to.phase(), Phase::Sending { .. }) =>
+            {
+                Some(CanonicalOwnerStep::Sending)
+            }
             DiagnosticEvent::WriteFinished {
                 cancellation: false,
                 ..
             } => Some(CanonicalOwnerStep::RequestWrite),
-            DiagnosticEvent::Transition {
-                to: Phase::AwaitingAck { .. },
-                ..
-            } => Some(CanonicalOwnerStep::AwaitingAck),
+            DiagnosticEvent::Transition { to, .. }
+                if matches!(to.phase(), Phase::AwaitingAck { .. }) =>
+            {
+                Some(CanonicalOwnerStep::AwaitingAck)
+            }
             DiagnosticEvent::FrameReceived {
                 response: ResponseDiagnostic::Ack(_),
                 ..
             } => Some(CanonicalOwnerStep::Ack),
-            DiagnosticEvent::Transition {
-                to: Phase::Executing { .. },
-                ..
-            } => Some(CanonicalOwnerStep::Executing),
+            DiagnosticEvent::Transition { to, .. }
+                if matches!(to.phase(), Phase::Executing { .. }) =>
+            {
+                Some(CanonicalOwnerStep::Executing)
+            }
             DiagnosticEvent::FrameReceived {
                 response: ResponseDiagnostic::Completion(_),
                 ..
@@ -435,9 +441,8 @@ pub(crate) enum DiagnosticEvent {
     Transition {
         id: RequestId,
         target: TargetSlot,
-        from: Phase,
-        to: Phase,
-        cancellation: CancelState,
+        from: Lifecycle,
+        to: Lifecycle,
     },
     WriteFinished {
         id: RequestId,
@@ -2404,19 +2409,13 @@ impl OwnerState {
                     AppliedEffect::None
                 }
             }
-            Effect::Transition {
-                id,
-                from,
-                to,
-                cancellation,
-            } => {
+            Effect::Transition { id, from, to } => {
                 if let Some(target) = self.active.get(&id).map(|active| active.summary.target) {
                     self.record(DiagnosticEvent::Transition {
                         id,
                         target,
                         from,
                         to,
-                        cancellation,
                     });
                 }
                 AppliedEffect::None

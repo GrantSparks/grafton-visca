@@ -904,7 +904,8 @@ pub(crate) enum Input {
     Wake,
 }
 
-/// Explicit authoritative phase. No driver owns a parallel phase copy.
+/// Flattened lifecycle projection for diagnostics and independent test oracles.
+/// The engine stores only `Lifecycle`; this is never a parallel authority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Phase {
     Ready {
@@ -946,7 +947,9 @@ pub(crate) enum Phase {
     },
 }
 
-/// Cancellation is a substate of the same authoritative request entry.
+/// Flattened cancellation projection; never independently stored in an entry.
+/// Socket identity is read from the enclosing lifecycle only for this view.
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum CancelState {
     None,
@@ -981,9 +984,8 @@ pub(crate) enum Effect {
     },
     Transition {
         id: RequestId,
-        from: Phase,
-        to: Phase,
-        cancellation: CancelState,
+        from: super::Lifecycle,
+        to: super::Lifecycle,
     },
     Transmit {
         transmission: TransmissionId,

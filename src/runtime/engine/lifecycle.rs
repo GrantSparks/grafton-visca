@@ -1,0 +1,908 @@
+//! The closed per-request lifecycle. Phase-local facts have one legal home.
+
+#[cfg(test)]
+use super::CancelState;
+use super::{
+    add_duration, DeferredAck, DeferredCompletion, Phase, QueueTicket, ReplyShape, TransmissionId,
+};
+use crate::ViscaSocket;
+use std::time::{Duration, Instant};
+
+/// Facts belonging to one dispatched attempt, never a Ready/Backoff entry.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct AttemptFacts {
+    pub(crate) socket_capacity: Option<u8>,
+    pub(crate) stream_order: Option<u64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct RequestedCancellation {
+    pub(crate) ambiguity_deadline: Instant,
+    pub(crate) observer_open: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SendingCancellation {
+    pub(crate) transmission: TransmissionId,
+    pub(crate) ambiguity_deadline: Instant,
+    pub(crate) observer_open: bool,
+}
+
+/// A sending inquiry has no cancellation or raced command-response latch.
+/// Command latches are selected by their declared reply shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SendingReply {
+    Inquiry,
+    AckThenCompletion {
+        deferred: Option<DeferredAck>,
+        cancellation: Option<RequestedCancellation>,
+    },
+    CompletionOnly {
+        deferred: Option<DeferredCompletion>,
+        cancellation: Option<RequestedCancellation>,
+    },
+    NoReply {
+        cancellation: Option<RequestedCancellation>,
+    },
+}
+
+impl SendingReply {
+    pub(crate) const fn new(inquiry: bool, shape: ReplyShape) -> Self {
+        if inquiry {
+            return Self::Inquiry;
+        }
+        match shape {
+            ReplyShape::AckThenCompletion => Self::AckThenCompletion {
+                deferred: None,
+                cancellation: None,
+            },
+            ReplyShape::CompletionOnly => Self::CompletionOnly {
+                deferred: None,
+                cancellation: None,
+            },
+            ReplyShape::NoReply => Self::NoReply { cancellation: None },
+        }
+    }
+
+    const fn cancellation(self) -> Option<RequestedCancellation> {
+        match self {
+            Self::Inquiry => None,
+            Self::AckThenCompletion { cancellation, .. }
+            | Self::CompletionOnly { cancellation, .. }
+            | Self::NoReply { cancellation } => cancellation,
+        }
+    }
+}
+
+/// Executing commands may have requested/sending/failed cancellation, but
+/// AwaitingTerminal belongs only to the resolution phase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ExecutingCancellation {
+    None,
+    Requested(RequestedCancellation),
+    Sending(SendingCancellation),
+    ObservationFailed { ambiguity_deadline: Instant },
+}
+
+/// Every resolution phase has an active cancellation; None is unrepresentable.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ResolvingCancellation {
+    Requested(RequestedCancellation),
+    Sending(SendingCancellation),
+    AwaitingTerminal {
+        ambiguity_deadline: Instant,
+        observation_deadline: Instant,
+        observer_open: bool,
+    },
+    ObservationFailed {
+        ambiguity_deadline: Instant,
+    },
+}
+
+/// Stored lifecycle authority. Socket identity belongs to its enclosing phase,
+/// never a cancellation substate; latches exist only while their write races.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Lifecycle {
+    Ready {
+        ticket: QueueTicket,
+    },
+    Sending {
+        transmission: TransmissionId,
+        started_at: Instant,
+        attempt: AttemptFacts,
+        reply: SendingReply,
+    },
+    AwaitingAck {
+        sent_at: Instant,
+        deadline: Instant,
+        attempt: AttemptFacts,
+        cancellation: Option<RequestedCancellation>,
+    },
+    AwaitingCompletion {
+        sent_at: Instant,
+        deadline: Instant,
+        attempt: AttemptFacts,
+    },
+    Executing {
+        socket: ViscaSocket,
+        started_at: Instant,
+        deadline: Instant,
+        attempt: AttemptFacts,
+        cancellation: ExecutingCancellation,
+    },
+    AwaitingReply {
+        sent_at: Instant,
+        deadline: Instant,
+        attempt: AttemptFacts,
+    },
+    Backoff {
+        ready_at: Instant,
+        queue_generation: u64,
+    },
+    AwaitingCancellationResolution {
+        socket: ViscaSocket,
+        deadline: Instant,
+        attempt: AttemptFacts,
+        cancellation: ResolvingCancellation,
+    },
+}
+
+impl Lifecycle {
+    /// Stable diagnostic/test projection, never an independently stored phase.
+    pub(crate) fn phase(self) -> Phase {
+        match self {
+            Self::Ready { ticket } => Phase::Ready { ticket },
+            Self::Sending {
+                transmission,
+                started_at,
+                ..
+            } => Phase::Sending {
+                transmission,
+                started_at,
+            },
+            Self::AwaitingAck {
+                sent_at, deadline, ..
+            } => Phase::AwaitingAck { sent_at, deadline },
+            Self::AwaitingCompletion {
+                sent_at, deadline, ..
+            } => Phase::AwaitingCompletion { sent_at, deadline },
+            Self::Executing {
+                socket,
+                started_at,
+                deadline,
+                cancellation,
+                ..
+            } => Phase::Executing {
+                socket,
+                started_at,
+                deadline: cancellation.response_deadline(deadline),
+            },
+            Self::AwaitingReply {
+                sent_at, deadline, ..
+            } => Phase::AwaitingReply { sent_at, deadline },
+            Self::Backoff {
+                ready_at,
+                queue_generation,
+            } => Phase::Backoff {
+                ready_at,
+                queue_generation,
+            },
+            Self::AwaitingCancellationResolution {
+                socket,
+                deadline,
+                cancellation,
+                ..
+            } => Phase::AwaitingCancellationResolution {
+                socket,
+                deadline: deadline.max(cancellation.ambiguity_deadline()),
+            },
+        }
+    }
+
+    /// The old flattened view is useful to independent transition oracles.
+    #[cfg(test)]
+    pub(crate) const fn cancellation(self) -> CancelState {
+        match self {
+            Self::Sending { reply, .. } => match reply.cancellation() {
+                Some(request) => CancelState::Requested {
+                    ambiguity_deadline: request.ambiguity_deadline,
+                },
+                None => CancelState::None,
+            },
+            Self::AwaitingAck { cancellation, .. } => match cancellation {
+                Some(request) => CancelState::Requested {
+                    ambiguity_deadline: request.ambiguity_deadline,
+                },
+                None => CancelState::None,
+            },
+            Self::Executing {
+                socket,
+                cancellation,
+                ..
+            } => match cancellation {
+                ExecutingCancellation::None => CancelState::None,
+                ExecutingCancellation::Requested(request) => CancelState::Requested {
+                    ambiguity_deadline: request.ambiguity_deadline,
+                },
+                ExecutingCancellation::Sending(send) => CancelState::Sending {
+                    socket,
+                    transmission: send.transmission,
+                    ambiguity_deadline: send.ambiguity_deadline,
+                },
+                ExecutingCancellation::ObservationFailed { ambiguity_deadline } => {
+                    CancelState::ObservationFailed {
+                        socket,
+                        ambiguity_deadline,
+                    }
+                }
+            },
+            Self::AwaitingCancellationResolution {
+                socket,
+                cancellation,
+                ..
+            } => match cancellation {
+                ResolvingCancellation::Requested(request) => CancelState::Requested {
+                    ambiguity_deadline: request.ambiguity_deadline,
+                },
+                ResolvingCancellation::Sending(send) => CancelState::Sending {
+                    socket,
+                    transmission: send.transmission,
+                    ambiguity_deadline: send.ambiguity_deadline,
+                },
+                ResolvingCancellation::AwaitingTerminal {
+                    ambiguity_deadline,
+                    observation_deadline,
+                    ..
+                } => CancelState::AwaitingTerminal {
+                    ambiguity_deadline,
+                    observation_deadline,
+                },
+                ResolvingCancellation::ObservationFailed { ambiguity_deadline } => {
+                    CancelState::ObservationFailed {
+                        socket,
+                        ambiguity_deadline,
+                    }
+                }
+            },
+            Self::Ready { .. }
+            | Self::Backoff { .. }
+            | Self::AwaitingCompletion { .. }
+            | Self::AwaitingReply { .. } => CancelState::None,
+        }
+    }
+
+    pub(crate) const fn attempt(self) -> Option<AttemptFacts> {
+        match self {
+            Self::Ready { .. } | Self::Backoff { .. } => None,
+            Self::Sending { attempt, .. }
+            | Self::AwaitingAck { attempt, .. }
+            | Self::AwaitingCompletion { attempt, .. }
+            | Self::Executing { attempt, .. }
+            | Self::AwaitingReply { attempt, .. }
+            | Self::AwaitingCancellationResolution { attempt, .. } => Some(attempt),
+        }
+    }
+
+    pub(crate) const fn deferred_ack(self) -> Option<DeferredAck> {
+        match self {
+            Self::Sending {
+                reply: SendingReply::AckThenCompletion { deferred, .. },
+                ..
+            } => deferred,
+            Self::Sending {
+                reply:
+                    SendingReply::Inquiry
+                    | SendingReply::CompletionOnly { .. }
+                    | SendingReply::NoReply { .. },
+                ..
+            }
+            | Self::Ready { .. }
+            | Self::Backoff { .. }
+            | Self::AwaitingAck { .. }
+            | Self::AwaitingCompletion { .. }
+            | Self::Executing { .. }
+            | Self::AwaitingReply { .. }
+            | Self::AwaitingCancellationResolution { .. } => None,
+        }
+    }
+
+    #[cfg(test)]
+    pub(crate) const fn deferred_completion(self) -> Option<DeferredCompletion> {
+        match self {
+            Self::Sending {
+                reply: SendingReply::CompletionOnly { deferred, .. },
+                ..
+            } => deferred,
+            Self::Sending {
+                reply:
+                    SendingReply::Inquiry
+                    | SendingReply::AckThenCompletion { .. }
+                    | SendingReply::NoReply { .. },
+                ..
+            }
+            | Self::Ready { .. }
+            | Self::Backoff { .. }
+            | Self::AwaitingAck { .. }
+            | Self::AwaitingCompletion { .. }
+            | Self::Executing { .. }
+            | Self::AwaitingReply { .. }
+            | Self::AwaitingCancellationResolution { .. } => None,
+        }
+    }
+
+    pub(crate) const fn observer_open(self) -> bool {
+        match self {
+            Self::Sending { reply, .. } => match reply.cancellation() {
+                Some(request) => request.observer_open,
+                None => false,
+            },
+            Self::AwaitingAck { cancellation, .. } => match cancellation {
+                Some(request) => request.observer_open,
+                None => false,
+            },
+            Self::Executing { cancellation, .. } => match cancellation {
+                ExecutingCancellation::Requested(request) => request.observer_open,
+                ExecutingCancellation::Sending(send) => send.observer_open,
+                ExecutingCancellation::None | ExecutingCancellation::ObservationFailed { .. } => {
+                    false
+                }
+            },
+            Self::AwaitingCancellationResolution { cancellation, .. } => match cancellation {
+                ResolvingCancellation::Requested(request) => request.observer_open,
+                ResolvingCancellation::Sending(send) => send.observer_open,
+                ResolvingCancellation::AwaitingTerminal { observer_open, .. } => observer_open,
+                ResolvingCancellation::ObservationFailed { .. } => false,
+            },
+            Self::Ready { .. }
+            | Self::Backoff { .. }
+            | Self::AwaitingCompletion { .. }
+            | Self::AwaitingReply { .. } => false,
+        }
+    }
+
+    pub(crate) fn close_observer(&mut self) {
+        match self {
+            Self::Sending { reply, .. } => match reply {
+                SendingReply::Inquiry => {}
+                SendingReply::AckThenCompletion { cancellation, .. }
+                | SendingReply::CompletionOnly { cancellation, .. }
+                | SendingReply::NoReply { cancellation } => {
+                    if let Some(request) = cancellation {
+                        request.observer_open = false;
+                    }
+                }
+            },
+            Self::AwaitingAck { cancellation, .. } => {
+                if let Some(request) = cancellation {
+                    request.observer_open = false;
+                }
+            }
+            Self::Executing { cancellation, .. } => match cancellation {
+                ExecutingCancellation::Requested(request) => request.observer_open = false,
+                ExecutingCancellation::Sending(send) => send.observer_open = false,
+                ExecutingCancellation::None | ExecutingCancellation::ObservationFailed { .. } => {}
+            },
+            Self::AwaitingCancellationResolution { cancellation, .. } => match cancellation {
+                ResolvingCancellation::Requested(request) => request.observer_open = false,
+                ResolvingCancellation::Sending(send) => send.observer_open = false,
+                ResolvingCancellation::AwaitingTerminal { observer_open, .. } => {
+                    *observer_open = false
+                }
+                ResolvingCancellation::ObservationFailed { .. } => {}
+            },
+            Self::Ready { .. }
+            | Self::Backoff { .. }
+            | Self::AwaitingCompletion { .. }
+            | Self::AwaitingReply { .. } => {}
+        }
+    }
+
+    pub(crate) const fn attempted_socket(self) -> Option<ViscaSocket> {
+        match self {
+            Self::Executing {
+                socket,
+                cancellation:
+                    ExecutingCancellation::Sending(_) | ExecutingCancellation::ObservationFailed { .. },
+                ..
+            }
+            | Self::AwaitingCancellationResolution {
+                socket,
+                cancellation:
+                    ResolvingCancellation::Sending(_)
+                    | ResolvingCancellation::AwaitingTerminal { .. }
+                    | ResolvingCancellation::ObservationFailed { .. },
+                ..
+            } => Some(socket),
+            Self::Executing {
+                cancellation: ExecutingCancellation::None | ExecutingCancellation::Requested(_),
+                ..
+            }
+            | Self::AwaitingCancellationResolution {
+                cancellation: ResolvingCancellation::Requested(_),
+                ..
+            }
+            | Self::Ready { .. }
+            | Self::Sending { .. }
+            | Self::AwaitingAck { .. }
+            | Self::AwaitingCompletion { .. }
+            | Self::AwaitingReply { .. }
+            | Self::Backoff { .. } => None,
+        }
+    }
+
+    pub(crate) const fn cancellation_ambiguity(self) -> Option<Instant> {
+        match self {
+            Self::Sending { reply, .. } => match reply.cancellation() {
+                Some(request) => Some(request.ambiguity_deadline),
+                None => None,
+            },
+            Self::AwaitingAck { cancellation, .. } => match cancellation {
+                Some(request) => Some(request.ambiguity_deadline),
+                None => None,
+            },
+            Self::Executing { cancellation, .. } => match cancellation {
+                ExecutingCancellation::None => None,
+                ExecutingCancellation::Requested(request) => Some(request.ambiguity_deadline),
+                ExecutingCancellation::Sending(send) => Some(send.ambiguity_deadline),
+                ExecutingCancellation::ObservationFailed { ambiguity_deadline } => {
+                    Some(ambiguity_deadline)
+                }
+            },
+            Self::AwaitingCancellationResolution { cancellation, .. } => Some(match cancellation {
+                ResolvingCancellation::Requested(request) => request.ambiguity_deadline,
+                ResolvingCancellation::Sending(send) => send.ambiguity_deadline,
+                ResolvingCancellation::AwaitingTerminal {
+                    ambiguity_deadline, ..
+                }
+                | ResolvingCancellation::ObservationFailed { ambiguity_deadline } => {
+                    ambiguity_deadline
+                }
+            }),
+            Self::Ready { .. }
+            | Self::Backoff { .. }
+            | Self::AwaitingCompletion { .. }
+            | Self::AwaitingReply { .. } => None,
+        }
+    }
+
+    pub(crate) const fn active_cancellation_ambiguity(self) -> Option<Instant> {
+        match self {
+            Self::Executing { .. } | Self::AwaitingCancellationResolution { .. } => None,
+            Self::Ready { .. }
+            | Self::Sending { .. }
+            | Self::AwaitingAck { .. }
+            | Self::AwaitingCompletion { .. }
+            | Self::AwaitingReply { .. }
+            | Self::Backoff { .. } => self.cancellation_ambiguity(),
+        }
+    }
+
+    pub(crate) fn retry_budget_deadline(
+        self,
+        submitted_at: Instant,
+        budget: Duration,
+    ) -> Option<Instant> {
+        (budget != Duration::ZERO && self.cancellation_ambiguity().is_none())
+            .then(|| add_duration(submitted_at, budget))
+    }
+
+    pub(crate) fn correlated_response_deadline(self, budget: Option<Instant>) -> Option<Instant> {
+        let deadline = match self {
+            Self::AwaitingAck { deadline, .. } => self.cancellation_ambiguity().or(Some(deadline)),
+            Self::AwaitingCompletion { deadline, .. } | Self::AwaitingReply { deadline, .. } => {
+                Some(deadline)
+            }
+            Self::Executing {
+                deadline,
+                cancellation,
+                ..
+            } => Some(cancellation.response_deadline(deadline)),
+            Self::AwaitingCancellationResolution {
+                deadline,
+                cancellation,
+                ..
+            } => Some(deadline.max(cancellation.ambiguity_deadline())),
+            Self::Sending { .. } => None,
+            Self::Ready { .. } | Self::Backoff { .. } => return None,
+        };
+        [deadline, self.active_cancellation_ambiguity(), budget]
+            .into_iter()
+            .flatten()
+            .min()
+    }
+
+    pub(crate) fn raw_cancellation_release_deadline(self) -> Option<Instant> {
+        let ambiguity = self.cancellation_ambiguity()?;
+        match self {
+            Self::Sending { .. } | Self::AwaitingAck { .. } => Some(ambiguity),
+            Self::Executing { deadline, .. } => Some(deadline.max(ambiguity)),
+            Self::AwaitingCancellationResolution { deadline, .. } => Some(deadline.max(ambiguity)),
+            Self::Ready { .. }
+            | Self::AwaitingCompletion { .. }
+            | Self::AwaitingReply { .. }
+            | Self::Backoff { .. } => None,
+        }
+    }
+
+    pub(crate) const fn pending_cancellation_socket(self) -> Option<ViscaSocket> {
+        match self.pending_cancellation() {
+            Some(pending) => Some(pending.socket()),
+            None => None,
+        }
+    }
+}
+
+/// Cancellation's input decision follows directly from the stored legal state.
+pub(crate) enum CancellationDecision {
+    Local,
+    Refused(crate::Error),
+    Duplicate,
+    Record(Lifecycle),
+}
+
+impl ExecutingCancellation {
+    fn response_deadline(self, completion: Instant) -> Instant {
+        match self {
+            Self::None | Self::Requested(_) => completion,
+            Self::Sending(send) => completion.max(send.ambiguity_deadline),
+            Self::ObservationFailed { ambiguity_deadline } => completion.max(ambiguity_deadline),
+        }
+    }
+}
+
+impl ResolvingCancellation {
+    const fn ambiguity_deadline(self) -> Instant {
+        match self {
+            Self::Requested(request) => request.ambiguity_deadline,
+            Self::Sending(send) => send.ambiguity_deadline,
+            Self::AwaitingTerminal {
+                ambiguity_deadline, ..
+            }
+            | Self::ObservationFailed { ambiguity_deadline } => ambiguity_deadline,
+        }
+    }
+}
+
+impl Lifecycle {
+    pub(crate) fn cancellation_decision(
+        self,
+        supported: bool,
+        ambiguity_deadline: Instant,
+    ) -> CancellationDecision {
+        let requested = RequestedCancellation {
+            ambiguity_deadline,
+            observer_open: true,
+        };
+        let refused = || CancellationDecision::Refused(crate::Error::NotSupported);
+        match self {
+            Self::Ready { .. } | Self::Backoff { .. } => CancellationDecision::Local,
+            Self::AwaitingCompletion { .. } => refused(),
+            Self::AwaitingReply { .. } => {
+                CancellationDecision::Refused(crate::Error::InquiryNotCancelable)
+            }
+            Self::AwaitingCancellationResolution { .. } => CancellationDecision::Duplicate,
+            Self::Sending {
+                transmission,
+                started_at,
+                attempt,
+                reply,
+            } => {
+                let reply = match reply {
+                    SendingReply::Inquiry => {
+                        return CancellationDecision::Refused(crate::Error::InquiryNotCancelable)
+                    }
+                    SendingReply::AckThenCompletion {
+                        cancellation: Some(_),
+                        ..
+                    }
+                    | SendingReply::CompletionOnly {
+                        cancellation: Some(_),
+                        ..
+                    }
+                    | SendingReply::NoReply {
+                        cancellation: Some(_),
+                    } => return CancellationDecision::Duplicate,
+                    SendingReply::AckThenCompletion {
+                        deferred,
+                        cancellation: None,
+                    } => {
+                        if !supported {
+                            return refused();
+                        }
+                        SendingReply::AckThenCompletion {
+                            deferred,
+                            cancellation: Some(requested),
+                        }
+                    }
+                    SendingReply::CompletionOnly {
+                        deferred,
+                        cancellation: None,
+                    } => {
+                        if !supported {
+                            return refused();
+                        }
+                        SendingReply::CompletionOnly {
+                            deferred,
+                            cancellation: Some(requested),
+                        }
+                    }
+                    SendingReply::NoReply { cancellation: None } => {
+                        if !supported {
+                            return refused();
+                        }
+                        SendingReply::NoReply {
+                            cancellation: Some(requested),
+                        }
+                    }
+                };
+                CancellationDecision::Record(Self::Sending {
+                    transmission,
+                    started_at,
+                    attempt,
+                    reply,
+                })
+            }
+            Self::AwaitingAck {
+                cancellation: Some(_),
+                ..
+            }
+            | Self::Executing {
+                cancellation:
+                    ExecutingCancellation::Requested(_)
+                    | ExecutingCancellation::Sending(_)
+                    | ExecutingCancellation::ObservationFailed { .. },
+                ..
+            } => CancellationDecision::Duplicate,
+            Self::AwaitingAck {
+                sent_at,
+                deadline,
+                attempt,
+                cancellation: None,
+            } => {
+                if !supported {
+                    return refused();
+                }
+                CancellationDecision::Record(Self::AwaitingAck {
+                    sent_at,
+                    deadline,
+                    attempt,
+                    cancellation: Some(requested),
+                })
+            }
+            Self::Executing {
+                socket,
+                started_at,
+                deadline,
+                attempt,
+                cancellation: ExecutingCancellation::None,
+            } => {
+                if !supported {
+                    return refused();
+                }
+                CancellationDecision::Record(Self::Executing {
+                    socket,
+                    started_at,
+                    deadline,
+                    attempt,
+                    cancellation: ExecutingCancellation::Requested(requested),
+                })
+            }
+        }
+    }
+}
+
+impl Lifecycle {
+    pub(crate) const fn cancellation_transmission(self) -> Option<TransmissionId> {
+        match self {
+            Self::Executing {
+                cancellation: ExecutingCancellation::Sending(send),
+                ..
+            }
+            | Self::AwaitingCancellationResolution {
+                cancellation: ResolvingCancellation::Sending(send),
+                ..
+            } => Some(send.transmission),
+            Self::Executing {
+                cancellation:
+                    ExecutingCancellation::None
+                    | ExecutingCancellation::Requested(_)
+                    | ExecutingCancellation::ObservationFailed { .. },
+                ..
+            }
+            | Self::AwaitingCancellationResolution {
+                cancellation:
+                    ResolvingCancellation::Requested(_)
+                    | ResolvingCancellation::AwaitingTerminal { .. }
+                    | ResolvingCancellation::ObservationFailed { .. },
+                ..
+            }
+            | Self::Ready { .. }
+            | Self::Sending { .. }
+            | Self::AwaitingAck { .. }
+            | Self::AwaitingCompletion { .. }
+            | Self::AwaitingReply { .. }
+            | Self::Backoff { .. } => None,
+        }
+    }
+
+    pub(crate) const fn awaiting_cancellation_answer(self) -> bool {
+        match self {
+            Self::Executing {
+                cancellation: ExecutingCancellation::Sending(_),
+                ..
+            }
+            | Self::AwaitingCancellationResolution {
+                cancellation:
+                    ResolvingCancellation::Sending(_) | ResolvingCancellation::AwaitingTerminal { .. },
+                ..
+            } => true,
+            Self::Executing {
+                cancellation:
+                    ExecutingCancellation::None
+                    | ExecutingCancellation::Requested(_)
+                    | ExecutingCancellation::ObservationFailed { .. },
+                ..
+            }
+            | Self::AwaitingCancellationResolution {
+                cancellation:
+                    ResolvingCancellation::Requested(_)
+                    | ResolvingCancellation::ObservationFailed { .. },
+                ..
+            }
+            | Self::Ready { .. }
+            | Self::Sending { .. }
+            | Self::AwaitingAck { .. }
+            | Self::AwaitingCompletion { .. }
+            | Self::AwaitingReply { .. }
+            | Self::Backoff { .. } => false,
+        }
+    }
+
+    pub(crate) const fn cancellation_observation_deadline(self) -> Option<Instant> {
+        match self {
+            Self::AwaitingCancellationResolution {
+                cancellation:
+                    ResolvingCancellation::AwaitingTerminal {
+                        observation_deadline,
+                        observer_open: true,
+                        ..
+                    },
+                ..
+            } => Some(observation_deadline),
+            Self::AwaitingCancellationResolution {
+                cancellation:
+                    ResolvingCancellation::Requested(_)
+                    | ResolvingCancellation::Sending(_)
+                    | ResolvingCancellation::ObservationFailed { .. }
+                    | ResolvingCancellation::AwaitingTerminal {
+                        observer_open: false,
+                        ..
+                    },
+                ..
+            }
+            | Self::Executing { .. }
+            | Self::Ready { .. }
+            | Self::Sending { .. }
+            | Self::AwaitingAck { .. }
+            | Self::AwaitingCompletion { .. }
+            | Self::AwaitingReply { .. }
+            | Self::Backoff { .. } => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum PendingCancellationPhase {
+    Executing {
+        started_at: Instant,
+        deadline: Instant,
+        attempt: AttemptFacts,
+    },
+    Resolving {
+        deadline: Instant,
+        attempt: AttemptFacts,
+    },
+}
+
+/// Proof that one socketed lifecycle currently holds a requested cancellation.
+/// Only the exhaustive lifecycle projection constructs this emission input.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct PendingCancellation {
+    socket: ViscaSocket,
+    request: RequestedCancellation,
+    phase: PendingCancellationPhase,
+}
+
+impl PendingCancellation {
+    pub(crate) const fn socket(self) -> ViscaSocket {
+        self.socket
+    }
+    pub(crate) const fn ambiguity_deadline(self) -> Instant {
+        self.request.ambiguity_deadline
+    }
+
+    pub(crate) const fn emitted(
+        self,
+        transmission: TransmissionId,
+        ambiguity_deadline: Instant,
+    ) -> Lifecycle {
+        let send = SendingCancellation {
+            transmission,
+            ambiguity_deadline,
+            observer_open: self.request.observer_open,
+        };
+        match self.phase {
+            PendingCancellationPhase::Executing {
+                started_at,
+                deadline,
+                attempt,
+            } => Lifecycle::Executing {
+                socket: self.socket,
+                started_at,
+                deadline,
+                attempt,
+                cancellation: ExecutingCancellation::Sending(send),
+            },
+            PendingCancellationPhase::Resolving { deadline, attempt } => {
+                Lifecycle::AwaitingCancellationResolution {
+                    socket: self.socket,
+                    deadline,
+                    attempt,
+                    cancellation: ResolvingCancellation::Sending(send),
+                }
+            }
+        }
+    }
+}
+
+impl Lifecycle {
+    pub(crate) const fn pending_cancellation(self) -> Option<PendingCancellation> {
+        match self {
+            Self::Executing {
+                socket,
+                started_at,
+                deadline,
+                attempt,
+                cancellation: ExecutingCancellation::Requested(request),
+            } => Some(PendingCancellation {
+                socket,
+                request,
+                phase: PendingCancellationPhase::Executing {
+                    started_at,
+                    deadline,
+                    attempt,
+                },
+            }),
+            Self::AwaitingCancellationResolution {
+                socket,
+                deadline,
+                attempt,
+                cancellation: ResolvingCancellation::Requested(request),
+            } => Some(PendingCancellation {
+                socket,
+                request,
+                phase: PendingCancellationPhase::Resolving { deadline, attempt },
+            }),
+            Self::Executing {
+                cancellation:
+                    ExecutingCancellation::None
+                    | ExecutingCancellation::Sending(_)
+                    | ExecutingCancellation::ObservationFailed { .. },
+                ..
+            }
+            | Self::AwaitingCancellationResolution {
+                cancellation:
+                    ResolvingCancellation::Sending(_)
+                    | ResolvingCancellation::AwaitingTerminal { .. }
+                    | ResolvingCancellation::ObservationFailed { .. },
+                ..
+            }
+            | Self::Ready { .. }
+            | Self::Sending { .. }
+            | Self::AwaitingAck { .. }
+            | Self::AwaitingCompletion { .. }
+            | Self::AwaitingReply { .. }
+            | Self::Backoff { .. } => None,
+        }
+    }
+}
