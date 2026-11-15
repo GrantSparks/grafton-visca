@@ -1070,7 +1070,7 @@ mod tests {
             .config
             .registered_profile(CameraId::CAMERA_1)
             .expect("registered partial motion profile");
-        session.core(CameraId::CAMERA_1, profile)
+        session.core(TargetSlot::CAMERA_1, profile)
     }
 
     /// Two views taken from the same session drive its one owned transport,

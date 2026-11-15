@@ -1,9 +1,5 @@
 //! Individual-camera keys and fixed, seven-slot target storage.
 
-// The utility lands before its engine/owner consumers during the #853
-// migration. Those consumers remove this temporary allowance.
-#![allow(dead_code)]
-
 use std::ops::{Index, IndexMut};
 
 use crate::{CameraId, Error};
@@ -30,25 +26,25 @@ impl TargetSlot {
         Self(6),
     ];
 
-    #[cfg(test)]
+    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     pub(crate) const CAMERA_1: Self = Self::ALL[0];
 
-    #[cfg(test)]
+    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     pub(crate) const CAMERA_2: Self = Self::ALL[1];
 
-    #[cfg(test)]
+    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     pub(crate) const CAMERA_3: Self = Self::ALL[2];
 
-    #[cfg(test)]
+    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     pub(crate) const CAMERA_4: Self = Self::ALL[3];
 
-    #[cfg(test)]
+    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     pub(crate) const CAMERA_5: Self = Self::ALL[4];
 
-    #[cfg(test)]
+    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     pub(crate) const CAMERA_6: Self = Self::ALL[5];
 
-    #[cfg(test)]
+    #[cfg(all(test, any(feature = "blocking", feature = "async")))]
     pub(crate) const CAMERA_7: Self = Self::ALL[6];
 
     /// The corresponding wire camera address.
@@ -100,6 +96,7 @@ impl<T> PerTarget<T> {
     }
 
     /// Mutably borrows each individual camera's value in camera-number order.
+    #[cfg(any(feature = "blocking", feature = "async", test))]
     pub(crate) fn iter_mut(&mut self) -> impl Iterator<Item = (TargetSlot, &mut T)> {
         TargetSlot::ALL.into_iter().zip(self.0.iter_mut())
     }

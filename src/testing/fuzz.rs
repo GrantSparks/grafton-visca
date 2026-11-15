@@ -15,7 +15,7 @@ use crate::{
     runtime::owner::{decode_response_target, RoutingState, TargetRegistry},
     target::TargetSlot,
     transport::{AddressingMode, BufferConfig, Envelope, SonyEncapsulated},
-    CameraId, ControlClass, RetryClass, TimeoutClass,
+    ControlClass, RetryClass, TimeoutClass,
 };
 
 /// Exercise raw admission and every generated built-in inquiry decoder.

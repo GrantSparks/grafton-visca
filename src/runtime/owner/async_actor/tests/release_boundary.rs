@@ -1395,8 +1395,8 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
             sent,
         },
         &[
-            (CameraId::CAMERA_1, &profile),
-            (CameraId::CAMERA_3, &profile),
+            (TargetSlot::CAMERA_1, &profile),
+            (TargetSlot::CAMERA_3, &profile),
         ],
         crate::OperationalTuning::new(),
         std::num::NonZeroUsize::new(4).unwrap(),
@@ -1496,8 +1496,8 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
             sent,
         },
         &[
-            (CameraId::CAMERA_1, &profile),
-            (CameraId::CAMERA_3, &profile),
+            (TargetSlot::CAMERA_1, &profile),
+            (TargetSlot::CAMERA_3, &profile),
         ],
         crate::OperationalTuning::new(),
         std::num::NonZeroUsize::new(4).unwrap(),
