@@ -22,6 +22,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tint and ATW-offset packets and checked value domains. Memory A Kelvin
   steps retain their narrower 1–30 range; other white-balance step counts
   allow 1–255. Gain conversion rounds to the nearest tenth.
+- Sony FR7 black-level, detail-setting and knee control values and encoders use
+  the R7 domains, including fractional black levels and distinct knee
+  permissions. Inquiry decoding enforces exact lengths, zero padding and
+  source-backed value codes (#894).
 
 - `test-utils` (#832): `testkit::ManualClock`, a virtual clock for owner deadline tests. A
   blocking session opened with `ManualClock::open_blocking_session` or
