@@ -20,10 +20,10 @@
 //! give them. The blocking and smol cases wait them out on the real clock.
 
 #![cfg(any(
-    feature = "blocking",
+    feature = "runtime-tokio",
     all(
-        feature = "async",
-        any(feature = "runtime-tokio", feature = "runtime-smol")
+        feature = "test-utils",
+        any(feature = "blocking", feature = "runtime-smol")
     )
 ))]
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::panic)]
@@ -49,7 +49,7 @@ use grafton_visca::{
     any(feature = "runtime-tokio", feature = "runtime-smol")
 ))]
 use fake_camera::AsyncWire;
-#[cfg(feature = "blocking")]
+#[cfg(all(feature = "blocking", feature = "test-utils"))]
 use fake_camera::BlockingWire;
 use fake_camera::FakeCamera;
 
@@ -165,7 +165,7 @@ impl Bench {
     }
 
     /// The blocking wire, in the shape `open!` asks its camera for.
-    #[cfg(feature = "blocking")]
+    #[cfg(all(feature = "blocking", feature = "test-utils"))]
     fn blocking_wire(&self) -> BlockingWire {
         self.camera
             .blocking_wire()

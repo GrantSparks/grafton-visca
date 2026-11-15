@@ -78,6 +78,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   and the request retry budget; `settled_with_timeout` remains an exact bound.
   Movement observations derive both snapshots budgets from their prepared
   inquiries and pacing, superseding the fixed 30-second budget shipped in #781.
+- Paused blocking and smol scenarios run only in virtual-time `test-utils`
+  legs. The canonical matrix adds separate Tokio and smol toolkit legs and
+  checks scenario placement; contributor docs use its command inventory (#887).
 
 - Scripted async transports require only `Executor`, and their default
   `Immediate` form is a usable transport. Dynamic response functions use `Arc`

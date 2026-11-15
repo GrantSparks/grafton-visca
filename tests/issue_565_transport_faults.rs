@@ -24,10 +24,10 @@
 //! instead, where inputs can be interleaved directly (#636).
 
 #![cfg(any(
-    feature = "blocking",
+    feature = "runtime-tokio",
     all(
-        feature = "async",
-        any(feature = "runtime-tokio", feature = "runtime-smol")
+        feature = "test-utils",
+        any(feature = "blocking", feature = "runtime-smol")
     )
 ))]
 
@@ -85,7 +85,7 @@ impl Rig {
         config
     }
 
-    #[cfg(feature = "blocking")]
+    #[cfg(all(feature = "blocking", feature = "test-utils"))]
     fn blocking_wire(&self) -> fake_camera::BlockingWire {
         self.camera
             .blocking_wire()

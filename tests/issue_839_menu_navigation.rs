@@ -2,9 +2,11 @@
 //! Exercise its applied handle and halt fence through each owner facade.
 
 #![cfg(any(
-    feature = "blocking",
     feature = "runtime-tokio",
-    feature = "runtime-smol"
+    all(
+        feature = "test-utils",
+        any(feature = "blocking", feature = "runtime-smol")
+    )
 ))]
 
 use std::time::Duration;
@@ -22,7 +24,7 @@ const NAVIGATE_UP: &[u8] = &[0x81, 0x01, 0x06, 0x01, 0x0e, 0x0e, 0x03, 0x01, 0xf
 struct DatagramCamera(FakeCamera);
 
 impl DatagramCamera {
-    #[cfg(feature = "blocking")]
+    #[cfg(all(feature = "blocking", feature = "test-utils"))]
     fn blocking_wire(&self) -> fake_camera::BlockingWire {
         self.0
             .blocking_wire()

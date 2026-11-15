@@ -85,30 +85,22 @@ inventories remain in their dedicated gates.
 
 ## Feature and API validation
 
-The canonical local/release validation matrix must cover, at minimum. This is
-the maintainer command surface; the GitHub Actions feature matrix runs its
-feature combinations as separate jobs rather than claiming to execute every
-line below verbatim:
+The canonical feature matrix is maintained in
+`.github/scripts/test-all-features.sh`. Inspect its `list-json` output for the
+exact commands and run its test, clippy and doc modes; CI builds its jobs from
+that same list rather than a copied command block:
 
 ```text
-cargo test --no-default-features --features blocking
-cargo test --no-default-features --features async
-cargo test --no-default-features --features runtime-tokio
-cargo test --no-default-features --features runtime-smol
-cargo check --no-default-features --features runtime-tokio,runtime-smol
-cargo test --no-default-features --features runtime-tokio,dyn-api,test-utils \
-  --test dyn_api_integration_test
-cargo test --no-default-features --features runtime-smol,dyn-api,test-utils \
-  --test dyn_api_smol_integration_test
-cargo test --no-default-features --features serde,schemars,ts-rs
-cargo test --no-default-features --features test-utils
+bash .github/scripts/test-all-features.sh list-json
+bash .github/scripts/test-all-features.sh
+bash .github/scripts/test-all-features.sh clippy
+bash .github/scripts/test-all-features.sh doc
 bash .github/scripts/check-blocking-dependency-boundary.sh
 ```
 
-Add blocking+async coexistence and the applicable serial combinations. The
-blocking dependency gate is a release contract: `blocking` and
-`transport-serial` must remain native synchronous graphs with no Tokio, smol,
-or async executor dependency. The
+The blocking dependency gate is a release contract: `blocking` and
+`transport-serial` remain native synchronous graphs without an async executor.
+The
 `issue_548_supported_surface_inventory` test is the closed inventory authority
 for profiles, transports, capability gates, nouns, derives, and test utilities;
 the built-in command ledger in `src/command/semantics.rs` remains the sole
