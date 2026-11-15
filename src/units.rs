@@ -497,7 +497,11 @@ mod tests {
             PanSpeed::try_from(Raw(0x18_u8)).ok().map(PanSpeed::value),
             Some(0x18)
         );
-        assert!(PanSpeed::try_from(Raw(0x19_u8)).is_err());
+        assert_eq!(
+            PanSpeed::try_from(Raw(0x32_u8)).ok().map(PanSpeed::value),
+            Some(0x32)
+        );
+        assert!(PanSpeed::try_from(Raw(0x33_u8)).is_err());
         assert!(GainLevel::try_from(Raw(0x10_u8)).is_err());
         assert!(IrisLevel::try_from(Raw(0x1F_u8)).is_err());
     }
