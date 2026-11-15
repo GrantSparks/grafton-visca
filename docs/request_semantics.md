@@ -216,15 +216,26 @@ end physical movement with a pan/tilt STOP or `stop_all_motion()` (#839).
 
 `AppliedStateEffectRequirement` is closed to `Set`, `Clear`, and `Invalidate`.
 The later typed conversion must attach the selected requirement to a prepared
-write.  The owner applies the concrete value only after exact application,
-independent of observer attachment:
+write. The owner applies a typed `KnownState` only after exact application,
+independent of observer attachment. Its variant implies the key; values are
+never encoded as scalar arrays for the cache:
 
 - `Set` replaces a known state value supplied by the request.
-- `Clear` removes a known state entry (for example a pan/tilt limit corner).
-  A deterministic boolean `Off` command is still `Set` with `false`, so the
-  owner retains the fact that the disabled value was applied.
+- `Clear` establishes a known absence: a pan/tilt limit clear becomes
+  `KnownState::PanTiltLimits(PanTiltLimitUpdate::clear(corner))`. It is retained
+  as `StateEntry::Set`, so the corner and its known removal remain observable.
+  A deterministic boolean `Off` is likewise `Set` with `false`.
 - `Invalidate` marks a state unknown when the command's result cannot be
   represented exactly (for example vendor tally flash/on/off behavior).
+
+A write with any state requirement that may have taken effect but terminates
+without confirmation invalidates its key. Never-written and conclusively
+rejected attempts preserve previous knowledge. The owner commits either
+change before resolving the request's terminal outcome.
+
+One `state_key_ledger!` row defines each key, its native value type, its
+`KnownState` variant and its typed cache accessor. The fixed table retains one
+slot per key without map allocation or eviction.
 
 Current write-only state keys are `PanTiltLimits`, `PresetRecallSpeed`,
 `FocusLockMode`, `Spotlight`, `AutoSlowShutter`, `NdFilterMode`,

@@ -311,99 +311,32 @@ pub(crate) struct RequestContext {
     pub(crate) cancellation: CancellationPolicy,
 }
 
-/// Maximum number of scalar values carried by one applied-state effect.
-pub(crate) const MAX_APPLIED_STATE_VALUES: usize = 4;
-
-/// Bounded, inline value storage for a known state replacement.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct AppliedStateValue {
-    pub(crate) values: [i64; MAX_APPLIED_STATE_VALUES],
-    pub(crate) value_count: u8,
-}
-
-impl AppliedStateValue {
-    pub(crate) fn new(values: &[i64]) -> Result<Self, Error> {
-        if values.len() > MAX_APPLIED_STATE_VALUES {
-            return Err(Error::InvalidRequest(
-                "applied-state projection accepts at most four values".into(),
-            ));
-        }
-        let mut stored = [0; MAX_APPLIED_STATE_VALUES];
-        stored[..values.len()].copy_from_slice(values);
-        Ok(Self {
-            values: stored,
-            value_count: values.len() as u8,
-        })
-    }
-}
-
-/// Closed action model for one write-only state key.
+/// Closed, inline effect on one write-only key.
 ///
-/// The engine carries this inert value across the lifecycle boundary and
-/// emits it only when the exact request reaches [`RuntimeOutcome::Applied`].
-/// `Clear` is deliberately distinct from `Invalidate`: the former records a
-/// known absence while the latter records that the state can no longer be
-/// trusted.
+/// Known values imply their key. A cleared limit is a typed known update,
+/// whereas invalidation explicitly records that the key can no longer be trusted.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum AppliedStateProjection {
-    /// Replace the key with a bounded known value.
-    Set {
-        key: StateKey,
-        value: AppliedStateValue,
-    },
-    /// Record a known absence for the key.
-    Clear {
-        key: StateKey,
-        /// Bounded discriminator naming what the clear is local to: a pan/tilt
-        /// limit clear names the corner it clears, exactly as a limit set does.
-        value: AppliedStateValue,
-    },
-    /// Record that the key's value is unknown.
+    Set(crate::state_cache::KnownState),
     Invalidate { key: StateKey },
 }
 
 impl AppliedStateProjection {
-    pub(crate) fn set(key: StateKey, values: &[i64]) -> Result<Self, Error> {
-        Ok(Self::Set {
-            key,
-            value: AppliedStateValue::new(values)?,
-        })
+    pub(crate) const fn set(value: crate::state_cache::KnownState) -> Self {
+        Self::Set(value)
     }
-
-    // A value-less clear for engine tests; production preparation builds every
-    // clear with its discriminator through `clear_with_values`.
-    #[cfg(test)]
-    pub(crate) const fn clear(key: StateKey) -> Self {
-        Self::Clear {
-            key,
-            value: AppliedStateValue {
-                values: [0; MAX_APPLIED_STATE_VALUES],
-                value_count: 0,
-            },
-        }
-    }
-
-    pub(crate) fn clear_with_values(key: StateKey, values: &[i64]) -> Result<Self, Error> {
-        Ok(Self::Clear {
-            key,
-            value: AppliedStateValue::new(values)?,
-        })
-    }
-
     pub(crate) const fn invalidate(key: StateKey) -> Self {
         Self::Invalidate { key }
     }
-
-    pub(crate) const fn state(self) -> StateKey {
+    pub(crate) const fn key(self) -> StateKey {
         match self {
-            Self::Set { key, .. } | Self::Clear { key, .. } | Self::Invalidate { key } => key,
+            Self::Set(value) => value.key(),
+            Self::Invalidate { key } => key,
         }
     }
-
-    /// Whether the effect leaves the state known; read by `runtime::owner::tests`.
     #[cfg(test)]
     pub(crate) const fn is_known(self) -> bool {
-        matches!(self, Self::Set { .. } | Self::Clear { .. })
+        matches!(self, Self::Set(_))
     }
 }
 

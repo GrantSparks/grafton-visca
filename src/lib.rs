@@ -1085,7 +1085,7 @@ pub use observability::{
 };
 #[cfg(any(feature = "blocking", feature = "async"))]
 pub use state_cache::StateCache;
-pub use state_cache::{PanTiltLimitUpdate, StateEntry, StateKey, StateValue};
+pub use state_cache::{KnownState, PanTiltLimitUpdate, StateEntry, StateKey};
 
 mod session_config;
 mod target;

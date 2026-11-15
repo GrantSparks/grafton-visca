@@ -327,37 +327,118 @@ mod control_reserve {
 }
 
 #[test]
-fn pan_tilt_limit_cache_rejects_unknown_corner_discriminators() {
+fn pan_tilt_limit_cache_preserves_typed_corner_updates_and_clears() {
+    use crate::command::PanTiltLimitCorner;
+    use crate::{KnownState, PanTiltLimitUpdate, StateEntry};
     let mut cache = TargetStateCache::default();
-    let known = AppliedStateProjection::set(StateKey::PanTiltLimits, &[0, 12, -4])
-        .expect("valid down-left limit projection");
-    let malformed_set = AppliedStateProjection::set(StateKey::PanTiltLimits, &[3, 9, 8])
-        .expect("bounded malformed projection");
-    let malformed_clear = AppliedStateProjection::clear_with_values(StateKey::PanTiltLimits, &[3])
-        .expect("bounded malformed projection");
+    let set = KnownState::PanTiltLimits(PanTiltLimitUpdate::set(
+        PanTiltLimitCorner::DownLeft,
+        crate::camera::PanTiltPosition::new(12, -4),
+    ));
+    cache.apply(AppliedStateProjection::set(set));
+    assert_eq!(cache.entry(StateKey::PanTiltLimits), StateEntry::Set(set));
+    let clear = KnownState::PanTiltLimits(PanTiltLimitUpdate::clear(PanTiltLimitCorner::UpRight));
+    cache.apply(AppliedStateProjection::set(clear));
+    assert_eq!(cache.entry(StateKey::PanTiltLimits), StateEntry::Set(clear));
+    cache.apply(AppliedStateProjection::invalidate(StateKey::PanTiltLimits));
+    assert_eq!(cache.entry(StateKey::PanTiltLimits), StateEntry::Unknown);
+}
 
-    cache.apply(known, 1);
-    cache.apply(malformed_set, 1);
-    assert_eq!(
-        cache.get(StateKey::PanTiltLimits),
-        Some(known),
-        "a malformed set must not replace the known corner"
+#[test]
+fn every_state_key_has_an_inline_slot_and_a_typed_accessor() {
+    use crate::{KnownState, StateEntry};
+    let registry = Arc::new(PerTarget::<Mutex<TargetStateCache>>::default());
+    let cache = crate::StateCache::from_registry(Arc::clone(&registry), TargetSlot::CAMERA_1);
+    let other = crate::StateCache::from_registry(Arc::clone(&registry), TargetSlot::CAMERA_2);
+    let mut covered = Vec::new();
+    macro_rules! check {
+        ($variant:ident, $getter:ident, $value:expr) => {{
+            let value = $value;
+            let known = KnownState::$variant(value);
+            let key = known.key();
+            assert_eq!(cache.value(key), StateEntry::Unknown);
+            assert_eq!(cache.$getter(), None);
+            registry[TargetSlot::CAMERA_1]
+                .lock()
+                .unwrap()
+                .apply(AppliedStateProjection::set(known));
+            assert_eq!(cache.value(key), StateEntry::Set(known));
+            assert_eq!(cache.$getter(), Some(value));
+            assert_eq!(other.value(key), StateEntry::Unknown);
+            registry[TargetSlot::CAMERA_1]
+                .lock()
+                .unwrap()
+                .apply(AppliedStateProjection::invalidate(key));
+            assert_eq!(cache.value(key), StateEntry::Unknown);
+            assert_eq!(cache.$getter(), None);
+            registry[TargetSlot::CAMERA_1]
+                .lock()
+                .unwrap()
+                .apply(AppliedStateProjection::set(known));
+            covered.push(known);
+        }};
+    }
+    check!(
+        PanTiltLimits,
+        pan_tilt_limits,
+        crate::PanTiltLimitUpdate::set(
+            crate::command::PanTiltLimitCorner::DownLeft,
+            crate::camera::PanTiltPosition::new(-123, 456)
+        )
     );
-
-    cache.apply(malformed_clear, 1);
-    assert_eq!(
-        cache.get(StateKey::PanTiltLimits),
-        Some(known),
-        "a malformed clear must not replace the known corner"
+    check!(PresetRecallSpeed, preset_recall_speed, 12);
+    check!(FocusLockMode, focus_lock, true);
+    check!(Spotlight, spotlight, true);
+    check!(AutoSlowShutter, auto_slow_shutter, false);
+    check!(
+        NdFilterMode,
+        nd_filter_mode,
+        crate::command::NdFilterMode::Variable
     );
-
-    // A limit clear is local to one corner like a limit set; one that names
-    // no corner is malformed, not a whole-key clear.
-    cache.apply(AppliedStateProjection::clear(StateKey::PanTiltLimits), 1);
+    check!(AutoNdFilter, auto_nd_filter, false);
+    check!(ImageFreeze, image_freeze, true);
+    check!(DigitalZoomMode, digital_zoom, false);
+    check!(MulticastStreaming, multicast_streaming, true);
+    check!(NdiQuality, ndi_quality, crate::types::NdiQuality::Medium);
+    check!(TallyBrightness, tally_brightness_is_high, false);
+    check!(
+        VariableSpeedMode,
+        variable_speed_mode,
+        crate::command::VariableSpeedMode::Fine50
+    );
+    check!(TallyMode, tally_mode, true);
+    check!(
+        Flip,
+        flip_state,
+        crate::command::FlipState {
+            horizontal: false,
+            vertical: true
+        }
+    );
     assert_eq!(
-        cache.get(StateKey::PanTiltLimits),
-        Some(known),
-        "a clear that names no corner must not replace the known corner"
+        covered.iter().map(|value| value.key()).collect::<Vec<_>>(),
+        StateKey::ALL
+    );
+    for known in covered {
+        assert_eq!(cache.value(known.key()), StateEntry::Set(known));
+    }
+    for corner in [
+        crate::command::PanTiltLimitCorner::DownLeft,
+        crate::command::PanTiltLimitCorner::UpRight,
+    ] {
+        let update = crate::PanTiltLimitUpdate::clear(corner);
+        registry[TargetSlot::CAMERA_1]
+            .lock()
+            .unwrap()
+            .apply(AppliedStateProjection::set(KnownState::PanTiltLimits(
+                update,
+            )));
+        assert_eq!(cache.pan_tilt_limits(), Some(update));
+        assert!(cache.pan_tilt_limits().unwrap().is_cleared());
+    }
+    assert_eq!(
+        size_of::<TargetStateCache>(),
+        StateKey::ALL.len() * size_of::<StateEntry>()
     );
 }
 
@@ -1534,7 +1615,9 @@ mod lifecycle_trace {
                 cancellation,
             },
             // Fixtures observe this exact write-only effect through StateCache.
-            applied_state: Some(AppliedStateProjection::set(StateKey::Spotlight, &[1]).unwrap()),
+            applied_state: Some(AppliedStateProjection::set(crate::KnownState::Spotlight(
+                true,
+            ))),
         }
     }
 
@@ -2079,7 +2162,7 @@ mod lifecycle_trace {
                         let entry = self.state().target_cache[projection.target]
                             .lock()
                             .unwrap()
-                            .entry(projection.projection.state());
+                            .entry(projection.projection.key());
                         let known = !matches!(entry, crate::StateEntry::Unknown);
                         assert_eq!(known, projection.projection.is_known());
                         for (name, target) in &self.cache_observers {

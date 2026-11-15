@@ -207,7 +207,10 @@ The construction and request path has a fixed order:
    always wins.
 7. For a request with an exact `AppliedStateEffect`, update that target's cache
    before best-effort observer fanout. A failed write, timeout, pre-ACK failure,
-   or merely prepared command cannot create a cache value.
+   or merely prepared command cannot create a cache value. A write that may
+   have taken effect without confirmation invalidates its key before the
+   terminal outcome resolves; a conclusive rejection leaves it intact. Known
+   values occupy one typed inline slot per declared `StateKey`.
 8. Record terminal outcome, release admission capacity, and retain only the
    bounded diagnostic/history state promised by the public API.
 

@@ -26,6 +26,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING** (#867): `StateEntry::Set` carries a typed `KnownState`, replacing
+  the removed scalar `StateValue` and `StateEntry::Clear`. Known limit clears
+  use `PanTiltLimitUpdate::clear`. State keys, variants, and typed accessors
+  come from one ledger, and each target retains one inline slot per key;
+  map allocation and unreachable cache eviction are removed.
+
 - **BREAKING** (#872): Settlement tuning below every built-in targeted retry
   budget is refused. Default `settled()` waits use the larger of the override
   and the request retry budget; `settled_with_timeout` remains an exact bound.

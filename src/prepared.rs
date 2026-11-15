@@ -3970,10 +3970,7 @@ mod tests {
         );
         assert!(matches!(
             prepared_clear.applied_state,
-            Some(AppliedStateProjection::Clear {
-                key: crate::StateKey::PanTiltLimits,
-                ..
-            })
+            Some(AppliedStateProjection::Set(crate::KnownState::PanTiltLimits(update))) if update.is_cleared() && update.corner() == PanTiltLimitCorner::DownLeft
         ));
 
         let absolute = PanTiltAbsolute::for_target(

@@ -2499,13 +2499,13 @@ fn request_transmit_optional(
 
 #[test]
 fn pre_ack_cancellation_records_intent_then_emits_one_cancel_on_ack() {
-    use crate::StateKey;
-
     let start = Instant::now();
     let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
     let mut request = command(1, CancellationPolicy::Supported);
     if let RuntimeRequest::Command { applied_state, .. } = &mut request {
-        *applied_state = Some(AppliedStateProjection::set(StateKey::Spotlight, &[1]).unwrap());
+        *applied_state = Some(AppliedStateProjection::set(crate::KnownState::Spotlight(
+            true,
+        )));
     }
     let admitted_effects = engine.handle(
         Input::Admit {
@@ -3337,15 +3337,12 @@ fn datagram_request_failure_isolated_close_and_shutdown_are_distinct() {
 #[test]
 fn applied_state_projection_is_target_qualified_and_emitted_only_on_applied() {
     let start = Instant::now();
-    let projection = AppliedStateProjection::set(
-        crate::StateKey::PanTiltLimits,
-        &[
-            i64::from(crate::command::PanTiltLimitCorner::UpRight.to_byte()),
-            1,
-            2,
-        ],
-    )
-    .unwrap();
+    let projection = AppliedStateProjection::set(crate::KnownState::PanTiltLimits(
+        crate::PanTiltLimitUpdate::set(
+            crate::command::PanTiltLimitCorner::UpRight,
+            crate::camera::PanTiltPosition::new(1, 2),
+        ),
+    ));
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
     let request = RuntimeRequest::Command {
         reply_shape: ReplyShape::AckThenCompletion,
@@ -3411,8 +3408,10 @@ fn applied_state_actions_are_closed_and_failure_does_not_emit_one() {
 
     let start = Instant::now();
     let projections = [
-        AppliedStateProjection::set(StateKey::Spotlight, &[1]).unwrap(),
-        AppliedStateProjection::clear(StateKey::ImageFreeze),
+        AppliedStateProjection::set(crate::KnownState::Spotlight(true)),
+        AppliedStateProjection::set(crate::KnownState::PanTiltLimits(
+            crate::PanTiltLimitUpdate::clear(crate::command::PanTiltLimitCorner::UpRight),
+        )),
         AppliedStateProjection::invalidate(StateKey::TallyMode),
     ];
 
@@ -3478,9 +3477,9 @@ fn applied_state_actions_are_closed_and_failure_does_not_emit_one() {
                 reply_shape: ReplyShape::AckThenCompletion,
                 wire: wire(0x81),
                 context,
-                applied_state: Some(
-                    AppliedStateProjection::set(StateKey::Spotlight, &[0]).unwrap(),
-                ),
+                applied_state: Some(AppliedStateProjection::set(crate::KnownState::Spotlight(
+                    false,
+                ))),
             },
             slot: AdmissionSlot::Ordinary,
         },

@@ -191,7 +191,6 @@ pub(crate) struct OwnerLimits {
     pub(crate) control_requests: usize,
     pub(crate) diagnostic_subscribers: usize,
     pub(crate) diagnostic_events_per_subscription: usize,
-    pub(crate) state_keys_per_target: usize,
     pub(crate) frames_per_receive: usize,
     pub(crate) receive_bytes: usize,
     pub(crate) framing_bytes: usize,
@@ -204,7 +203,6 @@ impl Default for OwnerLimits {
             control_requests: 16,
             diagnostic_subscribers: 4,
             diagnostic_events_per_subscription: 128,
-            state_keys_per_target: 64,
             frames_per_receive: 64,
             receive_bytes: 4_096,
             framing_bytes: 8_192,
@@ -492,99 +490,21 @@ pub(crate) enum DiagnosticEvent {
     Ignored(IgnoreReason),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct CachedProjection {
-    projection: AppliedStateProjection,
-    generation: u64,
-}
-
 #[derive(Debug, Default)]
 pub(crate) struct TargetStateCache {
-    values: BTreeMap<StateKey, CachedProjection>,
-    order: VecDeque<(StateKey, u64)>,
-    generation: u64,
+    values: crate::state_cache::PerStateKey<crate::state_cache::StateEntry>,
 }
 
 impl TargetStateCache {
-    fn apply(&mut self, projection: AppliedStateProjection, capacity: usize) {
-        if capacity == 0 {
-            return;
-        }
-        // The cache stores the public semantic discriminator, not a
-        // profile-specific wire variant. `PanTiltLimitCorner` has only the
-        // two Standard VISCA values documented for this opcode: down-left
-        // (`0x00`) and up-right (`0x01`). A limit set and a limit clear are
-        // both local to one corner, so each must name a valid one; refuse a
-        // malformed projection before it can replace a previously known limit
-        // update.
-        let invalid_limit_corner = match projection {
-            AppliedStateProjection::Set {
-                key: StateKey::PanTiltLimits,
-                value,
-            }
-            | AppliedStateProjection::Clear {
-                key: StateKey::PanTiltLimits,
-                value,
-            } => !matches!(
-                value.values[0..value.value_count as usize].first(),
-                Some(0 | 1)
-            ),
-            _ => false,
-        };
-        if invalid_limit_corner {
-            return;
-        }
-        self.generation = self.generation.wrapping_add(1);
-        let generation = self.generation;
-        let state = projection.state();
-        self.values.insert(
-            state,
-            CachedProjection {
-                projection,
-                generation,
-            },
-        );
-        self.order.push_back((state, generation));
-        while self.values.len() > capacity {
-            let Some((key, candidate_generation)) = self.order.pop_front() else {
-                break;
-            };
-            if self
-                .values
-                .get(&key)
-                .is_some_and(|value| value.generation == candidate_generation)
-            {
-                self.values.remove(&key);
-            }
-        }
-        // Updates to the same key leave stale order tickets. Keep their number
-        // bounded while preserving the most recent ticket for every value.
-        if self.order.len() > capacity.saturating_mul(2) {
-            self.order.retain(|(key, candidate_generation)| {
-                self.values
-                    .get(key)
-                    .is_some_and(|value| value.generation == *candidate_generation)
-            });
-        }
-    }
-
-    fn get(&self, state: StateKey) -> Option<AppliedStateProjection> {
-        self.values.get(&state).map(|value| value.projection)
-    }
-
-    pub(crate) fn entry(&self, state: StateKey) -> crate::state_cache::StateEntry {
-        let Some(value) = self.get(state) else {
-            return crate::state_cache::StateEntry::Unknown;
-        };
-        match value {
-            AppliedStateProjection::Set { value, .. } => crate::state_cache::StateEntry::Set(
-                crate::state_cache::StateValue::from_owner(value),
-            ),
-            AppliedStateProjection::Clear { value, .. } => crate::state_cache::StateEntry::Clear(
-                crate::state_cache::StateValue::from_owner(value),
-            ),
+    fn apply(&mut self, projection: AppliedStateProjection) {
+        self.values[projection.key()] = match projection {
+            AppliedStateProjection::Set(value) => crate::state_cache::StateEntry::Set(value),
             AppliedStateProjection::Invalidate { .. } => crate::state_cache::StateEntry::Unknown,
-        }
+        };
+    }
+
+    pub(crate) fn entry(&self, key: StateKey) -> crate::state_cache::StateEntry {
+        self.values[key]
     }
 }
 
@@ -1608,7 +1528,6 @@ impl OwnerState {
         if policy.limits.staged_diagnostics == 0
             || policy.limits.diagnostic_subscribers == 0
             || policy.limits.diagnostic_events_per_subscription == 0
-            || policy.limits.state_keys_per_target == 0
             || policy.limits.control_requests == 0
             || policy.limits.frames_per_receive == 0
         {
@@ -2427,13 +2346,13 @@ impl OwnerState {
                 // Cache mutation precedes terminal observation and diagnostic
                 // delivery, independently of any observer staying attached.
                 if let Ok(mut cache) = self.target_cache[effect.target].lock() {
-                    cache.apply(effect.projection, self.policy.limits.state_keys_per_target);
+                    cache.apply(effect.projection);
                 }
                 self.metrics.cache_updates = self.metrics.cache_updates.saturating_add(1);
                 self.record(DiagnosticEvent::AppliedState {
                     id: effect.request,
                     target: effect.target,
-                    key: effect.projection.state(),
+                    key: effect.projection.key(),
                 });
                 AppliedEffect::None
             }

@@ -69,7 +69,7 @@ macro_rules! shared_prelude {
             AutoWhiteBalanceSensitivity, CancellationOutcome, Error, ExposureMode,
             MetricsSnapshot, MotionSyncMode, NdFilterMode, PanTiltDirection,
             PanTiltLimitCorner, PanTiltLimitUpdate, PowerStatus, PresetNumber,
-            SessionStatus, StateCache, StateEntry, StateKey, StateValue, WhiteBalanceMode,
+            SessionStatus, StateCache, StateEntry, StateKey, KnownState, WhiteBalanceMode,
         };
         pub use $($facade)::+::{
             Camera, CameraConfig, CameraSession, Connect, Operation, OperationId, Session,

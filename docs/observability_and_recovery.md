@@ -139,23 +139,28 @@ let cache = camera.state_cache();
 assert_eq!(cache.target(), camera.target());
 match cache.value(grafton_visca::StateKey::ImageFreeze) {
     grafton_visca::StateEntry::Unknown => { /* no exact applied value yet */ }
-    grafton_visca::StateEntry::Set(value) => println!("{} values", value.len()),
-    grafton_visca::StateEntry::Clear(value) => println!("cleared: {:?}", value.as_slice()),
+    grafton_visca::StateEntry::Set(grafton_visca::KnownState::ImageFreeze(enabled)) => {
+        println!("freeze enabled: {enabled}");
+    }
     _ => {}
 }
 ```
 
-`StateValue` stores at most four inline `i64` values. The owner registry has
-seven target slots and at most 64 state keys per target. A view contains one
-target index and a shared registry reference; cloning a view does not create a
-second map, worker, or queue.
+`KnownState` carries each key's native value: booleans, enums, speeds, flip
+pairs, or a typed `PanTiltLimitUpdate`. A cleared limit is a known corner-local
+update whose `position()` is `None`; it remains `StateEntry::Set`. The owner
+registry has seven target slots and one inline slot per `StateKey`, without
+allocation, eviction, or a separate capacity limit. A view contains one target
+index and a shared registry reference; cloning it shares the table.
 
-The cache changes only after an exact `AppliedStateEffect`. The owner commits
-that effect before delivering diagnostics or resolving the terminal outcome, and the
-commit does not depend on an observer remaining attached. Preparing a command,
-an ACK alone, a failed write, a timeout, or a pre-ACK error does not change the
-cache. A fresh session starts every target at `Unknown`; target 1 and target 2
-views never read or mutate each other's entries.
+An exact `AppliedStateEffect` establishes a known value. A write that may have
+taken effect but ends without confirmation makes its key `Unknown`, including
+a session-ending failure after the write left. A command never written, or
+conclusively rejected before ACK with no possibly applied earlier attempt,
+leaves the previous value intact. Preparing a command and an ACK alone cannot
+establish a value. The owner commits effects before notifying observers or
+resolving the terminal outcome, independently of observer attachment. A fresh
+session starts every target at `Unknown`; target views remain isolated.
 
 ## What is retried, and for how long
 
@@ -619,14 +624,13 @@ values from the poisoned owner.
 
 ## Memory bounds
 
-The current owner policy is intentionally explicit. The first eight rows are
+The current owner policy is intentionally explicit. The first seven rows are
 fixed; the remaining four are caller-tunable bounds:
 
 | Resource | Bound | Caller-tunable |
 | --- | ---: | --- |
 | Registered targets | 7 | no |
-| State keys per target | 64 | no |
-| Scalars per state value | 4 | no |
+| State entries per target | one slot per `StateKey` | no |
 | Pre-admission diagnostic staging | 128 events | no |
 | Queued control requests | 16 | no |
 | Diagnostic subscribers | 4 | no |

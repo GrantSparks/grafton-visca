@@ -161,9 +161,12 @@ fn assert_unknown(camera: &DynSessionCamera) {
     );
 }
 
-fn assert_state(camera: &DynSessionCamera, expected: &[i64]) {
+fn assert_state(camera: &DynSessionCamera, expected: bool) {
     match camera.state_cache().value(StateKey::MulticastStreaming) {
-        StateEntry::Set(value) => assert_eq!(value.as_slice(), expected),
+        StateEntry::Set(value) => assert_eq!(
+            value,
+            grafton_visca::KnownState::MulticastStreaming(expected)
+        ),
         other => panic!("expected multicast state {expected:?}, got {other:?}"),
     }
 }
@@ -335,8 +338,8 @@ async fn dynamic_cache_views_share_state_and_isolate_targets<E: Executor>(execut
         .multicast_on()
         .await
         .expect("exact applied multicast effect");
-    assert_state(&first, &[1]);
-    assert_state(&first_view, &[1]);
+    assert_state(&first, true);
+    assert_state(&first_view, true);
     assert_unknown(&second);
 
     first
@@ -344,7 +347,7 @@ async fn dynamic_cache_views_share_state_and_isolate_targets<E: Executor>(execut
         .multicast_off()
         .await
         .expect("exact applied multicast clear effect");
-    assert_state(&first, &[0]);
+    assert_state(&first, false);
     assert_unknown(&second);
     session.shutdown().expect("shutdown");
 
@@ -542,15 +545,12 @@ async fn dynamic_cache_views_share_and_isolate_owner_state<E: Executor>(executor
         .await
         .expect("owner applied multicast state");
     assert!(matches!(
-        first
-            .state_cache()
-            .value(StateKey::MulticastStreaming),
-        StateEntry::Set(value) if value.get(0) == Some(1)
+        first.state_cache().value(StateKey::MulticastStreaming),
+        StateEntry::Set(grafton_visca::KnownState::MulticastStreaming(true))
     ));
     assert!(matches!(
-        same.state_cache()
-            .value(StateKey::MulticastStreaming),
-        StateEntry::Set(value) if value.get(0) == Some(1)
+        same.state_cache().value(StateKey::MulticastStreaming),
+        StateEntry::Set(grafton_visca::KnownState::MulticastStreaming(true))
     ));
     assert_eq!(
         second.state_cache().value(StateKey::MulticastStreaming),
