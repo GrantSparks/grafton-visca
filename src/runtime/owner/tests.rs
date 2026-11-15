@@ -899,6 +899,56 @@ mod metrics {
         ));
     }
 
+    /// A cancellation's failure slot can wake its caller before the engine's
+    /// matching terminal effect is delivered. Both slots must expose the same
+    /// canonical verdict, independently of that delivery order (#857).
+    #[test]
+    fn canonical_cancellation_failure_survives_receipt_delivery_order() {
+        fn assert_canonical(verdict: Option<Result<CancellationOutcome, Error>>) {
+            let Some(Err(error)) = verdict else {
+                panic!("the cancellation must have a recorded failure");
+            };
+            assert!(
+                matches!(error, Error::CancellationUnconfirmed),
+                "expected the canonical ambiguity verdict, got {error:?}"
+            );
+            assert!(!error.is_retryable());
+            assert_eq!(error.suggested_retry_delay(), None);
+            assert_eq!(
+                error.failure_context(),
+                Some(crate::FailureContext::new(
+                    crate::FailureStage::CancellationAttempt,
+                    crate::Certainty::Unconfirmed
+                ))
+            );
+        }
+
+        let delivered = Instant::now();
+        let deadline = delivered + Duration::from_secs(1);
+        let (mut observation, terminal) = observation_fixture();
+        let cancellation = observation.cancellation_request();
+        cancellation.observer.resolve_at(
+            Error::cancellation_observation_failed(Error::CancellationUnconfirmed),
+            delivered,
+        );
+
+        // Force the formerly failing schedule: the cancellation answer is
+        // observable and cached while the terminal slot is still unresolved.
+        assert!(observation.applied(deadline).is_none());
+        assert_canonical(observation.cancellation(deadline));
+        assert_canonical(observation.cancellation(deadline));
+
+        terminal.resolve_at(
+            RuntimeOutcome::Failed(Error::CancellationUnconfirmed),
+            delivered + Duration::from_nanos(1),
+        );
+        assert_canonical(observation.cancellation(deadline));
+        assert!(matches!(
+            observation.applied(deadline),
+            Some(Err(Error::CancellationUnconfirmed))
+        ));
+    }
+
     #[test]
     fn settlement_attribution_is_axis_local_cached_and_profile_completion_is_exact() {
         use crate::{AffectedAxes, Settlement};
