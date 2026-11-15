@@ -128,8 +128,8 @@ fn probe_camera(addressing: AddressingMode, complete: bool) -> FakeCamera {
 /// A wire onto `camera` that reports `addressing` and the send semantics that
 /// go with it: stream for serial, datagram for IP.
 fn probe_wire(camera: &FakeCamera, addressing: AddressingMode) -> AsyncWire {
-    let mut config = TransportConfig::default();
-    config.addressing = addressing;
+    let config = TransportConfig::default();
+
     let semantics = match addressing {
         AddressingMode::Serial => SendSemantics::Stream,
         AddressingMode::Ip => SendSemantics::Datagram,

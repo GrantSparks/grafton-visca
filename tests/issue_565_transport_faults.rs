@@ -66,7 +66,7 @@ impl Rig {
         Self {
             camera: camera.clone(),
             semantics: SendSemantics::Datagram,
-            addressing: TransportConfig::default().addressing,
+            addressing: AddressingMode::Ip,
         }
     }
 
@@ -80,9 +80,7 @@ impl Rig {
     }
 
     fn config(&self) -> TransportConfig {
-        let mut config = TransportConfig::default();
-        config.addressing = self.addressing;
-        config
+        TransportConfig::default()
     }
 
     #[cfg(all(feature = "blocking", feature = "test-utils"))]

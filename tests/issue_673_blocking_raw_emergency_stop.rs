@@ -65,11 +65,7 @@ fn session_with_config(steps: Vec<Vec<Vec<u8>>>, config: SessionConfig) -> (Sess
     let camera = scripted_camera(steps);
     let wire = camera
         .blocking_wire()
-        .with_config({
-            let mut config = TransportConfig::default();
-            config.addressing = AddressingMode::Serial;
-            config
-        })
+        .with_config(TransportConfig::default())
         .with_addressing(AddressingMode::Serial);
     let session = Session::open(wire, config).expect("owner session");
     (session, camera)

@@ -6,7 +6,7 @@
 //! it does not own scheduling, settlement, or observer deadlines.
 
 #[cfg(any(test, feature = "test-utils"))]
-use crate::OperationalTuning;
+use crate::{transport::SendSemantics, OperationalTuning};
 
 use std::{borrow::Cow, num::NonZeroUsize};
 
@@ -30,7 +30,7 @@ use crate::{
     transport::{
         builder::{AddressingMode, TransportConfig},
         envelope::{Envelope, FrameMeta, FrameSequence, RawVisca, SonyEncapsulated, SonyResponse},
-        SendSemantics,
+        TransportIdentity,
     },
     CameraId, Error,
 };
@@ -38,10 +38,6 @@ use crate::{
 use super::{FrameBatch, OwnerBuffers, OwnerPolicy};
 #[cfg(any(feature = "async", feature = "blocking"))]
 use super::{OwnerReceive, ReceiveFatal, RetainedEvidence, RetainedInput, RetainedStreamInput};
-#[cfg(feature = "async")]
-use crate::transport::AsyncTransport;
-#[cfg(feature = "blocking")]
-use crate::transport::BlockingTransport;
 #[cfg(any(feature = "async", feature = "blocking"))]
 use crate::{
     protocol::framer::RawBufferedInput,
@@ -193,7 +189,10 @@ pub(crate) fn owner_policy_for_targets(
     owner_policy_for_targets_with_tuning(
         profiles,
         config,
-        semantics,
+        TransportIdentity::Custom {
+            semantics,
+            addressing: AddressingMode::Serial,
+        },
         crate::session_config::ValidatedTuning::validate(
             OperationalTuning::new(),
             profiles.iter().map(|(_, profile)| *profile),
@@ -209,7 +208,7 @@ pub(crate) fn owner_policy_for_targets(
 pub(crate) fn owner_policy_for_targets_with_tuning(
     profiles: &[(TargetSlot, &ProfileSpec)],
     config: &TransportConfig,
-    semantics: SendSemantics,
+    identity: TransportIdentity<'_>,
     tuning: crate::session_config::ValidatedTuning,
     admission_capacity: NonZeroUsize,
     strict_unconfirmed_poison: bool,
@@ -229,9 +228,6 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     let tuning = tuning.get();
     let first_profile = profiles[0].1;
     let envelope = EnvelopeKind::from(first_profile.envelope());
-    if config.addressing == AddressingMode::Ip && profiles.len() > 1 {
-        return Err(Error::NotSupported);
-    }
     let mut target_policies = PerTarget::default();
     let mut command_spacing = std::time::Duration::ZERO;
     let mut inquiry_spacing = std::time::Duration::ZERO;
@@ -295,15 +291,12 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
 
     config.validate()?;
 
-    let transport = match semantics {
-        SendSemantics::Datagram => TransportKind::Datagram,
-        SendSemantics::Stream => TransportKind::Stream,
-    };
+    let transport = identity.engine_kind();
 
     // Raw targets exclude only overlapping inquiry declarations. Admission
     // capacity still bounds total concurrent inquiries, as for Sony sequences.
     let inquiry_capacity = admission_capacity.get();
-    let wire = crate::runtime::engine::WireProtocol::new(envelope, config.addressing);
+    let wire = crate::runtime::engine::WireProtocol::new(envelope, identity.addressing());
     let mut policy = OwnerPolicy::with_targets(
         ProtocolPolicy {
             capacity: admission_capacity.get(),
@@ -355,37 +348,6 @@ pub(crate) enum BlockingIo {}
 #[derive(Debug)]
 pub(crate) enum AsyncIo {}
 
-/// The facts a transport declares through its facade's transport trait `F`
-/// ([`BlockingIo`] or [`AsyncIo`]). Both traits declare them identically; this
-/// seam lets one adapter constructor read them from either.
-#[cfg(any(feature = "async", feature = "blocking"))]
-pub(crate) trait DeclaredTransport<F>: HasTransportConfig {
-    fn declared_addressing_hint(&self) -> Option<AddressingMode>;
-    fn declared_semantics(&self) -> SendSemantics;
-}
-
-#[cfg(feature = "blocking")]
-impl<T: BlockingTransport + HasTransportConfig> DeclaredTransport<BlockingIo> for T {
-    fn declared_addressing_hint(&self) -> Option<AddressingMode> {
-        self.addressing_mode_hint()
-    }
-
-    fn declared_semantics(&self) -> SendSemantics {
-        self.send_semantics()
-    }
-}
-
-#[cfg(feature = "async")]
-impl<T: AsyncTransport + HasTransportConfig> DeclaredTransport<AsyncIo> for T {
-    fn declared_addressing_hint(&self) -> Option<AddressingMode> {
-        self.addressing_mode_hint()
-    }
-
-    fn declared_semantics(&self) -> SendSemantics {
-        self.send_semantics()
-    }
-}
-
 /// One production transport plus its owner-side framing and policy.
 ///
 /// The facade marker `F` selects which owner drives it: the blocking worker
@@ -413,7 +375,7 @@ pub(crate) type AsyncTransportAdapter<T> = TransportAdapter<T, AsyncIo>;
 #[cfg(any(feature = "async", feature = "blocking"))]
 impl<T, F> TransportAdapter<T, F>
 where
-    T: DeclaredTransport<F>,
+    T: HasTransportConfig,
 {
     /// Build an adapter for several immutable target/profile pairs on one
     /// physical transport; see [`AdapterFraming::for_targets`]. No transport
@@ -427,8 +389,6 @@ where
     ) -> Result<Self, Error> {
         let (framing, policy) = AdapterFraming::for_targets(
             &transport,
-            transport.declared_addressing_hint(),
-            transport.declared_semantics(),
             profiles,
             tuning,
             admission_capacity,
@@ -578,12 +538,9 @@ impl AdapterFraming {
     /// envelope; target-local socket/cancellation facts are retained in the
     /// resulting owner policy. No transport I/O happens here.
     ///
-    /// `addressing_hint` and `semantics` are the transport's own answers,
-    /// which the async and blocking transport traits each declare.
+    /// The shared required identity supplies every transport policy fact.
     pub(crate) fn for_targets<T>(
         transport: &T,
-        addressing_hint: Option<AddressingMode>,
-        semantics: SendSemantics,
         profiles: &[(TargetSlot, &ProfileSpec)],
         tuning: crate::session_config::ValidatedTuning,
         admission_capacity: NonZeroUsize,
@@ -592,25 +549,18 @@ impl AdapterFraming {
     where
         T: HasTransportConfig,
     {
-        // This check is deliberately before reading any startup-side transport
-        // state or constructing the owner policy. Known standard transports
-        // must be compatible; custom transports (which report `None`) remain
-        // an explicit profile-compatibility escape hatch.
-        let standard_kind = transport.standard_transport_kind();
+        // Identity is read before configuration or I/O. It is the single
+        // authority for profile compatibility, topology and failure policy.
+        let identity = transport.identity();
         for (_, profile) in profiles {
-            validate_profile_transport(profile, standard_kind)?;
+            validate_profile_transport(profile, identity)?;
         }
-        // Multi-target routing must be explicitly proven by a side-effect-free
-        // transport hint. This runs before the first config read, owner start,
-        // or transport operation; custom transports default to `None` and are
-        // therefore rejected unless they opt into serial addressing.
-        validate_profile_registry_topology(profiles, standard_kind, addressing_hint)?;
+        validate_profile_registry_topology(profiles, identity)?;
         let config = *transport.transport_config();
-        validate_profile_registry_topology(profiles, standard_kind, Some(config.addressing))?;
         let policy = owner_policy_for_targets_with_tuning(
             profiles,
             &config,
-            semantics,
+            identity,
             tuning,
             admission_capacity,
             strict_unconfirmed_poison,
@@ -629,7 +579,7 @@ impl AdapterFraming {
         };
         let framing = Self {
             framing,
-            routing: RoutingState::new(config.addressing, registry),
+            routing: RoutingState::new(identity.addressing(), registry),
             transport: policy.protocol.transport,
         };
         Ok((framing, policy))
@@ -1018,9 +968,9 @@ fn invalid_source(payload: &[u8]) -> Error {
 /// callers that need to validate a standard transport before opening it.
 pub(crate) fn profile_supports_transport(
     profile: &ProfileSpec,
-    kind: Option<CameraTransportKind>,
+    identity: TransportIdentity<'_>,
 ) -> bool {
-    let Some(kind) = kind else {
+    let Some(kind) = identity.standard_transport_kind() else {
         // Custom transports intentionally remain an explicit escape hatch.
         return true;
     };
@@ -1037,13 +987,13 @@ pub(crate) fn profile_supports_transport(
 /// a standard kind is an explicit custom escape hatch and remains allowed.
 pub(crate) fn validate_profile_transport(
     profile: &ProfileSpec,
-    kind: Option<CameraTransportKind>,
+    identity: TransportIdentity<'_>,
 ) -> Result<(), Error> {
-    if profile_supports_transport(profile, kind) {
+    if profile_supports_transport(profile, identity) {
         return Ok(());
     }
 
-    let Some(kind) = kind else {
+    let Some(kind) = identity.standard_transport_kind() else {
         // `profile_supports_transport` currently returns true for this case;
         // keep the branch defensive if that policy ever changes.
         return Ok(());
@@ -1066,21 +1016,16 @@ pub(crate) fn validate_profile_transport(
 /// serial replies carry a source camera ID, while IP replies do not.  Keeping
 /// this check after per-profile standard-transport validation but before owner
 /// policy construction gives callers deterministic preflight errors without
-/// spawning an actor or touching transport I/O. A `None` addressing value is
-/// the conservative answer for an unknown/custom transport and therefore
-/// cannot authorize a multi-target registry.
+/// spawning an actor or touching transport I/O. Custom transports explicitly
+/// declare serial addressing in their identity to authorize several targets.
 pub(crate) fn validate_profile_registry_topology(
     profiles: &[(TargetSlot, &ProfileSpec)],
-    kind: Option<CameraTransportKind>,
-    addressing: Option<AddressingMode>,
+    identity: TransportIdentity<'_>,
 ) -> Result<(), Error> {
     if profiles.len() <= 1 {
         return Ok(());
     }
-    if matches!(
-        kind,
-        Some(CameraTransportKind::Tcp | CameraTransportKind::Udp)
-    ) {
+    if matches!(identity, TransportIdentity::Tcp | TransportIdentity::Udp) {
         return Err(Error::NotSupported);
     }
     if profiles
@@ -1089,7 +1034,7 @@ pub(crate) fn validate_profile_registry_topology(
     {
         return Err(Error::NotSupported);
     }
-    if addressing != Some(AddressingMode::Serial) {
+    if identity.addressing() != AddressingMode::Serial {
         return Err(Error::NotSupported);
     }
     Ok(())
@@ -1625,7 +1570,6 @@ mod tests {
             (TargetSlot::CAMERA_2, &profile),
         ];
         let config = TransportConfig {
-            addressing: AddressingMode::Serial,
             ..TransportConfig::default()
         };
         let policy = owner_policy_for_targets(&profiles, &config, SendSemantics::Stream).unwrap();
@@ -1653,7 +1597,7 @@ mod tests {
         let raw_policy = owner_policy_for_targets_with_tuning(
             &raw_profiles,
             &config,
-            SendSemantics::Datagram,
+            TransportIdentity::Udp,
             crate::session_config::ValidatedTuning::validate(OperationalTuning::new(), [&raw])
                 .unwrap(),
             capacity,
@@ -1670,7 +1614,7 @@ mod tests {
         let sony_policy = owner_policy_for_targets_with_tuning(
             &sony_profiles,
             &config,
-            SendSemantics::Datagram,
+            TransportIdentity::Udp,
             crate::session_config::ValidatedTuning::validate(OperationalTuning::new(), [&sony])
                 .unwrap(),
             capacity,
@@ -1690,7 +1634,6 @@ mod tests {
             (TargetSlot::CAMERA_2, &strict),
         ];
         let config = TransportConfig {
-            addressing: AddressingMode::Serial,
             ..TransportConfig::default()
         };
         let policy = owner_policy_for_targets(&profiles, &config, SendSemantics::Stream).unwrap();
@@ -1757,10 +1700,17 @@ pub(crate) struct ReceiveProbe {
 
 #[cfg(feature = "test-utils")]
 #[derive(Debug)]
-struct ProbeConfig(TransportConfig);
+struct ProbeConfig(TransportConfig, SendSemantics);
 
 #[cfg(feature = "test-utils")]
 impl HasTransportConfig for ProbeConfig {
+    fn identity(&self) -> TransportIdentity<'_> {
+        TransportIdentity::Custom {
+            semantics: self.1,
+            addressing: AddressingMode::Ip,
+        }
+    }
+
     fn transport_config(&self) -> &TransportConfig {
         &self.0
     }
@@ -1773,12 +1723,10 @@ impl ReceiveProbe {
         config: TransportConfig,
         semantics: SendSemantics,
     ) -> Result<Self, Error> {
-        let transport = ProbeConfig(config);
+        let transport = ProbeConfig(config, semantics);
         let target = TargetSlot::try_from(CameraId::CAMERA_1)?;
         let (framing, policy) = AdapterFraming::for_targets(
             &transport,
-            Some(config.addressing),
-            semantics,
             &[(target, profile)],
             crate::session_config::ValidatedTuning::validate(OperationalTuning::new(), [profile])?,
             crate::DEFAULT_ADMISSION_CAPACITY,

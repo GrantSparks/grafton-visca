@@ -11,7 +11,7 @@ use std::{
 };
 
 use crate::{
-    command::{bytes::VISCA_TERMINATOR, CommandKind},
+    command::bytes::VISCA_TERMINATOR,
     protocol::framer::{Framer, RawFramer, SonyFramer},
     transport::{buffer::BufferConfig, BlockingTransport},
     Error,
@@ -106,7 +106,6 @@ impl BlockingTransport for MockTcp {
     fn send_with_timeout(
         &mut self,
         data: &[u8],
-        _kind: CommandKind,
         _timeout: std::time::Duration,
     ) -> Result<(), Error> {
         self.writer.write_all(data)?;
@@ -121,10 +120,6 @@ impl BlockingTransport for MockTcp {
     ) -> Result<crate::transport::ReceiveOutcome, Error> {
         self.recv_into(dst)
             .map(crate::transport::ReceiveOutcome::complete)
-    }
-
-    fn addressing_mode_hint(&self) -> Option<crate::transport::AddressingMode> {
-        Some(crate::transport::AddressingMode::Ip)
     }
 }
 

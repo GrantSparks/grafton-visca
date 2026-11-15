@@ -14,9 +14,6 @@ use crate::{
     CameraId, Error, Result,
 };
 
-#[cfg(any(feature = "async", feature = "blocking"))]
-use crate::camera::TransportKind;
-
 /// Operational overrides checked against every profile in one session.
 #[cfg(any(feature = "async", feature = "blocking"))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -478,13 +475,16 @@ impl ValidatedSessionConfig {
     /// This check intentionally does not inspect transport configuration.  A
     /// caller can therefore reject an unsupported standard profile before any
     /// adapter/owner setup or transport I/O boundary is entered.
-    pub(crate) fn validate_for_transport(&self, kind: Option<TransportKind>) -> Result<()> {
+    pub(crate) fn validate_for_transport(
+        &self,
+        identity: crate::transport::TransportIdentity<'_>,
+    ) -> Result<()> {
         for profile in self.0.targets.iter().filter_map(|(_, registration)| {
             registration
                 .as_deref()
                 .map(crate::TargetRegistration::profile)
         }) {
-            crate::runtime::owner::validate_profile_transport(profile, kind)?;
+            crate::runtime::owner::validate_profile_transport(profile, identity)?;
         }
         Ok(())
     }
@@ -501,8 +501,9 @@ impl ValidatedSessionConfig {
     where
         T: crate::transport::HasTransportConfig + ?Sized,
     {
-        self.validate_for_transport(transport.standard_transport_kind())?;
-        let Some(bus) = transport.addressed_bus() else {
+        let identity = transport.identity();
+        self.validate_for_transport(identity)?;
+        let Some(bus) = identity.addressed_bus() else {
             return Ok(());
         };
         let addressed = bus.cameras;
@@ -594,7 +595,10 @@ mod tests {
         assert!(sony.sony_sequence_reset_on_connect());
         sony.validated()
             .unwrap()
-            .validate_for_transport(None)
+            .validate_for_transport(crate::transport::TransportIdentity::Custom {
+                semantics: crate::transport::SendSemantics::Stream,
+                addressing: crate::transport::AddressingMode::Ip,
+            })
             .unwrap();
     }
 

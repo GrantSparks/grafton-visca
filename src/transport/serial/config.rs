@@ -143,7 +143,6 @@ impl Config {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::transport::AddressingMode;
 
     /// #828: the serial defaults used to request I/F Clear on every open.
     #[test]
@@ -160,7 +159,7 @@ mod tests {
             .read_timeout(Duration::from_millis(37))
             .write_timeout(Duration::from_millis(41));
         let reported = config.transport_config();
-        assert_eq!(reported.addressing, AddressingMode::Serial);
+
         assert_eq!(reported.tcp_nodelay, None);
         assert_eq!(reported.tcp_keepalive, None);
         assert_eq!(reported.ttl, None);

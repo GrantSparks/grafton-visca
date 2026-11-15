@@ -99,6 +99,13 @@ mod tests {
     }
 
     impl HasTransportConfig for UnobservedTruncation {
+        fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+            crate::transport::TransportIdentity::Custom {
+                semantics: SendSemantics::Datagram,
+                addressing: crate::transport::AddressingMode::Ip,
+            }
+        }
+
         fn transport_config(&self) -> &TransportConfig {
             &self.config
         }
@@ -119,13 +126,16 @@ mod tests {
                 ReceiveOutcome::complete(copied)
             })
         }
-
-        fn send_semantics(&self) -> SendSemantics {
-            SendSemantics::Datagram
-        }
     }
 
     impl HasTransportConfig for ScriptedTransport {
+        fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+            crate::transport::TransportIdentity::Custom {
+                semantics: self.semantics,
+                addressing: crate::transport::AddressingMode::Ip,
+            }
+        }
+
         fn transport_config(&self) -> &TransportConfig {
             &self.config
         }
@@ -140,10 +150,6 @@ mod tests {
         async fn recv_into(&mut self, dst: &mut [u8]) -> Result<ReceiveOutcome, Error> {
             let next = self.receives.pop_front().unwrap_or(Ok(Vec::new()))?;
             Ok(ReceiveOutcome::copy_message(&next, dst))
-        }
-
-        fn send_semantics(&self) -> SendSemantics {
-            self.semantics
         }
     }
 

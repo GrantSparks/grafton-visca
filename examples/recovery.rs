@@ -28,7 +28,6 @@ use std::{collections::VecDeque, time::Duration};
 use grafton_visca::{
     blocking::{Session, SessionConfig},
     camera::profiles::PtzOpticsG2,
-    command::CommandKind,
     profile::ProfileSpec,
     transport::{BlockingTransport, HasTransportConfig, ReceiveOutcome, TransportConfig},
     Error, OperationalTuning, Recovery,
@@ -62,18 +61,20 @@ impl FakeCamera {
 }
 
 impl HasTransportConfig for FakeCamera {
+    fn identity(&self) -> grafton_visca::transport::TransportIdentity<'_> {
+        grafton_visca::transport::TransportIdentity::Custom {
+            semantics: grafton_visca::transport::SendSemantics::Stream,
+            addressing: grafton_visca::transport::AddressingMode::Ip,
+        }
+    }
+
     fn transport_config(&self) -> &TransportConfig {
         &self.config
     }
 }
 
 impl BlockingTransport for FakeCamera {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
+    fn send_with_timeout(&mut self, bytes: &[u8], _timeout: Duration) -> Result<(), Error> {
         if matches!(self.peer, Peer::Silent | Peer::Closed) {
             return Ok(()); // accepted locally; the peer never answers
         }

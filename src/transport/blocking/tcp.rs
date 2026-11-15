@@ -6,12 +6,11 @@ use std::{
 };
 
 use crate::{
-    command::CommandKind,
     timeout::Deadline,
     transport::{
         address::resolve_blocking,
         blocking::{read_once_bounded, write_all_bounded, TimedIo},
-        builder::{AddressingMode, TransportConfig},
+        builder::TransportConfig,
         connect::{connect_deadline, preflight, socket_setup, TcpAttempts},
         socket_options::{apply_tcp_socket_options, TcpConnectionConfig},
         stream_read, BlockingTransport, HasTransportConfig, ReceiveOutcome,
@@ -75,22 +74,17 @@ impl Tcp {
 }
 
 impl HasTransportConfig for Tcp {
-    fn transport_config(&self) -> &TransportConfig {
-        &self.config
+    fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+        crate::transport::TransportIdentity::Tcp
     }
 
-    fn standard_transport_kind(&self) -> Option<crate::camera::TransportKind> {
-        Some(crate::camera::TransportKind::Tcp)
+    fn transport_config(&self) -> &TransportConfig {
+        &self.config
     }
 }
 
 impl BlockingTransport for Tcp {
-    fn send_with_timeout(
-        &mut self,
-        data: &[u8],
-        _kind: CommandKind,
-        timeout: Duration,
-    ) -> Result<(), Error> {
+    fn send_with_timeout(&mut self, data: &[u8], timeout: Duration) -> Result<(), Error> {
         let deadline = Deadline::after(Instant::now(), timeout, "write_timeout")?;
         write_all_bounded(&mut self.stream, arm_write, data, deadline, timeout)
     }
@@ -108,10 +102,6 @@ impl BlockingTransport for Tcp {
             TimedIo::StreamSocketRead,
         )?;
         stream_read(read, "peer closed connection").map(ReceiveOutcome::complete)
-    }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        Some(AddressingMode::Ip)
     }
 }
 

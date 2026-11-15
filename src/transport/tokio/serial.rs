@@ -179,7 +179,7 @@ mod tests {
             handshake::scenarios::{self, Read as ScriptRead, Write as ScriptWrite},
             Startup,
         },
-        AddressingMode, BufferConfig, HasTransportConfig,
+        BufferConfig, HasTransportConfig,
     };
     use std::collections::VecDeque;
 
@@ -380,7 +380,7 @@ mod tests {
             .expect("first opener succeeds");
         let reported = first.transport_config();
         assert_eq!(reported, &config.transport_config());
-        assert_eq!(reported.addressing, AddressingMode::Serial);
+
         assert_eq!(reported.tcp_nodelay, None);
         assert_eq!(reported.tcp_keepalive, None);
 

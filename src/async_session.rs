@@ -530,7 +530,7 @@ mod tests {
         capabilities::Capabilities,
         profile::{PositionInquirySupport, ProfileEnvelope, ProfileTiming, TransportCompatibility},
         testing::testkit::{helpers, ManualClock, ManualClockExecutor, ScriptedTransport, Step},
-        transport::{AsyncTransport, HasTransportConfig, SendSemantics, TransportConfig},
+        transport::{AsyncTransport, HasTransportConfig, TransportConfig},
         CommandTimeouts, ProfileSpec,
     };
 
@@ -558,6 +558,13 @@ mod tests {
     }
 
     impl HasTransportConfig for FailFirstZoomStopSend {
+        fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+            crate::transport::TransportIdentity::Custom {
+                semantics: crate::transport::SendSemantics::Datagram,
+                addressing: crate::transport::AddressingMode::Ip,
+            }
+        }
+
         fn transport_config(&self) -> &TransportConfig {
             self.inner.transport_config()
         }
@@ -587,10 +594,6 @@ mod tests {
             dst: &'a mut [u8],
         ) -> impl Future<Output = Result<crate::transport::ReceiveOutcome, Error>> + Send {
             self.inner.recv_into(dst)
-        }
-
-        fn send_semantics(&self) -> SendSemantics {
-            SendSemantics::Datagram
         }
     }
 

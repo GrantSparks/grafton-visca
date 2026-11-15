@@ -69,8 +69,8 @@ fn stream_wire(camera: &FakeCamera) -> BlockingWire {
 
 /// The camera's stream wire on a serial bus.
 fn serial_stream_wire(camera: &FakeCamera) -> BlockingWire {
-    let mut config = TransportConfig::default();
-    config.addressing = AddressingMode::Serial;
+    let config = TransportConfig::default();
+
     camera
         .blocking_wire()
         .with_semantics(SendSemantics::Stream)

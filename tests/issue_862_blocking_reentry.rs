@@ -13,7 +13,6 @@ use std::{
 
 use grafton_visca::{
     blocking::Session,
-    command::CommandKind,
     completion::AppliedOnly,
     profiles::GenericVisca,
     request::builtin::ZoomStop,
@@ -39,18 +38,20 @@ impl Drop for ReenteringTransport {
 }
 
 impl HasTransportConfig for ReenteringTransport {
+    fn identity(&self) -> grafton_visca::transport::TransportIdentity<'_> {
+        grafton_visca::transport::TransportIdentity::Custom {
+            semantics: grafton_visca::transport::SendSemantics::Stream,
+            addressing: grafton_visca::transport::AddressingMode::Ip,
+        }
+    }
+
     fn transport_config(&self) -> &TransportConfig {
         &self.config
     }
 }
 
 impl BlockingTransport for ReenteringTransport {
-    fn send_with_timeout(
-        &mut self,
-        _bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
+    fn send_with_timeout(&mut self, _bytes: &[u8], _timeout: Duration) -> Result<(), Error> {
         if self.during_write {
             if let Ok(callback) = self.callbacks.try_recv() {
                 callback();

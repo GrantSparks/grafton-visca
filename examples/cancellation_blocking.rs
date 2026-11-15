@@ -11,12 +11,9 @@ use std::{collections::VecDeque, time::Duration};
 
 use grafton_visca::{
     blocking::{Session, SessionConfig},
-    command::CommandKind,
     profile::ProfileSpec,
     profiles::SonyFR7,
-    transport::{
-        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
-    },
+    transport::{BlockingTransport, HasTransportConfig, ReceiveOutcome, TransportConfig},
     CancellationOutcome, Error,
 };
 
@@ -51,18 +48,20 @@ impl CancelCamera {
 }
 
 impl HasTransportConfig for CancelCamera {
+    fn identity(&self) -> grafton_visca::transport::TransportIdentity<'_> {
+        grafton_visca::transport::TransportIdentity::Custom {
+            semantics: grafton_visca::transport::SendSemantics::Datagram,
+            addressing: grafton_visca::transport::AddressingMode::Ip,
+        }
+    }
+
     fn transport_config(&self) -> &TransportConfig {
         &self.config
     }
 }
 
 impl BlockingTransport for CancelCamera {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
+    fn send_with_timeout(&mut self, bytes: &[u8], _timeout: Duration) -> Result<(), Error> {
         match bytes.get(8..) {
             Some([0x81, 0x01, 0x04, 0x07, 0x02, 0xff]) => {
                 self.queue_reply(bytes, &[0x90, 0x41, 0xff])
@@ -85,10 +84,6 @@ impl BlockingTransport for CancelCamera {
     ) -> Result<ReceiveOutcome, Error> {
         let reply = self.replies.pop_front().ok_or(Error::io_timeout())?;
         Ok(ReceiveOutcome::copy_message(&reply, destination))
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
     }
 }
 

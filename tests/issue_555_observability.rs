@@ -53,12 +53,8 @@ fn probe_camera(serial: bool, fail_send: bool) -> FakeCamera {
 /// The transport configuration of a probe: serial addressing for a serial
 /// camera, the default otherwise.
 #[cfg(any(feature = "blocking", feature = "runtime-tokio"))]
-fn probe_config(serial: bool) -> TransportConfig {
-    let mut config = TransportConfig::default();
-    if serial {
-        config.addressing = AddressingMode::Serial;
-    }
-    config
+fn probe_config(_serial: bool) -> TransportConfig {
+    TransportConfig::default()
 }
 
 /// A serial camera sends as a stream; otherwise as datagrams.
@@ -123,7 +119,11 @@ mod blocking_observability {
         let config = probe_config(serial);
         probe_camera(serial, fail_send)
             .blocking_wire()
-            .with_addressing(config.addressing)
+            .with_addressing(if serial {
+                AddressingMode::Serial
+            } else {
+                AddressingMode::Ip
+            })
             .with_semantics(probe_semantics(serial))
             .with_config(config)
     }
@@ -269,7 +269,11 @@ mod tokio_observability {
         let config = probe_config(serial);
         probe_camera(serial, fail_send)
             .async_wire()
-            .with_addressing(config.addressing)
+            .with_addressing(if serial {
+                AddressingMode::Serial
+            } else {
+                AddressingMode::Ip
+            })
             .with_semantics(probe_semantics(serial))
             .with_config(config)
     }

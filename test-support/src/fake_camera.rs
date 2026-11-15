@@ -549,6 +549,7 @@ macro_rules! wire_builders {
             /// Report `bus` as the serial bus this transport addressed while
             /// opening (the default is none).
             pub fn with_addressed_bus(mut self, bus: AddressedBus) -> Self {
+                self.0.kind = Some(TransportKind::Serial);
                 self.0.bus = Some(bus);
                 self
             }
@@ -560,6 +561,22 @@ macro_rules! wire_builders {
         }
 
         impl HasTransportConfig for $wire {
+            fn identity(&self) -> grafton_visca::transport::TransportIdentity<'_> {
+                match self.0.kind {
+                    Some(TransportKind::Tcp) => grafton_visca::transport::TransportIdentity::Tcp,
+                    Some(TransportKind::Udp) => grafton_visca::transport::TransportIdentity::Udp,
+                    Some(TransportKind::Serial) => {
+                        grafton_visca::transport::TransportIdentity::Serial {
+                            bus: self.0.bus.as_ref(),
+                        }
+                    }
+                    _ => grafton_visca::transport::TransportIdentity::Custom {
+                        semantics: self.0.semantics,
+                        addressing: self.0.addressing.unwrap_or(AddressingMode::Ip),
+                    },
+                }
+            }
+
             fn transport_config(&self) -> &TransportConfig {
                 self.0
                     .camera
@@ -567,14 +584,6 @@ macro_rules! wire_builders {
                     .config_reads
                     .fetch_add(1, Ordering::AcqRel);
                 &self.0.config
-            }
-
-            fn standard_transport_kind(&self) -> Option<TransportKind> {
-                self.0.kind
-            }
-
-            fn addressed_bus(&self) -> Option<&AddressedBus> {
-                self.0.bus.as_ref()
             }
         }
     };
@@ -597,12 +606,7 @@ impl BlockingWire {
 
 #[cfg(feature = "blocking")]
 impl grafton_visca::transport::BlockingTransport for BlockingWire {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        _kind: grafton_visca::command::CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
+    fn send_with_timeout(&mut self, bytes: &[u8], _timeout: Duration) -> Result<(), Error> {
         self.0.camera.on_write(bytes)
     }
 
@@ -615,14 +619,6 @@ impl grafton_visca::transport::BlockingTransport for BlockingWire {
             Some(read) => self.0.camera.on_read(read, dst),
             None => Err(Error::io_timeout()),
         }
-    }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        self.0.addressing
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        self.0.semantics
     }
 }
 
@@ -650,14 +646,6 @@ impl grafton_visca::transport::AsyncTransport for AsyncWire {
             .await
             .map_err(|_| Error::connection_closed(None))?;
         self.0.camera.on_read(read, dst)
-    }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        self.0.addressing
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        self.0.semantics
     }
 }
 

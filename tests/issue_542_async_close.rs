@@ -14,9 +14,7 @@ use grafton_visca_test_support::{fake_camera, runtime_matrix};
 
 use grafton_visca::{
     profiles::PtzOpticsG2,
-    transport::{
-        AsyncTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
-    },
+    transport::{AsyncTransport, HasTransportConfig, ReceiveOutcome, TransportConfig},
     Error, Executor, Session, SessionConfig,
 };
 
@@ -35,6 +33,13 @@ struct GatedCloseTransport {
 }
 
 impl HasTransportConfig for GatedCloseTransport {
+    fn identity(&self) -> grafton_visca::transport::TransportIdentity<'_> {
+        grafton_visca::transport::TransportIdentity::Custom {
+            semantics: grafton_visca::transport::SendSemantics::Datagram,
+            addressing: grafton_visca::transport::AddressingMode::Ip,
+        }
+    }
+
     fn transport_config(&self) -> &TransportConfig {
         &self.config
     }
@@ -60,10 +65,6 @@ impl AsyncTransport for GatedCloseTransport {
             .await
             .map_err(|_| Error::RuntimeShutdown)?;
         Ok(ReceiveOutcome::complete(0))
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
     }
 }
 

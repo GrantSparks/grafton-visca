@@ -5,10 +5,7 @@
 
 use std::future::Future;
 
-use crate::{
-    transport::{AddressingMode, ReceiveOutcome, SendSemantics},
-    Error,
-};
+use crate::{transport::ReceiveOutcome, Error};
 
 /// Async transport for VISCA communication.
 ///
@@ -43,13 +40,13 @@ pub trait AsyncTransport: Send {
     ///
     /// # Error contract
     ///
-    /// What a send failure costs is decided by [`AsyncTransport::send_semantics`],
+    /// What a send failure costs is decided by [`crate::transport::TransportIdentity::send_semantics`],
     /// not by the error value:
     ///
-    /// - [`SendSemantics::Stream`]: the byte-stream position is now unknowable,
+    /// - [`crate::transport::SendSemantics::Stream`]: the byte-stream position is now unknowable,
     ///   so the runtime poisons the session. Every request in flight fails with
     ///   [`Error::StreamPoisoned`] carrying this error as its `source()`.
-    /// - [`SendSemantics::Datagram`]: only the request being written fails and
+    /// - [`crate::transport::SendSemantics::Datagram`]: only the request being written fails and
     ///   the session keeps running. Because the session survives, the runtime
     ///   normalizes a session-fatal error value (any error for which
     ///   [`Error::requires_new_session`] is true, such as
@@ -170,47 +167,4 @@ pub trait AsyncTransport: Send {
         &'a mut self,
         dst: &'a mut [u8],
     ) -> impl Future<Output = Result<ReceiveOutcome, Error>> + Send;
-
-    /// Return a side-effect-free hint for the transport's VISCA addressing mode.
-    ///
-    /// Multi-target sessions require an explicit [`AddressingMode::Serial`]
-    /// declaration because serial replies carry a camera source while IP
-    /// replies do not. Custom transports default to `None`, which conservatively
-    /// rejects multi-target startup before configuration is read. Single-target
-    /// sessions do not require a hint. The hint only authorizes preflight;
-    /// `TransportConfig::addressing` remains the runtime's framing source.
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        None
-    }
-
-    /// Query the transport's send semantics.
-    ///
-    /// This method returns whether the transport uses stream or datagram semantics,
-    /// which determines how the runtime handles send failures:
-    ///
-    /// - [`SendSemantics::Stream`]: On send failure/timeout, the transport is
-    ///   "poisoned" and the runtime stops using it to prevent protocol desync.
-    ///
-    /// - [`SendSemantics::Datagram`]: On send failure, only the affected command
-    ///   fails; the transport continues operating for subsequent commands.
-    ///
-    /// # Default Implementation
-    ///
-    /// Returns [`SendSemantics::Stream`] by default, which is the safer choice
-    /// for unknown transport types. Datagram transports (UDP) should override
-    /// this to return [`SendSemantics::Datagram`].
-    ///
-    /// # Forwarding wrappers
-    ///
-    /// A transport that wraps another (for example an enum that dispatches to a
-    /// TCP, UDP, or serial inner transport) **must** forward this method to the
-    /// inner transport, exactly as it forwards [`AsyncTransport::send`] and
-    /// [`AsyncTransport::recv_into`]. Unlike a missing `match` arm, an
-    /// unforwarded `send_semantics` does not fail to compile — it silently falls
-    /// back to this `Stream` default, which is wrong for any datagram inner
-    /// transport and demotes it to the stream-poison policy. The inner transport
-    /// is the authority on its own semantics.
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Stream
-    }
 }

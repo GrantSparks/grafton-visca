@@ -24,7 +24,6 @@ use super::super::{
 use super::*;
 use crate::testing::manual_clock::ManualClock;
 use crate::{
-    command::CommandKind,
     command::PanTiltLimitCorner,
     completion::AppliedOnly,
     prepared::{
@@ -40,8 +39,7 @@ use crate::{
         TimeoutPolicy,
     },
     transport::{
-        AddressingMode, BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics,
-        TransportConfig,
+        BlockingTransport, HasTransportConfig, ReceiveOutcome, SendSemantics, TransportConfig,
     },
     OperationalTuning,
 };
@@ -113,18 +111,20 @@ impl Drop for ChannelTransport {
 }
 
 impl HasTransportConfig for ChannelTransport {
+    fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+        crate::transport::TransportIdentity::Custom {
+            semantics: self.semantics,
+            addressing: crate::transport::AddressingMode::Ip,
+        }
+    }
+
     fn transport_config(&self) -> &TransportConfig {
         &self.config
     }
 }
 
 impl BlockingTransport for ChannelTransport {
-    fn send_with_timeout(
-        &mut self,
-        bytes: &[u8],
-        _kind: CommandKind,
-        _timeout: Duration,
-    ) -> Result<(), Error> {
+    fn send_with_timeout(&mut self, bytes: &[u8], _timeout: Duration) -> Result<(), Error> {
         let callback = self.write_callback.lock().unwrap().take();
         if let Some(callback) = callback {
             callback();
@@ -185,10 +185,6 @@ impl BlockingTransport for ChannelTransport {
                 Err(Error::io_timeout())
             }
         }
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        self.semantics
     }
 }
 
@@ -278,7 +274,6 @@ impl Setup {
         let transport = ChannelTransport {
             clock: self.clock.clone(),
             config: TransportConfig {
-                addressing: AddressingMode::Ip,
                 read_timeout: Duration::from_millis(200),
                 ..TransportConfig::default()
             },

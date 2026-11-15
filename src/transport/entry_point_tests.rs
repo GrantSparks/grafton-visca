@@ -94,9 +94,7 @@ fn per_transport_defaults_are_internally_consistent() {
     let tcp = TransportConfig::for_tcp();
     let udp = TransportConfig::for_udp();
     let serial = TransportConfig::for_serial();
-    assert_eq!(tcp.addressing, AddressingMode::Ip);
-    assert_eq!(udp.addressing, AddressingMode::Ip);
-    assert_eq!(serial.addressing, AddressingMode::Serial);
+
     assert_eq!(tcp.buffer_config.recv_buffer_size, 256);
     assert_eq!(udp.buffer_config.recv_buffer_size, 1024);
     assert_eq!(serial.buffer_config.recv_buffer_size, 256);
@@ -158,10 +156,9 @@ fn camera_config_honours_an_explicit_generic_buffer_choice() {
     assert_eq!(tcp.buffer_config, BufferConfig::default());
 
     // The transport kind still owns addressing.
-    let udp = CameraConfig::<PtzOpticsG2>::udp("camera.local")
+    let _udp = CameraConfig::<PtzOpticsG2>::udp("camera.local")
         .transport_config(TransportConfig::for_serial())
         .udp_transport_config();
-    assert_eq!(udp.addressing, AddressingMode::Ip);
 }
 
 /// Live loopback checks of the blocking connectors.
@@ -174,7 +171,6 @@ mod blocking {
 
     use super::*;
     use crate::{
-        command::CommandKind,
         transport::{BlockingTransport, Transport},
         Error,
     };
@@ -202,29 +198,21 @@ mod blocking {
     }
 
     #[test]
-    fn ip_connectors_reject_serial_addressing_before_connecting() {
+    fn ip_connectors_derive_identity_independently_of_config_preset() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
-        listener
-            .set_nonblocking(true)
-            .expect("nonblocking listener");
         let address = listener.local_addr().expect("address").to_string();
-        for error in [
-            crate::transport::blocking::Tcp::connect_with_config(
-                &address,
-                TransportConfig::for_serial(),
-            )
-            .expect_err("serial TCP config"),
-            crate::transport::blocking::Udp::connect_with_config(
-                &address,
-                TransportConfig::for_serial(),
-            )
-            .expect_err("serial UDP config"),
-        ] {
-            assert!(matches!(error, Error::InvalidRequest(_)), "{error:?}");
-        }
-        assert!(
-            matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
-        );
+        let tcp = crate::transport::blocking::Tcp::connect_with_config(
+            &address,
+            TransportConfig::for_serial(),
+        )
+        .expect("TCP with caller-selected buffers");
+        let udp = crate::transport::blocking::Udp::connect_with_config(
+            &address,
+            TransportConfig::for_serial(),
+        )
+        .expect("UDP with caller-selected buffers");
+        assert_eq!(tcp.identity(), crate::transport::TransportIdentity::Tcp);
+        assert_eq!(udp.identity(), crate::transport::TransportIdentity::Udp);
     }
 
     #[test]
@@ -293,10 +281,7 @@ mod blocking {
             (&udp, TransportConfig::for_udp()),
         ] {
             assert_eq!(transport.transport_config(), &expected);
-            assert_eq!(
-                transport.addressing_mode_hint(),
-                Some(transport.transport_config().addressing)
-            );
+            assert_eq!(transport.identity().addressing(), AddressingMode::Ip);
         }
     }
 
@@ -329,11 +314,11 @@ mod blocking {
         };
 
         rejected(
-            tcp.send_with_timeout(&[0x81, 0x01, 0xFF], CommandKind::Command, Duration::MAX),
+            tcp.send_with_timeout(&[0x81, 0x01, 0xFF], Duration::MAX),
             "write_timeout",
         );
         rejected(
-            udp.send_with_timeout(&[0x81, 0x01, 0xFF], CommandKind::Command, Duration::MAX),
+            udp.send_with_timeout(&[0x81, 0x01, 0xFF], Duration::MAX),
             "write_timeout",
         );
         let mut dst = [0; 16];
@@ -362,7 +347,7 @@ mod blocking {
             ))
             .expect("serial opens");
             rejected(
-                serial.send_with_timeout(&[0x81, 0x01, 0xFF], CommandKind::Command, Duration::MAX),
+                serial.send_with_timeout(&[0x81, 0x01, 0xFF], Duration::MAX),
                 "write_timeout",
             );
             rejected(
@@ -377,8 +362,8 @@ mod blocking {
             ));
             assert_eq!(serial.transport_config(), &TransportConfig::for_serial());
             assert_eq!(
-                serial.addressing_mode_hint(),
-                Some(AddressingMode::Serial),
+                serial.identity().addressing(),
+                AddressingMode::Serial,
                 "a serial transport never reports IP addressing"
             );
         }
@@ -399,7 +384,7 @@ mod facades {
     use crate::{
         runtime::{Runtime, SmolRuntime, TokioRuntime},
         runtime_adapters::{smol, tokio as tokio_adapters},
-        transport::{AsyncTransport, Transport},
+        transport::Transport,
         Error,
     };
 
@@ -436,43 +421,49 @@ mod facades {
     }
 
     #[tokio::test]
-    async fn every_async_ip_connector_rejects_serial_addressing() {
+    async fn every_async_ip_connector_derives_identity_from_its_transport() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("listener");
-        listener
-            .set_nonblocking(true)
-            .expect("nonblocking listener");
         let address = listener.local_addr().expect("address").to_string();
         let config = TransportConfig::for_serial();
-        let tokio = TokioRuntime::from_current().expect("runtime");
+        let tokio = TokioRuntime::from_current().expect("Tokio runtime");
         let smol = SmolRuntime::new();
-        for error in [
-            tokio
-                .connect_tcp(&address, config)
-                .await
-                .expect_err("serial Tokio TCP config"),
-            tokio
-                .connect_udp(&address, config)
-                .await
-                .expect_err("serial Tokio UDP config"),
-            ::smol::block_on(smol.connect_tcp(&address, config))
-                .expect_err("serial smol TCP config"),
-            ::smol::block_on(smol.connect_udp(&address, config))
-                .expect_err("serial smol UDP config"),
-            tokio_adapters::TcpTransport::connect_with_config(&address, config)
-                .await
-                .expect_err("serial direct Tokio TCP config"),
-            tokio_adapters::UdpTransport::connect_with_config(&address, config)
-                .await
-                .expect_err("serial direct Tokio UDP config"),
-            ::smol::block_on(smol::TcpTransport::connect_with_config(&address, config))
-                .expect_err("serial direct smol TCP config"),
-            ::smol::block_on(smol::UdpTransport::connect_with_config(&address, config))
-                .expect_err("serial direct smol UDP config"),
-        ] {
-            assert!(matches!(error, Error::InvalidRequest(_)), "{error:?}");
+        macro_rules! check {
+            ($transport:expr, $identity:expr) => {{
+                let transport = $transport.expect("caller-selected I/O configuration");
+                assert_eq!(transport.identity(), $identity);
+            }};
         }
-        assert!(
-            matches!(listener.accept(), Err(error) if error.kind() == std::io::ErrorKind::WouldBlock)
+        check!(
+            tokio.connect_tcp(&address, config).await,
+            crate::transport::TransportIdentity::Tcp
+        );
+        check!(
+            tokio.connect_udp(&address, config).await,
+            crate::transport::TransportIdentity::Udp
+        );
+        check!(
+            ::smol::block_on(smol.connect_tcp(&address, config)),
+            crate::transport::TransportIdentity::Tcp
+        );
+        check!(
+            ::smol::block_on(smol.connect_udp(&address, config)),
+            crate::transport::TransportIdentity::Udp
+        );
+        check!(
+            tokio_adapters::TcpTransport::connect_with_config(&address, config).await,
+            crate::transport::TransportIdentity::Tcp
+        );
+        check!(
+            tokio_adapters::UdpTransport::connect_with_config(&address, config).await,
+            crate::transport::TransportIdentity::Udp
+        );
+        check!(
+            ::smol::block_on(smol::TcpTransport::connect_with_config(&address, config)),
+            crate::transport::TransportIdentity::Tcp
+        );
+        check!(
+            ::smol::block_on(smol::UdpTransport::connect_with_config(&address, config)),
+            crate::transport::TransportIdentity::Udp
         );
     }
 
@@ -491,8 +482,8 @@ mod facades {
             .expect("Tokio UDP connects");
         assert_eq!(tcp.transport_config(), &TransportConfig::for_tcp());
         assert_eq!(udp.transport_config(), &TransportConfig::for_udp());
-        assert_eq!(tcp.addressing_mode_hint(), Some(AddressingMode::Ip));
-        assert_eq!(udp.addressing_mode_hint(), Some(AddressingMode::Ip));
+        assert_eq!(tcp.identity().addressing(), AddressingMode::Ip);
+        assert_eq!(udp.identity().addressing(), AddressingMode::Ip);
 
         let (smol_tcp, smol_udp) = ::smol::block_on(async {
             (
@@ -506,8 +497,8 @@ mod facades {
         });
         assert_eq!(smol_tcp.transport_config(), &TransportConfig::for_tcp());
         assert_eq!(smol_udp.transport_config(), &TransportConfig::for_udp());
-        assert_eq!(smol_tcp.addressing_mode_hint(), Some(AddressingMode::Ip));
-        assert_eq!(smol_udp.addressing_mode_hint(), Some(AddressingMode::Ip));
+        assert_eq!(smol_tcp.identity().addressing(), AddressingMode::Ip);
+        assert_eq!(smol_udp.identity().addressing(), AddressingMode::Ip);
     }
 
     /// #798: an unresolvable host was `InvalidAddress` on the blocking
@@ -613,7 +604,7 @@ mod udp_address_selection {
     #[cfg(feature = "blocking")]
     #[test]
     fn blocking_udp_localhost_reaches_the_ipv4_camera() {
-        use crate::{command::CommandKind, transport::BlockingTransport};
+        use crate::transport::BlockingTransport;
         let (peer, endpoint) = peer();
         let mut socket = crate::transport::blocking::Udp::connect_with_config(
             &endpoint,
@@ -621,7 +612,7 @@ mod udp_address_selection {
         )
         .expect("UDP setup");
         socket
-            .send_with_timeout(&[0x81, 0xff], CommandKind::Command, Duration::from_secs(1))
+            .send_with_timeout(&[0x81, 0xff], Duration::from_secs(1))
             .expect("send");
         received(peer);
     }

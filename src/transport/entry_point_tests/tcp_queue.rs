@@ -103,7 +103,7 @@ fn listener() -> TcpListener {
 #[cfg(feature = "blocking")]
 #[test]
 fn blocking_reads_leave_unrequested_bytes_in_kernel() {
-    use crate::{command::CommandKind, transport::BlockingTransport};
+    use crate::transport::BlockingTransport;
 
     let listener = listener();
     let mut transport = crate::transport::blocking::Tcp::connect_with_config(
@@ -124,7 +124,7 @@ fn blocking_reads_leave_unrequested_bytes_in_kernel() {
     peer.assert_queued(PAYLOAD.len() - first.len());
 
     transport
-        .send_with_timeout(b"outbound", CommandKind::Command, BOUND)
+        .send_with_timeout(b"outbound", BOUND)
         .expect("write through the same stream after a read");
     peer.assert_outbound();
     let mut next = [0; 256];

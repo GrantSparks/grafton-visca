@@ -32,10 +32,7 @@ use std::{
 use super::frames;
 use crate::{
     command::bytes::VISCA_TERMINATOR,
-    transport::{
-        builder::TransportConfig, AddressingMode, AsyncTransport, HasTransportConfig,
-        ReceiveOutcome, SendSemantics,
-    },
+    transport::{builder::TransportConfig, AsyncTransport, HasTransportConfig, ReceiveOutcome},
     Error,
 };
 
@@ -564,7 +561,6 @@ impl ViscaCameraSimulator {
             inner,
             receiver: Some(Arc::new(Mutex::new(rx))),
             transport_config: TransportConfig {
-                addressing: AddressingMode::Serial,
                 ..TransportConfig::default()
             },
         }
@@ -1154,17 +1150,16 @@ impl AsyncTransport for ViscaCameraSimulator {
             Ok(Err(broadcast::error::RecvError::Lagged(_))) | Err(_) => Err(Error::io_timeout()),
         }
     }
-
-    fn addressing_mode_hint(&self) -> Option<AddressingMode> {
-        Some(self.transport_config.addressing)
-    }
-
-    fn send_semantics(&self) -> SendSemantics {
-        SendSemantics::Datagram
-    }
 }
 
 impl HasTransportConfig for ViscaCameraSimulator {
+    fn identity(&self) -> crate::transport::TransportIdentity<'_> {
+        crate::transport::TransportIdentity::Custom {
+            semantics: crate::transport::SendSemantics::Datagram,
+            addressing: crate::transport::AddressingMode::Serial,
+        }
+    }
+
     fn transport_config(&self) -> &TransportConfig {
         &self.transport_config
     }
