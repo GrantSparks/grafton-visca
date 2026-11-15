@@ -877,10 +877,13 @@ Whether cancellation was attempted is derived from the substate, rather than a
 separate latch (#836).
 
 These types admit 16 flattened `(phase, cancellation)` combinations. The
-transition/property tests independently check that table; the five former
-per-entry auditor rules for impossible cross-field combinations are type
-facts now. Cross-index audits remain, and both halt entry points run the debug
-invariant hook on every return path (#836/#856).
+transition/property tests independently check that table. The closed state
+representation replaces the former phase-local latch and cancellation checks.
+Relations to the immutable request kind or reply shape are still enforced by
+preparation and transition selection, with behavior tests; the lifecycle enum
+does not by itself prove those cross-field relations. Cross-index audits remain,
+and both halt entry points run the debug invariant hook on every return path
+(#836/#856).
 
 ### Transition table
 
@@ -1002,8 +1005,8 @@ than claimed as a snapshot-auditor check.
 - Every `AwaitingCompletion` entry is completion-only, and every raw completion-only/no-reply
   positional candidate owns its target lane exclusively for ordinary work. On a raw byte stream an
   urgent STOP may cross that exclusion while the ledger keeps its evidence distinct (#795;
-  `raw_evidence::stream_owed_completion_only_answer_holds_back_ordinary_work`). (Enforcement: types:
-  reply-shaped lifecycle; audit: target-local dispatch candidates.)
+  `raw_evidence::stream_owed_completion_only_answer_holds_back_ordinary_work`). (Enforcement: owner: request-shape transition selection; types: phase-local
+  representation; audit: target-local dispatch candidates.)
 - Every keyed raw hold is inert: it can filter late input and gate successors, but it cannot consume
   a response, accept cancellation, or recreate a request. (Enforcement: types: holds have no request
   lifecycle; owner: resolver/dispatch gates.)
@@ -1018,8 +1021,9 @@ than claimed as a snapshot-auditor check.
   only from the requested substate, then transition to sending.)
 - Observer removal never mutates protocol state or releases protocol capacity early. (Enforcement:
   owner: receipt wait/detach boundaries.)
-- Malformed, duplicate, stale, reordered, and unsolicited frames cannot panic or mutate unrelated
-  state. (Enforcement: owner: strict decoding and correlation; types: bounded target/socket keys.)
+- Malformed frames cannot panic. Duplicate, stale, reordered and unsolicited input cannot mutate
+  unrelated state within the documented camera-ordering and raw correlation-window assumptions.
+  (Enforcement: owner: strict decoding/correlation; types: bounded target/socket keys.)
 - No user decoder, callback, subscriber, transport I/O, or sleep runs while mutable engine state is
   borrowed. (Enforcement: owner: effect/I/O boundary after the engine borrow ends.)
 - The owner copies or moves each effect out of the engine and ends the mutable engine/observer
