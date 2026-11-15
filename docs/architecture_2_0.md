@@ -945,6 +945,8 @@ cancellation substate
 (`src/runtime/engine/lifecycle.rs`, #836). `Phase` and `CancelState` are
 flattened read-only diagnostic/test projections, never independently stored
 entry fields. The public diagnostic phase vocabulary is unchanged.
+Production code classifies lifecycles with lifecycle predicates; `Phase` is
+diagnostic only.
 The tables below follow the exhaustive lifecycle transitions in
 `src/runtime/engine/mod.rs`.
 
