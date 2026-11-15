@@ -27,7 +27,10 @@ use crate::{
     command::CommandKind,
     command::PanTiltLimitCorner,
     completion::AppliedOnly,
-    prepared::{prepare_command, prepare_operation, ClassSelection},
+    prepared::{
+        test_support::{prepare_command, prepare_operation},
+        ClassSelection,
+    },
     profile::ProfileSpec,
     profiles::{GenericVisca, SonyFR7},
     protocol::sony::SonyHeader,

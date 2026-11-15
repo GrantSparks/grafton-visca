@@ -6,6 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use crate::session_config::ValidatedTuning;
 #[cfg(test)]
 use crate::CameraId;
 use crate::{
@@ -185,7 +186,7 @@ impl PositionQueryPlan {
 
     fn prepare(
         registration: &crate::TargetRegistration,
-        tuning: OperationalTuning,
+        tuning: ValidatedTuning,
         axes: AffectedAxes,
     ) -> Result<Self> {
         Ok(Self {
@@ -256,7 +257,7 @@ impl PositionQueryPlan {
 /// profile admission checks or their selected wire queries.
 pub(crate) fn prepare_position_queries(
     registration: &crate::TargetRegistration,
-    tuning: OperationalTuning,
+    tuning: ValidatedTuning,
     axes: AffectedAxes,
 ) -> Result<PositionQueryPlan> {
     let profile = registration.profile();
@@ -621,7 +622,7 @@ where
 
 pub(crate) fn lower_targeted_settlement(
     registration: &crate::TargetRegistration,
-    tuning: OperationalTuning,
+    tuning: ValidatedTuning,
     axes: AffectedAxes,
     default_budget: Duration,
 ) -> Result<SettlementPlan> {
@@ -643,6 +644,7 @@ pub(crate) fn lower_targeted_settlement(
         queries: prepare_position_queries(registration, tuning, axes)?,
         tolerance: MovementTolerance::default(),
         interval: tuning
+            .get()
             .inquiry_spacing_override()
             .unwrap_or_else(|| profile.timing().minimum_inquiry_spacing())
             .max(Duration::from_millis(25)),
@@ -652,7 +654,7 @@ pub(crate) fn lower_targeted_settlement(
 
 pub(crate) fn lower_applied_only_settlement(
     registration: &crate::TargetRegistration,
-    _tuning: OperationalTuning,
+    _tuning: ValidatedTuning,
     axes: AffectedAxes,
     _default_budget: Duration,
 ) -> Result<()> {
@@ -670,7 +672,7 @@ pub(crate) fn lower_applied_only_settlement(
 pub(crate) fn prepare_command<C>(
     command: &C,
     registration: &crate::TargetRegistration,
-    tuning: OperationalTuning,
+    tuning: ValidatedTuning,
     class: ClassSelection,
 ) -> Result<PreparedCommand>
 where
@@ -690,7 +692,7 @@ where
 pub(crate) fn prepare_builtin_command<C>(
     command: &C,
     registration: &crate::TargetRegistration,
-    tuning: OperationalTuning,
+    tuning: ValidatedTuning,
 ) -> Result<PreparedCommand>
 where
     C: PlainCommand + crate::request::builtin::BuiltinValidation + ?Sized,
@@ -701,15 +703,13 @@ where
 fn prepare_command_with_state<C>(
     command: &C,
     registration: &crate::TargetRegistration,
-    tuning: OperationalTuning,
+    tuning: ValidatedTuning,
     class: ClassSelection,
     applied_state: Option<AppliedStateProjection>,
 ) -> Result<PreparedCommand>
 where
     C: PlainCommand + ?Sized,
 {
-    let profile = registration.profile();
-    profile.validate_tuning(tuning)?;
     validate_timeout_class(command.timeout_class(), false)?;
     command.validate_for_target(registration)?;
     let wire = encode(command, registration)?;
@@ -729,7 +729,7 @@ where
 pub(crate) fn prepare_inquiry<Q>(
     inquiry: &Q,
     registration: &crate::TargetRegistration,
-    tuning: OperationalTuning,
+    tuning: ValidatedTuning,
     class: ClassSelection,
 ) -> Result<PreparedInquiry<Q::Response>>
 where
@@ -751,7 +751,6 @@ where
         ));
     }
     validate_timeout_class(inquiry.timeout_class(), true)?;
-    profile.validate_tuning(tuning)?;
     if matches!(
         profile.capabilities().inquiry_support,
         crate::capabilities::InquirySupport::None
@@ -775,7 +774,7 @@ where
 pub(crate) fn prepare_operation<K, O>(
     operation: &O,
     registration: &crate::TargetRegistration,
-    tuning: OperationalTuning,
+    tuning: ValidatedTuning,
     class: ClassSelection,
 ) -> Result<PreparedOperation<K>>
 where
@@ -796,7 +795,7 @@ where
 pub(crate) fn prepare_builtin_operation<K, O>(
     operation: &O,
     registration: &crate::TargetRegistration,
-    tuning: OperationalTuning,
+    tuning: ValidatedTuning,
 ) -> Result<PreparedOperation<K>>
 where
     K: completion::Kind,
@@ -808,7 +807,7 @@ where
 fn prepare_operation_with_state<K, O>(
     operation: &O,
     registration: &crate::TargetRegistration,
-    tuning: OperationalTuning,
+    tuning: ValidatedTuning,
     class: ClassSelection,
     applied_state: Option<AppliedStateProjection>,
 ) -> Result<PreparedOperation<K>>
@@ -828,7 +827,6 @@ where
         ));
     }
     validate_timeout_class(operation.timeout_class(), false)?;
-    profile.validate_tuning(tuning)?;
     // Domain/profile admission must complete before lowering settlement
     // inquiries or encoding the command.  In particular, an unsupported
     // targeted built-in must not even prepare an inquiry plan as a side
@@ -855,7 +853,7 @@ where
         affected_axes,
         observation_timeout(
             &context,
-            settlement_budget(operation.timeout_class(), profile, tuning),
+            settlement_budget(operation.timeout_class(), profile, tuning.get()),
         ),
     )?;
     let wire = encode(operation, registration)?;
@@ -945,7 +943,7 @@ fn validate_timeout_class(class: TimeoutClass, inquiry: bool) -> Result<()> {
 fn request_context<R>(
     request: &R,
     registration: &crate::TargetRegistration,
-    tuning: OperationalTuning,
+    tuning: ValidatedTuning,
     class: ClassSelection,
     inquiry: bool,
 ) -> Result<RequestContext>
@@ -954,6 +952,7 @@ where
 {
     let target = registration.slot();
     let profile = registration.profile();
+    let tuning = tuning.get();
     let timing = profile.timing();
     let completion = completion_timeout(request.timeout_class(), profile, tuning);
     let inquiry_timeout = tuning
@@ -1239,10 +1238,97 @@ where
 }
 
 #[cfg(test)]
+pub(crate) mod test_support {
+    use super::*;
+
+    fn validated(
+        registration: &crate::TargetRegistration,
+        tuning: OperationalTuning,
+    ) -> Result<ValidatedTuning> {
+        ValidatedTuning::validate(tuning, [registration.profile()])
+    }
+
+    pub(crate) fn prepare_command<C: PlainCommand + ?Sized>(
+        command: &C,
+        registration: &crate::TargetRegistration,
+        tuning: OperationalTuning,
+        class: ClassSelection,
+    ) -> Result<PreparedCommand> {
+        super::prepare_command(
+            command,
+            registration,
+            validated(registration, tuning)?,
+            class,
+        )
+    }
+
+    pub(crate) fn prepare_inquiry<Q: Inquiry + ?Sized>(
+        inquiry: &Q,
+        registration: &crate::TargetRegistration,
+        tuning: OperationalTuning,
+        class: ClassSelection,
+    ) -> Result<PreparedInquiry<Q::Response>> {
+        super::prepare_inquiry(
+            inquiry,
+            registration,
+            validated(registration, tuning)?,
+            class,
+        )
+    }
+
+    pub(crate) fn prepare_operation<K: completion::Kind, O: OperationCommand<K> + ?Sized>(
+        operation: &O,
+        registration: &crate::TargetRegistration,
+        tuning: OperationalTuning,
+        class: ClassSelection,
+    ) -> Result<PreparedOperation<K>> {
+        super::prepare_operation(
+            operation,
+            registration,
+            validated(registration, tuning)?,
+            class,
+        )
+    }
+
+    pub(crate) fn prepare_builtin_command<
+        C: PlainCommand + crate::request::builtin::BuiltinValidation + ?Sized,
+    >(
+        command: &C,
+        registration: &crate::TargetRegistration,
+        tuning: OperationalTuning,
+    ) -> Result<PreparedCommand> {
+        super::prepare_builtin_command(command, registration, validated(registration, tuning)?)
+    }
+
+    pub(crate) fn prepare_builtin_operation<
+        K: completion::Kind,
+        O: OperationCommand<K> + crate::request::builtin::BuiltinValidation + ?Sized,
+    >(
+        operation: &O,
+        registration: &crate::TargetRegistration,
+        tuning: OperationalTuning,
+    ) -> Result<PreparedOperation<K>> {
+        super::prepare_builtin_operation(operation, registration, validated(registration, tuning)?)
+    }
+
+    pub(crate) fn prepare_position_queries(
+        registration: &crate::TargetRegistration,
+        tuning: OperationalTuning,
+        axes: AffectedAxes,
+    ) -> Result<PositionQueryPlan> {
+        super::prepare_position_queries(registration, validated(registration, tuning)?, axes)
+    }
+}
+
+#[cfg(test)]
 #[allow(clippy::expect_used, clippy::panic, unused_qualifications)]
 mod tests {
     use std::cell::Cell;
 
+    use super::test_support::{
+        prepare_builtin_command, prepare_builtin_operation, prepare_command, prepare_inquiry,
+        prepare_operation, prepare_position_queries,
+    };
     use super::*;
     use crate::{
         capabilities::{Capabilities, InquirySupport, TypedSupportSet},
@@ -4422,12 +4508,12 @@ pub(crate) struct PreparedHalt {
 #[cfg(any(feature = "async", feature = "blocking"))]
 pub(crate) fn prepare_halt(
     registration: &crate::TargetRegistration,
-    tuning: OperationalTuning,
+    tuning: ValidatedTuning,
 ) -> PreparedHalt {
     let target = registration.slot();
     let profile = registration.profile();
     use crate::request::builtin::{FocusStop, ZoomStop};
-    let mut budget = completion_timeout(TimeoutClass::Movement, profile, tuning);
+    let mut budget = completion_timeout(TimeoutClass::Movement, profile, tuning.get());
     let mut lower = |prepared: Result<PreparedOperation<completion::AppliedOnly>>| {
         prepared.map(|prepared| {
             prepared.admit_with(|request, _, _, timeouts| {

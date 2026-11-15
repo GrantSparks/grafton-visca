@@ -34,14 +34,15 @@ async fn async_prepared_retry_budget_covers_a_late_ack_and_completion() {
             crate::ControlClass::Normal,
         )
         .unwrap();
-        let prepared = crate::prepared::prepare_operation::<completion::AppliedOnly, _>(
-            &command,
-            &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
-                .expect("valid target registration"),
-            crate::OperationalTuning::new().ack_timeout(Duration::from_secs(ack_override)),
-            crate::prepared::ClassSelection::Request,
-        )
-        .unwrap();
+        let prepared =
+            crate::prepared::test_support::prepare_operation::<completion::AppliedOnly, _>(
+                &command,
+                &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
+                    .expect("valid target registration"),
+                crate::OperationalTuning::new().ack_timeout(Duration::from_secs(ack_override)),
+                crate::prepared::ClassSelection::Request,
+            )
+            .unwrap();
         let mut operation = handle.submit_operation(prepared).await.unwrap();
         harness.started.recv_async().await.unwrap();
         harness

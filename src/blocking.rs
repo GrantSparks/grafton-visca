@@ -329,7 +329,7 @@ impl Session {
         let mut adapter = BlockingTransportAdapter::new_with_targets(
             transport,
             &profiles,
-            config.tuning(),
+            config.validated_tuning(),
             config.admission_capacity(),
             config.strict_unconfirmed_poison(),
         )?;
@@ -495,7 +495,7 @@ impl Session {
     /// owner has shut down; a retained terminal error takes precedence over
     /// validation of the proposed update.
     pub fn set_tuning(&self, tuning: OperationalTuning) -> Result<(), Error> {
-        let validated_tuning = self.config.validate_tuning(tuning).map(|()| tuning);
+        let validated_tuning = self.config.validate_tuning(tuning);
         self.owner.reconfigure(validated_tuning)
     }
 
@@ -750,8 +750,8 @@ impl BlockingCameraCore {
     /// This is read once per preparation rather than copied into the view, so a
     /// view taken before [`Session::set_tuning`] still prepares its next
     /// request under the new values (#631).
-    fn tuning(&self) -> OperationalTuning {
-        self.owner.tuning()
+    fn tuning(&self) -> crate::session_config::ValidatedTuning {
+        self.owner.validated_tuning()
     }
 
     /// Returns this view's submission-class default, if it carries one.

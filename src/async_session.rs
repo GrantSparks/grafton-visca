@@ -80,7 +80,7 @@ impl Session {
         T: AsyncTransport + HasTransportConfig + 'static,
     {
         config.validate_opened_transport(&transport)?;
-        let tuning = config.tuning();
+        let tuning = config.validated_tuning();
         let profiles = config.profile_registry();
         let mut adapter = AsyncTransportAdapter::new_with_targets(
             transport,
@@ -202,7 +202,7 @@ impl Session {
     /// if the owner has shut down; a retained terminal error takes precedence
     /// over validation of the proposed update.
     pub async fn set_tuning(&self, tuning: OperationalTuning) -> Result<()> {
-        let validated_tuning = self.config.validate_tuning(tuning).map(|()| tuning);
+        let validated_tuning = self.config.validate_tuning(tuning);
         self.owner.reconfigure(validated_tuning).await
     }
 
@@ -458,8 +458,8 @@ impl AsyncCameraCore {
     /// This is read once per preparation rather than copied into the view, so a
     /// [`Camera`] cloned before [`Session::set_tuning`] still prepares its next
     /// request under the new values (#631).
-    fn tuning(&self) -> OperationalTuning {
-        self.owner.tuning()
+    fn tuning(&self) -> crate::session_config::ValidatedTuning {
+        self.owner.validated_tuning()
     }
 
     pub(crate) const fn submission_class(&self) -> Option<SubmissionClass> {

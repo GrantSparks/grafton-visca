@@ -288,7 +288,7 @@ macro_rules! owner_handle_methods {
             /// it: the next request prepared uses the new values.
             pub(crate) $($async)* fn reconfigure(
                 &self,
-                validated_tuning: Result<crate::OperationalTuning, crate::Error>,
+                validated_tuning: Result<crate::session_config::ValidatedTuning, crate::Error>,
             ) -> Result<(), crate::Error> {
                 self.control_request(|reply| super::boundary::ControlBoundary::Reconfigure {
                     validated_tuning: Box::new(validated_tuning),
@@ -308,6 +308,10 @@ macro_rules! owner_handle_methods {
             /// under.
             pub(crate) fn tuning(&self) -> crate::OperationalTuning {
                 self.core.tuning()
+            }
+
+            pub(crate) fn validated_tuning(&self) -> crate::session_config::ValidatedTuning {
+                self.core.validated_tuning()
             }
 
             /// Coalesced idempotent shutdown; see

@@ -1058,7 +1058,9 @@ impl OperationalTuning {
     pub(crate) const fn inquiry_timeout_override(self) -> Option<Duration> {
         self.inquiry_timeout
     }
+}
 
+impl OperationalTuning {
     /// Applies the retry-timing overrides to a request's profile retry
     /// bounds. Each override may only lengthen its bound, so a value below the
     /// request's own bound leaves that bound in force.

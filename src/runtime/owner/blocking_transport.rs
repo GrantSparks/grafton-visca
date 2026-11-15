@@ -80,7 +80,7 @@ mod tests {
     use super::*;
     use crate::{
         command::CommandKind,
-        prepared::{prepare_command, ClassSelection},
+        prepared::{test_support::prepare_command, ClassSelection},
         profiles::{GenericVisca, SonyFR7},
         protocol::framer::RawIncompletePrefix,
         runtime::{

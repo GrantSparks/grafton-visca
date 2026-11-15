@@ -4,7 +4,9 @@
 use std::time::Duration;
 
 #[cfg(any(feature = "blocking", feature = "async"))]
-use crate::{AffectedAxes, OperationalTuning, Result};
+use crate::session_config::ValidatedTuning;
+#[cfg(any(feature = "blocking", feature = "async"))]
+use crate::{AffectedAxes, Result};
 
 /// A closed operation completion kind. Settlement lowering remains private
 /// to the owner implementation.
@@ -13,7 +15,7 @@ pub trait Kind: private::Sealed + Send + Sync + 'static {}
 #[cfg(any(feature = "blocking", feature = "async"))]
 pub(crate) fn lower_settlement<K: Kind>(
     registration: &crate::TargetRegistration,
-    tuning: OperationalTuning,
+    tuning: ValidatedTuning,
     axes: AffectedAxes,
     default_budget: Duration,
 ) -> Result<Settlement<K>> {
@@ -32,6 +34,7 @@ pub struct AppliedOnly;
 impl Kind for Targeted {}
 impl Kind for AppliedOnly {}
 
+#[allow(private_interfaces)]
 mod private {
     /// The plan association lives on the private seal, so it adds no public
     /// implementation obligation or supported API surface.
@@ -42,7 +45,7 @@ mod private {
         #[cfg(any(feature = "blocking", feature = "async"))]
         fn lower(
             registration: &crate::TargetRegistration,
-            tuning: crate::OperationalTuning,
+            tuning: crate::session_config::ValidatedTuning,
             axes: crate::AffectedAxes,
             default_budget: std::time::Duration,
         ) -> crate::Result<super::Settlement<Self>>
@@ -57,7 +60,7 @@ mod private {
         #[cfg(any(feature = "blocking", feature = "async"))]
         fn lower(
             registration: &crate::TargetRegistration,
-            tuning: crate::OperationalTuning,
+            tuning: crate::session_config::ValidatedTuning,
             axes: crate::AffectedAxes,
             default_budget: std::time::Duration,
         ) -> crate::Result<super::Settlement<Self>> {
@@ -72,7 +75,7 @@ mod private {
         #[cfg(any(feature = "blocking", feature = "async"))]
         fn lower(
             registration: &crate::TargetRegistration,
-            tuning: crate::OperationalTuning,
+            tuning: crate::session_config::ValidatedTuning,
             axes: crate::AffectedAxes,
             default_budget: std::time::Duration,
         ) -> crate::Result<super::Settlement<Self>> {
@@ -91,7 +94,9 @@ mod lowering {
     use std::time::Duration;
 
     use super::{AppliedOnly, Kind, Targeted};
-    use crate::{AffectedAxes, OperationalTuning, Result};
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    use crate::session_config::ValidatedTuning;
+    use crate::{AffectedAxes, Result};
 
     /// Opaque settlement lowering returned by [`Kind`].
     ///
@@ -134,7 +139,7 @@ mod lowering {
 
     pub(super) fn applied_only(
         registration: &crate::TargetRegistration,
-        tuning: OperationalTuning,
+        tuning: ValidatedTuning,
         axes: AffectedAxes,
         default_budget: Duration,
     ) -> Result<Settlement<AppliedOnly>> {
@@ -144,7 +149,7 @@ mod lowering {
 
     pub(super) fn targeted(
         registration: &crate::TargetRegistration,
-        tuning: OperationalTuning,
+        tuning: ValidatedTuning,
         axes: AffectedAxes,
         default_budget: Duration,
     ) -> Result<Settlement<Targeted>> {

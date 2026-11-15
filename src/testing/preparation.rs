@@ -18,7 +18,7 @@ pub fn check_command<C: PlainCommand + ?Sized>(
     std::hint::black_box(crate::prepared::prepare_command(
         command,
         target,
-        tuning,
+        crate::session_config::ValidatedTuning::validate(tuning, [target.profile()])?,
         crate::prepared::ClassSelection::Request,
     )?);
     Ok(())
@@ -37,7 +37,7 @@ pub fn check_inquiry<Q: Inquiry + ?Sized>(
     std::hint::black_box(crate::prepared::prepare_inquiry(
         inquiry,
         target,
-        tuning,
+        crate::session_config::ValidatedTuning::validate(tuning, [target.profile()])?,
         crate::prepared::ClassSelection::Request,
     )?);
     Ok(())

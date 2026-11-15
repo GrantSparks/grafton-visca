@@ -454,7 +454,7 @@ mod tests {
         let targeted = CompletionOnlyTargeted;
         let targeted: &dyn DynTargetedRequest = &targeted;
         let targeted_adapter = OperationAdapter::<Targeted, _>::new(targeted);
-        let targeted_prepared = crate::prepared::prepare_operation::<Targeted, _>(
+        let targeted_prepared = crate::prepared::test_support::prepare_operation::<Targeted, _>(
             &targeted_adapter,
             &crate::TargetRegistration::new(
                 (crate::target::TargetSlot::CAMERA_1).camera(),
@@ -492,7 +492,7 @@ mod tests {
         let applied_adapter = OperationAdapter::<AppliedOnly, _>::new(applied);
         assert!(
             matches!(
-                crate::prepared::prepare_operation::<AppliedOnly, _>(
+                crate::prepared::test_support::prepare_operation::<AppliedOnly, _>(
                     &applied_adapter,
                     &crate::TargetRegistration::new(
                         (crate::target::TargetSlot::CAMERA_1).camera(),
@@ -514,7 +514,7 @@ mod tests {
             return;
         };
         let targeted = OversizedTargeted;
-        let static_targeted = crate::prepared::prepare_operation::<Targeted, _>(
+        let static_targeted = crate::prepared::test_support::prepare_operation::<Targeted, _>(
             &targeted,
             &crate::TargetRegistration::new(
                 (crate::target::TargetSlot::CAMERA_1).camera(),
@@ -531,7 +531,7 @@ mod tests {
 
         let erased_targeted: &dyn DynTargetedRequest = &targeted;
         let targeted_adapter = OperationAdapter::<Targeted, _>::new(erased_targeted);
-        let dynamic_targeted = crate::prepared::prepare_operation::<Targeted, _>(
+        let dynamic_targeted = crate::prepared::test_support::prepare_operation::<Targeted, _>(
             &targeted_adapter,
             &crate::TargetRegistration::new(
                 (crate::target::TargetSlot::CAMERA_1).camera(),
@@ -547,7 +547,7 @@ mod tests {
         );
 
         let applied = OversizedApplied;
-        let static_applied = crate::prepared::prepare_operation::<AppliedOnly, _>(
+        let static_applied = crate::prepared::test_support::prepare_operation::<AppliedOnly, _>(
             &applied,
             &crate::TargetRegistration::new(
                 (crate::target::TargetSlot::CAMERA_1).camera(),
@@ -564,7 +564,7 @@ mod tests {
 
         let erased: &dyn DynAppliedRequest = &applied;
         let adapter = OperationAdapter::<AppliedOnly, _>::new(erased);
-        let dynamic_applied = crate::prepared::prepare_operation::<AppliedOnly, _>(
+        let dynamic_applied = crate::prepared::test_support::prepare_operation::<AppliedOnly, _>(
             &adapter,
             &crate::TargetRegistration::new(
                 (crate::target::TargetSlot::CAMERA_1).camera(),
@@ -588,7 +588,7 @@ mod tests {
         let downstream = DownstreamUrgentApplied;
         let erased: &dyn DynAppliedRequest = &downstream;
         let adapter = OperationAdapter::<AppliedOnly, _>::new(erased);
-        let downstream_result = crate::prepared::prepare_operation::<AppliedOnly, _>(
+        let downstream_result = crate::prepared::test_support::prepare_operation::<AppliedOnly, _>(
             &adapter,
             &crate::TargetRegistration::new(
                 (crate::target::TargetSlot::CAMERA_1).camera(),
@@ -606,7 +606,7 @@ mod tests {
         let stop = ZoomStop;
         let erased_stop: &dyn DynAppliedRequest = &stop;
         let stop_adapter = OperationAdapter::<AppliedOnly, _>::new(erased_stop);
-        let prepared = crate::prepared::prepare_operation::<AppliedOnly, _>(
+        let prepared = crate::prepared::test_support::prepare_operation::<AppliedOnly, _>(
             &stop_adapter,
             &crate::TargetRegistration::new(
                 (crate::target::TargetSlot::CAMERA_1).camera(),

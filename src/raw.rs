@@ -1160,7 +1160,7 @@ mod tests {
         .expect("valid frame for another explicit target");
         let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>()
             .expect("profile");
-        let error = crate::prepared::prepare_command(
+        let error = crate::prepared::test_support::prepare_command(
             &command,
             &crate::TargetRegistration::new(
                 (crate::target::TargetSlot::CAMERA_1).camera(),

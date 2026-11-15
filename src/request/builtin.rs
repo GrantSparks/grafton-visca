@@ -2451,7 +2451,8 @@ mod tests {
             WhiteBalanceCommand, WhiteBalanceMode,
         },
         prepared::{
-            prepare_builtin_command, prepare_builtin_operation, prepare_command, ClassSelection,
+            test_support::{prepare_builtin_command, prepare_builtin_operation, prepare_command},
+            ClassSelection,
         },
         profiles::{
             GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,

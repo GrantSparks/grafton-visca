@@ -17,6 +17,40 @@ use crate::{
 #[cfg(any(feature = "async", feature = "blocking"))]
 use crate::camera::TransportKind;
 
+/// Operational overrides checked against every profile in one session.
+#[cfg(any(feature = "async", feature = "blocking"))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct ValidatedTuning(OperationalTuning);
+
+#[cfg(any(feature = "async", feature = "blocking"))]
+impl ValidatedTuning {
+    pub(crate) fn validate<'a>(
+        tuning: OperationalTuning,
+        profiles: impl IntoIterator<Item = &'a ProfileSpec>,
+    ) -> Result<Self> {
+        let mut profiles = profiles.into_iter().peekable();
+        if profiles.peek().is_none() {
+            return Err(Error::InvalidRequest(
+                "tuning validation requires a registered profile".into(),
+            ));
+        }
+        for profile in profiles {
+            profile.validate_tuning(tuning)?;
+        }
+        Ok(Self(tuning))
+    }
+
+    pub(crate) const fn get(self) -> OperationalTuning {
+        self.0
+    }
+
+    #[cfg(test)]
+    pub(crate) fn for_test(tuning: OperationalTuning) -> Result<Self> {
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()?;
+        Self::validate(tuning, [&profile])
+    }
+}
+
 /// Maximum number of individually addressable cameras in one session.
 pub(crate) const MAX_REGISTERED_TARGETS: usize = TargetSlot::COUNT;
 
@@ -298,15 +332,15 @@ impl SessionConfig {
     /// reconfiguration path (#631) on each update, so an update is rejected on
     /// exactly the grounds that would have rejected it at construction.
     #[cfg(any(feature = "async", feature = "blocking"))]
-    pub(crate) fn validate_tuning(&self, tuning: OperationalTuning) -> Result<()> {
-        for profile in self.targets.iter().filter_map(|(_, registration)| {
-            registration
-                .as_deref()
-                .map(crate::TargetRegistration::profile)
-        }) {
-            profile.validate_tuning(tuning)?;
-        }
-        Ok(())
+    pub(crate) fn validate_tuning(&self, tuning: OperationalTuning) -> Result<ValidatedTuning> {
+        ValidatedTuning::validate(
+            tuning,
+            self.targets.iter().filter_map(|(_, registration)| {
+                registration
+                    .as_deref()
+                    .map(crate::TargetRegistration::profile)
+            }),
+        )
     }
 
     /// Validates this configuration's session policy against its registered
@@ -363,8 +397,8 @@ impl SessionConfig {
                 "Sony sequence reset on connect requires Sony encapsulated profiles".into(),
             ));
         }
-        self.validate_tuning(self.policy.tuning)?;
-        Ok(ValidatedSessionConfig(self))
+        let tuning = self.validate_tuning(self.policy.tuning)?;
+        Ok(ValidatedSessionConfig(self, tuning))
     }
 
     /// Borrow all registrations in the shape consumed by the owner adapter.
@@ -432,10 +466,14 @@ impl Default for SessionConfig {
 /// consumes one, so the policy is validated exactly once per open.
 #[cfg(any(feature = "async", feature = "blocking"))]
 #[derive(Debug, Clone)]
-pub(crate) struct ValidatedSessionConfig(SessionConfig);
+pub(crate) struct ValidatedSessionConfig(SessionConfig, ValidatedTuning);
 
 #[cfg(any(feature = "async", feature = "blocking"))]
 impl ValidatedSessionConfig {
+    pub(crate) const fn validated_tuning(&self) -> ValidatedTuning {
+        self.1
+    }
+
     /// Validates every registered profile against a standard transport kind.
     ///
     /// This check intentionally does not inspect transport configuration.  A
@@ -519,6 +557,27 @@ impl std::ops::Deref for ValidatedSessionConfig {
 #[cfg(all(test, feature = "blocking"))]
 #[allow(clippy::unwrap_used)]
 mod tests {
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    #[test]
+    fn tuning_proof_requires_successful_validation_for_the_registry() {
+        use super::*;
+        let profile =
+            ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("G2 profile");
+        assert!(ValidatedTuning::validate(OperationalTuning::new(), []).is_err());
+        assert!(ValidatedTuning::validate(
+            OperationalTuning::new().ack_timeout(std::time::Duration::ZERO),
+            [&profile],
+        )
+        .is_err());
+        let tuning = OperationalTuning::new();
+        assert_eq!(
+            ValidatedTuning::validate(tuning, [&profile])
+                .expect("valid proof")
+                .get(),
+            tuning
+        );
+    }
+
     use super::*;
     use crate::profiles::{GenericVisca, SonyFR7};
 

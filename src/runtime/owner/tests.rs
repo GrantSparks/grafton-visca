@@ -64,9 +64,12 @@ fn an_individual_target_rejects_broadcast_without_panicking() {
 
 #[test]
 fn with_targets_rejects_an_empty_registry_without_panicking() {
-    assert!(
-        OwnerPolicy::with_targets(policy_for_target_validation(), PerTarget::default()).is_err()
-    );
+    assert!(OwnerPolicy::with_targets(
+        policy_for_target_validation(),
+        PerTarget::default(),
+        crate::session_config::ValidatedTuning::for_test(crate::OperationalTuning::new()).unwrap()
+    )
+    .is_err());
 }
 
 #[test]
@@ -109,84 +112,68 @@ fn command_sockets(state: &OwnerState) -> u8 {
         .command_sockets
 }
 
-/// Issue #631: pacing and socket capacity are re-derived from the *profile*
-/// baseline, so an override can be relaxed again instead of becoming the new
-/// floor.
+/// Retuning preserves the immutable construction baseline while replacing
+/// the complete live proof value. Public #631 scenarios verify engine pacing.
 #[test]
-fn retuning_re_derives_pacing_from_the_profile_baseline() {
+fn retuning_preserves_the_profile_baseline_and_updates_the_live_proof() {
     let mut state = reconfigurable_owner_state();
+    let live = state.live_tuning();
+    let tuning = crate::OperationalTuning::new()
+        .command_spacing(Duration::from_millis(200))
+        .inquiry_spacing(Duration::from_millis(300))
+        .maximum_command_sockets(1);
+    state
+        .retune(crate::session_config::ValidatedTuning::for_test(tuning).expect("validated tuning"))
+        .expect("accepted retune");
+    assert_eq!(live.get().get(), tuning);
     assert_eq!(
-        state.policy().protocol.command_spacing,
+        state.policy().baseline.command_spacing,
         Duration::from_millis(10)
     );
     assert_eq!(
-        state.policy().protocol.inquiry_spacing,
+        state.policy().baseline.inquiry_spacing,
         Duration::from_millis(20)
     );
-    assert_eq!(command_sockets(&state), 2);
-
+    assert_eq!(
+        command_sockets(&state),
+        2,
+        "construction facts do not mirror live engine changes"
+    );
     state
         .retune(
-            crate::OperationalTuning::new()
-                .command_spacing(Duration::from_millis(200))
-                .inquiry_spacing(Duration::from_millis(300))
-                .maximum_command_sockets(1),
+            crate::session_config::ValidatedTuning::for_test(crate::OperationalTuning::new())
+                .expect("default tuning"),
         )
-        .expect("widening pacing and lowering socket capacity is accepted");
+        .expect("clear overrides");
+    assert_eq!(live.get().get(), crate::OperationalTuning::new());
     assert_eq!(
-        state.policy().protocol.command_spacing,
-        Duration::from_millis(200)
-    );
-    assert_eq!(
-        state.policy().protocol.inquiry_spacing,
-        Duration::from_millis(300)
-    );
-    assert_eq!(command_sockets(&state), 1);
-
-    // Clearing every override must return to the profile facts. Deriving the
-    // new value from the *tuned* one instead would leave 200 ms installed
-    // forever.
-    state
-        .retune(crate::OperationalTuning::new())
-        .expect("clearing the overrides is accepted");
-    assert_eq!(
-        state.policy().protocol.command_spacing,
+        state.policy().baseline.command_spacing,
         Duration::from_millis(10)
     );
     assert_eq!(
-        state.policy().protocol.inquiry_spacing,
+        state.policy().baseline.inquiry_spacing,
         Duration::from_millis(20)
     );
-    assert_eq!(command_sockets(&state), 2);
 }
 
-/// Issue #631: the live tuning cell handed to request-preparing handles follows
-/// the owner, and a rejected update leaves both the cell and the policy alone.
+/// Invalid overrides cannot produce the proof consumed by owner retuning.
 #[test]
 fn a_rejected_retune_changes_neither_the_live_tuning_nor_the_policy() {
     let mut state = reconfigurable_owner_state();
     let live = state.live_tuning();
-    assert_eq!(live.get(), crate::OperationalTuning::new());
-
-    let accepted = crate::OperationalTuning::new().command_spacing(Duration::from_millis(50));
-    state.retune(accepted).expect("accepted");
-    assert_eq!(live.get(), accepted, "the shared cell follows the owner");
-
-    // The facades reject this before it reaches the owner; the engine's own
-    // socket bound is the second line of defence, and it must fail cleanly.
-    let error = state
-        .retune(crate::OperationalTuning::new().maximum_command_sockets(3))
-        .expect_err("three command sockets is not a VISCA capacity");
-    assert!(matches!(error, Error::InvalidRequest(_)), "got {error:?}");
+    let accepted = crate::OperationalTuning::new().command_spacing(Duration::from_millis(200));
+    state
+        .retune(crate::session_config::ValidatedTuning::for_test(accepted).expect("validated"))
+        .expect("accepted");
+    let error = crate::session_config::ValidatedTuning::for_test(
+        crate::OperationalTuning::new().maximum_command_sockets(3),
+    )
+    .expect_err("invalid tuning cannot cross the owner boundary");
+    assert!(matches!(error, Error::InvalidRequest(_)));
+    assert_eq!(live.get().get(), accepted);
     assert_eq!(
-        live.get(),
-        accepted,
-        "a rejected update leaves the live tuning untouched"
-    );
-    assert_eq!(
-        state.policy().protocol.command_spacing,
-        Duration::from_millis(50),
-        "a rejected update leaves the owner policy untouched"
+        state.policy().baseline.command_spacing,
+        Duration::from_millis(10)
     );
     assert_eq!(command_sockets(&state), 2);
 }
@@ -1585,7 +1572,13 @@ mod lifecycle_trace {
                 ..TargetPolicy::test_default()
             });
         }
-        OwnerPolicy::with_targets(protocol, targets).unwrap()
+        OwnerPolicy::with_targets(
+            protocol,
+            targets,
+            crate::session_config::ValidatedTuning::for_test(crate::OperationalTuning::new())
+                .unwrap(),
+        )
+        .unwrap()
     }
 
     fn command(

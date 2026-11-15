@@ -5,6 +5,9 @@
 //! amount of mode-independent work needed by the blocking and async adapters;
 //! it does not own scheduling, settlement, or observer deadlines.
 
+#[cfg(test)]
+use crate::OperationalTuning;
+
 use std::{borrow::Cow, num::NonZeroUsize};
 
 use bytes::Bytes;
@@ -13,7 +16,7 @@ use smallvec::SmallVec;
 use crate::{
     camera::TransportKind as CameraTransportKind,
     command::CommandKind,
-    profile::{OperationalTuning, ProfileEnvelope, ProfileSpec},
+    profile::{ProfileEnvelope, ProfileSpec},
     protocol::{
         framer::{FramingError, FramingMode, ProtocolFramer},
         response::{decode_basic_for_source, BasicKind},
@@ -236,7 +239,10 @@ pub(crate) fn owner_policy_for_targets(
         profiles,
         config,
         semantics,
-        OperationalTuning::new(),
+        crate::session_config::ValidatedTuning::validate(
+            OperationalTuning::new(),
+            profiles.iter().map(|(_, profile)| *profile),
+        )?,
         crate::DEFAULT_ADMISSION_CAPACITY,
         false,
     )
@@ -249,7 +255,7 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     profiles: &[(TargetSlot, &ProfileSpec)],
     config: &TransportConfig,
     semantics: SendSemantics,
-    tuning: OperationalTuning,
+    tuning: crate::session_config::ValidatedTuning,
     admission_capacity: NonZeroUsize,
     strict_unconfirmed_poison: bool,
 ) -> Result<OwnerPolicy, Error> {
@@ -264,6 +270,8 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
         ));
     }
 
+    let validated_tuning = tuning;
+    let tuning = tuning.get();
     let first_profile = profiles[0].1;
     let envelope = match first_profile.envelope() {
         ProfileEnvelope::RawVisca => EnvelopeKind::Raw,
@@ -294,7 +302,6 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
             ));
         }
         seen[*target] = true;
-        profile.validate_tuning(tuning)?;
         if profile.envelope() != first_profile.envelope() {
             return Err(Error::InvalidRequest(
                 "registered session profiles require one wire envelope".into(),
@@ -373,6 +380,7 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
             strict_unconfirmed_poison,
         },
         target_policies,
+        validated_tuning,
     )?;
     policy.limits.receive_bytes = config.buffer_config.recv_buffer_size;
     policy.limits.framing_bytes = config.buffer_config.max_buffer_size;
@@ -383,7 +391,6 @@ pub(crate) fn owner_policy_for_targets_with_tuning(
     // before reporting no data (#780).
     policy.read_timeout = config.read_timeout;
     policy.write_timeout = config.write_timeout;
-    policy.tuning = tuning;
     policy.baseline = baseline;
     Ok(policy)
 }
@@ -464,7 +471,7 @@ where
     pub(crate) fn new_with_targets(
         transport: T,
         profiles: &[(TargetSlot, &ProfileSpec)],
-        tuning: OperationalTuning,
+        tuning: crate::session_config::ValidatedTuning,
         admission_capacity: NonZeroUsize,
         strict_unconfirmed_poison: bool,
     ) -> Result<Self, Error> {
@@ -506,7 +513,7 @@ where
         Self::new_with_targets(
             transport,
             &[(target, profile)],
-            tuning,
+            crate::session_config::ValidatedTuning::validate(tuning, [profile])?,
             crate::DEFAULT_ADMISSION_CAPACITY,
             false,
         )
@@ -618,7 +625,7 @@ impl AdapterFraming {
         addressing_hint: Option<AddressingMode>,
         semantics: SendSemantics,
         profiles: &[(TargetSlot, &ProfileSpec)],
-        tuning: OperationalTuning,
+        tuning: crate::session_config::ValidatedTuning,
         admission_capacity: NonZeroUsize,
         strict_unconfirmed_poison: bool,
     ) -> Result<(Self, OwnerPolicy), Error>
@@ -1750,7 +1757,8 @@ mod tests {
             &raw_profiles,
             &config,
             SendSemantics::Datagram,
-            OperationalTuning::new(),
+            crate::session_config::ValidatedTuning::validate(OperationalTuning::new(), [&raw])
+                .unwrap(),
             capacity,
             false,
         )
@@ -1766,7 +1774,8 @@ mod tests {
             &sony_profiles,
             &config,
             SendSemantics::Datagram,
-            OperationalTuning::new(),
+            crate::session_config::ValidatedTuning::validate(OperationalTuning::new(), [&sony])
+                .unwrap(),
             capacity,
             false,
         )

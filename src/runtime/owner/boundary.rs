@@ -403,7 +403,7 @@ pub(super) enum ControlBoundary {
     /// carried in the same message so a terminal owner selects its retained
     /// cause before returning a proposed update's validation error (#690).
     Reconfigure {
-        validated_tuning: Box<Result<crate::OperationalTuning, Error>>,
+        validated_tuning: Box<Result<crate::session_config::ValidatedTuning, Error>>,
         reply: flume::Sender<Result<(), Error>>,
     },
 }
@@ -672,6 +672,10 @@ impl OwnerHandleCore {
 
     /// Reads the tuning the owner is currently preparing requests under.
     pub(super) fn tuning(&self) -> crate::OperationalTuning {
+        self.tuning.get().get()
+    }
+
+    pub(super) fn validated_tuning(&self) -> crate::session_config::ValidatedTuning {
         self.tuning.get()
     }
 

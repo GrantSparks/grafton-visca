@@ -305,7 +305,12 @@ fn two_target_raw_policy(transport: TransportKind) -> OwnerPolicy {
     let mut targets = PerTarget::default();
     targets[TargetSlot::CAMERA_1] = Some(target);
     targets[TargetSlot::CAMERA_2] = Some(target);
-    OwnerPolicy::with_targets(protocol, targets).unwrap()
+    OwnerPolicy::with_targets(
+        protocol,
+        targets,
+        crate::session_config::ValidatedTuning::for_test(crate::OperationalTuning::new()).unwrap(),
+    )
+    .unwrap()
 }
 
 fn command() -> RuntimeRequest {
@@ -771,7 +776,7 @@ fn harness() -> Harness {
 }
 
 fn prepared_focus(profile: &crate::ProfileSpec) -> crate::prepared::PreparedCommand {
-    crate::prepared::prepare_command(
+    crate::prepared::test_support::prepare_command(
         &crate::request::builtin::FocusModeCommand::Manual,
         &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
             .expect("valid target registration"),
@@ -784,7 +789,7 @@ fn prepared_focus(profile: &crate::ProfileSpec) -> crate::prepared::PreparedComm
 fn prepared_zoom(
     profile: &crate::ProfileSpec,
 ) -> crate::prepared::PreparedOperation<completion::Targeted> {
-    crate::prepared::prepare_operation::<completion::Targeted, _>(
+    crate::prepared::test_support::prepare_operation::<completion::Targeted, _>(
         &crate::request::builtin::ZoomTarget::new(crate::types::ZoomPosition::new(0x0100).unwrap()),
         &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone())
             .expect("valid target registration"),

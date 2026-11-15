@@ -23,7 +23,7 @@ fn prepared_retry_budget_preserves_healthy_late_ack_attempts() {
             crate::ControlClass::Normal,
         )
         .unwrap();
-        let prepared = crate::prepared::prepare_command(
+        let prepared = crate::prepared::test_support::prepare_command(
             &command,
             &crate::TargetRegistration::new((camera(1)).camera(), profile.clone())
                 .expect("valid target registration"),

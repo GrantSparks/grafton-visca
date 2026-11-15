@@ -41,6 +41,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   handles, reads built-in inquiry provenance from one hook, and lowers settlement
   through the private seal. Impossible registry and observer assertions are
   removed (#874).
+- Preparation consumes tuning validated at session construction or runtime
+  update, retaining its proof through the owner and avoiding per-request tuning
+  checks and wall-clock reads. Non-zero identities, one inquiry provenance hook,
+  and private settlement lowering replace redundant conversions and checks
+  (#874).
 
 - **BREAKING** (#872): Settlement tuning below every built-in targeted retry
   budget is refused. Default `settled()` waits use the larger of the override

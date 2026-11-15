@@ -234,7 +234,7 @@ pub(crate) struct OwnerPolicy {
     pub(crate) protocol: ProtocolPolicy,
     pub(crate) targets: PerTarget<Option<TargetPolicy>>,
     pub(crate) limits: OwnerLimits,
-    pub(crate) tuning: crate::OperationalTuning,
+    pub(crate) tuning: crate::session_config::ValidatedTuning,
     pub(crate) baseline: TuningBaseline,
     /// Maximum time one transport read may take before the owner treats the
     /// read as "no data arrived" (#675). The async owner enforces it around
@@ -259,6 +259,7 @@ impl OwnerPolicy {
     pub(crate) fn with_targets(
         protocol: ProtocolPolicy,
         targets: PerTarget<Option<TargetPolicy>>,
+        tuning: crate::session_config::ValidatedTuning,
     ) -> Result<Self, Error> {
         if targets.iter().all(|(_, target)| target.is_none()) {
             return Err(Error::InvalidRequest(
@@ -273,7 +274,7 @@ impl OwnerPolicy {
             protocol,
             targets,
             limits: OwnerLimits::default(),
-            tuning: crate::OperationalTuning::new(),
+            tuning,
             baseline: TuningBaseline {
                 command_spacing: protocol.command_spacing,
                 inquiry_spacing: protocol.inquiry_spacing,
@@ -296,7 +297,11 @@ impl OwnerPolicy {
     ) -> Result<Self, Error> {
         let mut targets = PerTarget::default();
         targets[target] = Some(target_policy);
-        Self::with_targets(protocol, targets)
+        Self::with_targets(
+            protocol,
+            targets,
+            crate::session_config::ValidatedTuning::for_test(crate::OperationalTuning::new())?,
+        )
     }
 }
 
@@ -1441,19 +1446,19 @@ pub(crate) enum AppliedEffect {
 /// never a half-applied mixture of two updates — and two concurrent updates
 /// resolve last-writer-wins in the order the owner accepted them.
 #[derive(Debug, Clone)]
-pub(crate) struct LiveTuning(Arc<Mutex<crate::OperationalTuning>>);
+pub(crate) struct LiveTuning(Arc<Mutex<crate::session_config::ValidatedTuning>>);
 
 impl LiveTuning {
-    fn new(tuning: crate::OperationalTuning) -> Self {
+    fn new(tuning: crate::session_config::ValidatedTuning) -> Self {
         Self(Arc::new(Mutex::new(tuning)))
     }
 
     /// Copies the tuning currently governing request preparation.
-    pub(crate) fn get(&self) -> crate::OperationalTuning {
+    pub(crate) fn get(&self) -> crate::session_config::ValidatedTuning {
         *self.0.lock().unwrap_or_else(|poison| poison.into_inner())
     }
 
-    fn set(&self, tuning: crate::OperationalTuning) {
+    fn set(&self, tuning: crate::session_config::ValidatedTuning) {
         *self.0.lock().unwrap_or_else(|poison| poison.into_inner()) = tuning;
     }
 }
@@ -1603,11 +1608,14 @@ impl OwnerState {
     /// admitted request's context, so an in-flight command is never re-timed
     /// underneath its own observer.
     ///
-    /// The caller is responsible for validating `tuning` against the registered
-    /// profiles first — the owner does not retain `ProfileSpec` values, and the
-    /// session facades perform those profile-safety checks before the update
-    /// reaches this point.
-    pub(crate) fn retune(&mut self, tuning: crate::OperationalTuning) -> Result<(), Error> {
+    /// The proof value was checked against every registered profile before
+    /// crossing this boundary. Commit it to the live cell only after the
+    /// engine accepts its pacing and capacity update.
+    pub(crate) fn retune(
+        &mut self,
+        validated: crate::session_config::ValidatedTuning,
+    ) -> Result<(), Error> {
+        let tuning = validated.get();
         let baseline = self.policy.baseline;
         let command_spacing = tuning
             .command_spacing_override()
@@ -1624,15 +1632,7 @@ impl OwnerState {
         });
         self.engine
             .retune(command_spacing, inquiry_spacing, command_sockets)?;
-        self.policy.protocol.command_spacing = command_spacing;
-        self.policy.protocol.inquiry_spacing = inquiry_spacing;
-        for (target, slot) in self.policy.targets.iter_mut() {
-            if let (Some(policy), Some(sockets)) = (slot.as_mut(), command_sockets[target]) {
-                policy.command_sockets = sockets;
-            }
-        }
-        self.policy.tuning = tuning;
-        self.tuning.set(tuning);
+        self.tuning.set(validated);
         Ok(())
     }
 

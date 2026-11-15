@@ -1404,7 +1404,11 @@ async fn production_raw_serial_a_release_preserves_c_partial_reply() {
             (TargetSlot::CAMERA_1, &profile),
             (TargetSlot::CAMERA_3, &profile),
         ],
-        crate::OperationalTuning::new(),
+        crate::session_config::ValidatedTuning::validate(
+            crate::OperationalTuning::new(),
+            [&profile],
+        )
+        .unwrap(),
         std::num::NonZeroUsize::new(4).unwrap(),
         false,
     )
@@ -1505,7 +1509,11 @@ async fn production_raw_serial_frame_limit_drains_c_before_discarding_a_prefix()
             (TargetSlot::CAMERA_1, &profile),
             (TargetSlot::CAMERA_3, &profile),
         ],
-        crate::OperationalTuning::new(),
+        crate::session_config::ValidatedTuning::validate(
+            crate::OperationalTuning::new(),
+            [&profile],
+        )
+        .unwrap(),
         std::num::NonZeroUsize::new(4).unwrap(),
         false,
     )
