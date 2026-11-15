@@ -21,7 +21,8 @@ const SERIAL_FRAME_LIMIT: usize = 256;
 /// Stream retention bound shared by every preset.
 const DEFAULT_RETENTION_LIMIT: usize = 8192;
 
-/// The VISCA protocol bounds every message, replies included, to 16 bytes.
+/// The largest documented reply currently supported is sixteen bytes.
+/// Request capacity is separate: FR7 position commands need seventeen bytes.
 const MAX_VISCA_MESSAGE: usize = 16;
 
 /// Sony VISCA-over-IP prefixes each message with an 8-byte header.

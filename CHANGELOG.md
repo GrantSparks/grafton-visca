@@ -144,6 +144,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for external close and transport teardown (#862).
 - Contributor and release checks (#886) now require unique production error
   constructors and verify the specific rejection reason in release self-tests.
+- Requests that exceed the selected profile's supported envelope payload
+  capacity fail before owner admission or I/O. Sony framing accommodates
+  documented seventeen-byte FR7 position commands; other Sony profiles retain
+  their supported sixteen-byte capacity (#869, #893).
+
 - Relative pan/tilt moves validate against the full reachable span and encode
   signed offsets without an unsigned-centered absolute bias (#870). Position
   framing shares per-axis word widths, including FR7 five-nibble pan and tilt,

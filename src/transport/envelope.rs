@@ -24,10 +24,12 @@ use crate::{
 };
 
 /// Sony VISCA-over-IP carries a complete VISCA payload in one 8-byte-header
-/// envelope. The protocol permits one through sixteen payload bytes. VISCA
-/// command, inquiry, and reply payloads end in [`VISCA_TERMINATOR`].
+/// envelope. The supported built-in command families need up to seventeen
+/// payload bytes (FR7 positions, R7 p. 18). Preparation enforces each profile's
+/// supported capacity; this shared framing limit is not a vendor-wide claim.
+/// Command, inquiry, and reply payloads end in [`VISCA_TERMINATOR`].
 const MIN_SONY_VISCA_PAYLOAD_LENGTH: usize = 1;
-const MAX_SONY_VISCA_PAYLOAD_LENGTH: usize = 16;
+const MAX_SONY_VISCA_PAYLOAD_LENGTH: usize = 17;
 
 /// The sequence provenance carried by a framed VISCA message.
 ///
@@ -741,7 +743,7 @@ mod tests {
     }
 
     #[test]
-    fn sony_outbound_frames_sixteen_byte_payload() {
+    fn sony_outbound_frames_the_longest_supported_payload() {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
         let mut visca_payload = [0xa5; MAX_SONY_VISCA_PAYLOAD_LENGTH];
         visca_payload[0] = 0x85;
@@ -750,7 +752,7 @@ mod tests {
 
         let meta = envelope
             .frame_into_with_sequence(&visca_payload, CommandKind::Command, None, &mut out)
-            .expect("sixteen-byte Sony payload is within the wire limit");
+            .expect("the longest supported Sony payload fits the frame");
 
         assert_eq!(meta.sequence, Some(FrameSequence::Full32(0)));
         let header = SonyHeader::decode(&out[..SonyHeader::SIZE]).expect("valid header");
@@ -763,7 +765,7 @@ mod tests {
     }
 
     #[test]
-    fn sony_outbound_rejects_seventeen_byte_payload_before_mutation_or_sequence_allocation() {
+    fn sony_outbound_rejects_unsupported_length_before_mutation_or_sequence_allocation() {
         let envelope = SonyEncapsulated::new(AddressingMode::Ip);
         let invalid_payload = [0x81; MAX_SONY_VISCA_PAYLOAD_LENGTH + 1];
         let mut out = bytes::BytesMut::from(&b"prior framed bytes"[..]);

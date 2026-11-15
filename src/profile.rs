@@ -1492,6 +1492,24 @@ impl ProfileSpec {
         self.facts.envelope
     }
 
+    /// The payload capacity supported for requests on this profile.
+    ///
+    /// The ordinary Sony command families fit sixteen bytes. R7's FR7
+    /// position commands need seventeen, selected by their coordinate codec.
+    /// This is the crate's supported framing capacity, not a vendor-wide
+    /// maximum inferred from one model's command list.
+    #[cfg(any(feature = "async", feature = "blocking"))]
+    pub(crate) fn maximum_request_bytes(&self) -> usize {
+        match self.envelope() {
+            ProfileEnvelope::RawVisca => crate::raw::MAX_BYTES,
+            ProfileEnvelope::SonyEncapsulated => {
+                self.pan_tilt_coordinates().map_or(16, |conversion| {
+                    16.max(conversion.wire_codec().maximum_position_frame_bytes())
+                })
+            }
+        }
+    }
+
     /// Returns immutable deadline and pacing minima.
     #[must_use]
     pub const fn timing(&self) -> ProfileTiming {

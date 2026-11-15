@@ -204,7 +204,7 @@ For Sony VISCA-over-IP mode, use UDP `52381` and the Sony 8-byte header:
 Byte 0-1: payload type
 Byte 2-3: payload length
 Byte 4-7: sequence number
-Byte 8+:  VISCA payload, 1 to 16 bytes, ending in FF
+Byte 8+:  VISCA payload, ending in FF (FR7 position commands use 17 bytes)
 ```
 
 Common payload types:
@@ -783,7 +783,9 @@ Sony VISCA-over-IP uses:
 - UDP transport.
 - Port `52381`.
 - An 8-byte message header.
-- Payload length `1–16` bytes.
+- The payload length is carried in the header. The usual command families fit
+  `1–16` bytes; FR7 position commands use 17 bytes (R7 p. 18). The library
+  checks each profile's supported request capacity before admission.
 - A sequence number stored in bytes 4–7.
 - Camera address fixed to `1` for VISCA-over-IP.
 

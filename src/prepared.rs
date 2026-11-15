@@ -687,7 +687,7 @@ where
     profile.validate_tuning(tuning)?;
     validate_timeout_class(command.timeout_class(), false)?;
     command.validate_for_profile(profile)?;
-    let wire = encode(command, target)?;
+    let wire = encode(command, target, profile)?;
     let mut context = request_context(command, target, profile, tuning, class, false, false)?;
     context.motion = command
         .motion_axes()
@@ -778,7 +778,7 @@ where
         });
     }
     inquiry.validate_for_profile(profile)?;
-    let wire = encode(inquiry, target)?;
+    let wire = encode(inquiry, target, profile)?;
     let context = request_context(
         inquiry,
         target,
@@ -887,7 +887,7 @@ where
             settlement_budget(operation.timeout_class(), profile, tuning),
         ),
     )?;
-    let wire = encode(operation, target)?;
+    let wire = encode(operation, target, profile)?;
     Ok(PreparedOperation {
         wire,
         context,
@@ -898,7 +898,7 @@ where
     })
 }
 
-fn encode<R>(request: &R, target: TargetSlot) -> Result<PreparedWire>
+fn encode<R>(request: &R, target: TargetSlot, profile: &ProfileSpec) -> Result<PreparedWire>
 where
     R: Request + ?Sized,
 {
@@ -947,6 +947,13 @@ where
     // here returns before the prepared request can be admitted or written to a
     // transport.
     crate::raw::reject_owner_only_primitive(message.as_bytes())?;
+    let maximum = profile.maximum_request_bytes();
+    if message.as_bytes().len() > maximum {
+        return Err(Error::InvalidRequest(format!(
+            "encoded request has {} bytes, exceeding this profile's supported envelope payload bound ({maximum})",
+            message.as_bytes().len(),
+        ).into()));
+    }
     Ok(PreparedWire::Owned(message))
 }
 
@@ -1726,6 +1733,84 @@ mod tests {
         )
         .expect_err("a frame needs at least two bytes");
         assert!(matches!(error, Error::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn envelope_bounds_are_checked_before_admission_and_follow_the_profile_codec() {
+        const FRAME: &[u8] = &[0x81, 1, 6, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff];
+        let sony =
+            ProfileSpec::from_compile_time::<crate::profiles::SonyBRCH900>().expect("Sony profile");
+        let request = BoundedPlain::<18> {
+            frame: FRAME,
+            reported_length: None,
+        };
+        let error = prepare_command(
+            &request,
+            TargetSlot::CAMERA_1,
+            &sony,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect_err("the ordinary Sony envelope capacity is checked during preparation");
+        assert!(
+            matches!(error, Error::InvalidRequest(message) if message.contains("envelope payload bound (16)"))
+        );
+
+        let mut capabilities = Capabilities::from_profile::<crate::profiles::GenericVisca>();
+        capabilities.profile_id = None;
+        let raw = runtime_profile(
+            capabilities,
+            true,
+            PositionInquirySupport::new(true, true, true),
+            AffectedAxes::PAN_TILT,
+        );
+        prepare_command(
+            &request,
+            TargetSlot::CAMERA_1,
+            &raw,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("raw framing supports larger bounded requests");
+        let fr7 = ProfileSpec::builder(raw.capabilities().clone())
+            .pan_tilt_coordinates(
+                crate::capabilities::CoordinateSystem::SignedCentered,
+                16.0,
+                16.0,
+            )
+            .pan_tilt_wire_codec(crate::capabilities::PanTiltWireCodec::SonyFr7)
+            .transports(raw.transports())
+            .envelope(ProfileEnvelope::SonyEncapsulated)
+            .timing(raw.timing())
+            .maximum_command_sockets(raw.maximum_command_sockets())
+            .supports_operation_complete(raw.supports_operation_complete())
+            .supports_command_cancel(raw.supports_command_cancel())
+            .preset_recall_axes(raw.preset_recall_axes())
+            .position_inquiries(raw.position_inquiries())
+            .build()
+            .expect("FR7-format runtime profile");
+        prepare_command(
+            &request,
+            TargetSlot::CAMERA_1,
+            &fr7,
+            OperationalTuning::new(),
+            ClassSelection::Request,
+        )
+        .expect("documented FR7 seventeen-byte frames fit");
+        let oversize = BoundedPlain::<18> {
+            frame: &[0x81, 1, 6, 2, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff],
+            reported_length: None,
+        };
+        assert!(matches!(
+            prepare_command(
+                &oversize,
+                TargetSlot::CAMERA_1,
+                &fr7,
+                OperationalTuning::new(),
+                ClassSelection::Request
+            ),
+            Err(Error::InvalidRequest(_))
+        ));
     }
 
     /// Owner-only byte patterns must be rejected for every typed request
