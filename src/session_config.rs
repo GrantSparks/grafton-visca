@@ -10,6 +10,7 @@ use std::{num::NonZeroUsize, sync::Arc};
 
 use crate::{
     profile::{CompileTimeProfile, OperationalTuning, ProfileSpec},
+    target::{PerTarget, TargetSlot},
     CameraId, Error, Result,
 };
 
@@ -17,7 +18,7 @@ use crate::{
 use crate::camera::TransportKind;
 
 /// Maximum number of individually addressable cameras in one session.
-pub(crate) const MAX_REGISTERED_TARGETS: usize = 7;
+pub(crate) const MAX_REGISTERED_TARGETS: usize = TargetSlot::COUNT;
 
 /// Default number of requests a session may admit before fail-fast rejection.
 #[allow(clippy::unwrap_used)]
@@ -165,7 +166,7 @@ pub(crate) use session_policy_accessors;
 /// copy the validated profile inventory.
 #[derive(Debug, Clone)]
 pub struct SessionConfig {
-    targets: [Option<Arc<ProfileSpec>>; MAX_REGISTERED_TARGETS],
+    targets: PerTarget<Option<Arc<ProfileSpec>>>,
     policy: SessionPolicy,
 }
 
@@ -175,13 +176,12 @@ impl SessionConfig {
     pub fn new(profile: ProfileSpec) -> Self {
         // Camera 1 is always a valid individual target, so this constructor
         // is infallible.
-        Self::with_profile(CameraId::CAMERA_1, profile)
+        Self::with_profile(TargetSlot::ALL[0], profile)
     }
 
     /// Creates a single-target configuration for an explicit camera.
     pub fn for_target(target: CameraId, profile: ProfileSpec) -> Result<Self> {
-        Self::validate_target(target)?;
-        Ok(Self::with_profile(target, profile))
+        Ok(Self::with_profile(TargetSlot::try_from(target)?, profile))
     }
 
     /// Creates a camera-1 configuration from a compile-time profile.
@@ -199,8 +199,7 @@ impl SessionConfig {
     /// mutating the configuration. The session policy, including tuning, is
     /// checked against every registered profile when the session opens.
     pub fn register_target(&mut self, target: CameraId, profile: ProfileSpec) -> Result<&mut Self> {
-        Self::validate_target(target)?;
-        let slot = Self::slot(target);
+        let slot = TargetSlot::try_from(target)?;
         if self.targets[slot].is_some() {
             return Err(Error::InvalidRequest(
                 "session target is already registered".into(),
@@ -224,7 +223,9 @@ impl SessionConfig {
     /// Returns the registered profile for one individual target.
     #[must_use]
     pub fn profile(&self, target: CameraId) -> Option<&ProfileSpec> {
-        Self::slot_checked(target).and_then(|slot| self.targets[slot].as_deref())
+        TargetSlot::try_from(target)
+            .ok()
+            .and_then(|slot| self.targets[slot].as_deref())
     }
 
     /// Returns the registered individual target IDs in camera-number order.
@@ -234,9 +235,8 @@ impl SessionConfig {
     #[must_use]
     pub fn targets(&self) -> [Option<CameraId>; MAX_REGISTERED_TARGETS] {
         std::array::from_fn(|index| {
-            self.targets[index]
-                .as_ref()
-                .and_then(|_| CameraId::new((index + 1) as u8).ok())
+            let target = TargetSlot::ALL[index];
+            self.targets[target].as_ref().map(|_| target.camera())
         })
     }
 
@@ -253,7 +253,10 @@ impl SessionConfig {
     /// Returns the number of registered individual targets.
     #[must_use]
     pub fn target_count(&self) -> usize {
-        self.targets.iter().flatten().count()
+        self.targets
+            .iter()
+            .filter(|(_, profile)| profile.is_some())
+            .count()
     }
 
     session_policy_accessors!();
@@ -272,7 +275,11 @@ impl SessionConfig {
     /// exactly the grounds that would have rejected it at construction.
     #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn validate_tuning(&self, tuning: OperationalTuning) -> Result<()> {
-        for profile in self.targets.iter().flatten() {
+        for profile in self
+            .targets
+            .iter()
+            .filter_map(|(_, profile)| profile.as_deref())
+        {
             profile.validate_tuning(tuning)?;
         }
         Ok(())
@@ -295,7 +302,11 @@ impl SessionConfig {
             )
         };
         let mut total_capacity = capacity;
-        for profile in self.targets.iter().flatten() {
+        for profile in self
+            .targets
+            .iter()
+            .filter_map(|(_, profile)| profile.as_deref())
+        {
             let reserve = usize::from(profile.typed_stop_paths());
             total_capacity = total_capacity
                 .checked_add(reserve)
@@ -312,9 +323,13 @@ impl SessionConfig {
             ));
         }
         if self.policy.sony_sequence_reset_on_connect
-            && self.targets.iter().flatten().any(|profile| {
-                profile.envelope() != crate::profile::ProfileEnvelope::SonyEncapsulated
-            })
+            && self
+                .targets
+                .iter()
+                .filter_map(|(_, profile)| profile.as_deref())
+                .any(|profile| {
+                    profile.envelope() != crate::profile::ProfileEnvelope::SonyEncapsulated
+                })
         {
             return Err(Error::InvalidRequest(
                 "Sony sequence reset on connect requires Sony encapsulated profiles".into(),
@@ -329,13 +344,8 @@ impl SessionConfig {
     pub(crate) fn profile_registry(&self) -> Vec<(CameraId, &ProfileSpec)> {
         self.targets
             .iter()
-            .enumerate()
-            .filter_map(|(index, profile)| {
-                profile.as_deref().and_then(|profile| {
-                    CameraId::new((index + 1) as u8)
-                        .ok()
-                        .map(|target| (target, profile))
-                })
+            .filter_map(|(target, profile)| {
+                profile.as_deref().map(|profile| (target.camera(), profile))
             })
             .collect()
     }
@@ -343,8 +353,8 @@ impl SessionConfig {
     /// The registered profile of `target`, shared with an owned camera view.
     #[cfg(any(feature = "async", feature = "blocking"))]
     pub(crate) fn registered_profile(&self, target: CameraId) -> Result<Arc<ProfileSpec>> {
-        Self::slot_checked(target)
-            .and_then(|slot| self.targets[slot].clone())
+        self.targets[TargetSlot::try_from(target)?]
+            .clone()
             .ok_or_else(|| Error::InvalidRequest("session target is not registered".into()))
     }
 
@@ -363,34 +373,17 @@ impl SessionConfig {
         Ok(profile)
     }
 
-    fn with_profile(target: CameraId, profile: ProfileSpec) -> Self {
+    fn with_profile(target: TargetSlot, profile: ProfileSpec) -> Self {
         let mut config = Self::default();
-        config.targets[Self::slot(target)] = Some(Arc::new(profile));
+        config.targets[target] = Some(Arc::new(profile));
         config
-    }
-
-    fn validate_target(target: CameraId) -> Result<()> {
-        if target.is_broadcast() {
-            return Err(Error::InvalidRequest(
-                "a session target must be an individual camera".into(),
-            ));
-        }
-        Ok(())
-    }
-
-    fn slot(target: CameraId) -> usize {
-        usize::from(target.id() - 1)
-    }
-
-    fn slot_checked(target: CameraId) -> Option<usize> {
-        (!target.is_broadcast()).then(|| Self::slot(target))
     }
 }
 
 impl Default for SessionConfig {
     fn default() -> Self {
         Self {
-            targets: std::array::from_fn(|_| None),
+            targets: PerTarget::default(),
             policy: SessionPolicy::DEFAULT,
         }
     }
@@ -411,7 +404,12 @@ impl ValidatedSessionConfig {
     /// caller can therefore reject an unsupported standard profile before any
     /// adapter/owner setup or transport I/O boundary is entered.
     pub(crate) fn validate_for_transport(&self, kind: Option<TransportKind>) -> Result<()> {
-        for profile in self.0.targets.iter().flatten() {
+        for profile in self
+            .0
+            .targets
+            .iter()
+            .filter_map(|(_, profile)| profile.as_deref())
+        {
             crate::runtime::owner::validate_profile_transport(profile, kind)?;
         }
         Ok(())
