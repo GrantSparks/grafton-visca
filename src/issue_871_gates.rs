@@ -343,3 +343,39 @@ macro_rules! gate_tests {
     };
 }
 noun_table!(gate_tests);
+
+#[test]
+fn sharpness_level_and_mode_have_independent_model_permissions() {
+    for profile in [
+        ProfileSpec::from_compile_time::<crate::profiles::SonyFR7>().expect("FR7"),
+        ProfileSpec::from_compile_time::<crate::profiles::SonyEVIH100>().expect("EVI"),
+    ] {
+        assert!(profile
+            .capabilities()
+            .supports_typed(TypedSupportSurface::SharpnessControl));
+        assert!(!profile
+            .capabilities()
+            .supports_typed(TypedSupportSurface::SharpnessMode));
+        let registration = target_for(&profile);
+        let level = command::Sharpness::SetLevel {
+            value: types::SharpnessLevel::new(5).expect("level"),
+        };
+        assert!(prepare_builtin_command(&level, &registration, OperationalTuning::new()).is_ok());
+        assert!(crate::Request::validate_for_target(
+            &command::SharpnessPositionInquiry,
+            &registration
+        )
+        .is_ok());
+        builtin::reset_request_write_count();
+        let mode = command::Sharpness::Mode(command::SharpnessMode::Auto);
+        assert!(matches!(
+            prepare_builtin_command(&mode, &registration, OperationalTuning::new()),
+            Err(Error::FeatureNotSupported { .. })
+        ));
+        assert_eq!(builtin::request_write_count(), 0);
+        assert!(matches!(
+            crate::Request::validate_for_target(&command::SharpnessModeInquiry, &registration),
+            Err(Error::FeatureNotSupported { .. })
+        ));
+    }
+}

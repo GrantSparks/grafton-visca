@@ -5,7 +5,7 @@ use grafton_visca::{
         HasFocusZoneInquiry, HasImageFlip, HasImageMirror, HasIrisControl,
         HasMotionSync, HasNdFilter, HasNoiseReduction2D, HasNoiseReduction2DControl,
         HasNoiseReduction3D, HasNoiseReduction3DControl, HasPictureEffect, HasRgbGain,
-        HasRgbTuning, HasSaturationControl, HasSharpnessControl, HasSonyAutoSlowShutter,
+        HasRgbTuning, HasSaturationControl, HasSharpnessControl, HasSharpnessMode, HasSonyAutoSlowShutter,
         HasSonySpotlight, HasTally, HasUsbAudio, HasVariableSpeed, HasVersionInquiry,
         HasWideDynamicRange,
     },
@@ -30,6 +30,7 @@ fn requires_nr_2d_control<P: HasNoiseReduction2DControl>() {}
 fn requires_nr_3d_control<P: HasNoiseReduction3DControl>() {}
 fn requires_contrast<P: HasContrastControl>() {}
 fn requires_sharpness<P: HasSharpnessControl>() {}
+fn requires_sharpness_mode<P: HasSharpnessMode>() {}
 fn requires_focus_zone<P: HasFocusZone>() {}
 fn requires_focus_zone_inquiry<P: HasFocusZoneInquiry>() {}
 fn requires_picture_effect<P: HasPictureEffect>() {}
@@ -78,7 +79,8 @@ fn main() {
     requires_contrast::<SonyEVIH100>();
     requires_contrast::<SonyBRC300>();
     requires_sharpness::<GenericVisca>();
-    requires_sharpness::<SonyEVIH100>();
+    requires_sharpness_mode::<SonyEVIH100>();
+    requires_sharpness_mode::<SonyFR7>();
     requires_sharpness::<SonyBRC300>();
     requires_auto_slow_shutter::<SonyFR7>();
     requires_auto_slow_shutter::<SonyBRCH900>();

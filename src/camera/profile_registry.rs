@@ -1922,11 +1922,6 @@ macro_rules! __define_builtin_profiles {
                     "Standard iris reset/up/down/direct control and `09 04 4B` iris-position inquiry",
                     $crate::capabilities::TypedSupportSurface::IrisControl,
                 );
-                assert_literal_row(
-                    readme,
-                    "Standard `09 04 2B` iris auto/manual-status inquiry (`iris_control()`)",
-                    "No built-in profile currently marks this typed capability",
-                );
                 assert_row(
                     readme,
                     "Shared VISCA exposure mode control and inquiry (including `ExposureMode::Iris`)",
@@ -2051,6 +2046,11 @@ macro_rules! __define_builtin_profiles {
                     readme,
                     "Sharpness control and inquiry",
                     $crate::capabilities::TypedSupportSurface::SharpnessControl,
+                );
+                assert_row(
+                    readme,
+                    "Sharpness auto/manual mode and inquiry",
+                    $crate::capabilities::TypedSupportSurface::SharpnessMode,
                 );
                 assert_row(
                     readme,
@@ -3242,6 +3242,7 @@ macro_rules! builtin_profile_registry {
                     nd_filter: { mode: $crate::capabilities::NdFilterMode::None },
                     variable_speed: { supported: false },
                     typed_support: [
+                        (SharpnessControl, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-sharpnesscontrol-grant", "01 04 02;01 04 42;09 04 42")])),
                         (VersionInquiry, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-versioninquiry-grant", "09 00 02")])),
                         (SonyAutoSlowShutter, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-sonyautoslowshutter-grant", "01 04 5A 02;01 04 5A 03")])),
                         (ExposureMode, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-exposuremode-grant", "01 04 39;09 04 39")])),
@@ -3262,7 +3263,7 @@ macro_rules! builtin_profile_registry {
                         (NoiseReduction2D, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-noisereduction2d-grant", "09 04 53")])),
                         (NoiseReduction2DControl, $crate::source_evidence::source!([(R8, [SonyEviH100], "r8-sonyevih100-noisereduction2dcontrol-grant", "01 04 53")])),
                     ],
-                    withheld: [WideDynamicRange, SharpnessControl, PictureEffect],
+                    withheld: [WideDynamicRange, SharpnessMode, PictureEffect],
                     evidence: [
                         ("transport", "The EVI-H100S/H100V technical manual (R8) documents VISCA over RS-232C and RS-422 at 9,600 or 38,400 bps; it documents no IP transport, so the profile is serial-only."),
                         ("shutter", "The EVI-H100S/H100V technical manual (R8) shutter table (VISCA Command Setting Values, exposure control 1/2), 60/30 mode: `00` 1/1 s through `15` 1/10000 s. The 50/25 mode assigns several codes other times (for example `13` 1/3500 s); the profile uses the 60/30 column."),
@@ -3286,7 +3287,7 @@ macro_rules! builtin_profile_registry {
                         ("noise_reduction", "The EVI-H100S/H100V technical manual (R8) command list (3/4) `CAM_NR` `8x 01 04 53 0p FF` (p: 0 off, levels 1 to 5) and inquiry list `CAM_NRInq` `8x 09 04 53 FF` -> `y0 50 0p FF`: exactly the 2D noise-reduction level control and inquiry. R8 lists no `04 50` auto/manual mode and no `04 54` 3D level, so those surfaces stay unavailable."),
                         ("saturation_control", "The EVI-H100S/H100V technical manual (R8) `CAM_ColorGain` Direct `8x 01 04 49 00 00 00 0p FF` and `CAM_ColorGainInq` `8x 09 04 49 FF` -> `y0 50 00 00 00 0p FF`, p `0h` (60%) to `Eh` (200%): the saturation control and inquiry byte for byte."),
                         ("hue_control", "The EVI-H100S/H100V technical manual (R8) `CAM_ColorHue` Direct `8x 01 04 4F 00 00 00 0p FF` and `CAM_ColorHueInq` `8x 09 04 4F FF` -> `y0 50 00 00 00 0p FF`, p `0h` (-14 degrees) to `Eh` (+14 degrees): the hue control and inquiry byte for byte."),
-                        ("sharpness_control", "The EVI-H100S/H100V technical manual (R8) `CAM_Aperture` reset/up/down `8x 01 04 02 00/02/03 FF`, direct `8x 01 04 42 00 00 0p 0q FF` and `CAM_ApertureInq` `09 04 42`, with Aperture Level `00`..`0F`, so the discovery metadata reports it. The typed surface also sends the `04 05` sharpness auto/manual mode and its `09 04 05` inquiry, which R8 does not list, so the typed surface is withheld."),
+                        ("sharpness_control", "The EVI-H100S/H100V technical manual (R8) `CAM_Aperture` reset/up/down `8x 01 04 02 00/02/03 FF`, direct `8x 01 04 42 00 00 0p 0q FF` and `CAM_ApertureInq` `09 04 42`, with Aperture Level `00`..`0F`, so level/step control and its typed inquiry are enabled. R8 does not list the independent `04 05` sharpness auto/manual mode or `09 04 05` inquiry; SharpnessMode remains withheld."),
                         ("picture_effect", "The EVI-H100S/H100V technical manual (R8) `CAM_PictureEffect` Off/Neg.Art/B&W `8x 01 04 63 00/02/04 FF`, so the discovery metadata reports it. Its `CAM_PictureEffectModeInq` reports Off as `00` and Neg.Art as `02`, while the typed inquiry decodes `02` as Off (the PTZOptics layout) and has no Neg.Art mode, so the typed surface is withheld."),
                     ],
                 }

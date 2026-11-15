@@ -2492,6 +2492,7 @@ vendor-verified claim from this built-in catalog.
 | r1-ptzopticsg2-sharpnessmode-grant | R1 | PtzOpticsG2 | grant.SharpnessMode | 01 04 05;09 04 05 | - | §7 command/inquiry tables |
 | r14-ptzopticsg3-sharpnessmode-grant | R14 | PtzOpticsG3 | grant.SharpnessMode | 01 04 05;09 04 05 | - | Current Developer Portal command and query pages |
 | r1-ptzoptics30x-sharpnessmode-grant | R1 | PtzOptics30X | grant.SharpnessMode | 01 04 05;09 04 05 | - | §7 command/inquiry tables |
+| r8-sonyevih100-sharpnesscontrol-grant | R8 | SonyEviH100 | grant.SharpnessControl | 01 04 02;01 04 42;09 04 42 | - | Technical Manual command list pp.31–34, inquiry list and Aperture Level setting values |
 <!-- END CHECKED SOURCE EVIDENCE -->
 
 ### FR7 cinema domains (R7 v4, pp. 14–22)

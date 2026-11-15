@@ -127,7 +127,6 @@ regenerated when upgrading from the flat capability record.
 | VISCA digital zoom toggle and optical-plus-digital positioning | `SonyEVIH100`, `SonyBRC300`, `NearusBRC300` |
 | Shared VISCA exposure mode control and inquiry (including `ExposureMode::Iris`) | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | Standard iris reset/up/down/direct control and `09 04 4B` iris-position inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
-| Standard `09 04 2B` iris auto/manual-status inquiry (`iris_control()`) | No built-in profile currently marks this typed capability |
 | Standard one-push focus | `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` |
 | PTZOptics snap focus | No built-in profile currently marks this typed capability |
 | Focus lock | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
@@ -151,7 +150,8 @@ regenerated when upgrading from the flat capability record.
 | Horizontal image mirror control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Combined image flip mode | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Contrast control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
-| Sharpness control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7` |
+| Sharpness control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyFR7`, `SonyEVIH100` |
+| Sharpness auto/manual mode and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |
 | Saturation control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyEVIH100` |
 | Hue control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X`, `SonyEVIH100` |
 | Luminance control and inquiry | `PtzOpticsG2`, `PtzOpticsG3`, `PtzOptics30X` |

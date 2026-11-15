@@ -53,6 +53,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- EVI-H100 now admits its sourced aperture level/step controls independently
+  of the unsupported sharpness mode register.
 - Sharpness auto/manual mode has its own source-backed permission and marker;
   level and step control no longer implies the separate mode register. FR7
   retains level/step control and refuses undocumented mode operations (#878).
