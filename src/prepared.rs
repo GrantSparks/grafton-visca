@@ -6,8 +6,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use smallvec::SmallVec;
-
 #[cfg(test)]
 use crate::CameraId;
 use crate::{
@@ -29,7 +27,7 @@ use crate::{
 };
 use crate::{Error, Result};
 
-use crate::raw::{INLINE_BYTES, MAX_BYTES};
+use crate::raw::MAX_BYTES;
 use crate::runtime::engine::{
     AppliedStateProjection, CancellationPolicy, ControlPolicy, EncodedMessage, ReplyShape,
     RequestContext, RetryPolicy, RuntimeRequest, TimeoutPolicy,
@@ -100,6 +98,31 @@ pub(crate) enum SettlementPlan {
     },
 }
 
+/// Wire bytes are owned during ordinary preparation. A polling template shares
+/// its already prepared bytes across repeated samples.
+#[derive(Debug)]
+enum PreparedWire {
+    Owned(EncodedMessage),
+    Shared(Arc<EncodedMessage>),
+}
+
+impl PreparedWire {
+    #[cfg(test)]
+    fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Owned(message) => message.as_bytes(),
+            Self::Shared(message) => message.as_bytes(),
+        }
+    }
+
+    fn into_shared(self) -> Arc<EncodedMessage> {
+        match self {
+            Self::Owned(message) => Arc::new(message),
+            Self::Shared(message) => message,
+        }
+    }
+}
+
 /// Reusable, inert lowering of one typed inquiry. Re-instantiation preserves
 /// the exact wire, route, decoder, target, and protocol policy selected during
 /// operation preparation.
@@ -114,7 +137,7 @@ pub(crate) struct PreparedInquiryTemplate<R> {
 impl<R> PreparedInquiryTemplate<R> {
     pub(crate) fn instantiate(&self) -> PreparedInquiry<R> {
         PreparedInquiry {
-            wire: Arc::clone(&self.wire),
+            wire: PreparedWire::Shared(Arc::clone(&self.wire)),
             context: self.context,
             route: self.route,
             decoder: self.decoder.clone(),
@@ -523,7 +546,7 @@ fn snapshots_moved(
 /// A fully lowered ordinary command.
 #[derive(Debug)]
 pub(crate) struct PreparedCommand {
-    wire: Arc<EncodedMessage>,
+    wire: PreparedWire,
     context: RequestContext,
     applied_state: Option<AppliedStateProjection>,
 }
@@ -531,7 +554,7 @@ pub(crate) struct PreparedCommand {
 /// A fully lowered typed inquiry. Decoding remains outside the engine.
 #[derive(Debug)]
 pub(crate) struct PreparedInquiry<R> {
-    wire: Arc<EncodedMessage>,
+    wire: PreparedWire,
     context: RequestContext,
     route: InquiryRoute,
     decoder: ResponseDecoder<R>,
@@ -543,7 +566,7 @@ pub(crate) struct PreparedOperation<K>
 where
     K: completion::Kind,
 {
-    wire: Arc<EncodedMessage>,
+    wire: PreparedWire,
     context: RequestContext,
     affected_axes: AffectedAxes,
     settlement: completion::Settlement<K>,
@@ -858,7 +881,7 @@ where
     })
 }
 
-fn encode<R>(request: &R, target: TargetSlot) -> Result<Arc<EncodedMessage>>
+fn encode<R>(request: &R, target: TargetSlot) -> Result<PreparedWire>
 where
     R: Request + ?Sized,
 {
@@ -869,27 +892,27 @@ where
             "MAX_SIZE must allow a VISCA target address and message body".into(),
         ));
     }
-    let mut bytes = SmallVec::<[u8; INLINE_BYTES]>::from_elem(0, capacity);
-    let written = match request.write_into(target.camera(), &mut bytes) {
-        Err(Error::BufferTooSmall { required, .. }) if required > capacity => {
-            return Err(Error::InvalidRequest(
+    let message = EncodedMessage::encode(capacity, |bytes| {
+        let written = match request.write_into(target.camera(), bytes) {
+            Err(Error::BufferTooSmall { required, .. }) if required > capacity => {
+                return Err(Error::InvalidRequest(
                 format!("encoded request needs {required} bytes, exceeding MAX_SIZE ({declared_max}) or raw::MAX_BYTES ({MAX_BYTES})").into(),
             ));
-        }
-        result => result?,
-    };
-    if written > capacity {
-        return Err(Error::InvalidRequest(
+            }
+            result => result?,
+        };
+        if written > capacity {
+            return Err(Error::InvalidRequest(
             format!("write_into reported {written} bytes, exceeding MAX_SIZE ({declared_max}) or raw::MAX_BYTES ({MAX_BYTES})").into(),
         ));
-    }
-    if written < 2 {
-        return Err(Error::InvalidRequest(
-            "encoded request must contain a VISCA target address and message body".into(),
-        ));
-    }
-    if bytes[0] != target.camera().to_address_byte() {
-        return Err(Error::InvalidRequest(
+        }
+        if written < 2 {
+            return Err(Error::InvalidRequest(
+                "encoded request must contain a VISCA target address and message body".into(),
+            ));
+        }
+        if bytes[0] != target.camera().to_address_byte() {
+            return Err(Error::InvalidRequest(
             format!(
                 "request targets VISCA address 0x{:02x}, but the selected camera target is {} (0x{:02x})",
                 bytes[0],
@@ -898,15 +921,16 @@ where
             )
             .into(),
         ));
-    }
+        }
+        Ok(written)
+    })?;
     // The raw namespace and downstream `Request` implementations share this
     // final owner-only primitive guard.  Constructing the inert message first
     // preserves the existing terminator/size validation order; a rejection
     // here returns before the prepared request can be admitted or written to a
     // transport.
-    let message = EncodedMessage::new(&bytes[..written])?;
     crate::raw::reject_owner_only_primitive(message.as_bytes())?;
-    Ok(Arc::new(message))
+    Ok(PreparedWire::Owned(message))
 }
 
 fn validate_timeout_class(class: TimeoutClass, inquiry: bool) -> Result<()> {
@@ -1127,7 +1151,7 @@ impl PreparedCommand {
             command_attempt_timeout(&self.context.timeout, self.context.reply_shape),
         );
         let request = RuntimeRequest::Command {
-            wire: self.wire,
+            wire: self.wire.into_shared(),
             context: self.context,
             applied_state: self.applied_state,
         };
@@ -1171,7 +1195,7 @@ fn observation_timeout(context: &RequestContext, governing_deadline: Duration) -
 impl<R> PreparedInquiry<R> {
     fn into_template(self) -> PreparedInquiryTemplate<R> {
         PreparedInquiryTemplate {
-            wire: self.wire,
+            wire: self.wire.into_shared(),
             context: self.context,
             route: self.route,
             decoder: self.decoder,
@@ -1184,7 +1208,7 @@ impl<R> PreparedInquiry<R> {
     ) -> T {
         let timeout = observation_timeout(&self.context, self.context.timeout.inquiry);
         let request = RuntimeRequest::Inquiry {
-            wire: self.wire,
+            wire: self.wire.into_shared(),
             context: self.context,
             route: crate::runtime::engine::InquiryRoute(self.route.identifier()),
         };
@@ -1220,7 +1244,7 @@ where
                 .saturating_add(self.context.timeout.cancellation),
         );
         let request = RuntimeRequest::Command {
-            wire: self.wire,
+            wire: self.wire.into_shared(),
             context: self.context,
             applied_state: self.applied_state,
         };

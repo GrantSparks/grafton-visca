@@ -24,8 +24,9 @@
 //! frame addressed to another target is rejected rather than being silently
 //! rewritten or inspected to infer target identity. Frames up to
 //! [`crate::raw::MAX_BYTES`] are accepted. The first `INLINE_BYTES` fit in inline storage;
-//! larger custom frames use one bounded heap-backed `SmallVec` allocation and
-//! are copied once into the prepared message. Standard built-in request
+//! larger custom frames allocate once when the raw value owns the input and
+//! once when preparation writes directly into its final inert storage. No
+//! intermediate frame buffer is copied. Standard built-in request
 //! encoding remains inline and allocation-free.
 //!
 //! Raw policy is explicit and owned by each value. Commands require timeout,

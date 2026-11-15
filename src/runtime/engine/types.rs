@@ -53,6 +53,7 @@ pub(crate) struct EncodedMessage {
 
 impl EncodedMessage {
     /// Copies validated, terminated VISCA bytes into reusable inert storage.
+    #[cfg(test)]
     pub(crate) fn new(bytes: &[u8]) -> Result<Self, Error> {
         if bytes.len() > MAX_BYTES {
             return Err(Error::ResponseTooLarge {
@@ -67,6 +68,33 @@ impl EncodedMessage {
         Ok(Self {
             bytes: SmallVec::from_slice(bytes),
         })
+    }
+
+    /// Writes directly into bounded inert storage, retaining a large frame's
+    /// one allocation instead of copying it into a second buffer.
+    pub(crate) fn encode(
+        capacity: usize,
+        write: impl FnOnce(&mut [u8]) -> Result<usize, Error>,
+    ) -> Result<Self, Error> {
+        if capacity > MAX_BYTES {
+            return Err(Error::InvalidRequest(
+                "encoded VISCA storage exceeds raw::MAX_BYTES".into(),
+            ));
+        }
+        let mut bytes = SmallVec::from_elem(0, capacity);
+        let written = write(&mut bytes)?;
+        if written > capacity {
+            return Err(Error::InvalidRequest(
+                "encoder returned a length beyond its supplied buffer".into(),
+            ));
+        }
+        bytes.truncate(written);
+        if bytes.last().copied() != Some(0xff) {
+            return Err(Error::InvalidRequest(
+                "encoded VISCA message must end in 0xff".into(),
+            ));
+        }
+        Ok(Self { bytes })
     }
 
     /// Returns the inert wire bytes.

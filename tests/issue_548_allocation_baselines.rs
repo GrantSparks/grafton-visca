@@ -339,3 +339,27 @@ fn raw_and_sony_framing_reuse_one_warmed_buffer() {
         SonyEncapsulated::new(AddressingMode::Ip),
     );
 }
+
+/// Preparation is measured before admission, where the engine starts sharing
+/// the inert frame with its transmit effects.
+#[cfg(all(feature = "test-utils", any(feature = "blocking", feature = "async")))]
+#[test]
+fn built_in_command_and_inquiry_preparation_stay_inline() {
+    use grafton_visca::{
+        profiles::PtzOpticsG2, testing::preparation, OperationalTuning, ProfileSpec,
+    };
+    let profile = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2 profile");
+    let tuning = OperationalTuning::new();
+    let allocations = allocations_during(|| {
+        preparation::check_command(
+            &grafton_visca::command::PowerOn::new(),
+            CameraId::CAMERA_1,
+            &profile,
+            tuning,
+        )
+        .expect("power command prepares");
+        preparation::check_inquiry(&PowerInquiry, CameraId::CAMERA_1, &profile, tuning)
+            .expect("power inquiry prepares");
+    });
+    assert_eq!(allocations, 0, "pure built-in preparation allocated");
+}

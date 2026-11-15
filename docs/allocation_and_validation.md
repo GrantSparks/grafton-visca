@@ -43,6 +43,7 @@ The stable test boundaries are:
 | Contract | Test |
 | --- | --- |
 | Representative built-in and typed request encoding | `tests/issue_548_allocation_baselines.rs`, zero-allocation tests near the end of the file |
+| Pure built-in command and inquiry preparation | `tests/issue_548_allocation_baselines.rs::built_in_command_and_inquiry_preparation_stay_inline`, through `testing::preparation` with `test-utils` |
 | Warmed raw/Sony framing reuse | `tests/issue_548_allocation_baselines.rs`, framing test near the end of the file |
 | Safe retry encoded-command reuse | `runtime::engine` unit test `inert_wire_is_inline_and_reused_across_retry_without_reallocation`, plus `runtime::owner` unit test `warmed_raw_and_sony_retries_reuse_owner_buffers`; raw coverage must be limited to conclusive rejection, never ambiguity or active-budget expiry |
 | Bounded submission and completion observers | `tests/issue_561_blocking_queue.rs` and the `runtime::owner` unit tests |
