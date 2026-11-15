@@ -54,7 +54,7 @@ pub(crate) fn saturating_deadline(at: Instant, duration: Duration) -> Instant {
 /// from one variant list, so a category added to the enum is always visited by
 /// every walk over `ALL` (validation, override checks and table projection).
 macro_rules! command_categories {
-    ($($variant:ident),+ $(,)?) => {
+    ($(#[doc = $doc:literal] $variant:ident),+ $(,)?) => {
         /// The five command completion categories: every [`TimeoutClass`]
         /// except [`TimeoutClass::Inquiry`], whose deadline is the profile's
         /// inquiry timing fact.
@@ -63,9 +63,9 @@ macro_rules! command_categories {
         /// overrides, and the validation that relates them) is reached through
         /// this one vocabulary, so a new category cannot be added without
         /// supplying each of its values.
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        pub(crate) enum CommandCategory {
-            $($variant,)+
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        pub enum CommandCategory {
+            $(#[doc = $doc] $variant,)+
         }
 
         impl CommandCategory {
@@ -77,11 +77,35 @@ macro_rules! command_categories {
     };
 }
 
-command_categories!(Quick, Movement, Preset, LongRunning, Network);
+command_categories!(
+    /// Fast configuration and ordinary control commands.
+    Quick,
+    /// Physical movement commands.
+    Movement,
+    /// Preset recall commands.
+    Preset,
+    /// Operations requiring an extended completion deadline.
+    LongRunning,
+    /// Network configuration commands.
+    Network,
+);
 
 impl CommandCategory {
+    /// Returns the request timeout class for this command category.
+    #[must_use]
+    pub const fn timeout_class(self) -> TimeoutClass {
+        match self {
+            Self::Quick => TimeoutClass::Quick,
+            Self::Movement => TimeoutClass::Movement,
+            Self::Preset => TimeoutClass::Preset,
+            Self::LongRunning => TimeoutClass::LongRunning,
+            Self::Network => TimeoutClass::Network,
+        }
+    }
+
     /// The command category a request's timeout class selects, or `None` for
     /// an inquiry.
+    #[cfg(any(feature = "blocking", feature = "async", test))]
     pub(crate) const fn of(class: TimeoutClass) -> Option<Self> {
         match class {
             TimeoutClass::Quick => Some(Self::Quick),
@@ -91,6 +115,12 @@ impl CommandCategory {
             TimeoutClass::Network => Some(Self::Network),
             TimeoutClass::Inquiry => None,
         }
+    }
+}
+
+impl From<CommandCategory> for TimeoutClass {
+    fn from(category: CommandCategory) -> Self {
+        category.timeout_class()
     }
 }
 

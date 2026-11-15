@@ -28,10 +28,10 @@ use std::{
 use grafton_visca::{
     blocking::{Session, SessionConfig},
     completion::{AppliedOnly, Targeted},
-    raw::{self, RawReplyShape},
+    raw,
     request::builtin::{FocusStop, ZoomDrive},
     transport::{AddressingMode, TransportConfig},
-    AffectedAxes, CameraId, ControlClass, Error, OperationalTuning, RetryClass, TimeoutClass,
+    AffectedAxes, CameraId, Error, OperationalTuning, RetryClass,
 };
 
 use fake_camera::{frames, FakeCamera, ZOOM_STOP};
@@ -75,25 +75,31 @@ fn session(steps: Vec<Vec<Vec<u8>>>) -> (Session, FakeCamera) {
     session_with_config(steps, session_config())
 }
 
-fn raw_policy(reply_shape: RawReplyShape) -> raw::Policy {
-    raw::Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Normal)
-        .expect("raw policy")
-        .with_reply_shape(reply_shape)
+fn raw_policy(reply_shape: raw::OperationReplyShape) -> raw::OperationPolicy {
+    grafton_visca::raw::OperationPolicy::new(
+        grafton_visca::CommandCategory::Quick,
+        RetryClass::Never,
+        grafton_visca::SubmissionClass::Normal,
+    )
+    .with_reply_shape(reply_shape)
 }
 
-fn raw_applied_only(reply_shape: RawReplyShape) -> raw::AppliedOnly {
+fn raw_applied_only(reply_shape: raw::OperationReplyShape) -> raw::AppliedOnly {
     raw::AppliedOnly::with_policy(ZOOM_STOP, AffectedAxes::ZOOM, raw_policy(reply_shape))
         .expect("raw applied-only operation")
 }
 
-fn raw_applied_only_for(target: CameraId, reply_shape: RawReplyShape) -> raw::AppliedOnly {
+fn raw_applied_only_for(
+    target: CameraId,
+    reply_shape: raw::OperationReplyShape,
+) -> raw::AppliedOnly {
     let mut wire = ZOOM_STOP.to_vec();
     wire[0] = target.to_address_byte();
     raw::AppliedOnly::with_policy(wire, AffectedAxes::ZOOM, raw_policy(reply_shape))
         .expect("targeted raw applied-only operation")
 }
 
-fn raw_targeted(reply_shape: RawReplyShape) -> raw::Targeted {
+fn raw_targeted(reply_shape: raw::OperationReplyShape) -> raw::Targeted {
     raw::Targeted::with_policy(ZOOM_STOP, AffectedAxes::ZOOM, raw_policy(reply_shape))
         .expect("raw targeted operation")
 }
@@ -145,8 +151,8 @@ fn two_unawaited_operation_handles_both_reach_the_wire() {
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
 
-    let first_request = raw_applied_only(RawReplyShape::AckThenCompletion);
-    let second_request = raw_applied_only(RawReplyShape::AckThenCompletion);
+    let first_request = raw_applied_only(raw::OperationReplyShape::AckThenCompletion);
+    let second_request = raw_applied_only(raw::OperationReplyShape::AckThenCompletion);
     let mut first = camera
         .submit::<AppliedOnly, _>(&first_request)
         .expect("first submission");
@@ -173,7 +179,7 @@ fn completion_only_raw_operations_wait_for_an_idle_target() {
             let camera = session
                 .camera::<NonDefaultCompileTimeProfile>()
                 .expect("camera view");
-            let predecessor = raw_applied_only(RawReplyShape::AckThenCompletion);
+            let predecessor = raw_applied_only(raw::OperationReplyShape::AckThenCompletion);
             let mut predecessor = camera
                 .submit::<AppliedOnly, _>(&predecessor)
                 .expect("raw predecessor is admitted");
@@ -200,12 +206,12 @@ fn completion_only_raw_operations_wait_for_an_idle_target() {
 
     assert_completion_only_waits!(
         Targeted,
-        raw_targeted(RawReplyShape::CompletionOnly),
+        raw_targeted(raw::OperationReplyShape::CompletionOnly),
         "targeted completion-only operation"
     );
     assert_completion_only_waits!(
         AppliedOnly,
-        raw_applied_only(RawReplyShape::CompletionOnly),
+        raw_applied_only(raw::OperationReplyShape::CompletionOnly),
         "applied-only completion-only operation"
     );
 }
@@ -263,7 +269,7 @@ fn ordinary_successor_waits_for_lost_ack_quarantine() {
     probe.wait_for_writes(1);
     let first_written_at = Instant::now();
     thread::sleep(Duration::from_millis(150));
-    let ordinary = raw_applied_only(RawReplyShape::AckThenCompletion);
+    let ordinary = raw_applied_only(raw::OperationReplyShape::AckThenCompletion);
     let mut successor = camera
         .submit::<AppliedOnly, _>(&ordinary)
         .expect("ordinary successor admission");
@@ -360,7 +366,7 @@ fn pending_camera_two_cancel_does_not_hold_camera_one_work() {
     let socket_successor = camera_two
         .submit::<AppliedOnly, _>(&raw_applied_only_for(
             CameraId::CAMERA_2,
-            RawReplyShape::AckThenCompletion,
+            raw::OperationReplyShape::AckThenCompletion,
         ))
         .expect("camera two successor admission");
     probe.wait_for_writes(2);
@@ -371,7 +377,7 @@ fn pending_camera_two_cancel_does_not_hold_camera_one_work() {
         Err(Error::ObservationTimeout { .. })
     ));
 
-    let camera_one_request = raw_applied_only(RawReplyShape::AckThenCompletion);
+    let camera_one_request = raw_applied_only(raw::OperationReplyShape::AckThenCompletion);
     let mut camera_one_operation = camera_one
         .submit::<AppliedOnly, _>(&camera_one_request)
         .expect("camera one admission");
@@ -408,9 +414,9 @@ fn socket_capacity_contention_queues_until_a_socket_frees() {
         .camera::<NonDefaultCompileTimeProfile>()
         .expect("camera view");
 
-    let first_request = raw_applied_only(RawReplyShape::AckThenCompletion);
-    let second_request = raw_applied_only(RawReplyShape::AckThenCompletion);
-    let third_request = raw_applied_only(RawReplyShape::AckThenCompletion);
+    let first_request = raw_applied_only(raw::OperationReplyShape::AckThenCompletion);
+    let second_request = raw_applied_only(raw::OperationReplyShape::AckThenCompletion);
+    let third_request = raw_applied_only(raw::OperationReplyShape::AckThenCompletion);
     let mut first = camera
         .submit::<AppliedOnly, _>(&first_request)
         .expect("first submission");

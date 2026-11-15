@@ -14,8 +14,8 @@
 
 use grafton_visca::{
     camera::TransportKind, capabilities::Capabilities, profiles::GenericVisca, raw, CameraId,
-    ControlClass, Error, OperationalTuning, ProfileEnvelope, ProfileSpec, RetryClass,
-    SessionConfig, SessionStatus, TimeoutClass, TransportCompatibility,
+    Error, OperationalTuning, ProfileEnvelope, ProfileSpec, RetryClass, SessionConfig,
+    SessionStatus, TransportCompatibility,
 };
 use grafton_visca_test_support::{
     facade_matrix,
@@ -70,8 +70,8 @@ facade_matrix! {
             let mut bytes = vec![0; 17];
             bytes[0] = CameraId::CAMERA_1.to_address_byte();
             bytes[16] = 0xff;
-            let oversized = raw::Plain::new(bytes, TimeoutClass::Quick,
-                RetryClass::Never, ControlClass::Normal).expect("bounded raw value");
+            let oversized = raw::Plain::new(bytes, grafton_visca::CommandCategory::Quick,
+                RetryClass::Never, grafton_visca::SubmissionClass::Normal).expect("bounded raw value");
             assert!(matches!(wait!(view.execute(&oversized)), Err(Error::InvalidRequest(_))));
             let metrics = wait!(session.metrics()).expect("metrics");
             assert_eq!(metrics.admitted, 0);
@@ -79,8 +79,8 @@ facade_matrix! {
             assert_eq!(metrics.session, SessionStatus::Running);
             assert_eq!(fake.write_count(), 0);
 
-            let valid = raw::Plain::new([0x81, 1, 4, 0, 2, 0xff], TimeoutClass::Quick,
-                RetryClass::Never, ControlClass::Normal).expect("ordinary command");
+            let valid = raw::Plain::new([0x81, 1, 4, 0, 2, 0xff], grafton_visca::CommandCategory::Quick,
+                RetryClass::Never, grafton_visca::SubmissionClass::Normal).expect("ordinary command");
             wait!(view.execute(&valid)).expect("later command applies on the same session");
             let metrics = wait!(session.metrics()).expect("metrics");
             assert_eq!(metrics.admitted, 1);

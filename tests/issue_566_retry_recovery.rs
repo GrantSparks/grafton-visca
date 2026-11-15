@@ -39,7 +39,7 @@ use grafton_visca::{
     raw,
     request::builtin::ZoomStop,
     types::ZoomPosition,
-    Certainty, ControlClass, Error, ErrorKind, FailureContext, FailureStage, Recovery, RetryClass,
+    Certainty, Error, ErrorKind, FailureContext, FailureStage, Recovery, RetryClass,
 };
 
 use fake_camera::{frames, FakeCamera};
@@ -77,7 +77,7 @@ fn custom_zoom_inquiry() -> raw::Inquiry<Vec<u8>> {
         ZOOM_POSITION_INQUIRY,
         decode_custom_inquiry,
         RetryClass::Inquiry,
-        ControlClass::Normal,
+        grafton_visca::SubmissionClass::Normal,
     )
     .expect("valid custom inquiry")
 }

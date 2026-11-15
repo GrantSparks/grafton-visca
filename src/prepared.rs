@@ -2062,7 +2062,7 @@ mod tests {
             [0x81, 0x09, 0x05, 0x34, VISCA_TERMINATOR],
             decode_raw,
             RetryClass::Inquiry,
-            ControlClass::Normal,
+            crate::SubmissionClass::Normal,
         )
         .expect("valid raw FR7 auto-iris inquiry");
         let prepared_inquiry = prepare_inquiry(
@@ -2090,9 +2090,9 @@ mod tests {
                 0x01,
                 VISCA_TERMINATOR,
             ],
-            TimeoutClass::Quick,
+            crate::CommandCategory::Quick,
             RetryClass::Never,
-            ControlClass::Normal,
+            crate::SubmissionClass::Normal,
         )
         .expect("valid raw FR7 iris-step command");
         let prepared_command = prepare_command(
@@ -3364,9 +3364,12 @@ mod tests {
                 ] {
                     let command = crate::raw::Plain::with_policy(
                         [0x81, 0x01, 0x04, 0x00, 0x02, 0xff],
-                        crate::raw::Policy::new(class, RetryClass::Standard, ControlClass::Normal)
-                            .expect("policy")
-                            .with_reply_shape(shape),
+                        crate::raw::CommandPolicy::new(
+                            crate::CommandCategory::of(class).expect("command category"),
+                            RetryClass::Standard,
+                            crate::SubmissionClass::Normal,
+                        )
+                        .with_reply_shape(shape),
                     )
                     .expect("raw command");
                     for ack in [
@@ -3420,7 +3423,7 @@ mod tests {
                 [0x81, 0x09, 0x04, 0x00, 0xff],
                 |_payload: &[u8]| Ok(0_u8),
                 RetryClass::Inquiry,
-                ControlClass::Normal,
+                crate::SubmissionClass::Normal,
             )
             .expect("raw inquiry");
             for ack in [
@@ -3476,7 +3479,7 @@ mod tests {
             let tuning = OperationalTuning::new().ack_timeout(Duration::from_millis(ack_ms))
                 .quick_timeout(Duration::from_millis(quick_ms));
             let command = crate::raw::Plain::new([0x81, 0x01, 0x04, 0x00, 0x02, 0xff],
-                TimeoutClass::Quick, RetryClass::Standard, ControlClass::Normal).expect("command");
+                crate::CommandCategory::Quick, RetryClass::Standard, crate::SubmissionClass::Normal).expect("command");
             let prepared = prepare_command(&command,
         &crate::TargetRegistration::new((TargetSlot::CAMERA_1).camera(), profile.clone()).expect("valid target registration"),
                 tuning, ClassSelection::Request).expect("valid tuning");
@@ -4381,9 +4384,11 @@ mod tests {
     fn declared_raw_motion_lowers_axes_without_forging_stop_authority() {
         let profile =
             ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().expect("profile");
-        let policy =
-            crate::raw::Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Normal)
-                .expect("policy");
+        let policy = crate::raw::CommandPolicy::new(
+            crate::CommandCategory::Quick,
+            RetryClass::Never,
+            crate::SubmissionClass::Normal,
+        );
         let command = crate::raw::Plain::with_policy([0x81, 0x01, 0x04, 0x07, 0x02, 0xff], policy)
             .expect("plain");
         let undeclared = prepare_command(
@@ -4416,6 +4421,179 @@ mod tests {
         );
     }
 
+    /// #909: the typed construction boundary preserves every previously valid
+    /// class combination's complete owner policy, not just its public accessors.
+    #[test]
+    fn kind_specific_raw_policies_preserve_the_lowered_request_context() {
+        use crate::raw::{
+            CommandPolicy, InquiryPolicy, OperationPolicy, OperationReplyShape, RawReplyShape,
+        };
+
+        struct ReferencePolicy {
+            timeout: TimeoutClass,
+            retry: RetryClass,
+            control: ControlClass,
+            reply: RawReplyShape,
+        }
+        impl Request for ReferencePolicy {
+            type Class = crate::request::Plain;
+            const MAX_SIZE: usize = 4;
+            const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Quick;
+            const RETRY_CLASS: RetryClass = RetryClass::Never;
+            const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+            fn timeout_class(&self) -> TimeoutClass {
+                self.timeout
+            }
+            fn retry_class(&self) -> RetryClass {
+                self.retry
+            }
+            fn control_class(&self) -> ControlClass {
+                self.control
+            }
+            fn reply_shape(&self) -> RawReplyShape {
+                self.reply
+            }
+            fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize> {
+                buffer[..4].copy_from_slice(&[target.to_address_byte(), 1, 2, VISCA_TERMINATOR]);
+                Ok(4)
+            }
+        }
+
+        let profile =
+            ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>().expect("profile");
+        let target = crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("target");
+        let tuning = OperationalTuning::new();
+        let validated = ValidatedTuning::validate(tuning, [target.profile()]).expect("tuning");
+        let wire = [0x81, 1, 2, VISCA_TERMINATOR];
+        for class in [
+            SubmissionClass::Background,
+            SubmissionClass::Normal,
+            SubmissionClass::User,
+        ] {
+            for retry in [
+                RetryClass::Never,
+                RetryClass::Standard,
+                RetryClass::Inquiry,
+                RetryClass::Movement,
+                RetryClass::Preset,
+            ] {
+                for timeout in CommandCategory::ALL {
+                    for shape in [
+                        RawReplyShape::AckThenCompletion,
+                        RawReplyShape::CompletionOnly,
+                        RawReplyShape::NoReply,
+                    ] {
+                        let reference = ReferencePolicy {
+                            timeout: timeout.into(),
+                            retry,
+                            control: class.into(),
+                            reply: shape,
+                        };
+                        let expected = request_context(
+                            &reference,
+                            &target,
+                            validated,
+                            ClassSelection::Request,
+                            false,
+                        )
+                        .expect("reference policy");
+                        let command = crate::raw::Plain::with_policy(
+                            wire,
+                            CommandPolicy::new(timeout, retry, class).with_reply_shape(shape),
+                        )
+                        .expect("plain");
+                        let prepared =
+                            prepare_command(&command, &target, tuning, ClassSelection::Request)
+                                .expect("prepares");
+                        assert_eq!(prepared.context, expected);
+                        assert_eq!(prepared.reply_shape, lower_reply_shape(shape));
+                        assert_eq!(prepared.wire.as_bytes(), wire);
+                    }
+                    for shape in [
+                        OperationReplyShape::AckThenCompletion,
+                        OperationReplyShape::CompletionOnly,
+                    ] {
+                        let reference = ReferencePolicy {
+                            timeout: timeout.into(),
+                            retry,
+                            control: class.into(),
+                            reply: shape.into(),
+                        };
+                        let mut expected = request_context(
+                            &reference,
+                            &target,
+                            validated,
+                            ClassSelection::Request,
+                            false,
+                        )
+                        .expect("reference policy");
+                        expected.motion = Some(crate::runtime::engine::MotionEffect {
+                            axes: AffectedAxes::ZOOM,
+                            stop: false,
+                        });
+                        let policy =
+                            OperationPolicy::new(timeout, retry, class).with_reply_shape(shape);
+                        let targeted =
+                            crate::raw::Targeted::with_policy(wire, AffectedAxes::ZOOM, policy)
+                                .expect("targeted");
+                        let applied =
+                            crate::raw::AppliedOnly::with_policy(wire, AffectedAxes::ZOOM, policy)
+                                .expect("applied");
+                        assert_eq!(
+                            prepare_operation::<completion::Targeted, _>(
+                                &targeted,
+                                &target,
+                                tuning,
+                                ClassSelection::Request
+                            )
+                            .expect("targeted prepares")
+                            .context,
+                            expected
+                        );
+                        assert_eq!(
+                            prepare_operation::<completion::AppliedOnly, _>(
+                                &applied,
+                                &target,
+                                tuning,
+                                ClassSelection::Request
+                            )
+                            .expect("applied prepares")
+                            .context,
+                            expected
+                        );
+                    }
+                }
+                let reference = ReferencePolicy {
+                    timeout: TimeoutClass::Inquiry,
+                    retry,
+                    control: class.into(),
+                    reply: RawReplyShape::AckThenCompletion,
+                };
+                let expected = request_context(
+                    &reference,
+                    &target,
+                    validated,
+                    ClassSelection::Request,
+                    true,
+                )
+                .expect("reference inquiry policy");
+                let inquiry = crate::raw::Inquiry::with_policy(
+                    wire,
+                    ResponseDecoder::from_fn(|_: &[u8]| Ok(0_u8)),
+                    InquiryPolicy::new(retry, class),
+                )
+                .expect("inquiry");
+                assert_eq!(
+                    prepare_inquiry(&inquiry, &target, tuning, ClassSelection::Request)
+                        .expect("inquiry prepares")
+                        .context,
+                    expected
+                );
+            }
+        }
+    }
+
     #[test]
     fn raw_reply_shape_lowers_into_request_context() {
         let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
@@ -4431,12 +4609,11 @@ mod tests {
             ),
             (crate::raw::RawReplyShape::NoReply, ReplyShape::NoReply),
         ] {
-            let policy = crate::raw::Policy::new(
-                TimeoutClass::Quick,
+            let policy = crate::raw::CommandPolicy::new(
+                crate::CommandCategory::Quick,
                 RetryClass::Never,
-                ControlClass::Normal,
+                crate::SubmissionClass::Normal,
             )
-            .expect("policy")
             .with_reply_shape(declared);
             let command =
                 crate::raw::Plain::with_policy([0x81, 0x01, 0x02, 0xff], policy).expect("plain");
@@ -4455,9 +4632,9 @@ mod tests {
         // default, every built-in — lowers to AckThenCompletion.
         let default_command = crate::raw::Plain::new(
             [0x81, 0x01, 0x02, 0xff],
-            TimeoutClass::Quick,
+            crate::CommandCategory::Quick,
             RetryClass::Never,
-            ControlClass::Normal,
+            crate::SubmissionClass::Normal,
         )
         .expect("plain");
         let prepared = prepare_command(

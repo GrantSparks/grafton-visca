@@ -40,9 +40,9 @@ async fn reply(simulator: &mut ViscaCameraSimulator) -> Vec<u8> {
 fn plain_power() -> raw::Plain {
     raw::Plain::new(
         POWER_ON,
-        TimeoutClass::Quick,
+        grafton_visca::CommandCategory::Quick,
         RetryClass::Never,
-        ControlClass::Normal,
+        grafton_visca::SubmissionClass::Normal,
     )
     .expect("valid power command")
 }

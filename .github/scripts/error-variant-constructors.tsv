@@ -14,7 +14,7 @@ InvalidResponseFormat	src/command/response/payload.rs	let Some(padding) = N.chec
 InvalidResponseLength	src/error.rs	Self::InvalidResponseLength { expected, actual: payload.len(),
 UnexpectedResponseType	src/command/inquiry_structs.rs	_ => Err(Error::UnexpectedResponseType),
 Unknown	src/error.rs	_ => Self::Unknown(code),
-InvalidRequest	src/raw.rs	const fn urgent_control_class_error() -> Error { Error::InvalidRequest(Cow::Borrowed(
+InvalidRequest	src/raw.rs	if bytes.len() < 2 { return Err(Error::InvalidRequest(
 MessageLengthError	src/error.rs	0x01 => Self::MessageLengthError,
 ParseError	src/error.rs	Self::ParseError(Cow::Owned(err.to_string()))
 TransportError	src/error.rs	Self::TransportError { source: Arc::new(source), }

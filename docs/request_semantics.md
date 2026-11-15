@@ -20,12 +20,17 @@ The rule is intentionally narrow:
 
 Custom wire frames use the single canonical raw namespace. The four request
 classes are `raw::Plain`, `raw::Inquiry`, `raw::Targeted`, and
-`raw::AppliedOnly`; their explicit policy values use `raw::Policy`. Each class
+`raw::AppliedOnly`; plain commands use `raw::CommandPolicy`, operations use
+`raw::OperationPolicy`, and inquiries use `raw::InquiryPolicy`. Each class
 has one primary `new` constructor and one
 `with_policy` constructor where a prebuilt policy is useful. Inquiry decoders
 use `from_fn` or `with_context`, and operation values expose `bytes()` and
 `affected_axes()`. All inquiry convenience constructors select the `Inquiry`
-timeout category; `with_policy` validates an explicit policy's category.
+timeout category. Inquiry policies store neither timeout nor command reply
+shape. Command and operation policies take `CommandCategory`, which has no
+`Inquiry` variant; all policies take `SubmissionClass`, which has no urgent lane.
+Policy construction is infallible, and raw request construction validates only
+wire bytes.
 
 The raw namespace is the explicit escape hatch for callers that need to supply
 wire bytes or a custom response decoder. The low-level `command` module remains
@@ -132,8 +137,9 @@ primitive.
 
 A raw command declares the reply protocol the camera will use, so the owner does
 not assume every command follows the ACK-then-completion shape. The axis is
-`raw::RawReplyShape`, carried on `raw::Policy` and set with
-`Policy::with_reply_shape`:
+`raw::RawReplyShape`, carried on `raw::CommandPolicy` and set with
+`CommandPolicy::with_reply_shape`. Operations use `raw::OperationPolicy` and
+`raw::OperationReplyShape`, which omit `NoReply`:
 
 - `AckThenCompletion` (the default) — the command is acknowledged, assigned a
   socket, then completes. This is the shape of every built-in command, so
@@ -153,7 +159,7 @@ not assume every command follows the ACK-then-completion shape. The axis is
 - `NoReply` — a plain-command-only fire-and-forget shape. Its `execute()`
   result proves only that the local transport write succeeded; it does **not**
   prove camera acceptance or protocol application, so raw targeted and
-  applied-only operations reject this shape. To make that later quarantine
+  applied-only operations cannot select this shape. To make that later quarantine
   attributable, its write starts only when the target has no live command or
   inquiry and excludes same-target work until the write result lands. A
   successful write leaves the same bounded target response/correlation
@@ -168,8 +174,9 @@ not assume every command follows the ACK-then-completion shape. The axis is
   window (see `docs/architecture_2_0.md`).
 
 The shape is a command axis only. An inquiry always awaits its reply, so
-`raw::Inquiry` and shared inquiry preparation reject any non-default shape rather
-than silently ignoring it. Unconfirmed completion, quarantine, and the strict
+`raw::InquiryPolicy` has no command reply-shape field. Shared inquiry
+preparation still rejects a non-default shape from a downstream `Request`
+implementation. Unconfirmed completion, quarantine, and the strict
 opt-in follow the canonical
 [raw recovery rule](architecture_2_0.md#raw-unconfirmed-outcomes-and-strict-recovery);
 this page does not define a second recovery policy.

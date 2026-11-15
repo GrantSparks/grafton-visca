@@ -15,16 +15,16 @@ use crate::{
     runtime::owner::{decode_response_target, RoutingState, TargetRegistry},
     target::TargetSlot,
     transport::{AddressingMode, BufferConfig, Envelope, SonyEncapsulated},
-    ControlClass, RetryClass, TimeoutClass,
+    CommandCategory, RetryClass, SubmissionClass,
 };
 
 /// Exercise raw admission and every generated built-in inquiry decoder.
 pub fn response_parser(bytes: &[u8]) {
     let _ = Plain::new(
         bytes,
-        TimeoutClass::Quick,
+        CommandCategory::Quick,
         RetryClass::Never,
-        ControlClass::Normal,
+        SubmissionClass::Normal,
     );
     let _ = Response::parse(bytes);
     for inquiry in crate::command::inquiry_structs::FUZZ_INQUIRY_KINDS {

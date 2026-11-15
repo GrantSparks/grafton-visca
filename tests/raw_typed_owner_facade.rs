@@ -14,9 +14,7 @@
 
 use grafton_visca_test_support::fake_camera;
 
-use grafton_visca::{
-    raw, AffectedAxes, ControlClass, Error, ProfileSpec, ResponseDecoder, RetryClass, TimeoutClass,
-};
+use grafton_visca::{raw, AffectedAxes, Error, ProfileSpec, ResponseDecoder, RetryClass};
 
 use fake_camera::{frames, FakeCamera};
 
@@ -73,24 +71,24 @@ fn raw_values() -> (
 ) {
     let plain = raw::Plain::new(
         [0x81, 0x01, 0x01, 0xff],
-        TimeoutClass::Quick,
+        grafton_visca::CommandCategory::Quick,
         RetryClass::Never,
-        ControlClass::Normal,
+        grafton_visca::SubmissionClass::Normal,
     )
     .expect("plain frame");
     let inquiry = raw::Inquiry::new(
         [0x81, 0x09, 0x01, 0xff],
         ResponseDecoder::from_fn(decode_first),
         RetryClass::Inquiry,
-        ControlClass::Normal,
+        grafton_visca::SubmissionClass::Normal,
     )
     .expect("inquiry frame");
     let targeted = raw::Targeted::new(
         [0x81, 0x01, 0x06, 0xff],
         AffectedAxes::PAN_TILT,
-        TimeoutClass::Movement,
+        grafton_visca::CommandCategory::Movement,
         RetryClass::Movement,
-        ControlClass::User,
+        grafton_visca::SubmissionClass::User,
     )
     .expect("targeted frame");
     // A raw applied-only operation classifies itself `User`, the highest lane a
@@ -98,9 +96,9 @@ fn raw_values() -> (
     let applied = raw::AppliedOnly::new(
         [0x81, 0x01, 0x07, 0xff],
         AffectedAxes::ZOOM,
-        TimeoutClass::Quick,
+        grafton_visca::CommandCategory::Quick,
         RetryClass::Never,
-        ControlClass::User,
+        grafton_visca::SubmissionClass::User,
     )
     .expect("applied-only frame");
     (plain, inquiry, targeted, applied)

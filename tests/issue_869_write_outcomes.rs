@@ -16,8 +16,7 @@ use std::{
 
 use grafton_visca::{
     completion::AppliedOnly, profiles::SonyFR7, raw, request::builtin::ZoomStop,
-    transport::SendSemantics, ControlClass, Error, ErrorKind, RetryClass, SessionConfig,
-    TimeoutClass,
+    transport::SendSemantics, Error, ErrorKind, RetryClass, SessionConfig,
 };
 use grafton_visca_test_support::{
     facade_matrix,
@@ -109,7 +108,7 @@ facade_matrix! {
             let mut bytes = vec![0; 18];
             bytes[..4].copy_from_slice(&[0x81, 0x01, 0x04, 0x99]);
             bytes[17] = 0xff;
-            let request = raw::Plain::new(bytes, TimeoutClass::Quick, RetryClass::Never, ControlClass::Normal).unwrap();
+            let request = raw::Plain::new(bytes, grafton_visca::CommandCategory::Quick, RetryClass::Never, grafton_visca::SubmissionClass::Normal).unwrap();
             assert!(matches!(wait!(camera.execute(&request)), Err(Error::InvalidRequest(_))));
             let metrics = wait!(session.metrics()).unwrap();
             assert_eq!(metrics.admitted, 0);

@@ -188,10 +188,19 @@ whose complete request/noun surface uses the selected ordinary-work
 single-camera owner wrapper; its `camera()` method hands out that actual
 profile-bound `Camera` surface, while its submission-class helpers forward the
 default to that camera rather than defining a separate request API. Callers
-cannot manufacture or demote the intrinsic urgent safety class —
-`SubmissionClass` has no `Urgent` variant and the raw escape hatch rejects
-`ControlClass::Urgent` at construction — or inject lifecycle IDs, target,
-completion class, retry class, or settlement metadata at submission time.
+cannot manufacture or demote the intrinsic urgent safety class:
+`SubmissionClass` has no `Urgent` variant, and every raw policy takes that
+ordinary-work type. Submission APIs also accept no caller-supplied lifecycle
+IDs, target, completion class, retry class, or settlement metadata.
+
+Raw frames use `raw::CommandPolicy` for `raw::Plain`, `raw::OperationPolicy`
+for `raw::Targeted` and `raw::AppliedOnly`, and `raw::InquiryPolicy` for
+`raw::Inquiry`. Command and operation policies take `CommandCategory`, whose
+five variants exclude `Inquiry`; inquiry timing is fixed by the request kind.
+A plain command may select any `raw::RawReplyShape`, while an operation uses
+`raw::OperationReplyShape`, which has no `NoReply` variant. Inquiry policy
+stores only retry and submission classes. Policy constructors are infallible;
+raw request constructors validate wire bytes.
 
 ## Allocation baselines
 

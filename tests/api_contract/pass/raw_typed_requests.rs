@@ -21,36 +21,34 @@ fn main() {
 
     let plain = raw::Plain::new(
         [0x81, 0x01, 0x02, 0xff],
-        grafton_visca::TimeoutClass::Quick,
+        grafton_visca::CommandCategory::Quick,
         grafton_visca::RetryClass::Never,
-        grafton_visca::ControlClass::Normal,
+        grafton_visca::SubmissionClass::Normal,
     )
     .expect("plain");
     let inquiry = raw::Inquiry::new(
         [0x81, 0x09, 0x04, 0xff],
         ResponseDecoder::from_fn(decode),
         grafton_visca::RetryClass::Inquiry,
-        grafton_visca::ControlClass::Normal)
+        grafton_visca::SubmissionClass::Normal)
     .expect("inquiry");
     let axes = grafton_visca::AffectedAxes::PAN_TILT;
     let targeted = raw::Targeted::new(
         [0x81, 0x01, 0x06, 0xff],
         axes,
-        grafton_visca::TimeoutClass::Movement,
+        grafton_visca::CommandCategory::Movement,
         grafton_visca::RetryClass::Movement,
-        grafton_visca::ControlClass::User,
+        grafton_visca::SubmissionClass::User,
     )
     .expect("targeted");
     let applied = raw::AppliedOnly::with_policy(
         [0x81, 0x01, 0x07, 0xff],
         grafton_visca::AffectedAxes::ZOOM,
         // The urgent lane is owner-only; `User` is the ceiling for raw (#679).
-        raw::Policy::new(
-            grafton_visca::TimeoutClass::Quick,
+        grafton_visca::raw::OperationPolicy::new(
+            grafton_visca::CommandCategory::Quick,
             grafton_visca::RetryClass::Never,
-            grafton_visca::ControlClass::User,
-        )
-        .expect("policy"),
+            grafton_visca::SubmissionClass::User),
     )
     .expect("applied-only");
 

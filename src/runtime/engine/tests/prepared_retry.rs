@@ -18,9 +18,9 @@ fn prepared_retry_budget_preserves_healthy_late_ack_attempts() {
         let start = Instant::now();
         let command = crate::raw::Plain::new(
             [0x81, 0x01, 0x04, 0x00, 0x02, 0xff],
-            crate::TimeoutClass::Quick,
+            crate::CommandCategory::Quick,
             crate::RetryClass::Standard,
-            crate::ControlClass::Normal,
+            crate::SubmissionClass::Normal,
         )
         .unwrap();
         let prepared = crate::prepared::test_support::prepare_command(

@@ -18,10 +18,10 @@ use std::{
 
 use grafton_visca::{
     completion::AppliedOnly,
-    raw::{self, RawReplyShape},
+    raw,
     request::builtin::{FocusStop, ZoomDrive},
     transport::AddressingMode,
-    AffectedAxes, ControlClass, Error, Executor, RetryClass, Session, TimeoutClass,
+    AffectedAxes, Error, Executor, RetryClass, Session,
 };
 #[cfg(feature = "blocking")]
 use grafton_visca::{CameraId, OperationalTuning};
@@ -66,9 +66,12 @@ fn assert_written_within(camera: &FakeCamera, count: usize, since: Instant, boun
 }
 
 fn ordinary_operation() -> raw::AppliedOnly {
-    let policy = raw::Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Normal)
-        .expect("raw policy")
-        .with_reply_shape(RawReplyShape::AckThenCompletion);
+    let policy = grafton_visca::raw::OperationPolicy::new(
+        grafton_visca::CommandCategory::Quick,
+        RetryClass::Never,
+        grafton_visca::SubmissionClass::Normal,
+    )
+    .with_reply_shape(raw::OperationReplyShape::AckThenCompletion);
     raw::AppliedOnly::with_policy(ZOOM_STOP, AffectedAxes::ZOOM, policy)
         .expect("ordinary raw operation")
 }
@@ -80,9 +83,12 @@ fn ordinary_operation_for(target: CameraId) -> raw::AppliedOnly {
     raw::AppliedOnly::with_policy(
         wire,
         AffectedAxes::ZOOM,
-        raw::Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Normal)
-            .expect("raw policy")
-            .with_reply_shape(RawReplyShape::AckThenCompletion),
+        grafton_visca::raw::OperationPolicy::new(
+            grafton_visca::CommandCategory::Quick,
+            RetryClass::Never,
+            grafton_visca::SubmissionClass::Normal,
+        )
+        .with_reply_shape(raw::OperationReplyShape::AckThenCompletion),
     )
     .expect("targeted ordinary raw operation")
 }

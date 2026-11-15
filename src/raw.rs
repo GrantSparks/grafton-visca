@@ -6,7 +6,7 @@
 //! surface. A raw value is still admitted only through the async camera's
 //! `execute`, `inquire`, or `submit` methods (and their blocking projections);
 //! it cannot select a lifecycle ID, target, or completion kind at submission
-//! time. Its [`crate::ControlClass`] is chosen in its [`crate::raw::Policy`]
+//! time. Its [`SubmissionClass`] is chosen in its kind-specific policy
 //! from the ordinary lanes (`Background`, `Normal`, `User`); the urgent safety
 //! lane is reserved for the owner's stops and protocol cancellation and is not
 //! selectable here. A camera handle's `with_submission_class` derived view or
@@ -29,41 +29,37 @@
 //! intermediate frame buffer is copied. Standard built-in request
 //! encoding remains inline and allocation-free.
 //!
-//! Raw policy is explicit and owned by each value. Commands require timeout,
-//! retry, and control classes, directly or through [`crate::raw::Policy`].
-//! Inquiry convenience constructors fix the timeout class to [`TimeoutClass::Inquiry`];
-//! [`crate::raw::Inquiry::with_policy`] rejects any other timeout at construction. No byte-based lifecycle inference or
-//! caller-selected operation class exists.
+//! Raw policy is explicit and owned by each value. [`CommandPolicy`](crate::raw::CommandPolicy) supplies
+//! a [`Plain`](crate::raw::Plain) command's [`CommandCategory`], retry and ordinary submission
+//! class; [`OperationPolicy`](crate::raw::OperationPolicy) supplies the same facts for [`Targeted`](crate::raw::Targeted) and
+//! [`AppliedOnly`](crate::raw::AppliedOnly). [`InquiryPolicy`](crate::raw::InquiryPolicy) carries only retry and submission class:
+//! its timeout is always [`TimeoutClass::Inquiry`] and its reply protocol is
+//! fixed. Policy constructors are infallible; raw request constructors validate
+//! only the wire bytes. No byte-based lifecycle inference or caller-selected
+//! operation class exists.
 //!
-//! A raw command also declares its [`crate::raw::RawReplyShape`]: the default
-//! [`AckThenCompletion`](crate::raw::RawReplyShape::AckThenCompletion) is the
-//! ordinary ACK-then-completion protocol, while
-//! [`CompletionOnly`](crate::raw::RawReplyShape::CompletionOnly) and
-//! [`NoReply`](crate::raw::RawReplyShape::NoReply) describe legitimate vendor
-//! frames that answer with a completion and no ACK, or with nothing at all.
-//! `NoReply` is deliberately plain-command-only: a successful fire-and-forget
-//! write proves local transport submission, not the protocol application that
-//! an operation handle promises. The shape is set on the [`crate::raw::Policy`] with
-//! [`Policy::with_reply_shape`](crate::raw::Policy::with_reply_shape) and lowered into the
-//! owner's correlation so a completion-only frame is not held waiting for an ACK
-//! it will never receive. It is a command axis only: [`Inquiry`] and shared
-//! preparation reject any non-default shape. Reply shape never re-admits the owner-only wire primitives
-//! rejected above — a socket cancel or interface clear stays refused at
-//! construction whatever shape is declared, because those act on another
-//! operation's socket or the shared command buffer.
+//! A plain command declares its [`RawReplyShape`](crate::raw::RawReplyShape) with
+//! [`CommandPolicy::with_reply_shape`](crate::raw::CommandPolicy::with_reply_shape). Operations instead select
+//! [`OperationReplyShape`](crate::raw::OperationReplyShape), whose variants are `AckThenCompletion` and
+//! `CompletionOnly`. `NoReply` is plain-command-only: a successful
+//! fire-and-forget write proves local transport submission rather than the
+//! protocol application an operation handle promises. Reply shape never
+//! re-admits the owner-only wire primitives rejected above.
 
-use std::{borrow::Cow, fmt};
+use std::fmt;
 
 use smallvec::SmallVec;
 
 /// Policy and validation types used by the raw constructors.
-pub use crate::{AffectedAxes, ControlClass, ResponseDecoder, RetryClass, TimeoutClass};
+pub use crate::{
+    AffectedAxes, CommandCategory, ControlClass, ResponseDecoder, RetryClass, SubmissionClass,
+    TimeoutClass,
+};
 
 use crate::{
     command::bytes::{constants::system, VISCA_TERMINATOR},
-    completion, request,
-    timeout::CommandCategory,
-    CameraId, Error, Inquiry as InquiryRequest, OperationCommand, Request, Result,
+    completion, request, CameraId, Error, Inquiry as InquiryRequest, OperationCommand, Request,
+    Result,
 };
 
 /// Number of raw frame bytes retained inline without a heap allocation.
@@ -96,9 +92,8 @@ pub const MAX_BYTES: usize = 1_024;
 /// classes ([`Plain`], [`Targeted`], [`AppliedOnly`]). [`NoReply`](Self::NoReply)
 /// is plain-command-only: it proves only that the local transport write
 /// succeeded, whereas an operation's `applied()` promise requires a terminal
-/// camera response. An [`Inquiry`] always awaits its reply, so its constructors
-/// and shared preparation reject any non-default reply shape rather than
-/// silently ignoring it.
+/// camera response. An [`Inquiry`] always awaits its reply, so its policy has
+/// no command reply-shape field.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub enum RawReplyShape {
     /// The camera acknowledges the command, the owner assigns it a socket, and
@@ -146,119 +141,156 @@ pub enum RawReplyShape {
     /// window has ended; and it is
     /// itself held back while an earlier command's answer is owed, failing
     /// with [`crate::Error::CommandCorrelationLost`] once that lane latches.
-    /// Raw targeted and applied-only operation constructors/preparation
-    /// reject this shape.
+    /// Raw operations use [`OperationReplyShape`], which has no such variant.
     NoReply,
 }
 
-/// Explicit timeout, retry, and scheduler-control classes for one raw value.
+/// The reply protocols supported by a raw operation.
 ///
-/// The owner lowers these semantic classes to its private runtime policy. The
-/// public value never exposes a queue position or a lifecycle identifier.
+/// Operations require terminal camera evidence, so they cannot select the
+/// plain command's [`RawReplyShape::NoReply`] protocol.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
+pub enum OperationReplyShape {
+    /// The camera acknowledges the command before completing it.
+    #[default]
+    AckThenCompletion,
+    /// The camera completes the command without an acknowledgement.
+    CompletionOnly,
+}
+
+impl OperationReplyShape {
+    const fn raw(self) -> RawReplyShape {
+        match self {
+            Self::AckThenCompletion => RawReplyShape::AckThenCompletion,
+            Self::CompletionOnly => RawReplyShape::CompletionOnly,
+        }
+    }
+}
+
+impl From<OperationReplyShape> for RawReplyShape {
+    fn from(shape: OperationReplyShape) -> Self {
+        shape.raw()
+    }
+}
+
+/// Explicit command timeout, retry and ordinary submission classes for [`Plain`].
 ///
-/// The [`ControlClass`] here is the raw request's *own* classification, exactly
-/// as an ordinary built-in's associated constant is. It may name the
-/// `Background`, `Normal`, or `User` lane; it may not name
-/// [`ControlClass::Urgent`], which [`Policy::new`] rejects, because the urgent
-/// lane is the owner's stop and protocol-cancel reserve. A camera handle's
-/// default class or a class-selected derived view replaces ordinary
-/// classifications, but neither can replace or demote an urgent request.
-///
-/// The [`RawReplyShape`] here is the command's declared reply protocol. It
-/// defaults to [`RawReplyShape::AckThenCompletion`], so a policy built by
-/// [`Policy::new`] is unchanged for existing callers; a completion-only or
-/// no-reply command sets it with [`Policy::with_reply_shape`]. Command and
-/// inquiry constructors additionally require the timeout class matching their
-/// lifecycle: only inquiries accept [`TimeoutClass::Inquiry`].
+/// A command timeout cannot be an inquiry timeout, and [`SubmissionClass`]
+/// cannot select the owner's urgent safety lane (#679).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Policy {
-    timeout: TimeoutClass,
+pub struct CommandPolicy {
+    timeout: CommandCategory,
     retry: RetryClass,
-    control: ControlClass,
+    class: SubmissionClass,
     reply_shape: RawReplyShape,
 }
 
-/// The error returned when a raw policy selects the owner-only urgent lane.
-const fn urgent_control_class_error() -> Error {
-    Error::InvalidRequest(Cow::Borrowed(
-        "raw policy cannot select ControlClass::Urgent; the urgent lane is reserved for owner-issued stops and protocol cancellation (issue pan_tilt().stop() for preemption)",
-    ))
+/// Explicit command timeout, retry and ordinary submission classes for raw operations.
+///
+/// Its reply shape requires terminal camera evidence and cannot be `NoReply`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct OperationPolicy {
+    timeout: CommandCategory,
+    retry: RetryClass,
+    class: SubmissionClass,
+    reply_shape: OperationReplyShape,
 }
 
-impl Policy {
-    /// Creates an explicit raw-request policy.
-    ///
-    /// Returns [`Error::InvalidRequest`] when `control` is
-    /// [`ControlClass::Urgent`]. The urgent lane is FIFO within its class and
-    /// bypasses admission backlog so owner-issued stops and protocol
-    /// cancellation always preempt; letting ordinary raw traffic enter it would
-    /// dilute that reserve and delay a genuine `PanTiltStop`. A raw caller who
-    /// needs preemption issues the typed stop (`pan_tilt().stop()`, and the
-    /// like), which the crate classifies urgent on the caller's behalf.
-    pub const fn new(
-        timeout: TimeoutClass,
-        retry: RetryClass,
-        control: ControlClass,
-    ) -> Result<Self> {
-        if matches!(control, ControlClass::Urgent) {
-            return Err(urgent_control_class_error());
+/// Explicit retry and ordinary submission classes for [`Inquiry`].
+///
+/// Inquiry timeout and reply protocols are fixed by its request kind, so this
+/// policy stores neither a timeout category nor a command reply shape.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct InquiryPolicy {
+    retry: RetryClass,
+    class: SubmissionClass,
+}
+
+macro_rules! ordinary_policy_accessors {
+    () => {
+        /// Returns the selected retry class.
+        #[must_use]
+        pub const fn retry_class(self) -> RetryClass {
+            self.retry
         }
-        Ok(Self {
-            timeout,
-            retry,
-            control,
-            reply_shape: RawReplyShape::AckThenCompletion,
-        })
-    }
 
-    /// Returns this policy with the given reply shape.
-    ///
-    /// [`Policy::new`] defaults the reply shape to
-    /// [`RawReplyShape::AckThenCompletion`], keeping existing raw code
-    /// unchanged. A completion-only or no-reply command sets its shape here:
-    ///
-    /// ```
-    /// use grafton_visca::raw::{Policy, RawReplyShape};
-    /// use grafton_visca::{ControlClass, RetryClass, TimeoutClass};
-    ///
-    /// let policy = Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Normal)?
-    ///     .with_reply_shape(RawReplyShape::CompletionOnly);
-    /// assert_eq!(policy.reply_shape(), RawReplyShape::CompletionOnly);
-    /// # Ok::<(), grafton_visca::Error>(())
-    /// ```
-    #[must_use]
-    pub const fn with_reply_shape(self, reply_shape: RawReplyShape) -> Self {
-        Self {
-            timeout: self.timeout,
-            retry: self.retry,
-            control: self.control,
-            reply_shape,
+        /// Returns the selected ordinary submission class.
+        #[must_use]
+        pub const fn submission_class(self) -> SubmissionClass {
+            self.class
         }
-    }
 
-    /// Returns the selected timeout class.
-    #[must_use]
-    pub const fn timeout_class(self) -> TimeoutClass {
-        self.timeout
-    }
+        /// Returns the corresponding scheduler-control class.
+        #[must_use]
+        pub const fn control_class(self) -> ControlClass {
+            self.class.control_class()
+        }
+    };
+}
 
-    /// Returns the declared reply shape.
+macro_rules! command_policy {
+    ($policy:ident, $reply:ident) => {
+        impl $policy {
+            /// Creates an explicit policy in an ordinary submission lane.
+            #[must_use]
+            pub const fn new(
+                timeout: CommandCategory,
+                retry: RetryClass,
+                class: SubmissionClass,
+            ) -> Self {
+                Self {
+                    timeout,
+                    retry,
+                    class,
+                    reply_shape: $reply::AckThenCompletion,
+                }
+            }
+
+            /// Returns this policy with the declared reply protocol.
+            #[must_use]
+            pub const fn with_reply_shape(mut self, reply_shape: $reply) -> Self {
+                self.reply_shape = reply_shape;
+                self
+            }
+
+            /// Returns the selected command timeout class.
+            #[must_use]
+            pub const fn timeout_class(self) -> TimeoutClass {
+                self.timeout.timeout_class()
+            }
+
+            ordinary_policy_accessors!();
+        }
+    };
+}
+
+command_policy!(CommandPolicy, RawReplyShape);
+command_policy!(OperationPolicy, OperationReplyShape);
+
+impl CommandPolicy {
+    /// Returns the declared command reply protocol.
     #[must_use]
     pub const fn reply_shape(self) -> RawReplyShape {
         self.reply_shape
     }
+}
 
-    /// Returns the selected retry class.
+impl OperationPolicy {
+    /// Returns the declared operation reply protocol as its raw wire shape.
     #[must_use]
-    pub const fn retry_class(self) -> RetryClass {
-        self.retry
+    pub const fn reply_shape(self) -> RawReplyShape {
+        self.reply_shape.raw()
+    }
+}
+
+impl InquiryPolicy {
+    /// Creates an inquiry policy in an ordinary submission lane.
+    #[must_use]
+    pub const fn new(retry: RetryClass, class: SubmissionClass) -> Self {
+        Self { retry, class }
     }
 
-    /// Returns the selected scheduler-control class.
-    #[must_use]
-    pub const fn control_class(self) -> ControlClass {
-        self.control
-    }
+    ordinary_policy_accessors!();
 }
 
 /// A bounded owned raw VISCA frame.
@@ -427,17 +459,11 @@ fn is_visca_address(byte: u8) -> bool {
 /// optional `reply_shape` arm adds the reply-shape accessor the command and
 /// operation types carry.
 macro_rules! raw_policy_accessors {
-    ($subject:literal $(, $reply_shape:ident)?) => {
+    (@common $policy:ident, $subject:literal) => {
         #[doc = concat!("Returns ", $subject, "'s explicit policy.")]
         #[must_use]
-        pub const fn policy(&self) -> Policy {
+        pub const fn policy(&self) -> $policy {
             self.policy
-        }
-
-        #[doc = concat!("Returns ", $subject, "'s explicit timeout class.")]
-        #[must_use]
-        pub const fn timeout_class(&self) -> TimeoutClass {
-            self.policy.timeout_class()
         }
 
         #[doc = concat!("Returns ", $subject, "'s explicit retry class.")]
@@ -451,14 +477,24 @@ macro_rules! raw_policy_accessors {
         pub const fn control_class(&self) -> ControlClass {
             self.policy.control_class()
         }
+    };
+    ($policy:ident, $subject:literal) => {
+        raw_policy_accessors!(@common $policy, $subject);
+    };
+    ($policy:ident, $subject:literal, reply_shape) => {
+        raw_policy_accessors!(@common $policy, $subject);
 
-        $(
-            #[doc = concat!("Returns ", $subject, "'s declared reply shape.")]
-            #[must_use]
-            pub const fn $reply_shape(&self) -> RawReplyShape {
-                self.policy.reply_shape()
-            }
-        )?
+        #[doc = concat!("Returns ", $subject, "'s explicit timeout class.")]
+        #[must_use]
+        pub const fn timeout_class(&self) -> TimeoutClass {
+            self.policy.timeout_class()
+        }
+
+        #[doc = concat!("Returns ", $subject, "'s declared reply shape.")]
+        #[must_use]
+        pub const fn reply_shape(&self) -> RawReplyShape {
+            self.policy.reply_shape()
+        }
     };
 }
 
@@ -466,6 +502,8 @@ macro_rules! raw_policy_accessors {
 /// wire, written once for the four raw types (#817). The policy constants are
 /// the given unread fallbacks, documented as such.
 macro_rules! raw_request_forwarding {
+    (@timeout Inquiry, $value:ident) => { TimeoutClass::Inquiry };
+    (@timeout $timeout:ident, $value:ident) => { $value.policy.timeout_class() };
     ($timeout:ident, $retry:ident, $control:ident) => {
         const MAX_SIZE: usize = MAX_BYTES;
 
@@ -485,7 +523,7 @@ macro_rules! raw_request_forwarding {
         const CONTROL_CLASS: ControlClass = ControlClass::$control;
 
         fn timeout_class(&self) -> TimeoutClass {
-            self.policy.timeout_class()
+            raw_request_forwarding!(@timeout $timeout, self)
         }
 
         fn retry_class(&self) -> RetryClass {
@@ -522,7 +560,7 @@ macro_rules! raw_operation {
         pub struct $name {
             wire: Wire,
             axes: AffectedAxes,
-            policy: Policy,
+            policy: OperationPolicy,
         }
 
         impl $name {
@@ -533,27 +571,19 @@ macro_rules! raw_operation {
             pub fn new(
                 bytes: impl AsRef<[u8]>,
                 axes: AffectedAxes,
-                timeout: TimeoutClass,
+                timeout: CommandCategory,
                 retry: RetryClass,
-                control: ControlClass,
+                class: SubmissionClass,
             ) -> Result<Self> {
-                Self::with_policy(bytes, axes, Policy::new(timeout, retry, control)?)
+                Self::with_policy(bytes, axes, OperationPolicy::new(timeout, retry, class))
             }
 
-            /// [`Self::new`] with an explicit [`Policy`] value.
-            ///
-            #[doc = concat!(
-                "A policy whose reply shape is [`RawReplyShape::NoReply`] is rejected: a ",
-                $noun, " operation's ", $lifecycle,
-                " lifecycle requires terminal camera evidence, not merely a successful local write."
-            )]
+            /// [`Self::new`] with an explicit [`OperationPolicy`] value.
             pub fn with_policy(
                 bytes: impl AsRef<[u8]>,
                 axes: AffectedAxes,
-                policy: Policy,
+                policy: OperationPolicy,
             ) -> Result<Self> {
-                validate_timeout_class(policy.timeout_class(), false)?;
-                validate_operation_reply_shape(policy.reply_shape())?;
                 Ok(Self {
                     wire: Wire::new(bytes)?,
                     axes,
@@ -573,7 +603,7 @@ macro_rules! raw_operation {
                 self.axes
             }
 
-            raw_policy_accessors!("this operation", reply_shape);
+            raw_policy_accessors!(OperationPolicy, "this operation", reply_shape);
         }
 
         impl Request for $name {
@@ -608,25 +638,23 @@ macro_rules! raw_operation {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Plain {
     wire: Wire,
-    policy: Policy,
+    policy: CommandPolicy,
     motion_axes: Option<AffectedAxes>,
 }
 
 impl Plain {
     /// Creates a bounded raw plain command with explicit protocol policy.
-    /// [`TimeoutClass::Inquiry`] is rejected at construction.
     pub fn new(
         bytes: impl AsRef<[u8]>,
-        timeout: TimeoutClass,
+        timeout: CommandCategory,
         retry: RetryClass,
-        control: ControlClass,
+        class: SubmissionClass,
     ) -> Result<Self> {
-        Self::with_policy(bytes, Policy::new(timeout, retry, control)?)
+        Self::with_policy(bytes, CommandPolicy::new(timeout, retry, class))
     }
 
     /// Creates a bounded raw plain command from an explicit policy value.
-    pub fn with_policy(bytes: impl AsRef<[u8]>, policy: Policy) -> Result<Self> {
-        validate_timeout_class(policy.timeout_class(), false)?;
+    pub fn with_policy(bytes: impl AsRef<[u8]>, policy: CommandPolicy) -> Result<Self> {
         Ok(Self {
             wire: Wire::new(bytes)?,
             policy,
@@ -648,7 +676,7 @@ impl Plain {
         self.wire.as_bytes()
     }
 
-    raw_policy_accessors!("this value", reply_shape);
+    raw_policy_accessors!(CommandPolicy, "this value", reply_shape);
 }
 
 impl Request for Plain {
@@ -668,7 +696,7 @@ impl Request for Plain {
 pub struct Inquiry<R> {
     wire: Wire,
     decoder: ResponseDecoder<R>,
-    policy: Policy,
+    policy: InquiryPolicy,
     payload_shape: crate::PayloadShape,
 }
 
@@ -683,29 +711,17 @@ impl<R> Inquiry<R> {
         bytes: impl AsRef<[u8]>,
         decoder: ResponseDecoder<R>,
         retry: RetryClass,
-        control: ControlClass,
+        class: SubmissionClass,
     ) -> Result<Self> {
-        Self::with_policy(
-            bytes,
-            decoder,
-            Policy::new(TimeoutClass::Inquiry, retry, control)?,
-        )
+        Self::with_policy(bytes, decoder, InquiryPolicy::new(retry, class))
     }
 
     /// Creates a raw inquiry from an explicit decoder and policy.
-    ///
-    /// The policy's timeout class must be [`TimeoutClass::Inquiry`]. Its
-    /// reply shape must be the default
-    /// [`RawReplyShape::AckThenCompletion`]: an inquiry always awaits its reply,
-    /// so a completion-only or no-reply shape is meaningless for it and is
-    /// rejected here rather than silently ignored.
     pub fn with_policy(
         bytes: impl AsRef<[u8]>,
         decoder: ResponseDecoder<R>,
-        policy: Policy,
+        policy: InquiryPolicy,
     ) -> Result<Self> {
-        validate_timeout_class(policy.timeout_class(), true)?;
-        validate_inquiry_reply_shape(policy.reply_shape())?;
         Ok(Self {
             wire: Wire::new(bytes)?,
             decoder,
@@ -720,12 +736,12 @@ impl<R> Inquiry<R> {
         bytes: impl AsRef<[u8]>,
         decoder: fn(&[u8]) -> Result<R>,
         retry: RetryClass,
-        control: ControlClass,
+        class: SubmissionClass,
     ) -> Result<Self> {
         Self::with_policy(
             bytes,
             ResponseDecoder::from_fn(decoder),
-            Policy::new(TimeoutClass::Inquiry, retry, control)?,
+            InquiryPolicy::new(retry, class),
         )
     }
 
@@ -736,7 +752,7 @@ impl<R> Inquiry<R> {
         context: C,
         decoder: fn(&C, &[u8]) -> Result<R>,
         retry: RetryClass,
-        control: ControlClass,
+        class: SubmissionClass,
     ) -> Result<Self>
     where
         C: Send + Sync + 'static,
@@ -745,7 +761,7 @@ impl<R> Inquiry<R> {
         Self::with_policy(
             bytes,
             ResponseDecoder::with_context(context, decoder),
-            Policy::new(TimeoutClass::Inquiry, retry, control)?,
+            InquiryPolicy::new(retry, class),
         )
     }
 
@@ -770,7 +786,7 @@ impl<R> Inquiry<R> {
         self.wire.as_bytes()
     }
 
-    raw_policy_accessors!("this inquiry");
+    raw_policy_accessors!(InquiryPolicy, "this inquiry");
 }
 
 impl<R> fmt::Debug for Inquiry<R> {
@@ -832,40 +848,6 @@ raw_operation! {
     AppliedOnly: completion::AppliedOnly, "applied-only", "`applied()`"
 }
 
-fn validate_timeout_class(timeout: TimeoutClass, inquiry: bool) -> Result<()> {
-    if CommandCategory::of(timeout).is_none() == inquiry {
-        Ok(())
-    } else {
-        Err(Error::InvalidRequest(Cow::Borrowed(
-            "raw request timeout class does not match its lifecycle kind",
-        )))
-    }
-}
-
-fn validate_inquiry_reply_shape(reply_shape: RawReplyShape) -> Result<()> {
-    // An inquiry's lifecycle is fixed: it awaits its reply and never an ACK or a
-    // command completion, so the completion-only and no-reply shapes cannot
-    // describe it. Reject them at construction so a caller cannot set a shape the
-    // owner would silently ignore.
-    if matches!(reply_shape, RawReplyShape::AckThenCompletion) {
-        Ok(())
-    } else {
-        Err(Error::InvalidRequest(Cow::Borrowed(
-            "raw inquiry reply shape must be RawReplyShape::AckThenCompletion; an inquiry always awaits its reply",
-        )))
-    }
-}
-
-fn validate_operation_reply_shape(reply_shape: RawReplyShape) -> Result<()> {
-    if matches!(reply_shape, RawReplyShape::NoReply) {
-        Err(Error::InvalidRequest(Cow::Borrowed(
-            "raw targeted and applied-only operations cannot use RawReplyShape::NoReply; operation application requires a terminal camera response",
-        )))
-    } else {
-        Ok(())
-    }
-}
-
 #[cfg(test)]
 #[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
@@ -888,30 +870,30 @@ mod tests {
     fn every_raw_inquiry_constructor_retains_its_optional_payload_shape() {
         use crate::PayloadShape;
         let bytes = [0x81, 0x09, 0x04, 0xFF];
-        let policy = Policy::new(
-            TimeoutClass::Inquiry,
-            RetryClass::Never,
-            ControlClass::Normal,
-        )
-        .expect("inquiry policy");
+        let policy = InquiryPolicy::new(RetryClass::Never, SubmissionClass::Normal);
         let queries = [
             Inquiry::new(
                 bytes,
                 ResponseDecoder::from_fn(decode_first),
                 RetryClass::Never,
-                ControlClass::Normal,
+                SubmissionClass::Normal,
             )
             .expect("owned decoder"),
             Inquiry::with_policy(bytes, ResponseDecoder::from_fn(decode_first), policy)
                 .expect("explicit policy"),
-            Inquiry::from_fn(bytes, decode_first, RetryClass::Never, ControlClass::Normal)
-                .expect("function decoder"),
+            Inquiry::from_fn(
+                bytes,
+                decode_first,
+                RetryClass::Never,
+                SubmissionClass::Normal,
+            )
+            .expect("function decoder"),
             Inquiry::with_context(
                 bytes,
                 0_u8,
                 |context, payload| decode_first(payload).map(|byte| byte + *context),
                 RetryClass::Never,
-                ControlClass::Normal,
+                SubmissionClass::Normal,
             )
             .expect("context decoder"),
         ];
@@ -950,73 +932,6 @@ mod tests {
     }
 
     #[test]
-    fn raw_timeout_mismatches_are_rejected_at_construction() {
-        let command = [0x81, 0x01, 0x04, 0x00, 0x02, 0xff];
-        assert!(matches!(
-            Plain::new(
-                command,
-                TimeoutClass::Inquiry,
-                RetryClass::Never,
-                ControlClass::Normal
-            ),
-            Err(Error::InvalidRequest(_))
-        ));
-        assert!(matches!(
-            Targeted::new(
-                command,
-                AffectedAxes::ZOOM,
-                TimeoutClass::Inquiry,
-                RetryClass::Never,
-                ControlClass::Normal
-            ),
-            Err(Error::InvalidRequest(_))
-        ));
-        assert!(matches!(
-            AppliedOnly::new(
-                command,
-                AffectedAxes::ZOOM,
-                TimeoutClass::Inquiry,
-                RetryClass::Never,
-                ControlClass::Normal
-            ),
-            Err(Error::InvalidRequest(_))
-        ));
-        let inquiry_policy = Policy::new(
-            TimeoutClass::Inquiry,
-            RetryClass::Never,
-            ControlClass::Normal,
-        )
-        .expect("inquiry policy");
-        assert!(Plain::with_policy(command, inquiry_policy).is_err());
-        assert!(Targeted::with_policy(command, AffectedAxes::ZOOM, inquiry_policy).is_err());
-        assert!(AppliedOnly::with_policy(command, AffectedAxes::ZOOM, inquiry_policy).is_err());
-        let bytes = [0x81, 0x09, 0x04, 0x00, 0xff];
-        let inquiry = Inquiry::new(
-            bytes,
-            ResponseDecoder::from_fn(decode_first),
-            RetryClass::Inquiry,
-            ControlClass::Normal,
-        )
-        .expect("inquiry class is fixed");
-        assert_eq!(inquiry.timeout_class(), TimeoutClass::Inquiry);
-        let command_policy =
-            Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Normal)
-                .expect("command policy");
-        assert!(matches!(
-            Inquiry::with_policy(
-                bytes,
-                ResponseDecoder::from_fn(decode_first),
-                command_policy
-            ),
-            Err(Error::InvalidRequest(_))
-        ));
-        let function_inquiry =
-            Inquiry::from_fn(bytes, decode_first, RetryClass::Never, ControlClass::Normal)
-                .expect("a function decoder also fixes the inquiry timeout class");
-        assert_eq!(function_inquiry.timeout_class(), TimeoutClass::Inquiry);
-    }
-
-    #[test]
     fn classes_are_structurally_distinct_and_encoding_is_exact() {
         assert_plain::<Plain>();
         assert_inquiry::<Inquiry<u8>>();
@@ -1025,9 +940,9 @@ mod tests {
 
         let command = Plain::new(
             [0x81, 0x01, 0x02, 0xff],
-            TimeoutClass::Quick,
+            CommandCategory::Quick,
             RetryClass::Never,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         )
         .expect("valid raw command");
         assert_eq!(command.bytes(), &[0x81, 0x01, 0x02, 0xff]);
@@ -1045,7 +960,7 @@ mod tests {
             [0x81, 0x09, 0x04, 0xff],
             ResponseDecoder::from_fn(decode_first),
             RetryClass::Never,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         )
         .expect("valid raw inquiry");
         assert_eq!(inquiry.decoder().decode(&[0x42]).expect("decode"), 0x42);
@@ -1060,7 +975,7 @@ mod tests {
                     .ok_or_else(|| Error::InvalidRequest("empty test payload".into()))
             },
             RetryClass::Inquiry,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         )
         .expect("context decoder");
         assert_eq!(context_inquiry.timeout_class(), TimeoutClass::Inquiry);
@@ -1076,9 +991,9 @@ mod tests {
         let targeted = Targeted::new(
             [0x81, 0x01, 0x06, 0xff],
             axes,
-            TimeoutClass::Movement,
+            CommandCategory::Movement,
             RetryClass::Movement,
-            ControlClass::User,
+            SubmissionClass::User,
         )
         .expect("valid targeted operation");
         assert_eq!(targeted.affected_axes(), axes);
@@ -1086,8 +1001,11 @@ mod tests {
         let applied = AppliedOnly::with_policy(
             [0x81, 0x01, 0x07, 0xff],
             AffectedAxes::ZOOM,
-            Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::User)
-                .expect("valid raw policy"),
+            OperationPolicy::new(
+                CommandCategory::Quick,
+                RetryClass::Never,
+                SubmissionClass::User,
+            ),
         )
         .expect("valid applied-only operation");
         assert_eq!(applied.affected_axes(), AffectedAxes::ZOOM);
@@ -1098,30 +1016,30 @@ mod tests {
     fn construction_rejects_invalid_wire_and_axes() {
         assert!(Plain::new(
             [],
-            TimeoutClass::Quick,
+            CommandCategory::Quick,
             RetryClass::Never,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         )
         .is_err());
         assert!(Plain::new(
             [0x80, 0x01, 0xff],
-            TimeoutClass::Quick,
+            CommandCategory::Quick,
             RetryClass::Never,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         )
         .is_err());
         assert!(Plain::new(
             [0x81, 0x01, 0x00],
-            TimeoutClass::Quick,
+            CommandCategory::Quick,
             RetryClass::Never,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         )
         .is_err());
         assert!(Plain::new(
             vec![0x81; MAX_BYTES + 1],
-            TimeoutClass::Quick,
+            CommandCategory::Quick,
             RetryClass::Never,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         )
         .is_err());
         assert!(AffectedAxes::from_bits(0).is_err());
@@ -1152,9 +1070,9 @@ mod tests {
 
         let error = Plain::new(
             oversize,
-            TimeoutClass::Quick,
+            CommandCategory::Quick,
             RetryClass::Never,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         )
         .expect_err("a frame longer than MAX_BYTES must be rejected");
         assert_eq!(error.kind(), crate::ErrorKind::InvalidParameter);
@@ -1167,9 +1085,9 @@ mod tests {
         let at_bound = frame(MAX_BYTES);
         let accepted = Plain::new(
             at_bound.clone(),
-            TimeoutClass::Quick,
+            CommandCategory::Quick,
             RetryClass::Never,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         )
         .expect("a frame of exactly MAX_BYTES must be accepted");
         assert_eq!(accepted.bytes(), at_bound.as_slice());
@@ -1180,7 +1098,7 @@ mod tests {
             frame(MAX_BYTES + 1),
             ResponseDecoder::from_fn(decode_first),
             RetryClass::Inquiry,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         )
         .expect_err("oversize inquiry frame");
         assert_eq!(inquiry_error.kind(), crate::ErrorKind::InvalidParameter);
@@ -1188,9 +1106,9 @@ mod tests {
             Targeted::new(
                 frame(MAX_BYTES + 1),
                 AffectedAxes::PAN_TILT,
-                TimeoutClass::Movement,
+                CommandCategory::Movement,
                 RetryClass::Movement,
-                ControlClass::User,
+                SubmissionClass::User,
             )
             .expect_err("oversize targeted frame"),
             Error::InvalidRequest(_)
@@ -1199,9 +1117,9 @@ mod tests {
             AppliedOnly::new(
                 frame(MAX_BYTES + 1),
                 AffectedAxes::ZOOM,
-                TimeoutClass::Movement,
+                CommandCategory::Movement,
                 RetryClass::Movement,
-                ControlClass::User,
+                SubmissionClass::User,
             )
             .expect_err("oversize applied-only frame"),
             Error::InvalidRequest(_)
@@ -1215,9 +1133,9 @@ mod tests {
         let targeted = Targeted::new(
             VALID,
             AffectedAxes::PAN_TILT,
-            TimeoutClass::Movement,
+            CommandCategory::Movement,
             RetryClass::Movement,
-            ControlClass::User,
+            SubmissionClass::User,
         )
         .expect("non-empty targeted axes");
         assert_eq!(targeted.affected_axes(), AffectedAxes::PAN_TILT);
@@ -1225,12 +1143,11 @@ mod tests {
         let applied = AppliedOnly::with_policy(
             VALID,
             AffectedAxes::ZOOM,
-            Policy::new(
-                TimeoutClass::Movement,
+            OperationPolicy::new(
+                CommandCategory::Movement,
                 RetryClass::Movement,
-                ControlClass::User,
-            )
-            .expect("valid raw policy"),
+                SubmissionClass::User,
+            ),
         )
         .expect("non-empty applied-only axes");
         assert_eq!(applied.affected_axes(), AffectedAxes::ZOOM);
@@ -1241,9 +1158,9 @@ mod tests {
     fn owner_target_is_not_inferred_or_rewritten_from_raw_bytes() {
         let command = Plain::new(
             [0x82, 0x01, 0xff],
-            TimeoutClass::Quick,
+            CommandCategory::Quick,
             RetryClass::Never,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         )
         .expect("valid frame for another explicit target");
         let profile = crate::ProfileSpec::from_compile_time::<crate::profiles::PtzOpticsG2>()
@@ -1266,71 +1183,6 @@ mod tests {
         assert_eq!(command.bytes(), &[0x82, 0x01, 0xff]);
     }
 
-    /// #679: raw policy cannot manufacture the urgent safety lane.
-    ///
-    /// `Policy::new` and every raw constructor that funnels through it reject
-    /// [`ControlClass::Urgent`], so ordinary raw traffic can
-    /// never enter the FIFO safety lane and dilute a genuine stop. The three
-    /// ordinary lanes stay admissible, so the guard rejects only urgent and
-    /// nothing wider.
-    #[test]
-    fn raw_policy_rejects_urgent_control_class() {
-        const FRAME: [u8; 4] = [0x81, 0x01, 0x02, 0xff];
-
-        assert!(
-            matches!(
-                Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Urgent),
-                Err(Error::InvalidRequest(_))
-            ),
-            "Policy::new must reject the urgent safety lane"
-        );
-        // Every raw request constructor funnels its class through `Policy::new`,
-        // so the rejection reaches each of the four request classes.
-        assert!(Plain::new(
-            FRAME,
-            TimeoutClass::Quick,
-            RetryClass::Never,
-            ControlClass::Urgent
-        )
-        .is_err());
-        assert!(Inquiry::from_fn(
-            [0x81, 0x09, 0x04, 0xff],
-            decode_first,
-            RetryClass::Never,
-            ControlClass::Urgent
-        )
-        .is_err());
-        assert!(Targeted::new(
-            [0x81, 0x01, 0x06, 0xff],
-            AffectedAxes::PAN_TILT,
-            TimeoutClass::Movement,
-            RetryClass::Movement,
-            ControlClass::Urgent,
-        )
-        .is_err());
-        assert!(AppliedOnly::new(
-            [0x81, 0x01, 0x07, 0xff],
-            AffectedAxes::ZOOM,
-            TimeoutClass::Quick,
-            RetryClass::Never,
-            ControlClass::Urgent,
-        )
-        .is_err());
-
-        // The three ordinary lanes remain selectable, so the guard is exactly
-        // the urgent lane and not a blanket refusal.
-        for control in [
-            ControlClass::Background,
-            ControlClass::Normal,
-            ControlClass::User,
-        ] {
-            let policy = Policy::new(TimeoutClass::Quick, RetryClass::Never, control)
-                .expect("ordinary lanes are admissible");
-            assert_eq!(policy.control_class(), control);
-            assert!(Plain::new(FRAME, TimeoutClass::Quick, RetryClass::Never, control).is_ok());
-        }
-    }
-
     /// #678: the raw hatch refuses owner-only wire primitives.
     ///
     /// A socket cancel (`8x 2y ff`) or a per-camera interface clear
@@ -1348,9 +1200,9 @@ mod tests {
                 assert!(
                     Plain::new(
                         cancel,
-                        TimeoutClass::Quick,
+                        CommandCategory::Quick,
                         RetryClass::Never,
-                        ControlClass::Normal
+                        SubmissionClass::Normal
                     )
                     .is_err(),
                     "socket cancel {cancel:x?} must be rejected"
@@ -1364,9 +1216,9 @@ mod tests {
             assert!(
                 Plain::new(
                     clear,
-                    TimeoutClass::Quick,
+                    CommandCategory::Quick,
                     RetryClass::Never,
-                    ControlClass::Normal
+                    SubmissionClass::Normal
                 )
                 .is_err(),
                 "interface clear {clear:x?} must be rejected"
@@ -1378,23 +1230,23 @@ mod tests {
             [0x81, 0x21, 0xff],
             decode_first,
             RetryClass::Never,
-            ControlClass::Normal
+            SubmissionClass::Normal
         )
         .is_err());
         assert!(Targeted::new(
             [0x81, 0x21, 0xff],
             AffectedAxes::PAN_TILT,
-            TimeoutClass::Movement,
+            CommandCategory::Movement,
             RetryClass::Movement,
-            ControlClass::User,
+            SubmissionClass::User,
         )
         .is_err());
         assert!(AppliedOnly::new(
             [0x81, 0x01, 0x00, 0x01, 0xff],
             AffectedAxes::ZOOM,
-            TimeoutClass::Quick,
+            CommandCategory::Quick,
             RetryClass::Never,
-            ControlClass::User,
+            SubmissionClass::User,
         )
         .is_err());
 
@@ -1416,9 +1268,9 @@ mod tests {
             assert!(
                 Plain::new(
                     frame,
-                    TimeoutClass::Quick,
+                    CommandCategory::Quick,
                     RetryClass::Never,
-                    ControlClass::Normal
+                    SubmissionClass::Normal
                 )
                 .is_ok(),
                 "legitimate custom frame {frame:x?} must stay admissible"
@@ -1472,9 +1324,9 @@ mod tests {
             assert!(
                 Plain::new(
                     frame,
-                    TimeoutClass::Quick,
+                    CommandCategory::Quick,
                     RetryClass::Never,
-                    ControlClass::Normal,
+                    SubmissionClass::Normal,
                 )
                 .is_err(),
                 "raw frame {frame:x?} must be rejected",
@@ -1485,9 +1337,9 @@ mod tests {
         // apparent VISCA address.
         assert!(Plain::new(
             [0x81, 0x01, 0x04, 0x3f, 0x01, 0xff, 0xff],
-            TimeoutClass::Quick,
+            CommandCategory::Quick,
             RetryClass::Never,
-            ControlClass::Normal,
+            SubmissionClass::Normal,
         )
         .is_ok());
     }
@@ -1498,9 +1350,11 @@ mod tests {
     #[test]
     fn reply_shape_defaults_and_threads_through_policy_and_commands() {
         // The default keeps existing raw code unchanged.
-        let default_policy =
-            Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Normal)
-                .expect("valid policy");
+        let default_policy = CommandPolicy::new(
+            CommandCategory::Quick,
+            RetryClass::Never,
+            SubmissionClass::Normal,
+        );
         assert_eq!(
             default_policy.reply_shape(),
             RawReplyShape::AckThenCompletion
@@ -1509,9 +1363,9 @@ mod tests {
         assert_eq!(
             Plain::new(
                 [0x81, 0x01, 0x02, 0xff],
-                TimeoutClass::Quick,
+                CommandCategory::Quick,
                 RetryClass::Never,
-                ControlClass::Normal,
+                SubmissionClass::Normal,
             )
             .expect("plain")
             .reply_shape(),
@@ -1535,90 +1389,28 @@ mod tests {
             let plain = Plain::with_policy([0x81, 0x01, 0x02, 0xff], policy).expect("plain");
             assert_eq!(plain.reply_shape(), shape);
             assert_eq!(Request::reply_shape(&plain), shape);
-
-            match shape {
-                RawReplyShape::NoReply => {
-                    assert!(matches!(
-                        Targeted::with_policy(
-                            [0x81, 0x01, 0x06, 0xff],
-                            AffectedAxes::PAN_TILT,
-                            policy,
-                        ),
-                        Err(Error::InvalidRequest(_))
-                    ));
-                    assert!(matches!(
-                        AppliedOnly::with_policy(
-                            [0x81, 0x01, 0x07, 0xff],
-                            AffectedAxes::ZOOM,
-                            policy,
-                        ),
-                        Err(Error::InvalidRequest(_))
-                    ));
-                }
-                RawReplyShape::AckThenCompletion | RawReplyShape::CompletionOnly => {
-                    let targeted = Targeted::with_policy(
-                        [0x81, 0x01, 0x06, 0xff],
-                        AffectedAxes::PAN_TILT,
-                        policy,
-                    )
-                    .expect("targeted");
-                    assert_eq!(targeted.reply_shape(), shape);
-                    assert_eq!(Request::reply_shape(&targeted), shape);
-
-                    let applied = AppliedOnly::with_policy(
-                        [0x81, 0x01, 0x07, 0xff],
-                        AffectedAxes::ZOOM,
-                        policy,
-                    )
-                    .expect("applied");
-                    assert_eq!(applied.reply_shape(), shape);
-                    assert_eq!(Request::reply_shape(&applied), shape);
-                }
-            }
         }
-    }
-
-    /// #700: an inquiry always awaits its reply, so a raw inquiry rejects any
-    /// non-default reply shape at construction rather than silently ignoring it.
-    #[test]
-    fn raw_inquiry_rejects_non_default_reply_shape() {
-        let ackthen = Policy::new(
-            TimeoutClass::Inquiry,
-            RetryClass::Never,
-            ControlClass::Normal,
-        )
-        .expect("valid policy");
-
-        // The default shape is accepted through every inquiry constructor.
-        assert!(Inquiry::<u8>::with_policy(
-            [0x81, 0x09, 0x04, 0xff],
-            ResponseDecoder::from_fn(decode_first),
-            ackthen
-        )
-        .is_ok());
-        assert!(Inquiry::from_fn(
-            [0x81, 0x09, 0x04, 0xff],
-            decode_first,
-            RetryClass::Never,
-            ControlClass::Normal
-        )
-        .is_ok());
-
-        // Completion-only and no-reply are rejected — the guard is exactly the
-        // non-default shapes and nothing wider.
-        for shape in [RawReplyShape::CompletionOnly, RawReplyShape::NoReply] {
-            let policy = ackthen.with_reply_shape(shape);
-            assert!(
-                matches!(
-                    Inquiry::<u8>::with_policy(
-                        [0x81, 0x09, 0x04, 0xff],
-                        ResponseDecoder::from_fn(decode_first),
-                        policy
-                    ),
-                    Err(Error::InvalidRequest(_))
-                ),
-                "raw inquiry must reject reply shape {shape:?}"
-            );
+        for shape in [
+            OperationReplyShape::AckThenCompletion,
+            OperationReplyShape::CompletionOnly,
+        ] {
+            let policy = OperationPolicy::new(
+                CommandCategory::Quick,
+                RetryClass::Never,
+                SubmissionClass::Normal,
+            )
+            .with_reply_shape(shape);
+            let expected = RawReplyShape::from(shape);
+            let targeted =
+                Targeted::with_policy([0x81, 0x01, 0x06, 0xff], AffectedAxes::PAN_TILT, policy)
+                    .expect("targeted");
+            assert_eq!(targeted.reply_shape(), expected);
+            assert_eq!(Request::reply_shape(&targeted), expected);
+            let applied =
+                AppliedOnly::with_policy([0x81, 0x01, 0x07, 0xff], AffectedAxes::ZOOM, policy)
+                    .expect("applied");
+            assert_eq!(applied.reply_shape(), expected);
+            assert_eq!(Request::reply_shape(&applied), expected);
         }
     }
 }
