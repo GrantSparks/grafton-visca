@@ -4,7 +4,6 @@ use std::time::Duration;
 #[cfg(any(feature = "async", feature = "blocking", test))]
 use std::time::Instant;
 
-#[cfg(any(feature = "async", feature = "blocking", test))]
 use crate::TimeoutClass;
 use crate::{Error, Result};
 
@@ -40,7 +39,6 @@ command_categories!(Quick, Movement, Preset, LongRunning, Network);
 impl CommandCategory {
     /// The command category a request's timeout class selects, or `None` for
     /// an inquiry.
-    #[cfg(any(feature = "async", feature = "blocking", test))]
     pub(crate) const fn of(class: TimeoutClass) -> Option<Self> {
         match class {
             TimeoutClass::Quick => Some(Self::Quick),
