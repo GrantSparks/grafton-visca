@@ -48,6 +48,7 @@ struct CorrelationOwner {
 struct SequenceRecord {
     sequence: u32,
     kind: CorrelationKind,
+    target: CameraId,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -2249,9 +2250,11 @@ impl ProtocolEngine {
             }
         }
         if let Some(entry) = self.entries.get_mut(&id) {
-            entry
-                .sequence_history
-                .push(SequenceRecord { sequence, kind });
+            entry.sequence_history.push(SequenceRecord {
+                sequence,
+                kind,
+                target: entry.request.context().target,
+            });
         }
         add_unique_owner(self.sequences.entry(sequence).or_default(), owner);
         add_unique_owner(
@@ -5220,6 +5223,42 @@ impl ProtocolEngine {
 
     /// Audits every derived index against authoritative entries.
     pub(crate) fn assert_invariants(&self) -> Result<(), Box<str>> {
+        if self.state != SessionState::Running
+            && (!self.entries.is_empty()
+                || !self.transmissions.is_empty()
+                || !self.sequences.is_empty()
+                || !self.lower_sequences.is_empty()
+                || self.socket_owners.iter().flatten().any(Option::is_some)
+                || self.raw_inquiries.iter().any(|queue| !queue.is_empty())
+                || !self.holds.is_empty()
+                || !self.ledger.is_empty()
+                || self
+                    .command_queues
+                    .iter()
+                    .chain(&self.inquiry_queues)
+                    .any(|queue| !queue.is_empty())
+                || self.raw_release_gate.is_some()
+                || !self.retro.is_empty()
+                || !self.displaced_unseen.is_empty())
+        {
+            return Err("ended session retains lifecycle or correlation work".into());
+        }
+        if self.transmissions.len() > self.entries.len().saturating_mul(2) {
+            return Err("transmission bound exceeded".into());
+        }
+        if self
+            .raw_inquiries
+            .iter()
+            .any(|queue| queue.len() > self.policy.inquiry_capacity)
+        {
+            return Err("raw inquiry FIFO bound exceeded".into());
+        }
+        if self.retro.len() > stream_ledger::MAX_DISPUTE_HANDOFFS + 2 {
+            return Err("retroactive evidence bound exceeded".into());
+        }
+        if self.displaced_unseen.len() > 2 {
+            return Err("displaced socket owner bound exceeded".into());
+        }
         let ordinary = self
             .entries
             .values()
@@ -5318,10 +5357,11 @@ impl ProtocolEngine {
                 };
                 if entry.generation != owner.generation
                     || !correlation_phase_compatible(entry, owner.kind)
-                    || !entry
-                        .sequence_history
-                        .iter()
-                        .any(|record| record.sequence == *sequence && record.kind == owner.kind)
+                    || !entry.sequence_history.iter().any(|record| {
+                        record.sequence == *sequence
+                            && record.kind == owner.kind
+                            && record.target == entry.request.context().target
+                    })
                 {
                     return Err("sequence owner is stale or phase-incompatible".into());
                 }
@@ -5333,10 +5373,12 @@ impl ProtocolEngine {
                     return Err("lower16 owner refers to missing entry".into());
                 };
                 if entry.generation != owner.generation
-                    || !entry
-                        .sequence_history
-                        .iter()
-                        .any(|record| record.sequence as u16 == *lower && record.kind == owner.kind)
+                    || !correlation_phase_compatible(entry, owner.kind)
+                    || !entry.sequence_history.iter().any(|record| {
+                        record.sequence as u16 == *lower
+                            && record.kind == owner.kind
+                            && record.target == entry.request.context().target
+                    })
                 {
                     return Err("lower16 owner is stale".into());
                 }
@@ -6020,17 +6062,26 @@ fn unique_requests(
 
 fn correlation_phase_compatible(entry: &Entry, kind: CorrelationKind) -> bool {
     match kind {
-        CorrelationKind::Request => matches!(
-            entry.phase,
+        // Sony sequences deliberately outlive an attempt across retry. A
+        // queued/backoff owner therefore needs evidence of an earlier attempt;
+        // the ordinary response phases must also agree with the reply shape.
+        CorrelationKind::Request => match entry.phase {
+            Phase::Ready { .. } | Phase::Backoff { .. } => {
+                entry.attempt > 0 && entry.current_sequence.is_some()
+            }
+            Phase::Sending { .. } => true,
+            Phase::AwaitingReply { .. } => entry.request.is_inquiry(),
             Phase::AwaitingAck { .. }
-                | Phase::AwaitingCompletion { .. }
-                | Phase::Executing { .. }
-                | Phase::AwaitingReply { .. }
-                | Phase::AwaitingCancellationResolution { .. }
-                | Phase::Backoff { .. }
-                | Phase::Ready { .. }
-                | Phase::Sending { .. }
-        ),
+            | Phase::Executing { .. }
+            | Phase::AwaitingCancellationResolution { .. } => {
+                !entry.request.is_inquiry()
+                    && entry.request.context().reply_shape == ReplyShape::AckThenCompletion
+            }
+            Phase::AwaitingCompletion { .. } => {
+                !entry.request.is_inquiry()
+                    && entry.request.context().reply_shape == ReplyShape::CompletionOnly
+            }
+        },
         CorrelationKind::Cancellation => matches!(
             entry.cancellation,
             CancelState::Sending { .. } | CancelState::AwaitingTerminal { .. }
