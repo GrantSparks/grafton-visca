@@ -12,12 +12,12 @@
 //! whose kind disagrees with its command fails const evaluation under
 //! `cargo check`.
 
-use crate::{capabilities::TypedSupportSurface, noun_table::noun_table};
+use crate::{capabilities::TypedSupportSet, noun_table::noun_table};
 
 use super::semantics::{BuiltinCommand, BuiltinRequestClass, BuiltinRequestKind};
 
-/// The capability gate of one noun-table row: the row's own `where` marker,
-/// or else its noun header's base gate.
+/// The capability gate of one noun-table row, including both its typed noun
+/// header and any refining `where` marker.
 ///
 /// This is the one gate vocabulary of the noun table.  The static facades
 /// enforce it as trait bounds; the surface registry records it per command
@@ -28,9 +28,9 @@ pub(crate) enum RowGate {
     Always,
     /// A base-domain marker is required (`gate: [domain <Marker>]`).
     Domain(DomainGate),
-    /// A typed-support marker is required (`gate: [typed <Marker>]`, or a
-    /// row `where <Marker>`).
-    Typed(TypedSupportSurface),
+    /// Every typed-support marker in the set is required: a typed noun's
+    /// header plus a row's refining `where` marker, when either is present.
+    Typed(TypedSupportSet),
 }
 
 /// The base-domain marker of a noun header's `[domain <Marker>]` gate.
@@ -130,8 +130,8 @@ macro_rules! domain_gate {
     };
 }
 
-/// The [`RowGate`] of one row: its bracketed `where` marker, or else its
-/// noun's base gate.
+/// The [`RowGate`] of one row: combine a typed noun header with its refining
+/// `where` marker, or inherit the noun gate when the row has no refinement.
 macro_rules! row_gate {
     ([], [always]) => {
         RowGate::Always
@@ -140,11 +140,36 @@ macro_rules! row_gate {
         RowGate::Domain(domain_gate!($marker))
     };
     ([], [typed $marker:ident]) => {
-        RowGate::Typed($crate::capabilities::typed_surface!($marker))
+        RowGate::Typed(TypedSupportSet::from_surface(
+            $crate::capabilities::typed_surface!($marker),
+        ))
+    };
+    ([$gate:ident], [typed $base:ident]) => {
+        RowGate::Typed(TypedSupportSet::from_surfaces(&[
+            $crate::capabilities::typed_surface!($base),
+            $crate::capabilities::typed_surface!($gate),
+        ]))
     };
     ([$gate:ident], $base:tt) => {
-        RowGate::Typed($crate::capabilities::typed_surface!($gate))
+        RowGate::Typed(TypedSupportSet::from_surface(
+            $crate::capabilities::typed_surface!($gate),
+        ))
     };
+}
+
+/// Skip domain headers that every row refines, without constructing an
+/// unused domain gate merely to audit typed-header inheritance.
+#[cfg(test)]
+macro_rules! assert_typed_header {
+    ($assertion:ident, [typed $base:ident], $row:tt, $noun:expr, $method:expr) => {
+        $assertion(
+            $noun,
+            $method,
+            row_gate!([], [typed $base]),
+            row_gate!($row, [typed $base]),
+        );
+    };
+    ($assertion:ident, $base:tt, $row:tt, $noun:expr, $method:expr) => {};
 }
 
 /// What kind of public surface disposition a built-in request has.
@@ -309,6 +334,34 @@ macro_rules! surface_registry {
 
             $( $( inquiry_gate!($kind $request $gate $base); )* )*
         };
+
+        /// Every row of a typed noun must retain the accessor's bound, even
+        /// when the row also has its own refining marker.
+        #[cfg(test)]
+        #[test]
+        fn typed_noun_headers_are_required_by_every_row() {
+            fn assert_header(noun: &str, method: &str, header: RowGate, row: RowGate) {
+                if let RowGate::Typed(required) = header {
+                    let retained = match row {
+                        RowGate::Typed(actual) => actual.contains_all(required),
+                        RowGate::Always | RowGate::Domain(_) => false,
+                    };
+                    assert!(
+                        retained,
+                        "{noun}::{method} requires {row:?}, missing noun header {required:?}"
+                    );
+                }
+            }
+            $( $(
+                assert_typed_header!(
+                    assert_header,
+                    $base,
+                    $gate,
+                    stringify!($noun),
+                    stringify!($method)
+                );
+            )* )*
+        }
     };
 
     (
@@ -336,16 +389,13 @@ macro_rules! surface_registry {
 
 noun_table!(surface_registry);
 
-/// Returns the runtime typed-support surface carried by one static command row.
+/// Returns all runtime typed-support surfaces required by one static command row.
 ///
 /// Request validation uses this projection for vendor commands whose typed
-/// permission is entirely represented by an optional marker. That makes the
-/// dynamic admission gate follow the same noun-table `where` bound that
-/// governs static method resolution.
+/// permission is represented by noun and row markers. Dynamic admission
+/// therefore follows both bounds that govern static method resolution.
 #[must_use]
-pub(crate) const fn typed_surface_for_command(
-    command: BuiltinCommand,
-) -> Option<TypedSupportSurface> {
+pub(crate) const fn typed_surface_for_command(command: BuiltinCommand) -> Option<TypedSupportSet> {
     match surface_entry(command).disposition {
         StaticSurfaceDisposition::Noun {
             gate: RowGate::Typed(surface),

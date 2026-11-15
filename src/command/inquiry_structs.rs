@@ -195,7 +195,8 @@ macro_rules! builtin_inquiry_untyped_gate {
 /// at runtime the gate the static `<noun>().<inquiry>()` call resolves (#684):
 /// a base-domain inquiry (`power().state()`, `zoom().position()`, ...) has no
 /// `where` clause of its own and inherits its noun's base-domain marker, and a
-/// typed one requires its marker's typed-support surface.
+/// typed one requires every typed-support surface from its noun header and
+/// refining row marker.
 fn validate_builtin_inquiry_gate(
     profile: &crate::ProfileSpec,
     gate: RowGate,
@@ -206,8 +207,11 @@ fn validate_builtin_inquiry_gate(
         RowGate::Always => Ok(()),
         RowGate::Domain(domain) if domain.permits(profile) => Ok(()),
         RowGate::Domain(_) => Err(Error::FeatureNotSupported { feature: inquiry }),
-        RowGate::Typed(surface) => {
-            validate_builtin_inquiry_surface(profile, surface, typed_inquiry)
+        RowGate::Typed(surfaces) => {
+            for surface in surfaces.iter() {
+                validate_builtin_inquiry_surface(profile, surface, typed_inquiry)?;
+            }
+            Ok(())
         }
     }
 }

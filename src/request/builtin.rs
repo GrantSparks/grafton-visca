@@ -457,19 +457,24 @@ fn validate_tally_state(profile: &crate::ProfileSpec, row: BuiltinCommand) -> Re
 /// Validates a command gate derived from the static noun-table row.
 ///
 /// The dynamic facade has no marker bounds, so it must consult the same typed
-/// support surface that its static method's `where Has*` clause projects to.
-/// Only rows with a typed surface may call this helper.
+/// support surfaces that its static noun header and method's `where Has*`
+/// clause project to. Only rows with typed gates may call this helper.
 fn validate_static_typed_command(
     profile: &crate::ProfileSpec,
     command: BuiltinCommand,
     feature: &'static str,
 ) -> Result<(), Error> {
-    let Some(surface) = typed_surface_for_command(command) else {
+    let Some(surfaces) = typed_surface_for_command(command) else {
         return Err(Error::InvalidRequest(
             "static typed-command gate is missing from the noun surface".into(),
         ));
     };
-    require(profile.capabilities().permits_typed(surface), feature)
+    require(
+        surfaces
+            .iter()
+            .all(|surface| profile.capabilities().permits_typed(surface)),
+        feature,
+    )
 }
 
 /// USB audio is a model capability, not a family-wide PTZOptics assumption.
@@ -1557,12 +1562,12 @@ const fn assert_value_selects_row<T: BuiltinRequestContract>(
 }
 
 const fn same_typed_gate(
-    left: Option<TypedSupportSurface>,
-    right: Option<TypedSupportSurface>,
+    left: Option<crate::capabilities::TypedSupportSet>,
+    right: Option<crate::capabilities::TypedSupportSet>,
 ) -> bool {
     match (left, right) {
         (None, None) => true,
-        (Some(left), Some(right)) => left as u8 == right as u8,
+        (Some(left), Some(right)) => left.contains_all(right) && right.contains_all(left),
         (None, Some(_)) | (Some(_), None) => false,
     }
 }

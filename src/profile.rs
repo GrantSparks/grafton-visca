@@ -181,7 +181,15 @@ pub enum ProfileEnvelope {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct TransportCompatibility {
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     tcp_port: Option<u16>,
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     udp_port: Option<u16>,
     serial: bool,
 }
@@ -1095,6 +1103,10 @@ pub struct ProfileSpec {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 pub(crate) struct ProfileFacts {
     capabilities: capabilities::Capabilities,
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pan_tilt_coordinates: Option<PanTiltCoordinateConversion>,
     transports: TransportCompatibility,
     envelope: ProfileEnvelope,
@@ -1102,6 +1114,10 @@ pub(crate) struct ProfileFacts {
     maximum_command_sockets: u8,
     supports_operation_complete: bool,
     supports_command_cancel: bool,
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     preset_recall_axes: Option<AffectedAxes>,
     position_inquiries: PositionInquirySupport,
 }
@@ -1151,6 +1167,21 @@ impl ProfileFacts {
     {
         *self == Self::compile_time::<P>()
     }
+}
+
+/// Deserialize an optional fact whose key must still be present.
+///
+/// Attaching `deserialize_with` prevents serde's implicit missing-Option
+/// default while retaining explicit `null` as the declared absent value.
+#[cfg(feature = "serde")]
+pub(crate) fn required_option<'de, D, T>(
+    deserializer: D,
+) -> std::result::Result<Option<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    serde::Deserialize::deserialize(deserializer)
 }
 
 /// Instruction appended to every refused persisted spec.

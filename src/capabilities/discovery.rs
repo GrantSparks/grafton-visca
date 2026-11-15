@@ -40,6 +40,10 @@ use crate::{command::exposure::ExposureMode, WhiteBalanceMode};
 pub struct Capabilities {
     // Camera identification
     /// Built-in registry identity, or `None` for a downstream runtime profile.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pub profile_id: Option<crate::camera::profiles::ProfileId>,
 
     /// Model name of the camera.
@@ -89,6 +93,10 @@ pub struct Capabilities {
     /// APIs; use [`supports_typed`](Self::supports_typed) with
     /// [`TypedSupportSurface::DigitalZoomToggle`] or
     /// [`TypedSupportSurface::DigitalZoomRange`] for that.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pub zoom_range_digital: Option<RangeInclusive<u16>>,
 
     /// Valid zoom speed range (typically 0-7).
@@ -179,10 +187,18 @@ pub struct Capabilities {
     pub has_wdr: bool,
 
     /// Exposure compensation range, if supported.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pub exposure_comp_range: Option<RangeInclusive<i8>>,
 
     /// Iris positions in VISCA units, if iris control is supported: the
     /// profile iris table's bounds minus any position it does not list.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pub iris_range: Option<CapabilityDomain<u16>>,
 
     /// Gain range in VISCA units.
@@ -196,6 +212,10 @@ pub struct Capabilities {
     ///
     /// This is the exposure brightness/bright-direct surface, not image
     /// luminance.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pub exposure_brightness_range: Option<CapabilityDomain<u8>>,
 
     // White balance capabilities
@@ -207,19 +227,39 @@ pub struct Capabilities {
 
     /// Direct color temperature range in Kelvin, or `None` when direct color
     /// temperature control is not supported.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pub color_temp_range: Option<RangeInclusive<u16>>,
 
     /// RG tuning range if supported.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pub rg_tuning_range: Option<RangeInclusive<i8>>,
 
     /// BG tuning range if supported.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pub bg_tuning_range: Option<RangeInclusive<i8>>,
 
     /// Manual red gain range, or `None` when manual RGB gain is not supported.
     /// Manual RGB gain needs both this and `blue_gain_range`.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pub red_gain_range: Option<RangeInclusive<u8>>,
 
     /// Manual blue gain range, or `None` when manual RGB gain is not supported.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pub blue_gain_range: Option<RangeInclusive<u8>>,
 
     /// Exact supported white-balance modes.
@@ -230,21 +270,45 @@ pub struct Capabilities {
     pub has_image_processing: bool,
 
     /// Contrast adjustment range, if supported.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pub contrast_range: Option<RangeInclusive<u8>>,
 
     /// Sharpness adjustment range, if supported.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pub sharpness_range: Option<RangeInclusive<u8>>,
 
     /// Saturation adjustment range if supported.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pub saturation_range: Option<RangeInclusive<u8>>,
 
     /// Hue adjustment range, or `None` when hue is not supported.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pub hue_range: Option<RangeInclusive<u8>>,
 
     /// Image luminance range, or `None` when luminance is not supported.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pub luminance_range: Option<RangeInclusive<u8>>,
 
     /// Gamma curve range, or `None` when gamma is not supported.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pub gamma_range: Option<RangeInclusive<u8>>,
 
     /// Whether camera supports image flip.
@@ -281,6 +345,10 @@ pub struct Capabilities {
 
     /// Preset recall speeds, or `None` when the camera documents no preset
     /// recall speed.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pub preset_speed_range: Option<RangeInclusive<u8>>,
 
     /// Whether camera supports preset tours.
@@ -328,10 +396,18 @@ pub struct Capabilities {
     pub nd_filter_mode: super::NdFilterMode,
 
     /// Explicit ND step count when supplied by the profile.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pub nd_filter_steps: Option<u8>,
 
     /// Motion-sync speeds the camera accepts, or `None` when it has no motion
     /// sync.
+    #[cfg_attr(
+        feature = "serde",
+        serde(deserialize_with = "crate::profile::required_option")
+    )]
     pub motion_sync_speed_range: Option<RangeInclusive<u8>>,
 
     /// Whether camera supports direct menu control.
