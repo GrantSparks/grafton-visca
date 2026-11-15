@@ -80,10 +80,10 @@ impl NdFilterModeCommand {
 /// Direct ND filter value command for variable mode.
 ///
 /// # Sony FR7 Specific
-/// Command: `8x 01 7E 04 42 00 0p 0q FF`
+/// Command: `8x 01 7E 04 42 00 00 0p 0q FF` (R7, p.14)
 /// - Value 0x0000 = ND 1/4 (2 stops, minimum ND)
 /// - Value 0x0014 = ND 1/128 (7 stops, maximum density)
-/// - Linear scale for optical density (each increment ~0.5 stop)
+/// - Density codes advance in quarter-stop steps
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct NdFilterValue {
     value: u16,
@@ -276,6 +276,7 @@ mod tests {
             0x00,
             0x00,
             0x00,
+            0x00,
             VISCA_TERMINATOR
         ]
     );
@@ -290,6 +291,7 @@ mod tests {
             0x7E,
             0x04,
             0x42,
+            0x00,
             0x00,
             0x01,
             0x04,

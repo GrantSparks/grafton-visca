@@ -2195,7 +2195,7 @@ impl NdFilterDirect {
 
 builtin_request! {
     NdFilterDirect => NdFilterDirect: Targeted {
-        size: 9,
+        size: 10,
         wire: |value: &NdFilterDirect| value.0,
     };
 }

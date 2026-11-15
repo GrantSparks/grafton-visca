@@ -764,3 +764,39 @@ fn focus_zone_and_usb_audio_inquiries_require_their_source_backed_profile_gates(
     assert!(g3_capabilities.supports_typed(TypedSupportSurface::NoiseReduction2DControl));
     assert!(g3_capabilities.supports_typed(TypedSupportSurface::NoiseReduction3DControl));
 }
+
+/// R7 v4.00 p.14: two zero padding bytes precede the variable-ND density code.
+#[test]
+fn fr7_variable_nd_direct_preserves_both_padding_bytes_and_exact_bound() {
+    use grafton_visca::{
+        command::NdFilterValue, request::builtin::NdFilterDirect, CameraId, Request,
+    };
+
+    assert_eq!(NdFilterDirect::MAX_SIZE, 10);
+    for density in 0..=0x14 {
+        let request = NdFilterDirect::new(NdFilterValue::new(density).expect("sourced density"));
+        let mut frame = [0; 10];
+        assert_eq!(
+            request
+                .write_into(CameraId::CAMERA_1, &mut frame)
+                .expect("exact-sized buffer"),
+            10
+        );
+        assert_eq!(
+            frame,
+            [
+                0x81,
+                0x01,
+                0x7E,
+                0x04,
+                0x42,
+                0,
+                0,
+                (density >> 4) as u8,
+                (density & 0x0F) as u8,
+                0xFF
+            ]
+        );
+        assert!(request.write_into(CameraId::CAMERA_1, &mut [0; 9]).is_err());
+    }
+}
