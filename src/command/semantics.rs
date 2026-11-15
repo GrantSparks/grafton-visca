@@ -178,7 +178,7 @@ impl BuiltinRequestClass {
 
     /// Returns the closed write-only state requirement, if any.
     #[must_use]
-    #[cfg(any(feature = "async", feature = "blocking", test))]
+    #[cfg(test)]
     pub(crate) const fn state_effect(self) -> Option<AppliedStateEffectRequirement> {
         match self {
             Self::Plain { state_effect } => state_effect,
@@ -238,6 +238,8 @@ pub(crate) trait BuiltinRequestContract: crate::Request<Class: BuiltinClassMarke
     /// must classify identically; the typed-request inventory checks this at
     /// compile time.
     const LEDGER_ROW: BuiltinCommand;
+    /// Generated from the row's Set/Clear/Invalidate key, or its lack of effect.
+    type State;
     /// Proof that the declared closed `Request::Class` serves the kind of
     /// [`Self::LEDGER_ROW`]: evaluating it fails when they disagree.
     /// `builtin_request!` forces it for every built-in type with a
@@ -269,18 +271,11 @@ pub(crate) const fn fixed_axes<T: BuiltinRequestContract>() -> AffectedAxes {
     }
 }
 
-/// The write-only state effect of `T`'s ledger row.
-///
-/// # Panics
-///
-/// Fails const evaluation when the row has no state effect.
-#[allow(clippy::panic)]
-#[cfg(any(feature = "blocking", feature = "async"))]
-pub(crate) const fn state_effect<T: BuiltinRequestContract>() -> AppliedStateEffectRequirement {
-    match T::LEDGER_ROW.classification().state_effect() {
-        Some(effect) => effect,
-        None => panic!("ledger row has no write-only state effect"),
-    }
+/// Type-level projection contract emitted beside each ledger row.
+pub(crate) struct LedgerRow<const ROW: usize>;
+
+pub(crate) trait LedgerState {
+    type State;
 }
 
 /// The closed semantic ledger: one row per built-in command, in protocol
@@ -303,6 +298,12 @@ macro_rules! builtin_command_ledger {
             $( $(#[$meta])* $command, )+
         }
 
+        $(
+            impl LedgerState for LedgerRow<{ BuiltinCommand::$command as usize }> {
+                type State = ledger_state!($class $(($($effect)*))?);
+            }
+        )+
+
         impl BuiltinCommand {
             /// Every ledger row, in protocol order. Production code reaches
             /// rows only through exhaustive matches, so the inventory exists
@@ -323,6 +324,22 @@ macro_rules! builtin_command_ledger {
                 }
             }
         }
+    };
+}
+
+/// Selects a projection type from the same tokens that classify the row.
+macro_rules! ledger_state {
+    (plain(Set($key:ident))) => {
+        crate::request::builtin_contract::Set<crate::state_cache::state_values::$key>
+    };
+    (plain(Clear($key:ident))) => {
+        crate::request::builtin_contract::Clear<crate::state_cache::state_values::$key>
+    };
+    (plain(Invalidate($key:ident))) => {
+        crate::request::builtin_contract::Invalidate<crate::state_cache::state_values::$key>
+    };
+    ($class:ident $(($($arguments:tt)*))?) => {
+        crate::request::builtin_contract::NoState
     };
 }
 

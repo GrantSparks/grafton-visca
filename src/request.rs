@@ -34,3 +34,6 @@ mod private {
 
 /// Homogeneous built-in requests for the final typed request surface.
 pub mod builtin;
+
+#[cfg_attr(not(any(feature = "blocking", feature = "async")), allow(dead_code))]
+pub(crate) mod builtin_contract;

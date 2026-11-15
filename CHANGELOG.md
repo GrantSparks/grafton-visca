@@ -59,6 +59,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Built-in write-only state projections derive their keys and verbs from the
+  semantic ledger. Stateful requests require typed value providers, and
+  no-effect rows cannot override the generated projection (#911).
+
 - **BREAKING** (#900): `ConnectionClosed` retains `source: Option<Arc<Error>>`
   and `StreamPoisoned` retains `source: Arc<Error>` instead of reason text.
   Their constructors preserve typed causes and normalize existing terminal
