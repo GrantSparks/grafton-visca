@@ -161,7 +161,17 @@ fn masked_lines(lines: &[&str], label: &str, macros: bool) -> Vec<bool> {
         let trimmed = lines[index].trim();
         let test_only = trimmed == "#[cfg(test)]" || trimmed.starts_with("#[cfg(all(test,");
         if test_only || (macros && trimmed.starts_with("macro_rules!")) {
-            let end = block_end(lines, index, label);
+            // An out-of-line test module ends with a semicolon, without a
+            // brace-delimited body in this file.
+            let first_item = lines
+                .iter()
+                .enumerate()
+                .skip(index)
+                .find(|(_, line)| line.contains('{') || line.trim_end().ends_with(';'));
+            let end = match first_item {
+                Some((end, line)) if !line.contains('{') => end + 1,
+                _ => block_end(lines, index, label),
+            };
             for item in masked.iter_mut().take(end).skip(index) {
                 *item = true;
             }
@@ -554,6 +564,69 @@ fn core_contract_rejects_a_non_native_macro_invocation() {
     );
 }
 
+/// Bind the recording-driver tests to the real native entry points: neither
+/// shell may bypass the shared driver with a handwritten method.
+fn assert_native_driver_binding(source: &str, ty: &str, expected_arguments: &str) {
+    let cleaned = clean_source(source, ty);
+    assert_eq!(
+        cleaned.matches("owner_turn_driver!").count(),
+        1,
+        "{ty}: exactly one shared driver invocation"
+    );
+    let call = cleaned
+        .find("owner_turn_driver!")
+        .unwrap_or_else(|| panic!("{ty}: missing driver invocation"));
+    let open = call
+        + cleaned[call..]
+            .find('{')
+            .unwrap_or_else(|| panic!("{ty}: no driver arguments"));
+    let end = closing_brace(&cleaned, open);
+    let arguments = cleaned[open + 1..end - 1]
+        .split_whitespace()
+        .collect::<String>();
+    assert_eq!(
+        arguments.trim_end_matches(','),
+        expected_arguments,
+        "{ty}: native driver arguments"
+    );
+    let methods = core_contract(&[(ty, source)], ty);
+    for method in ["run", "handle_event", "drive"] {
+        assert!(
+            !methods.contains_key(method),
+            "{ty}::{method} must come from the shared driver"
+        );
+    }
+}
+
+#[test]
+fn both_native_owners_bind_the_shared_driver_without_handwritten_turn_methods() {
+    assert_native_driver_binding(
+        include_str!("runtime/owner/blocking.rs"),
+        "BlockingOwnerWorker",
+        "async:[],await:[],driver:BlockingOwnerDriver",
+    );
+    assert_native_driver_binding(
+        include_str!("runtime/owner/async_actor.rs"),
+        "AsyncOwnerActor",
+        "async:[async],await:[.await],driver:AsyncOwnerDriver",
+    );
+}
+
+#[test]
+fn driver_binding_gate_detects_a_handwritten_override() {
+    let source = "impl Owner {\n owner_turn_driver! { async: [], await: [], driver: Driver }\n}\n";
+    let arguments = "async:[],await:[],driver:Driver";
+    assert_native_driver_binding(source, "Owner", arguments);
+    for method in ["run", "handle_event", "drive"] {
+        let changed = source.replace("\n}\n", &format!("\n fn {method}(&self) {{}}\n}}\n"));
+        assert!(
+            std::panic::catch_unwind(|| assert_native_driver_binding(&changed, "Owner", arguments))
+                .is_err(),
+            "the gate must reject handwritten {method}"
+        );
+    }
+}
+
 #[test]
 fn both_facades_expose_the_same_method_set() {
     for ty in FACADE_TYPES {
@@ -628,6 +701,14 @@ mod scanner {
     }
 
     #[test]
+    fn macro_mask_keeps_its_outer_body_even_with_semicolon_only_rules() {
+        let source = "macro_rules! hidden {\n ($value:expr) => ($value);\n}\nimpl Real { pub fn visible(&self) {} }\n";
+        let declarations = declaration_lines(source, "macro fixture", true);
+        assert!(declarations[..3].iter().all(|line| line.trim().is_empty()));
+        assert!(declarations[3].starts_with("impl Real"));
+    }
+
+    #[test]
     fn declaration_scan_drops_in_file_test_data() {
         let source = concat!(
             "pub struct RealAccessor;\n",
@@ -637,6 +718,8 @@ mod scanner {
             "}\n",
             "#[cfg(all(test, feature = \"test-utils\"))]\n",
             "mod mode_tests { struct ModeGhost; }\n",
+            "#[cfg(test)]\n",
+            "mod external_tests;\n",
             "pub struct LaterAccessor;\n",
         );
         let declarations = declaration_lines(source, "fixture", false);
@@ -646,5 +729,6 @@ mod scanner {
         assert!(declarations.contains("LaterAccessor"));
         assert!(!declarations.contains("GhostAccessor"));
         assert!(!declarations.contains("ModeGhost"));
+        assert!(!declarations.contains("external_tests"));
     }
 }

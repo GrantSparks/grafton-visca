@@ -41,8 +41,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Async and blocking camera cores share one preparation and forwarding
   definition; native owners share one turn-driver definition. The shells
   supply clock reads, cooperative handoff, selection and bounded I/O. Parity
-  checks cover expanded core contracts and complete driver call ordering,
-  including write feedback and teardown (#865).
+  checks cover expanded core contracts, each native driver's actual macro
+  binding, and complete call ordering including write feedback and teardown
+  (#865).
 
 - Owner receives use one closed read verdict and one generated fatal I/O-kind
   table, including `InvalidInput`. Retained stream evidence is an infallible
