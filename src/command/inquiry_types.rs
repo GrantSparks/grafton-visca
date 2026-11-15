@@ -13,15 +13,6 @@ pub struct VersionInfo {
     pub max_socket: u8,
 }
 
-/// Tally light state returned by the tally inquiry.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct TallyStatusState {
-    /// Whether the red tally light is on.
-    pub red_on: bool,
-    /// Whether the green tally light is on.
-    pub green_on: bool,
-}
-
 /// Flip state configuration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FlipState {

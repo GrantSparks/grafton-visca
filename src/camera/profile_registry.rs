@@ -1001,7 +1001,6 @@ macro_rules! __define_builtin_profiles {
                     $crate::capabilities::TypedSupportSurface::NoiseReduction3DControl,
                     $crate::capabilities::TypedSupportSurface::PictureEffect,
                     $crate::capabilities::TypedSupportSurface::ImageFreeze,
-                    $crate::capabilities::TypedSupportSurface::DefogLevel,
                 ] {
                     assert!(
                         facts.image_base_support || !facts.has_typed_support(surface),
@@ -1583,13 +1582,6 @@ macro_rules! __define_builtin_profiles {
             #[test]
             fn typed_support_registry_has_evidence_for_surprising_gaps() {
                 for facts in BUILTIN_PROFILE_FACTS {
-                    assert!(
-                        !facts.has_typed_support(
-                            $crate::capabilities::TypedSupportSurface::IrisControlInquiry,
-                        ),
-                        "{} must not expose `09 04 2B` iris status inquiry without model-specific evidence",
-                        facts.type_name,
-                    );
                     if !facts.has_typed_support(
                         $crate::capabilities::TypedSupportSurface::IrisControl,
                     ) {
@@ -1700,9 +1692,6 @@ macro_rules! __define_builtin_profiles {
                     assert!(facts.has_typed_support($crate::capabilities::TypedSupportSurface::FocusZone));
                     assert!(facts
                         .has_typed_support($crate::capabilities::TypedSupportSurface::IrisControl));
-                    assert!(!facts.has_typed_support(
-                        $crate::capabilities::TypedSupportSurface::IrisControlInquiry
-                    ));
                     assert!(facts.has_typed_support(
                         $crate::capabilities::TypedSupportSurface::ExposureMode
                     ));
@@ -1795,10 +1784,8 @@ macro_rules! __define_builtin_profiles {
                         surface,
                         $crate::capabilities::TypedSupportSurface::PtzOpticsSnapFocus
                             | $crate::capabilities::TypedSupportSurface::MotionSync
-                            | $crate::capabilities::TypedSupportSurface::IrisControlInquiry
                             | $crate::capabilities::TypedSupportSurface::AutoFocusSensitivity
                             | $crate::capabilities::TypedSupportSurface::ImageFreeze
-                            | $crate::capabilities::TypedSupportSurface::DefogLevel
                             | $crate::capabilities::TypedSupportSurface::TallyBrightness
                             | $crate::capabilities::TypedSupportSurface::PtzOpticsTally
                     ) {

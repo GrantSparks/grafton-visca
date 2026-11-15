@@ -9,6 +9,13 @@ repo-local PTZOptics, Axis, and unified VISCA protocol notes; those source names
 may still appear in the appendices only as provenance for the consolidated
 material.
 
+The built-in inquiry inventory contains only sourced query families. Unsourced
+`09 04 2B` iris status, inverted generic/vendor booleans, the combined tally
+reply, defog, and orphan decode-only kinds are withdrawn (#878). A downstream
+integration can declare a custom request and decoder for a packet that its own
+model documentation establishes. A register mention in a negative finding
+does not establish a typed grant.
+
 ## 1. Validation basis and source hierarchy
 
 This document accepts as fact the information that is either:

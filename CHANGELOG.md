@@ -61,6 +61,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fallback; `SessionConfig::new` selects that proven default. Regenerate persisted
   flat profiles. Target mounts select declared tilt ranges, and one checked
   coordinate conversion enforces exact or documented whole-degree endpoints.
+- **BREAKING** (#878): Unsourced built-in inquiries and legacy decode-only
+  response kinds are removed, including combined tally, defog and iris
+  auto/manual status. Custom requests and decoders remain the explicit path
+  for caller-owned protocol extensions.
 
 - **BREAKING** (#872): Settlement tuning below every built-in targeted retry
   budget is refused. Default `settled()` waits use the larger of the override

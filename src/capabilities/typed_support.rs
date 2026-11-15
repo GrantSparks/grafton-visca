@@ -461,10 +461,6 @@ mod tests {
             ),
             ("exposure-mode", TypedSupportSurface::ExposureMode),
             (
-                "iris-control-inquiry",
-                TypedSupportSurface::IrisControlInquiry,
-            ),
-            (
                 "noise-reduction2-d-control",
                 TypedSupportSurface::NoiseReduction2DControl,
             ),
@@ -473,7 +469,6 @@ mod tests {
                 TypedSupportSurface::NoiseReduction3DControl,
             ),
             ("image-freeze", TypedSupportSurface::ImageFreeze),
-            ("defog-level", TypedSupportSurface::DefogLevel),
             ("tally-brightness", TypedSupportSurface::TallyBrightness),
             ("ptz-optics-tally", TypedSupportSurface::PtzOpticsTally),
             ("version-inquiry", TypedSupportSurface::VersionInquiry),
@@ -487,7 +482,7 @@ mod tests {
             ),
         ];
 
-        assert_eq!(TypedSupportSurface::ALL.len(), 58);
+        assert_eq!(TypedSupportSurface::ALL.len(), 56);
         assert_eq!(WIRE_SURFACES.len(), 58);
         for (wire_name, surface) in WIRE_SURFACES {
             assert_eq!(surface.wire_name(), wire_name);

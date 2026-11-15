@@ -437,9 +437,6 @@ macro_rules! noun_table {
             plain [DynamicRange] set_dynamic_range(level: types::DynamicRangeLevel)
                 -> command::DynamicRange where HasWideDynamicRange
                 = [command::DynamicRange::new(level)];
-            /// Returns whether iris control is automatic.
-            inquiry [] iris_control() -> bool where HasIrisControlInquiry
-                = [command::IrisControlInquiry];
             /// Returns the iris level.
             inquiry [] iris() -> types::IrisLevel where HasIrisControl
                 = [command::IrisInquiry];
@@ -797,9 +794,6 @@ macro_rules! noun_table {
             plain [PictureEffect] set_picture_effect(mode: command::PictureEffectMode)
                 -> command::PictureEffectCommand where HasPictureEffect
                 = [command::PictureEffectCommand::new(mode)];
-            /// Returns the vendor defog level on profiles with validated support.
-            inquiry [] defog_level() -> types::DefogLevel
-                where HasDefogLevel = [command::DefogLevelInquiry];
 
             @noun Tally {
                 accessor: TallyAccessor,
@@ -808,9 +802,6 @@ macro_rules! noun_table {
                 gate: [typed HasTally],
                 doc: "Tally-light commands and inquiries.",
             };
-            /// Returns PTZOptics packed tally-light state.
-            inquiry [] status() -> command::TallyStatusState
-                where HasPtzOpticsTally = [command::TallyStatusInquiry];
             /// Turns the red tally on.
             plain [TallyRedOn] red_on() -> command::TallyRedOn = [command::TallyRedOn::new()];
             /// Turns the red tally off.
@@ -840,9 +831,6 @@ macro_rules! noun_table {
             inquiry [] red_status() -> bool = [command::TallyRedInquiry];
             /// Returns green tally state.
             inquiry [] green_status() -> bool = [command::TallyGreenInquiry];
-            /// Returns PTZOptics automatic tally-adjustment state.
-            inquiry [] auto_adjust_enabled() -> bool
-                where HasPtzOpticsTally = [command::TallyAutoAdjustInquiry];
 
             @noun NdFilter {
                 accessor: NdFilterAccessor,

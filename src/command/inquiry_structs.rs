@@ -6,19 +6,16 @@
 //! data, the decoder dispatch, the zero-sized inquiry commands and their
 //! request bodies, the typed query conversions, and the invariant metadata.
 //!
-//! The table has one row grammar, matched once:
-//!
-//! - `queryable` rows declare a response kind, its data and decoder, and the
-//!   one or more commands that query it;
-//! - `decode_only` rows declare a response kind that no built-in command
-//!   queries, with the provenance that explains why.
+//! Each row declares a sourced response kind, its data and decoder, and the
+//! one or more commands that query it. Unsupported packets use custom requests
+//! and custom decoders instead of compatibility-only built-in response kinds.
 //!
 //! The profile gate of each typed inquiry is not part of this table: it is the
 //! gate of the inquiry's noun-table row, which `crate::command::surface`
 //! projects into [`BuiltinInquiryGate`].
 
 use super::exposure::{AntiFlickerMode, ExposureMode};
-use super::focus::{AutoFocusSensitivity, FocusMode, FocusRange, FocusZone};
+use super::focus::{AutoFocusSensitivity, FocusMode, FocusZone};
 use super::image::{ImageFlipMode, NoiseReduction2DMode, SharpnessMode};
 use super::nd_filter::NdFilterValue;
 use super::pan_tilt::PanTiltFraming;
@@ -35,8 +32,7 @@ use crate::command::bytes::FrameWriter;
 use crate::command::surface::{BuiltinInquiryGate, RowGate};
 use crate::command::{encode::WireEncode, FlipState, ResponseParser};
 use crate::types::{
-    BlueTuning, BroadcastDomain, DefogLevel, ExposureCompensationLevel,
-    ExposureCompensationPosition, NdFilterPreset, RedTuning,
+    BlueTuning, ExposureCompensationLevel, ExposureCompensationPosition, NdFilterPreset, RedTuning,
 };
 use crate::{CameraId, Error};
 
@@ -92,8 +88,6 @@ pub(crate) trait BuiltinInquiryCommandMarker {
 pub(crate) enum BuiltinInquiryQuery {
     /// Generates a public zero-sized query command with unique request bytes.
     Queryable,
-    /// Decodes responses but intentionally does not generate a query command.
-    DecodeOnly,
     /// Generates a query command with shared bytes but a different typed
     /// interpretation of the same wire response.
     AlternateTypedInterpretation {
@@ -118,9 +112,7 @@ pub(crate) struct BuiltinInquiryMetadata {
     pub(crate) query: BuiltinInquiryQuery,
     /// Whether the query has a typed response conversion.
     ///
-    /// The generated table intentionally keeps the queryable
-    /// `typed: none` entry (`DefogModeInquiry`) explicit. Decode-only entries
-    /// are always untyped for this metadata purpose.
+    /// Every exposed built-in query has a typed response conversion.
     pub(crate) typed: bool,
     /// Whether this inquiry is vendor-specific rather than baseline VISCA.
     pub(crate) vendor_specific: bool,
@@ -132,20 +124,13 @@ pub(crate) struct BuiltinInquiryMetadata {
 
 #[cfg(test)]
 macro_rules! builtin_inquiry_is_typed {
-    (none) => {
-        false
-    };
     (($($typed:tt)*)) => {
         true
     };
 }
 
-/// The typed response of a generated inquiry: the conversion's type, or the
-/// untyped [`Response`] for `typed: none`.
+/// The typed response of a generated inquiry.
 macro_rules! builtin_inquiry_response {
-    (none) => {
-        crate::command::Response
-    };
     (($response_ty:ty, $data_pattern:tt => $conversion:expr)) => {
         $response_ty
     };
@@ -153,7 +138,6 @@ macro_rules! builtin_inquiry_response {
 
 /// Implements [`ResponseParser`] for a typed generated inquiry.
 macro_rules! impl_builtin_response_parser {
-    (none, $struct:ident, $kind:ident) => {};
     (($response_ty:ty, $data_pattern:tt => $conversion:expr), $struct:ident, $kind:ident) => {
         impl ResponseParser for $struct {
             type Response = $response_ty;
@@ -172,23 +156,9 @@ macro_rules! impl_builtin_response_parser {
 
 /// Lifts a decoded [`Response`] into a generated inquiry's typed response.
 macro_rules! builtin_inquiry_lift {
-    (none, $struct:ident, $response:expr) => {
-        Ok($response)
-    };
     (($($typed:tt)*), $struct:ident, $response:expr) => {
         <$struct as ResponseParser>::from_response($response)
     };
-}
-
-/// The `typed: none` inquiry has no noun row and no gate; a typed inquiry's
-/// [`BuiltinInquiryGate`] comes from its noun-table row.
-macro_rules! builtin_inquiry_untyped_gate {
-    (none, $struct:ident) => {
-        impl BuiltinInquiryGate for $struct {
-            const GATE: RowGate = RowGate::Always;
-        }
-    };
-    (($($typed:tt)*), $struct:ident) => {};
 }
 
 /// Runtime admission for a generated inquiry under its noun row's gate.
@@ -311,14 +281,7 @@ macro_rules! define_builtin_inquiries {
                 ]
             )*
         }
-        decode_only {
-            $(
-                $(#[$decode_meta:meta])*
-                $decode_kind:ident $decode_data:tt => |$decode_payload:ident| $decode_body:expr;
-                vendor_specific: $decode_vendor_specific:expr,
-                rationale: $decode_rationale:expr;
-            )*
-        }
+
     ) => {
         /// Type of expected response for inquiry commands.
         ///
@@ -330,10 +293,6 @@ macro_rules! define_builtin_inquiries {
             $(
                 $(#[$kind_meta])*
                 $kind,
-            )*
-            $(
-                $(#[$decode_meta])*
-                $decode_kind,
             )*
         }
 
@@ -348,10 +307,6 @@ macro_rules! define_builtin_inquiries {
             $(
                 $(#[$kind_meta])*
                 $kind $data,
-            )*
-            $(
-                $(#[$decode_meta])*
-                $decode_kind $decode_data,
             )*
         }
 
@@ -419,12 +374,6 @@ macro_rules! define_builtin_inquiries {
                 struct Derived;
                 check(Derived, InquiryKind::$kind, &profiles, &payloads);
             })*
-            $({
-                #[derive(crate::ViscaInquiry)]
-                #[visca(opcode = 0, response = $decode_kind)]
-                struct Derived;
-                check(Derived, InquiryKind::$decode_kind, &profiles, &payloads);
-            })*
         }
 
         /// Decode an inquiry response with the profile-independent decoder
@@ -440,12 +389,6 @@ macro_rules! define_builtin_inquiries {
                         $decode
                     }
                 )*
-                $(
-                    InquiryKind::$decode_kind => {
-                        let $decode_payload = payload;
-                        $decode_body
-                    }
-                )*
             } })();
             data.map(Response::Inquiry).map_err(|error| reply_value_error(error, payload.as_slice()))
         }
@@ -456,7 +399,6 @@ macro_rules! define_builtin_inquiries {
         #[cfg(all(feature = "test-utils", any(test, feature = "blocking")))]
         pub(crate) const FUZZ_INQUIRY_KINDS: &[InquiryKind] = &[
             $(InquiryKind::$kind,)*
-            $(InquiryKind::$decode_kind,)*
         ];
 
         /// Re-exports of the generated inquiry commands for `crate::command`.
@@ -485,7 +427,6 @@ macro_rules! define_builtin_inquiries {
             }
 
             impl_builtin_response_parser!($typed, $struct, $kind);
-            builtin_inquiry_untyped_gate!($typed, $struct);
 
             impl crate::Request for $struct {
                 type Class = crate::request::Inquiry;
@@ -587,19 +528,6 @@ macro_rules! define_builtin_inquiries {
                     validate: Some(|profile| <$struct as crate::Request>::validate_for_target(&$struct, &crate::TargetRegistration::from_profile(crate::target::TargetSlot::CAMERA_1, profile.clone()))),
                 },
             )+)*
-            $(
-                BuiltinInquiryMetadata {
-                    name: stringify!($decode_kind),
-                    command: None,
-                    kind: InquiryKind::$decode_kind,
-                    bytes: None,
-                    query: BuiltinInquiryQuery::DecodeOnly,
-                    typed: false,
-                    vendor_specific: $decode_vendor_specific,
-                    rationale: $decode_rationale,
-                    validate: None,
-                },
-            )*
         ];
     };
 }
@@ -1242,32 +1170,6 @@ define_builtin_inquiries! {
             }
         ]
 
-        /// The combined tally light status.
-        TallyStatus {
-            /// Red and green tally light state.
-            state: crate::command::TallyStatusState,
-        } => |payload| {
-            require_len(&payload, 2)?;
-            let reply = payload.as_slice();
-            Ok(InquiryData::TallyStatus {
-                state: crate::command::TallyStatusState {
-                    red_on: Payload::new(&reply[..1])
-                        .parse_bool("tally_red_status", BoolConvention::OnIs03)?,
-                    green_on: Payload::new(&reply[1..])
-                        .parse_bool("tally_green_status", BoolConvention::OnIs03)?,
-                },
-            })
-        };
-        commands [
-            /// Inquiry command to get combined tally light status.
-            TallyStatusInquiry {
-                bytes: [INQUIRY, 0x04, 0xA8],
-                typed: (crate::command::TallyStatusState, { state } => Ok(state)),
-                query: BuiltinInquiryQuery::Queryable,
-                vendor_specific: true,
-                rationale: Some("PTZOptics extension returning packed red and green tally states."),
-            }
-        ]
 
 
 
@@ -1310,64 +1212,6 @@ define_builtin_inquiries! {
 
 
 
-
-
-        /// The iris control mode.
-        IrisControl {
-            /// Whether iris is in auto mode.
-            auto: bool,
-        } => |payload| Ok(InquiryData::IrisControl {
-            auto: payload.parse_bool("iris_control", BoolConvention::OnIs03)?,
-        });
-        commands [
-            /// Inquiry command to get the iris control mode.
-            IrisControlInquiry {
-                bytes: [INQUIRY, 0x04, 0x2B],
-                typed: (bool, { auto } => Ok(auto)),
-                query: BuiltinInquiryQuery::Queryable,
-                vendor_specific: false,
-                rationale: None,
-            }
-        ]
-
-        /// The defog mode status.
-        DefogMode {
-            /// Whether defog is enabled.
-            enabled: bool,
-        } => |payload| Ok(InquiryData::DefogMode {
-            enabled: payload.parse_bool("defog_mode", BoolConvention::OnIs03)?,
-        });
-        commands [
-            /// Inquiry command to get the defog mode status.
-            DefogModeInquiry {
-                bytes: [INQUIRY, 0x04, 0x37],
-                typed: none,
-                query: BuiltinInquiryQuery::Queryable,
-                vendor_specific: true,
-                rationale: None,
-            }
-        ]
-
-        /// The defog level.
-        DefogLevel {
-            /// Current defog strength level (0-5).
-            level: DefogLevel,
-        } => |payload| Ok(InquiryData::DefogLevel {
-            level: DefogLevel::new(decode_byte(&payload)?)?,
-        });
-        commands [
-            /// Inquiry command to get the defog level.
-            DefogLevelInquiry {
-                bytes: [INQUIRY, 0x04, 0xA0],
-                typed: (DefogLevel, { level } => Ok(level)),
-                query: BuiltinInquiryQuery::Queryable,
-                vendor_specific: true,
-                rationale: None,
-            }
-        ]
-
-
-
         /// The auto white balance sensitivity setting.
         AutoWhiteBalanceSensitivity {
             /// Sensitivity level (Low, Normal, High).
@@ -1385,7 +1229,7 @@ define_builtin_inquiries! {
                 ),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: false,
-                rationale: Some("Shares bytes with TallyAutoAdjustInquiry on PTZOptics profiles; this entry interprets the register as AWB sensitivity."),
+                rationale: Some("The sourced PTZOptics register is AWB sensitivity; it grants no tally interpretation."),
             }
         ]
 
@@ -1581,27 +1425,6 @@ define_builtin_inquiries! {
         ]
 
 
-
-        /// The tally auto adjust state.
-        TallyAutoAdjust {
-            /// Whether tally auto adjust is enabled.
-            on: bool,
-        } => |payload| Ok(InquiryData::TallyAutoAdjust {
-            on: payload.parse_bool("tally_auto_adjust_status", BoolConvention::OnIs03)?,
-        });
-        commands [
-            /// Inquiry command to get the tally auto adjust state.
-            TallyAutoAdjustInquiry {
-                bytes: white_balance::AWB_SENSITIVITY_INQUIRY,
-                typed: (bool, { on } => Ok(on)),
-                query: BuiltinInquiryQuery::AlternateTypedInterpretation {
-                    canonical: <AutoWhiteBalanceSensitivityInquiry as BuiltinInquiryCommandMarker>::METADATA,
-                },
-                vendor_specific: true,
-                rationale: Some("PTZOptics interprets the same register used by AWB sensitivity as tally auto-adjust state."),
-            }
-        ]
-
         /// The red tally light status.
         TallyRed {
             /// Whether the red tally light is on.
@@ -1698,213 +1521,6 @@ define_builtin_inquiries! {
             }
         ]
     }
-    decode_only {
-        /// The dynamic range mode/level.
-        DynamicRange {
-            /// Dynamic range level (0x0=0 to 0x8=8).
-            level: u8,
-        } => |payload| Ok(InquiryData::DynamicRange {
-            level: decode_byte(&payload)?,
-        });
-        vendor_specific: true,
-        rationale: Some("Decode-only compatibility: R1 documents the 01 04 25 setter but establishes no 09 04 25 inquiry.");
-        /// The night/day mode status.
-        NightDayMode {
-            /// Whether the camera is in night mode.
-            is_night: bool,
-        } => |payload| Ok(InquiryData::NightDayMode {
-            is_night: payload.parse_bool("night_day_mode", BoolConvention::OnIs03)?,
-        });
-        vendor_specific: true,
-        rationale: Some("Decode-only compatibility for explicit custom inquiries; no sourced built-in query is exposed.");
-
-        /// The standby mode status.
-        Standby {
-            /// Whether the camera is in standby mode.
-            in_standby: bool,
-        } => |payload| Ok(InquiryData::Standby {
-            in_standby: payload.parse_bool("standby_mode", BoolConvention::OnIs03)?,
-        });
-        vendor_specific: true,
-        rationale: Some("Decode-only compatibility for explicit custom inquiries; no sourced built-in query is exposed.");
-
-        /// The digital PTZ mode status.
-        DigitalPtz {
-            /// Whether digital Ptz is enabled.
-            enabled: bool,
-        } => |payload| Ok(InquiryData::DigitalPtz {
-            enabled: payload.parse_bool("digital_ptz", BoolConvention::OnIs03)?,
-        });
-        vendor_specific: true,
-        rationale: Some("Decode-only compatibility for explicit custom inquiries; no sourced built-in query is exposed.");
-
-        /// The auto trace mode status.
-        AutoTrace {
-            /// Whether auto trace is enabled.
-            enabled: bool,
-        } => |payload| Ok(InquiryData::AutoTrace {
-            enabled: payload.parse_bool("auto_trace", BoolConvention::OnIs03)?,
-        });
-        vendor_specific: true,
-        rationale: Some("Decode-only compatibility for explicit custom inquiries; no sourced built-in query is exposed.");
-
-        /// The focus unlock state.
-        FocusUnlock {
-            /// Whether focus is unlocked.
-            unlocked: bool,
-        } => |payload| Ok(InquiryData::FocusUnlock {
-            unlocked: payload.parse_bool("focus_unlock", BoolConvention::OnIs03)?,
-        });
-        vendor_specific: true,
-        rationale: Some("Decode-only compatibility for explicit custom inquiries; no sourced built-in query is exposed.");
-
-        /// The broadcast domain setting.
-        BroadcastDomain (BroadcastDomain) => |payload| Ok(InquiryData::BroadcastDomain(BroadcastDomain::new(
-            decode_byte(&payload)?,
-        )?));
-        vendor_specific: true,
-        rationale: Some("Decode-only compatibility for explicit custom inquiries; no sourced built-in query is exposed.");
-
-        /// The two tone mode state.
-        TwoToneMode {
-            /// Whether two tone mode is enabled.
-            on: bool,
-        } => |payload| Ok(InquiryData::TwoToneMode {
-            on: payload.parse_bool("two_tone_mode_status", BoolConvention::OnIs02)?,
-        });
-        vendor_specific: true,
-        rationale: Some("Decode-only compatibility for explicit custom inquiries; no sourced built-in query is exposed.");
-
-        /// The digital mode state.
-        Digital {
-            /// Whether digital mode is enabled.
-            on: bool,
-        } => |payload| Ok(InquiryData::Digital {
-            on: payload.parse_bool("digital_mode_status", BoolConvention::OnIs03)?,
-        });
-        vendor_specific: true,
-        rationale: Some("Decode-only compatibility for explicit custom inquiries; no sourced built-in query is exposed.");
-
-        /// The focus range setting.
-        FocusRange {
-            /// Current focus range setting.
-            range: FocusRange,
-        } => |payload| Ok(InquiryData::FocusRange {
-            range: decode_enum(&payload)?,
-        });
-        vendor_specific: true,
-        rationale: Some("Decode-only compatibility for explicit custom inquiries; no sourced built-in query is exposed.");
-
-        /// Decode-only response kind for `ZoomOut`.
-        ZoomOut {
-            /// Whether zoom out is active.
-            active: bool,
-        } => |payload| Ok(InquiryData::ZoomOut {
-            active: payload.parse_bool("zoom_out_status", BoolConvention::OnIs03)?,
-        });
-        vendor_specific: false,
-        rationale: Some("Movement-state response decoded for routing, but no public built-in wire query is exposed.");
-
-        /// Decode-only response kind for `ZoomIn`.
-        ZoomIn {
-            /// Whether zoom in is active.
-            active: bool,
-        } => |payload| Ok(InquiryData::ZoomIn {
-            active: payload.parse_bool("zoom_in_status", BoolConvention::OnIs03)?,
-        });
-        vendor_specific: false,
-        rationale: Some("Movement-state response decoded for routing, but no public built-in wire query is exposed.");
-
-        /// Decode-only response kind for `ZoomTeleWide`.
-        ZoomTeleWide {
-            /// Whether zoom tele is active (false = wide active).
-            tele: bool,
-        } => |payload| Ok(InquiryData::ZoomTeleWide {
-            tele: payload.parse_bool("zoom_tele_wide_status", BoolConvention::OnIs03)?,
-        });
-        vendor_specific: false,
-        rationale: Some("Movement-state response decoded for routing, but no public built-in wire query is exposed.");
-
-        /// Decode-only response kind for `AutoFocus`.
-        AutoFocus {
-            /// Whether auto focus is enabled.
-            enabled: bool,
-        } => |payload| Ok(InquiryData::AutoFocus {
-            enabled: payload.parse_bool("autofocus_status", BoolConvention::OnIs03)?,
-        });
-        vendor_specific: false,
-        rationale: Some("One-push autofocus status is decoded but not exposed as a built-in query command.");
-
-        /// Decode-only response kind for `FocusNearFar`.
-        FocusNearFar {
-            /// Whether focus near is active (false = far active).
-            near: bool,
-        } => |payload| Ok(InquiryData::FocusNearFar {
-            near: payload.parse_bool("focus_near_far_status", BoolConvention::OnIs03)?,
-        });
-        vendor_specific: false,
-        rationale: Some("Near/far movement-state response decoded for routing, but no public built-in wire query is exposed.");
-
-        /// Decode-only response kind for `IrisUp`.
-        IrisUp {
-            /// Whether iris up is active.
-            active: bool,
-        } => |payload| Ok(InquiryData::IrisUp {
-            active: payload.parse_bool("iris_up_status", BoolConvention::OnIs03)?,
-        });
-        vendor_specific: false,
-        rationale: Some("Iris movement-state response decoded for routing, but no public built-in wire query is exposed.");
-
-        /// Decode-only response kind for `IrisDown`.
-        IrisDown {
-            /// Whether iris down is active.
-            active: bool,
-        } => |payload| Ok(InquiryData::IrisDown {
-            active: payload.parse_bool("iris_down_status", BoolConvention::OnIs03)?,
-        });
-        vendor_specific: false,
-        rationale: Some("Iris movement-state response decoded for routing, but no public built-in wire query is exposed.");
-
-        /// Decode-only response kind for `Sharpness`.
-        Sharpness {
-            /// Current sharpness value.
-            value: u8,
-        } => |payload| Ok(InquiryData::Sharpness {
-            value: Nibbles::<4>::try_from(payload)?.zero_extended_u8()?,
-        });
-        vendor_specific: false,
-        rationale: Some("Legacy sharpness value response is decoded; public queries use SharpnessPositionInquiry.");
-
-        /// Decode-only response kind for `Rtmp`.
-        Rtmp {
-            /// Whether RTMP streaming is enabled.
-            on: bool,
-        } => |payload| Ok(InquiryData::Rtmp {
-            on: payload.parse_bool("rtmp_status", BoolConvention::OnIs03)?,
-        });
-        vendor_specific: true,
-        rationale: Some("Streaming-state response decoded for vendor integrations, but no public built-in query command is exposed.");
-
-        /// Decode-only response kind for `NightDayPosition`.
-        NightDayPosition {
-            /// Current night/day position value.
-            position: u8,
-        } => |payload| Ok(InquiryData::NightDayPosition {
-            position: decode_byte(&payload)?,
-        });
-        vendor_specific: false,
-        rationale: Some("Night/day position response is decode-only; no sourced built-in query is exposed.");
-
-        /// Decode-only response kind for `NightDaySwitch`.
-        NightDaySwitch {
-            /// Whether night/day switch is enabled.
-            enabled: bool,
-        } => |payload| Ok(InquiryData::NightDaySwitch {
-            enabled: payload.parse_bool("night_day_switch", BoolConvention::OnIs03)?,
-        });
-        vendor_specific: false,
-        rationale: Some("Night/day switch response is decode-only; no sourced built-in query is exposed.");
-    }
 }
 
 // ============================================================
@@ -1999,30 +1615,6 @@ mod generated_invariant_tests {
             }
         }
         assert!(missing.is_empty(), "{}", missing.join("\n"));
-    }
-
-    #[test]
-    fn unsourced_query_families_remain_decode_only() {
-        for kind in [
-            InquiryKind::DynamicRange,
-            InquiryKind::NightDayMode,
-            InquiryKind::Standby,
-            InquiryKind::DigitalPtz,
-            InquiryKind::AutoTrace,
-            InquiryKind::FocusUnlock,
-            InquiryKind::BroadcastDomain,
-            InquiryKind::TwoToneMode,
-            InquiryKind::Digital,
-            InquiryKind::FocusRange,
-        ] {
-            let metadata = BUILTIN_INQUIRIES
-                .iter()
-                .find(|meta| meta.kind == kind)
-                .expect("decode-only kind retained for custom integrations");
-            assert!(matches!(metadata.query, BuiltinInquiryQuery::DecodeOnly));
-            assert!(metadata.command.is_none());
-            assert!(metadata.validate.is_none());
-        }
     }
 
     #[test]
@@ -2125,7 +1717,7 @@ mod generated_invariant_tests {
         for camera_num in 1..=8 {
             let camera_id = CameraId::new(camera_num).expect("valid camera id");
             let frames = encode_each_generated_inquiry(camera_id);
-            assert_eq!(frames.len(), 53);
+            assert_eq!(frames.len(), 48);
             for (name, body, frame) in frames {
                 let frame = frame.unwrap_or_else(|error| panic!("{name} must encode: {error:?}"));
                 let mut expected = vec![camera_id.to_address_byte()];
@@ -2147,32 +1739,14 @@ mod generated_invariant_tests {
             .map(core::mem::discriminant)
             .collect::<std::collections::HashSet<_>>();
         assert_eq!(distinct.len(), FUZZ_INQUIRY_KINDS.len());
-        assert_eq!(FUZZ_INQUIRY_KINDS.len(), 74);
-        assert_eq!(BUILTIN_INQUIRIES.len(), 74);
+        assert_eq!(FUZZ_INQUIRY_KINDS.len(), 48);
+        assert_eq!(BUILTIN_INQUIRIES.len(), 48);
         for meta in BUILTIN_INQUIRIES {
             assert!(
                 FUZZ_INQUIRY_KINDS.contains(&meta.kind),
                 "{} must enter the fuzz matrix",
                 meta.name
             );
-        }
-    }
-
-    #[test]
-    fn decode_only_entries_do_not_have_command_bytes() {
-        for meta in BUILTIN_INQUIRIES {
-            if matches!(meta.query, BuiltinInquiryQuery::DecodeOnly) {
-                assert!(
-                    meta.command.is_none(),
-                    "{} must not expose a command",
-                    meta.name
-                );
-                assert!(
-                    meta.bytes.is_none(),
-                    "{} must not expose request bytes",
-                    meta.name
-                );
-            }
         }
     }
 
@@ -2224,7 +1798,7 @@ mod generated_invariant_tests {
                         canonical.name(),
                     );
                 }
-                BuiltinInquiryQuery::Queryable | BuiltinInquiryQuery::DecodeOnly => {}
+                BuiltinInquiryQuery::Queryable => {}
             }
         }
     }
@@ -2260,18 +1834,6 @@ mod generated_invariant_tests {
             saw_vendor_specific,
             "vendor-specific inquiries must be modeled"
         );
-    }
-
-    #[test]
-    fn queryable_typed_exclusions_are_exact() {
-        let mut untyped = BUILTIN_INQUIRIES
-            .iter()
-            .filter(|meta| !matches!(meta.query, BuiltinInquiryQuery::DecodeOnly) && !meta.typed)
-            .map(|meta| meta.name)
-            .collect::<Vec<_>>();
-        untyped.sort_unstable();
-
-        assert_eq!(untyped, ["DefogModeInquiry"]);
     }
 
     #[test]
@@ -2507,27 +2069,6 @@ mod wire_decoder_regression_tests {
     }
 
     #[test]
-    fn packed_tally_status_remains_an_explicit_two_byte_response() {
-        assert!(matches!(
-            parse_inquiry_payload(&[0x03, 0x02], &InquiryKind::TallyStatus),
-            Ok(Response::Inquiry(InquiryData::TallyStatus {
-                state: crate::command::TallyStatusState {
-                    red_on: true,
-                    green_on: false,
-                },
-            }))
-        ));
-        assert!(matches!(
-            parse_inquiry_payload(&[0x03, 0x02, 0x00], &InquiryKind::TallyStatus),
-            Err(Error::InvalidResponseLength {
-                expected: 2,
-                actual: 3,
-                ..
-            })
-        ));
-    }
-
-    #[test]
     fn standard_pan_tilt_requires_eight_nibble_bytes() {
         assert!(matches!(
             parse_inquiry_payload(
@@ -2576,33 +2117,13 @@ mod wire_decoder_regression_tests {
             InquiryKind::AutoFocusSensitivity,
             InquiryKind::FocusMode,
             InquiryKind::MenuOpenClose,
-            InquiryKind::NightDayMode,
-            InquiryKind::Standby,
-            InquiryKind::FocusRange,
-            InquiryKind::IrisControl,
-            InquiryKind::DefogMode,
-            InquiryKind::DigitalPtz,
             InquiryKind::AutoWhiteBalanceSensitivity,
-            InquiryKind::AutoTrace,
-            InquiryKind::FocusUnlock,
             InquiryKind::MotionSyncMode,
             InquiryKind::MotionSyncPreset,
             InquiryKind::UsbAudio,
-            InquiryKind::TwoToneMode,
-            InquiryKind::Digital,
-            InquiryKind::TallyAutoAdjust,
             InquiryKind::TallyRed,
             InquiryKind::TallyGreen,
             InquiryKind::FlickerMode,
-            InquiryKind::ZoomOut,
-            InquiryKind::ZoomIn,
-            InquiryKind::ZoomTeleWide,
-            InquiryKind::AutoFocus,
-            InquiryKind::FocusNearFar,
-            InquiryKind::IrisUp,
-            InquiryKind::IrisDown,
-            InquiryKind::Rtmp,
-            InquiryKind::NightDaySwitch,
         ];
         const UNKNOWN: u8 = 0x7F;
 
@@ -2647,12 +2168,10 @@ mod wire_decoder_regression_tests {
     fn decoded_numeric_range_errors_are_protocol_faults() {
         use crate::Inquiry;
         for (kind, payload) in [
-            (InquiryKind::DefogLevel, &[0xFF][..]),
             (InquiryKind::NdFilterPreset, &[0xFF][..]),
             (InquiryKind::ExposureCompensation, &[0, 0, 1, 0][..]),
             (InquiryKind::RedTuning, &[0, 0, 1, 5][..]),
             (InquiryKind::BlueTuning, &[0, 0, 1, 5][..]),
-            (InquiryKind::BroadcastDomain, &[0xFF][..]),
             (InquiryKind::NdFilter, &[0, 0, 1, 5][..]),
         ] {
             assert_eq!(
@@ -2673,7 +2192,7 @@ mod wire_decoder_regression_tests {
             assert_eq!(error.kind(), crate::ErrorKind::Protocol);
         }
         assert_eq!(
-            DefogLevel::new(0xFF).unwrap_err().kind(),
+            crate::types::DefogLevel::new(0xFF).unwrap_err().kind(),
             crate::ErrorKind::InvalidParameter
         );
     }
@@ -2693,7 +2212,6 @@ mod wire_decoder_regression_tests {
             InquiryKind::RedTuning,
             InquiryKind::BlueTuning,
             InquiryKind::SharpnessPosition,
-            InquiryKind::Sharpness,
             InquiryKind::Contrast,
             InquiryKind::Luminance,
         ];

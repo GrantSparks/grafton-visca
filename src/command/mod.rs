@@ -67,7 +67,7 @@ pub use self::{
     image::*,
     inquiry::*,
     inquiry_structs::{InquiryData, InquiryKind},
-    inquiry_types::{FlipState, TallyStatusState, VersionInfo},
+    inquiry_types::{FlipState, VersionInfo},
     menu::*,
     motion_sync::{SetMotionSyncMode, SetMotionSyncPreset},
     nd_filter::*,
