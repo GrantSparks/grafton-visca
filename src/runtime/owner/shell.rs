@@ -1187,7 +1187,7 @@ mod tests {
     use super::super::OwnerPolicy;
     use super::*;
     use crate::runtime::engine::{CancellationPolicy, EnvelopeKind, ProtocolPolicy, TargetPolicy};
-    use crate::CameraId;
+    use crate::target::TargetSlot;
 
     /// A datagram driver: it never retains stream input.
     struct Datagrams;
@@ -1212,7 +1212,7 @@ mod tests {
                 raw_release_grace: Duration::from_millis(100),
                 strict_unconfirmed_poison: false,
             },
-            CameraId::CAMERA_1,
+            TargetSlot::CAMERA_1,
             TargetPolicy {
                 command_sockets: 2,
                 cancellation: CancellationPolicy::Supported,

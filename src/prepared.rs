@@ -1967,7 +1967,7 @@ mod tests {
         assert!(queries.pan_tilt.is_none());
         assert!(queries.focus.is_none());
         let zoom = queries.zoom.expect("selected zoom query").instantiate();
-        assert_eq!(zoom.context.target, CameraId::CAMERA_2);
+        assert_eq!(zoom.context.target.camera(), CameraId::CAMERA_2);
         assert_eq!(zoom.context.timeout.inquiry, Duration::from_secs(1));
         assert_eq!(zoom.route, ZoomPositionInquiry.route());
         assert_eq!(

@@ -335,7 +335,7 @@ mod metrics {
             EncodedMessage, EnvelopeKind, EnvelopeSequence, InquiryRoute, ReplyShape,
             RequestContext, RetryPolicy, SequenceWidth, TimeoutPolicy, TransmissionMeta,
         },
-        CameraId, Error, ViscaSocket,
+        Error, ViscaSocket,
     };
 
     const ACK: Duration = Duration::from_millis(10);
@@ -1524,8 +1524,8 @@ mod lifecycle_trace {
             self.next_transmission = 0;
             self.cancel_transmissions = 0;
             let state = OwnerState::new(owner_policy(transport, capacity, cancellation)).unwrap();
-            let registered = state.policy().targets[crate::target::TargetSlot::CAMERA_1]
-                .expect("camera one is registered");
+            let registered =
+                state.policy().targets[TargetSlot::CAMERA_1].expect("camera one is registered");
             out.push(format!(
                 "{} effect session state={} transport={} capacity={} cancel={}",
                 self.at,
@@ -1691,7 +1691,7 @@ mod lifecycle_trace {
             }
             // Every lifecycle fixture is a raw session, so correlation is by
             // target and socket rather than by envelope sequence.
-            let target = decoded.source;
+            let target = TargetSlot::try_from(decoded.source).unwrap();
             let sequence: Option<EnvelopeSequence> = None;
             let now = self.now;
             let pre_socket = |state: &OwnerState, id: RequestId| match state.request_state(id) {
