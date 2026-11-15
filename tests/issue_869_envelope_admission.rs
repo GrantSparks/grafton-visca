@@ -28,12 +28,12 @@ struct CameraWire {
 }
 
 impl CameraWire {
-    #[cfg(feature = "blocking")]
+    #[cfg(all(feature = "blocking", feature = "test-utils"))]
     fn blocking_wire(&self) -> fake_camera::BlockingWire {
         self.camera.blocking_wire().with_transport_kind(self.kind)
     }
 
-    #[cfg(feature = "async")]
+    #[cfg(any(feature = "runtime-tokio", feature = "runtime-smol"))]
     fn async_wire(&self) -> fake_camera::AsyncWire {
         self.camera.async_wire().with_transport_kind(self.kind)
     }
