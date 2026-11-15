@@ -250,7 +250,7 @@ the async `Session` / `CameraSession<P>` rows above.
 | Metadata-only optional control fallback | Static `Has*` marker gates, or dynamic `supports_typed(...)` followed by the matching `Dyn*` noun. |
 | Duplicate `NdFilterInquiry` accessor vocabulary | `nd_filter().position()` only. |
 | Separate focus `lock()`/`unlock()` twins | One parameterized `focus().set_lock(FocusLock)`. |
-| Root `toggle_menu()` (the 1.x `DirectMenuControl` method on the camera) | `menu().toggle_display()` is the direct replacement. Prefer `menu().display(true)` / `menu().display(false)` when the intended state is known; `menu().status()`, `navigate(...)`, and `select()` cover the remaining menu operations. |
+| Root `toggle_menu()` (the 1.x `DirectMenuControl` method on the camera) | `menu().toggle_display()` is the direct replacement. Prefer `menu().display(true)` / `menu().display(false)` when the intended state is known and the profile implements `HasMenuDisplay`; status needs `HasMenuStatusInquiry`, while `select()` / `cancel()` need `HasMenuEnterReturn`. See the [method permissions](#optional-method-permissions) before choosing a menu operation for a model. |
 | Zoom `set_normalized(UnitInterval)` / `set_normalized_in_domain(UnitInterval, ZoomDomain)` | One method, `zoom().set_normalized(position, domain)`: pass `ZoomDomain::Optical` for the former one-argument form and the domain directly for the former `set_normalized_in_domain`. It is a **targeted operation** returning an `Operation<Targeted>`; await it with `applied()`/`settled()` instead of getting a bare `Result<()>`. |
 | `pan_tilt().up/down/left/right(pan_speed, tilt_speed)` | `pan_tilt().move_direction(PanTiltDirection::Up, pan_speed, tilt_speed)`, and likewise `Down`, `Left` and `Right`. The frame is identical. The same applies to `DynPanTilt`. |
 | `nd_filter().set_value(u16)` / `set_stops(f32)` | `nd_filter().set_value(NdFilterValue)`, building the value with `command::NdFilterValue::new(raw)?` or `NdFilterValue::from_stops(stops)?`. An out-of-range raw value or stop count is now rejected by the constructor, before any noun call. |
@@ -353,6 +353,57 @@ Optional typed controls now name the exact evidence boundary:
 | `white_balance().color_temperature()` needed only `HasColorTemperature` | Add `HasColorTemperatureInquiry`. Only `PtzOpticsG2` and `PtzOptics30X` carry it, because only the PTZOptics G2 one-byte `90 50 pq FF` reply is sourced; `PtzOpticsG3` retains the setters, while BRC-H900 has no shared color-temperature grant. Dynamic calls on the other profiles return `FeatureNotSupported` before any I/O. Read the bytes with `raw::Inquiry` and `81 09 04 20 FF`. |
 | `HasImageProcessing` arrived through a blanket implementation | Built-in profiles receive an explicit implementation only when at least one source-backed image surface exists. A downstream profile must opt in deliberately. |
 | `CapabilityRange` serde accepted `min > max`, and checked scalar wrappers could deserialize invalid values | Deserialization now validates the same invariants as construction; handle the serde error and repair invalid persisted data before retrying. |
+
+### Optional method permissions
+
+When replacing the 1.x focus, preset, exposure, white-balance, menu, and power
+helpers with nouns, add the bound for the particular 2.0 method. Domain support
+alone does not grant these eleven optional refinements. The table lists all
+59 withheld built-in `(profile, method)` pairs: static calls do not compile on
+those profiles, and the corresponding dynamic calls return
+`Error::FeatureNotSupported` before transport I/O. Here, the PTZOptics trio means
+`PtzOpticsG2`, `PtzOpticsG3`, and `PtzOptics30X`.
+
+| 2.0 method(s) | Required refinement | Withheld built-in profiles | Pairs |
+| --- | --- | --- | ---: |
+| `focus().infinity()` | `HasFocusInfinity` | PTZOptics trio, `SonyFR7` | 4 |
+| `presets().set()`, `reset()` | `HasPresetMemory` | `SonyBRCH900` | 2 |
+| `exposure().shutter()`, `shutter_reset()`, `shutter_up()`, `shutter_down()` | `HasShutterControl` | `SonyFR7` | 4 |
+| `exposure().shutter_direct()` | `HasShutterDirect` | `SonyFR7`, `SonyBRCH900` | 2 |
+| `exposure().gain()`, `gain_reset()`, `gain_up()`, `gain_down()`, `gain_direct()` | `HasGainControl` | `SonyFR7` | 5 |
+| `exposure().gain_limit()`, `set_gain_limit()` | `HasGainLimit` | `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` | 12 |
+| `white_balance().auto()`, `indoor()`, `outdoor()` | `HasStandardWhiteBalanceModes` | `SonyFR7` | 3 |
+| `menu().display()` | `HasMenuDisplay` | All except `SonyFR7` | 8 |
+| `menu().select()`, `cancel()` | `HasMenuEnterReturn` | `SonyFR7`, `SonyBRCH900`, `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` | 12 |
+| `menu().status()` | `HasMenuStatusInquiry` | `SonyEVIH100`, `SonyBRC300`, `NearusBRC300`, `GenericVisca` | 4 |
+| `power().off()` | `HasPowerStandby` | `SonyBRC300`, `NearusBRC300`, `GenericVisca` | 3 |
+
+`SonyBRCH900` retains shared shutter steps and readback through
+`HasShutterControl`; direct positioning additionally needs `HasShutterDirect`
+and a transcribed numeric shutter-code inventory, which that profile lacks.
+`SonyFR7` uses its documented model-specific exposure and white-balance families.
+The three profiles without standby cannot use `power().off()`; their power
+domain does not declare standby support. These restrictions describe the checked
+typed profile, not every feature a camera's firmware might implement.
+
+For dynamic discovery, call
+`caps.supports_typed(TypedSupportSurface::FocusInfinity)` before
+`focus().infinity()`, and likewise for the other surfaces. Each table marker maps
+to the `TypedSupportSurface` variant with the `Has` prefix removed. Checks such
+as `has_focus()`, `has_exposure()`, or `has_presets()` only establish domain
+presence. For a withheld model, use an explicit raw request and a caller-owned
+decoder for an inquiry only when firmware-specific documentation establishes
+the packet, values, and reply; raw requests do not grant a typed method.
+
+A custom compile-time profile must implement each applicable `Has*` marker and
+include its matching variant in `ProfileTypedSupport::TYPED_SUPPORT`. For
+runtime-only `ProfileSpec` construction, explicitly supply those permissions
+through `ProfileSpecBuilder::typed_support`; persisted `capabilities.typed_support` uses
+the corresponding kebab-case names, such as `"focus-infinity"`,
+`"shutter-direct"`, and `"power-standby"`. Keep the domain facts coherent with
+the grant, including shutter codes for direct positioning and standby facts for
+power-off. Declaring only a runtime bit does not make a static method available,
+and broad domain metadata does not opt a custom profile into these methods.
 
 ### Wire corrections and removed ambiguous inquiries
 
@@ -891,7 +942,7 @@ Both forms are demonstrated end to end in `examples/operation_handles.rs` and
 | `NdFilterMode::{Fixed, Stepped}`, `NdFilterMetadata::ND_STEPS`, `nd_step_count`, and `Capabilities::nd_filter_steps` | Removed because no sourced typed wire implementation existed. ND metadata has only `None` and `Variable`; variable-density values validate through `NdFilterValue` (#877). |
 | Custom profile range and orientation constants | `PanTilt::TILT_RANGES` declares one fixed range or desktop/ceiling ranges. `Focus::FOCUS_RANGE` is numerically ordered and `FOCUS_NEAR_END` selects the sourced near endpoint or `Unknown`. PTZOptics profiles retain raw positions but refuse physical normalized conversion while orientation is unknown; `FocusCaps::near()` and `far()` return `None` in that case. `Exposure::GAIN_RANGE` is optional for models with a distinct vendor gain family. `ProfileMetadata::DEFAULT_CAMERA_ID`, `Capabilities::default_camera_id` and `ProfileId::default_camera_id()` use `IndividualCameraId`, which accepts only `1..=7`. |
 | Model-aware constructors that embed a profile in a value | Plain checked values plus the profile-gated camera noun; profile validation belongs at preparation. |
-| Generic optional accessors or unsupported PTZOptics/Sony controls | Compile-time `Has*` gates; dynamic callers inspect capability support. Unsupported controls are not exposed through metadata fallback. |
+| Generic optional accessors or unsupported PTZOptics/Sony controls | Compile-time `Has*` gates; dynamic callers inspect `Capabilities::supports_typed` for the exact method surface. See the [eleven optional method refinements](#optional-method-permissions) for focus, presets, exposure, white balance, menu, and standby, including custom profile opt-in. Unsupported controls are not exposed through metadata fallback. |
 | Direct PTZOptics ND filter, Motion Sync, variable-speed, Sony color-temperature, or legacy quality controls | The matching supported noun only when its profile marker permits it; otherwise use a raw extension deliberately. |
 | Public `camera::*`, `command::*`, `protocol::*`, response, cache, runtime, or transport implementation modules | Supported root/module exports and owner methods. Implementation submodules are not extension points. |
 | Legacy mutable `cache::StateCache` | Owner-backed read-only root `StateCache`; use `target()` and `value(StateKey)`. |
@@ -974,7 +1025,7 @@ Retained public protocol values also changed shape:
 | Highest preset number of `SonyEVIH100` 6, `GenericVisca` 6, `NearusBRC300` 16 | 5 for all three: R8 and R21 document `CAM_Memory` p = 0 to 5, and Generic VISCA keeps what R8, R12 and R21 share. Presets 6 and above are refused with `ParameterOutOfRange`. |
 | `SonyEVIH100` implemented `HasColorTemperature`, `HasRgbTuning`, `HasImageFlip`, `HasImageMirror` | Removed: R8 has no color-temperature mode or `04 20` command, its `04 43`/`04 44` rows are absolute R/B gain (`HasRgbGain`), and image flip is a rear switch with no `04 61`/`04 66` command. Code bounded on those markers no longer compiles for `SonyEVIH100`; dyn calls return `FeatureNotSupported`. |
 | `SonyBRC300`, `NearusBRC300`, `GenericVisca` implemented `HasFocusNearLimitInquiry`; `NearusBRC300` implemented `HasSaturationControl` | Removed: R12 and R21 list no `04 28` focus near-limit command or inquiry, and R21 lists no `04 49` saturation (color gain) command. |
-| `SonyFR7` and `SonyBRCH900` accepted typed `ShutterSpeed` positions | Refused before any I/O: their shutter-code inventories have not been transcribed into the checked profiles (not a claim that the cameras lack shutter control); send the shutter command as a `raw::Plain` request. |
+| `SonyFR7` and `SonyBRCH900` accepted typed `ShutterSpeed` positions | `exposure().shutter_direct()` requires `HasShutterDirect`, withheld from both profiles because their numeric shutter-code inventories have not been transcribed. H900 keeps shutter reset/steps and readback under `HasShutterControl`; FR7 uses its model-specific family. Dynamic direct positioning returns `FeatureNotSupported` before I/O. For firmware-confirmed direct codes, send an explicit `raw::Plain` request. |
 | `ExposureExt::validate_iris` reported a profile without iris as `ValidationError::NotSupported("Iris control")` | `NotSupported("iris")`, the same label request validation uses; a position in the profile's iris table gap is `InvalidValue`. |
 | `ProfileGroup::{supports_tcp, supports_udp, supports_serial, uses_sony_encapsulation, inquiry_support}` were declared per group | Derived from the members: a transport or encapsulation is reported only when every member has it, and `inquiry_support` is the weakest member's. `ProfileGroup::GenericVisca` therefore reports no TCP or UDP, because `SonyBRC300`, `SonyEVIH100` and `NearusBRC300` are serial-only; ask the `ProfileId` (`supports_tcp()` and friends) for one profile. |
 | `SonyBRC300`/`NearusBRC300` converted degrees at 13 units per degree on both axes, within a `±390` tilt range | Their geometry follows R12/R21: about 208 units (`0xD0`) per degree, positive tilt up (raw `493D` is about +90°) and raw pan reversed (`08A58` is left), as positive pan is right and positive tilt up on every profile. Recompute stored degree values and degree-based limits from raw positions. |
