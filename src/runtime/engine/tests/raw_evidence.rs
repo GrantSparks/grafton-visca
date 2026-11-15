@@ -2783,3 +2783,145 @@ fn an_unwritten_step_of_an_accept_only_dispute_only_untracks_it() {
     assert!(!engine.ledger.awaits_dispute(camera(1), second_stop));
     engine.assert_invariants().unwrap();
 }
+
+// Strictly late input must retire its candidate before consuming ledger state
+// (#837), while exact-deadline input continues to win.
+#[test]
+fn late_first_answers_are_order_independent() {
+    let start = Instant::now();
+    for class in 0..5 {
+        let setup = || {
+            let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+            let request = if class == 2 {
+                inquiry(1, POWER)
+            } else {
+                command(1, CancellationPolicy::Supported)
+            };
+            let (write, id) = admit(&mut engine, 1, request, start);
+            send_ok(&mut engine, &write, None, start);
+            if class == 4 {
+                engine.handle(ack(1, ViscaSocket::S1), start);
+                let cancel = engine.handle(Input::Cancel { id }, start);
+                let (transmission, _, _) = cancel_transmit(&cancel);
+                engine.handle(
+                    Input::TransmissionFinished {
+                        transmission,
+                        result: Ok(TransmissionMeta { sequence: None }),
+                    },
+                    start,
+                );
+            }
+            (engine, id)
+        };
+        let (mut due_first, id) = setup();
+        let (mut frame_first, _) = setup();
+        let late = start
+            + Duration::from_millis(if class == 4 {
+                51
+            } else if class == 2 {
+                31
+            } else {
+                21
+            });
+        let input = || match class {
+            0 => ack(1, ViscaSocket::S1),
+            1 => named_error(1, ViscaSocket::S1, 0x41),
+            2 => frame(
+                1,
+                None,
+                DecodedResponse::InquiryReply {
+                    route: Some(POWER),
+                    payload: smallvec![0x02],
+                },
+            ),
+            3 => frame(
+                1,
+                None,
+                DecodedResponse::Error {
+                    socket: None,
+                    code: 0x41,
+                },
+            ),
+            _ => named_error(1, ViscaSocket::S1, 0x04),
+        };
+        due_first.advance_turn(late, EngineTurn::COMPLETE);
+        due_first.handle_turn(input(), late, EngineTurn::INPUT_ONLY);
+        frame_first.handle_turn(input(), late, EngineTurn::INPUT_ONLY);
+        frame_first.advance_turn(late, EngineTurn::COMPLETE);
+        assert_eq!(
+            format!("{:?}", due_first.entry(id)),
+            format!("{:?}", frame_first.entry(id)),
+            "class {class}"
+        );
+        assert_eq!(due_first.holds, frame_first.holds, "class {class}");
+        assert_eq!(
+            format!("{:?}", due_first.ledger),
+            format!("{:?}", frame_first.ledger),
+            "class {class}"
+        );
+        due_first.assert_invariants().unwrap();
+        frame_first.assert_invariants().unwrap();
+    }
+}
+
+#[test]
+fn late_ack_preserves_its_socket_against_successor_errors_and_socketless_completion() {
+    for socketless in [false, true] {
+        let start = Instant::now();
+        let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+        let (write, first) = admit(
+            &mut engine,
+            1,
+            command(1, CancellationPolicy::Supported),
+            start,
+        );
+        send_ok(&mut engine, &write, None, start);
+        let late = start + Duration::from_millis(21);
+        engine.handle(ack(1, ViscaSocket::S1), late);
+        assert!(engine.entry(first).is_none());
+        assert!(engine
+            .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S1))
+            .is_some());
+        let (write, second) = admit(
+            &mut engine,
+            2,
+            command(1, CancellationPolicy::Supported),
+            late,
+        );
+        send_ok(&mut engine, &write, None, late);
+        if socketless {
+            engine.handle(ack(1, ViscaSocket::S2), late);
+        }
+        let own_late = if socketless {
+            frame(1, None, DecodedResponse::Completion { socket: None })
+        } else {
+            named_error(1, ViscaSocket::S1, 0x41)
+        };
+        let result = engine.handle(own_late, late);
+        assert!(terminal_outcome(&result, second).is_none());
+        assert!(retry_scheduled(&result).is_none());
+        assert!(engine.entry(second).is_some());
+        engine.assert_invariants().unwrap();
+    }
+}
+
+#[test]
+fn latched_ack_proves_socket_assignment_when_write_result_outlives_budget() {
+    let start = Instant::now();
+    let mut engine = fresh(EnvelopeKind::Raw, TransportKind::Stream);
+    let mut request = command(1, CancellationPolicy::Supported);
+    request.context_mut().retry.total_budget = Duration::from_millis(10);
+    let (write, id) = admit(&mut engine, 1, request, start);
+    engine.handle(ack(1, ViscaSocket::S1), start + Duration::from_millis(1));
+    let late = start + Duration::from_millis(11);
+    let terminal = send_ok(&mut engine, &write, None, late);
+    assert!(terminal_failure(&terminal, id).is_some());
+    assert!(
+        engine
+            .raw_hold(camera(1), RawHoldScope::Socket(ViscaSocket::S1))
+            .unwrap()
+            .until
+            > late
+    );
+    engine.assert_invariants().unwrap();
+}

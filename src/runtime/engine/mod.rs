@@ -219,6 +219,56 @@ pub(crate) struct Entry {
 }
 
 impl Entry {
+    fn due(&self, id: RequestId) -> Option<DueWork> {
+        let entry = self;
+        let phase_due = match entry.phase {
+            Phase::AwaitingAck { deadline, .. } => Some((deadline, 1, 0)),
+            Phase::AwaitingCompletion { deadline, .. } => Some((deadline, 1, 0)),
+            Phase::Executing { deadline, .. } => Some((deadline, 1, 0)),
+            Phase::AwaitingCancellationResolution { deadline, .. } => Some((deadline, 1, 0)),
+            Phase::AwaitingReply { deadline, .. } => Some((deadline, 1, 0)),
+            Phase::Backoff {
+                ready_at,
+                queue_generation,
+            } => Some((ready_at, 2, queue_generation)),
+            Phase::Ready { .. } | Phase::Sending { .. } => None,
+        };
+        let retry_budget_due = retry_budget_deadline(entry);
+        let mut selected = phase_due;
+        if let Some(budget) = retry_budget_due {
+            if selected.is_none_or(|(at, _, _)| budget <= at) {
+                selected = Some((budget, 1, 0));
+            }
+        }
+        if let Some(ambiguity) = active_cancellation_ambiguity(entry) {
+            if selected.is_none_or(|(at, _, _)| ambiguity <= at) {
+                selected = Some((ambiguity, 0, 0));
+            }
+        }
+        let (mut at, mut kind_order, mut queue_generation) = selected?;
+        if entry.cancellation_observation_open {
+            if let CancelState::AwaitingTerminal {
+                observation_deadline,
+                ..
+            } = entry.cancellation
+            {
+                if observation_deadline < at {
+                    at = observation_deadline;
+                    kind_order = 1;
+                    queue_generation = 0;
+                }
+            }
+        }
+        Some(DueWork {
+            at,
+            admission_order: entry.admission_order,
+            kind_order,
+            request: id,
+            generation: entry.generation,
+            queue_generation,
+        })
+    }
+
     /// Test projection of the entry's phase, read by `runtime::engine::tests`
     /// and `OwnerState::request_state`.
     #[cfg(test)]
@@ -2345,6 +2395,7 @@ impl ProtocolEngine {
             effects.push(Effect::Ignored(IgnoreReason::MalformedFrame));
             return;
         } else if self.raw_stream() {
+            self.retire_stale_stream_candidates(&frame, now, effects);
             self.resolve_raw_stream(&frame, now)
                 .map(|id| (id, CorrelationKind::Request))
         } else {
@@ -3258,6 +3309,82 @@ impl ProtocolEngine {
     fn retain_unanswered_inquiry(&mut self, id: RequestId, now: Instant) {
         if !self.raw_stream() {
             self.quarantine_raw_inquiry_correlation(id, now);
+        }
+    }
+
+    /// Retires a strictly expired candidate before consuming its answer.
+    /// Exact-deadline input still wins. Only candidates for this frame advance;
+    /// an unrelated expired request cannot suppress input for a live request.
+    fn retire_stale_stream_candidates(
+        &mut self,
+        frame: &DecodedFrame,
+        now: Instant,
+        effects: &mut Vec<Effect>,
+    ) {
+        let target = frame.target;
+        let (answer, socket) = match &frame.response {
+            DecodedResponse::Ack { .. } => (Some(Answer::Ack), None),
+            DecodedResponse::InquiryReply { route, .. } => (
+                Some(Answer::Reply(
+                    route.filter(|route| *route != InquiryRoute::UNKNOWN),
+                )),
+                None,
+            ),
+            DecodedResponse::Completion { socket } => {
+                (socket.is_none().then_some(Answer::Completion), *socket)
+            }
+            DecodedResponse::Error {
+                socket: Some(socket),
+                code,
+            } if is_cancel_reply(*code) => (Some(Answer::CancelReply(*socket)), Some(*socket)),
+            DecodedResponse::Error { socket, .. } => (
+                Some(if socket.is_some() {
+                    Answer::NamedRejection
+                } else {
+                    Answer::SocketlessError
+                }),
+                *socket,
+            ),
+            DecodedResponse::SonyControl { .. }
+            | DecodedResponse::NetworkChange
+            | DecodedResponse::Unknown => (None, None),
+        };
+        let candidates = answer.map_or([None, None], |answer| {
+            self.ledger.candidates(target, answer)
+        });
+        let mut requests = SmallVec::<[RequestId; 3]>::new();
+        if let Some(owner) = socket.and_then(|socket| self.socket_owner(target, socket)) {
+            requests.push(owner);
+        }
+        for candidate in candidates
+            .into_iter()
+            .flatten()
+            .filter(|candidate| !candidate.is_debt())
+        {
+            if !requests.contains(&candidate.request) {
+                requests.push(candidate.request);
+            }
+        }
+        for id in requests {
+            let stale = self.entries.get(&id).is_some_and(|entry| {
+                correlated_response_deadline(entry).is_some_and(|deadline| deadline < now)
+            });
+            if !stale {
+                continue;
+            }
+            // A sole ACK is proof that the staged request reached the camera,
+            // even when the writer has not yet reported its result (#297).
+            if matches!(answer, Some(Answer::Ack)) && candidates[1].is_none() {
+                self.mark_stream_answer_written(id, false);
+            }
+            while let Some(due) = self
+                .entries
+                .get(&id)
+                .and_then(|entry| entry.due(id))
+                .filter(|due| due.at < now)
+            {
+                self.apply_due(due, now, effects);
+            }
         }
     }
 
@@ -4303,56 +4430,7 @@ impl ProtocolEngine {
     fn next_due(&self) -> Option<DueWork> {
         self.entries
             .iter()
-            .filter_map(|(id, entry)| {
-                let phase_due = match entry.phase {
-                    Phase::AwaitingAck { deadline, .. } => Some((deadline, 1, 0)),
-                    Phase::AwaitingCompletion { deadline, .. } => Some((deadline, 1, 0)),
-                    Phase::Executing { deadline, .. } => Some((deadline, 1, 0)),
-                    Phase::AwaitingCancellationResolution { deadline, .. } => {
-                        Some((deadline, 1, 0))
-                    }
-                    Phase::AwaitingReply { deadline, .. } => Some((deadline, 1, 0)),
-                    Phase::Backoff {
-                        ready_at,
-                        queue_generation,
-                    } => Some((ready_at, 2, queue_generation)),
-                    Phase::Ready { .. } | Phase::Sending { .. } => None,
-                };
-                let retry_budget_due = retry_budget_deadline(entry);
-                let mut selected = phase_due;
-                if let Some(budget) = retry_budget_due {
-                    if selected.is_none_or(|(at, _, _)| budget <= at) {
-                        selected = Some((budget, 1, 0));
-                    }
-                }
-                if let Some(ambiguity) = active_cancellation_ambiguity(entry) {
-                    if selected.is_none_or(|(at, _, _)| ambiguity <= at) {
-                        selected = Some((ambiguity, 0, 0));
-                    }
-                }
-                let (mut at, mut kind_order, mut queue_generation) = selected?;
-                if entry.cancellation_observation_open {
-                    if let CancelState::AwaitingTerminal {
-                        observation_deadline,
-                        ..
-                    } = entry.cancellation
-                    {
-                        if observation_deadline < at {
-                            at = observation_deadline;
-                            kind_order = 1;
-                            queue_generation = 0;
-                        }
-                    }
-                }
-                Some(DueWork {
-                    at,
-                    admission_order: entry.admission_order,
-                    kind_order,
-                    request: *id,
-                    generation: entry.generation,
-                    queue_generation,
-                })
-            })
+            .filter_map(|(id, entry)| entry.due(*id))
             .min_by_key(|due| due.key())
     }
 
@@ -4459,8 +4537,11 @@ impl ProtocolEngine {
         // (`retire_stream_answers`), so no time-bounded `PreAck` or
         // `AllResponses` hold is needed for them; and a staged write that
         // never left reached nothing.
+        let raced_ack = self.raw_stream().then_some(entry.deferred_ack).flatten();
+        let raced_completion = entry.request.context().timeout.completion;
         let scope = if self.raw_stream() {
             let staged_only = matches!(entry.phase, Phase::Sending { .. })
+                && raced_ack.is_none()
                 && !self.ledger.live(target, id).any(|entry| entry.written);
             let owed = |scope: &RawHoldScope| {
                 *scope == RawHoldScope::PreAck
@@ -4471,6 +4552,22 @@ impl ProtocolEngine {
         } else {
             scope
         };
+        if let Some(ack) = raced_ack {
+            let socket = ack.socket.or_else(|| {
+                [ViscaSocket::S1, ViscaSocket::S2]
+                    .into_iter()
+                    .take(self.command_sockets(target))
+                    .find(|socket| self.socket_owner(target, *socket).is_none())
+            });
+            if let Some(socket) = socket {
+                self.extend_raw_hold(
+                    target,
+                    RawHoldScope::Socket(socket),
+                    add_duration(now, raced_completion),
+                    Some(id),
+                );
+            }
+        }
         if let Some(scope) = scope {
             self.extend_raw_hold(target, scope, ambiguity_deadline, Some(id));
         }

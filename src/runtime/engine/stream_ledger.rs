@@ -625,6 +625,15 @@ impl StreamLedger {
     ///
     /// An extra debt only discards a future answer; it never binds one to the
     /// wrong request.
+    /// Inspects first-answer candidates without consuming their evidence.
+    pub(crate) fn candidates(&self, target: CameraId, answer: Answer) -> [Option<Outstanding>; 2] {
+        match resolve_in(self.queue(target), answer) {
+            Resolution::Nothing => [None, None],
+            Resolution::Oldest(entry) => [Some(entry), None],
+            Resolution::Ambiguous { first, second } => [Some(first), Some(second)],
+        }
+    }
+
     pub(crate) fn answer(
         &mut self,
         target: CameraId,
