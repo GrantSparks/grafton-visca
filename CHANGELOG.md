@@ -94,6 +94,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   for external close and transport teardown (#862).
 - Contributor and release checks (#886) now require unique production error
   constructors and verify the specific rejection reason in release self-tests.
+- Relative pan/tilt moves validate against the full reachable span and encode
+  signed offsets without an unsigned-centered absolute bias (#870). Position
+  framing shares per-axis word widths, including FR7 five-nibble pan and tilt,
+  and BRC-300 movement carries its single speed without discarding a second
+  field (#893, #882).
 
 - Raw completion-only commands refuse cancellation with `NotSupported` after a
   successful write and retain their own completion deadline. Cancellation

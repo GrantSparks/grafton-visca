@@ -233,7 +233,8 @@ macro_rules! noun_table {
                 = [with_profile |profile| builtin::PanTiltAbsolute::for_profile_speed_level(
                     pan, tilt, speed, profile,
                 )];
-            /// Moves by a relative degree offset at the selected speed.
+            /// Moves by a relative degree offset at the selected speed. Each axis accepts
+            /// the full span between the profile's absolute limits in either direction.
             targeted [PanTiltRelative] relative(pan: Degrees<f32>, tilt: Degrees<f32>, speed: types::SpeedLevel)
                 -> builtin::PanTiltRelative
                 = [with_profile |profile| builtin::PanTiltRelative::for_profile_speed_level(

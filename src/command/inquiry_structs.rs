@@ -2704,7 +2704,11 @@ mod wire_decoder_regression_tests {
     /// `InvalidResponseLength` whatever the profile's framing.
     #[test]
     fn pan_tilt_decode_errors_do_not_depend_on_the_profile_framing() {
-        let brc = PanTiltFraming::SonyBrc300;
+        let brc = PanTiltFraming::new(
+            crate::capabilities::PanTiltWireCodec::SonyBrc300,
+            crate::capabilities::CoordinateSystem::SignedCentered,
+        )
+        .expect("signed BRC framing");
         let standard = PanTiltFraming::STANDARD;
         let eight = [0x00; 8];
         let nine = [0x00; 9];

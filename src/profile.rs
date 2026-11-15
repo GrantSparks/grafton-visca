@@ -1314,6 +1314,54 @@ impl ProfileSpec {
         Ok((position.pan, position.tilt))
     }
 
+    /// Converts relative degrees using the profile scale and the complete
+    /// reachable span, independently of the absolute coordinate origin.
+    pub(crate) fn convert_pan_tilt_offset_degrees(
+        &self,
+        pan: f32,
+        tilt: f32,
+    ) -> Result<(i32, i32)> {
+        let conversion = self.pan_tilt_coordinates().ok_or_else(|| {
+            Error::InvalidRequest("profile has no pan/tilt coordinate conversion".into())
+        })?;
+        let convert = |parameter, degrees, units: Option<i32>| {
+            if !f32::is_finite(degrees) {
+                return Err(Error::InvalidParameter {
+                    parameter,
+                    value: format!("{degrees}").into(),
+                    reason: "offset must be finite".into(),
+                });
+            }
+            units.ok_or_else(|| Error::InvalidParameter {
+                parameter,
+                value: format!("{degrees}").into(),
+                reason: "offset exceeds signed coordinate storage".into(),
+            })
+        };
+        let pan = convert("pan offset", pan, conversion.pan_units(pan))?;
+        let tilt = convert("tilt offset", tilt, conversion.tilt_units(tilt))?;
+        self.validate_pan_tilt_offset(pan, tilt)?;
+        Ok((pan, tilt))
+    }
+
+    pub(crate) fn validate_pan_tilt_offset(&self, pan: i32, tilt: i32) -> Result<()> {
+        for (parameter, value, range) in [
+            ("pan offset", pan, &self.capabilities().pan_range),
+            ("tilt offset", tilt, &self.capabilities().tilt_range),
+        ] {
+            let span = i64::from(*range.end()) - i64::from(*range.start());
+            if i64::from(value).abs() > span {
+                return Err(Error::InvalidParameter {
+                    parameter,
+                    value: value.to_string().into(),
+                    reason: format!("offset must lie within the relative span -{span}..={span}")
+                        .into(),
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// Returns compatible standard transports.
     #[must_use]
     pub const fn transports(&self) -> TransportCompatibility {
@@ -1747,15 +1795,28 @@ impl ProfileFacts {
                     "Sony BRC-300 one-speed framing requires overlapping pan/tilt speeds",
                 ));
             }
-            if conversion.wire_codec == capabilities::PanTiltWireCodec::SonyBrc300
-                && (!(-0x080000..=0x07_FFFF).contains(self.capabilities.pan_range.start())
-                    || !(-0x080000..=0x07_FFFF).contains(self.capabilities.pan_range.end())
-                    || !(-0x8000..=0x7FFF).contains(self.capabilities.tilt_range.start())
-                    || !(-0x8000..=0x7FFF).contains(self.capabilities.tilt_range.end()))
+            if matches!(
+                conversion.wire_codec,
+                capabilities::PanTiltWireCodec::SonyBrc300
+                    | capabilities::PanTiltWireCodec::SonyFr7
+            ) && (!(-0x080000..=0x07_FFFF).contains(self.capabilities.pan_range.start())
+                || !(-0x080000..=0x07_FFFF).contains(self.capabilities.pan_range.end())
+                || !(if conversion.wire_codec == capabilities::PanTiltWireCodec::SonyFr7 {
+                    -0x080000..=0x07_FFFF
+                } else {
+                    -0x8000..=0x7FFF
+                })
+                .contains(self.capabilities.tilt_range.start())
+                || !(if conversion.wire_codec == capabilities::PanTiltWireCodec::SonyFr7 {
+                    -0x080000..=0x07_FFFF
+                } else {
+                    -0x8000..=0x7FFF
+                })
+                .contains(self.capabilities.tilt_range.end()))
             {
                 return Err(invalid_profile_fields(
                     &["capabilities.pan_range", "capabilities.tilt_range"],
-                    "Sony BRC-300 values must fit signed 20-bit pan and signed 16-bit tilt framing",
+                    "Sony coordinates must fit the selected signed pan/tilt word widths",
                 ));
             }
             if conversion.wire_codec == capabilities::PanTiltWireCodec::StandardVisca
@@ -2595,6 +2656,43 @@ mod tests {
         capabilities
     }
 
+    #[test]
+    fn unsigned_centered_pan_tilt_offsets_never_inherit_absolute_bias() {
+        use crate::request::builtin::{PanTiltAbsolute, PanTiltRelative};
+        use crate::Request;
+        let profile = runtime_builder(valid_runtime_capabilities())
+            .pan_tilt_coordinates(capabilities::CoordinateSystem::UnsignedCentered, 10.0, 10.0)
+            .build()
+            .expect("unsigned profile");
+        let pan = crate::types::PanSpeed::new(5).expect("pan speed");
+        let tilt = crate::types::TiltSpeed::new(5).expect("tilt speed");
+        let relative = PanTiltRelative::for_profile(
+            crate::units::Degrees(0.0),
+            crate::units::Degrees(0.0),
+            pan,
+            tilt,
+            &profile,
+        )
+        .expect("zero offset");
+        let absolute = PanTiltAbsolute::for_profile(
+            crate::units::Degrees(0.0),
+            crate::units::Degrees(0.0),
+            pan,
+            tilt,
+            &profile,
+        )
+        .expect("center");
+        let mut buffer = [0; 17];
+        relative
+            .write_into(crate::CameraId::CAMERA_1, &mut buffer)
+            .expect("relative frame");
+        assert_eq!(&buffer[6..14], [0; 8]);
+        absolute
+            .write_into(crate::CameraId::CAMERA_1, &mut buffer)
+            .expect("absolute frame");
+        assert_eq!(&buffer[6..14], [8, 0, 0, 0, 8, 0, 0, 0]);
+    }
+
     fn runtime_white_balance_capabilities(modes: Vec<crate::WhiteBalanceMode>) -> Capabilities {
         let mut capabilities = valid_runtime_capabilities();
         capabilities.has_white_balance = true;
@@ -3162,7 +3260,11 @@ mod tests {
         let brc300 = PanTiltCoordinateConversion::for_profile::<crate::profiles::SonyBRC300>();
         assert_eq!(
             PanTiltFraming::for_conversion(brc300),
-            PanTiltFraming::SonyBrc300
+            PanTiltFraming::new(
+                crate::capabilities::PanTiltWireCodec::SonyBrc300,
+                crate::capabilities::CoordinateSystem::SignedCentered
+            )
+            .expect("signed BRC framing")
         );
     }
 

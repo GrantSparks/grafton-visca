@@ -819,6 +819,16 @@ automatic-slow-shutter inquiry, so this table is not a generic-VISCA grant.
 
 ### 9.4 Sony FR7 typed extension rows
 
+R7 pp. 18 and 22 use five signed nibbles for **each** pan/tilt axis: absolute
+`8x 01 06 02 vv ww 0p 0p 0p 0p 0p 0t 0t 0t 0t 0t FF`, relative
+`8x 01 06 03 vv ww 0p 0p 0p 0p 0p 0t 0t 0t 0t 0t FF`, and position reply
+`y0 50 0p 0p 0p 0p 0p 0t 0t 0t 0t 0t FF`. Limit set uses the same words;
+limit clear writes `07 0F 0F 0F 0F` on each axis. These complete command frames
+are seventeen bytes, despite the older R7 transport introduction stating a
+sixteen-byte payload ceiling; the model command rows take precedence for these
+FR7 commands. This does not establish a general Sony payload maximum.
+
+
 The following R7 rows are the narrow source basis for FR7-only or
 Sony-professional typed surfaces. `8x` is the VISCA camera address before Sony
 IP framing normalizes it to camera 1; application code does not build the

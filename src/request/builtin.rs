@@ -42,7 +42,7 @@ use crate::types::SpeedLevel;
 use crate::types::{FocusPosition, IrisLevel, PanSpeed, TiltSpeed, ZoomPosition, ZoomSpeed};
 use crate::{
     capabilities::PanTiltWireCodec,
-    command::pan_tilt::{PanTiltFraming, PanTiltProfiled},
+    command::pan_tilt::{MoveSpeeds, PanTiltFraming, PanTiltProfiled},
 };
 use crate::{units::Degrees, PanTiltCoordinateConversion};
 
@@ -303,15 +303,31 @@ fn validate_pan_tilt_position_speed(
     profile: &crate::ProfileSpec,
     pan: PanSpeed,
     tilt: TiltSpeed,
-) -> Result<(), Error> {
+) -> Result<MoveSpeeds, Error> {
     validate_pan_tilt_speed(profile, pan, tilt)?;
-    if profile
+    let conversion = profile
         .pan_tilt_coordinates()
-        .is_some_and(|conversion| conversion.wire_codec() == PanTiltWireCodec::SonyBrc300)
-        && pan.value() != tilt.value()
-    {
+        .ok_or(Error::FeatureNotSupported {
+            feature: "pan/tilt coordinate conversion",
+        })?;
+    PanTiltFraming::for_conversion(conversion).move_speeds(pan, tilt)
+}
+
+fn validate_move_speeds(profile: &crate::ProfileSpec, speeds: MoveSpeeds) -> Result<(), Error> {
+    validate_pan_tilt(profile)?;
+    let (pan, tilt) = speeds.values();
+    require_in_range("pan speed", pan, &profile.capabilities().pan_speed)?;
+    require_in_range("tilt speed", tilt, &profile.capabilities().tilt_speed)?;
+    let conversion = profile
+        .pan_tilt_coordinates()
+        .ok_or(Error::FeatureNotSupported {
+            feature: "pan/tilt coordinate conversion",
+        })?;
+    let current = PanTiltFraming::for_conversion(conversion)
+        .move_speeds(PanSpeed::new(pan)?, TiltSpeed::new(tilt)?)?;
+    if current != speeds {
         return Err(Error::InvalidRequest(
-            "Sony BRC-300 absolute and relative position commands have one speed byte; pan and tilt speeds must match".into(),
+            "position speeds belong to another wire grammar".into(),
         ));
     }
     Ok(())
@@ -1289,6 +1305,44 @@ impl PreparedPanTiltPosition {
     }
 }
 
+/// A relative displacement: source scale and codec, with a span bound.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct PreparedPanTiltOffset {
+    pan: i32,
+    tilt: i32,
+    conversion: PanTiltCoordinateConversion,
+}
+
+impl PreparedPanTiltOffset {
+    fn for_profile(
+        pan: Degrees<f32>,
+        tilt: Degrees<f32>,
+        profile: &crate::ProfileSpec,
+    ) -> Result<Self, Error> {
+        let conversion = profile
+            .pan_tilt_coordinates()
+            .ok_or(Error::FeatureNotSupported {
+                feature: "pan/tilt coordinate conversion",
+            })?;
+        let (pan, tilt) = profile.convert_pan_tilt_offset_degrees(pan.0, tilt.0)?;
+        Ok(Self {
+            pan,
+            tilt,
+            conversion,
+        })
+    }
+
+    fn validate(self, profile: &crate::ProfileSpec) -> Result<(), Error> {
+        validate_pan_tilt(profile)?;
+        if profile.pan_tilt_coordinates() != Some(self.conversion) {
+            return Err(Error::InvalidRequest(
+                "pan/tilt offset was converted for a different profile".into(),
+            ));
+        }
+        profile.validate_pan_tilt_offset(self.pan, self.tilt)
+    }
+}
+
 /// Return pan/tilt to its home position.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Hash)]
 pub struct PanTiltHome;
@@ -1684,8 +1738,7 @@ builtin_request! {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PanTiltAbsolute {
     position: PreparedPanTiltPosition,
-    pan_speed: PanSpeed,
-    tilt_speed: TiltSpeed,
+    speeds: MoveSpeeds,
 }
 
 impl PanTiltAbsolute {
@@ -1697,11 +1750,10 @@ impl PanTiltAbsolute {
         tilt_speed: TiltSpeed,
         profile: &crate::ProfileSpec,
     ) -> Result<Self, Error> {
-        validate_pan_tilt_position_speed(profile, pan_speed, tilt_speed)?;
+        let speeds = validate_pan_tilt_position_speed(profile, pan_speed, tilt_speed)?;
         Ok(Self {
             position: PreparedPanTiltPosition::for_profile(pan, tilt, profile)?,
-            pan_speed,
-            tilt_speed,
+            speeds,
         })
     }
 
@@ -1721,13 +1773,12 @@ impl PanTiltAbsolute {
 
 builtin_request! {
     PanTiltAbsolute => PanTiltAbsolute: Targeted {
-        size: 16,
+        size: 17,
         wire: |value: &PanTiltAbsolute| PanTiltProfiled::AbsolutePosition {
             framing: PanTiltFraming::for_conversion(value.position.conversion),
             pan: value.position.pan,
             tilt: value.position.tilt,
-            pan_speed: value.pan_speed,
-            tilt_speed: value.tilt_speed,
+            speeds: value.speeds,
         },
     };
 }
@@ -1735,9 +1786,8 @@ builtin_request! {
 /// Relative pan/tilt offset converted from degrees through one validated profile.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct PanTiltRelative {
-    position: PreparedPanTiltPosition,
-    pan_speed: PanSpeed,
-    tilt_speed: TiltSpeed,
+    offset: PreparedPanTiltOffset,
+    speeds: MoveSpeeds,
 }
 
 impl PanTiltRelative {
@@ -1749,11 +1799,10 @@ impl PanTiltRelative {
         tilt_speed: TiltSpeed,
         profile: &crate::ProfileSpec,
     ) -> Result<Self, Error> {
-        validate_pan_tilt_position_speed(profile, pan_speed, tilt_speed)?;
+        let speeds = validate_pan_tilt_position_speed(profile, pan_speed, tilt_speed)?;
         Ok(Self {
-            position: PreparedPanTiltPosition::for_profile(pan, tilt, profile)?,
-            pan_speed,
-            tilt_speed,
+            offset: PreparedPanTiltOffset::for_profile(pan, tilt, profile)?,
+            speeds,
         })
     }
 
@@ -1773,13 +1822,12 @@ impl PanTiltRelative {
 
 builtin_request! {
     PanTiltRelative => PanTiltRelative: Targeted {
-        size: 16,
+        size: 17,
         wire: |value: &PanTiltRelative| PanTiltProfiled::RelativePosition {
-            framing: PanTiltFraming::for_conversion(value.position.conversion),
-            pan: value.position.pan,
-            tilt: value.position.tilt,
-            pan_speed: value.pan_speed,
-            tilt_speed: value.tilt_speed,
+            framing: PanTiltFraming::for_conversion(value.offset.conversion),
+            pan: value.offset.pan,
+            tilt: value.offset.tilt,
+            speeds: value.speeds,
         },
     };
 }
@@ -1808,7 +1856,7 @@ impl PanTiltLimitSet {
 
 builtin_request! {
     PanTiltLimitSet => PanTiltLimitSet: Plain {
-        size: 16,
+        size: 17,
         wire: |value: &PanTiltLimitSet| PanTiltProfiled::LimitSet {
             framing: PanTiltFraming::for_conversion(value.position.conversion),
             corner: value.corner,
@@ -1858,7 +1906,7 @@ impl PanTiltLimitClear {
 
 builtin_request! {
     PanTiltLimitClear => PanTiltLimitClear: Plain {
-        size: 16,
+        size: 17,
         wire: |value: &PanTiltLimitClear| PanTiltProfiled::LimitClear {
             codec: value.wire_codec,
             corner: value.corner,
@@ -2367,15 +2415,15 @@ impl BuiltinValidation for PanTiltStop {
 
 impl BuiltinValidation for PanTiltAbsolute {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_pan_tilt_position_speed(profile, self.pan_speed, self.tilt_speed)?;
+        validate_move_speeds(profile, self.speeds)?;
         self.position.validate(profile)
     }
 }
 
 impl BuiltinValidation for PanTiltRelative {
     fn validate(&self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_pan_tilt_position_speed(profile, self.pan_speed, self.tilt_speed)?;
-        self.position.validate(profile)
+        validate_move_speeds(profile, self.speeds)?;
+        self.offset.validate(profile)
     }
 }
 
@@ -2925,6 +2973,42 @@ mod tests {
             .write_into(CameraId::CAMERA_1, &mut buffer)
             .expect("typed request must encode");
         buffer[..length].to_vec()
+    }
+
+    #[test]
+    fn relative_pan_tilt_uses_reachable_span_instead_of_absolute_limits() {
+        let profile = ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2");
+        let request = PanTiltRelative::for_profile(
+            Degrees(200.0),
+            Degrees(-45.0),
+            PanSpeed::new(10).unwrap(),
+            TiltSpeed::new(10).unwrap(),
+            &profile,
+        )
+        .expect("reachable relative offset");
+        assert_eq!(&wire(&request)[10..14], [15, 13, 7, 8]);
+        request.validate(&profile).expect("offset validation");
+        let conversion = profile.pan_tilt_coordinates().unwrap();
+        let caps = profile.capabilities();
+        for (pan, tilt) in [
+            (*caps.pan_range.end() - *caps.pan_range.start(), 0),
+            (0, *caps.tilt_range.end() - *caps.tilt_range.start()),
+        ] {
+            profile
+                .convert_pan_tilt_offset_degrees(
+                    conversion.pan_degrees(pan),
+                    conversion.tilt_degrees(tilt),
+                )
+                .expect("full span");
+            assert!(matches!(
+                profile.validate_pan_tilt_offset(pan + 1, tilt + 1),
+                Err(Error::InvalidParameter { .. })
+            ));
+        }
+        assert!(matches!(
+            profile.convert_pan_tilt_offset_degrees(f32::NAN, 0.0),
+            Err(Error::InvalidParameter { .. })
+        ));
     }
 
     fn command_wire<C: WireEncode>(command: &C) -> Vec<u8> {

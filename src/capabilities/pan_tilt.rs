@@ -22,6 +22,8 @@ pub enum PanTiltWireCodec {
     /// Sony BRC-300: one speed byte, fixed `00`, five signed pan nibbles,
     /// and four signed tilt nibbles.
     SonyBrc300,
+    /// Sony FR7: two speed bytes and five signed nibbles for each axis.
+    SonyFr7,
 }
 
 /// Trait for cameras that support pan and tilt movement.
