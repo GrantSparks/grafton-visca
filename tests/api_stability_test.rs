@@ -131,7 +131,8 @@ fn profile_marker_and_capability_contract() {
     use grafton_visca::{
         capabilities::{
             Capabilities, Exposure, Focus, HasNdFilter, ImageProcessing, InquirySupport, PanTilt,
-            Power, Profile, ProfileMetadata, SupportsTcp, SupportsUdp, WhiteBalance, Zoom,
+            Power, Profile, ProfileMetadata, SupportsTcp, SupportsUdp, TypedSupportSurface,
+            WhiteBalance, Zoom,
         },
         profiles::{GenericVisca, PtzOpticsG2, SonyFR7},
         CompileTimeProfile,
@@ -200,7 +201,11 @@ fn profile_marker_and_capability_contract() {
 
     let fr7 = Capabilities::from_profile::<SonyFR7>();
     assert!(fr7.has_basic_features());
-    assert!(fr7.has_advanced_features());
+    // This summary covers shared refinements (digital zoom, one-push modes,
+    // WDR, shared color temperature and tours). FR7 has its own cinema domains.
+    assert!(!fr7.has_advanced_features());
+    assert!(fr7.supports_typed(TypedSupportSurface::SonyFr7Iris));
+    assert!(fr7.supports_typed(TypedSupportSurface::SonyFr7Black));
     assert!(fr7.has_nd_filter());
     assert!(fr7.power.as_ref().expect("power domain").wake_on_lan);
     assert_eq!(SonyFR7::TRANSPORTS.tcp_port(), None);

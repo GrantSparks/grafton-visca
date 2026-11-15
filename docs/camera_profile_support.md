@@ -558,9 +558,20 @@ The unsourced auto/manual status inquiry is removed from the typed surface.
 Caller-owned requests and decoders can model an extension once its packet and
 reply are established for that camera. The FR7 command list
 documents a vendor-relative `7E 04 4B` Up/Down family and `05 34` Auto Iris
-inquiry; it does not establish the shared `04 39` or `09 04 4B` families.
-Until those FR7 families have their own models, they remain available only
-through the raw-command escape hatch.
+control and inquiry. `HasSonyFr7Iris` exposes them through
+`exposure().iris_up_by(...)`, `iris_down_by(...)`, `set_auto_iris(...)` and
+`auto_iris()`. The step commands are applied-only operations on Iris; the
+auto-iris inquiry reports a mode and supplies no position or settlement probe.
+R7 does not establish the shared `04 39` exposure-mode or `09 04 4B` iris-position
+families.
+
+R7's recording, audio level and input level, assignable buttons, multi-function
+dial and multi selector, colour bars, lens initialization and shooting-mode
+families remain outside the typed camera-control domains. Callers can use the
+`raw::*` request types or implement their own `Request` for those established
+packets. PTZ trace and PTZ auto framing also remain raw/custom extensions:
+they start autonomous motion and require an owner motion-safety design covering
+halt fencing and motion tracking before they can become typed operations.
 
 Raw/custom request APIs are different. They remain available as escape hatches
 for experiments, unsupported firmware variants, and downstream integrations.
