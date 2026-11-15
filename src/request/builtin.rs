@@ -1815,6 +1815,12 @@ builtin_request! {
             ZoomDrive::TeleVariable(speed) => Zoom::TeleVariable(*speed),
             ZoomDrive::WideVariable(speed) => Zoom::WideVariable(*speed),
         },
+        rows: |value| match (value) {
+            ZoomDrive::Tele => ZoomTele,
+            ZoomDrive::Wide => ZoomWide,
+            ZoomDrive::TeleVariable(_) => ZoomTeleVariable,
+            ZoomDrive::WideVariable(_) => ZoomWideVariable,
+        },
     };
 }
 
@@ -1881,6 +1887,12 @@ builtin_request! {
             FocusDrive::Near => Focus::Near,
             FocusDrive::FarVariable(speed) => Focus::FarWithSpeed(*speed),
             FocusDrive::NearVariable(speed) => Focus::NearWithSpeed(*speed),
+        },
+        rows: |value| match (value) {
+            FocusDrive::Far => FocusFar,
+            FocusDrive::Near => FocusNear,
+            FocusDrive::FarVariable(_) => FocusFarVariable,
+            FocusDrive::NearVariable(_) => FocusNearVariable,
         },
     };
 }
@@ -2624,10 +2636,179 @@ mod tests {
             GenericVisca, NearusBRC300, PtzOptics30X, PtzOpticsG2, PtzOpticsG3, SonyBRC300,
             SonyBRCH900, SonyEVIH100, SonyFR7,
         },
-        types::NdiQuality,
+        types::{FocusSpeed, NdiQuality},
         OperationalTuning, PlainCommand, ProfileSpec,
     };
     use std::collections::HashSet;
+
+    #[test]
+    fn every_zoom_and_focus_drive_variant_selects_its_source_on_all_models() {
+        let profiles = [
+            ProfileSpec::from_compile_time::<PtzOpticsG2>(),
+            ProfileSpec::from_compile_time::<PtzOpticsG3>(),
+            ProfileSpec::from_compile_time::<PtzOptics30X>(),
+            ProfileSpec::from_compile_time::<SonyFR7>(),
+            ProfileSpec::from_compile_time::<SonyBRCH900>(),
+            ProfileSpec::from_compile_time::<SonyEVIH100>(),
+            ProfileSpec::from_compile_time::<SonyBRC300>(),
+            ProfileSpec::from_compile_time::<NearusBRC300>(),
+            ProfileSpec::from_compile_time::<GenericVisca>(),
+        ];
+        fn prepared<C: OperationCommand<completion::AppliedOnly> + BuiltinValidation>(
+            value: &C,
+            target: &crate::TargetRegistration,
+            axes: AffectedAxes,
+        ) -> Vec<u8> {
+            prepare_builtin_operation::<completion::AppliedOnly, _>(
+                value,
+                target,
+                OperationalTuning::new(),
+            )
+            .expect("source-backed drive must prepare")
+            .admit_with(|request, actual_axes, _, _| {
+                assert_eq!(actual_axes, axes);
+                request.wire().as_bytes().to_vec()
+            })
+        }
+        for profile in profiles {
+            let profile = profile.expect("built-in profile");
+            let zoom = profile.capabilities().zoom.as_ref().expect("zoom").speed;
+            let focus = profile.capabilities().focus.as_ref().expect("focus").speed;
+            let target =
+                crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("target");
+            for (value, row, parameter) in [
+                (ZoomDrive::Tele, BuiltinCommand::ZoomTele, 0x02),
+                (ZoomDrive::Wide, BuiltinCommand::ZoomWide, 0x03),
+                (
+                    ZoomDrive::TeleVariable(ZoomSpeed::new(zoom.min()).expect("minimum")),
+                    BuiltinCommand::ZoomTeleVariable,
+                    0x20 | zoom.min(),
+                ),
+                (
+                    ZoomDrive::TeleVariable(ZoomSpeed::new(zoom.max()).expect("maximum")),
+                    BuiltinCommand::ZoomTeleVariable,
+                    0x20 | zoom.max(),
+                ),
+                (
+                    ZoomDrive::WideVariable(ZoomSpeed::new(zoom.min()).expect("minimum")),
+                    BuiltinCommand::ZoomWideVariable,
+                    0x30 | zoom.min(),
+                ),
+                (
+                    ZoomDrive::WideVariable(ZoomSpeed::new(zoom.max()).expect("maximum")),
+                    BuiltinCommand::ZoomWideVariable,
+                    0x30 | zoom.max(),
+                ),
+            ] {
+                assert_eq!(value.ledger_row(), row, "{}", target.profile().name());
+                let frame = prepared(&value, &target, AffectedAxes::ZOOM);
+                assert_eq!(
+                    frame,
+                    [0x81, 1, 4, 7, parameter, 0xff],
+                    "{} {row:?}",
+                    target.profile().name()
+                );
+                assert!(row
+                    .source()
+                    .validate_frame(target.profile(), &frame, "selected zoom source")
+                    .is_ok());
+            }
+            for (value, row, parameter) in [
+                (FocusDrive::Far, BuiltinCommand::FocusFar, 0x02),
+                (FocusDrive::Near, BuiltinCommand::FocusNear, 0x03),
+                (
+                    FocusDrive::FarVariable(FocusSpeed::new(focus.min()).expect("minimum")),
+                    BuiltinCommand::FocusFarVariable,
+                    0x20 | focus.min(),
+                ),
+                (
+                    FocusDrive::FarVariable(FocusSpeed::new(focus.max()).expect("maximum")),
+                    BuiltinCommand::FocusFarVariable,
+                    0x20 | focus.max(),
+                ),
+                (
+                    FocusDrive::NearVariable(FocusSpeed::new(focus.min()).expect("minimum")),
+                    BuiltinCommand::FocusNearVariable,
+                    0x30 | focus.min(),
+                ),
+                (
+                    FocusDrive::NearVariable(FocusSpeed::new(focus.max()).expect("maximum")),
+                    BuiltinCommand::FocusNearVariable,
+                    0x30 | focus.max(),
+                ),
+            ] {
+                assert_eq!(value.ledger_row(), row, "{}", target.profile().name());
+                let frame = prepared(&value, &target, AffectedAxes::FOCUS);
+                assert_eq!(
+                    frame,
+                    [0x81, 1, 4, 8, parameter, 0xff],
+                    "{} {row:?}",
+                    target.profile().name()
+                );
+                assert!(row
+                    .source()
+                    .validate_frame(target.profile(), &frame, "selected focus source")
+                    .is_ok());
+            }
+            for (wrong, frame) in [
+                (BuiltinCommand::ZoomTele, [0x81, 1, 4, 7, 3, 0xff]),
+                (
+                    BuiltinCommand::ZoomTele,
+                    [0x81, 1, 4, 7, 0x20 | zoom.min(), 0xff],
+                ),
+                (BuiltinCommand::FocusFar, [0x81, 1, 4, 8, 3, 0xff]),
+                (
+                    BuiltinCommand::FocusFar,
+                    [0x81, 1, 4, 8, 0x20 | focus.min(), 0xff],
+                ),
+            ] {
+                assert!(
+                    wrong
+                        .source()
+                        .validate_frame(target.profile(), &frame, "wrong source key")
+                        .is_err(),
+                    "{} {wrong:?}",
+                    target.profile().name()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn selected_source_still_rejects_a_model_without_that_packet() {
+        let ptz = crate::TargetRegistration::new(
+            CameraId::CAMERA_1,
+            ProfileSpec::from_compile_time::<PtzOpticsG2>().expect("G2"),
+        )
+        .expect("target");
+        reset_request_write_count();
+        assert!(matches!(
+            prepare_builtin_operation::<completion::Targeted, _>(
+                &FocusInfinity,
+                &ptz,
+                OperationalTuning::new()
+            ),
+            Err(Error::FeatureNotSupported { .. })
+        ));
+        assert_eq!(
+            request_write_count(),
+            0,
+            "model source denial precedes encoding"
+        );
+        let sony = crate::TargetRegistration::new(
+            CameraId::CAMERA_1,
+            ProfileSpec::from_compile_time::<SonyEVIH100>().expect("EVI"),
+        )
+        .expect("target");
+        let bytes = prepare_builtin_operation::<completion::Targeted, _>(
+            &FocusInfinity,
+            &sony,
+            OperationalTuning::new(),
+        )
+        .expect("EVI infinity source")
+        .admit_with(|request, _, _, _| request.wire().as_bytes().to_vec());
+        assert_eq!(bytes, [0x81, 1, 4, 0x18, 2, 0xff]);
+    }
 
     fn wire<R: Request>(request: &R) -> Vec<u8> {
         let mut buffer = [0_u8; 32];

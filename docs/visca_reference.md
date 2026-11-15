@@ -2520,3 +2520,8 @@ Parameterized FR7 preset queries validate the selected preset against the target
 profile’s advertised highest packet number before serialization, just as preset
 setting commands do. The checked `Fr7PresetNumber` also enforces R7’s wire
 range independently of any custom profile’s narrower inventory.
+
+Built-in zoom and focus drive values select their own exact ledger row before
+source validation: standard Tele/Far (`02`), standard Wide/Near (`03`), and the
+distinct variable-direction rows (`2p`/`3p`). Sharing a class and motion axis does
+not authorize using another branch's packet evidence.

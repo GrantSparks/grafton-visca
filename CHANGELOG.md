@@ -352,6 +352,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Zoom and focus drive wrappers select the exact semantic/source row for
+  standard and variable movement in each direction. Source checks no longer
+  mistake Wide/Near or variable commands for standard Tele/Far commands.
+
 - Parameterized FR7 preset queries and setting commands share the target
   profile’s highest-preset check before encoding, including custom profiles
   with a narrower preset inventory (#894).
