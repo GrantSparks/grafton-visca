@@ -1160,11 +1160,11 @@ Record ACK/completion behavior, preset recall behavior, and any drift or oversho
 **Current treatment:** Background only. Do not present those profiles as fully validated in this PTZOptics/Axis document.
 
 **Narrow registry exception:** The built-in Sony FR7 entry uses the primary
-FR7 command-list evidence in R7 for variable-ND controls/inquiries and fixed
-`04 3A` spotlight controls. R7 also documents a distinct vendor-relative
-`7E 04 4B` iris Up/Down family and `05 34` Auto Iris inquiry, retained only
-through the raw-command escape hatch until they have their own typed models.
-R7 does not establish the shared `04 39` AE-mode command/inquiry family. That
+FR7 command-list evidence in R7 for the typed families listed in §9.4,
+including variable-ND controls/inquiries and fixed `04 3A` spotlight controls.
+The distinct vendor-relative `7E 04 4B` iris Up/Down family and `05 34` Auto Iris
+command/inquiry have dedicated FR7 typed models. R7 does not establish the
+shared `04 39` AE-mode command/inquiry family. That
 narrow exception does not generalize typed ND support to the other Sony, EVI,
 Nearus, or generic profiles, and it does not make the broader FR7 profile fully
 validated here.

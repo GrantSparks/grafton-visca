@@ -391,7 +391,7 @@ fn color_temperature_inquiry_is_gated_to_profiles_with_a_sourced_reply_layout() 
         (
             "SonyBRCH900",
             ProfileSpec::from_compile_time::<SonyBRCH900>(),
-            true,
+            false,
         ),
         (
             "SonyEVIH100",

@@ -25,7 +25,7 @@ use grafton_visca::{
 };
 
 use fake_camera::{frames, FakeCamera};
-use profile_fixtures::MotionSyncTypedSupport;
+use profile_fixtures::{CombinedZoomTypedSupport, MotionSyncTypedSupport};
 
 /// A camera that always answers ACK + completion, answering position
 /// inquiries with a canned constant position. It records the VISCA payloads
@@ -101,9 +101,14 @@ fn directional_pan_tilt_drive_encodes_each_direction() {
 }
 
 #[test]
-fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
-    let (session, fake) = fr7_session();
-    let camera = session.camera::<SonyFR7>().expect("camera");
+fn normalized_zoom_maps_the_unit_interval_across_explicit_combined_domains() {
+    let (session, fake) = open_session(
+        ProfileSpec::from_compile_time::<CombinedZoomTypedSupport>()
+            .expect("combined zoom fixture"),
+    );
+    let camera = session
+        .camera::<CombinedZoomTypedSupport>()
+        .expect("camera");
     let optical_max = *camera
         .capabilities()
         .zoom
@@ -120,7 +125,7 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
         .digital_range()
         .map(|range| range.as_inclusive())
         .as_ref()
-        .expect("FR7 documents a digital zoom range")
+        .expect("the caller-owned fixture declares a digital zoom range")
         .end();
     assert_ne!(optical_max, digital_max);
 
@@ -227,6 +232,46 @@ fn normalized_zoom_maps_the_unit_interval_across_the_documented_domain() {
         "the combined domain's midpoint is half the digital range",
     );
 
+    session.shutdown().expect("shutdown");
+}
+
+#[test]
+fn fr7_refuses_combined_zoom_and_uses_dedicated_clear_image_readback() {
+    let fake = FakeCamera::visca(|payload, answer| {
+        assert_eq!(payload, [0x81, 0x09, 0x04, 0x47, 0xff]);
+        answer.reply(frames::inquiry_reply(&[6, 0, 0, 0]));
+    });
+    let session = Session::open(
+        fake.blocking_wire(),
+        SessionConfig::from_compile_time::<SonyFR7>().expect("FR7 session config"),
+    )
+    .expect("session");
+    let camera = session.camera::<SonyFR7>().expect("camera");
+    assert!(camera
+        .capabilities()
+        .zoom
+        .as_ref()
+        .expect("zoom domain")
+        .digital_range()
+        .is_none());
+    let error = camera
+        .zoom()
+        .set_normalized(UnitInterval::ONE, ZoomDomain::OpticalPlusDigital)
+        .expect_err("FR7 has no shared combined positioning grant");
+    assert!(matches!(error, Error::FeatureNotSupported { .. }));
+    assert!(
+        fake.take_payloads().is_empty(),
+        "refusal precedes transport I/O"
+    );
+
+    // R7's extended range is read-only. Its dedicated value must not turn
+    // shared direct positioning into a Clear Image Zoom setter.
+    let position = camera
+        .zoom()
+        .clear_image_position()
+        .expect("dedicated readback");
+    assert_eq!(position.value(), 0x6000);
+    assert_eq!(fake.take_only_payload(), [0x81, 0x09, 0x04, 0x47, 0xff]);
     session.shutdown().expect("shutdown");
 }
 

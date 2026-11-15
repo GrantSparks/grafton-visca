@@ -100,7 +100,7 @@ mod profile_constants {
         entry(10000, 0x15),
     ];
 
-    /// Profiles whose shutter table could not be read from their source.
+    /// Profiles with no registered model-specific shutter-code inventory.
     pub const NO_SHUTTER_SPEEDS: &[ShutterSpeedEntry] = &[];
 
     /// The five shared AE modes; also the `Exposure::EXPOSURE_MODES` default.

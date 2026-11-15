@@ -42,7 +42,7 @@ fn sony_shutter_replies_decode_to_their_source_table_codes() -> Result<(), Error
             );
         }
     }
-    // BRC-H900's command list could not be read, so it advertises no codes.
+    // BRC-H900 currently registers no model-specific shutter-code inventory.
     let brc_h900 = ProfileSpec::from_compile_time::<SonyBRCH900>()?;
     assert!(brc_h900
         .capabilities()
