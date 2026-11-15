@@ -40,15 +40,18 @@ impl OwnerState {
         now: Instant,
     ) -> HaltReceipt {
         self.observed_at = now;
+        let turn = self.begin_input_turn(now);
         if let Some(axes) = prepared.axes {
-            for effect in self.engine.halt(prepared.target, axes, cutoff) {
+            for effect in self
+                .engine
+                .halt_in_turn(&turn.0, prepared.target, axes, cutoff)
+            {
                 let _ = self.apply_effect(effect);
             }
         }
         // All admissions are input-only: no axis's write or observation can
         // delay admission of another STOP. Released ordinary permits and the
         // existing target control reserve participate in the same allocator.
-        let turn = self.begin_input_turn(now);
         let slots = prepared.requests.map(|request| {
             request.map(|request| {
                 let mut request = request.inspect_err(|error| {

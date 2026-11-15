@@ -1008,9 +1008,12 @@ mod metrics {
             stop: false,
         });
         motion.context_mut().submission_order = order;
-        let _ = state
-            .engine
-            .halt(TargetSlot::CAMERA_1, AffectedAxes::PAN_TILT, cutoff);
+        let _ = state.engine.halt_in_turn(
+            &state.engine.begin_input_turn(Instant::now()),
+            TargetSlot::CAMERA_1,
+            AffectedAxes::PAN_TILT,
+            cutoff,
+        );
         let effects = state.engine.handle_turn(
             Input::Admit {
                 ticket: AdmissionTicket(99),

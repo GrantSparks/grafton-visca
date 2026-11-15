@@ -59,6 +59,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Engine boundaries take the owner-sampled instant explicitly, including halt,
+  terminal cleanup and wake planning; no ambient turn timestamp remains (#905).
+
 - **BREAKING** (#874): The owner-only `completion::Settlement<K>` proof is
   crate-private; root `Settlement` remains the public observation outcome.
   Preparation retains validated tuning and nonzero operation identities,

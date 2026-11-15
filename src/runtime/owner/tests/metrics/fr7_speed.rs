@@ -254,7 +254,7 @@ fn a_retry_refused_after_mode_invalidation_preserves_the_first_attempts_uncertai
         state.apply_effect(effect);
     }
     let retry_at = state
-        .next_wake()
+        .next_wake(expiry)
         .expect("the retry has an engine-owned ready instant");
     let mut retry = None;
     for effect in state.advance(retry_at) {

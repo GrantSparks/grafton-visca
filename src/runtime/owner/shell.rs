@@ -229,7 +229,7 @@ impl OwnerShellCore {
     ) -> TurnPlan<RetainedBoundary> {
         self.coordinator.plan(
             now,
-            self.state.next_wake(),
+            self.state.next_wake(now),
             self.state.raw_correlation_releases_due(now),
             || {
                 matches!(
@@ -330,7 +330,7 @@ impl OwnerShellCore {
     /// handler mutates it and charge that control to the exact planned wake.
     pub(super) fn control_consumed_wake(&self, observed_at: Instant) -> Option<Instant> {
         self.coordinator
-            .control_consumed_wake(self.state.next_wake(), observed_at)
+            .control_consumed_wake(self.state.next_wake(observed_at), observed_at)
     }
 
     /// Account for a finished turn. Returns `false` once the session is over.
@@ -470,11 +470,11 @@ impl OwnerShellCore {
                     .release_mut()
                     .await_until()
                     .filter(|deadline| *deadline > now)
-                    .or_else(|| self.state.next_wake());
+                    .or_else(|| self.state.next_wake(now));
                 clamp_receive_pause(self.idle_receives.record(), deadline, now)
             }
             ReceivePause::Fault { run } => {
-                clamp_receive_pause(transient_receive_pause(run), self.state.next_wake(), now)
+                clamp_receive_pause(transient_receive_pause(run), self.state.next_wake(now), now)
             }
         }
     }

@@ -1769,8 +1769,8 @@ impl OwnerState {
         Arc::clone(&self.target_cache)
     }
 
-    pub(crate) fn next_wake(&self) -> Option<Instant> {
-        self.engine.next_wake()
+    pub(crate) fn next_wake(&self, now: Instant) -> Option<Instant> {
+        self.engine.next_wake(now)
     }
 
     #[cfg(any(feature = "async", feature = "blocking"))]

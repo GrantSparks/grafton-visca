@@ -319,7 +319,7 @@ async fn due_wake_is_not_starved_by_chained_public_controls() {
     let deadline = actor
         .core
         .state
-        .next_wake()
+        .next_wake(Executor::now(&runtime))
         .expect("the sent inquiry must own a reply deadline");
     assert_eq!(
         deadline.saturating_duration_since(Executor::now(&runtime)),
@@ -409,7 +409,7 @@ async fn parked_future_wake_charges_the_first_ready_control() {
     let deadline = actor
         .core
         .state
-        .next_wake()
+        .next_wake(Executor::now(&runtime))
         .expect("the sent inquiry must own a reply deadline");
 
     let mut run = Box::pin(actor.run(driver));
