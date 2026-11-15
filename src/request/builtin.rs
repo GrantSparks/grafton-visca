@@ -946,7 +946,6 @@ impl PreparedPanTiltPosition {
     }
 
     fn validate(self, profile: &crate::ProfileSpec) -> Result<(), Error> {
-        validate_pan_tilt(profile)?;
         if profile.pan_tilt_coordinates() != Some(self.conversion) {
             return Err(Error::InvalidRequest(
                 "pan/tilt request was converted for a different profile".into(),
