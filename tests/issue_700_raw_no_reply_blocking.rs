@@ -10,7 +10,7 @@ use fake_camera::FakeCamera;
 use grafton_visca::{
     blocking::{Session, SessionConfig},
     raw::{self, RawReplyShape},
-    ControlClass, DiagnosticEvent, DiagnosticOutcome, ProfileSpec, RetryClass, TimeoutClass,
+    DiagnosticEvent, DiagnosticOutcome, ProfileSpec, RetryClass,
 };
 
 #[test]
@@ -26,9 +26,12 @@ fn no_reply_plain_command_returns_after_one_write() {
     let diagnostics = session.subscribe_diagnostics(16).expect("diagnostics");
 
     let wire = [0x81, 0x01, 0x04, 0x07, 0xff];
-    let policy = raw::Policy::new(TimeoutClass::Quick, RetryClass::Never, ControlClass::Normal)
-        .expect("raw policy")
-        .with_reply_shape(RawReplyShape::NoReply);
+    let policy = grafton_visca::raw::CommandPolicy::new(
+        grafton_visca::CommandCategory::Quick,
+        RetryClass::Never,
+        grafton_visca::SubmissionClass::Normal,
+    )
+    .with_reply_shape(RawReplyShape::NoReply);
     let command = raw::Plain::with_policy(wire, policy).expect("no-reply raw command");
 
     camera

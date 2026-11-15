@@ -35,8 +35,7 @@ use grafton_visca::{
         ZoomDrive, ZoomStop,
     },
     transport::{AddressingMode, Envelope, RawVisca, SonyEncapsulated},
-    CameraId, ControlClass, Error, PresetNumber, Request, RetryClass, SpeedLevel, TimeoutClass,
-    ZoomSpeed,
+    CameraId, Error, PresetNumber, Request, RetryClass, SpeedLevel, ZoomSpeed,
 };
 
 /// Sony's encapsulation header, which precedes the VISCA payload.
@@ -159,9 +158,9 @@ fn raw_frames_are_admitted_against_the_exported_terminator() {
     let terminated = [0x81, 0x01, 0x04, 0x00, 0x02, VISCA_TERMINATOR];
     let accepted = raw::Plain::new(
         terminated,
-        TimeoutClass::Quick,
+        grafton_visca::CommandCategory::Quick,
         RetryClass::Never,
-        ControlClass::Normal,
+        grafton_visca::SubmissionClass::Normal,
     )
     .expect("a frame ending in the exported terminator must be admitted");
     assert_terminated("raw::Plain", accepted.bytes());
@@ -171,9 +170,9 @@ fn raw_frames_are_admitted_against_the_exported_terminator() {
     unterminated[last] = VISCA_TERMINATOR.wrapping_sub(1);
     let rejected = raw::Plain::new(
         unterminated,
-        TimeoutClass::Quick,
+        grafton_visca::CommandCategory::Quick,
         RetryClass::Never,
-        ControlClass::Normal,
+        grafton_visca::SubmissionClass::Normal,
     );
     assert!(
         matches!(rejected, Err(Error::InvalidRequest(_))),

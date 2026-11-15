@@ -29,9 +29,9 @@ async fn async_prepared_retry_budget_covers_a_late_ack_and_completion() {
         let command = crate::raw::AppliedOnly::new(
             [0x81, 0x01, 0x04, 0x07, 0x02, 0xff],
             crate::AffectedAxes::ZOOM,
-            crate::TimeoutClass::Quick,
+            crate::CommandCategory::Quick,
             crate::RetryClass::Standard,
-            crate::ControlClass::Normal,
+            crate::SubmissionClass::Normal,
         )
         .unwrap();
         let prepared =

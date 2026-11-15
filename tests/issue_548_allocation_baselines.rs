@@ -443,9 +443,9 @@ fn built_in_command_and_inquiry_preparation_stay_inline() {
     let tuning = OperationalTuning::new();
     let raw = grafton_visca::raw::Plain::new(
         [0x81, 1, 4, 0, 2, 0xff],
-        grafton_visca::TimeoutClass::Quick,
+        grafton_visca::CommandCategory::Quick,
         grafton_visca::RetryClass::Never,
-        grafton_visca::ControlClass::Normal,
+        grafton_visca::SubmissionClass::Normal,
     )
     .expect("inline raw request");
     let allocations = allocations_during(|| {

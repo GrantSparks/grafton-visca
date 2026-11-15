@@ -528,9 +528,9 @@ mod tests {
         let raw = crate::raw::AppliedOnly::new(
             [0x81, 1, 4, 7, 0, 0xff],
             AffectedAxes::ZOOM,
-            TimeoutClass::Movement,
+            crate::CommandCategory::Movement,
             RetryClass::Movement,
-            ControlClass::User,
+            SubmissionClass::User,
         )?;
         let erased_raw: &dyn DynAppliedRequest = &raw;
         let raw_adapter = OperationAdapter::<AppliedOnly, _>::new(erased_raw);

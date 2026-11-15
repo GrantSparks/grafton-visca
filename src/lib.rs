@@ -1209,7 +1209,7 @@ pub mod runtime_adapters;
 pub mod testing;
 
 pub(crate) mod timeout;
-pub use timeout::CommandTimeouts;
+pub use timeout::{CommandCategory, CommandTimeouts};
 
 /// Transport layer for implementing custom transports
 pub mod transport;

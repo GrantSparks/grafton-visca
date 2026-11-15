@@ -1,4 +1,4 @@
-use grafton_visca::{raw, ControlClass, ResponseDecoder, RetryClass, TimeoutClass};
+use grafton_visca::{raw, ResponseDecoder, RetryClass, TimeoutClass};
 
 fn main() {
     let _ = raw::Inquiry::new(
@@ -6,7 +6,7 @@ fn main() {
         ResponseDecoder::from_fn(|_: &[u8]| Ok::<_, grafton_visca::Error>(0_u8)),
         TimeoutClass::Inquiry,
         RetryClass::Inquiry,
-        ControlClass::Normal,
+        grafton_visca::SubmissionClass::Normal,
     );
 }
 
