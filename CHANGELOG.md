@@ -249,7 +249,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   verdict directly; mirrored owner error state and independent write-failure
   poison formatting are removed. Raw release proofs and fault runs use closed
   states; redundant permit, observer, halt-deadline and staged-sequence flags
-  are removed (#864).
+  are removed. Handle-side shutdown acceptance and the terminal verdict share
+  one closed lifecycle state behind one mutex (#864, #904).
 
 - **BREAKING** (#863): `MetricsSnapshot::dropped_diagnostics` is replaced by
   `dropped_staged_diagnostics`, counting only pre-admission staging overflow.
