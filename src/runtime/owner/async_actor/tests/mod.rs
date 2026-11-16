@@ -230,6 +230,7 @@ impl crate::executor::Executor for ManualRuntime {
 impl Runtime for ManualRuntime {
     type TcpTransport = <TokioRuntime as Runtime>::TcpTransport;
     type UdpTransport = <TokioRuntime as Runtime>::UdpTransport;
+    #[cfg(feature = "transport-serial-tokio")]
     type SerialTransport = std::convert::Infallible;
 
     #[allow(clippy::manual_async_fn)]

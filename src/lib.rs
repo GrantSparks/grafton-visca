@@ -1059,20 +1059,29 @@ pub(crate) use crate::{
 
 #[cfg(any(feature = "blocking", feature = "async"))]
 pub(crate) use crate::error::{Certainty, FailureContext, FailureStage};
-#[cfg(all(test, feature = "async", feature = "runtime-smol"))]
+#[cfg(all(
+    test,
+    feature = "async",
+    feature = "runtime-smol",
+    feature = "test-utils"
+))]
 pub(crate) use crate::executor::SmolExecutor;
 
+#[cfg(all(
+    test,
+    feature = "async",
+    feature = "runtime-tokio",
+    feature = "test-utils"
+))]
+pub(crate) use crate::executor::TokioExecutor;
+#[cfg(all(test, unix, feature = "transport-serial-tokio"))]
+pub(crate) use crate::runtime::{TokioRuntime, TransportHandle};
 #[cfg(test)]
 pub(crate) use crate::types::PresetNumber;
 #[cfg(all(test, any(feature = "blocking", feature = "async")))]
 pub(crate) use crate::{
     error::Recovery,
     types::{PanTiltDirection, UnitInterval},
-};
-#[cfg(all(test, feature = "async", feature = "runtime-tokio"))]
-pub(crate) use crate::{
-    executor::TokioExecutor,
-    runtime::{TokioRuntime, TransportHandle},
 };
 
 pub mod error;
