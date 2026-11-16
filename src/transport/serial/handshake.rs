@@ -26,7 +26,10 @@ use crate::{
     error::{Error, Result},
     protocol::framer::{Framer, FramingError, RawFramer},
     timeout::Deadline,
-    transport::serial::Config,
+    transport::{
+        serial::{Config, SERIAL_PORT_CLOSED},
+        stream_read,
+    },
 };
 
 /// Timing of the serial startup protocol.
@@ -374,9 +377,11 @@ impl SerialStartup {
             });
             return;
         };
-        let chunk = match result {
-            Ok(chunk) if !chunk.is_empty() => chunk,
-            Ok(_) | Err(Error::Timeout { .. }) => {
+        let chunk = match result
+            .and_then(|chunk| stream_read(chunk.len(), SERIAL_PORT_CLOSED).map(|_| chunk))
+        {
+            Ok(chunk) => chunk,
+            Err(Error::Timeout { .. }) => {
                 self.state = State::AddressSet {
                     attempt,
                     deadline,
@@ -603,6 +608,8 @@ pub(crate) mod scenarios {
         Bytes(Vec<u8>),
         /// The read's timeout elapsed with nothing received.
         Idle,
+        /// A successful read of zero bytes means the serial stream closed.
+        Eof,
         Fails(ErrorKind),
     }
 
@@ -619,6 +626,7 @@ pub(crate) mod scenarios {
         Ok(Option<u8>),
         Timeout,
         Io(ErrorKind),
+        Closed,
         MaxRetries,
         InvalidChain(u8),
     }
@@ -697,6 +705,15 @@ pub(crate) mod scenarios {
                 outcome: Outcome::Ok(Some(3)),
                 discards_input: true,
             },
+            Scenario {
+                name: "EOF ends Address Set without another read or broadcast",
+                config: config(true, false),
+                reads: vec![Read::Eof, reply(1)],
+                writes: vec![],
+                expect_writes: vec![ADDRESS_SET.to_vec()],
+                outcome: Outcome::Closed,
+                discards_input: false,
+            },
             // #797: the blocking driver used to resend Address Set here.
             Scenario {
                 name: "a timed-out Address Set write is not resent",
@@ -745,6 +762,16 @@ pub(crate) mod scenarios {
             (Outcome::Ok(expected), Ok(actual)) => expected == *actual,
             (Outcome::Timeout, Err(Error::Timeout { .. })) => true,
             (Outcome::Io(kind), Err(Error::Io { source: error })) => error.kind() == kind,
+            (
+                Outcome::Closed,
+                Err(Error::ConnectionClosed {
+                    source: Some(source),
+                }),
+            ) => {
+                matches!(source.as_ref(), Error::Io { source }
+                    if source.kind() == ErrorKind::UnexpectedEof
+                        && source.to_string() == crate::transport::serial::SERIAL_PORT_CLOSED)
+            }
             (Outcome::MaxRetries, Err(Error::MaxRetriesExceeded)) => true,
             (Outcome::InvalidChain(count), Err(Error::InvalidRequest { reason: message })) => {
                 message.as_ref()

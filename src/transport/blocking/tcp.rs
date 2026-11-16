@@ -115,7 +115,13 @@ impl HasTransportConfig for Tcp {
 impl BlockingTransport for Tcp {
     fn send_with_timeout(&mut self, data: &[u8], timeout: Duration) -> Result<(), Error> {
         let deadline = Deadline::after(Instant::now(), timeout, "write_timeout")?;
-        write_all_bounded(&mut self.stream, arm_write, data, deadline, timeout)
+        write_all_bounded(
+            &mut self.stream,
+            arm_write,
+            data,
+            deadline,
+            TimedIo::Bounded,
+        )
     }
 
     fn recv_into_with_timeout(

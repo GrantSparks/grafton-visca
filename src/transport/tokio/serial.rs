@@ -260,6 +260,7 @@ mod tests {
                     .map(|read| match read {
                         ScriptRead::Bytes(bytes) => Ok(bytes.clone()),
                         ScriptRead::Idle => Err(Error::io_timeout()),
+                        ScriptRead::Eof => Ok(Vec::new()),
                         ScriptRead::Fails(kind) => Err(std::io::Error::from(*kind).into()),
                     })
                     .collect(),
@@ -278,6 +279,9 @@ mod tests {
                 perform_startup(&executor, &mut io, &scenario.config, scenarios::TIMING).await;
 
             scenarios::check(&scenario, &result);
+            if matches!(scenario.outcome, scenarios::Outcome::Closed) {
+                assert_eq!(io.reads.len(), 1, "EOF stops before the next read");
+            }
             assert_eq!(io.writes, scenario.expect_writes, "{}", scenario.name);
             assert_eq!(
                 io.input_discards == 1,
@@ -381,7 +385,15 @@ mod tests {
             perform_startup(&executor, &mut io, &config, StartupTiming::VISCA),
         )
         .await;
-        assert!(matches!(bounded, Ok(Err(Error::Timeout { .. }))));
+        let error = bounded
+            .expect("startup respects its write budget")
+            .expect_err("the stalled serial write times out");
+        assert!(matches!(error, Error::Timeout { .. }));
+        assert_eq!(error.recovery(), crate::Recovery::Reconcile);
+        assert_eq!(
+            error.failure_context(),
+            Error::io_timeout().failure_context()
+        );
     }
 
     /// The same exclusive-access open and reported configuration as the

@@ -15,11 +15,14 @@
 //!   progress never buys a fresh timeout, and a budget too large for the
 //!   monotonic clock is rejected as [`Error::InvalidParameter`], exactly as
 //!   configuration validation rejects it.
-//! - **Writes.** [`write_all_bounded`] retries `Interrupted` in place, reports
-//!   expiry as [`Error::io_timeout`], and reports a write that made no progress
-//!   or claimed more bytes than it was given as [`Error::Io`].
-//! - **Reads.** [`read_once_bounded`] performs exactly one read and classifies
-//!   an idle result with [`TimedIo`].
+//! - **Writes.** [`write_all_bounded`] retries `Interrupted` in place and reports
+//!   expiry as [`Error::io_timeout`]. A zero-byte timed serial write also means
+//!   its device timeout elapsed; a zero-byte socket write is `WriteZero`.
+//!   Claiming more bytes than supplied is always [`Error::Io`].
+//! - **Reads.** [`read_once_bounded`] retries `Interrupted` within the same
+//!   deadline, re-arming the remaining budget each time. Other idle results
+//!   are classified with [`TimedIo`]. Successful zero-byte stream reads are
+//!   EOF, including serial startup, through [`super::stream_read`].
 //!
 //! All of this is synchronous; the blocking facade stays executor-free.
 
@@ -47,6 +50,10 @@ pub(crate) enum TimedIo {
     /// A write on any transport, or a read whose `TimedOut` can only mean the
     /// armed timeout (datagram sockets, serial devices).
     Bounded,
+    /// A serial-device operation, where a zero-byte timed write reports an
+    /// elapsed device timeout rather than a socket's `WriteZero`.
+    #[cfg(feature = "transport-serial")]
+    SerialDevice,
     /// A read from a connected TCP stream. Unix reports an expired
     /// `SO_RCVTIMEO` as `EAGAIN` / `WouldBlock`, while `ETIMEDOUT` is the
     /// connection-level result of exhausted keepalive probes and must reach
@@ -62,6 +69,8 @@ impl TimedIo {
         match (self, error.kind()) {
             (_, io::ErrorKind::WouldBlock | io::ErrorKind::Interrupted) => true,
             (Self::Bounded, io::ErrorKind::TimedOut) => true,
+            #[cfg(feature = "transport-serial")]
+            (Self::SerialDevice, io::ErrorKind::TimedOut) => true,
             (Self::StreamSocketRead, io::ErrorKind::TimedOut) => cfg!(not(unix)),
             _ => false,
         }
@@ -73,24 +82,28 @@ pub(crate) type Arm<Io> = fn(&mut Io, Duration) -> io::Result<()>;
 
 /// Write all of `bytes` before `deadline`.
 ///
-/// Each syscall is armed with `min(per_call_cap, remaining)`, so a partial
-/// write keeps the one whole-frame deadline. See the module policy for the
+/// Each syscall is armed with the remaining budget, so a partial write keeps
+/// the one whole-frame deadline. See the module policy for the
 /// error contract.
 pub(crate) fn write_all_bounded<Io: Write + ?Sized>(
     io: &mut Io,
     arm: Arm<Io>,
     bytes: &[u8],
     deadline: Deadline,
-    per_call_cap: Duration,
+    kind: TimedIo,
 ) -> Result<()> {
     let mut written = 0;
     while written < bytes.len() {
         let remaining = deadline.remaining_or(Instant::now(), Error::io_timeout)?;
-        arm(io, per_call_cap.min(remaining))?;
+        arm(io, remaining)?;
 
         let pending = bytes.len() - written;
         match io.write(&bytes[written..]) {
             Ok(0) => {
+                #[cfg(feature = "transport-serial")]
+                if kind == TimedIo::SerialDevice {
+                    return Err(Error::io_timeout());
+                }
                 return Err(
                     io::Error::new(io::ErrorKind::WriteZero, "write made no progress").into(),
                 );
@@ -104,7 +117,7 @@ pub(crate) fn write_all_bounded<Io: Write + ?Sized>(
                 .into());
             }
             Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-            Err(error) if TimedIo::Bounded.ended_idle(&error) => {
+            Err(error) if kind.ended_idle(&error) => {
                 return Err(Error::io_timeout());
             }
             Err(error) => return Err(error.into()),
@@ -113,8 +126,8 @@ pub(crate) fn write_all_bounded<Io: Write + ?Sized>(
     Ok(())
 }
 
-/// Perform one read armed with `timeout`, reporting an idle end as
-/// [`Error::io_timeout`] according to `kind`.
+/// Read within `timeout`, retrying signal interruptions within that deadline
+/// and reporting other idle ends as [`Error::io_timeout`] according to `kind`.
 /// A zero budget ends idle before arming or reading; an unrepresentable
 /// monotonic-clock budget is rejected as [`Error::InvalidParameter`].
 pub(crate) fn read_once_bounded<Io: Read + ?Sized>(
@@ -124,14 +137,28 @@ pub(crate) fn read_once_bounded<Io: Read + ?Sized>(
     timeout: Duration,
     kind: TimedIo,
 ) -> Result<usize> {
-    let now = Instant::now();
-    let timeout =
-        Deadline::after(now, timeout, "read_timeout")?.remaining_or(now, Error::io_timeout)?;
-    arm(io, timeout)?;
-    match io.read(dst) {
-        Ok(read) => Ok(read),
-        Err(error) if kind.ended_idle(&error) => Err(Error::io_timeout()),
-        Err(error) => Err(error.into()),
+    let deadline = Deadline::after(Instant::now(), timeout, "read_timeout")?;
+    read_before(io, arm, dst, deadline, kind, Instant::now)
+}
+
+/// The bounded read loop; its clock seam pins interruptions at the deadline.
+fn read_before<Io: Read + ?Sized>(
+    io: &mut Io,
+    arm: Arm<Io>,
+    dst: &mut [u8],
+    deadline: Deadline,
+    kind: TimedIo,
+    mut now: impl FnMut() -> Instant,
+) -> Result<usize> {
+    loop {
+        let remaining = deadline.remaining_or(now(), Error::io_timeout)?;
+        arm(io, remaining)?;
+        match io.read(dst) {
+            Ok(read) => return Ok(read),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) if kind.ended_idle(&error) => return Err(Error::io_timeout()),
+            Err(error) => return Err(error.into()),
+        }
     }
 }
 
@@ -177,7 +204,7 @@ mod helper_tests {
 
     fn write(io: &mut ScriptedIo, bytes: &[u8], budget: Duration) -> Result<()> {
         let deadline = Deadline::after(Instant::now(), budget, "write_timeout")?;
-        write_all_bounded(io, ScriptedIo::arm, bytes, deadline, budget)
+        write_all_bounded(io, ScriptedIo::arm, bytes, deadline, TimedIo::Bounded)
     }
 
     #[test]
@@ -232,6 +259,109 @@ mod helper_tests {
             })
         ));
         assert!(io.armed.is_empty());
+        assert!(io.written.is_empty());
+    }
+
+    /// Local fake: advance the read deadline when the interrupted syscall
+    /// returns, independently of scheduler load and wall-clock sleeps.
+    struct InterruptedRead {
+        clock: std::rc::Rc<std::cell::Cell<Instant>>,
+        spent: Duration,
+        interrupted: bool,
+        reads: usize,
+        armed: Vec<Duration>,
+    }
+
+    impl InterruptedRead {
+        fn arm(&mut self, timeout: Duration) -> io::Result<()> {
+            self.armed.push(timeout);
+            Ok(())
+        }
+    }
+
+    impl Read for InterruptedRead {
+        fn read(&mut self, dst: &mut [u8]) -> io::Result<usize> {
+            self.reads += 1;
+            if !self.interrupted {
+                self.interrupted = true;
+                self.clock.set(self.clock.get() + self.spent);
+                return Err(ErrorKind::Interrupted.into());
+            }
+            dst[..3].copy_from_slice(b"ACK");
+            Ok(3)
+        }
+    }
+
+    #[test]
+    fn interrupted_reads_retry_only_with_the_original_budget_remaining() {
+        for kind in [
+            TimedIo::Bounded,
+            TimedIo::StreamSocketRead,
+            #[cfg(feature = "transport-serial")]
+            TimedIo::SerialDevice,
+        ] {
+            for spent in [Duration::from_millis(4), Duration::from_millis(10)] {
+                let started = Instant::now();
+                let clock = std::rc::Rc::new(std::cell::Cell::new(started));
+                let mut io = InterruptedRead {
+                    clock: clock.clone(),
+                    spent,
+                    interrupted: false,
+                    reads: 0,
+                    armed: Vec::new(),
+                };
+                let budget = Duration::from_millis(10);
+                let deadline = Deadline::after(started, budget, "read_timeout").expect("deadline");
+                let mut dst = [0; 16];
+                let result = read_before(
+                    &mut io,
+                    InterruptedRead::arm,
+                    &mut dst,
+                    deadline,
+                    kind,
+                    || clock.get(),
+                );
+                if spent < budget {
+                    assert_eq!(result.expect("data after EINTR"), 3);
+                    assert_eq!(&dst[..3], b"ACK");
+                    assert_eq!(io.reads, 2);
+                    assert_eq!(io.armed, [budget, budget - spent]);
+                } else {
+                    assert!(matches!(result, Err(Error::Timeout { .. })));
+                    assert_eq!(
+                        io.reads, 1,
+                        "no syscall after the interrupted read spent the deadline"
+                    );
+                    assert_eq!(io.armed, [budget]);
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "transport-serial")]
+    #[test]
+    fn a_zero_progress_timed_serial_write_is_an_unconfirmed_timeout() {
+        let mut io = ScriptedIo {
+            write_results: vec![Ok(0)],
+            ..ScriptedIo::default()
+        };
+        let deadline = Deadline::after(Instant::now(), Duration::from_secs(1), "write_timeout")
+            .expect("deadline");
+        let error = write_all_bounded(
+            &mut io,
+            ScriptedIo::arm,
+            b"VISCA",
+            deadline,
+            TimedIo::SerialDevice,
+        )
+        .expect_err("device timeout returned zero bytes");
+        assert!(matches!(error, Error::Timeout { .. }));
+        assert_eq!(
+            error.failure_context(),
+            Error::io_timeout().failure_context()
+        );
+        assert_eq!(error.recovery(), crate::Recovery::Reconcile);
+        assert_eq!(io.armed.len(), 1);
         assert!(io.written.is_empty());
     }
 

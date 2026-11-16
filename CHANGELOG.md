@@ -557,6 +557,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Blocking reads retry signal interruptions within their original deadline,
+  including UDP receives. Serial startup treats zero-byte reads as immediate
+  EOF, and zero-byte timed serial writes report a timeout consistently with
+  stalled async writes (#973).
+
 - TCP sockets apply TTL, nodelay and keepalive before the handshake on blocking,
   Tokio and smol sessions. A socket-option failure tries the next resolved
   address within the same connection budget (#972).
