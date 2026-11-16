@@ -241,6 +241,96 @@ pub fn function_names(source: &str) -> Vec<String> {
         .collect()
 }
 
+/// Names functions registered as tests directly or by the shared matrix macros.
+///
+/// A plain helper declaration is insufficient: a runtime scenario must also
+/// appear in `runtime_matrix!`, and facade scenarios must be inside a
+/// `facade_matrix!` invocation. Comments and literals remain invisible.
+#[allow(
+    dead_code,
+    reason = "the standalone error-variant gate embeds this scanner but only uses its production projections"
+)]
+pub fn test_function_names(source: &str) -> Vec<String> {
+    fn end(tokens: &[String], open: usize) -> usize {
+        let mut depth = 0_usize;
+        for (index, token) in tokens.iter().enumerate().skip(open) {
+            match token.as_str() {
+                "(" | "[" | "{" => depth += 1,
+                ")" | "]" | "}" => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return index;
+                    }
+                }
+                _ => {}
+            }
+        }
+        tokens.len()
+    }
+    let code = tokens(&clean(source));
+    let declarations = function_names(source);
+    let mut registered = std::collections::BTreeSet::new();
+    for (index, window) in code.windows(3).enumerate() {
+        if window[0] == "fn" && declarations.contains(&window[1]) {
+            let start = code[..index]
+                .iter()
+                .rposition(|token| matches!(token.as_str(), ";" | "{" | "}"))
+                .map_or(0, |boundary| boundary + 1);
+            let header = &code[start..index];
+            for (attribute, pair) in header.windows(2).enumerate() {
+                if pair != ["#", "["] {
+                    continue;
+                }
+                let close = end(header, attribute + 1);
+                let name = header[attribute + 2..close]
+                    .iter()
+                    .take_while(|token| token.as_str() != "(")
+                    .map(String::as_str)
+                    .collect::<Vec<_>>();
+                if name == ["test"] || name == ["tokio", ":", ":", "test"] {
+                    registered.insert(window[1].clone());
+                }
+            }
+        }
+        if !matches!(window[0].as_str(), "runtime_matrix" | "facade_matrix")
+            || window[1] != "!"
+            || !matches!(window[2].as_str(), "(" | "{" | "[")
+        {
+            continue;
+        }
+        let close = end(&code, index + 2);
+        let body = &code[index + 3..close];
+        if window[0] == "runtime_matrix" {
+            let body = body
+                .strip_prefix(&["multi_thread".into(), ":".into()])
+                .unwrap_or(body);
+            if body
+                .iter()
+                .all(|token| token == "," || declarations.contains(token))
+            {
+                registered.extend(body.iter().filter(|token| token.as_str() != ",").cloned());
+            }
+        } else {
+            let mut offset = 0;
+            while offset < body.len() {
+                if body[offset] == "fn" {
+                    if let Some(name) = body
+                        .get(offset + 1)
+                        .filter(|name| declarations.contains(name))
+                    {
+                        registered.insert(name.clone());
+                    }
+                }
+                if matches!(body[offset].as_str(), "(" | "[" | "{") {
+                    offset = end(body, offset);
+                }
+                offset += 1;
+            }
+        }
+    }
+    registered.into_iter().collect()
+}
+
 fn strip_test_items(source: &str, cleaned: &str) -> String {
     let cleaned_lines: Vec<&str> = cleaned.lines().collect();
     let mut skip = vec![false; cleaned_lines.len()];

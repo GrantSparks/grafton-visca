@@ -1,7 +1,7 @@
 //! Release-gate test citations must resolve to real, uniquely named functions.
 
 use std::{
-    collections::BTreeMap,
+    collections::{BTreeMap, BTreeSet},
     path::{Path, PathBuf},
 };
 
@@ -9,8 +9,27 @@ use grafton_visca_test_support::source_scan;
 
 type Functions = BTreeMap<String, Vec<String>>;
 
-fn source_functions() -> Functions {
-    fn scan(root: &Path, path: &Path, functions: &mut Functions) {
+#[derive(Default)]
+struct SourceIndex {
+    functions: Functions,
+    registered: BTreeSet<(String, String)>,
+    files: BTreeMap<String, usize>,
+}
+
+impl SourceIndex {
+    fn add(&mut self, path: &str, source: &str) {
+        let tests = source_scan::test_function_names(source);
+        self.files.insert(path.into(), tests.len());
+        for name in source_scan::function_names(source) {
+            self.functions.entry(name).or_default().push(path.into());
+        }
+        self.registered
+            .extend(tests.into_iter().map(|name| (name, path.into())));
+    }
+}
+
+fn source_functions() -> SourceIndex {
+    fn scan(root: &Path, path: &Path, functions: &mut SourceIndex) {
         let mut entries = std::fs::read_dir(path)
             .expect("source directory exists")
             .map(|entry| entry.expect("read source entry").path())
@@ -28,17 +47,12 @@ fn source_functions() -> Functions {
             } else if path.extension().is_some_and(|extension| extension == "rs") {
                 let source = std::fs::read_to_string(&path).expect("read Rust source");
                 let relative = path.strip_prefix(root).expect("source is in repository");
-                for name in source_scan::function_names(&source) {
-                    functions
-                        .entry(name)
-                        .or_default()
-                        .push(relative.to_string_lossy().replace('\\', "/"));
-                }
+                functions.add(&relative.to_string_lossy().replace('\\', "/"), &source);
             }
         }
     }
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let mut functions = Functions::new();
+    let mut functions = SourceIndex::default();
     for directory in [
         "src",
         "tests",
@@ -79,7 +93,7 @@ fn test_cells(document: &str, inventory: bool) -> Vec<&str> {
     cells
 }
 
-fn validate(document: &str, inventory: bool, functions: &Functions) -> Result<usize, String> {
+fn validate(document: &str, inventory: bool, functions: &SourceIndex) -> Result<usize, String> {
     let mut checked = 0;
     let mut errors = Vec::new();
     // A module/file scope applies to subsequent names in the same table cell.
@@ -108,7 +122,19 @@ fn validate(document: &str, inventory: bool, functions: &Functions) -> Result<us
                 |(prefix, names)| (Some(prefix), names.trim_end_matches('}')),
             );
             if code.ends_with(".rs") || (code.starts_with("tests/") && !code.contains("::")) {
-                scope = Some(code.to_owned());
+                let path = if code.ends_with(".rs") {
+                    code.to_owned()
+                } else {
+                    format!("{code}.rs")
+                };
+                match functions.files.get(&path) {
+                    None => errors.push(format!("cited suite `{code}` has no source file")),
+                    Some(0) if !path.starts_with("tests/api_contract/") => {
+                        errors.push(format!("cited suite `{code}` has no registered tests"))
+                    }
+                    Some(_) => {}
+                }
+                scope = Some(path);
                 continue;
             }
             if let Some(prefix) = prefix {
@@ -123,6 +149,7 @@ fn validate(document: &str, inventory: bool, functions: &Functions) -> Result<us
                     continue;
                 }
                 let matches = functions
+                    .functions
                     .get(name)
                     .into_iter()
                     .flatten()
@@ -142,8 +169,15 @@ fn validate(document: &str, inventory: bool, functions: &Functions) -> Result<us
                         })
                     })
                     .collect::<Vec<_>>();
-                if matches.len() == 1 {
-                    checked += 1;
+                if let [path] = matches.as_slice() {
+                    if functions
+                        .registered
+                        .contains(&(name.into(), (*path).clone()))
+                    {
+                        checked += 1;
+                    } else {
+                        errors.push(format!("test citation `{name}` in {path} names a function without test registration"));
+                    }
                 } else {
                     errors.push(format!("test citation `{name}` in {scope:?} must name exactly one fn; found {}: {matches:?}", matches.len()));
                 }
@@ -177,14 +211,9 @@ fn every_release_gate_test_citation_names_one_real_function() {
 
 #[test]
 fn renamed_test_citation_reports_the_missing_function() {
-    let source = "#[cfg(test)] mod tests { fn original_gate_test() {} // fn renamed_gate_test() {}\n const FAKE: &str = \"fn renamed_gate_test() {}\"; type Fake = fn(renamed_gate_test); }";
-    let mut functions = Functions::new();
-    for name in source_scan::function_names(source) {
-        functions
-            .entry(name)
-            .or_default()
-            .push("src/tests.rs".into());
-    }
+    let source = "#[cfg(test)] mod tests { #[test] fn original_gate_test() {} // fn renamed_gate_test() {}\n const FAKE: &str = \"fn renamed_gate_test() {}\"; type Fake = fn(renamed_gate_test); }";
+    let mut functions = SourceIndex::default();
+    functions.add("src/tests.rs", source);
     let original = "| Contract | Test |\n| Gate | `src/tests.rs::original_gate_test` |";
     assert_eq!(validate(original, false, &functions), Ok(1));
     let renamed = original.replace("original_gate_test", "renamed_gate_test");
@@ -195,10 +224,10 @@ fn renamed_test_citation_reports_the_missing_function() {
 
 #[test]
 fn duplicate_and_mis_scoped_test_citations_are_refused() {
-    let functions = Functions::from([(
-        "repeated_gate_test".into(),
-        vec!["src/first.rs".into(), "src/second.rs".into()],
-    )]);
+    let mut functions = SourceIndex::default();
+    for path in ["src/first.rs", "src/second.rs"] {
+        functions.add(path, "#[test] fn repeated_gate_test() {}");
+    }
     let citation = "| Gate | `repeated_gate_test` |";
     assert!(validate(citation, false, &functions)
         .expect_err("an ambiguous name must fail")
@@ -209,4 +238,51 @@ fn duplicate_and_mis_scoped_test_citations_are_refused() {
     assert!(validate(&wrong_path, false, &functions)
         .expect_err("a declaration in a different file cannot satisfy the citation")
         .contains("found 0"));
+}
+
+#[test]
+fn removed_test_attributes_and_matrix_registrations_are_rejected() {
+    for source in [
+        "#[test] fn cited_gate_test() {}",
+        "async fn cited_gate_test() {} runtime_matrix!(cited_gate_test);",
+        "facade_matrix! { fn cited_gate_test() {} }",
+    ] {
+        let mut functions = SourceIndex::default();
+        functions.add("tests/gate.rs", source);
+        let citation = "| Gate | `tests/gate.rs::cited_gate_test` |";
+        assert_eq!(validate(citation, false, &functions), Ok(1));
+        let mut removed = SourceIndex::default();
+        removed.add("tests/gate.rs", "fn cited_gate_test() {}");
+        let error = validate(citation, false, &removed)
+            .expect_err("a declaration alone is not an executable test");
+        assert!(
+            error.contains("cited_gate_test") && error.contains("without test registration"),
+            "{error}"
+        );
+    }
+}
+
+#[test]
+fn missing_or_unregistered_cited_suites_are_rejected() {
+    let mut functions = SourceIndex::default();
+    functions.add("tests/valid_suite.rs", "#[test] fn a_real_test() {}");
+    functions.add("tests/helpers.rs", "fn helper_only() {}");
+    let valid = "| Gate | `tests/valid_suite.rs` |";
+    assert_eq!(validate(valid, false, &functions), Ok(0));
+    let error = validate(
+        &valid.replace("valid_suite", "nonexistent_gate_suite"),
+        false,
+        &functions,
+    )
+    .expect_err("missing file must fail");
+    assert!(
+        error.contains("nonexistent_gate_suite.rs") && error.contains("no source file"),
+        "{error}"
+    );
+    let error = validate(&valid.replace("valid_suite", "helpers"), false, &functions)
+        .expect_err("a helper-only file is not a test suite");
+    assert!(
+        error.contains("helpers.rs") && error.contains("no registered tests"),
+        "{error}"
+    );
 }
