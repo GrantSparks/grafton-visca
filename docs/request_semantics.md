@@ -68,6 +68,19 @@ Every operation row contains a non-empty `BuiltinAxisSelection`.  Preset
 recall is the one profile-dependent case: preparation must validate and carry
 the profile's exact preset axes.  It must not substitute all axes.
 
+## Color-temperature decoding
+
+`ColorTemperatureInquiry.decoder()` and the profile-independent color-temperature
+command use the declared PTZOptics step table. They describe that table's wire
+dialect. Use `decoder_for_profile(&profile)` and target-bound preparation for a
+custom table: the same wire index can select a different Kelvin value there.
+Every conversion indexes a table; no arithmetic Kelvin-to-step mapping is used.
+
+The profile-independent `InquiryData::ColorTemperature { temperature }` field
+always carries a wire-table index. A profile-bound typed decoder returns `Kelvin`
+directly and never stores physical temperature in that raw field. Derived raw
+inquiries retain the index under both decoder entry points (#974).
+
 ## Ledger decisions
 
 <!-- BEGIN LEDGER DECISIONS -->

@@ -333,18 +333,12 @@ macro_rules! builtin_inquiry_lift {
     };
 }
 
-/// A profile-bound temperature response already contains physical Kelvin.
-/// The ordinary response parser retains the profile-less PTZOptics decoder.
+/// The typed profile-bound temperature decoder returns Kelvin directly; the
+/// profile-independent InquiryData field always remains a wire-table index.
 macro_rules! builtin_profile_lift {
     (ColorTemperatureInquiry) => {
-        fn lift_for_profile(response: Response) -> Result<Self::Response, Error> {
-            match response {
-                Response::Inquiry(InquiryData::ColorTemperature { temperature }) => {
-                    crate::types::Kelvin::new(temperature)
-                }
-                Response::Error(error) => Err(error),
-                _ => Err(Error::UnexpectedResponseType),
-            }
+        fn bound_decoder(profile: &crate::ProfileSpec) -> crate::ResponseDecoder<Self::Response> {
+            crate::ResponseDecoder::for_color_temperature(profile, Ok)
         }
     };
     ($struct:ident) => {};
@@ -430,9 +424,17 @@ pub(crate) trait GeneratedInquiry: crate::Inquiry {
     /// Lifts the decoded response into the typed response.
     fn lift(response: Response) -> Result<Self::Response, Error>;
 
-    /// Lifts a response after the bound profile has converted its wire values.
-    fn lift_for_profile(response: Response) -> Result<Self::Response, Error> {
-        Self::lift(response)
+    /// Selects the typed decoder without rewriting profile-independent fields.
+    fn bound_decoder(profile: &crate::ProfileSpec) -> crate::ResponseDecoder<Self::Response>
+    where
+        Self::Response: 'static,
+        Self: Sized,
+    {
+        if Self::KIND == InquiryKind::PanTiltPosition {
+            crate::ResponseDecoder::for_builtin_profile(Self::KIND, profile, Self::lift)
+        } else {
+            crate::ResponseDecoder::from_fn(decode_payload::<Self>)
+        }
     }
 }
 
@@ -452,15 +454,7 @@ where
     C: GeneratedInquiry,
     C::Response: 'static,
 {
-    match C::KIND {
-        InquiryKind::PanTiltPosition => {
-            crate::ResponseDecoder::for_builtin_profile(C::KIND, profile, C::lift_for_profile)
-        }
-        InquiryKind::ColorTemperature => {
-            crate::ResponseDecoder::for_color_temperature(profile, C::lift_for_profile)
-        }
-        _ => crate::ResponseDecoder::from_fn(decode_payload::<C>),
-    }
+    C::bound_decoder(profile)
 }
 
 /// Decodes an inquiry response, using `framing` for the pan/tilt position
@@ -1218,7 +1212,10 @@ define_builtin_inquiries! {
         });
         shape: crate::PayloadShape::Bytes(1);
         commands [
-            /// Inquiry command to get the current color temperature value.
+            /// Reads color temperature as physical Kelvin.
+            ///
+            /// `decoder()` uses the built-in PTZOptics step table;
+            /// `decoder_for_profile()` uses the selected profile's table.
             ColorTemperatureInquiry {
                 bytes: color::TEMPERATURE_INQUIRY,
                 source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-colortemperature-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-colortemperature-query"), (R1, [PtzOptics30x], "r1-ptzoptics30x-colortemperature-query")]),

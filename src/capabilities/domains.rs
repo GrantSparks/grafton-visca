@@ -341,7 +341,14 @@ pub struct WhiteBalanceCaps {
 impl WhiteBalanceCaps {
     /// Lowers a supported physical temperature through this profile's step table.
     pub fn color_temperature_wire(&self, temperature: crate::types::Kelvin) -> crate::Result<u16> {
-        self.color_temperature_steps
+        Self::temperature_step(&self.color_temperature_steps, temperature)
+    }
+
+    pub(crate) fn temperature_step(
+        steps: &[u16],
+        temperature: crate::types::Kelvin,
+    ) -> crate::Result<u16> {
+        steps
             .iter()
             .position(|value| *value == temperature.value())
             .and_then(|index| u16::try_from(index).ok())
@@ -356,17 +363,20 @@ impl WhiteBalanceCaps {
 
     /// Decodes a documented wire step to its physical temperature.
     pub fn color_temperature_from_wire(&self, code: u16) -> crate::Result<crate::types::Kelvin> {
-        let temperature = self
-            .color_temperature_steps
-            .get(usize::from(code))
-            .copied()
-            .ok_or_else(|| {
-                crate::Error::invalid_parameter(
-                    "color_temperature_wire",
-                    code.to_string(),
-                    "unknown profile temperature step",
-                )
-            })?;
+        Self::temperature_from_step(&self.color_temperature_steps, code)
+    }
+
+    pub(crate) fn temperature_from_step(
+        steps: &[u16],
+        code: u16,
+    ) -> crate::Result<crate::types::Kelvin> {
+        let temperature = steps.get(usize::from(code)).copied().ok_or_else(|| {
+            crate::Error::invalid_parameter(
+                "color_temperature_wire",
+                code.to_string(),
+                "unknown profile temperature step",
+            )
+        })?;
         crate::types::Kelvin::new(temperature)
     }
 }
