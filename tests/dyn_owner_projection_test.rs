@@ -42,9 +42,16 @@ fn camera() -> FakeCamera {
 }
 
 fn runtime_equivalent(static_profile: &ProfileSpec) -> ProfileSpec {
+    runtime_with_capabilities(static_profile, static_profile.capabilities().clone())
+}
+
+fn runtime_with_capabilities(
+    static_profile: &ProfileSpec,
+    capabilities: Capabilities,
+) -> ProfileSpec {
     let timing: ProfileTiming = static_profile.timing();
     crate::profile_encodings::with_source_encodings(
-        ProfileSpec::builder(static_profile.capabilities().clone())
+        ProfileSpec::builder(capabilities)
             .transports(static_profile.transports())
             .envelope(static_profile.envelope())
             .timing(
@@ -598,7 +605,38 @@ where
     assert_eq!(refusals, 59);
 }
 
+async fn typed_views_refuse_other_builtins_and_unidentified_custom_profiles<E>(runtime: E)
+where
+    E: grafton_visca::runtime::Executor,
+{
+    use grafton_visca::profiles::{AnyProfile, ProfileId, PtzOpticsG2};
+
+    let profile = ProfileId::PtzOpticsG2.spec().expect("G2 profile");
+    let mut capabilities = profile.capabilities().clone();
+    capabilities.profile_id = None;
+    let custom = runtime_with_capabilities(&profile, capabilities);
+    for registered in [profile, custom] {
+        let session = Session::open(
+            camera().async_wire(),
+            &SessionConfig::new(registered),
+            runtime.clone(),
+        )
+        .await
+        .expect("session");
+        assert!(session.camera::<SonyFr7>(CameraId::CAMERA_1).is_err());
+        let camera = session
+            .camera::<AnyProfile>(CameraId::CAMERA_1)
+            .expect("view");
+        assert_eq!(
+            camera.clone().into_typed::<PtzOpticsG2>().is_ok(),
+            camera.profile().capabilities().profile_id == Some(ProfileId::PtzOpticsG2),
+        );
+        session.close().await.expect("session closes");
+    }
+}
+
 runtime_matrix!(
+    typed_views_refuse_other_builtins_and_unidentified_custom_profiles,
     dynamic_targeted_projection_uses_owner_settlement_wait,
     dynamic_combined_normalized_zoom_requires_typed_digital_range,
     dynamic_shared_exposure_modes_require_typed_permission,

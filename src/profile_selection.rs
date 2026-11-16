@@ -214,6 +214,12 @@ impl<P> TypedProfileSelection<P> {
 
 impl<P: CompileTimeProfile> TypedProfileSelection<P> {
     fn spec(&self) -> crate::Result<ProfileSpec> {
+        // A checked registry identity makes view selection cheap, but it must
+        // not let a downstream declaration bypass its own specification at
+        // configuration resolution.
+        if P::ID.is_some() {
+            return ProfileSpec::from_compile_time::<P>();
+        }
         self.selection
             .as_ref()
             .map_or_else(ProfileSpec::from_compile_time::<P>, ProfileSelection::spec)
@@ -227,7 +233,13 @@ impl<P: CompileTimeProfile> CameraProfile for P {
     type Selection = TypedProfileSelection<P>;
 
     fn select(selection: ProfileSelection) -> crate::Result<Self::Selection> {
-        Self::validate_spec(&selection.spec()?)?;
+        if let (Some(expected), ProfileSelection::Builtin(actual)) = (P::ID, &selection) {
+            if expected != *actual || P::TYPED_SUPPORT != actual.typed_support() {
+                return Err(profile_mismatch());
+            }
+        } else {
+            Self::validate_spec(&selection.spec()?)?;
+        }
         Ok(TypedProfileSelection {
             selection: Some(selection),
             profile: PhantomData,
@@ -239,16 +251,27 @@ impl<P: CompileTimeProfile> CameraProfile for P {
     }
 
     fn validate_spec(profile: &ProfileSpec) -> crate::Result<()> {
-        let expected = ProfileSpec::from_compile_time::<P>()?;
-        if *profile == expected {
+        // ProfileSpec's only constructor proves that a built-in identity
+        // covers every registry fact. Reuse that proof for each camera view.
+        let matches = if let Some(id) = P::ID {
+            profile.capabilities().profile_id == Some(id)
+                && profile.capabilities().typed_support == P::TYPED_SUPPORT
+        } else {
+            *profile == ProfileSpec::from_compile_time::<P>()?
+        };
+        if matches {
             Ok(())
         } else {
-            Err(crate::profiles::invalid_profile_fields(
-                &["profile"],
-                "selected specification does not match the requested compile-time profile",
-            ))
+            Err(profile_mismatch())
         }
     }
+}
+
+fn profile_mismatch() -> crate::Error {
+    crate::profiles::invalid_profile_fields(
+        &["profile"],
+        "selected specification does not match the requested compile-time profile",
+    )
 }
 
 #[cfg(feature = "serde")]
@@ -323,6 +346,68 @@ impl<P> ts_rs::TS for TypedProfileSelection<P> {
         Self: 'static,
     {
         <ProfileSelection as ts_rs::TS>::visit_dependencies(visitor);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::expect_used)]
+mod identity_tests {
+    use super::*;
+    use crate::{capabilities::TypedSupportSet, profiles::PtzOpticsG2};
+
+    struct MismatchedGrants;
+
+    impl CompileTimeProfile for MismatchedGrants {
+        const ID: Option<ProfileId> = Some(ProfileId::PtzOpticsG2);
+        const TYPED_SUPPORT: TypedSupportSet = TypedSupportSet::empty();
+
+        fn spec() -> crate::Result<ProfileSpec> {
+            ProfileId::PtzOpticsG2.spec()
+        }
+    }
+
+    struct FailingSpecification;
+
+    impl CompileTimeProfile for FailingSpecification {
+        const ID: Option<ProfileId> = Some(ProfileId::PtzOpticsG2);
+        const TYPED_SUPPORT: TypedSupportSet = <PtzOpticsG2 as CompileTimeProfile>::TYPED_SUPPORT;
+
+        fn spec() -> crate::Result<ProfileSpec> {
+            Err(crate::profiles::invalid_profile_fields(
+                &["profile"],
+                "downstream specification failed",
+            ))
+        }
+    }
+
+    #[test]
+    fn builtin_view_identity_includes_the_declared_grants() {
+        let profile = ProfileId::PtzOpticsG2
+            .spec()
+            .expect("built-in specification");
+        assert!(PtzOpticsG2::validate_spec(&profile).is_ok());
+        let error = MismatchedGrants::validate_spec(&profile).expect_err("grant mismatch");
+        assert!(error
+            .to_string()
+            .contains("selected specification does not match"));
+        assert!(MismatchedGrants::select(ProfileId::PtzOpticsG2.into()).is_err());
+        assert!(PtzOpticsG2::select(ProfileId::SonyFr7.into()).is_err());
+    }
+
+    #[test]
+    fn builtin_configuration_resolution_still_checks_downstream_specifications() {
+        let selection = FailingSpecification::select(ProfileId::PtzOpticsG2.into())
+            .expect("matching identity can be selected without rebuilding facts");
+        let error = FailingSpecification::selected_spec(&selection)
+            .expect_err("configuration must resolve the downstream specification");
+        assert!(error
+            .to_string()
+            .contains("downstream specification failed"));
+        let profile = ProfileId::PtzOpticsG2
+            .spec()
+            .expect("built-in specification");
+        let selection = FailingSpecification::select(profile.into()).expect("matching identity");
+        assert!(FailingSpecification::selected_spec(&selection).is_err());
     }
 }
 

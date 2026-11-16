@@ -866,3 +866,93 @@ fn warmed_owner_command_and_frame_turns_do_not_allocate() {
         }
     }
 }
+
+#[cfg(any(feature = "blocking", all(feature = "async", feature = "test-utils")))]
+fn assert_builtin_views_do_not_allocate(select: impl Fn()) {
+    select();
+    let allocations = allocations_during(|| {
+        for _ in 0..1_000 {
+            select();
+        }
+    });
+    assert_eq!(allocations, 0, "built-in camera view selection allocated");
+}
+
+#[cfg(feature = "blocking")]
+#[test]
+fn blocking_builtin_camera_and_into_typed_views_do_not_allocate() {
+    use grafton_visca::{
+        blocking::Session,
+        config::SessionConfig,
+        profiles::{AnyProfile, ProfileId, PtzOpticsG2, SonyBrc300},
+    };
+    use grafton_visca_test_support::fake_camera::FakeCamera;
+
+    let g2 = Session::open(
+        FakeCamera::new(|_, _| {}).blocking_wire(),
+        &SessionConfig::new(ProfileId::PtzOpticsG2.spec().unwrap()),
+    )
+    .unwrap();
+    let brc = Session::open(
+        FakeCamera::new(|_, _| {}).blocking_wire(),
+        &SessionConfig::new(ProfileId::SonyBrc300.spec().unwrap()),
+    )
+    .unwrap();
+    assert_builtin_views_do_not_allocate(|| {
+        drop(std::hint::black_box(
+            g2.camera::<PtzOpticsG2>(CameraId::CAMERA_1).unwrap(),
+        ));
+        drop(std::hint::black_box(
+            brc.camera::<AnyProfile>(CameraId::CAMERA_1)
+                .unwrap()
+                .into_typed::<SonyBrc300>()
+                .unwrap(),
+        ));
+    });
+    g2.close().unwrap();
+    brc.close().unwrap();
+}
+
+#[cfg(all(feature = "async", feature = "test-utils"))]
+#[test]
+fn async_builtin_camera_and_into_typed_views_do_not_allocate() {
+    use grafton_visca::{
+        config::SessionConfig,
+        profiles::{AnyProfile, ProfileId, PtzOpticsG2, SonyBrc300},
+        r#async::Session,
+        testing::testkit::{ManualClock, ManualClockExecutor},
+    };
+    use grafton_visca_test_support::fake_camera::FakeCamera;
+
+    let clock = ManualClock::new();
+    let executor = ManualClockExecutor::local(&clock);
+    executor.run_until(async {
+        let g2 = Session::open(
+            FakeCamera::new(|_, _| {}).async_wire(),
+            &SessionConfig::new(ProfileId::PtzOpticsG2.spec().unwrap()),
+            executor.clone(),
+        )
+        .await
+        .unwrap();
+        let brc = Session::open(
+            FakeCamera::new(|_, _| {}).async_wire(),
+            &SessionConfig::new(ProfileId::SonyBrc300.spec().unwrap()),
+            executor.clone(),
+        )
+        .await
+        .unwrap();
+        assert_builtin_views_do_not_allocate(|| {
+            drop(std::hint::black_box(
+                g2.camera::<PtzOpticsG2>(CameraId::CAMERA_1).unwrap(),
+            ));
+            drop(std::hint::black_box(
+                brc.camera::<AnyProfile>(CameraId::CAMERA_1)
+                    .unwrap()
+                    .into_typed::<SonyBrc300>()
+                    .unwrap(),
+            ));
+        });
+        g2.close().await.unwrap();
+        brc.close().await.unwrap();
+    });
+}
