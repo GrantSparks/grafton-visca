@@ -3,78 +3,53 @@
 //! This crate intentionally has no direct dependency on `grafton-visca`,
 //! `serde`, `schemars`, or `ts-rs`.
 
-use range_macro_provider::visca_range_type;
+use range_macro_provider::value;
 
-visca_range_type! {
-    /// A range declared through a one-hop macro re-export.
-    #[cfg_attr(feature = "range-helper-derives", serde(rename = "ReexportedRange"))]
-    #[cfg_attr(feature = "range-helper-derives", schemars(title = "Reexported range"))]
-    #[cfg_attr(feature = "range-helper-derives", ts(rename = "ReexportedRange"))]
-    ReexportedRange: u8 {
-        min: 2,
-        max: 9
-    }
-}
+#[value(crate = range_macro_provider::visca, min = 2, max = 9)]
+/// A range declared through a one-hop macro re-export.
+#[cfg_attr(feature = "range-helper-derives", serde(rename = "ReexportedRange"))]
+#[cfg_attr(feature = "range-helper-derives", schemars(title = "Reexported range"))]
+#[cfg_attr(feature = "range-helper-derives", ts(rename = "ReexportedRange"))]
+pub struct ReexportedRange(u8);
 
-visca_range_type! {
-    #[cfg(all())]
-    ConditionalRange: u8 {
-        min: 3,
-        max: 4
-    }
-}
+#[value(crate = range_macro_provider::visca, min = 3, max = 4)]
+#[cfg(all())]
+pub struct ConditionalRange(u8);
 
-visca_range_type! {
-    #[cfg(not(all()))]
-    ConditionalRange: u8 {
-        min: 30,
-        max: 40
-    }
-}
+#[value(crate = range_macro_provider::visca, min = 30, max = 40)]
+#[cfg(not(all()))]
+pub struct ConditionalRange(u8);
 
-visca_range_type! {
-    #[cfg_attr(all(), cfg(all()))]
-    #[cfg_attr(feature = "range-helper-derives", serde(rename = "ConditionalAttrRange"))]
-    #[cfg_attr(
-        feature = "range-helper-derives",
-        schemars(rename = "ConditionalAttrRange")
-    )]
-    #[cfg_attr(feature = "range-helper-derives", ts(rename = "ConditionalAttrRange"))]
-    ConditionalAttrRange: u8 {
-        min: 5,
-        max: 6
-    }
-}
+#[value(crate = range_macro_provider::visca, min = 5, max = 6)]
+#[cfg_attr(all(), cfg(all()))]
+#[cfg_attr(
+    feature = "range-helper-derives",
+    serde(rename = "ConditionalAttrRange")
+)]
+#[cfg_attr(
+    feature = "range-helper-derives",
+    schemars(rename = "ConditionalAttrRange")
+)]
+#[cfg_attr(feature = "range-helper-derives", ts(rename = "ConditionalAttrRange"))]
+pub struct ConditionalAttrRange(u8);
 
-visca_range_type! {
-    #[cfg(any())]
-    DisabledRange: u8 {
-        min: 7,
-        max: 8
-    }
-}
+#[value(crate = range_macro_provider::visca, min = 7, max = 8)]
+#[cfg(any())]
+pub struct DisabledRange(u8);
 
 #[allow(non_snake_case)]
-mod __grafton_visca_newtype_support_DisabledRange {}
+mod __grafton_visca_value_support_DisabledRange {}
 
 #[allow(dead_code)]
 struct DisabledRange;
 
-visca_range_type! {
-    #[cfg(any())]
-    MissingTypeRange: u8 {
-        min: 7,
-        max: 8
-    }
-}
+#[value(crate = range_macro_provider::visca, min = 7, max = 8)]
+#[cfg(any())]
+pub struct MissingTypeRange(u8);
 
-visca_range_type! {
-    #[allow(non_camel_case_types)]
-    r#match: u8 {
-        min: 9,
-        max: 10
-    }
-}
+#[value(crate = range_macro_provider::visca, min = 9, max = 10)]
+#[allow(non_camel_case_types)]
+pub struct r#match(u8);
 
 #[cfg(test)]
 mod tests {

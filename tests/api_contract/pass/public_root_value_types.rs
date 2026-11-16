@@ -1,18 +1,16 @@
 use grafton_visca::{
-    command::{BoolConvention, FlipState, Nibbles, Payload, Response},
-    zoom_from_normalized, CameraId, UnitInterval, ViscaSocket, ZoomDomain,
+    command::{BoolConvention, ImageFlipMode, Nibbles, Payload, Response},
+    CameraId, UnitInterval, ViscaSocket, ZoomDomain,
 };
 
 fn main() {
     let camera_id = CameraId::CAMERA_1;
-    assert_eq!(camera_id.to_address_byte(), 0x81);
+    assert_eq!((0x80 | camera_id.value()), 0x81);
 
     let _socket = ViscaSocket::S1;
-    let _flip = FlipState {
-        horizontal: false,
-        vertical: false,
-    };
-    let _position = grafton_visca::camera::PanTiltPosition::new(0, 0);
+    let _flip = ImageFlipMode::Off;
+    let _position =
+        grafton_visca::types::PanTiltPosition::from_degrees(0.0, 0.0).expect("finite position");
     let _response = Response::completion(None);
     let payload = Payload::new(&[0x02]);
     let _ = payload
@@ -22,8 +20,7 @@ fn main() {
     let root_value = UnitInterval::new(0.5).unwrap();
     let units_value: grafton_visca::units::UnitInterval = root_value;
     assert_eq!(units_value.value(), 0.5);
-    let _ = zoom_from_normalized(root_value, ZoomDomain::Optical, 0x4000, None)
-        .expect("UnitInterval is accepted by profile-aware zoom helpers");
+    let _domain = ZoomDomain::Optical;
 
     #[cfg(feature = "async")]
     {

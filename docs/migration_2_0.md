@@ -90,11 +90,11 @@ use snake_case names such as `Error::feature_not_supported`, `invalid_parameter`
 retains structured deadline evidence. `Settlement::profile_completion`,
 `observed_stable` and `HaltReport::new` support downstream fake adapter results.
 
-Exported macros follow the same construction rules. A configured `ViscaEnum`
-error type whose final path segment is `Error` must offer
-`invalid_response(expected, actual)`, accepting `Cow<'static, str>` (or
-`impl Into<Cow<'static, str>>`) and a `Vec<u8>` payload. Other custom error names retain the `From<String>` convention.
-Renamed dependency aliases remain supported.
+Exported value attributes use the crate's `Error` type for failed construction
+and `wire::WireValue` for protocol bytes. The `value` and `value_enum`
+attributes replace the old range and value derives; `ViscaInquiry` remains the
+inquiry derive. Renamed dependencies remain supported. See
+[checked values and attributes](#checked-values-and-attributes-932) below.
 
 ## Construction and feature selection
 
@@ -253,7 +253,7 @@ the async `Session` / `CameraSession<P>` rows above.
 | Root `toggle_menu()` (the 1.x `DirectMenuControl` method on the camera) | `menu().toggle_display()` is the direct replacement. Prefer `menu().display(true)` / `menu().display(false)` when the intended state is known and the profile implements `HasMenuDisplay`; status needs `HasMenuStatusInquiry`, while `select()` / `cancel()` need `HasMenuEnterReturn`. See the [method permissions](#optional-method-permissions) before choosing a menu operation for a model. |
 | Zoom `set_normalized(UnitInterval)` / `set_normalized_in_domain(UnitInterval, ZoomDomain)` | One method, `zoom().set_normalized(position, domain)`: pass `ZoomDomain::Optical` for the former one-argument form and the domain directly for the former `set_normalized_in_domain`. It is a **targeted operation** returning an `Operation<Targeted>`; await it with `applied()`/`settled()` instead of getting a bare `Result<()>`. |
 | `pan_tilt().up/down/left/right(pan_speed, tilt_speed)` | `pan_tilt().move_direction(PanTiltDirection::Up, pan_speed, tilt_speed)`, and likewise `Down`, `Left` and `Right`. The frame is identical. The same applies to `DynPanTilt`. |
-| `nd_filter().set_value(u16)` / `set_stops(f32)` | `nd_filter().set_value(NdFilterValue)`, building the value with `command::NdFilterValue::new(raw)?` or `NdFilterValue::from_stops(stops)?`. An out-of-range raw value or stop count is now rejected by the constructor, before any noun call. |
+| `nd_filter().set_value(u16)` / `set_stops(f32)` | `nd_filter().set_value(NdFilterDensity)`, building the value with `types::NdFilterDensity::new(raw)?` or `NdFilterDensity::from_stops(stops)?`. An out-of-range raw value or stop count is now rejected by the constructor, before any noun call. |
 
 The **async** dynamic views are object-safe and erase profile/request types;
 the blocking dynamic projection is native and has no futures. Both share the
@@ -462,10 +462,10 @@ removed item must choose the model-specific behavior it intended.
 
 | 1.x input | 2.0 input and behavior |
 | --- | --- |
-| `NdFilterValue::from_stops` truncated fractional quarter stops | The conversion rounds to the nearest quarter stop using `f32`, with halves away from zero: `6.99` becomes code `14` hex and `2.24` becomes `01`. |
+| ND density conversion truncated fractional quarter stops | The conversion rounds to the nearest quarter stop using `f32`, with halves away from zero: `6.99` becomes code `14` hex and `2.24` becomes `01`. |
 | `DirectMenuControl::new(u8, u8)` and `menu().direct(u8, u8)` | Pass `DirectMenuTarget` and `MenuButton`. The constructor is infallible; both enums admit only R7's documented targets and release/press states. Raw requests remain available for model-specific experiments. |
 | Noise-reduction level zero and `off()` represented the same register value | `NoiseReduction2DLevel` and `NoiseReduction3DLevel` are nonzero. Use `NoiseReduction2D::Off` / `NoiseReduction3D::Off` or the noun's `disable_noise_reduction_*` method for zero. Typed inquiry readback returns the same `Off` / `Level(level)` value, preserving an off register without constructing level zero. |
-| `PictureEffectMode::Unknown(u8)` admitted aliases for known codes | `Unknown(UnknownPictureEffect)` validates model-specific codes, rejecting `00`, `02`, and `04`. `from_command_byte` normalizes command Off (`00`) and black and white (`04`); inquiry `from_byte` still maps `02` to Off and also normalizes `00`. |
+| `PictureEffectMode::Unknown(u8)` admitted aliases for known codes | `Unknown(UnknownPictureEffect)` validates model-specific codes, rejecting `00`, `02`, and `04`. `WireValue::from_wire` decodes command Off (`00`) and black and white (`04`); the built-in inquiry decoder also normalizes the inquiry Off spelling (`02`). |
 
 ### Noise-reduction controls and independent gates
 
@@ -936,10 +936,10 @@ Both forms are demonstrated end to end in `examples/operation_handles.rs` and
 | 1.x category | 2.0 destination |
 | --- | --- |
 | Raw normalized floats, root normalized helpers, `ZoomPosition` float conversions | Checked public values such as `UnitInterval::new/try_from`, `ZoomPosition`, and profile-aware noun methods. |
-| `inquiry_conversions` module (`ZoomDomain`, `ZoomPositionExt`, `PanTiltPositionRaw`, `PanTiltPositionDeg`, `zoom_from_normalized`) | `ZoomDomain`, `PanTiltPositionDeg` and `zoom_from_normalized` remain. `ZoomPositionExt::normalize_with_max` is the inherent `ZoomPosition::normalize_with_max`, and `ZoomPositionExt::from_normalized` is `zoom_from_normalized`. `PanTiltPositionRaw` is `camera::PanTiltPosition`. The profile-less `as_degrees()` / `PanTiltPositionDeg::to_raw()` / `PanPosition::{from_degrees,to_degrees}` helpers applied PTZOptics G2 geometry (14.4 units per degree) to every camera and are removed: use `PanTiltPosition::as_degrees_with_profile`, `PanTiltPositionDeg::to_raw_with_profile`, or `PanTiltCoordinateConversion` from `ProfileSpec::pan_tilt_coordinates()`. |
+| Profile-independent normalized and degree-conversion helpers | Use checked `types::{UnitInterval, Degrees, PanTiltPosition, PanTiltUnits, ZoomDomain}` and the selected profile's declared coordinate conversion. `PanTiltPosition::from_degrees(pan, tilt)?` constructs physical positions; `PanTiltUnits` is raw protocol data. Normalized zoom input goes through `zoom().set_normalized(position, domain)`, which uses the target profile's supported range. |
 | `capabilities::Capabilities` runtime discovery (`from_profile::<P>()`, `supports_typed`, zoom/magnification helpers) | `Capabilities` stays at `grafton_visca::capabilities::Capabilities`, but its flat fields become optional domain structs (`pan_tilt`, `zoom`, `focus`, `exposure`, `white_balance`, `image`, `presets`, `power`). Read numeric facts through the domain, such as `caps.zoom.as_ref().map(|zoom| zoom.optical_max)`; query presence with derived methods such as `has_zoom()`. Builder domain setters take the complete domain value. Coordinates live in `PanTiltCaps`, recall axes and optional nonzero name length in `PresetCaps`, and completion support only in `ProfileSpec`. Degree ranges and zero-based zoom intervals derive from their canonical facts. Persisted flat records must be regenerated (#879). |
 | Custom `ProfileMetadata`, `Focus`, and `Zoom` implementations relying on permissive defaults | Declare `INQUIRY_SUPPORT`, `SUPPORTS_COMMAND_CANCEL`, and `MAX_FOCUS_SPEED` explicitly. Direct and variable zoom and focus near-limit inquiry default to `false`; opt in only when the profile has evidence. Standard serial construction also requires its marker to agree with `TRANSPORTS` (#876). |
-| `NdFilterMode::{Fixed, Stepped}`, `NdFilterMetadata::ND_STEPS`, `nd_step_count`, and `Capabilities::nd_filter_steps` | Removed because no sourced typed wire implementation existed. ND metadata has only `None` and `Variable`; variable-density values validate through `NdFilterValue` (#877). |
+| `NdFilterMode::{Fixed, Stepped}`, `NdFilterMetadata::ND_STEPS`, `nd_step_count`, and `Capabilities::nd_filter_steps` | Removed because no sourced typed wire implementation existed. ND metadata has only `None` and `Variable`; variable-density values validate through `NdFilterDensity` (#877). |
 | Custom profile range and orientation constants | `PanTilt::TILT_RANGES` declares one fixed range or desktop/ceiling ranges. `Focus::FOCUS_RANGE` is numerically ordered and `FOCUS_NEAR_END` selects the sourced near endpoint or `Unknown`. PTZOptics profiles retain raw positions but refuse physical normalized conversion while orientation is unknown; `FocusCaps::near()` and `far()` return `None` in that case. `Exposure::GAIN_RANGE` is optional for models with a distinct vendor gain family. `ProfileMetadata::DEFAULT_CAMERA_ID`, `Capabilities::default_camera_id` and `ProfileId::default_camera_id()` use `IndividualCameraId`, which accepts only `1..=7`. |
 | Model-aware constructors that embed a profile in a value | Plain checked values plus the profile-gated camera noun; profile validation belongs at preparation. |
 | Generic optional accessors or unsupported PTZOptics/Sony controls | Compile-time `Has*` gates; dynamic callers inspect `Capabilities::supports_typed` for the exact method surface. See the [eleven optional method refinements](#optional-method-permissions) for focus, presets, exposure, white balance, menu, and standby, including custom profile opt-in. Unsupported controls are not exposed through metadata fallback. |
@@ -963,7 +963,7 @@ camera operation. They have no name-preserving alias in 2.0:
 | `RawSender` | Construct `raw::Plain`, `raw::Inquiry<R>`, `raw::Targeted`, or `raw::AppliedOnly` and pass it to the matching camera `execute`, `inquire`, or `submit` method. Use `raw::CommandPolicy` for plain commands, `raw::OperationPolicy` for operations, or `raw::InquiryPolicy` for inquiries; their types constrain timeout, submission class, and reply shape to the request kind. |
 | `submit_continuous` | Express the lifecycle in the request type: implement `OperationCommand<completion::AppliedOnly>` for a custom typed request, or construct `raw::AppliedOnly`, then call `submit::<completion::AppliedOnly, _>`. |
 | `CommandBehavior` and `InquiryResponseSpec` | Implement the public `Request` class plus `Inquiry`/`OperationCommand<K>` contract. Custom inquiry decoding belongs in the response type/decoder; action-versus-inquiry routing is no longer supplied as mutable runtime metadata. |
-| `CachedFlipState` | `StateCache::flip_state()` returns the public `command::FlipState` value. |
+| `CachedFlipState` | Combined image-flip settings use `ImageFlipMode`; a vertical flip property is a boolean. |
 | Aggregate `PanTiltLimits` cache state | `StateCache::pan_tilt_limits()` returns the most recent `PanTiltLimitUpdate` (corner, optional position, and cleared state). An application that needs the full two-corner rectangle must fold those updates into its own state. |
 | `transport::BackoffStrategy` and `RetryAttempt` | Retry scheduling is owner policy, with deterministic equal jitter rather than a caller-selected strategy. Configure conservative bounds with `OperationalTuning::retry_limit` / `retry_timing`; observe attempts through diagnostics/metrics rather than constructing an attempt counter. |
 | `Error::{LockPoisoned, ChannelClosed, SocketManagerUnavailable, SocketManagerChannelClosed, ResponseChannelClosed, TransportMismatch, NoTransport, TransportChannelClosed}` | Delete explicit arms for these never-produced variants. Boundary closure preserves the published terminal cause; actual session death is `ConnectionClosed`, `StreamPoisoned`, or `OwnerTerminated`. Prefer `requires_new_session()` for the recovery decision. |
@@ -1000,11 +1000,11 @@ Retained public protocol values also changed shape:
 | `command::FocusSpeed` (a second focus-speed type) | `grafton_visca::FocusSpeed` (also `types::FocusSpeed`), the one type `Focus::FarWithSpeed`, `FocusDrive`, and `focus().far_variable(..)` take. Out-of-range values now report `ParameterOutOfRange`. |
 | `Coarse` (`grafton_visca::Coarse`, `types::Coarse`), a second name for `SpeedLevel`, and `PanSpeed::from_coarse`, `TiltSpeed::from_coarse`, `ZoomSpeed::from_coarse`, `FocusSpeed::from_coarse` | `SpeedLevel` and `From`: `ZoomSpeed::from(SpeedLevel::Fast)` or `SpeedLevel::Fast.into()`. The mapping to wire speeds is unchanged. |
 | `command::Version`, `command::TallyStatus`, `command::NightDayMode`, `command::IrisControl` | `command::VersionInfo`, returned by the version accessor and carried by `InquiryData::Version { info }`. The unsourced tally-status inquiry and its value types, plus the unused `NightDayMode`/`IrisControl` enums, are removed. |
-| `SetMotionSyncPreset::new(u8)?`, `SetMotionSyncPreset::from_preset`, `MotionSyncSpeed::from_preset`, and the `set_motion_sync_preset_speed(MotionSyncPreset)` camera method | `motion_sync().set_speed(MotionSyncSpeed)`; `SetMotionSyncPreset::new(MotionSyncSpeed)` and `speed() -> MotionSyncSpeed`. `MotionSyncSpeed::new(u8)?` owns the `1..=24` range and `MotionSyncSpeed::from(MotionSyncPreset)` is the one preset mapping. |
-| `ShutterSpeed::try_from(Fraction)` | `capabilities.shutter_speed_for(fraction)?`: shutter codes are camera-specific, and the removed table matched no built-in profile. `ShutterSpeed` wraps the `0p 0q` field's byte: `ShutterSpeed::new(u8)` is infallible and `value()` returns `u8`; the profile's table decides which codes a camera accepts. |
-| `Fraction { numerator, denominator }` literals and `Fraction::new(n, d)` returning `Self` | `Fraction::new(n, d)` returns `Option<Fraction>` (`None` for a zero denominator) in lowest terms, so `==` is value equality; read it with `numerator()`/`denominator()`. Its text and serde form is `"1/60"`. |
-| `capabilities::ShutterSpeed { label, value }` and `ExposureExt::find_shutter_speed` | One `capabilities::ShutterSpeedEntry { exposure: Fraction, value }` for both `Exposure::SHUTTER_SPEEDS` and `ExposureCaps::shutter_speeds`. Look codes up with `Capabilities::shutter_speed_for`; `find_shutter_speed`'s nearest-code guess is removed. |
-| `ColorTemp::try_from(Kelvin(k))` (a second, `2000..=8000` K formula) | Unchanged call; it is now `ColorTemp::from_kelvin(k)` (`2500..=8000` K, nearest 100 K step, `ParameterOutOfRange` outside). `3200` K encodes `0x07`, not `0x0B`. |
+| Numeric motion-sync presets and preset-derived speed helpers | `motion_sync().set_speed(MotionSyncSpeed)` takes the checked `1..=24` speed directly. There is no separate preset value type or unsourced preset inquiry. |
+| Shutter codes derived from a universal exposure-time table | `capabilities.shutter_speed_for(ExposureTime::new(n, d)?)?` looks up the selected profile's table. `ShutterSpeed::new(code)?` validates the byte-valued union domain; preparation separately checks that the profile lists the code. |
+| Rational shutter-time literals and unchecked construction | `ExposureTime::new(n, d)?` returns a reduced rational value or an error for a zero denominator. Read it with `numerator()`/`denominator()`; its text and serde form is `"1/60"`. |
+| `capabilities::ShutterSpeed { label, value }` and `ExposureExt::find_shutter_speed` | One `capabilities::ShutterSpeedEntry { exposure: ExposureTime, value }` for both `Exposure::SHUTTER_SPEEDS` and `ExposureCaps::shutter_speeds`. Look codes up with `Capabilities::shutter_speed_for`; `find_shutter_speed`'s nearest-code guess is removed. |
+| Color-temperature wire codes or unchecked Kelvin tuple values | `Kelvin::new(k)?` constructs a physical temperature in the cross-profile domain. The selected profile lowers it to its documented wire representation; PTZOptics uses its supported step table and FR7 uses physical Kelvin. |
 | `From<Raw<_>>` for speed and level wrappers (silently clamped to `MIN`, #828) | `T::try_from(Raw(value))?`, which rejects a value outside the type's domain. |
 | `PanTiltExt::degrees_to_{pan,tilt}_units(degrees) -> i16` (truncating) | `-> Option<i32>`, rounded like request preparation (`10.05°` on a G2 is `145`, not `144`); `None` for non-finite input. |
 | `Zoom::ZOOM_MAGNIFICATION_TO_UNITS`, `Capabilities::zoom_magnification_to_units`, `{magnification_to_zoom_units, zoom_units_to_magnification, max_optical_zoom, max_combined_zoom}` on `Capabilities` and `ZoomExt` | `Zoom::OPTICAL_ZOOM_RATIO` / `ZoomCaps::optical_ratio` (`Option<f32>`) and one `capabilities::ZoomScale` (`units(magnification)`, `magnification(units)`), from `caps.zoom_scale()?` or, for a profile that spans several lenses such as the PTZOptics G2 family, `caps.zoom_scale_for_lens(20.0)?` for the installed 20x lens; `zoom_scale()` on such a profile fails with an error naming `zoom_scale_for_lens`. Fixed-lens profiles supply their documented ratio (for example PT30X 30× and BRC-H900 14×); the old scales could not reach the nominal ratio (PT30X: `29 × 565 > 0x4000`). Digital magnification has no sourced scale and is rejected. |
@@ -1035,40 +1035,56 @@ Serialization features (`serde`, `schemars`, `ts-rs`) remain opt-in data-shape
 features. They do not reopen private modules or create a second semantic
 registry. `test-utils` is for deterministic tests, not production construction.
 
-With `serde`, checked data stays checked across the wire boundary:
-`CapabilityRange` now requires ordered `min`/`max` endpoints and rejects
-`min > max` during deserialization. Validated public scalar wrappers and values
-declared by `visca_range_type!` deserialize through their checked `TryFrom`/
-`new` paths, so an out-of-range scalar is rejected rather than constructing an
-invalid wrapper.
+With `serde`, checked data stays checked across the interchange boundary.
+`CapabilityRange` requires ordered endpoints and rejects `min > max` during
+deserialization. Public scalar values deserialize through their checked
+construction path, so loading data cannot create an invalid wrapper.
 
-#### Checked newtypes and derive attributes (#824)
+#### Checked values and attributes (#932)
 
-`visca_range_type!` and `#[derive(ViscaValue)]` expand through one generator,
-so every checked newtype, including the crate's own value types, has the same
-constructor, bounds, accessor and error contract:
+Use `#[grafton_visca::value(...)]` for bounded scalars and
+`#[grafton_visca::value_enum]` for value enums. `ViscaInquiry` remains the
+inquiry derive. The attributes add the full comparison/hash derive set,
+`Display`, the applicable serde/schemars/ts-rs support, and `WireValue`.
 
-| 1.x | 2.0 |
+```rust
+use grafton_visca::{value, wire::WireValue};
+
+#[value(min = 0, max = 7, display = "Speed {}")]
+pub struct VendorSpeed(u8);
+
+# fn main() -> grafton_visca::Result<()> {
+let speed = VendorSpeed::new(4)?;
+assert_eq!(VendorSpeed::MIN.value(), 0);
+assert_eq!(VendorSpeed::from_wire(speed.to_wire())?, speed);
+# Ok(()) }
+```
+
+| 1.x category | 2.0 destination |
 | --- | --- |
-| `visca_range_type!` `MIN`/`MAX` typed as the inner integer | `MIN`/`MAX` are `Self`; read the raw bound with `T::MIN.value()`. |
-| `visca_range_type!` `value(&self)` | `pub const fn value(self)`, usable in `const` items and as `T::value` in iterator adapters. |
-| An out-of-range `visca_range_type!` value (for example `command::FocusSpeed::new(8)` or `PresetRecallSpeed::new(25)`) returned `Error::InvalidParameter` | Every range-checked newtype returns `Error::ParameterOutOfRange { parameter, value, min, max }`. Values outside a sparse `valid_values` set still return `Error::InvalidParameter`. `GainLimit`, `SharpnessLevel`, `LuminanceLevel`, `ContrastLevel` and `DynamicRangeLevel` are now declared as ranges, so they also report `ParameterOutOfRange`. |
-| `types::BrightnessLevel(u16)` with a `0x00..=0x11` domain, `Exposure::BRIGHTNESS_RANGE: Option<CapabilityRange<u16>>`, `Capabilities::exposure_brightness_range: Option<RangeInclusive<u16>>` | `BrightnessLevel(u8)` is the `CAM_Bright` Direct wire byte: `BrightnessLevel::new(u8)` is infallible and `TryFrom<u16>` refuses a value above `0xFF`. The `ExposureCaps::brightness_range` domain uses `u8`, and the selected profile's range is the only admission check (EVI-H100 `0x00..=0x1F` without `0x01..=0x04`, BRC-300 and Nearus BRC-300 `0x00..=0x17`, PTZOptics `0x00..=0x11`). The percentage and `Raw` conversions for brightness are removed: a percentage of the wire byte means nothing for a profile-specific range. |
-| `Exposure::IRIS_RANGE: Option<CapabilityRange<u16>>`, `Capabilities::iris_range: Option<RangeInclusive<u16>>` (and the brightness pair) | `ExposureCaps::iris_range` is `Option<CapabilityDomain<u16>>` (`ExposureCaps::brightness_range` uses `CapabilityDomain<u8>`): the source table's bounds plus the positions it does not list. Build one with `CapabilityDomain::new(min, max)` or `CapabilityDomain::with_gaps(min, max, &[..])`; read it with `min()`, `max()`, `gaps()`, `bounds()` and `contains(value)`. It serializes as `{min, max, gaps}`. A gap is refused with `Error::InvalidParameter` (EVI-H100 iris and bright `0x01..=0x04`, Generic VISCA iris `0x01..=0x04`). |
-| `ExposureCompensationLevel::new`, `Sharpness::SetLevel`, `ZoomPosition::normalize_with_max`, the defog, broadcast-domain, exposure-compensation and color-tuning inquiry decoders, and profile admission of pan/tilt speeds and positions, zoom, focus, iris, exposure, gain, brightness, color and preset values returned `InvalidParameter` | Caller values report `ParameterOutOfRange` with their inclusive bounds (the profile's range for admission checks); numeric reply-decoder failures report `InvalidResponse`/`Protocol` instead. A shutter code outside the profile's table remains `InvalidParameter` (#845). `ExposureCompensationLevel::MIN`/`MAX` are `Self`, and it implements `Display`. |
-| `Sharpness::SetLevel { value: u8 }` | `Sharpness::SetLevel { value: SharpnessLevel }`; construct the level with `SharpnessLevel::new`. |
-| `ParameterOutOfRange` displayed `(valid range: 2..4)` | `(valid range: 2..=4)`, an inclusive range. |
-| `Error::Unknown` displayed `0x5` | `0x05`. |
-| `visca_range_type!` over any `PartialOrd + Display` inner type | The inner type must widen losslessly into `i32` (`u8`, `u16`, `i8`, `i16`, `i32`), because `ParameterOutOfRange` reports `i32` bounds; a wider type fails to compile at the inner type. |
-| `#[derive(ViscaValue)]` without `min`/`max` or `valid_values` produced an unchecked wrapper | Rejected at compile time; declare the domain. A range with `min > max` is also a compile error. |
-| Range `new` was a plain `fn` | Range `new` is a `const fn`, so a checked value can initialize a `const`. |
-| `display_format = "hex"` printed `0x5` | Hex display pads to two digits: `0x05`. |
-| `ViscaInquiry` and `ViscaEnum` accepted a repeated key, keeping the last value | A repeated key is a compile error naming both occurrences, as for `ViscaValue`. |
-| `ViscaInquiry` `opcode`/`subcode` accepted only decimal or `0x` literals | Any unsuffixed integer literal in `0..=254`, in any radix (`0b0100_0111`, `0o107`); `FF` is the frame terminator and is refused in opcode/subcode (#846). |
-| `ViscaEnum` discriminants accepted suffixed literals and byte literals | Discriminants are unsuffixed integer literals in `0..=255`. |
-| `#[visca_enum(exhaustive = ...)]` was parsed and ignored | Rejected as an unknown key; generated conversions always cover every variant. |
-| `ViscaInquiry` selectors such as `Nibble`, `ExtendedNibble`, `Mode` and `PanTilt` | Omit `parser` to use the canonical built-in inquiry table, including profile framing. Only `parser = Custom` with `parse_with` remains for explicit overrides (#881). |
-| `typed_constructor = new_u8` truncated wide reply fields | Values above `u8::MAX` return `InvalidResponse`; `typed_response` paths resolve exactly as written, including local types (#881). |
+| Separate range macros and value derives | `#[value(min = ..., max = ..., display = "...")]` and `#[value_enum]`; there is one scalar recipe and one enum recipe. |
+| Infallible or optional scalar construction | Fallible `new(...) -> Result<Self>`, `MIN`/`MAX` typed as `Self`, `value(self)`, checked `TryFrom` and extracting `From`. This includes `BrightnessLevel`, `ShutterSpeed`, `FocusPosition`, and camera IDs. |
+| Red/blue gain and tuning types | `RgbGain` and `RgbTuning`, with profile validation performed at preparation. |
+| Separate color-temperature codes and Kelvin wrappers | One checked physical `Kelvin`; the profile supplies the wire conversion. |
+| Model-specific preset-number and recall-speed types | `PresetNumber` and `PresetSpeed`; `PresetSpeed` has a union domain of `1..=50`, with the target profile enforcing its documented subset. |
+| Public preset-duration wrapper | `std::time::Duration`; preparation requires exact 100 ms increments and the profile's duration range. |
+| Generic/public-field degree values | `Degrees::new(f32)?` is finite, nongeneric, and has a private field. `value()` reads it. |
+| Separate raw and degree convenience helpers | `PanTiltUnits` for low-level protocol positions and `PanTiltPosition::from_degrees(pan, tilt)?` for physical positions. The registered profile provides coordinate conversion. |
+| Normalized aliases and percentage/raw helpers | `UnitInterval::new(value)?`, `MIN`, `MAX`, and `value()`. Select the profile domain at the noun; a scalar union range is not a camera's physical range. |
+| Per-type protocol-byte conversion methods and enum byte conversions | `wire::WireValue::{to_wire, from_wire}`. Centered and biased scalar encodings are declared on the value attribute. |
+| Camera ID getters with different names and constructor failure shapes | `CameraId::new(id)?` and `IndividualCameraId::new(id)?`, both read through `value()` and serialized as `u8`. |
+
+A type validates its own representable domain. The target profile validates
+camera-specific ranges and sparse inventories before I/O. For example,
+`BrightnessLevel` represents a byte while each profile admits only the values
+in its `ExposureCaps::brightness_range`; `ShutterSpeed` represents a byte while
+the profile's shutter table determines which codes it accepts.
+
+Inquiry derive attributes retain their checked grammar. Repeated or unknown
+keys fail compilation; `opcode`/`subcode` accept unsuffixed integer literals in
+`0..=254` in any radix. Omit `parser` for canonical decoding, or use
+`parser = Custom, parse_with = path` for an explicit override. The `new_u8`
+typed constructor rejects overflow, and typed result paths resolve as written.
 
 #### Command encoding and inquiry decoding (#809–#812, #828)
 
@@ -1094,11 +1110,11 @@ malformed reply now fails the same way on every inquiry and profile:
 | An unknown code byte in an inquiry reply (exposure mode, white-balance mode, focus zone, flip mode, an on/off byte, ...) returned `Error::InvalidParameter` from some inquiries and `Error::InvalidResponse` from others | Always `Error::InvalidResponse { expected, actual }`, with `actual` the offending byte. A camera reply outside its code set is a protocol error, not a caller error. A numeric value outside the reply type's range is also `InvalidResponse` with `ErrorKind::Protocol`; caller-supplied constructor/admission values retain their parameter-error classification (#845). |
 | A padded reply (`00 00 0p 0q`, `00 00 00 0p`) with nonzero padding decoded after silently dropping the leading nibbles (a sharpness position of `00 01 00 05` read as `5`) | `Error::InvalidResponseFormat`. Contrast and luminance replies now keep both `0p 0q` digits, as the reference documents. |
 | `Nibbles::u8_pair(start)` and `Nibbles::last_nibble()` | `Nibbles::zero_extended_u8()` and `Nibbles::zero_extended_nibble()`, which reject nonzero padding as `InvalidResponseFormat`. Canonical derived inquiries use the built-in inquiry table's same padding and enum-code checks; unknown enum codes report `InvalidResponse`. Custom decoders can use the checked `Nibbles` helpers directly. The old per-parser derive selectors are removed (#881). |
-| `InquiryData::FlipState { horizontal, vertical }` | `InquiryData::FlipState { state }`, carrying `FlipState`. `FlipState::from(ImageFlipMode)` converts a combined flip mode. |
+| Independent horizontal/vertical flip payload fields | Combined flip readback carries `ImageFlipMode`; vertical-only readback carries a boolean. |
 | `InquiryData::SharpnessPosition { position: u16 }` and `InquiryData::Brightness { position: u16 }` | `position: u8`: both replies are `00 00 0p 0q`. `BrightnessLevel` is unchanged; the typed accessor still returns it. |
 | The gain inquiry decoded only the last nibble of `00 00 0p 0q` | Both digits: `InquiryData::Gain::gain` is `pq`, and a value above `GainLevel`'s built-in `0x19` union is the typed accessor's `InvalidResponse` protocol error instead of being truncated (#845). |
 | A pan/tilt position reply of the wrong length returned `Error::DecoderNotFound { inquiry_kind, payload_hex }` | `Error::InvalidResponseLength`, as for every other inquiry and framing; `Error::DecoderNotFound` is removed. A profile that pairs BRC-300 framing with unsigned-centered coordinates is rejected where it is built: `ProfileSpecBuilder::build`, `ProfileSpec` and `PanTiltCoordinateConversion` deserialization reject it with the profile-field error `InvalidRequest` naming `pan_tilt_coordinates`, and a compile-time profile that declares it fails to build at `PanTiltCoordinateConversion::for_profile`. |
-| `AutoWhiteBalanceSensitivity::to_command_byte()` | `u8::from(sensitivity)`; the enum derives `ViscaEnum`, so `TryFrom<u8>` decodes it. `Flip` and `ImageFlipMode` derive `ViscaEnum` too. |
+| Enum-specific byte conversion methods | Import `wire::WireValue` and call `to_wire` or `from_wire`. Boolean properties use `bool`; mode properties use their value enums. |
 | `visca_command!` declared downstream commands | The generator is crate-internal. Implement `Request` for a downstream command, or send an explicit frame with `raw::Plain` (#883). |
 
 `Runtime::now` is removed. A runtime exposes its time source through

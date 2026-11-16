@@ -512,7 +512,7 @@ impl ValidatedSessionConfig {
             .targets()
             .into_iter()
             .flatten()
-            .find(|target| target.id() > addressed)
+            .find(|target| target.value() > addressed)
         {
             None => Ok(()),
             Some(missing) => Err(Error::connection_failed(
@@ -521,7 +521,7 @@ impl ValidatedSessionConfig {
                     std::io::ErrorKind::NotFound,
                     format!(
                         "camera {} was not addressed by Address Set (chain reported {addressed})",
-                        missing.id()
+                        missing.value()
                     ),
                 )),
             )),

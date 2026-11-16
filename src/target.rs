@@ -77,8 +77,8 @@ impl TryFrom<CameraId> for TargetSlot {
     type Error = Error;
 
     fn try_from(camera: CameraId) -> Result<Self, Self::Error> {
-        match camera.id() {
-            1..=7 => Ok(Self(camera.id() - 1)),
+        match camera.value() {
+            1..=7 => Ok(Self(camera.value() - 1)),
             _ => Err(Error::InvalidRequest(
                 "a session target must be an individual camera".into(),
             )),
@@ -136,7 +136,7 @@ mod tests {
     fn individual_keys_round_trip_and_reject_other_addresses() {
         for (index, target) in TargetSlot::ALL.into_iter().enumerate() {
             assert_eq!(target.index(), index);
-            assert_eq!(usize::from(target.camera().id()), index + 1);
+            assert_eq!(usize::from(target.camera().value()), index + 1);
             assert_eq!(TargetSlot::try_from(target.camera()).ok(), Some(target));
         }
         assert!(CameraId::new(0).is_err());
@@ -150,13 +150,13 @@ mod tests {
 
     #[test]
     fn target_tables_index_and_iterate_only_individual_cameras() {
-        let mut table = PerTarget::from_fn(|target| target.camera().id());
+        let mut table = PerTarget::from_fn(|target| target.camera().value());
         for (target, value) in table.iter_mut() {
-            assert_eq!(*value, target.camera().id());
+            assert_eq!(*value, target.camera().value());
             *value *= 2;
         }
         for (target, value) in table.iter() {
-            assert_eq!(table[target], target.camera().id() * 2);
+            assert_eq!(table[target], target.camera().value() * 2);
             assert_eq!(*value, table[target]);
         }
         let empty = PerTarget::<Option<u8>>::default();

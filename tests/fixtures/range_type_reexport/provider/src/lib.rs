@@ -4,4 +4,5 @@
 //! rely on `grafton-visca` or any helper crate being in the consumer's extern
 //! prelude.
 
-pub use grafton_visca::visca_range_type;
+pub use grafton_visca as visca;
+pub use grafton_visca::value;

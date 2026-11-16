@@ -401,7 +401,23 @@ macro_rules! __define_builtin_profiles {
                 const PROFILE_ID: Option<$crate::camera::profiles::ProfileId> =
                     Some($crate::camera::profiles::ProfileId::$id);
                 const MODEL_NAME: &'static str = $model_name;
-                const DEFAULT_CAMERA_ID: $crate::IndividualCameraId = $crate::IndividualCameraId::new($default_camera_id).expect("individual profile default");
+                #[allow(clippy::panic)]
+                const DEFAULT_CAMERA_ID: $crate::IndividualCameraId = {
+                    // Borrow the checked result, then consume it whole: the
+                    // owning Error cannot be dropped during const evaluation.
+                    let checked = $crate::IndividualCameraId::new($default_camera_id);
+                    match &checked {
+                        Ok(id) => {
+                            let id = *id;
+                            ::core::mem::forget(checked);
+                            id
+                        }
+                        Err(_) => {
+                            ::core::mem::forget(checked);
+                            panic!("profile default must be an individual camera ID")
+                        }
+                    }
+                };
                 type Envelope = $envelope;
                 const ACK_TIMEOUT: std::time::Duration =
                     std::time::Duration::from_millis($ack_timeout_ms);
@@ -1227,7 +1243,7 @@ macro_rules! __define_builtin_profiles {
                 if let Some(presets) = &caps.presets {
                     assert_eq!(Some(presets.recall_axes), P::PRESET_RECALL_AXES);
                     assert_eq!(presets.highest, P::HIGHEST_PRESET);
-                    assert_eq!(presets.speed_range, P::PRESET_SPEED_RANGE);
+                    assert_eq!(presets.recall_speed_range, P::PRESET_SPEED_RANGE);
                     assert_eq!(presets.tour, P::SUPPORTS_PRESET_TOUR);
                     assert_eq!(presets.thumbnail, P::SUPPORTS_PRESET_THUMBNAIL);
                     assert_eq!(presets.recall_delay, P::PRESET_RECALL_DELAY);
@@ -1454,7 +1470,7 @@ macro_rules! __define_builtin_profiles {
                     }
 
                     for entry in &caps.exposure.as_ref().expect("exposure").shutter_speeds {
-                        let code = $crate::types::ShutterSpeed::new(entry.value);
+                        let code = $crate::types::ShutterSpeed::new(entry.value).expect("profile shutter code");
                         assert_eq!(
                             caps.shutter_speed_for(entry.exposure).ok(),
                             Some(code),
@@ -1465,9 +1481,11 @@ macro_rules! __define_builtin_profiles {
 
                     if let Some(range) = &caps.white_balance.as_ref().expect("white balance").color_temp_range {
                         for kelvin in (range.min()..=range.max()).step_by(100) {
-                            let color_temp = $crate::types::ColorTemp::from_kelvin(kelvin)
+                            let color_temp = $crate::types::Kelvin::new(kelvin)
                                 .unwrap_or_else(|error| panic!("{id:?} {kelvin} K: {error}"));
-                            assert_eq!(color_temp.to_kelvin(), kelvin, "{id:?}");
+                            let white = caps.white_balance.as_ref().expect("white balance");
+                            let code = white.color_temperature_wire(color_temp).expect("profile step");
+                            assert_eq!(white.color_temperature_from_wire(code).expect("profile step").value(), kelvin, "{id:?}");
                         }
                     }
                 }
@@ -2907,7 +2925,7 @@ macro_rules! builtin_profile_registry {
                         wdr: false,
                     },
                     white_balance: {
-                        modes: &[$crate::WhiteBalanceMode::ATW, $crate::WhiteBalanceMode::Manual, $crate::WhiteBalanceMode::Preset],
+                        modes: &[$crate::WhiteBalanceMode::Atw, $crate::WhiteBalanceMode::Manual, $crate::WhiteBalanceMode::Preset],
                         one_push: false,
                         rg_tuning_range: None,
                         bg_tuning_range: None,

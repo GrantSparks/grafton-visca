@@ -504,29 +504,15 @@ impl PanTiltCoordinateConversion {
         )
     }
 
-    /// Converts a raw position to degrees.
-    #[must_use]
+    /// Converts raw axis coordinates to checked physical degrees.
     pub fn to_degrees(
         self,
-        position: crate::camera::PanTiltPosition,
-    ) -> crate::inquiry_conversions::PanTiltPositionDeg {
-        crate::inquiry_conversions::PanTiltPositionDeg::new(
-            crate::units::Degrees(self.pan_degrees(position.pan)),
-            crate::units::Degrees(self.tilt_degrees(position.tilt)),
+        position: crate::camera::PanTiltUnits,
+    ) -> Result<crate::types::PanTiltPosition> {
+        crate::types::PanTiltPosition::from_degrees(
+            self.pan_degrees(position.pan),
+            self.tilt_degrees(position.tilt),
         )
-    }
-
-    /// Converts a position in degrees to raw units, or `None` when either
-    /// axis has no unit value. Range validation is the caller's profile check.
-    #[must_use]
-    pub fn to_units(
-        self,
-        position: crate::inquiry_conversions::PanTiltPositionDeg,
-    ) -> Option<crate::camera::PanTiltPosition> {
-        Some(crate::camera::PanTiltPosition::new(
-            self.pan_units(position.pan.0)?,
-            self.tilt_units(position.tilt.0)?,
-        ))
     }
 }
 
@@ -548,10 +534,10 @@ impl PanTiltCoordinateConversion {
     /// The one checked conversion for profile helpers and every target mount.
     pub(crate) fn checked_units(
         self,
-        position: crate::inquiry_conversions::PanTiltPositionDeg,
+        position: crate::types::PanTiltPosition,
         mut ranges: PanTiltRanges,
         kind: CoordinateKind,
-    ) -> Result<crate::camera::PanTiltPosition> {
+    ) -> Result<crate::camera::PanTiltUnits> {
         let names = match kind {
             CoordinateKind::Position => ["pan position", "tilt position"],
             CoordinateKind::Offset => {
@@ -600,16 +586,16 @@ impl PanTiltCoordinateConversion {
                     })
                 }
             };
-        Ok(crate::camera::PanTiltPosition::new(
+        Ok(crate::camera::PanTiltUnits::new(
             convert(
                 names[0],
-                position.pan.0,
+                position.pan.value(),
                 self.pan_degrees_to_units,
                 ranges.pan_units,
             )?,
             convert(
                 names[1],
-                position.tilt.0,
+                position.tilt.value(),
                 self.tilt_degrees_to_units,
                 ranges.tilt_units,
             )?,
@@ -2220,7 +2206,7 @@ mod tests {
         caps.presets = Some(PresetCaps {
             highest: 10,
             recall_axes: AffectedAxes::PAN_TILT.union(AffectedAxes::ZOOM),
-            speed_range: Some(CapabilityRange::<u8>::new(1, 8)),
+            recall_speed_range: Some(CapabilityRange::<u8>::new(1, 8)),
             tour: false,
             thumbnail: false,
             recall_delay: Duration::ZERO,
@@ -2935,7 +2921,7 @@ mod tests {
         caps.zoom.as_mut().expect("zoom").speed = CapabilityRange::<u8>::new(0, 8);
         assert!(runtime_builder(caps).build().is_err());
         let mut caps = valid_runtime_capabilities();
-        caps.presets.as_mut().expect("presets").speed_range =
+        caps.presets.as_mut().expect("presets").recall_speed_range =
             Some(CapabilityRange::<u8>::new(1, 200));
         assert!(runtime_builder(caps).build().is_err());
     }
@@ -3004,8 +2990,8 @@ mod tests {
             (0, 0)
         );
         let request = crate::request::builtin::PanTiltAbsolute::for_target(
-            crate::units::Degrees(0.0),
-            crate::units::Degrees(0.0),
+            crate::units::Degrees::new(0.0).expect("finite angle"),
+            crate::units::Degrees::new(0.0).expect("finite angle"),
             crate::types::PanSpeed::new(1).expect("speed"),
             crate::types::TiltSpeed::new(1).expect("speed"),
             &target,
@@ -3075,7 +3061,7 @@ mod tests {
             TypedSupportSurface::PtzOpticsPresetRecallSpeed,
         ] {
             let mut caps = valid_runtime_capabilities();
-            caps.presets.as_mut().expect("presets").speed_range = None;
+            caps.presets.as_mut().expect("presets").recall_speed_range = None;
             caps.typed_support = TypedSupportSet::from_surface(surface);
             assert!(runtime_builder(caps).build().is_err(), "{surface:?}");
         }
@@ -3098,7 +3084,7 @@ mod tests {
     fn profile_defaults_are_proven_individual_targets() {
         for invalid in [0, 8, u8::MAX] {
             assert!(Capabilities::runtime_baseline("Invalid default", invalid).is_err());
-            assert!(crate::IndividualCameraId::new(invalid).is_none());
+            assert!(crate::IndividualCameraId::new(invalid).is_err());
         }
         for number in 1..=7 {
             let id = crate::IndividualCameraId::new(number).expect("individual");

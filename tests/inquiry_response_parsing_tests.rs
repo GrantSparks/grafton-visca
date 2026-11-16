@@ -14,7 +14,7 @@ fn white_balance_mode_inquiry_preserves_existing_values_and_decodes_fr7_atw() {
         (0x01, WhiteBalanceMode::Indoor),
         (0x02, WhiteBalanceMode::Outdoor),
         (0x03, WhiteBalanceMode::OnePush),
-        (0x04, WhiteBalanceMode::ATW),
+        (0x04, WhiteBalanceMode::Atw),
         (0x05, WhiteBalanceMode::Manual),
         (0x20, WhiteBalanceMode::ColorTemperature),
     ] {
@@ -43,7 +43,7 @@ fn sony_fr7_profile_path_advertises_and_decodes_atw() {
             .as_ref()
             .expect("white-balance domain")
             .modes
-            .contains(&WhiteBalanceMode::ATW),
+            .contains(&WhiteBalanceMode::Atw),
         "the FR7 registry advertises its typed ATW wire value"
     );
     let generic = ProfileSpec::from_compile_time::<GenericVisca>().expect("generic VISCA profile");
@@ -54,7 +54,7 @@ fn sony_fr7_profile_path_advertises_and_decodes_atw() {
             .as_ref()
             .expect("white-balance domain")
             .modes
-            .contains(&WhiteBalanceMode::ATW),
+            .contains(&WhiteBalanceMode::Atw),
         "ATW remains an FR7-specific advertised mode"
     );
 
@@ -66,7 +66,7 @@ fn sony_fr7_profile_path_advertises_and_decodes_atw() {
     assert!(matches!(
         response,
         Response::Inquiry(InquiryData::WhiteBalanceMode {
-            mode: WhiteBalanceMode::ATW
+            mode: WhiteBalanceMode::Atw
         })
     ));
 }
@@ -225,15 +225,23 @@ fn test_parse_image_flip_inquiry() {
     );
 
     match result.unwrap() {
-        Response::Inquiry(InquiryData::FlipState {
-            state:
-                grafton_visca::command::FlipState {
-                    vertical,
-                    horizontal,
-                },
-        }) => {
-            assert!(vertical, "Vertical flip should be on");
-            assert!(horizontal, "Horizontal flip should be on");
+        Response::Inquiry(InquiryData::FlipState { state }) => {
+            assert!(
+                matches!(
+                    state,
+                    grafton_visca::command::ImageFlipMode::Vertical
+                        | grafton_visca::command::ImageFlipMode::Both
+                ),
+                "Vertical flip should be on"
+            );
+            assert!(
+                matches!(
+                    state,
+                    grafton_visca::command::ImageFlipMode::Horizontal
+                        | grafton_visca::command::ImageFlipMode::Both
+                ),
+                "Horizontal flip should be on"
+            );
         }
         _ => panic!("Unexpected response type"),
     }
@@ -248,15 +256,23 @@ fn test_parse_image_flip_inquiry() {
     );
 
     match result.unwrap() {
-        Response::Inquiry(InquiryData::FlipState {
-            state:
-                grafton_visca::command::FlipState {
-                    vertical,
-                    horizontal,
-                },
-        }) => {
-            assert!(vertical, "Vertical flip should be on");
-            assert!(!horizontal, "Horizontal flip should be off");
+        Response::Inquiry(InquiryData::FlipState { state }) => {
+            assert!(
+                matches!(
+                    state,
+                    grafton_visca::command::ImageFlipMode::Vertical
+                        | grafton_visca::command::ImageFlipMode::Both
+                ),
+                "Vertical flip should be on"
+            );
+            assert!(
+                matches!(
+                    state,
+                    grafton_visca::command::ImageFlipMode::Off
+                        | grafton_visca::command::ImageFlipMode::Vertical
+                ),
+                "Horizontal flip should be off"
+            );
         }
         _ => panic!("Unexpected response type"),
     }

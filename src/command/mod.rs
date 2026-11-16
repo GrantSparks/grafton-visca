@@ -71,25 +71,25 @@ pub use self::{
     color::*,
     encode::CommandKind,
     exposure::*,
-    flip::{Flip, ImageFreeze},
+    flip::ImageFreeze,
     focus::*,
     gain::{Gain, GainLimitCommand},
     image::*,
     inquiry::*,
     inquiry_structs::{InquiryData, InquiryKind},
-    inquiry_types::{FlipState, VersionInfo},
+    inquiry_types::VersionInfo,
     menu::*,
     motion_sync::{SetMotionSyncMode, SetMotionSyncPreset},
     nd_filter::*,
     pan_tilt::*,
     power::*,
     preset::*,
-    resolution::{NdFilterPosition, PictureEffectMode, UnknownPictureEffect},
+    resolution::{PictureEffectMode, UnknownPictureEffect},
     response::{
         parse_inquiry_payload, BoolConvention, Nibbles, Payload, RawInquiryPayload, Response,
     },
-    streaming::{MulticastStreaming, SetNdiQuality, UsbAudio},
-    system::{MotionSyncMode, MotionSyncPreset, SettingsSaveCommand},
+    streaming::{MulticastStreamingCommand, SetNdiQuality, UsbAudioCommand},
+    system::SettingsSaveCommand,
     tally::{
         TallyBrightHi, TallyBrightLo, TallyFlash, TallyGreenOff, TallyGreenOn, TallyOff, TallyOn,
         TallyRedOff, TallyRedOn,
@@ -329,10 +329,10 @@ mod tests {
         use crate::command::color::{
             BlueGain, BlueTuningCommand, HueCommand, RedGain, RedTuningCommand, SaturationCommand,
         };
-        use crate::command::streaming::{MulticastStreaming, SetNdiQuality, UsbAudio};
-        use crate::types::{
-            BlueChannel, BlueTuning, HueLevel, NdiQuality, RedChannel, RedTuning, SaturationLevel,
+        use crate::command::streaming::{
+            MulticastStreamingCommand, SetNdiQuality, UsbAudioCommand,
         };
+        use crate::types::{HueLevel, NdiQuality, RgbGain, RgbTuning, SaturationLevel};
 
         const REFERENCE: &str = include_str!("../../docs/visca_reference.md");
 
@@ -349,7 +349,7 @@ mod tests {
                 "red tuning direct",
                 "81 01 04 43 00 00 00",
                 super::test_wire_bytes(
-                    &RedTuningCommand::new(RedTuning::NEUTRAL),
+                    &RedTuningCommand::new(RgbTuning::NEUTRAL),
                     CameraId::CAMERA_1,
                 )
                 .unwrap(),
@@ -358,7 +358,7 @@ mod tests {
                 "blue tuning direct",
                 "81 01 04 44 00 00 00",
                 super::test_wire_bytes(
-                    &BlueTuningCommand::new(BlueTuning::NEUTRAL),
+                    &BlueTuningCommand::new(RgbTuning::NEUTRAL),
                     CameraId::CAMERA_1,
                 )
                 .unwrap(),
@@ -367,7 +367,7 @@ mod tests {
                 "red gain direct (shares 04 43 with red tuning)",
                 "81 01 04 43 00 00",
                 super::test_wire_bytes(
-                    &RedGain::SetValue(RedChannel::new(0x00).unwrap()),
+                    &RedGain::SetValue(RgbGain::new(0x00).unwrap()),
                     CameraId::CAMERA_1,
                 )
                 .unwrap(),
@@ -376,7 +376,7 @@ mod tests {
                 "blue gain direct (shares 04 44 with blue tuning)",
                 "81 01 04 44 00 00",
                 super::test_wire_bytes(
-                    &BlueGain::SetValue(BlueChannel::new(0x00).unwrap()),
+                    &BlueGain::SetValue(RgbGain::new(0x00).unwrap()),
                     CameraId::CAMERA_1,
                 )
                 .unwrap(),
@@ -390,12 +390,13 @@ mod tests {
             (
                 "multicast mode",
                 "81 0B 01 23",
-                super::test_wire_bytes(&MulticastStreaming::On, CameraId::CAMERA_1).unwrap(),
+                super::test_wire_bytes(&MulticastStreamingCommand::new(true), CameraId::CAMERA_1)
+                    .unwrap(),
             ),
             (
                 "USB audio / UAC",
                 "81 2A 02 A0 04",
-                super::test_wire_bytes(&UsbAudio::On, CameraId::CAMERA_1).unwrap(),
+                super::test_wire_bytes(&UsbAudioCommand::new(true), CameraId::CAMERA_1).unwrap(),
             ),
             (
                 "saturation direct",
@@ -442,8 +443,8 @@ mod tests {
             Zoom,
         };
         use crate::types::{
-            BlueChannel, BrightnessLevel, ColorTemp, ExposureCompensationLevel, GainLevel,
-            IrisLevel, RedChannel, SharpnessLevel, ShutterSpeed, ZoomSpeed,
+            BrightnessLevel, ExposureCompensationLevel, GainLevel, IrisLevel, Kelvin, RgbGain,
+            SharpnessLevel, ShutterSpeed, ZoomSpeed,
         };
 
         fn frames_differ_only_in_address(command: &dyn WireEncode, name: &str) {
@@ -494,12 +495,16 @@ mod tests {
             ("Shutter::Down", Box::new(Shutter::Down)),
             (
                 "Shutter::SetSpeed",
-                Box::new(Shutter::SetSpeed(ShutterSpeed::new(0x11))),
+                Box::new(Shutter::SetSpeed(
+                    ShutterSpeed::new(0x11).expect("union shutter code"),
+                )),
             ),
             ("Brightness::Reset", Box::new(Brightness::Reset)),
             (
                 "Brightness::SetLevel",
-                Box::new(Brightness::SetLevel(BrightnessLevel::new(0x11))),
+                Box::new(Brightness::SetLevel(
+                    BrightnessLevel::new(0x11).expect("union brightness code"),
+                )),
             ),
             ("Gain::Up", Box::new(Gain::Up)),
             (
@@ -510,18 +515,18 @@ mod tests {
             (
                 "ColorTemperature::SetTemperature",
                 Box::new(ColorTemperature::SetTemperature(
-                    ColorTemp::new(0x37).expect("temp"),
+                    Kelvin::new(8000).expect("temp"),
                 )),
             ),
             ("RedGain::Reset", Box::new(RedGain::Reset)),
             (
                 "RedGain::SetValue",
-                Box::new(RedGain::SetValue(RedChannel::new(0xA5).expect("red"))),
+                Box::new(RedGain::SetValue(RgbGain::new(0xA5).expect("red"))),
             ),
             ("BlueGain::Up", Box::new(BlueGain::Up)),
             (
                 "BlueGain::SetValue",
-                Box::new(BlueGain::SetValue(BlueChannel::new(0x5A).expect("blue"))),
+                Box::new(BlueGain::SetValue(RgbGain::new(0x5A).expect("blue"))),
             ),
             ("Sharpness::Down", Box::new(Sharpness::Down)),
             (

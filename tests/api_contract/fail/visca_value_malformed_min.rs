@@ -1,9 +1,8 @@
-use grafton_visca::ViscaValue;
+use grafton_visca::value;
 
-#[derive(ViscaValue)]
-#[visca_value(min = "[", max = "4")]
+#[value(min = "[", max = 4)]
 struct MalformedMin(u8);
 
 fn main() {}
 
-//~ "`min` must be an unsuffixed integer literal string"
+//~ "value bounds and wire codes must be unsuffixed integer literals"

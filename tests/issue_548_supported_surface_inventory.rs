@@ -11,10 +11,11 @@ pub mod error {
 }
 
 use grafton_visca::{
-    camera::profiles::ProfileId, capabilities::TypedSupportSurface, CameraId, Inquiry, Request,
-    ViscaEnum, ViscaInquiry, ViscaValue,
+    camera::profiles::ProfileId, capabilities::TypedSupportSurface, value, value_enum, CameraId,
+    Inquiry, Request, ViscaInquiry,
 };
 
+use grafton_visca::wire::WireValue;
 use grafton_visca_test_support::source_scan;
 
 use source_scan::declarations;
@@ -23,14 +24,13 @@ use source_scan::declarations;
 #[visca(opcode = 0x00, response = Power)]
 struct InventoryInquiry;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
+#[value_enum]
 enum InventoryEnum {
     First = 1,
     Second = 2,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[visca_value(min = "1", max = "2")]
+#[value(min = 1, max = 2)]
 struct InventoryValue(u8);
 
 const EXPECTED_PROFILES: &[&str] = &[
@@ -451,8 +451,8 @@ fn ecosystem_derive_test_and_extension_inventory_is_documented() {
         "dyn-api",
         "test-utils",
         "ViscaInquiry",
-        "ViscaEnum",
-        "ViscaValue",
+        "value_enum",
+        "value",
         "ScriptedBlockingTransport",
         "ScriptedTransport",
         "ManualClockExecutor",
@@ -484,10 +484,10 @@ fn downstream_derive_inventory_compiles_and_preserves_behavior() {
     let _decoder = Inquiry::decoder(&InventoryInquiry);
 
     assert_eq!(
-        InventoryEnum::try_from(1).expect("enum discriminant 1 is valid"),
+        InventoryEnum::from_wire(1).expect("enum discriminant 1 is valid"),
         InventoryEnum::First
     );
-    assert_eq!(u8::from(InventoryEnum::Second), 2);
+    assert_eq!(InventoryEnum::Second.to_wire(), 2);
     assert_eq!(
         InventoryValue::new(1).expect("value 1 is valid"),
         InventoryValue(1)

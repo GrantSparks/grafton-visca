@@ -5,6 +5,8 @@
 //! Source: [Sony VISCA Command List v4.00](https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf).
 //! `WhiteBalanceMode::Manual` selects Memory A; `Preset` selects preset white.
 
+use crate::wire::WireValue;
+
 use crate::{
     command::{
         bytes::{
@@ -14,25 +16,16 @@ use crate::{
         encode::WireEncode,
         response::{Nibbles, Payload},
     },
+    types::Kelvin,
     CameraId, Error,
 };
 
-crate::__grafton_visca_newtype! {
-    /// FR7 preset-white or Memory A color temperature, in Kelvin (R7 p. 15).
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "2000", max = "15000", display_prefix = "White Kelvin")]
-    pub struct WhiteKelvin(u16);
-}
-
-crate::__grafton_visca_newtype! {
-    /// FR7 Memory A red or blue gain, in tenths of a displayed unit.
-    ///
-    /// `-990`, `0` and `990` represent -99.0, neutral and +99.0. R7 pp. 15
-    /// and 21 encode them as `0000`, `03DE` and `07BC`, respectively.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "-990", max = "990", display_prefix = "White Balance Gain (tenths)")]
-    pub struct WhiteBalanceGain(i16);
-}
+/// FR7 Memory A red or blue gain, in tenths of a displayed unit.
+///
+/// `-990`, `0` and `990` represent -99.0, neutral and +99.0. R7 pp. 15
+/// and 21 encode them as `0000`, `03DE` and `07BC`, respectively.
+#[crate::value(min=-990, max=990, display="White Balance Gain (tenths) {}", wire=biased(990,u16))]
+pub struct WhiteBalanceGain(i16);
 
 impl WhiteBalanceGain {
     /// Creates a gain from -99.0 through +99.0, rounding to the nearest tenth.
@@ -55,66 +48,25 @@ impl WhiteBalanceGain {
     pub fn to_gain(self) -> f64 {
         f64::from(self.value()) / 10.0
     }
-
-    /// Decodes the biased `0000..=07BC` protocol value (R7 p. 21).
-    pub const fn from_protocol_value(value: u16) -> Result<Self, Error> {
-        if value > 1980 {
-            return Err(Error::parameter_out_of_range(
-                "white_balance_gain_wire",
-                value as i32,
-                0,
-                1980,
-            ));
-        }
-        Self::new(value as i16 - 990)
-    }
-
-    /// Returns the biased `0000..=07BC` protocol value (R7 p. 15).
-    #[must_use]
-    pub const fn to_protocol_value(self) -> u16 {
-        (self.value() + 990) as u16
-    }
 }
 
-crate::__grafton_visca_newtype! {
-    /// FR7 Memory A tint or ATW offset, from -99 through +99.
-    ///
-    /// R7 pp. 15 and 21 encode -99, neutral and +99 as `00`, `63` and `C6`.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "-99", max = "99", display_prefix = "Tint Offset")]
-    pub struct TintOffset(i16);
-}
+/// FR7 Memory A tint or ATW offset, from -99 through +99.
+///
+/// R7 pp. 15 and 21 encode -99, neutral and +99 as `00`, `63` and `C6`.
+#[crate::value(min=-99, max=99, display="Tint Offset {}", wire=biased(99,u8))]
+pub struct WhiteBalanceOffset(i16);
 
-impl TintOffset {
-    /// Decodes a biased `00..=C6` protocol value.
-    pub const fn from_protocol_value(value: u8) -> Result<Self, Error> {
-        Self::new(value as i16 - 99)
-    }
+/// Number of FR7 preset-white, gain, tint or ATW offset steps (R7 p. 15).
+///
+/// This is a relative adjustment count, not a direct setting value.
+#[crate::value(min = 1, max = 255, display = "White Balance Step {}")]
+pub struct WhiteBalanceStep(u8);
 
-    /// Returns the biased `00..=C6` protocol value.
-    #[must_use]
-    pub const fn to_protocol_value(self) -> u8 {
-        (self.value() + 99) as u8
-    }
-}
-
-crate::__grafton_visca_newtype! {
-    /// Number of FR7 preset-white, gain, tint or ATW offset steps (R7 p. 15).
-    ///
-    /// This is a relative adjustment count, not a direct setting value.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "1", max = "255", display_prefix = "White Balance Step")]
-    pub struct WhiteBalanceStep(u8);
-}
-
-crate::__grafton_visca_newtype! {
-    /// Number of FR7 Memory A color-temperature steps (R7 p. 15).
-    ///
-    /// Memory A permits `01..=1E`; preset white permits the wider `01..=FF`.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "1", max = "30", display_prefix = "Memory Color Temperature Step")]
-    pub struct MemoryColorTemperatureStep(u8);
-}
+/// Number of FR7 Memory A color-temperature steps (R7 p. 15).
+///
+/// Memory A permits `01..=1E`; preset white permits the wider `01..=FF`.
+#[crate::value(min = 1, max = 30, display = "Memory Color Temperature Step {}")]
+pub struct MemoryColorTemperatureStep(u8);
 
 /// Perform the FR7's WB SET adjustment (R7 p. 15).
 ///
@@ -173,20 +125,20 @@ macro_rules! white_balance_control {
 
 white_balance_control! {
     /// FR7 preset-white Kelvin adjustment (R7 p. 15), bank 1.
-    Fr7PresetWhite, WhiteBalanceStep, WhiteKelvin,
+    Fr7PresetWhite, WhiteBalanceStep, Kelvin,
     up = sony_fr7_white_balance::PRESET_WHITE_UP,
     down = sony_fr7_white_balance::PRESET_WHITE_DOWN,
     direct = sony_fr7_white_balance::PRESET_WHITE_DIRECT,
-    wire = WhiteKelvin::value
+    wire = Kelvin::value
 }
 
 white_balance_control! {
     /// FR7 Memory A color-temperature adjustment (R7 p. 15), bank 2.
-    Fr7MemoryColorTemperature, MemoryColorTemperatureStep, WhiteKelvin,
+    Fr7MemoryColorTemperature, MemoryColorTemperatureStep, Kelvin,
     up = sony_fr7_white_balance::MEMORY_COLOR_TEMPERATURE_UP,
     down = sony_fr7_white_balance::MEMORY_COLOR_TEMPERATURE_DOWN,
     direct = sony_fr7_white_balance::MEMORY_COLOR_TEMPERATURE_DIRECT,
-    wire = WhiteKelvin::value
+    wire = Kelvin::value
 }
 
 white_balance_control! {
@@ -195,7 +147,7 @@ white_balance_control! {
     up = sony_fr7_white_balance::MEMORY_RED_GAIN_UP,
     down = sony_fr7_white_balance::MEMORY_RED_GAIN_DOWN,
     direct = sony_fr7_white_balance::MEMORY_RED_GAIN_DIRECT,
-    wire = WhiteBalanceGain::to_protocol_value
+    wire = WhiteBalanceGain::to_wire
 }
 
 white_balance_control! {
@@ -204,52 +156,52 @@ white_balance_control! {
     up = sony_fr7_white_balance::MEMORY_BLUE_GAIN_UP,
     down = sony_fr7_white_balance::MEMORY_BLUE_GAIN_DOWN,
     direct = sony_fr7_white_balance::MEMORY_BLUE_GAIN_DIRECT,
-    wire = WhiteBalanceGain::to_protocol_value
+    wire = WhiteBalanceGain::to_wire
 }
 
 white_balance_control! {
     /// FR7 Memory A tint adjustment (R7 p. 15), bank 2.
-    Fr7MemoryTint, WhiteBalanceStep, TintOffset,
+    Fr7MemoryTint, WhiteBalanceStep, WhiteBalanceOffset,
     up = sony_fr7_white_balance::MEMORY_TINT_UP,
     down = sony_fr7_white_balance::MEMORY_TINT_DOWN,
     direct = sony_fr7_white_balance::MEMORY_TINT_DIRECT,
-    wire = |value: TintOffset| u16::from(value.to_protocol_value())
+    wire = |value: WhiteBalanceOffset| u16::from(value.to_wire())
 }
 
 white_balance_control! {
     /// FR7 ATW color-temperature offset adjustment (R7 p. 15), bank 0.
-    Fr7AtwColorTemperatureOffset, WhiteBalanceStep, TintOffset,
+    Fr7AtwColorTemperatureOffset, WhiteBalanceStep, WhiteBalanceOffset,
     up = sony_fr7_white_balance::ATW_COLOR_TEMPERATURE_OFFSET_UP,
     down = sony_fr7_white_balance::ATW_COLOR_TEMPERATURE_OFFSET_DOWN,
     direct = sony_fr7_white_balance::ATW_COLOR_TEMPERATURE_OFFSET_DIRECT,
-    wire = |value: TintOffset| u16::from(value.to_protocol_value())
+    wire = |value: WhiteBalanceOffset| u16::from(value.to_wire())
 }
 
 white_balance_control! {
     /// FR7 ATW tint offset adjustment (R7 p. 15), bank 0.
-    Fr7AtwTintOffset, WhiteBalanceStep, TintOffset,
+    Fr7AtwTintOffset, WhiteBalanceStep, WhiteBalanceOffset,
     up = sony_fr7_white_balance::ATW_TINT_OFFSET_UP,
     down = sony_fr7_white_balance::ATW_TINT_OFFSET_DOWN,
     direct = sony_fr7_white_balance::ATW_TINT_OFFSET_DIRECT,
-    wire = |value: TintOffset| u16::from(value.to_protocol_value())
+    wire = |value: WhiteBalanceOffset| u16::from(value.to_wire())
 }
 
-pub(crate) fn decode_white_kelvin(payload: Payload<'_>) -> Result<WhiteKelvin, Error> {
+pub(crate) fn decode_white_kelvin(payload: Payload<'_>) -> Result<Kelvin, Error> {
     let value = Nibbles::<4>::try_from(payload)?
         .u16_quad(0)
         .ok_or(Error::InvalidResponseFormat)?;
-    WhiteKelvin::new(value)
+    Kelvin::new(value)
 }
 
 pub(crate) fn decode_white_balance_gain(payload: Payload<'_>) -> Result<WhiteBalanceGain, Error> {
     let value = Nibbles::<4>::try_from(payload)?
         .u16_quad(0)
         .ok_or(Error::InvalidResponseFormat)?;
-    WhiteBalanceGain::from_protocol_value(value)
+    WhiteBalanceGain::from_wire(value)
 }
 
-pub(crate) fn decode_tint_offset(payload: Payload<'_>) -> Result<TintOffset, Error> {
-    TintOffset::from_protocol_value(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)
+pub(crate) fn decode_tint_offset(payload: Payload<'_>) -> Result<WhiteBalanceOffset, Error> {
+    WhiteBalanceOffset::from_wire(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)
 }
 
 #[cfg(test)]
@@ -289,7 +241,7 @@ mod tests {
             &[0x81, 1, 5, 3, 3, 1, 0, 1, 0xff],
         );
         literal(
-            &Fr7PresetWhite::Direct(WhiteKelvin::MIN),
+            &Fr7PresetWhite::Direct(Kelvin::MIN),
             &[0x81, 1, 5, 0x43, 1, 0, 7, 0xd, 0, 0xff],
         );
         literal(
@@ -301,7 +253,7 @@ mod tests {
             &[0x81, 1, 5, 3, 3, 2, 0, 1, 0xff],
         );
         literal(
-            &Fr7MemoryColorTemperature::Direct(WhiteKelvin::MAX),
+            &Fr7MemoryColorTemperature::Direct(Kelvin::MAX),
             &[0x81, 1, 5, 0x43, 2, 3, 0xa, 9, 8, 0xff],
         );
         assert!(WhiteBalanceStep::new(0).is_err());
@@ -353,7 +305,7 @@ mod tests {
             &[0x81, 1, 5, 4, 3, 2, 0xf, 0xf, 0xff],
         );
         literal(
-            &Fr7MemoryTint::Direct(TintOffset::MIN),
+            &Fr7MemoryTint::Direct(WhiteBalanceOffset::MIN),
             &[0x81, 1, 5, 0x44, 2, 0, 0, 0, 0, 0xff],
         );
         literal(
@@ -365,7 +317,7 @@ mod tests {
             &[0x81, 1, 5, 5, 3, 0, 0, 1, 0xff],
         );
         literal(
-            &Fr7AtwColorTemperatureOffset::Direct(TintOffset::new(0).unwrap()),
+            &Fr7AtwColorTemperatureOffset::Direct(WhiteBalanceOffset::new(0).unwrap()),
             &[0x81, 1, 5, 0x45, 0, 0, 0, 6, 3, 0xff],
         );
         literal(
@@ -377,7 +329,7 @@ mod tests {
             &[0x81, 1, 5, 6, 3, 0, 0xf, 0xf, 0xff],
         );
         literal(
-            &Fr7AtwTintOffset::Direct(TintOffset::MAX),
+            &Fr7AtwTintOffset::Direct(WhiteBalanceOffset::MAX),
             &[0x81, 1, 5, 0x46, 0, 0, 0, 0xc, 6, 0xff],
         );
     }
@@ -385,27 +337,27 @@ mod tests {
     #[test]
     fn value_domains_round_trip_every_wire_value_without_aliases() {
         for wire in 2000..=15000 {
-            assert_eq!(WhiteKelvin::new(wire).unwrap().value(), wire);
+            assert_eq!(Kelvin::new(wire).unwrap().value(), wire);
         }
-        assert!(WhiteKelvin::new(1999).is_err());
-        assert!(WhiteKelvin::new(15001).is_err());
+        assert!(Kelvin::new(1999).is_err());
+        assert!(Kelvin::new(15001).is_err());
         for wire in 0..=1980 {
-            let value = WhiteBalanceGain::from_protocol_value(wire).unwrap();
-            assert_eq!(value.to_protocol_value(), wire);
+            let value = WhiteBalanceGain::from_wire(wire).unwrap();
+            assert_eq!(value.to_wire(), wire);
             assert_eq!(WhiteBalanceGain::from_gain(value.to_gain()).unwrap(), value);
         }
-        assert!(WhiteBalanceGain::from_protocol_value(1981).is_err());
-        assert!(WhiteBalanceGain::from_protocol_value(u16::MAX).is_err());
+        assert!(WhiteBalanceGain::from_wire(1981).is_err());
+        assert!(WhiteBalanceGain::from_wire(u16::MAX).is_err());
         assert!(WhiteBalanceGain::new(-991).is_err());
         assert!(WhiteBalanceGain::new(991).is_err());
         for wire in 0..=198 {
-            let value = TintOffset::from_protocol_value(wire).unwrap();
-            assert_eq!(value.to_protocol_value(), wire);
+            let value = WhiteBalanceOffset::from_wire(wire).unwrap();
+            assert_eq!(value.to_wire(), wire);
         }
-        assert!(TintOffset::from_protocol_value(199).is_err());
-        assert!(TintOffset::from_protocol_value(u8::MAX).is_err());
-        assert!(TintOffset::new(-100).is_err());
-        assert!(TintOffset::new(100).is_err());
+        assert!(WhiteBalanceOffset::from_wire(199).is_err());
+        assert!(WhiteBalanceOffset::from_wire(u8::MAX).is_err());
+        assert!(WhiteBalanceOffset::new(-100).is_err());
+        assert!(WhiteBalanceOffset::new(100).is_err());
     }
 
     #[test]
@@ -488,10 +440,10 @@ mod tests {
             assert!(serde_json::from_str::<WhiteBalanceGain>(invalid).is_err());
         }
         for invalid in ["1999", "15001"] {
-            assert!(serde_json::from_str::<WhiteKelvin>(invalid).is_err());
+            assert!(serde_json::from_str::<Kelvin>(invalid).is_err());
         }
         for invalid in ["-100", "100"] {
-            assert!(serde_json::from_str::<TintOffset>(invalid).is_err());
+            assert!(serde_json::from_str::<WhiteBalanceOffset>(invalid).is_err());
         }
         assert!(serde_json::from_str::<WhiteBalanceStep>("0").is_err());
         assert!(serde_json::from_str::<MemoryColorTemperatureStep>("31").is_err());

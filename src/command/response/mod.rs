@@ -476,72 +476,21 @@ mod tests {
 
     #[test]
     fn test_parse_image_flip_responses() {
-        // Test ImageFlip Off (0x00)
-        let flip_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
-        let response = Response::parse_with_type(flip_bytes, &InquiryKind::FlipState);
-        match response {
-            Ok(Response::Inquiry(InquiryData::FlipState {
-                state:
-                    crate::command::FlipState {
-                        vertical,
-                        horizontal,
-                    },
-            })) => {
-                assert!(!vertical);
-                assert!(!horizontal);
+        use crate::command::ImageFlipMode;
+        for (wire, expected) in [
+            (0x00, ImageFlipMode::Off),
+            (0x01, ImageFlipMode::Horizontal),
+            (0x02, ImageFlipMode::Vertical),
+            (0x03, ImageFlipMode::Both),
+        ] {
+            let response_bytes = [0x90, 0x50, wire, VISCA_TERMINATOR];
+            let response = Response::parse_with_type(&response_bytes, &InquiryKind::FlipState);
+            match response {
+                Ok(Response::Inquiry(InquiryData::FlipState { state })) => {
+                    assert_eq!(state, expected)
+                }
+                _ => panic!("Expected combined flip-mode inquiry response"),
             }
-            _ => panic!("Expected FlipState inquiry response"),
-        }
-
-        // Test ImageFlip Horizontal only (0x01)
-        let flip_bytes = &[0x90, 0x50, 0x01, VISCA_TERMINATOR];
-        let response = Response::parse_with_type(flip_bytes, &InquiryKind::FlipState);
-        match response {
-            Ok(Response::Inquiry(InquiryData::FlipState {
-                state:
-                    crate::command::FlipState {
-                        vertical,
-                        horizontal,
-                    },
-            })) => {
-                assert!(!vertical);
-                assert!(horizontal);
-            }
-            _ => panic!("Expected FlipState inquiry response"),
-        }
-
-        // Test ImageFlip Vertical only (0x02)
-        let flip_bytes = &[0x90, 0x50, 0x02, VISCA_TERMINATOR];
-        let response = Response::parse_with_type(flip_bytes, &InquiryKind::FlipState);
-        match response {
-            Ok(Response::Inquiry(InquiryData::FlipState {
-                state:
-                    crate::command::FlipState {
-                        vertical,
-                        horizontal,
-                    },
-            })) => {
-                assert!(vertical);
-                assert!(!horizontal);
-            }
-            _ => panic!("Expected FlipState inquiry response"),
-        }
-
-        // Test ImageFlip Both (0x03)
-        let flip_bytes = &[0x90, 0x50, 0x03, VISCA_TERMINATOR];
-        let response = Response::parse_with_type(flip_bytes, &InquiryKind::FlipState);
-        match response {
-            Ok(Response::Inquiry(InquiryData::FlipState {
-                state:
-                    crate::command::FlipState {
-                        vertical,
-                        horizontal,
-                    },
-            })) => {
-                assert!(vertical);
-                assert!(horizontal);
-            }
-            _ => panic!("Expected FlipState inquiry response"),
         }
     }
 
@@ -569,7 +518,7 @@ mod tests {
         let response = Response::parse_with_type(response_bytes, &InquiryKind::MotionSyncMode);
         match response {
             Ok(Response::Inquiry(InquiryData::MotionSyncMode { mode })) => {
-                assert_eq!(mode, crate::command::system::MotionSyncMode::On);
+                assert!(mode);
             }
             _ => panic!("Expected MotionSyncMode inquiry response"),
         }
@@ -579,42 +528,9 @@ mod tests {
         let response = Response::parse_with_type(response_bytes, &InquiryKind::MotionSyncMode);
         match response {
             Ok(Response::Inquiry(InquiryData::MotionSyncMode { mode })) => {
-                assert_eq!(mode, crate::command::system::MotionSyncMode::Off);
+                assert!(!mode);
             }
             _ => panic!("Expected MotionSyncMode inquiry response"),
-        }
-    }
-
-    #[test]
-    fn test_parse_motion_sync_preset_response() {
-        // Test MotionSyncPreset Slow (0x00)
-        let response_bytes = &[0x90, 0x50, 0x00, VISCA_TERMINATOR];
-        let response = Response::parse_with_type(response_bytes, &InquiryKind::MotionSyncPreset);
-        match response {
-            Ok(Response::Inquiry(InquiryData::MotionSyncPreset { speed })) => {
-                assert_eq!(speed, crate::command::system::MotionSyncPreset::Slow);
-            }
-            _ => panic!("Expected MotionSyncPreset inquiry response"),
-        }
-
-        // Test MotionSyncPreset Normal (0x01)
-        let response_bytes = &[0x90, 0x50, 0x01, VISCA_TERMINATOR];
-        let response = Response::parse_with_type(response_bytes, &InquiryKind::MotionSyncPreset);
-        match response {
-            Ok(Response::Inquiry(InquiryData::MotionSyncPreset { speed })) => {
-                assert_eq!(speed, crate::command::system::MotionSyncPreset::Normal);
-            }
-            _ => panic!("Expected MotionSyncPreset inquiry response"),
-        }
-
-        // Test MotionSyncPreset Fast (0x02)
-        let response_bytes = &[0x90, 0x50, 0x02, VISCA_TERMINATOR];
-        let response = Response::parse_with_type(response_bytes, &InquiryKind::MotionSyncPreset);
-        match response {
-            Ok(Response::Inquiry(InquiryData::MotionSyncPreset { speed })) => {
-                assert_eq!(speed, crate::command::system::MotionSyncPreset::Fast);
-            }
-            _ => panic!("Expected MotionSyncPreset inquiry response"),
         }
     }
 }

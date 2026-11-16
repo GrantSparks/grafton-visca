@@ -93,3 +93,18 @@ fn direct_caller_construction_keeps_its_parameter_error() {
         25
     );
 }
+
+#[test]
+fn enum_wire_validation_becomes_a_camera_fault_only_at_the_reply_boundary() {
+    use grafton_visca::{command::ExposureModeInquiry, wire::WireValue, ExposureMode};
+
+    let local_error = ExposureMode::from_wire(0xff).expect_err("unknown caller-supplied enum code");
+    assert_eq!(local_error.kind(), ErrorKind::InvalidParameter);
+
+    let reply_error = ExposureModeInquiry
+        .decoder()
+        .decode(&[0xff])
+        .expect_err("unknown enum code in a camera reply");
+    assert_eq!(reply_error.kind(), ErrorKind::Protocol);
+    assert!(matches!(reply_error, Error::InvalidResponse { actual, .. } if actual == [0xff]));
+}

@@ -4,13 +4,12 @@
 //! including backlight compensation, noise reduction, image flip, picture effects,
 //! brightness (luminance), contrast, gamma, and sharpness adjustments.
 
-use grafton_visca_macros::ViscaEnum;
+use crate::wire::WireValue;
 
 use crate::{
     command::{
         bytes::{constants::image, nibbles, step_command_encoder, FrameWriter},
         encode::WireEncode,
-        inquiry_types::FlipState,
         resolution::PictureEffectMode,
     },
     error::Error,
@@ -22,11 +21,7 @@ use crate::{
 };
 
 /// Sharpness control modes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[crate::value_enum]
 pub enum SharpnessMode {
     /// Automatic sharpness adjustment based on scene content.
     Auto = 0x02,
@@ -35,11 +30,7 @@ pub enum SharpnessMode {
 }
 
 /// 2D noise reduction modes.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[crate::value_enum]
 pub enum NoiseReduction2DMode {
     /// The camera automatically selects the 2D noise-reduction level.
     Auto = 0x02,
@@ -73,7 +64,7 @@ step_command_encoder! {
         control: image::SHARPNESS_STEP,
         direct: image::SHARPNESS_DIRECT,
         SetLevel { value } => nibbles::<2>(value.value()),
-        Self::Mode(mode) => |frame| frame.bytes(&image::SHARPNESS_MODE).byte(u8::from(*mode)),
+        Self::Mode(mode) => |frame| frame.bytes(&image::SHARPNESS_MODE).byte((*mode).to_wire()),
     }
 }
 
@@ -151,7 +142,7 @@ visca_command! {
     /// Command to select the 2D noise-reduction mode.
     pub struct NoiseReduction2DModeCommand { mode: NoiseReduction2DMode };
     prefix = image::NOISE_REDUCTION_2D_MODE;
-    param = u8::from(*mode);
+    param = (*mode).to_wire();
     max_param_size = 1;
 }
 
@@ -166,13 +157,10 @@ impl NoiseReduction2DModeCommand {
 /// Canonical 2D noise-reduction value for commands and inquiry readback.
 ///
 /// Zero is represented only by [`Self::Off`]; every [`Self::Level`] is nonzero.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[crate::value_enum]
 pub enum NoiseReduction2D {
     /// Disables the filter.
+    #[wire(0)]
     Off,
     /// A validated nonzero strength.
     Level(NoiseReduction2DLevel),
@@ -190,31 +178,13 @@ impl NoiseReduction2D {
     pub const fn with_level(level: NoiseReduction2DLevel) -> Self {
         Self::Level(level)
     }
-
-    /// Decodes a register value, preserving zero as Off.
-    pub fn from_byte(value: u8) -> Result<Self, Error> {
-        if value == 0 {
-            Ok(Self::Off)
-        } else {
-            NoiseReduction2DLevel::new(value).map(Self::Level)
-        }
-    }
-
-    /// Returns the exact noise-reduction register code, including zero for Off.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        match self {
-            Self::Off => 0,
-            Self::Level(level) => level.value(),
-        }
-    }
 }
 
 impl WireEncode for NoiseReduction2D {
     fn write_into(&self, camera_id: crate::CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
             .bytes(&image::NOISE_REDUCTION_2D)
-            .byte(self.value())
+            .byte(self.to_wire())
             .finish()
     }
 }
@@ -222,13 +192,10 @@ impl WireEncode for NoiseReduction2D {
 /// Canonical 3D noise-reduction value for commands and inquiry readback.
 ///
 /// Zero is represented only by [`Self::Off`]; every [`Self::Level`] is nonzero.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[crate::value_enum]
 pub enum NoiseReduction3D {
     /// Disables the filter.
+    #[wire(0)]
     Off,
     /// A validated nonzero strength.
     Level(NoiseReduction3DLevel),
@@ -246,31 +213,13 @@ impl NoiseReduction3D {
     pub const fn with_level(level: NoiseReduction3DLevel) -> Self {
         Self::Level(level)
     }
-
-    /// Decodes a register value, preserving zero as Off.
-    pub fn from_byte(value: u8) -> Result<Self, Error> {
-        if value == 0 {
-            Ok(Self::Off)
-        } else {
-            NoiseReduction3DLevel::new(value).map(Self::Level)
-        }
-    }
-
-    /// Returns the exact noise-reduction register code, including zero for Off.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        match self {
-            Self::Off => 0,
-            Self::Level(level) => level.value(),
-        }
-    }
 }
 
 impl WireEncode for NoiseReduction3D {
     fn write_into(&self, camera_id: crate::CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
             .bytes(&image::NOISE_REDUCTION_3D)
-            .byte(self.value())
+            .byte(self.to_wire())
             .finish()
     }
 }
@@ -281,11 +230,7 @@ impl WireEncode for NoiseReduction3D {
 /// Useful for when cameras are mounted upside down or need mirror effects.
 /// The discriminants are the PTZOptics `04 A4` combined flip codes that the
 /// command sends and the combined flip inquiry reports.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[crate::value_enum]
 pub enum ImageFlipMode {
     /// No image flipping.
     Off = 0x00,
@@ -297,20 +242,11 @@ pub enum ImageFlipMode {
     Both = 0x03,
 }
 
-impl From<ImageFlipMode> for FlipState {
-    fn from(mode: ImageFlipMode) -> Self {
-        Self {
-            horizontal: matches!(mode, ImageFlipMode::Horizontal | ImageFlipMode::Both),
-            vertical: matches!(mode, ImageFlipMode::Vertical | ImageFlipMode::Both),
-        }
-    }
-}
-
 visca_command! {
         /// Command to set the combined image flip mode.
     pub struct ImageFlipCombinedCommand { mode: ImageFlipMode };
     prefix = image::FLIP_COMBINED;
-    param = u8::from(*mode);
+    param = (*mode).to_wire();
     max_param_size = 1;
 }
 
@@ -347,7 +283,7 @@ impl WireEncode for PictureEffectCommand {
     ) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
             .bytes(&image::PICTURE_EFFECT)
-            .byte(self.mode.as_byte())
+            .byte(self.mode.to_wire())
             .finish()
     }
 }
@@ -367,12 +303,12 @@ mod tests {
     fn noise_reduction_codes_have_one_spelling_and_ledger_row() {
         use crate::command::semantics::BuiltinCommand;
         for byte in 0..=u8::MAX {
-            let two = NoiseReduction2D::from_byte(byte);
-            let three = NoiseReduction3D::from_byte(byte);
+            let two = NoiseReduction2D::from_wire(byte);
+            let three = NoiseReduction3D::from_wire(byte);
             assert_eq!(two.is_ok(), byte <= 5);
             assert_eq!(three.is_ok(), byte <= 8);
             if let Ok(value) = two {
-                assert_eq!(value.value(), byte);
+                assert_eq!(value.to_wire(), byte);
                 assert_eq!(
                     value.ledger_row(),
                     if byte == 0 {
@@ -383,7 +319,7 @@ mod tests {
                 );
             }
             if let Ok(value) = three {
-                assert_eq!(value.value(), byte);
+                assert_eq!(value.to_wire(), byte);
                 assert_eq!(
                     value.ledger_row(),
                     if byte == 0 {

@@ -30,7 +30,7 @@ macro_rules! samples {
 samples! {
     bool => false;
     u8 => 0;
-    Degrees<f32> => Degrees(0.0);
+    Degrees => Degrees::new(0.0).expect("finite degrees");
     UnitInterval => UnitInterval::new(0.0).expect("unit interval");
     ZoomDomain => ZoomDomain::Optical;
     types::ZoomSpeed => types::ZoomSpeed::new(1).expect("speed");
@@ -43,22 +43,17 @@ samples! {
     command::PanTiltLimitCorner => command::PanTiltLimitCorner::DownLeft;
     command::FocusZone => command::FocusZone::Center;
     command::AutoFocusSensitivity => command::AutoFocusSensitivity::Normal;
-    command::FocusLock => command::FocusLock::Off;
-    command::PresetNumber => command::PresetNumber::new(0).expect("preset");
-    command::PresetRecallSpeed => command::PresetRecallSpeed::new(1).expect("speed");
     command::ExposureMode => command::ExposureMode::Auto;
     types::ExposureCompensationLevel => types::ExposureCompensationLevel::new(0).expect("compensation");
-    types::DynamicRangeLevel => types::DynamicRangeLevel::new(0).expect("range");
+    types::WideDynamicRangeLevel => types::WideDynamicRangeLevel::new(0).expect("range");
     types::IrisLevel => types::IrisLevel::new(0).expect("iris");
-    types::BrightnessLevel => types::BrightnessLevel::new(0);
+    types::BrightnessLevel => types::BrightnessLevel::new(0).expect("brightness");
     types::GainLevel => types::GainLevel::new(0).expect("gain");
     types::GainLimit => types::GainLimit::new(0).expect("gain limit");
     command::AntiFlickerMode => command::AntiFlickerMode::Off;
     command::AutoWhiteBalanceSensitivity => command::AutoWhiteBalanceSensitivity::Normal;
-    types::RedTuning => types::RedTuning::new(0).expect("tuning");
-    types::BlueTuning => types::BlueTuning::new(0).expect("tuning");
-    types::RedChannel => types::RedChannel::new(0).expect("red");
-    types::BlueChannel => types::BlueChannel::new(0).expect("blue");
+    types::RgbTuning => types::RgbTuning::new(0).expect("tuning");
+    types::RgbGain => types::RgbGain::new(0).expect("red");
     types::SaturationLevel => types::SaturationLevel::new(0).expect("saturation");
     types::HueLevel => types::HueLevel::new(0).expect("hue");
     types::LuminanceLevel => types::LuminanceLevel::new(0).expect("luminance");
@@ -72,32 +67,30 @@ samples! {
     command::ImageFlipMode => command::ImageFlipMode::Off;
     command::PictureEffectMode => command::PictureEffectMode::Off;
     command::NdFilterMode => command::NdFilterMode::Variable;
-    command::NdFilterValue => command::NdFilterValue::new(0).expect("ND");
-    command::MotionSyncMode => command::MotionSyncMode::Off;
+    command::NdFilterDensity => command::NdFilterDensity::new(0).expect("ND");
     types::MotionSyncSpeed => types::MotionSyncSpeed::new(1).expect("speed");
     command::MenuDirection => command::MenuDirection::Up;
     command::DirectMenuTarget => command::DirectMenuTarget::NdFilter;
     command::MenuButton => command::MenuButton::Release;
     types::NdiQuality => types::NdiQuality::High;
-    command::VariableSpeedMode => command::VariableSpeedMode::Standard24;
+    command::PanTiltSpeedMode => command::PanTiltSpeedMode::Standard24;
     types::IrisStep => types::IrisStep::MIN;
-    types::WhiteKelvin => types::WhiteKelvin::MIN;
     types::WhiteBalanceStep => types::WhiteBalanceStep::MIN;
     types::MemoryColorTemperatureStep => types::MemoryColorTemperatureStep::MIN;
     types::WhiteBalanceGain => types::WhiteBalanceGain::MIN;
-    types::TintOffset => types::TintOffset::MIN;
+    types::WhiteBalanceOffset => types::WhiteBalanceOffset::MIN;
     types::BlackStep => types::BlackStep::MIN;
     types::BlackLevel => types::BlackLevel::MIN;
     types::KneeSlope => types::KneeSlope::MIN;
     types::KneePoint => types::KneePoint::MIN;
     types::HighResolutionZoomSpeed => types::HighResolutionZoomSpeed::MIN;
-    types::Fr7PresetNumber => types::Fr7PresetNumber::MIN;
+    types::PresetNumber => types::PresetNumber::MIN;
     types::PresetSpeed => types::PresetSpeed::MIN;
-    types::PresetDuration => types::PresetDuration::MIN;
-    command::Fr7KneeMode => command::Fr7KneeMode::Auto;
-    command::Fr7KneeParameter => command::Fr7KneeParameter::Setting;
-    command::Fr7PresetSpeedSelection => command::Fr7PresetSpeedSelection::Separate;
-    command::Fr7PresetSeparateMode => command::Fr7PresetSeparateMode::Speed;
+    std::time::Duration => std::time::Duration::from_secs(1);
+    command::KneeMode => command::KneeMode::Auto;
+    command::KneeParameter => command::KneeParameter::Setting;
+    command::PresetSpeedSelection => command::PresetSpeedSelection::Separate;
+    command::PresetSeparateMode => command::PresetSeparateMode::Speed;
 }
 impl Sample for types::FocusPosition {
     fn sample(profile: &ProfileSpec) -> Self {
@@ -108,6 +101,7 @@ impl Sample for types::FocusPosition {
                 .as_ref()
                 .map_or(0, |domain| domain.range.min()),
         )
+        .expect("profile focus position")
     }
 }
 impl Sample for types::ShutterSpeed {
@@ -120,12 +114,13 @@ impl Sample for types::ShutterSpeed {
                 .and_then(|domain| domain.shutter_speeds.first())
                 .map_or(0, |entry| entry.value),
         )
+        .expect("profile shutter code")
     }
 }
 
-impl Sample for types::ColorTemp {
+impl Sample for types::Kelvin {
     fn sample(profile: &ProfileSpec) -> Self {
-        Self::from_kelvin(
+        Self::new(
             profile
                 .capabilities()
                 .white_balance
@@ -178,7 +173,7 @@ fn profiles() -> (ProfileSpec, ProfileSpec, ProfileSpec) {
         .as_mut()
         .expect("white balance")
         .modes
-        .push(command::WhiteBalanceMode::ATW);
+        .push(command::WhiteBalanceMode::Atw);
     caps.white_balance
         .as_mut()
         .expect("white balance")
@@ -423,8 +418,7 @@ fn parameterized_preset_inquiries_share_command_bounds_before_encoding() {
     let registration = target_for(&profile);
     macro_rules! check {
         ($query:ident) => {{
-            let admitted =
-                command::$query::new(types::Fr7PresetNumber::new(5).expect("last preset"));
+            let admitted = command::$query::new(types::PresetNumber::new(5).expect("last preset"));
             assert!(crate::prepared::test_support::prepare_inquiry(
                 &admitted,
                 &registration,
@@ -433,7 +427,7 @@ fn parameterized_preset_inquiries_share_command_bounds_before_encoding() {
             )
             .is_ok());
             let denied =
-                command::$query::new(types::Fr7PresetNumber::new(6).expect("wire-valid preset"));
+                command::$query::new(types::PresetNumber::new(6).expect("wire-valid preset"));
             crate::command::inquiry_structs::reset_generated_inquiry_write_count();
             assert!(matches!(
                 crate::prepared::test_support::prepare_inquiry(
@@ -458,7 +452,7 @@ fn parameterized_preset_inquiries_share_command_bounds_before_encoding() {
     check!(Fr7SeparatePresetModeInquiry);
     check!(Fr7SeparatePresetSpeedInquiry);
     check!(Fr7SeparatePresetDurationInquiry);
-    let preset = types::Fr7PresetNumber::new(6).expect("wire-valid preset");
+    let preset = types::PresetNumber::new(6).expect("wire-valid preset");
     assert!(prepare_builtin_command(
         &command::Fr7SetSeparatePresetSpeed::new(preset, types::PresetSpeed::MIN),
         &registration,

@@ -65,7 +65,7 @@ impl Request for PlainPing {
     const CONTROL_CLASS: ControlClass = ControlClass::Normal;
 
     fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
-        out[..3].copy_from_slice(&[target.to_address_byte(), 0x01, 0xff]);
+        out[..3].copy_from_slice(&[(0x80 | target.value()), 0x01, 0xff]);
         Ok(3)
     }
 }
@@ -81,7 +81,7 @@ impl Request for RawInquiry {
     const CONTROL_CLASS: ControlClass = ControlClass::Normal;
 
     fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
-        out[..3].copy_from_slice(&[target.to_address_byte(), 0x09, 0xff]);
+        out[..3].copy_from_slice(&[(0x80 | target.value()), 0x09, 0xff]);
         Ok(3)
     }
 }
@@ -244,8 +244,8 @@ async fn raw_serial_multi_target_registration_routes_each_camera<E: Executor>(ex
     session.shutdown().expect("shutdown");
     let sent = fake.writes();
     assert_eq!(sent.len(), 2);
-    assert_eq!(sent[0][0], CameraId::CAMERA_2.to_address_byte());
-    assert_eq!(sent[1][0], CameraId::CAMERA_1.to_address_byte());
+    assert_eq!(sent[0][0], (0x80 | CameraId::CAMERA_2.value()));
+    assert_eq!(sent[1][0], (0x80 | CameraId::CAMERA_1.value()));
 }
 
 async fn incompatible_standard_transport_fails_before_send_or_owner_spawn<E: Executor>(

@@ -1,6 +1,6 @@
 //! Source-backed variable Neutral Density (ND) filter metadata.
 
-use crate::{capabilities::ValidationError, command::NdFilterValue};
+use crate::{capabilities::ValidationError, command::NdFilterDensity};
 
 /// Runtime ND metadata, independent of typed control permission.
 ///
@@ -17,18 +17,16 @@ pub trait NdFilterMetadataExt: NdFilterMetadata {
     fn validate_nd_filter(&self, value: u8) -> Result<u8, ValidationError> {
         match Self::ND_MODE {
             NdFilterMode::None => Err(ValidationError::NotSupported("ND filter")),
-            NdFilterMode::Variable => {
-                NdFilterValue::new(u16::from(value))
-                    .map(|_| value)
-                    .map_err(|_| {
-                        ValidationError::out_of_range(
-                            "ND filter value",
-                            f64::from(value),
-                            0.0,
-                            f64::from(NdFilterValue::MAX_VALUE),
-                        )
-                    })
-            }
+            NdFilterMode::Variable => NdFilterDensity::new(u16::from(value))
+                .map(|_| value)
+                .map_err(|_| {
+                    ValidationError::out_of_range(
+                        "ND filter value",
+                        f64::from(value),
+                        0.0,
+                        f64::from(NdFilterDensity::MAX_VALUE),
+                    )
+                }),
         }
     }
 
@@ -88,7 +86,7 @@ mod tests {
         for value in 0..=u8::MAX {
             assert_eq!(
                 VariableNd.validate_nd_filter(value).is_ok(),
-                NdFilterValue::new(u16::from(value)).is_ok(),
+                NdFilterDensity::new(u16::from(value)).is_ok(),
                 "density code {value}"
             );
         }

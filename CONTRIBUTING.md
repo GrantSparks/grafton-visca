@@ -140,6 +140,37 @@ directly; the protocol encoder is an internal implementation detail and does
 not by itself select a completion class or lifecycle. Keep new semantic
 classifications in the authoritative request/command ledger.
 
+### Checked value types
+
+Declare bounded scalar values with `#[grafton_visca::value(...)]` and value
+enums with `#[grafton_visca::value_enum]`. Their generated comparison/hash,
+display and ecosystem implementations should be shared by built-in and
+contributed values. The same attribute supports finite `f32`/`f64` domains;
+NaN and infinity are rejected and negative zero is normalized. Keep the scalar's union domain separate from the camera
+profile's supported domain: construction checks the former and request
+preparation checks the latter before I/O.
+
+```rust
+use grafton_visca::{value, wire::WireValue};
+
+#[value(min = 0, max = 7, display = "Speed {}")]
+pub struct VendorSpeed(u8);
+
+# fn example() -> grafton_visca::Result<()> {
+let speed = VendorSpeed::new(3)?;
+assert_eq!(speed.value(), 3);
+assert_eq!(VendorSpeed::MIN.value(), 0);
+assert_eq!(VendorSpeed::from_wire(speed.to_wire())?, speed);
+# Ok(()) }
+```
+
+Use `WireValue::to_wire` and `from_wire` for protocol representations. Declare
+centered or biased integer mappings on the value attribute; perform conversions
+that depend on profile facts at the target boundary. Physical quantities use
+`Degrees`, `Kelvin`, `UnitInterval`, `ExposureTime` or `std::time::Duration`
+rather than unlabelled numbers. Check value boundaries, codec round trips and
+invalid serialized input when adding or changing a value.
+
 ### 1. Use a typed Request for Safe Encoding
 
 Typed `Request` implementations make semantic admission explicit while keeping

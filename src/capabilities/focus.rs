@@ -91,12 +91,12 @@ pub trait FocusExt: Focus {
     /// use grafton_visca::{
     ///     capabilities::{focus::{Focus, FocusExt}, ValidationError},
     ///     profiles::PtzOpticsG2,
-    ///     units::UnitInterval,
+    ///     types::UnitInterval,
     /// };
     /// let minimum = <PtzOpticsG2 as Focus>::FOCUS_RANGE.min();
     /// assert_eq!(PtzOpticsG2.validate_focus_position(minimum), Ok(minimum));
     /// assert_eq!(
-    ///     PtzOpticsG2.normalized_to_focus_units(UnitInterval::ZERO),
+    ///     PtzOpticsG2.normalized_to_focus_units(UnitInterval::MIN),
     ///     Err(ValidationError::NotSupported("focus near/far orientation")),
     /// );
     /// ```
@@ -197,7 +197,7 @@ mod tests {
                 crate::capabilities::FocusNearEnd::Unknown
             ) {
                 assert!(matches!(
-                    camera.normalized_to_focus_units(UnitInterval::ZERO),
+                    camera.normalized_to_focus_units(UnitInterval::MIN),
                     Err(ValidationError::NotSupported("focus near/far orientation"))
                 ));
                 assert!(matches!(
@@ -257,13 +257,13 @@ mod tests {
 
         assert_eq!(
             camera
-                .normalized_to_focus_units(UnitInterval::ZERO)
+                .normalized_to_focus_units(UnitInterval::MIN)
                 .expect("0.0 is valid normalized value"),
             0x1000
         );
         assert_eq!(
             camera
-                .normalized_to_focus_units(UnitInterval::ONE)
+                .normalized_to_focus_units(UnitInterval::MAX)
                 .expect("1.0 is valid normalized value"),
             0xF000
         );

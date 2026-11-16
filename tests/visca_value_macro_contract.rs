@@ -7,11 +7,18 @@ fn visca_value_attributes_are_checked_downstream() {
         &[
             "tests/api_contract/pass/visca_range_type_downstream.rs",
             "tests/api_contract/pass/visca_value_valid_range.rs",
+            "tests/api_contract/pass/visca_enum_error_convention.rs",
+            "tests/api_contract/pass/value_float_contract.rs",
         ],
         &features,
     );
     compile_fail::assert_compile_fail_fixture_paths(
         &[
+            "tests/api_contract/fail/value_nan_bound.rs",
+            "tests/api_contract/fail/value_infinite_bound.rs",
+            "tests/api_contract/fail/value_inverted_float_bounds.rs",
+            "tests/api_contract/fail/removed_value_generators.rs",
+            "tests/api_contract/fail/removed_enum_wire_conversions.rs",
             "tests/api_contract/fail/visca_value_unknown_bare_attribute.rs",
             "tests/api_contract/fail/visca_value_unknown_value_attribute.rs",
             "tests/api_contract/fail/visca_value_duplicate_attribute.rs",

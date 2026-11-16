@@ -643,10 +643,10 @@ impl Session {
                 for target in [camera(1), camera(2)] {
                     if !session.owes_only_completions(target) {
                         let now = session.now;
-                        session.admit(inquiry(target.camera().id()), AdmissionSlot::Ordinary);
+                        session.admit(inquiry(target.camera().value()), AdmissionSlot::Ordinary);
                         session.admit(
                             stop(
-                                target.camera().id(),
+                                target.camera().value(),
                                 now,
                                 session.kind.link.stop_budget,
                                 session.ticket + 1,
@@ -845,7 +845,7 @@ impl Session {
                         kind,
                     } => {
                         let entry = self.engine.entry(request).expect("written request");
-                        let target = entry.request.context().target.camera().id();
+                        let target = entry.request.context().target.camera().value();
                         let job = match kind {
                             Transmission::Request { .. } => {
                                 assert!(

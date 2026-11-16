@@ -5,6 +5,8 @@
 //! plain image controls and do not start mechanical motion. Detail level uses
 //! the separate shared sharpness command; this module models detail enablement.
 
+use crate::wire::WireValue;
+
 use crate::{
     command::{
         bytes::{constants::sony_fr7_image, FrameWriter},
@@ -14,15 +16,12 @@ use crate::{
     CameraId, Error,
 };
 
-crate::__grafton_visca_newtype! {
-    /// FR7 master, red or blue black level, in tenths of a displayed unit.
-    ///
-    /// `-990`, `0` and `990` represent -99.0, neutral and +99.0. R7 pp. 16
-    /// and 21 encode them as `0000`, `03DE` and `07BC`, respectively.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "-990", max = "990", display_prefix = "Black Level (tenths)")]
-    pub struct BlackLevel(i16);
-}
+/// FR7 master, red or blue black level, in tenths of a displayed unit.
+///
+/// `-990`, `0` and `990` represent -99.0, neutral and +99.0. R7 pp. 16
+/// and 21 encode them as `0000`, `03DE` and `07BC`, respectively.
+#[crate::value(min=-990, max=990, display="Black Level (tenths) {}", wire=biased(990,u16))]
+pub struct BlackLevel(i16);
 
 impl BlackLevel {
     /// Creates a level from -99.0 through +99.0, rounding to the nearest tenth.
@@ -45,88 +44,26 @@ impl BlackLevel {
     pub fn to_level(self) -> f64 {
         f64::from(self.value()) / 10.0
     }
-
-    /// Decodes the biased `0000..=07BC` protocol value (R7 p. 21).
-    pub const fn from_protocol_value(value: u16) -> Result<Self, Error> {
-        if value > 1980 {
-            return Err(Error::parameter_out_of_range(
-                "black_level_wire",
-                value as i32,
-                0,
-                1980,
-            ));
-        }
-        Self::new(value as i16 - 990)
-    }
-
-    /// Returns the biased `0000..=07BC` protocol value (R7 p. 16).
-    #[must_use]
-    pub const fn to_protocol_value(self) -> u16 {
-        (self.value() + 990) as u16
-    }
 }
 
-crate::__grafton_visca_newtype! {
-    /// Number of relative FR7 black-level adjustment steps (R7 p. 16).
-    ///
-    /// The step count `01..=FF` is distinct from a direct black level.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "1", max = "255", display_prefix = "Black Step")]
-    pub struct BlackStep(u8);
-}
+/// Number of relative FR7 black-level adjustment steps (R7 p. 16).
+///
+/// The step count `01..=FF` is distinct from a direct black level.
+#[crate::value(min = 1, max = 255, display = "Black Step {}")]
+pub struct BlackStep(u8);
 
-crate::__grafton_visca_newtype! {
-    /// FR7 knee slope, from -99 through +99 (R7 pp. 16 and 22).
-    ///
-    /// The protocol biases the displayed value by 99: `00`, `63` and `C6`
-    /// represent -99, neutral and +99.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "-99", max = "99", display_prefix = "Knee Slope")]
-    pub struct KneeSlope(i16);
-}
+/// FR7 knee slope, from -99 through +99 (R7 pp. 16 and 22).
+///
+/// The protocol biases the displayed value by 99: `00`, `63` and `C6`
+/// represent -99, neutral and +99.
+#[crate::value(min=-99, max=99, display="Knee Slope {}", wire=biased(99,u8))]
+pub struct KneeSlope(i16);
 
-impl KneeSlope {
-    /// Decodes the biased `00..=C6` protocol value.
-    pub const fn from_protocol_value(value: u8) -> Result<Self, Error> {
-        Self::new(value as i16 - 99)
-    }
-
-    /// Returns the biased `00..=C6` protocol value.
-    #[must_use]
-    pub const fn to_protocol_value(self) -> u8 {
-        (self.value() + 99) as u8
-    }
-}
-
-crate::__grafton_visca_newtype! {
-    /// FR7 knee point, in percent, from 75 through 109 (R7 pp. 16 and 22).
-    ///
-    /// Protocol values `00..=22` represent 75% through 109%.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "75", max = "109", display_prefix = "Knee Point (%)")]
-    pub struct KneePoint(u8);
-}
-
-impl KneePoint {
-    /// Decodes a `00..=22` protocol value into a percentage.
-    pub const fn from_protocol_value(value: u8) -> Result<Self, Error> {
-        if value > 34 {
-            return Err(Error::parameter_out_of_range(
-                "knee_point_wire",
-                value as i32,
-                0,
-                34,
-            ));
-        }
-        Self::new(value + 75)
-    }
-
-    /// Returns the `00..=22` protocol value for this percentage.
-    #[must_use]
-    pub const fn to_protocol_value(self) -> u8 {
-        self.value() - 75
-    }
-}
+/// FR7 knee point, in percent, from 75 through 109 (R7 pp. 16 and 22).
+///
+/// Protocol values `00..=22` represent 75% through 109%.
+#[crate::value(min=75, max=109, display="Knee Point (%) {}", wire=biased(-75,u8))]
+pub struct KneePoint(u8);
 
 macro_rules! black_control {
     ($(#[$doc:meta])* $name:ident, step = $step:expr, direct = $direct:expr) => {
@@ -151,7 +88,7 @@ macro_rules! black_control {
                 match *self {
                     Self::Up(step) => frame.bytes(&$step).byte(2).nibbles::<2>(step.value()),
                     Self::Down(step) => frame.bytes(&$step).byte(3).nibbles::<2>(step.value()),
-                    Self::Direct(level) => frame.bytes(&$direct).nibbles::<4>(level.to_protocol_value()),
+                    Self::Direct(level) => frame.bytes(&$direct).nibbles::<4>(level.to_wire()),
                 }
                 .finish()
             }
@@ -217,73 +154,35 @@ boolean_setting! {
     Fr7KneeSetting, sony_fr7_image::KNEE_SETTING
 }
 
-macro_rules! protocol_choice {
-    ($(#[$doc:meta])* $name:ident { $($(#[$variant_doc:meta])* $variant:ident = $value:literal),+ $(,)? }) => {
-        $(#[$doc])*
-        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-        #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-        #[cfg_attr(feature = "serde", serde(rename_all = "snake_case", deny_unknown_fields))]
-        #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-        #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-        pub enum $name {
-            $($(#[$variant_doc])* $variant,)+
-        }
-
-        impl $name {
-            /// Decodes a source-backed protocol code, refusing unknown values.
-            pub fn from_protocol_value(value: u8) -> Result<Self, Error> {
-                match value {
-                    $($value => Ok(Self::$variant),)+
-                    _ => Err(Error::invalid_response(
-                        concat!("valid ", stringify!($name), " protocol code"),
-                        vec![value],
-                    )),
-                }
-            }
-
-            /// Returns this value's source-backed protocol code.
-            #[must_use]
-            pub const fn to_protocol_value(self) -> u8 {
-                match self {
-                    $(Self::$variant => $value,)+
-                }
-            }
-        }
-    };
+/// FR7 knee mode (R7 pp. 16 and 22).
+#[crate::value_enum]
+pub enum KneeMode {
+    /// Automatically adjust the knee.
+    Auto = 0,
+    /// Use the configured knee point and slope.
+    Manual = 4,
 }
-
-protocol_choice! {
-    /// FR7 knee mode (R7 pp. 16 and 22).
-    Fr7KneeMode {
-        /// Automatically adjust the knee.
-        Auto = 0,
-        /// Use the configured knee point and slope.
-        Manual = 4,
-    }
+/// FR7 knee setting selected by a permission inquiry (R7 p. 22).
+#[crate::value_enum]
+pub enum KneeParameter {
+    /// Knee enablement.
+    Setting = 0,
+    /// Automatic or manual mode.
+    Mode = 1,
+    /// Knee point.
+    Point = 2,
+    /// Knee slope.
+    Slope = 3,
 }
-protocol_choice! {
-    /// FR7 knee setting selected by a permission inquiry (R7 p. 22).
-    Fr7KneeParameter {
-        /// Knee enablement.
-        Setting = 0,
-        /// Automatic or manual mode.
-        Mode = 1,
-        /// Knee point.
-        Point = 2,
-        /// Knee slope.
-        Slope = 3,
-    }
-}
-protocol_choice! {
-    /// FR7 knee parameter permission (R7 p. 22).
-    Fr7KneePermission {
-        /// The setting can be configured.
-        Enabled = 0,
-        /// The setting is unavailable.
-        Disabled = 1,
-        /// The acquired value is valid, but cannot be configured.
-        DisplayOnly = 2,
-    }
+/// FR7 knee parameter permission (R7 p. 22).
+#[crate::value_enum]
+pub enum KneePermission {
+    /// The setting can be configured.
+    Enabled = 0,
+    /// The setting is unavailable.
+    Disabled = 1,
+    /// The acquired value is valid, but cannot be configured.
+    DisplayOnly = 2,
 }
 
 macro_rules! knee_setting {
@@ -315,7 +214,7 @@ macro_rules! knee_setting {
             fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
                 FrameWriter::new(camera_id, buffer)
                     .bytes(&$prefix)
-                    .nibbles::<$digits>(self.$field.to_protocol_value())
+                    .nibbles::<$digits>(self.$field.to_wire())
                     .finish()
             }
         }
@@ -324,7 +223,7 @@ macro_rules! knee_setting {
 
 knee_setting! {
     /// Selects FR7 automatic or manual knee mode (R7 p. 16).
-    Fr7SetKneeMode, mode: Fr7KneeMode, sony_fr7_image::KNEE_MODE, 1
+    Fr7SetKneeMode, mode: KneeMode, sony_fr7_image::KNEE_MODE, 1
 }
 knee_setting! {
     /// Sets the FR7 knee slope from -99 through +99 (R7 p. 16).
@@ -339,11 +238,11 @@ pub(crate) fn decode_black_level(payload: Payload<'_>) -> Result<BlackLevel, Err
     let value = Nibbles::<4>::try_from(payload)?
         .u16_quad(0)
         .ok_or(Error::InvalidResponseFormat)?;
-    BlackLevel::from_protocol_value(value)
+    BlackLevel::from_wire(value)
 }
 
-pub(crate) fn decode_fr7_knee_mode(payload: Payload<'_>) -> Result<Fr7KneeMode, Error> {
-    Fr7KneeMode::from_protocol_value(
+pub(crate) fn decode_fr7_knee_mode(payload: Payload<'_>) -> Result<KneeMode, Error> {
+    KneeMode::from_wire(
         Nibbles::<1>::try_from(payload)?
             .byte(0)
             .ok_or(Error::InvalidResponseFormat)?,
@@ -351,15 +250,15 @@ pub(crate) fn decode_fr7_knee_mode(payload: Payload<'_>) -> Result<Fr7KneeMode, 
 }
 
 pub(crate) fn decode_knee_slope(payload: Payload<'_>) -> Result<KneeSlope, Error> {
-    KneeSlope::from_protocol_value(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)
+    KneeSlope::from_wire(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)
 }
 
 pub(crate) fn decode_knee_point(payload: Payload<'_>) -> Result<KneePoint, Error> {
-    KneePoint::from_protocol_value(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)
+    KneePoint::from_wire(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)
 }
 
-pub(crate) fn decode_fr7_knee_permission(payload: Payload<'_>) -> Result<Fr7KneePermission, Error> {
-    Fr7KneePermission::from_protocol_value(
+pub(crate) fn decode_fr7_knee_permission(payload: Payload<'_>) -> Result<KneePermission, Error> {
+    KneePermission::from_wire(
         Nibbles::<1>::try_from(payload)?
             .byte(0)
             .ok_or(Error::InvalidResponseFormat)?,
@@ -445,7 +344,7 @@ mod tests {
 
     #[test]
     fn r7_page_16_knee_settings_use_unpadded_command_values() {
-        for (mode, code) in [(Fr7KneeMode::Auto, 0), (Fr7KneeMode::Manual, 4)] {
+        for (mode, code) in [(KneeMode::Auto, 0), (KneeMode::Manual, 4)] {
             let command = Fr7SetKneeMode::new(mode);
             assert_eq!(command.mode(), mode);
             literal(&command, &[0x81, 1, 0x7e, 1, 0x54, code, 0xff]);
@@ -473,25 +372,25 @@ mod tests {
     #[test]
     fn value_domains_round_trip_and_refuse_every_outside_protocol_code() {
         for wire in 0..=u16::MAX {
-            let result = BlackLevel::from_protocol_value(wire);
+            let result = BlackLevel::from_wire(wire);
             if wire <= 1980 {
                 let level = result.unwrap();
-                assert_eq!(level.to_protocol_value(), wire);
+                assert_eq!(level.to_wire(), wire);
                 assert_eq!(BlackLevel::from_level(level.to_level()).unwrap(), level);
             } else {
                 assert!(result.is_err(), "black wire {wire:04x}");
             }
         }
         for wire in 0..=u8::MAX {
-            let slope = KneeSlope::from_protocol_value(wire);
+            let slope = KneeSlope::from_wire(wire);
             if wire <= 198 {
-                assert_eq!(slope.unwrap().to_protocol_value(), wire);
+                assert_eq!(slope.unwrap().to_wire(), wire);
             } else {
                 assert!(slope.is_err(), "knee slope wire {wire:02x}");
             }
-            let point = KneePoint::from_protocol_value(wire);
+            let point = KneePoint::from_wire(wire);
             if wire <= 34 {
-                assert_eq!(point.unwrap().to_protocol_value(), wire);
+                assert_eq!(point.unwrap().to_wire(), wire);
             } else {
                 assert!(point.is_err(), "knee point wire {wire:02x}");
             }
@@ -577,18 +476,18 @@ mod tests {
     #[test]
     fn knee_mode_permission_and_parameter_domains_are_closed() {
         for wire in 0..=u8::MAX {
-            let mode = Fr7KneeMode::from_protocol_value(wire);
+            let mode = KneeMode::from_wire(wire);
             assert_eq!(mode.is_ok(), matches!(wire, 0 | 4));
             if let Ok(mode) = mode {
-                assert_eq!(mode.to_protocol_value(), wire);
+                assert_eq!(mode.to_wire(), wire);
                 assert_eq!(decode_fr7_knee_mode(Payload::new(&[wire])).unwrap(), mode);
             } else {
                 assert!(decode_fr7_knee_mode(Payload::new(&[wire])).is_err());
             }
-            let permission = Fr7KneePermission::from_protocol_value(wire);
+            let permission = KneePermission::from_wire(wire);
             assert_eq!(permission.is_ok(), wire <= 2);
             if let Ok(permission) = permission {
-                assert_eq!(permission.to_protocol_value(), wire);
+                assert_eq!(permission.to_wire(), wire);
                 assert_eq!(
                     decode_fr7_knee_permission(Payload::new(&[wire])).unwrap(),
                     permission
@@ -596,10 +495,10 @@ mod tests {
             } else {
                 assert!(decode_fr7_knee_permission(Payload::new(&[wire])).is_err());
             }
-            let parameter = Fr7KneeParameter::from_protocol_value(wire);
+            let parameter = KneeParameter::from_wire(wire);
             assert_eq!(parameter.is_ok(), wire <= 3);
             if let Ok(parameter) = parameter {
-                assert_eq!(parameter.to_protocol_value(), wire);
+                assert_eq!(parameter.to_wire(), wire);
             }
         }
         for payload in [&[][..], &[0, 0][..], &[0, 0, 0, 0][..]] {
@@ -608,7 +507,7 @@ mod tests {
         }
         assert_eq!(
             decode_fr7_knee_permission(Payload::new(&[2])).unwrap(),
-            Fr7KneePermission::DisplayOnly,
+            KneePermission::DisplayOnly,
         );
     }
 
@@ -643,21 +542,21 @@ mod tests {
         round_trip(Fr7BlueBlack::Down(BlackStep::MIN));
         round_trip(Fr7DetailSetting::new(true));
         round_trip(Fr7KneeSetting::new(false));
-        round_trip(Fr7SetKneeMode::new(Fr7KneeMode::Manual));
+        round_trip(Fr7SetKneeMode::new(KneeMode::Manual));
         round_trip(Fr7SetKneeSlope::new(KneeSlope::MIN));
         round_trip(Fr7SetKneePoint::new(KneePoint::MAX));
         for value in [
-            Fr7KneePermission::Enabled,
-            Fr7KneePermission::Disabled,
-            Fr7KneePermission::DisplayOnly,
+            KneePermission::Enabled,
+            KneePermission::Disabled,
+            KneePermission::DisplayOnly,
         ] {
             round_trip(value);
         }
         for value in [
-            Fr7KneeParameter::Setting,
-            Fr7KneeParameter::Mode,
-            Fr7KneeParameter::Point,
-            Fr7KneeParameter::Slope,
+            KneeParameter::Setting,
+            KneeParameter::Mode,
+            KneeParameter::Point,
+            KneeParameter::Slope,
         ] {
             round_trip(value);
         }
@@ -682,7 +581,7 @@ mod tests {
         assert!(serde_json::from_str::<Fr7SetKneeSlope>(r#"{"slope":100}"#).is_err());
         assert!(serde_json::from_str::<Fr7SetKneePoint>(r#"{"point":110}"#).is_err());
         assert!(serde_json::from_str::<Fr7SetKneeMode>(r#"{"mode":"unknown"}"#).is_err());
-        assert!(serde_json::from_str::<Fr7KneePermission>(r#""unknown""#).is_err());
-        assert!(serde_json::from_str::<Fr7KneeParameter>("4").is_err());
+        assert!(serde_json::from_str::<KneePermission>(r#""unknown""#).is_err());
+        assert!(serde_json::from_str::<KneeParameter>("4").is_err());
     }
 }

@@ -1,13 +1,11 @@
-use grafton_visca::ViscaEnum;
+use grafton_visca::value_enum;
 
-#[derive(ViscaEnum)]
-enum SkippedDiscriminantCollision {
+#[value_enum]
+enum DiscriminantCollision {
     Active = 0x01,
-    #[visca_enum(skip)]
     Reserved = 0x01,
 }
 
 fn main() {}
 
-//~ "Discriminant value 0x1 is already used by variant Active"
-//~ E0081
+//~ "duplicate value_enum wire code"

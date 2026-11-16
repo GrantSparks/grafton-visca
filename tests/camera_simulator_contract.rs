@@ -212,7 +212,7 @@ impl Request for UnknownInquiry {
     const CONTROL_CLASS: ControlClass = ControlClass::Normal;
 
     fn write_into(&self, target: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
-        buffer[..5].copy_from_slice(&[0x80 | target.id(), 0x09, 0x04, 0x7e, 0xff]);
+        buffer[..5].copy_from_slice(&[0x80 | target.value(), 0x09, 0x04, 0x7e, 0xff]);
         Ok(5)
     }
 }

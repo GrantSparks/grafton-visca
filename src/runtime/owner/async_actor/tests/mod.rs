@@ -382,7 +382,7 @@ fn command_for(target: TargetSlot) -> RuntimeRequest {
         reply_shape: ReplyShape::AckThenCompletion,
         wire: Arc::new(
             EncodedMessage::new(&[
-                0x80_u8.saturating_add(target.camera().id()),
+                0x80_u8.saturating_add(target.camera().value()),
                 0x01,
                 0x04,
                 0x00,
@@ -563,7 +563,7 @@ fn inquiry_for(target: TargetSlot) -> RuntimeRequest {
         payload_shape: crate::PayloadShape::Unknown,
         wire: Arc::new(
             EncodedMessage::new(&[
-                0x80_u8.saturating_add(target.camera().id()),
+                0x80_u8.saturating_add(target.camera().value()),
                 0x09,
                 0x04,
                 0x00,

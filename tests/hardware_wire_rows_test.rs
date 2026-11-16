@@ -92,11 +92,13 @@ use std::{
     time::{Duration, Instant},
 };
 
+use grafton_visca::wire::WireValue;
+
 use grafton_visca::{
     blocking::{Camera, CameraSession, Connect},
     camera::{
         profiles::{PtzOptics30X, PtzOpticsG2},
-        IdleWait, PanTiltPosition,
+        IdleWait, PanTiltUnits,
     },
     capabilities::{
         Capabilities, HasDirectZoom, HasExposure, HasExposureMode, HasFocus, HasFocusZone,
@@ -112,8 +114,7 @@ use grafton_visca::{
     raw,
     types::{PanSpeed, ShutterSpeed, SpeedLevel, TiltSpeed, ZoomPosition},
     units::{Degrees, UnitInterval},
-    AffectedAxes, CameraId, CompileTimeProfile, Error, PanTiltCoordinateConversion, Request,
-    RetryClass, ZoomDomain,
+    AffectedAxes, CameraId, CompileTimeProfile, Error, Request, RetryClass, ZoomDomain,
 };
 
 use hardware::{
@@ -335,13 +336,13 @@ fn corrected_inquiries<P: WireRowProfile>(hw: &Hw, ip: &str) {
 fn level2(result: &Result<NoiseReduction2D, Error>) -> String {
     result
         .as_ref()
-        .map_or_else(|_| "ERR".to_owned(), |level| level.value().to_string())
+        .map_or_else(|_| "ERR".to_owned(), |level| level.to_wire().to_string())
 }
 
 fn level3(result: &Result<NoiseReduction3D, Error>) -> String {
     result
         .as_ref()
-        .map_or_else(|_| "ERR".to_owned(), |level| level.value().to_string())
+        .map_or_else(|_| "ERR".to_owned(), |level| level.to_wire().to_string())
 }
 
 fn mode2(result: &Result<NoiseReduction2DMode, Error>) -> String {
@@ -509,7 +510,7 @@ fn nr_zero_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Checks
         hw!(
             hw,
             "observation.nr2d_readback_equals_zero={}",
-            matches!(&level, Ok(value) if value.value() == 0)
+            matches!(&level, Ok(NoiseReduction2D::Off))
         );
         hw!(
             hw,
@@ -532,7 +533,7 @@ fn nr_zero_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Result<Checks
         hw!(
             hw,
             "observation.nr3d_readback_equals_zero={}",
-            matches!(&level, Ok(value) if value.value() == 0)
+            matches!(&level, Ok(NoiseReduction3D::Off))
         );
         guard.restore_3d();
     }
@@ -931,7 +932,10 @@ fn absolute_pan_tilt_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Res
         return Ok(checks);
     }
 
-    let conversion = PanTiltCoordinateConversion::for_profile::<P>();
+    let conversion = grafton_visca::ProfileSpec::from_compile_time::<P>()
+        .expect("profile")
+        .pan_tilt_coordinates()
+        .expect("coordinate conversion");
     let pan_degrees = conversion.pan_degrees(target_pan);
     let tilt_degrees = conversion.tilt_degrees(target_tilt);
     let pan_speed = slowest_speed(
@@ -941,7 +945,7 @@ fn absolute_pan_tilt_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Res
             .expect("pan/tilt domain")
             .pan_speed
             .as_inclusive(),
-        slowest.to_pan_speed(),
+        1,
     );
     let tilt_speed = slowest_speed(
         &capabilities
@@ -950,7 +954,7 @@ fn absolute_pan_tilt_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Res
             .expect("pan/tilt domain")
             .tilt_speed
             .as_inclusive(),
-        slowest.to_tilt_speed(),
+        1,
     );
     hw!(
         hw,
@@ -970,10 +974,11 @@ fn absolute_pan_tilt_body<P: WireRowProfile>(camera: &Camera<P>, hw: &Hw) -> Res
         recall_attempted: &recall_attempted,
     };
 
-    let mut operation =
-        camera
-            .pan_tilt()
-            .absolute(Degrees(pan_degrees), Degrees(tilt_degrees), slowest)?;
+    let mut operation = camera.pan_tilt().absolute(
+        Degrees::new(pan_degrees).expect("valid degrees"),
+        Degrees::new(tilt_degrees).expect("valid degrees"),
+        slowest,
+    )?;
     hw!(hw, "pan_tilt.absolute.submitted id={:?}", operation.id());
     let settled = operation.settled();
     observe(hw, "pan_tilt.absolute.settled", &settled);
@@ -1084,7 +1089,7 @@ impl<P: WireRowProfile> ShutterProbe<'_, P> {
     /// and the raw reply position equal the code set.
     fn round_trip(&self, checks: &mut Checks, label: &str, entry: &ShutterSpeedEntry) {
         let hw = &self.hw;
-        let speed = ShutterSpeed::new(entry.value);
+        let speed = ShutterSpeed::new(entry.value).expect("valid value");
         let set_frame = encode(&Shutter::SetSpeed(speed), self.target)
             .map_or_else(|_| "ERR".to_owned(), |bytes| hex(&bytes));
         hw!(
@@ -1357,7 +1362,7 @@ fn shutter_body<P: WireRowProfile>(
 
 /// The position at rest after one tilt drive.
 struct TiltDrive {
-    after: PanTiltPosition,
+    after: PanTiltUnits,
     rest_stable: bool,
 }
 
@@ -1421,16 +1426,19 @@ fn record_tilt<P: WireRowProfile>(
     checks: &mut Checks,
     label: &str,
     up: bool,
-    before: PanTiltPosition,
+    before: PanTiltUnits,
     drive: &TiltDrive,
 ) {
-    let conversion = PanTiltCoordinateConversion::for_profile::<P>();
+    let conversion = grafton_visca::ProfileSpec::from_compile_time::<P>()
+        .expect("profile")
+        .pan_tilt_coordinates()
+        .expect("coordinate conversion");
     let after = drive.after;
     let tilt_delta = after.tilt - before.tilt;
     let pan_delta = after.pan - before.pan;
-    let before_deg = conversion.to_degrees(before);
-    let after_deg = conversion.to_degrees(after);
-    let tilt_delta_deg = after_deg.tilt.0 - before_deg.tilt.0;
+    let before_deg = conversion.to_degrees(before).expect("finite coordinates");
+    let after_deg = conversion.to_degrees(after).expect("finite coordinates");
+    let tilt_delta_deg = after_deg.tilt.value() - before_deg.tilt.value();
     hw!(
         hw,
         "observation.tilt.{label} before_raw=({},{}) after_raw=({},{}) delta_raw=(pan {pan_delta}, \
@@ -1440,10 +1448,10 @@ fn record_tilt<P: WireRowProfile>(
         before.tilt,
         after.pan,
         after.tilt,
-        before_deg.pan.0,
-        before_deg.tilt.0,
-        after_deg.pan.0,
-        after_deg.tilt.0
+        before_deg.pan.value(),
+        before_deg.tilt.value(),
+        after_deg.pan.value(),
+        after_deg.tilt.value()
     );
     checks.check(hw, format!("tilt_{label}_rest_stable"), drive.rest_stable);
     checks.check(

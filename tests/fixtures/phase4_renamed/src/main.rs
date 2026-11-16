@@ -2,6 +2,8 @@
 
 use std::time::Duration;
 
+use visca_renamed::wire::WireValue;
+
 use visca_renamed::{
     capabilities::{
         self, Exposure, Focus, HasImageProcessing, ImageProcessing, MenuCapability,
@@ -9,16 +11,16 @@ use visca_renamed::{
         ProfileTypedSupport, Tally, VariableSpeedMetadata, WhiteBalance, Zoom,
     },
     command::{RawInquiryPayload, Response, ResponseParser},
-    request, AffectedAxes, CameraId, CompileTimeProfile, Inquiry, PositionInquirySupport,
-    ProfileSpec, Request, TransportCompatibility, ViscaEnum, ViscaInquiry, ViscaValue,
+    request, value, value_enum, AffectedAxes, CameraId, CompileTimeProfile, Inquiry,
+    PositionInquirySupport, ProfileSpec, Request, TransportCompatibility, ViscaInquiry,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[visca_value(min = "1", max = "4")]
+#[value(min = 1, max = 4)]
 struct RenamedValue(u8);
 
+#[cfg(not(feature = "range-helper-derives"))]
 mod visca_value_hygiene {
-    use visca_renamed::ViscaValue;
+    use visca_renamed::value;
 
     #[allow(dead_code)]
     mod std {}
@@ -44,30 +46,25 @@ mod visca_value_hygiene {
     #[allow(unused_macros)]
     macro_rules! format {
         ($($tokens:tt)*) => {
-            compile_error!("ViscaValue expansion captured `format!`")
+            compile_error!("value expansion captured `format!`")
         };
     }
 
     #[allow(unused_macros)]
     macro_rules! write {
         ($($tokens:tt)*) => {
-            compile_error!("ViscaValue expansion captured `write!`")
+            compile_error!("value expansion captured `write!`")
         };
     }
 
     #[allow(unused_macros)]
     macro_rules! stringify {
         ($($tokens:tt)*) => {
-            compile_error!("ViscaValue expansion captured `stringify!`")
+            compile_error!("value expansion captured `stringify!`")
         };
     }
 
-    #[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-    #[visca_value(
-        valid_values = "[0x03, 0x05, 0x08]",
-        display_format = "hex",
-        display_prefix = "hygienic"
-    )]
+    #[value(valid_values = [0x03, 0x05, 0x08], display = "hygienic {:#04x}")]
     struct HygienicValue(u8);
 
     pub(super) fn assert_hygienic_expansion() -> ::core::result::Result<(), visca_renamed::Error> {
@@ -88,14 +85,14 @@ mod visca_value_hygiene {
 }
 
 // Keep the base renamed-dependency leg hostile to all prelude names and macros
-// emitted by `visca_range_type!`. The ts-rs derive itself intentionally uses a
+// emitted by `#[value]`. The ts-rs derive itself intentionally uses a
 // few caller-scope standard-library names, so the helper-feature leg below
 // tests the real derive separately while retaining all seven hostile derives.
 #[cfg(not(feature = "range-helper-derives"))]
 mod visca_range_type_hygiene {
     #[allow(unused_imports)]
-    use derive_shadows::{Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd};
-    use visca_renamed::visca_range_type;
+    use derive_shadows::{Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd};
+    use visca_renamed::value;
 
     #[allow(dead_code)]
     mod std {}
@@ -126,44 +123,36 @@ mod visca_range_type_hygiene {
     #[allow(unused_macros)]
     macro_rules! format {
         ($($tokens:tt)*) => {
-            compile_error!("visca_range_type! expansion captured `format!`")
+            compile_error!("value expansion captured `format!`")
         };
     }
 
     #[allow(unused_macros)]
     macro_rules! write {
         ($($tokens:tt)*) => {
-            compile_error!("visca_range_type! expansion captured `write!`")
+            compile_error!("value expansion captured `write!`")
         };
     }
 
     #[allow(unused_macros)]
     macro_rules! stringify {
         ($($tokens:tt)*) => {
-            compile_error!("visca_range_type! expansion captured `stringify!`")
+            compile_error!("value expansion captured `stringify!`")
         };
     }
 
     #[allow(unused_macros)]
     macro_rules! module_path {
         ($($tokens:tt)*) => {
-            compile_error!("visca_range_type! expansion captured `module_path!`")
+            compile_error!("value expansion captured `module_path!`")
         };
     }
 
-    visca_range_type! {
-        HygienicRange: u8 {
-            min: 2,
-            max: 4
-        }
-    }
+    #[value(min = 2, max = 4)]
+    pub struct HygienicRange(u8);
 
-    visca_range_type! {
-        SecondHygienicRange: u8 {
-            min: 7,
-            max: 9
-        }
-    }
+    #[value(min = 7, max = 9)]
+    pub struct SecondHygienicRange(u8);
 
     fn clone_via_trait<T: ::core::clone::Clone>(value: &T) -> T {
         value.clone()
@@ -181,7 +170,8 @@ mod visca_range_type_hygiene {
             + ::core::cmp::PartialEq
             + ::core::cmp::Eq
             + ::core::cmp::PartialOrd
-            + ::core::cmp::Ord,
+            + ::core::cmp::Ord
+            + ::core::hash::Hash,
     {
     }
 
@@ -222,51 +212,35 @@ mod visca_range_type_hygiene {
 #[allow(dead_code, non_camel_case_types)]
 mod visca_range_type_helpers {
     #[allow(unused_imports)]
-    use derive_shadows::{Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd};
-    use visca_renamed::visca_range_type;
+    use derive_shadows::{Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd};
+    use visca_renamed::value;
 
-    visca_range_type! {
-        /// Helper-derived range documentation.
-        #[deprecated(note = "schema deprecation marker")]
-        #[serde(rename = "SerdeRange")]
-        #[schemars(rename = "SchemaRange")]
-        #[ts(rename = "RenamedRange", export_to = "phase4-ranges/")]
-        HygienicRange: u8 {
-            min: 2,
-            max: 4
-        }
-    }
+    #[value(min = 2, max = 4)]
+    /// Helper-derived range documentation.
+    #[deprecated(note = "schema deprecation marker")]
+    #[serde(rename = "SerdeRange")]
+    #[schemars(rename = "SchemaRange")]
+    #[ts(rename = "RenamedRange", export_to = "phase4-ranges/")]
+    pub struct HygienicRange(u8);
 
-    visca_range_type! {
-        /// Raw identifier range documentation.
-        r#type: u8 {
-            min: 8,
-            max: 9
-        }
-    }
+    #[value(min = 8, max = 9)]
+    /// Raw identifier range documentation.
+    pub struct r#type(u8);
 
-    visca_range_type! {
-        /// TypeScript type override documentation.
-        #[ts(type = "RangeBrand")]
-        TypedTsRange: u8 {
-            min: 10,
-            max: 11
-        }
-    }
+    #[value(min = 10, max = 11)]
+    /// TypeScript type override documentation.
+    #[ts(type = "RangeBrand")]
+    pub struct TypedTsRange(u8);
 
-    visca_range_type! {
-        /// Documentation superseded by explicit schema metadata.
-        #[schemars(
-            rename = "InlineSchemaRange",
-            title = "Explicit schema title",
-            description = "Explicit schema description",
-            inline
-        )]
-        InlineMetadataRange: u8 {
-            min: 12,
-            max: 13
-        }
-    }
+    #[value(min = 12, max = 13)]
+    /// Documentation superseded by explicit schema metadata.
+    #[schemars(
+        rename = "InlineSchemaRange",
+        title = "Explicit schema title",
+        description = "Explicit schema description",
+        inline
+    )]
+    pub struct InlineMetadataRange(u8);
 
     #[derive(visca_renamed::__macro_support::schemars::JsonSchema)]
     #[schemars(crate = "visca_renamed::__macro_support::schemars")]
@@ -433,7 +407,7 @@ mod visca_range_type_helpers {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
+#[value_enum]
 enum RenamedEnum {
     First = 1,
     Second = 2,
@@ -487,8 +461,20 @@ impl ProfileMetadata for DownstreamProfile {
     const SUPPORTS_COMMAND_CANCEL: bool = true;
 
     const MODEL_NAME: &'static str = "Downstream renamed profile";
-    const DEFAULT_CAMERA_ID: visca_renamed::IndividualCameraId =
-        visca_renamed::IndividualCameraId::new(3).expect("individual profile default");
+    const DEFAULT_CAMERA_ID: visca_renamed::IndividualCameraId = {
+        let checked = visca_renamed::IndividualCameraId::new(3);
+        match &checked {
+            Ok(id) => {
+                let id = *id;
+                core::mem::forget(checked);
+                id
+            }
+            Err(_) => {
+                core::mem::forget(checked);
+                panic!("individual profile default")
+            }
+        }
+    };
     type Envelope = visca_renamed::transport::RawVisca;
     const ACK_TIMEOUT: Duration = Duration::from_millis(120);
     const COMMAND_TIMEOUTS: visca_renamed::CommandTimeouts = visca_renamed::CommandTimeouts::new(
@@ -615,6 +601,7 @@ impl CompileTimeProfile for DownstreamProfile {
 fn renamed_dependency_derive_and_profile_contract() -> visca_renamed::Result<()> {
     assert_inquiry_contracts();
     assert_image_marker::<DownstreamProfile>();
+    #[cfg(not(feature = "range-helper-derives"))]
     visca_value_hygiene::assert_hygienic_expansion()?;
     #[cfg(not(feature = "range-helper-derives"))]
     visca_range_type_hygiene::assert_base_contract()?;
@@ -623,8 +610,8 @@ fn renamed_dependency_derive_and_profile_contract() -> visca_renamed::Result<()>
 
     assert_eq!(RenamedValue::new(2)?, RenamedValue(2));
     assert!(RenamedValue::new(0).is_err());
-    assert_eq!(RenamedEnum::try_from(1)?, RenamedEnum::First);
-    assert!(RenamedEnum::try_from(3).is_err());
+    assert_eq!(RenamedEnum::from_wire(1)?, RenamedEnum::First);
+    assert!(RenamedEnum::from_wire(3).is_err());
 
     let inquiry = RenamedRawInquiry;
     let mut buffer = [0; <RenamedRawInquiry as Request>::MAX_SIZE];

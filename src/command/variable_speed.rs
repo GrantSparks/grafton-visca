@@ -12,16 +12,12 @@ use crate::{
 };
 
 /// Variable speed mode setting for Sony FR7.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-pub enum VariableSpeedMode {
+#[crate::value_enum]
+pub enum PanTiltSpeedMode {
     /// Standard 24-step speed mode (1-24 speeds).
-    Standard24,
+    Standard24 = 8,
     /// Fine 50-step speed mode (1-50 speeds).
-    Fine50,
+    Fine50 = 24,
 }
 
 /// Command to set the pan/tilt speed-step range on Sony FR7.
@@ -33,12 +29,12 @@ pub enum VariableSpeedMode {
 #[derive(Debug, Clone, Copy)]
 pub struct SetVariableSpeedMode {
     /// The speed mode to set.
-    pub mode: VariableSpeedMode,
+    pub mode: PanTiltSpeedMode,
 }
 
 impl SetVariableSpeedMode {
     /// Create a new variable speed mode command.
-    pub fn new(mode: VariableSpeedMode) -> Self {
+    pub fn new(mode: PanTiltSpeedMode) -> Self {
         Self { mode }
     }
 }
@@ -52,8 +48,8 @@ impl WireEncode for SetVariableSpeedMode {
         FrameWriter::new(camera_id, buffer)
             .bytes(&variable_speed::STEP_RANGE)
             .byte(match self.mode {
-                VariableSpeedMode::Standard24 => 0x08,
-                VariableSpeedMode::Fine50 => 0x18,
+                PanTiltSpeedMode::Standard24 => 0x08,
+                PanTiltSpeedMode::Fine50 => 0x18,
             })
             .finish()
     }
@@ -68,14 +64,14 @@ mod tests {
     visca_test!(
         SetVariableSpeedMode,
         test_variable_speed_mode_standard24,
-        SetVariableSpeedMode::new(VariableSpeedMode::Standard24),
+        SetVariableSpeedMode::new(PanTiltSpeedMode::Standard24),
         &[0x81, 0x01, 0x06, 0x45, 0x08, VISCA_TERMINATOR]
     );
 
     visca_test!(
         SetVariableSpeedMode,
         test_variable_speed_mode_fine50,
-        SetVariableSpeedMode::new(VariableSpeedMode::Fine50),
+        SetVariableSpeedMode::new(PanTiltSpeedMode::Fine50),
         &[0x81, 0x01, 0x06, 0x45, 0x18, VISCA_TERMINATOR]
     );
 }

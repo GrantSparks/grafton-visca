@@ -1,11 +1,9 @@
-use grafton_visca::ViscaValue;
+use grafton_visca::value;
 
-#[derive(ViscaValue)]
-#[visca_value(min = "0")]
-#[visca_value(min = "1", max = "4")]
+#[value(min = 0, min = 1, max = 4)]
 struct DuplicateAttribute(u8);
 
 fn main() {}
 
-//~ "duplicate `visca_value` attribute `min`"
+//~ "duplicate `value` attribute `min`"
 //~ "first `min` specified here"

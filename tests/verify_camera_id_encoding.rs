@@ -5,14 +5,14 @@ use grafton_visca::CameraId;
 #[test]
 fn test_camera_id_produces_correct_address_bytes() {
     // Test that CameraId constants produce correct VISCA address bytes
-    assert_eq!(CameraId::CAMERA_1.to_address_byte(), 0x81);
-    assert_eq!(CameraId::CAMERA_2.to_address_byte(), 0x82);
-    assert_eq!(CameraId::CAMERA_3.to_address_byte(), 0x83);
-    assert_eq!(CameraId::CAMERA_4.to_address_byte(), 0x84);
-    assert_eq!(CameraId::CAMERA_5.to_address_byte(), 0x85);
-    assert_eq!(CameraId::CAMERA_6.to_address_byte(), 0x86);
-    assert_eq!(CameraId::CAMERA_7.to_address_byte(), 0x87);
-    assert_eq!(CameraId::BROADCAST.to_address_byte(), 0x88);
+    assert_eq!((0x80 | CameraId::CAMERA_1.value()), 0x81);
+    assert_eq!((0x80 | CameraId::CAMERA_2.value()), 0x82);
+    assert_eq!((0x80 | CameraId::CAMERA_3.value()), 0x83);
+    assert_eq!((0x80 | CameraId::CAMERA_4.value()), 0x84);
+    assert_eq!((0x80 | CameraId::CAMERA_5.value()), 0x85);
+    assert_eq!((0x80 | CameraId::CAMERA_6.value()), 0x86);
+    assert_eq!((0x80 | CameraId::CAMERA_7.value()), 0x87);
+    assert_eq!((0x80 | CameraId::BROADCAST.value()), 0x88);
 }
 
 #[test]
@@ -40,9 +40,9 @@ fn test_camera_id_properties() {
     assert!(CameraId::BROADCAST.is_broadcast());
 
     // Test ID extraction
-    assert_eq!(CameraId::CAMERA_1.id(), 1);
-    assert_eq!(CameraId::CAMERA_7.id(), 7);
-    assert_eq!(CameraId::BROADCAST.id(), 8);
+    assert_eq!(CameraId::CAMERA_1.value(), 1);
+    assert_eq!(CameraId::CAMERA_7.value(), 7);
+    assert_eq!(CameraId::BROADCAST.value(), 8);
 }
 
 #[test]
@@ -50,5 +50,5 @@ fn test_ptzo_default_camera_is_1() {
     // PTZOptics cameras use 0x81 by default, which is Camera 1
     let default_camera = CameraId::default();
     assert_eq!(default_camera, CameraId::CAMERA_1);
-    assert_eq!(default_camera.to_address_byte(), 0x81);
+    assert_eq!((0x80 | default_camera.value()), 0x81);
 }

@@ -59,6 +59,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **BREAKING** (#932): Checked scalar values use `#[value]`, and value enums
+  use `#[value_enum]`. Both provide the shared comparison/hash, display and
+  optional serde/schemars/ts-rs contract. `wire::WireValue` is the single public
+  codec; value construction checks the union domain and request preparation
+  checks the selected profile's domain.
+
+- **BREAKING** (#932): Value types are symmetric: `RgbGain`/`RgbTuning` cover
+  both color channels, `Kelvin` expresses physical color temperature,
+  `PresetNumber` and `PresetSpeed` cover shared preset concepts, and
+  `WhiteBalanceOffset`, `WideDynamicRangeLevel`, `NdFilterDensity` and
+  `PanTiltSpeedMode` use concept names. Preset durations use
+  `std::time::Duration` with exact 100 ms steps. `Degrees` is a checked finite
+  `f32`, `ExposureTime` is a checked rational shutter time, and camera IDs use
+  fallible constructors and `value()` getters. `BrightnessLevel`,
+  `ShutterSpeed` and `FocusPosition` now have fallible constructors and typed
+  bounds. `UnitInterval` exposes `MIN`/`MAX`. Physical pan/tilt positions use
+  `PanTiltPosition`; raw inquiry values use `PanTiltUnits`. New `Speed<T>` and
+  `PanTiltSpeed` distinguish profile-selected levels from exact speeds;
+  `TallyMode` and `TallyBrightness` describe their complete setting domains.
+
 - Contributor workflow keeps issue reviews and bench records on GitHub issues.
   Public API listings are generated from base and proposed source and uploaded
   with their diff for review; API drift requires a changelog entry. Fuzz starting
@@ -374,11 +394,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   terminator bytes in opcode/subcode remain compile errors (#846).
 
 - **BREAKING** (#844): Typed image inquiries separate sourced vertical
-  `image().flip()` (`09 04 66`, with `horizontal: false`) from combined
-  `image().flip_mode()` (`09 04 A4`, requiring `HasCombinedImageFlip`). Ten
+  `image().flip()` (`09 04 66`, returning a boolean) from combined
+  `image().flip_mode()` (`09 04 A4`, returning `ImageFlipMode` and requiring
+  `HasCombinedImageFlip`). Ten
   unsourced typed inquiry families and guessed profile-less `FStop` wire
   conversions are removed. FR7 ND readback uses `09 7E 04 42` and returns
-  `NdFilterValue` variable density, replacing a discrete preset position.
+  `NdFilterDensity` variable density, replacing a discrete preset position.
 
 - **BREAKING** (#845): Indexed `Nibbles::{byte, u16_quad, i16_quad}` accessors
   return `Option`; `Nibbles::from_array` and `Payload::assert_nibbles` return
@@ -413,6 +434,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   receipts directly without per-STOP reply channels (#854, #902).
 
 ### Removed
+
+- **BREAKING** (#932): Removed `visca_range_type!`, `ViscaValue`, `ViscaEnum`
+  and the hidden declaration adapter, per-type public wire-codec methods,
+  redundant channel/model value types,
+  boolean-only setting enums, percentage/raw unit wrappers, unchecked speed
+  conversions, and profile-independent normalization/conversion helpers.
+  `ViscaInquiry` remains the inquiry derive; there are no compatibility aliases.
+
+- **BREAKING** (#932): Removed the unsourced `motion_sync().preset()` inquiry
+  and its value type. Motion Sync speed remains a profile-checked write; no
+  built-in profile gains a new hardware support claim.
 
 - **BREAKING** (#859): `DiagnosticIgnoreReason::StaleQueueTicket` is removed;
   eager private queues cannot produce stale tickets. Other diagnostic reasons

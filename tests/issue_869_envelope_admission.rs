@@ -68,7 +68,7 @@ facade_matrix! {
                 .with_tuning(OperationalTuning::new())).expect("session");
             let view = session.camera_dyn().expect("runtime camera");
             let mut bytes = vec![0; 17];
-            bytes[0] = CameraId::CAMERA_1.to_address_byte();
+            bytes[0] = 0x80 | CameraId::CAMERA_1.value();
             bytes[16] = 0xff;
             let oversized = raw::Plain::new(bytes, grafton_visca::CommandCategory::Quick,
                 RetryClass::Never, grafton_visca::SubmissionClass::Normal).expect("bounded raw value");

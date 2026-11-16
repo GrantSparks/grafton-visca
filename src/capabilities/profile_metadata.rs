@@ -297,8 +297,7 @@ mod tests {
         const SUPPORTS_COMMAND_CANCEL: bool = true;
 
         const MODEL_NAME: &'static str = "Test Camera";
-        const DEFAULT_CAMERA_ID: crate::IndividualCameraId =
-            crate::IndividualCameraId::new(1).expect("individual profile default");
+        const DEFAULT_CAMERA_ID: crate::IndividualCameraId = crate::IndividualCameraId::CAMERA_1;
         type Envelope = crate::transport::RawVisca;
         const ACK_TIMEOUT: Duration = Duration::from_millis(100);
         const COMMAND_TIMEOUTS: crate::CommandTimeouts = crate::CommandTimeouts::new(

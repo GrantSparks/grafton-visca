@@ -16,8 +16,7 @@ use std::marker::PhantomData;
 fn root_value_and_transport_contract() {
     use grafton_visca::{
         transport::{BufferConfig, TcpKeepaliveConfig, TransportConfig},
-        types::{ColorTemp, FocusPosition, PanSpeed, TiltSpeed, ZoomPosition, ZoomSpeed},
-        units::Raw,
+        types::{FocusPosition, Kelvin, PanSpeed, TiltSpeed, ZoomPosition, ZoomSpeed},
         CameraId, Error, PresetNumber, SessionConfig, SpeedLevel, ViscaSocket,
         DEFAULT_ADMISSION_CAPACITY,
     };
@@ -31,7 +30,7 @@ fn root_value_and_transport_contract() {
     assert_eq!(PresetNumber::MAX.value(), 255);
 
     let camera_id = CameraId::new(1).expect("camera ID 1 is valid");
-    assert_eq!(camera_id.to_address_byte(), 0x81);
+    assert_eq!((0x80 | camera_id.value()), 0x81);
     assert!(CameraId::new(0).is_err());
     assert!(CameraId::new(9).is_err());
     assert!(CameraId::BROADCAST.is_broadcast());
@@ -46,9 +45,18 @@ fn root_value_and_transport_contract() {
     assert_eq!(PanSpeed::ZERO.value(), 0);
     assert_eq!(TiltSpeed::ZERO.value(), 0);
     assert_eq!(ZoomSpeed::ZERO.value(), 0);
-    assert_eq!(PanSpeed::from(SpeedLevel::Medium).value(), 12);
-    assert_eq!(TiltSpeed::from(SpeedLevel::Medium).value(), 10);
-    assert_eq!(ZoomSpeed::from(SpeedLevel::Fastest).value(), 7);
+    assert!(matches!(
+        grafton_visca::types::Speed::<PanSpeed>::from(SpeedLevel::Medium),
+        grafton_visca::types::Speed::Level(SpeedLevel::Medium)
+    ));
+    assert!(matches!(
+        grafton_visca::types::Speed::<TiltSpeed>::from(SpeedLevel::Medium),
+        grafton_visca::types::Speed::Level(SpeedLevel::Medium)
+    ));
+    assert!(matches!(
+        grafton_visca::types::Speed::<ZoomSpeed>::from(SpeedLevel::Fastest),
+        grafton_visca::types::Speed::Level(SpeedLevel::Fastest)
+    ));
     assert_eq!(PanSpeed::MAX.value(), 50);
     assert!(PanSpeed::new(51).is_err());
 
@@ -57,22 +65,21 @@ fn root_value_and_transport_contract() {
     assert_eq!(ZoomPosition::MIN.value(), 0);
     assert_eq!(ZoomPosition::MAX.value(), 0x7fff);
     assert_eq!(
-        ZoomPosition::try_from(Raw(0x4000_u16))
+        ZoomPosition::try_from(0x4000_u16)
             .expect("raw zoom wrapper is checked")
             .value(),
         0x4000
     );
-    assert!(ZoomPosition::try_from(Raw(0xffff_u16)).is_err());
+    assert!(ZoomPosition::try_from(0xffff_u16).is_err());
 
-    let focus = FocusPosition::new(0x1234);
+    let focus = FocusPosition::new(0x1234).expect("valid value");
     assert_eq!(focus.value(), 0x1234);
     assert_eq!(u16::from(focus), 0x1234);
 
-    let color_temp = ColorTemp::from_kelvin(5600).expect("5600K is in range");
-    assert_eq!(color_temp.value(), 31);
-    assert_eq!(color_temp.to_kelvin(), 5600);
-    assert!(ColorTemp::from_kelvin(2400).is_err());
-    assert!(ColorTemp::from_kelvin(8100).is_err());
+    let color_temp = Kelvin::new(5600).expect("5600K is in range");
+    assert_eq!(color_temp.value(), 5600);
+    assert!(Kelvin::new(1999).is_err());
+    assert!(Kelvin::new(15001).is_err());
 
     let buffer = BufferConfig::default();
     assert_eq!(buffer.recv_buffer_size, 128);

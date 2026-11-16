@@ -1,7 +1,6 @@
-use grafton_visca::ViscaValue;
+use grafton_visca::value;
 
-#[derive(ViscaValue)]
-#[visca_value(min = "0", max = "10", valid_values = "[3, 5]")]
+#[value(min = 0, max = 10, valid_values = [3, 5])]
 struct MixedValidValuesBounds(u8);
 
 fn main() {}

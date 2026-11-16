@@ -1,22 +1,19 @@
-use grafton_visca::ViscaEnum;
+use grafton_visca::value_enum;
 
-#[derive(Debug, Clone, Copy, ViscaEnum)]
-#[visca_enum(error_type = grafton_visca::Error)]
-#[visca_enum(error_type = grafton_visca::Error)]
+#[value_enum(wire = u8, wire = u16)]
 enum DuplicateEnumAttribute {
-    First = 0x01,
+    First = 1,
 }
 
-#[derive(Debug, Clone, Copy, ViscaEnum)]
+#[value_enum]
 enum DuplicateVariantAttribute {
-    #[visca_enum(name = "First")]
-    #[visca_enum(name = "Primary")]
-    First = 0x01,
+    #[wire(1)]
+    #[wire(2)]
+    First,
 }
 
 fn main() {}
 
-//~ "duplicate `visca_enum` attribute `error_type`"
-//~ "first `error_type` specified here"
-//~ "duplicate `visca_enum` attribute `name`"
-//~ "first `name` specified here"
+//~ "duplicate `value_enum` attribute `wire`"
+//~ "first `wire` specified here"
+//~ "duplicate variant wire code"

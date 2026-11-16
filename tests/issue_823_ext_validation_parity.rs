@@ -285,7 +285,8 @@ fn sony_evi_h100_image_ranges_match_request_validation() {
 #[test]
 fn variable_nd_helper_matches_typed_request_at_and_beyond_both_boundaries() {
     use grafton_visca::{
-        capabilities::NdFilterMetadataExt, command::NdFilterValue, request::builtin::NdFilterDirect,
+        capabilities::NdFilterMetadataExt, command::NdFilterDensity,
+        request::builtin::NdFilterDirect,
     };
     let spec = ProfileSpec::from_compile_time::<SonyFR7>().expect("FR7");
     let registration =
@@ -297,7 +298,7 @@ fn variable_nd_helper_matches_typed_request_at_and_beyond_both_boundaries() {
         &[0, 0x14, 0x15, 128, 255],
         |value| SonyFR7.validate_nd_filter(value),
         |value| {
-            NdFilterValue::new(u16::from(value)).is_ok_and(|value| {
+            NdFilterDensity::new(u16::from(value)).is_ok_and(|value| {
                 NdFilterDirect::new(value)
                     .validate_for_target(&registration)
                     .is_ok()

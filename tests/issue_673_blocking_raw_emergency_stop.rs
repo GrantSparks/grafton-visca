@@ -94,7 +94,7 @@ fn raw_applied_only_for(
     reply_shape: raw::OperationReplyShape,
 ) -> raw::AppliedOnly {
     let mut wire = ZOOM_STOP.to_vec();
-    wire[0] = target.to_address_byte();
+    wire[0] = 0x80 | target.value();
     raw::AppliedOnly::with_policy(wire, AffectedAxes::ZOOM, raw_policy(reply_shape))
         .expect("targeted raw applied-only operation")
 }

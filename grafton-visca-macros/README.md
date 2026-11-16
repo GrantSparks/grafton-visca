@@ -4,24 +4,149 @@
 [![Documentation](https://docs.rs/grafton-visca-macros/badge.svg)](https://docs.rs/grafton-visca-macros)
 [![License](https://img.shields.io/crates/l/grafton-visca-macros.svg)](https://github.com/GrantSparks/grafton-visca#license)
 
-Procedural macros for the grafton-visca crate, providing derive macros to eliminate boilerplate in VISCA protocol implementations.
+Procedural macros for checked VISCA values and typed inquiry requests. Use the
+entry points re-exported by `grafton-visca`, which also supplies the value,
+request, error and optional serialization contracts used by generated code.
 
 ## Overview
 
-This crate provides three downstream derive macros for type-safe VISCA protocol
-implementations:
+- **`#[value(...)]`** declares a checked scalar value.
+- **`#[value_enum]`** declares a value enum and its wire conversion.
+- **`#[derive(ViscaInquiry)]`** implements a typed inquiry request and decoder.
 
-- **`ViscaInquiry`** - Generate inquiry command implementations with parser support
-- **`ViscaEnum`** - Automatic enum/u8 conversions for protocol values
-- **`ViscaValue`** - Validated value wrapper types
+The value attributes generate `Debug`, `Clone`, `Copy`, `PartialEq`, `Eq`,
+`PartialOrd`, `Ord`, `Hash`, and `Display`. Both use
+`grafton_visca::wire::WireValue` for wire conversion. They add serde, schemars,
+and ts-rs support according to the features enabled on `grafton-visca`, including
+when a downstream crate renames that dependency. When an attribute is reached
+only through another crate's re-export, set `crate = provider::visca` to the
+provider's re-export of the main crate.
 
-## ViscaInquiry
+## Checked scalar values
 
-Generates typed `Request` and `Inquiry` implementations for inquiry commands,
-including exact-size, zero-allocation `write_into` encoding and canonical
-response parsing with profile-aware position decoding.
+```rust
+use grafton_visca::{value, wire::WireValue};
 
-### Basic Usage
+#[value(min = 0, max = 0x4000, display = "Lens position {:#06x}")]
+pub struct LensPosition(u16);
+
+# fn main() -> Result<(), grafton_visca::Error> {
+let position = LensPosition::new(0x2000)?;
+assert_eq!(position.value(), 0x2000);
+assert_eq!(LensPosition::MIN.value(), 0);
+assert_eq!(LensPosition::MAX.value(), 0x4000);
+assert_eq!(LensPosition::from_wire(position.to_wire())?, position);
+assert!(LensPosition::new(0x4001).is_err());
+# Ok(())
+# }
+```
+
+The generated API is the same for every bounded scalar:
+
+- `const fn new(value) -> Result<Self>` validates the declared inclusive domain.
+- `const fn value(self)` returns the inner value.
+- `MIN` and `MAX` are values of the declared type.
+- `TryFrom<Inner>` validates construction; `From<Value> for Inner` reads it back.
+- `Display` follows the `display` format string.
+- With serde enabled, deserialization uses the checked constructor.
+
+Integer bounds are integer expressions, and `min` must not exceed `max`.
+A sparse integer domain may instead use `valid_values = [ ... ]`. Out-of-range
+range values return `Error::ParameterOutOfRange`. The type validates its own domain;
+request preparation separately validates the selected camera profile's domain.
+
+### Centered and biased encodings
+
+The default wire representation is the inner value. Declare a transformation
+when the protocol encodes a centered or biased value differently:
+
+```rust
+use grafton_visca::{value, wire::WireValue};
+
+#[value(min = -7, max = 7, display = "Adjustment {}", wire = centered(7, u8))]
+pub struct Adjustment(i8);
+
+#[value(min = -990, max = 990, display = "Gain {}", wire = biased(990, u16))]
+pub struct Gain(i16);
+
+# fn main() -> Result<(), grafton_visca::Error> {
+assert_eq!(Adjustment::new(0)?.to_wire(), 7);
+assert_eq!(Gain::new(0)?.to_wire(), 990);
+# Ok(())
+# }
+```
+
+`WireValue` is the public codec contract:
+
+```rust
+# use grafton_visca::Result;
+pub trait WireValue: Sized {
+    type Wire;
+    fn to_wire(self) -> Self::Wire;
+    fn from_wire(value: Self::Wire) -> Result<Self>;
+}
+```
+
+A wire code is not a physical unit. Profile-dependent conversions, such as
+Kelvin to a model's color-temperature code, belong to request preparation.
+
+### Finite floating-point values
+
+The same attribute supports `f32` and `f64` physical quantities:
+
+```rust
+use grafton_visca::value;
+
+#[value(min = f32::MIN, max = f32::MAX, display = "{} degrees")]
+pub struct Heading(f32);
+
+# fn main() -> Result<(), grafton_visca::Error> {
+assert_eq!(Heading::new(45.0)?.value(), 45.0);
+assert!(Heading::new(f32::NAN).is_err());
+assert!(Heading::new(f32::INFINITY).is_err());
+assert_eq!(Heading::new(-0.0)?, Heading::new(0.0)?);
+# Ok(())
+# }
+```
+
+Float bounds must be finite and ordered. Construction rejects NaN, infinity
+and values outside those bounds, and normalizes negative zero. Equality,
+ordering and hashing therefore agree. Float wire values use the identity
+representation; centered and biased mappings are integer-only. The selected
+profile still owns conversions from a physical quantity to its protocol codes.
+
+## Value enums
+
+```rust
+use grafton_visca::{value_enum, wire::WireValue};
+
+#[value_enum]
+pub enum ExposureSetting {
+    Auto = 0x00,
+    Manual = 0x03,
+    Shutter = 0x0A,
+    Iris = 0x0B,
+    Bright = 0x0D,
+}
+
+# fn main() -> Result<(), grafton_visca::Error> {
+assert_eq!(ExposureSetting::Manual.to_wire(), 0x03);
+assert_eq!(ExposureSetting::from_wire(0x03)?, ExposureSetting::Manual);
+assert!(ExposureSetting::from_wire(0xFF).is_err());
+# Ok(())
+# }
+```
+
+Declare explicit, unique byte discriminants. `WireValue::from_wire` rejects an
+unrecognized code unless the enum declares its supported `Unknown(code)` form.
+Use `to_wire` and `from_wire` for protocol bytes; Rust conversions are reserved
+for value construction and extraction.
+
+## Typed inquiries
+
+`ViscaInquiry` generates `Request` and `Inquiry` implementations, with an exact
+`MAX_SIZE`, zero-allocation `write_into`, and decoding through the canonical
+built-in inquiry table.
 
 ```rust
 use grafton_visca::{CameraId, Request, ViscaInquiry};
@@ -29,11 +154,6 @@ use grafton_visca::{CameraId, Request, ViscaInquiry};
 #[derive(ViscaInquiry, Debug, Copy, Clone)]
 #[visca(opcode = 0x00, response = Power)]
 pub struct PowerInquiry;
-
-// For commands with subcategories:
-#[derive(ViscaInquiry, Debug, Copy, Clone)]
-#[visca(opcode = 0x12, subcode = 0x06, response = PanTiltPosition)]
-pub struct PanTiltPositionInquiry;
 
 let mut buffer = [0u8; <PowerInquiry as Request>::MAX_SIZE];
 let len = PowerInquiry
@@ -45,210 +165,41 @@ assert_eq!(
 );
 ```
 
-### Generated Code
-
-The macro generates:
-- `Request` and `Inquiry` trait implementations
-- exact `MAX_SIZE`
-- `write_into()` for caller-provided buffers
-- `parse_response()` and `Inquiry::decoder()` use the canonical inquiry table
-- `Inquiry::decoder_for_profile()` uses the same table with the profile's framing
-- `ResponseParser` implementation when typed response attributes are specified
+The generated `parse_response()` and `Inquiry::decoder()` share the canonical
+inquiry decoder. `Inquiry::decoder_for_profile()` uses the same decoder with
+the selected profile's framing.
 
 ### Decoding and typed responses
 
-Omit `parser` to decode through the built-in table named by `response`. The
-canonical decoder owns reply widths, value conventions and profile framing.
-The only supported parser selector is `parser = Custom`, which calls the
-`parse_with` path instead. A custom parser returns `Result<InquiryData, Error>`;
-use `Payload::parse_bool` or the checked `Nibbles` helpers when implementing a
-vendor-specific reply.
+Omit `parser` to use the built-in table named by `response`. Its decoder owns
+reply widths, value conventions and profile framing. Use `parser = Custom`
+with `parse_with` only for an explicit custom payload parser; the parser returns
+`Result<InquiryData, Error>`. Checked `Payload` and `Nibbles` helpers are
+available for vendor-specific payloads.
 
 | Key | Meaning |
 | --- | --- |
-| `parser = Custom`, `parse_with = path` | Explicit custom payload parser; both keys are required together. |
-| `data_variant = Variant` | The custom parser's `InquiryData` variant; requires `Custom` and `typed_response`. |
-| `typed_response = Type` | Result type, resolved exactly as written in the deriving scope, including local or qualified paths. |
+| `parser = Custom`, `parse_with = path` | Explicit custom parser; both keys are required together. |
+| `data_variant = Variant` | Custom parser's `InquiryData` variant; requires `Custom` and `typed_response`. |
+| `typed_response = Type` | Result type, resolved as written in the deriving scope. |
 | `typed_field = field` or `(fields, ...)` | Fields projected from the decoded variant. |
-| `typed_constructor = new`, `ok_new`, `new_u8`, `ok_struct` | Optional typed construction; `new_u8` checks narrowing and returns `InvalidResponse` on overflow. |
-| `typed_is_tuple` | Destructure a tuple variant; requires `typed_response`. |
+| `typed_constructor = new`, `ok_new`, `new_u8`, `ok_struct` | Optional typed construction; `new_u8` checks narrowing. |
+| `typed_is_tuple` | Destructures a tuple variant; requires `typed_response`. |
 
-Other parser selectors and their `field`, `value_type` and `convention` keys are
-removed. Delete the selector for canonical decoding, or use `Custom` when the
-wire layout actually differs. Neither `opcode` nor `subcode` may be `0xFF`,
-because it terminates a VISCA frame. All typed-only keys require
-`typed_response`.
+Every attribute key may appear once. Unknown and repeated keys are compile
+errors. Inquiry `opcode` and `subcode` are unsuffixed integer literals in
+`0..=254`, in any radix; `0xFF` is reserved for the frame terminator. All
+`typed_*` keys require `typed_response`.
 
-## ViscaEnum
+## Requirements and versions
 
-Generates bidirectional u8 conversions for enums representing VISCA protocol values.
+Rust 1.98 or later is required. The `response` attribute must name an existing
+inquiry kind, or `Raw` for a custom inquiry with a manually implemented
+`ResponseParser`. Downstream inquiries use the standard five-byte VISCA form.
 
-### Basic Usage
-
-```rust
-use grafton_visca_macros::ViscaEnum;
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
-pub enum ExposureMode {
-    Auto = 0x00,
-    Manual = 0x03,
-    Shutter = 0x0A,
-    Iris = 0x0B,
-    Bright = 0x0D,
-}
-```
-
-### Generated Implementations
-
-- `TryFrom<u8>` - Converts u8 to enum with validation
-- `From<Enum> for u8` - Converts enum to u8 value
-- `is_valid_discriminant(u8) -> bool` - Const validation function
-
-### Advanced Features
-
-```rust
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
-#[visca_enum(error_type = MyError)]
-pub enum Mode {
-    #[visca_enum(name = "Automatic Mode")]
-    Auto = 0x00,
-
-    #[visca_enum(name = "Manual Control")]
-    Manual = 0x03,
-
-    #[visca_enum(skip)]  // Excluded from TryFrom<u8>
-    _Reserved = 0xFF,
-}
-```
-
-Discriminants are unsuffixed integer literals in `0..=255`, in any radix. The
-supported keys are `error_type` on the enum and `name`/`skip` on variants.
-
-## Attribute policy
-
-All three derives parse their helper attributes under one policy: each key may
-appear once across all of an item's attributes (a repeat is an error naming
-both occurrences), an unknown key is an error listing the supported keys, and
-every VISCA byte (`opcode`, `subcode`, enum discriminants) is an unsuffixed
-integer literal in `0..=255` written in any radix, so `0x47`, `0o107`,
-`0b0100_0111` and `71` are the same byte.
-
-## ViscaValue
-
-Creates value wrapper types with construction-time validation and configurable
-display formatting. It does not generate VISCA byte encoding or decoding APIs.
-It expands through the same generator as `grafton_visca::visca_range_type!`, so
-both have the same constructor, bounds, accessor and error contract.
-
-### Basic Usage
-
-```rust
-use grafton_visca_macros::ViscaValue;
-
-#[derive(ViscaValue, Debug, Copy, Clone)]
-#[visca_value(min = "0x0000", max = "0x4000")]
-struct ZoomPosition(u16);
-
-#[derive(ViscaValue, Debug, Copy, Clone)]
-#[visca_value(valid_values = "[0x01, 0x02, 0x03]")]
-struct ZoomSpeed(u8);
-```
-
-### Attributes and Generated API
-
-The supported `visca_value` keys are `min`, `max`, `valid_values`,
-`display_format`, and `display_prefix`. A domain is required: either `min` and
-`max` together, as unsuffixed integer literals inside strings (for example
-`min = "0x0000"`), or `valid_values`. Unknown keys, including `bytes`, are
-rejected.
-
-The macro generates:
-
-- `MIN` and `MAX`, typed as `Self`
-- `new(value)`, which returns `Error::ParameterOutOfRange` for a value outside
-  `min..=max` (and is a `const fn` for a range), or `Error::InvalidParameter`
-  for a value outside `valid_values`
-- `pub const fn value(self)`, `TryFrom<Inner>`, and `From<Wrapper> for Inner`
-- `Display` with optional format and prefix; `"hex"` prints at least two
-  digits (`0x05`)
-
-`ParameterOutOfRange` reports its bounds as `i32`, so a range's inner type must
-be `u8`, `u16`, `i8`, `i16` or `i32`, and `min` must not exceed `max`; both
-are compile errors otherwise. The derive does not add serde, schemars
-or ts-rs derives; add them on the struct when needed.
-
-Use the derive macros above with the typed request contracts documented by the
-main crate. There is no forwarding attribute or mode-specific generated API.
-
-## Integration with grafton-visca
-
-The supported downstream derive macros are re-exported by the main
-`grafton-visca` crate:
-
-```rust
-use grafton_visca::{ViscaInquiry, ViscaEnum, ViscaValue};
-```
-
-## Benefits
-
-1. **Type Safety** - Each command and value is a distinct type
-2. **Zero Boilerplate** - Macros generate all repetitive code
-3. **Protocol Safety** - Automatic VISCA terminator handling
-4. **Compile-time Validation** - Invalid attributes caught at compile time
-5. **Consistent API** - All commands follow the same patterns
-6. **Performance** - Zero-cost abstractions with const functions where possible
-
-## Examples
-
-### Example Inquiry and Enum
-
-```rust
-use grafton_visca::{command::ExposureMode, ViscaInquiry};
-
-#[derive(ViscaInquiry, Debug, Copy, Clone)]
-#[visca(opcode = 0x39, response = ExposureMode, parser = Mode, value_type = ExposureMode)]
-pub struct ExposureModeInquiry;
-```
-
-Generated parsers return the named built-in `InquiryData` variant, so a Mode
-parser's value type must be the corresponding `grafton_visca::command` enum.
-Use `ViscaEnum` independently for downstream wire enums whose response parsing
-is implemented by downstream code.
-
-### Value Types with Validation
-
-```rust
-use grafton_visca_macros::ViscaValue;
-
-#[derive(ViscaValue, Debug, Copy, Clone)]
-#[visca_value(min = "0x0000", max = "0x4000")]
-pub struct ZoomPosition(u16);
-
-impl ZoomPosition {
-    pub fn from_percentage(percent: f32) -> Result<Self, Error> {
-        let value = (percent.clamp(0.0, 100.0) * 0x4000 as f32 / 100.0) as u16;
-        Ok(Self(value))
-    }
-
-    pub fn to_percentage(&self) -> f32 {
-        self.0 as f32 * 100.0 / 0x4000 as f32
-    }
-}
-```
-
-## Requirements
-
-- Rust 1.98 or later
-- The `response` attribute in `ViscaInquiry` must reference existing `InquiryKind` variants, or `Raw` for a raw custom inquiry whose `ResponseParser` is implemented manually
-- Downstream `ViscaInquiry` derives use the standard five-byte VISCA inquiry form
-- Enums using `ViscaEnum` must have explicit discriminant values
-- All discriminant values must be unique and valid u8 values (0-255)
-
-## Version Compatibility
-
-This crate follows the same versioning as the main `grafton-visca` crate. Most
-users need only the derives re-exported by the main crate. Direct macro-crate
-users must use matching versions:
+The macro crate follows the main crate's version. Most applications need only
+the main dependency and its re-exported macros. Direct macro-crate users must
+use matching versions:
 
 ```toml
 [dependencies]
@@ -257,11 +208,9 @@ grafton-visca-macros = "=2.0.0-rc.3"
 ```
 
 During a release, this macro crate is published and indexed before the
-same-version main crate. See the repository's `RELEASING.md` for the guarded
-two-crate sequence.
+same-version main crate. See `RELEASING.md` for the guarded two-crate sequence.
 
 ## License
 
-Licensed under MIT OR Apache-2.0 dual license. Both texts are shipped inside
-this package: see [LICENSE-MIT](LICENSE-MIT) and
-[LICENSE-APACHE](LICENSE-APACHE).
+Licensed under MIT OR Apache-2.0. Both texts are shipped inside this package:
+see [LICENSE-MIT](LICENSE-MIT) and [LICENSE-APACHE](LICENSE-APACHE).

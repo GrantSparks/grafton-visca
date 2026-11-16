@@ -79,7 +79,7 @@ fn ordinary_operation() -> raw::AppliedOnly {
 #[cfg(feature = "blocking")]
 fn ordinary_operation_for(target: CameraId) -> raw::AppliedOnly {
     let mut wire = ZOOM_STOP.to_vec();
-    wire[0] = target.to_address_byte();
+    wire[0] = 0x80 | target.value();
     raw::AppliedOnly::with_policy(
         wire,
         AffectedAxes::ZOOM,

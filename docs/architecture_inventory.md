@@ -152,8 +152,8 @@ explicit `null` means absent, while a missing key requires regeneration (#855).
 Internal
 implementation-only feature flags are omitted from this public inventory.
 
-The supported downstream derives are `ViscaInquiry`, `ViscaEnum`, and
-`ViscaValue`. Stable test utilities are:
+The supported downstream value attributes are `value` and `value_enum`;
+`ViscaInquiry` is the inquiry derive. Stable test utilities are:
 
 <!-- BEGIN STABLE TEST UTILITIES -->
 | Public utility | Feature condition |

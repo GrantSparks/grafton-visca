@@ -407,7 +407,7 @@ fn pan_tilt_limit_cache_preserves_typed_corner_updates_and_clears() {
     let mut cache = TargetStateCache::default();
     let set = KnownState::PanTiltLimits(PanTiltLimitUpdate::set(
         PanTiltLimitCorner::DownLeft,
-        crate::camera::PanTiltPosition::new(12, -4),
+        crate::camera::PanTiltUnits::new(12, -4),
     ));
     cache.apply(AppliedStateProjection::set(set));
     assert_eq!(cache.entry(StateKey::PanTiltLimits), StateEntry::Set(set));
@@ -457,7 +457,7 @@ fn every_state_key_has_an_inline_slot_and_a_typed_accessor() {
         pan_tilt_limits,
         crate::PanTiltLimitUpdate::set(
             crate::command::PanTiltLimitCorner::DownLeft,
-            crate::camera::PanTiltPosition::new(-123, 456)
+            crate::camera::PanTiltUnits::new(-123, 456)
         )
     );
     check!(PresetRecallSpeed, preset_recall_speed, 12);
@@ -476,19 +476,12 @@ fn every_state_key_has_an_inline_slot_and_a_typed_accessor() {
     check!(NdiQuality, ndi_quality, crate::types::NdiQuality::Medium);
     check!(TallyBrightness, tally_brightness_is_high, false);
     check!(
-        VariableSpeedMode,
+        PanTiltSpeedMode,
         variable_speed_mode,
-        crate::command::VariableSpeedMode::Fine50
+        crate::command::PanTiltSpeedMode::Fine50
     );
     check!(TallyMode, tally_mode, true);
-    check!(
-        Flip,
-        flip_state,
-        crate::command::FlipState {
-            horizontal: false,
-            vertical: true
-        }
-    );
+    check!(Flip, flip_state, crate::command::ImageFlipMode::Vertical);
     assert_eq!(
         covered.iter().map(|value| value.key()).collect::<Vec<_>>(),
         StateKey::ALL
@@ -2089,7 +2082,7 @@ mod lifecycle_trace {
             out.push(format!(
                 "{} effect cache-observer-added observer={name} target={}",
                 self.at,
-                target.camera().id()
+                target.camera().value()
             ));
         }
 
@@ -2245,7 +2238,7 @@ mod lifecycle_trace {
                 "{} effect frame-routed id={} target={} via={} socket={} bytes={}",
                 self.at,
                 routed.get(),
-                target.camera().id(),
+                target.camera().value(),
                 if sequence.is_some() {
                     "sequence"
                 } else {
@@ -2472,7 +2465,7 @@ mod lifecycle_trace {
                                     format!(
                                         "{} outcome applied-state observer={name} target={} id={} state={}",
                                         self.at,
-                                        target.camera().id(),
+                                        target.camera().value(),
                                         projection.request.get(),
                                         if known { "applied" } else { "invalidated" }
                                     ),
@@ -2576,7 +2569,7 @@ mod lifecycle_trace {
                 self.at,
                 pending.label,
                 id.get(),
-                target.id(),
+                target.value(),
                 if acquired { "acquired" } else { "unclaimed" },
                 phase_name(phase),
                 match pending.kind {
@@ -2661,7 +2654,7 @@ mod lifecycle_trace {
                     "{} effect transmit tx={transmission} id={} kind=request target={} wire={}",
                     self.at,
                     request.get(),
-                    target.camera().id(),
+                    target.camera().value(),
                     hex_text(wire.as_bytes())
                 )),
                 Transmission::Cancel { target, socket, .. } => {
@@ -2670,7 +2663,7 @@ mod lifecycle_trace {
                         "{} effect transmit tx={transmission} id={} kind=cancel target={} socket={}",
                         self.at,
                         request.get(),
-                        target.camera().id(),
+                        target.camera().value(),
                         socket.as_socket_number()
                     ));
                 }

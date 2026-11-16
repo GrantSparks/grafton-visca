@@ -29,6 +29,8 @@
 //! assert_eq!(bytes[written - 1], 0xFF);
 //! ```
 
+use crate::wire::WireValue;
+
 use crate::{
     capabilities::{CoordinateSystem, PanTiltWireCodec},
     command::{
@@ -49,76 +51,46 @@ use crate::{
 /// Other corners (upper-left and lower-right) are implicitly derived from
 /// the two diagonal corners and are not directly settable via VISCA commands
 /// in this implementation.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[crate::value_enum]
 pub enum PanTiltLimitCorner {
     /// Lower-left corner (minimum pan, minimum tilt).
-    DownLeft,
+    DownLeft = 0,
     /// Upper-right corner (maximum pan, maximum tilt).
-    UpRight,
-}
-
-impl PanTiltLimitCorner {
-    /// Converts the corner to its VISCA byte representation.
-    #[must_use]
-    pub const fn to_byte(self) -> u8 {
-        match self {
-            Self::DownLeft => 0x00,
-            Self::UpRight => 0x01,
-        }
-    }
+    UpRight = 1,
 }
 
 /// Direction for pan/tilt movement commands.
 ///
 /// Represents the 8 directional movements plus stop.
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[crate::value_enum(wire=(u8,u8))]
 pub enum PanTiltDirection {
     /// Move camera upward (tilt up) while maintaining pan position.
+    #[wire((3, 1))]
     Up,
     /// Move camera downward (tilt down) while maintaining pan position.
+    #[wire((3, 2))]
     Down,
     /// Move camera leftward (pan left) while maintaining tilt position.
+    #[wire((1, 3))]
     Left,
     /// Move camera rightward (pan right) while maintaining tilt position.
+    #[wire((2, 3))]
     Right,
     /// Move camera diagonally up and to the left.
+    #[wire((1, 1))]
     UpLeft,
     /// Move camera diagonally up and to the right.
+    #[wire((2, 1))]
     UpRight,
     /// Move camera diagonally down and to the left.
+    #[wire((1, 2))]
     DownLeft,
     /// Move camera diagonally down and to the right.
+    #[wire((2, 2))]
     DownRight,
     /// Stop all pan/tilt movement.
+    #[wire((3, 3))]
     Stop,
-}
-
-impl PanTiltDirection {
-    /// Converts the direction to its VISCA byte representation.
-    ///
-    /// Returns a tuple of (`pan_direction`, `tilt_direction`) bytes.
-    #[must_use]
-    pub const fn to_bytes(self) -> (u8, u8) {
-        match self {
-            Self::Up => (0x03, 0x01),
-            Self::Down => (0x03, 0x02),
-            Self::Left => (0x01, 0x03),
-            Self::Right => (0x02, 0x03),
-            Self::UpLeft => (0x01, 0x01),
-            Self::UpRight => (0x02, 0x01),
-            Self::DownLeft => (0x01, 0x02),
-            Self::DownRight => (0x02, 0x02),
-            Self::Stop => (0x03, 0x03),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -194,7 +166,7 @@ mod tests {
     // Golden frames for the movement encodings (issue #633).
     //
     // These vectors are hand-derived from the VISCA specification, not
-    // recomputed from `PanTiltDirection::to_bytes` or from the position
+    // recomputed from `PanTiltDirection::to_wire` or from the position
     // pushes, so a swapped direction-table row or a transposed pan/tilt field
     // fails here even though every differential test stays green. The pan and
     // tilt speed fields are deliberately different (`0x18` vs `0x14`), and the
@@ -432,8 +404,8 @@ mod tests {
         for (index, direction) in directions.iter().enumerate() {
             for other in directions.iter().skip(index + 1) {
                 assert_ne!(
-                    direction.to_bytes(),
-                    other.to_bytes(),
+                    direction.to_wire(),
+                    other.to_wire(),
                     "{direction:?} and {other:?} share one direction byte pair"
                 );
             }
@@ -964,14 +936,14 @@ impl WireEncode for PanTiltProfiled {
                 pan,
                 tilt,
             } => framing.write_position(
-                frame.bytes(&pan_tilt::LIMIT_SET).byte(corner.to_byte()),
+                frame.bytes(&pan_tilt::LIMIT_SET).byte(corner.to_wire()),
                 pan,
                 tilt,
             )?,
             Self::LimitClear { codec, corner } => {
                 PanTiltFraming::select(codec, CoordinateSystem::SignedCentered)
                     .write_cleared_limit(
-                        frame.bytes(&pan_tilt::LIMIT_CLEAR).byte(corner.to_byte()),
+                        frame.bytes(&pan_tilt::LIMIT_CLEAR).byte(corner.to_wire()),
                     )?
             }
         }
@@ -997,7 +969,7 @@ impl WireEncode for PanTilt {
                 pan_speed,
                 tilt_speed,
             } => {
-                let (pan, tilt) = direction.to_bytes();
+                let (pan, tilt) = direction.to_wire();
                 FrameWriter::new(camera_id, buffer)
                     .bytes(&pan_tilt::DRIVE)
                     .byte(pan_speed.value())

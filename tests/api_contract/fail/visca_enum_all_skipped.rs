@@ -1,11 +1,8 @@
-use grafton_visca::ViscaEnum;
+use grafton_visca::value_enum;
 
-#[derive(ViscaEnum)]
-enum AllSkipped {
-    #[visca_enum(skip)]
-    Reserved = 0xFF,
-}
+#[value_enum]
+enum Empty {}
 
 fn main() {}
 
-//~ "ViscaEnum requires at least one non-skipped variant"
+//~ "value_enum requires at least one variant"

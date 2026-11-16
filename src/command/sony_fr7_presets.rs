@@ -6,9 +6,11 @@
 //! than the number shown in the camera menu.
 //! Source: [Sony VISCA Command List v4.00](https://pro.sony/s3/2022/09/03065933/VISCA_Command_List_v4.pdf).
 
-use grafton_visca_macros::ViscaEnum;
+use crate::wire::WireValue;
+use std::time::Duration;
 
 use crate::{
+    command::preset::PresetNumber,
     command::{
         bytes::{constants::sony_fr7_presets, FrameWriter},
         encode::WireEncode,
@@ -17,72 +19,47 @@ use crate::{
     CameraId, Error,
 };
 
-crate::__grafton_visca_newtype! {
-    /// A zero-based FR7 preset packet number, `00..=63` hexadecimal.
-    ///
-    /// R7 p. 19 encodes the camera menu's preset number minus one.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "0", max = "99", display_prefix = "FR7 Preset Number")]
-    pub struct Fr7PresetNumber(u8);
-}
+/// An FR7 preset recall speed, from 1 through 50 (R7 p. 19).
+#[crate::value(min = 1, max = 50, display = "Preset Speed {}")]
+pub struct PresetSpeed(u8);
 
-crate::__grafton_visca_newtype! {
-    /// An FR7 preset recall speed, from 1 through 50 (R7 p. 19).
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "1", max = "50", display_prefix = "Preset Speed")]
-    pub struct PresetSpeed(u8);
-}
-
-crate::__grafton_visca_newtype! {
-    /// FR7 preset recall duration in tenths of a second, from 10 through 990.
-    ///
-    /// R7 pp. 19 and 22 encode one second as `00A` and 99 seconds as `3DE`.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "10", max = "990", display_prefix = "Preset Duration (tenths)")]
-    pub struct PresetDuration(u16);
-}
+/// FR7 preset recall duration in tenths of a second, from 10 through 990.
+///
+/// R7 pp. 19 and 22 encode one second as `00A` and 99 seconds as `3DE`.
+#[crate::value(min = 10, max = 990, display = "Preset Duration (tenths) {}")]
+pub(crate) struct PresetDuration(u16);
 
 impl PresetDuration {
-    /// Creates a duration from 1.0 through 99.0 seconds, rounded to a tenth.
-    ///
-    /// Exact halfway values round away from zero. Nonfinite and out-of-domain
-    /// values are refused before rounding.
-    pub fn from_seconds(seconds: f64) -> Result<Self, Error> {
-        if !(1.0..=99.0).contains(&seconds) {
+    /// Checks the exact 100 ms duration domain carried by the protocol.
+    fn from_duration(duration: Duration) -> Result<Self, Error> {
+        if !(Duration::from_secs(1)..=Duration::from_secs(99)).contains(&duration)
+            || !duration.subsec_nanos().is_multiple_of(100_000_000)
+        {
             return Err(Error::invalid_parameter(
-                "preset_duration_seconds",
-                seconds.to_string(),
-                "duration must be finite and between 1.0 and 99.0 seconds",
+                "preset_duration",
+                format!("{duration:?}"),
+                "duration must be between 1 and 99 seconds in exact 100 ms steps",
             ));
         }
-        Self::new((seconds * 10.0).round() as u16)
+        let tenths = u16::try_from(duration.as_millis() / 100).map_err(|_| {
+            Error::invalid_parameter(
+                "preset_duration",
+                format!("{duration:?}"),
+                "duration exceeds the protocol domain",
+            )
+        })?;
+        Self::new(tenths)
     }
 
-    /// Returns the duration in seconds.
-    #[must_use]
-    pub fn to_seconds(self) -> f64 {
-        f64::from(self.value()) / 10.0
-    }
-
-    /// Decodes the `00A..=3DE` protocol value, measured in tenths of a second.
-    pub const fn from_protocol_value(value: u16) -> Result<Self, Error> {
-        Self::new(value)
-    }
-
-    /// Returns the `00A..=3DE` protocol value, measured in tenths of a second.
-    #[must_use]
-    pub const fn to_protocol_value(self) -> u16 {
-        self.value()
+    /// Returns the exact physical duration represented by the wire ticks.
+    const fn duration(self) -> Duration {
+        Duration::from_millis(self.value() as u64 * 100)
     }
 }
 
 /// Whether FR7 recalls use separate preset settings or one common speed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub enum Fr7PresetSpeedSelection {
+#[crate::value_enum]
+pub enum PresetSpeedSelection {
     /// Use each preset's selected speed or duration.
     Separate = 0x01,
     /// Use one common speed for all presets.
@@ -90,12 +67,8 @@ pub enum Fr7PresetSpeedSelection {
 }
 
 /// Which separate recall setting an FR7 preset uses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub enum Fr7PresetSeparateMode {
+#[crate::value_enum]
+pub enum PresetSeparateMode {
     /// Use the preset's separate speed.
     Speed = 0x00,
     /// Use the preset's specified duration.
@@ -109,18 +82,18 @@ pub enum Fr7PresetSeparateMode {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct Fr7SetPresetSpeedSelection {
-    mode: Fr7PresetSpeedSelection,
+    mode: PresetSpeedSelection,
 }
 
 impl Fr7SetPresetSpeedSelection {
     /// Creates the selection setting.
-    pub const fn new(mode: Fr7PresetSpeedSelection) -> Self {
+    pub const fn new(mode: PresetSpeedSelection) -> Self {
         Self { mode }
     }
 
     /// Returns the requested selection.
     #[must_use]
-    pub const fn mode(self) -> Fr7PresetSpeedSelection {
+    pub const fn mode(self) -> PresetSpeedSelection {
         self.mode
     }
 }
@@ -129,7 +102,7 @@ impl WireEncode for Fr7SetPresetSpeedSelection {
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         FrameWriter::new(camera_id, buffer)
             .bytes(&sony_fr7_presets::PRESET_SPEED_SELECTION)
-            .byte(u8::from(self.mode))
+            .byte(self.mode.to_wire())
             .finish()
     }
 }
@@ -173,25 +146,25 @@ impl WireEncode for Fr7SetCommonPresetSpeed {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct Fr7SetSeparatePresetMode {
-    preset: Fr7PresetNumber,
-    mode: Fr7PresetSeparateMode,
+    preset: PresetNumber,
+    mode: PresetSeparateMode,
 }
 
 impl Fr7SetSeparatePresetMode {
     /// Creates a preset-local mode setting.
-    pub const fn new(preset: Fr7PresetNumber, mode: Fr7PresetSeparateMode) -> Self {
+    pub const fn new(preset: PresetNumber, mode: PresetSeparateMode) -> Self {
         Self { preset, mode }
     }
 
     /// Returns the zero-based preset packet number.
     #[must_use]
-    pub const fn preset(self) -> Fr7PresetNumber {
+    pub const fn preset(self) -> PresetNumber {
         self.preset
     }
 
     /// Returns the requested mode.
     #[must_use]
-    pub const fn mode(self) -> Fr7PresetSeparateMode {
+    pub const fn mode(self) -> PresetSeparateMode {
         self.mode
     }
 }
@@ -201,7 +174,7 @@ impl WireEncode for Fr7SetSeparatePresetMode {
         FrameWriter::new(camera_id, buffer)
             .bytes(&sony_fr7_presets::SEPARATE_PRESET_MODE)
             .byte(self.preset.value())
-            .byte(u8::from(self.mode))
+            .byte(self.mode.to_wire())
             .finish()
     }
 }
@@ -213,19 +186,19 @@ impl WireEncode for Fr7SetSeparatePresetMode {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct Fr7SetSeparatePresetSpeed {
-    preset: Fr7PresetNumber,
+    preset: PresetNumber,
     speed: PresetSpeed,
 }
 
 impl Fr7SetSeparatePresetSpeed {
     /// Creates a preset-local speed setting.
-    pub const fn new(preset: Fr7PresetNumber, speed: PresetSpeed) -> Self {
+    pub const fn new(preset: PresetNumber, speed: PresetSpeed) -> Self {
         Self { preset, speed }
     }
 
     /// Returns the zero-based preset packet number.
     #[must_use]
-    pub const fn preset(self) -> Fr7PresetNumber {
+    pub const fn preset(self) -> PresetNumber {
         self.preset
     }
 
@@ -248,30 +221,32 @@ impl WireEncode for Fr7SetSeparatePresetSpeed {
 
 /// Set the separate recall duration for one FR7 preset (R7 p. 19).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", derive(serde::Serialize))]
 #[cfg_attr(feature = "serde", serde(deny_unknown_fields))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct Fr7SetSeparatePresetDuration {
-    preset: Fr7PresetNumber,
-    duration: PresetDuration,
+    preset: PresetNumber,
+    #[cfg_attr(feature = "ts-rs", ts(type = "{ secs: number; nanos: number }"))]
+    duration: Duration,
 }
 
 impl Fr7SetSeparatePresetDuration {
     /// Creates a preset-local duration setting.
-    pub const fn new(preset: Fr7PresetNumber, duration: PresetDuration) -> Self {
-        Self { preset, duration }
+    pub fn new(preset: PresetNumber, duration: Duration) -> Result<Self, Error> {
+        PresetDuration::from_duration(duration)?;
+        Ok(Self { preset, duration })
     }
 
     /// Returns the zero-based preset packet number.
     #[must_use]
-    pub const fn preset(self) -> Fr7PresetNumber {
+    pub const fn preset(self) -> PresetNumber {
         self.preset
     }
 
     /// Returns the requested duration.
     #[must_use]
-    pub const fn duration(self) -> PresetDuration {
+    pub const fn duration(self) -> Duration {
         self.duration
     }
 }
@@ -281,8 +256,22 @@ impl WireEncode for Fr7SetSeparatePresetDuration {
         FrameWriter::new(camera_id, buffer)
             .bytes(&sony_fr7_presets::SEPARATE_PRESET_DURATION)
             .byte(self.preset.value())
-            .nibbles::<3>(self.duration.to_protocol_value())
+            .nibbles::<3>(PresetDuration::from_duration(self.duration)?.to_wire())
             .finish()
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<'de> serde::Deserialize<'de> for Fr7SetSeparatePresetDuration {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(serde::Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Setting {
+            preset: PresetNumber,
+            duration: Duration,
+        }
+        let setting = Setting::deserialize(deserializer)?;
+        Self::new(setting.preset, setting.duration).map_err(serde::de::Error::custom)
     }
 }
 
@@ -295,8 +284,8 @@ fn single_byte(payload: Payload<'_>) -> Result<u8, Error> {
 
 pub(crate) fn decode_preset_speed_selection(
     payload: Payload<'_>,
-) -> Result<Fr7PresetSpeedSelection, Error> {
-    Fr7PresetSpeedSelection::try_from(single_byte(payload)?)
+) -> Result<PresetSpeedSelection, Error> {
+    PresetSpeedSelection::from_wire(single_byte(payload)?)
 }
 
 pub(crate) fn decode_common_preset_speed(payload: Payload<'_>) -> Result<PresetSpeed, Error> {
@@ -305,24 +294,22 @@ pub(crate) fn decode_common_preset_speed(payload: Payload<'_>) -> Result<PresetS
 
 pub(crate) fn decode_separate_preset_mode(
     payload: Payload<'_>,
-) -> Result<Fr7PresetSeparateMode, Error> {
-    Fr7PresetSeparateMode::try_from(single_byte(payload)?)
+) -> Result<PresetSeparateMode, Error> {
+    PresetSeparateMode::from_wire(single_byte(payload)?)
 }
 
 pub(crate) fn decode_separate_preset_speed(payload: Payload<'_>) -> Result<PresetSpeed, Error> {
     PresetSpeed::new(single_byte(payload)?)
 }
 
-pub(crate) fn decode_separate_preset_duration(
-    payload: Payload<'_>,
-) -> Result<PresetDuration, Error> {
+pub(crate) fn decode_separate_preset_duration(payload: Payload<'_>) -> Result<Duration, Error> {
     let &[high, middle, low] = Nibbles::<3>::try_from(payload)?.as_array();
     // Pad the strict three-nibble view to reuse the canonical nibble combiner.
     let padded = [0, high, middle, low];
     let value = Nibbles::<4>::from_array(&padded)?
         .u16_quad(0)
         .ok_or(Error::InvalidResponseFormat)?;
-    PresetDuration::from_protocol_value(value)
+    PresetDuration::from_wire(value).map(PresetDuration::duration)
 }
 
 #[cfg(test)]
@@ -349,11 +336,11 @@ mod tests {
     #[test]
     fn r7_page_19_literals_preserve_raw_and_nibble_field_widths() {
         literal(
-            &Fr7SetPresetSpeedSelection::new(Fr7PresetSpeedSelection::Separate),
+            &Fr7SetPresetSpeedSelection::new(PresetSpeedSelection::Separate),
             &[0x81, 1, 0x7e, 4, 0x1b, 1, 0xff],
         );
         literal(
-            &Fr7SetPresetSpeedSelection::new(Fr7PresetSpeedSelection::Common),
+            &Fr7SetPresetSpeedSelection::new(PresetSpeedSelection::Common),
             &[0x81, 1, 0x7e, 4, 0x1b, 2, 0xff],
         );
         literal(
@@ -365,27 +352,34 @@ mod tests {
             &[0x81, 1, 0x7e, 4, 0x1c, 3, 2, 0xff],
         );
         literal(
-            &Fr7SetSeparatePresetMode::new(Fr7PresetNumber::MIN, Fr7PresetSeparateMode::Speed),
+            &Fr7SetSeparatePresetMode::new(PresetNumber::MIN, PresetSeparateMode::Speed),
             &[0x81, 1, 0x7e, 4, 0x27, 0, 0, 0xff],
         );
         literal(
-            &Fr7SetSeparatePresetMode::new(Fr7PresetNumber::MAX, Fr7PresetSeparateMode::Duration),
+            &Fr7SetSeparatePresetMode::new(
+                PresetNumber::new(99).unwrap(),
+                PresetSeparateMode::Duration,
+            ),
             &[0x81, 1, 0x7e, 4, 0x27, 0x63, 1, 0xff],
         );
         literal(
-            &Fr7SetSeparatePresetSpeed::new(Fr7PresetNumber::MIN, PresetSpeed::MIN),
+            &Fr7SetSeparatePresetSpeed::new(PresetNumber::MIN, PresetSpeed::MIN),
             &[0x81, 1, 0x7e, 1, 0x0b, 0, 1, 0xff],
         );
         literal(
-            &Fr7SetSeparatePresetSpeed::new(Fr7PresetNumber::MAX, PresetSpeed::MAX),
+            &Fr7SetSeparatePresetSpeed::new(PresetNumber::new(99).unwrap(), PresetSpeed::MAX),
             &[0x81, 1, 0x7e, 1, 0x0b, 0x63, 0x32, 0xff],
         );
         literal(
-            &Fr7SetSeparatePresetDuration::new(Fr7PresetNumber::MIN, PresetDuration::MIN),
+            &Fr7SetSeparatePresetDuration::new(PresetNumber::MIN, Duration::from_secs(1)).unwrap(),
             &[0x81, 1, 0x7e, 4, 0x67, 0, 0, 0, 0xa, 0xff],
         );
         literal(
-            &Fr7SetSeparatePresetDuration::new(Fr7PresetNumber::MAX, PresetDuration::MAX),
+            &Fr7SetSeparatePresetDuration::new(
+                PresetNumber::new(99).unwrap(),
+                Duration::from_secs(99),
+            )
+            .unwrap(),
             &[0x81, 1, 0x7e, 4, 0x67, 0x63, 3, 0xd, 0xe, 0xff],
         );
     }
@@ -393,60 +387,58 @@ mod tests {
     #[test]
     fn every_wire_value_round_trips_and_outside_values_fail() {
         for raw in 0..=99 {
-            assert_eq!(Fr7PresetNumber::new(raw).unwrap().value(), raw);
+            assert_eq!(PresetNumber::new(raw).unwrap().value(), raw);
         }
-        assert!(Fr7PresetNumber::new(100).is_err());
-        assert!(Fr7PresetNumber::new(u8::MAX).is_err());
+        assert!(PresetNumber::new(100).is_ok());
+        assert!(PresetNumber::new(u8::MAX).is_ok());
         for raw in 1..=50 {
             assert_eq!(PresetSpeed::new(raw).unwrap().value(), raw);
         }
         assert!(PresetSpeed::new(0).is_err());
         assert!(PresetSpeed::new(51).is_err());
         for raw in 10..=990 {
-            let duration = PresetDuration::from_protocol_value(raw).unwrap();
-            assert_eq!(duration.to_protocol_value(), raw);
+            let duration = PresetDuration::from_wire(raw).unwrap();
+            assert_eq!(duration.to_wire(), raw);
             assert_eq!(
-                PresetDuration::from_seconds(duration.to_seconds()).unwrap(),
+                PresetDuration::from_duration(duration.duration()).unwrap(),
                 duration
             );
         }
         assert!(PresetDuration::new(9).is_err());
         assert!(PresetDuration::new(991).is_err());
-        assert!(PresetDuration::from_protocol_value(u16::MAX).is_err());
+        assert!(PresetDuration::from_wire(u16::MAX).is_err());
     }
 
     #[test]
-    fn duration_rounding_is_nearest_and_does_not_admit_outside_physical_bounds() {
-        for (seconds, tenths) in [
-            (1.0, 10),
-            (1.04, 10),
-            (1.05, 11),
-            (1.06, 11),
-            (98.95, 990),
-            (99.0, 990),
-        ] {
-            assert_eq!(
-                PresetDuration::from_seconds(seconds).unwrap().value(),
-                tenths
-            );
+    fn public_duration_requires_exact_protocol_steps() {
+        for tenths in 10..=990 {
+            let duration = Duration::from_millis(tenths * 100);
+            let request = Fr7SetSeparatePresetDuration::new(PresetNumber::MIN, duration).unwrap();
+            assert_eq!(request.duration(), duration);
         }
-        for invalid in [0.99, 99.001, f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
-            assert!(PresetDuration::from_seconds(invalid).is_err());
+        for invalid in [
+            Duration::ZERO,
+            Duration::from_millis(999),
+            Duration::from_millis(1001),
+            Duration::from_millis(99_001),
+            Duration::MAX,
+        ] {
+            assert!(Fr7SetSeparatePresetDuration::new(PresetNumber::MIN, invalid).is_err());
         }
     }
 
     #[test]
     fn closed_mode_tables_have_no_aliases_or_unknown_wire_values() {
         for byte in 0..=u8::MAX {
-            let selection = Fr7PresetSpeedSelection::try_from(byte);
+            let selection = PresetSpeedSelection::from_wire(byte);
             assert_eq!(selection.is_ok(), matches!(byte, 1 | 2));
             if let Ok(mode) = selection {
-                assert_eq!(u8::from(mode), byte);
+                assert_eq!(mode.to_wire(), byte);
             }
-            let separate = Fr7PresetSeparateMode::try_from(byte);
+            let separate = PresetSeparateMode::from_wire(byte);
             assert_eq!(separate.is_ok(), matches!(byte, 0 | 1));
             if let Ok(mode) = separate {
-                assert_eq!(u8::from(mode), byte);
+                assert_eq!(mode.to_wire(), byte);
             }
         }
     }
@@ -455,19 +447,19 @@ mod tests {
     fn r7_page_22_decoders_distinguish_raw_speed_from_nibble_speed() {
         assert_eq!(
             decode_preset_speed_selection(Payload::new(&[1])).unwrap(),
-            Fr7PresetSpeedSelection::Separate
+            PresetSpeedSelection::Separate
         );
         assert_eq!(
             decode_preset_speed_selection(Payload::new(&[2])).unwrap(),
-            Fr7PresetSpeedSelection::Common
+            PresetSpeedSelection::Common
         );
         assert_eq!(
             decode_separate_preset_mode(Payload::new(&[0])).unwrap(),
-            Fr7PresetSeparateMode::Speed
+            PresetSeparateMode::Speed
         );
         assert_eq!(
             decode_separate_preset_mode(Payload::new(&[1])).unwrap(),
-            Fr7PresetSeparateMode::Duration
+            PresetSeparateMode::Duration
         );
         assert_eq!(
             decode_common_preset_speed(Payload::new(&[0, 1])).unwrap(),
@@ -487,11 +479,11 @@ mod tests {
         );
         assert_eq!(
             decode_separate_preset_duration(Payload::new(&[0, 0, 0xa])).unwrap(),
-            PresetDuration::MIN
+            Duration::from_secs(1)
         );
         assert_eq!(
             decode_separate_preset_duration(Payload::new(&[3, 0xd, 0xe])).unwrap(),
-            PresetDuration::MAX
+            Duration::from_secs(99)
         );
         for invalid in [&[][..], &[1, 0][..]] {
             assert!(decode_preset_speed_selection(Payload::new(invalid)).is_err());
@@ -525,17 +517,25 @@ mod tests {
     #[cfg(feature = "serde")]
     #[test]
     fn serde_preserves_checked_domains_inside_setting_records() {
-        let setting = Fr7SetSeparatePresetDuration::new(Fr7PresetNumber::MAX, PresetDuration::MAX);
+        let setting = Fr7SetSeparatePresetDuration::new(
+            PresetNumber::new(99).unwrap(),
+            Duration::from_secs(99),
+        )
+        .unwrap();
         let json = serde_json::to_string(&setting).unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&json).unwrap()["duration"],
+            serde_json::json!({"secs": 99, "nanos": 0})
+        );
         assert_eq!(
             serde_json::from_str::<Fr7SetSeparatePresetDuration>(&json).unwrap(),
             setting
         );
         for invalid in [
-            r#"{"preset":100,"duration":10}"#,
-            r#"{"preset":0,"duration":9}"#,
-            r#"{"preset":0,"duration":991}"#,
-            r#"{"preset":0,"duration":10,"extra":true}"#,
+            r#"{"preset":0,"duration":{"secs":0,"nanos":900000000}}"#,
+            r#"{"preset":0,"duration":{"secs":99,"nanos":100000000}}"#,
+            r#"{"preset":0,"duration":{"secs":1,"nanos":1}}"#,
+            r#"{"preset":0,"duration":{"secs":1,"nanos":0},"extra":true}"#,
         ] {
             assert!(serde_json::from_str::<Fr7SetSeparatePresetDuration>(invalid).is_err());
         }

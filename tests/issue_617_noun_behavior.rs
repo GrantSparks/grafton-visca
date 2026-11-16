@@ -257,7 +257,11 @@ mod blocking_surface {
 
         camera
             .pan_tilt()
-            .absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fastest)
+            .absolute(
+                Degrees::new(45.0).expect("valid degrees"),
+                Degrees::new(15.0).expect("valid degrees"),
+                SpeedLevel::Fastest,
+            )
             .expect("BRC-300 absolute noun")
             .applied()
             .expect("BRC-300 absolute applied");
@@ -265,7 +269,11 @@ mod blocking_surface {
 
         camera
             .pan_tilt()
-            .relative(Degrees(45.0), Degrees(15.0), SpeedLevel::Fastest)
+            .relative(
+                Degrees::new(45.0).expect("valid degrees"),
+                Degrees::new(15.0).expect("valid degrees"),
+                SpeedLevel::Fastest,
+            )
             .expect("BRC-300 relative noun")
             .applied()
             .expect("BRC-300 relative applied");
@@ -627,7 +635,11 @@ mod async_surface {
 
         camera
             .pan_tilt()
-            .absolute(Degrees(45.0), Degrees(15.0), SpeedLevel::Fastest)
+            .absolute(
+                Degrees::new(45.0).expect("valid degrees"),
+                Degrees::new(15.0).expect("valid degrees"),
+                SpeedLevel::Fastest,
+            )
             .await
             .expect("BRC-300 absolute noun")
             .applied()
@@ -637,7 +649,11 @@ mod async_surface {
 
         camera
             .pan_tilt()
-            .relative(Degrees(45.0), Degrees(15.0), SpeedLevel::Fastest)
+            .relative(
+                Degrees::new(45.0).expect("valid degrees"),
+                Degrees::new(15.0).expect("valid degrees"),
+                SpeedLevel::Fastest,
+            )
             .await
             .expect("BRC-300 relative noun")
             .applied()

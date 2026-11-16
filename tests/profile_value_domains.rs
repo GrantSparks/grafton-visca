@@ -7,7 +7,7 @@ use grafton_visca::{
         GenericVisca, NearusBRC300, PtzOpticsG2, SonyBRC300, SonyBRCH900, SonyEVIH100, SonyFR7,
     },
     types::ShutterSpeed,
-    units::Fraction,
+    units::ExposureTime,
     Error, Inquiry, ProfileSpec, Request,
 };
 
@@ -35,7 +35,9 @@ fn sony_shutter_replies_decode_to_their_source_table_codes() -> Result<(), Error
                 Some(decoded),
                 profile
                     .capabilities()
-                    .shutter_speed_for(Fraction::new(1, denominator).expect("nonzero denominator"))
+                    .shutter_speed_for(
+                        ExposureTime::new(1, denominator).expect("nonzero denominator")
+                    )
                     .ok(),
                 "{} 1/{denominator}",
                 profile.name()
@@ -67,7 +69,7 @@ fn evi_h100_zero_shutter_reply_decodes_to_one_second() -> Result<(), Error> {
     assert_eq!(
         profile
             .capabilities()
-            .shutter_speed_for(Fraction::new(1, 1).expect("nonzero denominator"))
+            .shutter_speed_for(ExposureTime::new(1, 1).expect("nonzero denominator"))
             .ok(),
         Some(decoded)
     );
@@ -89,7 +91,7 @@ fn every_advertised_shutter_code_is_a_typed_shutter_command() {
             .expect("exposure domain")
             .shutter_speeds
         {
-            let code = ShutterSpeed::new(entry.value);
+            let code = ShutterSpeed::new(entry.value).expect("valid value");
             assert!(
                 matches!(Shutter::SetSpeed(code), Shutter::SetSpeed(c) if c.value() == entry.value)
             );
@@ -110,7 +112,8 @@ fn evi_h100_iris_and_bright_gaps_are_refused_and_endpoints_admitted() -> Result<
     };
 
     let iris = |level: u8| IrisDirect::new(IrisLevel::new(level).expect("iris value"));
-    let bright = |level: u8| Brightness::SetLevel(BrightnessLevel::new(level));
+    let bright =
+        |level: u8| Brightness::SetLevel(BrightnessLevel::new(level).expect("valid value"));
 
     let evi = ProfileSpec::from_compile_time::<SonyEVIH100>()?;
     for admitted in [0x00, 0x05, 0x11] {
@@ -255,7 +258,7 @@ fn fr7_and_brc_h900_advertise_no_shutter_codes() -> Result<(), Error> {
         );
         for code in [0x00, 0x05, 0x0F, 0x15] {
             assert!(
-                Shutter::SetSpeed(ShutterSpeed::new(code))
+                Shutter::SetSpeed(ShutterSpeed::new(code).expect("valid value"))
                     .validate_for_target(
                         &grafton_visca::TargetRegistration::new(
                             grafton_visca::CameraId::CAMERA_1,

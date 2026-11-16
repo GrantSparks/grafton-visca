@@ -106,11 +106,11 @@ state_key_ledger! {
     /// Returns whether tally brightness was last applied as high.
     TallyBrightness(bool) => tally_brightness_is_high,
     /// Returns the last applied pan/tilt variable-speed mode.
-    VariableSpeedMode(crate::command::VariableSpeedMode) => variable_speed_mode,
+    PanTiltSpeedMode(crate::command::PanTiltSpeedMode) => variable_speed_mode,
     /// Returns the last applied steady tally mode; a flash leaves it unknown.
     TallyMode(bool) => tally_mode,
     /// Returns the last applied combined flip state; a single-axis change leaves it unknown.
-    Flip(crate::command::FlipState) => flip_state,
+    Flip(crate::command::ImageFlipMode) => flip_state,
 }
 
 /// A fixed table with exactly one inline slot per declared state key.
@@ -194,7 +194,7 @@ impl StateCache {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PanTiltLimitUpdate {
     corner: crate::command::PanTiltLimitCorner,
-    position: Option<crate::camera::PanTiltPosition>,
+    position: Option<crate::camera::PanTiltUnits>,
 }
 
 impl PanTiltLimitUpdate {
@@ -202,7 +202,7 @@ impl PanTiltLimitUpdate {
     #[must_use]
     pub const fn set(
         corner: crate::command::PanTiltLimitCorner,
-        position: crate::camera::PanTiltPosition,
+        position: crate::camera::PanTiltUnits,
     ) -> Self {
         Self {
             corner,
@@ -227,7 +227,7 @@ impl PanTiltLimitUpdate {
 
     /// Returns the raw limit position, or `None` when the corner was cleared.
     #[must_use]
-    pub const fn position(self) -> Option<crate::camera::PanTiltPosition> {
+    pub const fn position(self) -> Option<crate::camera::PanTiltUnits> {
         self.position
     }
 
@@ -263,8 +263,8 @@ mod tests {
             StateKey::DigitalZoomMode => Some(StateKey::MulticastStreaming),
             StateKey::MulticastStreaming => Some(StateKey::NdiQuality),
             StateKey::NdiQuality => Some(StateKey::TallyBrightness),
-            StateKey::TallyBrightness => Some(StateKey::VariableSpeedMode),
-            StateKey::VariableSpeedMode => Some(StateKey::TallyMode),
+            StateKey::TallyBrightness => Some(StateKey::PanTiltSpeedMode),
+            StateKey::PanTiltSpeedMode => Some(StateKey::TallyMode),
             StateKey::TallyMode => Some(StateKey::Flip),
             StateKey::Flip => None,
         }

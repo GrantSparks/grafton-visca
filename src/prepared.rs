@@ -10,13 +10,13 @@ use crate::session_config::ValidatedTuning;
 #[cfg(test)]
 use crate::CameraId;
 use crate::{
-    camera::{MotionQuery, MovementTolerance, PanTiltPosition},
+    camera::{MotionQuery, MovementTolerance, PanTiltUnits},
     command::{
         inquiry::{
             FocusPositionInquiry, IrisInquiry, NdFilterInquiry, PanTiltPositionInquiry,
             ZoomPositionInquiry,
         },
-        NdFilterValue,
+        NdFilterDensity,
     },
     completion,
     profile::{RetryBounds, DEFAULT_RETRY_BASE},
@@ -180,7 +180,7 @@ pub(crate) trait PositionReading: Copy {
     fn moved(self, previous: Self, tolerance: MovementTolerance) -> bool;
 }
 
-impl PositionReading for PanTiltPosition {
+impl PositionReading for PanTiltUnits {
     fn moved(self, previous: Self, tolerance: MovementTolerance) -> bool {
         let (pan, tilt) = self.raw_values();
         let (previous_pan, previous_tilt) = previous.raw_values();
@@ -201,7 +201,7 @@ macro_rules! scalar_position_readings {
 }
 
 scalar_position_readings! {
-    ZoomPosition => zoom, FocusPosition => focus, IrisLevel => iris, NdFilterValue => nd_filter,
+    ZoomPosition => zoom, FocusPosition => focus, IrisLevel => iris, NdFilterDensity => nd_filter,
 }
 
 impl<R: PositionReading> PositionQuery<R> {
@@ -217,11 +217,11 @@ impl<R: PositionReading> PositionQuery<R> {
 /// Complete set of typed position inquiries selected for one operation.
 #[derive(Debug, Clone)]
 pub(crate) struct PositionQueryPlan {
-    pub(crate) pan_tilt: Option<PositionQuery<PanTiltPosition>>,
+    pub(crate) pan_tilt: Option<PositionQuery<PanTiltUnits>>,
     pub(crate) zoom: Option<PositionQuery<ZoomPosition>>,
     pub(crate) focus: Option<PositionQuery<FocusPosition>>,
     pub(crate) iris: Option<PositionQuery<IrisLevel>>,
-    pub(crate) nd_filter: Option<PositionQuery<NdFilterValue>>,
+    pub(crate) nd_filter: Option<PositionQuery<NdFilterDensity>>,
 }
 
 impl PositionQueryPlan {
@@ -1224,7 +1224,7 @@ mod tests {
         capabilities::{Capabilities, InquirySupport, TypedSupportSet},
         command::{
             BrightnessInquiry, ExposureModeInquiry, FocusNearLimitInquiry, FocusZoneInquiry,
-            IrisInquiry, NdFilterValue, PanTilt, PanTiltLimitCorner, PanTiltPositionInquiry,
+            IrisInquiry, NdFilterDensity, PanTilt, PanTiltLimitCorner, PanTiltPositionInquiry,
             PictureEffectInquiry, PowerInquiry, UsbAudioInquiry, VersionInquiry,
             ZoomPositionInquiry, VISCA_TERMINATOR,
         },
@@ -1351,9 +1351,14 @@ mod tests {
                 prepared.context.requires_extended_pan_tilt_speed,
                 speed > 24
             );
-            let absolute =
-                PanTiltAbsolute::for_target(Degrees(1.0), Degrees(1.0), pan, tilt, &registration)
-                    .expect("target");
+            let absolute = PanTiltAbsolute::for_target(
+                Degrees::new(1.0).expect("finite degrees"),
+                Degrees::new(1.0).expect("finite degrees"),
+                pan,
+                tilt,
+                &registration,
+            )
+            .expect("target");
             let prepared = prepare_operation::<completion::Targeted, _>(
                 &absolute,
                 &registration,
@@ -1365,9 +1370,14 @@ mod tests {
                 prepared.context.requires_extended_pan_tilt_speed,
                 speed > 24
             );
-            let relative =
-                PanTiltRelative::for_target(Degrees(1.0), Degrees(1.0), pan, tilt, &registration)
-                    .expect("offset");
+            let relative = PanTiltRelative::for_target(
+                Degrees::new(1.0).expect("finite degrees"),
+                Degrees::new(1.0).expect("finite degrees"),
+                pan,
+                tilt,
+                &registration,
+            )
+            .expect("offset");
             let prepared = prepare_operation::<completion::Targeted, _>(
                 &relative,
                 &registration,
@@ -2569,18 +2579,18 @@ mod tests {
             iris: 0,
             nd_filter: 0,
         };
-        let mut pan_tilt = position_query::<PanTiltPosition>();
-        assert!(pan_tilt.record(PanTiltPosition::new(i32::MIN, i32::MAX), tolerance));
-        assert!(pan_tilt.record(PanTiltPosition::new(i32::MAX, i32::MIN), tolerance));
-        assert!(!pan_tilt.record(PanTiltPosition::new(i32::MAX - 2, i32::MIN + 2), tolerance));
+        let mut pan_tilt = position_query::<PanTiltUnits>();
+        assert!(pan_tilt.record(PanTiltUnits::new(i32::MIN, i32::MAX), tolerance));
+        assert!(pan_tilt.record(PanTiltUnits::new(i32::MAX, i32::MIN), tolerance));
+        assert!(!pan_tilt.record(PanTiltUnits::new(i32::MAX - 2, i32::MIN + 2), tolerance));
         let mut zoom = position_query::<ZoomPosition>();
         assert!(zoom.record(ZoomPosition::new(100).expect("zoom"), tolerance));
         assert!(!zoom.record(ZoomPosition::new(110).expect("zoom"), tolerance));
         assert!(zoom.record(ZoomPosition::new(99).expect("zoom"), tolerance));
         let mut focus = position_query::<FocusPosition>();
-        assert!(focus.record(FocusPosition::new(200), tolerance));
-        assert!(!focus.record(FocusPosition::new(205), tolerance));
-        assert!(focus.record(FocusPosition::new(199), tolerance));
+        assert!(focus.record(FocusPosition::new(200).expect("focus position"), tolerance));
+        assert!(!focus.record(FocusPosition::new(205).expect("focus position"), tolerance));
+        assert!(focus.record(FocusPosition::new(199).expect("focus position"), tolerance));
     }
 
     #[test]
@@ -2589,13 +2599,13 @@ mod tests {
             pan_tilt: 40_000,
             ..MovementTolerance::default()
         };
-        let endpoint = PanTiltPosition::new(0x08A58, 0x493D);
-        let mut stable = position_query::<PanTiltPosition>();
+        let endpoint = PanTiltUnits::new(0x08A58, 0x493D);
+        let mut stable = position_query::<PanTiltUnits>();
         assert!(stable.record(endpoint, tolerance));
-        assert!(!stable.record(PanTiltPosition::new(0x08A58 - 40_000, 0x493D), tolerance));
-        let mut moving = position_query::<PanTiltPosition>();
+        assert!(!stable.record(PanTiltUnits::new(0x08A58 - 40_000, 0x493D), tolerance));
+        let mut moving = position_query::<PanTiltUnits>();
         assert!(moving.record(endpoint, tolerance));
-        assert!(moving.record(PanTiltPosition::new(0x08A58 - 40_001, 0x493D), tolerance));
+        assert!(moving.record(PanTiltUnits::new(0x08A58 - 40_001, 0x493D), tolerance));
     }
 
     #[test]
@@ -2762,23 +2772,23 @@ mod tests {
     fn scalar_position_queries_honor_iris_and_nd_tolerance() {
         let tolerance = MovementTolerance::default();
         let mut iris = position_query::<IrisLevel>();
-        let mut nd = position_query::<NdFilterValue>();
+        let mut nd = position_query::<NdFilterDensity>();
         let iris_value = IrisLevel::new(4).expect("iris");
-        let nd_value = NdFilterValue::new(0).expect("ND");
+        let nd_value = NdFilterDensity::new(0).expect("ND");
         assert!(iris.record(iris_value, tolerance));
         assert!(nd.record(nd_value, tolerance));
         assert!(!iris.record(iris_value, tolerance));
         assert!(!nd.record(nd_value, tolerance));
         assert!(iris.record(IrisLevel::new(5).expect("iris"), tolerance));
-        assert!(nd.record(NdFilterValue::new(4).expect("ND"), tolerance));
+        assert!(nd.record(NdFilterDensity::new(4).expect("ND"), tolerance));
     }
 
     #[test]
     fn each_selected_query_needs_two_successful_answers_to_prove_stability() {
         let tolerance = MovementTolerance::default();
-        let mut pan_tilt = position_query::<PanTiltPosition>();
+        let mut pan_tilt = position_query::<PanTiltUnits>();
         let mut zoom = position_query::<ZoomPosition>();
-        let pan_tilt_value = PanTiltPosition::new(0, 0);
+        let pan_tilt_value = PanTiltUnits::new(0, 0);
         let zoom_value = ZoomPosition::new(0).expect("zoom");
         assert!(pan_tilt.record(pan_tilt_value, tolerance));
         assert!(!pan_tilt.record(pan_tilt_value, tolerance));
@@ -3819,8 +3829,8 @@ mod tests {
         let sony_tilt_speed = TiltSpeed::new(9).expect("matching Sony BRC-300 speed");
 
         let sony_absolute = PanTiltAbsolute::for_target(
-            Degrees(45.0),
-            Degrees(15.0),
+            Degrees::new(45.0).expect("finite degrees"),
+            Degrees::new(15.0).expect("finite degrees"),
             pan_speed,
             sony_tilt_speed,
             &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, sony.clone())
@@ -3828,8 +3838,8 @@ mod tests {
         )
         .expect("Sony BRC-300 absolute");
         let sony_relative = PanTiltRelative::for_target(
-            Degrees(45.0),
-            Degrees(15.0),
+            Degrees::new(45.0).expect("finite degrees"),
+            Degrees::new(15.0).expect("finite degrees"),
             pan_speed,
             sony_tilt_speed,
             &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, sony.clone())
@@ -3838,8 +3848,8 @@ mod tests {
         .expect("Sony BRC-300 relative");
         let sony_limit = PanTiltLimitSet::for_target(
             PanTiltLimitCorner::UpRight,
-            Degrees(45.0),
-            Degrees(15.0),
+            Degrees::new(45.0).expect("finite degrees"),
+            Degrees::new(15.0).expect("finite degrees"),
             &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, sony.clone())
                 .expect("target registration"),
         )
@@ -3899,7 +3909,7 @@ mod tests {
                 .decoder
                 .decode(&[0x00, 0x02, 0x04, 0x09, 0x00, 0x0F, 0x03, 0x0D, 0x00])
                 .expect("Sony BRC-300 position decode"),
-            crate::camera::PanTiltPosition::new(9360, -3120)
+            crate::camera::PanTiltUnits::new(9360, -3120)
         );
 
         // R21 documents the same one-speed, five-pan-nibble frame and limits
@@ -3909,8 +3919,8 @@ mod tests {
             let profile = &nearus;
             let prepared_absolute = prepare_builtin_operation::<completion::Targeted, _>(
                 &PanTiltAbsolute::for_target(
-                    Degrees(45.0),
-                    Degrees(15.0),
+                    Degrees::new(45.0).expect("finite degrees"),
+                    Degrees::new(15.0).expect("finite degrees"),
                     pan_speed,
                     sony_tilt_speed,
                     &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
@@ -3924,8 +3934,8 @@ mod tests {
             .expect("prepared Nearus absolute");
             let prepared_relative = prepare_builtin_operation::<completion::Targeted, _>(
                 &PanTiltRelative::for_target(
-                    Degrees(45.0),
-                    Degrees(15.0),
+                    Degrees::new(45.0).expect("finite degrees"),
+                    Degrees::new(15.0).expect("finite degrees"),
                     pan_speed,
                     sony_tilt_speed,
                     &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
@@ -3940,8 +3950,8 @@ mod tests {
             let prepared_limit = prepare_builtin_command(
                 &PanTiltLimitSet::for_target(
                     PanTiltLimitCorner::UpRight,
-                    Degrees(45.0),
-                    Degrees(15.0),
+                    Degrees::new(45.0).expect("finite degrees"),
+                    Degrees::new(15.0).expect("finite degrees"),
                     &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
                         .expect("target registration"),
                 )
@@ -3965,8 +3975,8 @@ mod tests {
             );
             assert!(matches!(
                 PanTiltAbsolute::for_target(
-                    Degrees(45.0),
-                    Degrees(15.0),
+                    Degrees::new(45.0).expect("finite degrees"),
+                    Degrees::new(15.0).expect("finite degrees"),
                     pan_speed,
                     tilt_speed,
                     &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, profile.clone())
@@ -3987,7 +3997,7 @@ mod tests {
                     .decoder
                     .decode(&[0x00, 0x02, 0x04, 0x09, 0x00, 0x0F, 0x03, 0x0D, 0x00])
                     .expect("Nearus position decode"),
-                crate::camera::PanTiltPosition::new(9360, -3120)
+                crate::camera::PanTiltUnits::new(9360, -3120)
             );
         }
 
@@ -4014,8 +4024,8 @@ mod tests {
         ));
 
         let absolute = PanTiltAbsolute::for_target(
-            Degrees(45.0),
-            Degrees(-15.0),
+            Degrees::new(45.0).expect("finite degrees"),
+            Degrees::new(-15.0).expect("finite degrees"),
             pan_speed,
             tilt_speed,
             &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, signed.clone())
@@ -4051,7 +4061,7 @@ mod tests {
                 .decoder
                 .decode(&[0x0, 0x2, 0xd, 0x0, 0xf, 0xf, 0x1, 0x0])
                 .expect("signed position decode"),
-            crate::camera::PanTiltPosition::new(720, -240)
+            crate::camera::PanTiltUnits::new(720, -240)
         );
         assert!(matches!(
             inquiry.decoder.decode(&[0x12, 0x34, 0x56, 0x78]),
@@ -4070,8 +4080,8 @@ mod tests {
         let generic = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
             .expect("generic built-in profile");
         let pan_tilt = PanTiltAbsolute::for_target(
-            Degrees(100.0),
-            Degrees(0.0),
+            Degrees::new(100.0).expect("finite degrees"),
+            Degrees::new(0.0).expect("finite degrees"),
             PanSpeed::new(18).expect("conservative range"),
             TiltSpeed::new(17).expect("conservative range"),
             &crate::TargetRegistration::new(crate::CameraId::CAMERA_1, generic.clone())

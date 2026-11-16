@@ -88,8 +88,8 @@ fn words<R: Request>(request: &R, target: &TargetRegistration) -> (i32, i32) {
 
 fn relative(target: &TargetRegistration, pan: f32, tilt: f32) -> (i32, i32) {
     let request = PanTiltRelative::for_target(
-        Degrees(pan),
-        Degrees(tilt),
+        Degrees::new(pan).expect("valid degrees"),
+        Degrees::new(tilt).expect("valid degrees"),
         PanSpeed::new(1).expect("speed"),
         TiltSpeed::new(1).expect("speed"),
         target,
@@ -100,8 +100,8 @@ fn relative(target: &TargetRegistration, pan: f32, tilt: f32) -> (i32, i32) {
 
 fn absolute(target: &TargetRegistration, pan: f32, tilt: f32) -> (i32, i32) {
     let request = PanTiltAbsolute::for_target(
-        Degrees(pan),
-        Degrees(tilt),
+        Degrees::new(pan).expect("valid degrees"),
+        Degrees::new(tilt).expect("valid degrees"),
         PanSpeed::new(1).expect("speed"),
         TiltSpeed::new(1).expect("speed"),
         target,
@@ -149,8 +149,8 @@ fn every_builtin_span_boundary_encodes_and_one_more_unit_is_refused() {
                 (pan + pan.signum(), 0)
             };
             let result = PanTiltRelative::for_target(
-                Degrees(conversion.pan_degrees(outside_pan)),
-                Degrees(conversion.tilt_degrees(outside_tilt)),
+                Degrees::new(conversion.pan_degrees(outside_pan)).expect("valid degrees"),
+                Degrees::new(conversion.tilt_degrees(outside_tilt)).expect("valid degrees"),
                 PanSpeed::new(1).expect("speed"),
                 TiltSpeed::new(1).expect("speed"),
                 &target,
@@ -162,20 +162,19 @@ fn every_builtin_span_boundary_encodes_and_one_more_unit_is_refused() {
                 target.mount()
             );
         }
-        for nonfinite in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-            for (pan, tilt) in [(nonfinite, 0.0), (0.0, nonfinite)] {
-                assert!(matches!(
-                    PanTiltRelative::for_target(
-                        Degrees(pan),
-                        Degrees(tilt),
-                        PanSpeed::new(1).expect("speed"),
-                        TiltSpeed::new(1).expect("speed"),
-                        &target,
-                    ),
-                    Err(grafton_visca::Error::InvalidParameter { .. })
-                ));
-            }
-        }
+    }
+}
+
+#[test]
+fn nonfinite_relative_offsets_are_rejected_before_request_construction() {
+    for nonfinite in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        assert!(matches!(
+            Degrees::new(nonfinite),
+            Err(grafton_visca::Error::InvalidParameter {
+                parameter: "Degrees",
+                ..
+            })
+        ));
     }
 }
 
@@ -253,10 +252,10 @@ mod facades {
             let fake = camera();
             let session = open!(fake, SessionConfig::from_compile_time::<PtzOpticsG2>().expect("G2 config")).expect("session");
             let view = session.camera::<PtzOpticsG2>().expect("G2 view");
-            let error = wait!(view.pan_tilt().absolute(Degrees(0.0), Degrees(-45.0), SpeedLevel::Slowest)).expect_err("absolute refusal");
+            let error = wait!(view.pan_tilt().absolute(Degrees::new(0.0).expect("valid degrees"), Degrees::new(-45.0).expect("valid degrees"), SpeedLevel::Slowest)).expect_err("absolute refusal");
             assert!(matches!(error, Error::InvalidParameter { .. }));
             assert_eq!(fake.write_count(), 0);
-            let mut operation = wait!(view.pan_tilt().relative(Degrees(0.0), Degrees(-45.0), SpeedLevel::Slowest)).expect("relative admission");
+            let mut operation = wait!(view.pan_tilt().relative(Degrees::new(0.0).expect("valid degrees"), Degrees::new(-45.0).expect("valid degrees"), SpeedLevel::Slowest)).expect("relative admission");
             wait!(operation.applied()).expect("relative applied");
             assert_eq!(fake.take_only_payload(), RELATIVE);
             wait!(session.close()).expect("close");
@@ -278,14 +277,22 @@ mod facades {
         let view = session.camera_dyn().expect("dynamic view");
         let error = view
             .pan_tilt()
-            .absolute(Degrees(0.0), Degrees(-45.0), SpeedLevel::Slowest)
+            .absolute(
+                Degrees::new(0.0).expect("valid degrees"),
+                Degrees::new(-45.0).expect("valid degrees"),
+                SpeedLevel::Slowest,
+            )
             .await
             .expect_err("absolute refusal");
         assert!(matches!(error, Error::InvalidParameter { .. }));
         assert_eq!(fake.write_count(), 0);
         let mut operation = view
             .pan_tilt()
-            .relative(Degrees(0.0), Degrees(-45.0), SpeedLevel::Slowest)
+            .relative(
+                Degrees::new(0.0).expect("valid degrees"),
+                Degrees::new(-45.0).expect("valid degrees"),
+                SpeedLevel::Slowest,
+            )
             .await
             .expect("dynamic relative");
         operation.applied().await.expect("applied");

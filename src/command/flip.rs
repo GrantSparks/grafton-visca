@@ -2,30 +2,15 @@
 //!
 //! This module provides commands for controlling image orientation.
 
-use grafton_visca_macros::ViscaEnum;
-
 use crate::{command::bytes::constants::flip, macros::consolidated::visca_command};
-
-/// Image flip state.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub enum Flip {
-    /// Enable image flip.
-    On = 0x02,
-    /// Disable image flip.
-    Off = 0x03,
-}
 
 visca_command! {
     /// Command to control image flip.
     ///
     /// This command flips the image vertically (upside down).
-    pub struct ImageFlip { flip: Flip };
+    pub struct ImageFlip { flip: bool };
     prefix = flip::VERTICAL;
-    param = u8::from(*flip);
+    param = if *flip { 0x02 } else { 0x03 };
     max_param_size = 1;
 }
 
@@ -91,63 +76,31 @@ mod tests {
     visca_test!(
         ImageFlip,
         test_flip_on_command,
-        ImageFlip { flip: Flip::On },
+        ImageFlip { flip: true },
         &[0x81, 0x01, 0x04, 0x66, 0x02, VISCA_TERMINATOR]
     );
 
     visca_test!(
         ImageFlip,
         test_flip_off_command,
-        ImageFlip { flip: Flip::Off },
+        ImageFlip { flip: false },
         &[0x81, 0x01, 0x04, 0x66, 0x03, VISCA_TERMINATOR]
     );
 
     #[test]
-    fn test_flip_enum_values() {
-        assert_eq!(Flip::On as u8, 0x02);
-        assert_eq!(Flip::Off as u8, 0x03);
-    }
-
-    #[test]
-    fn test_flip_enum_equality() {
-        assert_eq!(Flip::On, Flip::On);
-        assert_eq!(Flip::Off, Flip::Off);
-        assert_ne!(Flip::On, Flip::Off);
-    }
-
-    #[test]
-    fn test_flip_enum_debug() {
-        let on = Flip::On;
-        assert_eq!(format!("{on:?}"), "On");
-        let off = Flip::Off;
-        assert_eq!(format!("{off:?}"), "Off");
-    }
-
-    #[test]
-    fn test_flip_enum_clone() {
-        let flip1 = Flip::On;
-        let flip2 = flip1.clone();
-        assert_eq!(flip1, flip2);
-
-        let flip1 = Flip::Off;
-        let flip2 = flip1; // Copy trait
-        assert_eq!(flip2, Flip::Off);
-    }
-
-    #[test]
     fn test_image_flip_command_debug() {
-        let cmd = ImageFlip { flip: Flip::On };
+        let cmd = ImageFlip { flip: true };
         let debug_str = format!("{cmd:?}");
-        assert!(debug_str.contains("On"));
+        assert!(debug_str.contains("true"));
 
-        let cmd = ImageFlip { flip: Flip::Off };
+        let cmd = ImageFlip { flip: false };
         let debug_str = format!("{cmd:?}");
-        assert!(debug_str.contains("Off"));
+        assert!(debug_str.contains("false"));
     }
 
     #[test]
     fn test_image_flip_command_clone() {
-        let cmd1 = ImageFlip { flip: Flip::On };
+        let cmd1 = ImageFlip { flip: true };
         let cmd2 = cmd1.clone();
         // Verify commands produce same bytes
         assert_eq!(
@@ -155,7 +108,7 @@ mod tests {
             crate::command::test_wire_bytes(&cmd2, CameraId::CAMERA_1).unwrap()
         );
 
-        let cmd1 = ImageFlip { flip: Flip::Off };
+        let cmd1 = ImageFlip { flip: false };
         let cmd2 = cmd1; // Copy trait
         assert_eq!(
             crate::command::test_wire_bytes(&cmd2, CameraId::CAMERA_1).unwrap(),
@@ -166,24 +119,24 @@ mod tests {
     #[test]
     fn test_response_type_none() {
         // Flip commands don't expect a response beyond ACK/completion
-        let cmd_on = ImageFlip { flip: Flip::On };
+        let cmd_on = ImageFlip { flip: true };
         assert!(crate::command::test_wire_bytes(&cmd_on, CameraId::CAMERA_1).is_ok());
 
-        let cmd_off = ImageFlip { flip: Flip::Off };
+        let cmd_off = ImageFlip { flip: false };
         assert!(crate::command::test_wire_bytes(&cmd_off, CameraId::CAMERA_1).is_ok());
     }
 
     #[test]
     fn test_command_trait_impl() {
         // Verify ImageFlip implements the private wire encoder.
-        let cmd = ImageFlip { flip: Flip::On };
+        let cmd = ImageFlip { flip: true };
         assert!(crate::command::test_wire_bytes(&cmd, CameraId::CAMERA_1).is_ok());
     }
 
     #[test]
     fn test_byte_sequence_correctness() {
         // Verify the exact byte sequences match VISCA protocol
-        let on_cmd = ImageFlip { flip: Flip::On };
+        let on_cmd = ImageFlip { flip: true };
         let on_bytes = crate::command::test_wire_bytes(&on_cmd, CameraId::CAMERA_1).unwrap();
         assert_eq!(on_bytes[0], 0x81); // Command header
         assert_eq!(on_bytes[1], 0x01); // Command type
@@ -192,7 +145,7 @@ mod tests {
         assert_eq!(on_bytes[4], 0x02); // On value
         assert_eq!(on_bytes[5], 0xFF); // Terminator
 
-        let off_cmd = ImageFlip { flip: Flip::Off };
+        let off_cmd = ImageFlip { flip: false };
         let off_bytes = crate::command::test_wire_bytes(&off_cmd, CameraId::CAMERA_1).unwrap();
         assert_eq!(off_bytes[0], 0x81); // Command header
         assert_eq!(off_bytes[1], 0x01); // Command type
@@ -205,15 +158,15 @@ mod tests {
     #[test]
     fn test_command_consistency() {
         // Test that creating commands with the same flip state produces identical bytes
-        let cmd1 = ImageFlip { flip: Flip::On };
-        let cmd2 = ImageFlip { flip: Flip::On };
+        let cmd1 = ImageFlip { flip: true };
+        let cmd2 = ImageFlip { flip: true };
         assert_eq!(
             crate::command::test_wire_bytes(&cmd1, CameraId::CAMERA_1).unwrap(),
             crate::command::test_wire_bytes(&cmd2, CameraId::CAMERA_1).unwrap()
         );
 
-        let cmd1 = ImageFlip { flip: Flip::Off };
-        let cmd2 = ImageFlip { flip: Flip::Off };
+        let cmd1 = ImageFlip { flip: false };
+        let cmd2 = ImageFlip { flip: false };
         assert_eq!(
             crate::command::test_wire_bytes(&cmd1, CameraId::CAMERA_1).unwrap(),
             crate::command::test_wire_bytes(&cmd2, CameraId::CAMERA_1).unwrap()

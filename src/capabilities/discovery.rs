@@ -213,6 +213,15 @@ impl Capabilities {
                 modes: P::WB_MODES.to_vec(),
                 one_push: P::SUPPORTS_ONE_PUSH_WB,
                 color_temp_range: P::COLOR_TEMP_RANGE,
+                color_temperature_steps: P::COLOR_TEMP_RANGE.map_or_else(
+                    || std::sync::Arc::from([]),
+                    |_| {
+                        (0..=55)
+                            .map(|code| 2500 + code * 100)
+                            .collect::<Vec<_>>()
+                            .into()
+                    },
+                ),
                 rgb_gain: P::RED_GAIN_RANGE
                     .zip(P::BLUE_GAIN_RANGE)
                     .map(|(red, blue)| RgbGainRanges { red, blue }),
@@ -235,7 +244,7 @@ impl Capabilities {
             presets: P::PRESET_RECALL_AXES.map(|recall_axes| PresetCaps {
                 highest: P::HIGHEST_PRESET,
                 recall_axes,
-                speed_range: P::PRESET_SPEED_RANGE,
+                recall_speed_range: P::PRESET_SPEED_RANGE,
                 tour: P::SUPPORTS_PRESET_TOUR,
                 thumbnail: P::SUPPORTS_PRESET_THUMBNAIL,
                 recall_delay: P::PRESET_RECALL_DELAY,
@@ -522,7 +531,7 @@ impl Capabilities {
                     .is_some_and(|d| d.one_push && d.modes.contains(&WhiteBalanceMode::OnePush)),
             ),
             S::AutoTrackingWhiteBalance => {
-                Dedicated(white_balance.is_some_and(|d| d.modes.contains(&WhiteBalanceMode::ATW)))
+                Dedicated(white_balance.is_some_and(|d| d.modes.contains(&WhiteBalanceMode::Atw)))
             }
             S::ColorTemperature => Dedicated(white_balance.is_some_and(|d| {
                 d.color_temp_range.is_some()
@@ -562,7 +571,7 @@ impl Capabilities {
             S::PtzOpticsPresetRecallSpeed => ParentDomain(
                 self.presets
                     .as_ref()
-                    .is_some_and(|d| d.speed_range.is_some()),
+                    .is_some_and(|d| d.recall_speed_range.is_some()),
             ),
             S::AutoWhiteBalanceSensitivity => ParentDomain(white_balance.is_some()),
             S::ImageFreeze => ParentDomain(image.is_some()),
@@ -690,7 +699,7 @@ impl Capabilities {
     /// Returns the shared shutter code for an exact source exposure time.
     pub fn shutter_speed_for(
         &self,
-        exposure: crate::units::Fraction,
+        exposure: crate::units::ExposureTime,
     ) -> Result<crate::types::ShutterSpeed, crate::Error> {
         let entry = self
             .exposure
@@ -709,7 +718,7 @@ impl Capabilities {
                     self.model_name
                 )),
             })?;
-        Ok(crate::types::ShutterSpeed::new(entry.value))
+        crate::types::ShutterSpeed::new(entry.value)
     }
 
     /// Formats the present domains and their main numeric limits.
@@ -795,10 +804,7 @@ mod tests {
 
     const SYNTHETIC_EXPOSURE_MODES: &[ExposureMode] = &[ExposureMode::Auto];
     const SYNTHETIC_SHUTTER_SPEEDS: &[ShutterSpeedEntry] = &[ShutterSpeedEntry::new(
-        match crate::units::Fraction::new(1, 60) {
-            Some(exposure) => exposure,
-            None => panic!("nonzero denominator"),
-        },
+        crate::units::ExposureTime::reciprocal(60),
         0x01,
     )];
     const SYNTHETIC_WB_MODES: &[WhiteBalanceMode] = &[WhiteBalanceMode::Auto];
@@ -811,8 +817,7 @@ mod tests {
         const SUPPORTS_COMMAND_CANCEL: bool = true;
 
         const MODEL_NAME: &'static str = "Metadata Enabled Without Typed Support";
-        const DEFAULT_CAMERA_ID: crate::IndividualCameraId =
-            crate::IndividualCameraId::new(1).expect("individual profile default");
+        const DEFAULT_CAMERA_ID: crate::IndividualCameraId = crate::IndividualCameraId::CAMERA_1;
         type Envelope = RawVisca;
         const ACK_TIMEOUT: Duration = Duration::from_millis(100);
         const COMMAND_TIMEOUTS: crate::CommandTimeouts = crate::CommandTimeouts::new(
@@ -1392,7 +1397,7 @@ mod tests {
         assert_eq!(
             caps.presets
                 .as_ref()
-                .and_then(|domain| domain.speed_range)
+                .and_then(|domain| domain.recall_speed_range)
                 .map(|range| range.as_inclusive()),
             None
         );
@@ -1475,7 +1480,7 @@ mod tests {
         assert_eq!(
             caps.presets
                 .as_ref()
-                .and_then(|domain| domain.speed_range)
+                .and_then(|domain| domain.recall_speed_range)
                 .map(|range| range.as_inclusive()),
             Some(1..=24),
             "Cmd_PT_M_Speed q is 1 through 24"
@@ -1490,7 +1495,7 @@ mod tests {
         assert_eq!(
             caps.presets
                 .as_ref()
-                .and_then(|domain| domain.speed_range)
+                .and_then(|domain| domain.recall_speed_range)
                 .map(|range| range.as_inclusive()),
             Some(1..=24)
         );

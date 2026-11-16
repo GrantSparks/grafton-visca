@@ -1,86 +1,62 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
-//
 // Copyright (c) 2024 Grafton Machine Shed <team@grafton.ai>
 
-//! Procedural macros for the grafton-visca library
-//!
-//! This crate provides derive macros to simplify common patterns
-//! in VISCA command implementations.
+//! Attributes for checked VISCA values and the inquiry request derive.
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+use proc_macro::TokenStream;
 use syn::{parse_macro_input, DeriveInput};
 
-use proc_macro::TokenStream;
-
 mod attr;
-mod bounded;
 mod crate_path;
 mod inquiry_command;
-mod newtype_decl;
-mod visca_enum;
+mod value;
 
-/// Internal declaration adapter used by `grafton_visca::visca_range_type!`
-/// and by the main crate's own checked value types.
+/// Declares a checked scalar with a uniform value and wire-codec contract.
 ///
-/// This is exported only because a declarative macro must invoke it after the
-/// main crate has selected its enabled helper features. It is not a supported
-/// standalone API.
-#[doc(hidden)]
-#[proc_macro]
-pub fn __grafton_visca_newtype(input: TokenStream) -> TokenStream {
-    newtype_decl::expand(input.into())
+/// Apply to a private-field, non-generic tuple struct. `min` and `max` are
+/// inclusive bounds; `valid_values = [..]` declares a finite set
+/// instead. `display` is a format string or formatter function path. The
+/// optional `wire = biased(offset, u8)` (or `centered(offset, u8)`) declares
+/// a shifted integer wire representation. The wire type defaults to `u8`.
+/// `f32` and `f64` values reject non-finite input and bounds, normalize signed
+/// zero, and have consistent total ordering and hashing. They use identity
+/// wire representations. Float bounds may be literals or constants.
+///
+/// The attribute emits the standard value derives, checked `const fn new`,
+/// `value`, `MIN`, `MAX`, scalar conversions, `Display`, and `WireValue`.
+/// The defining library's enabled serde, schemars and ts-rs features control
+/// their helper derives, including when the caller uses different features.
+/// A re-export-only facade can be selected with `crate = facade::visca`.
+#[proc_macro_attribute]
+pub fn value(args: TokenStream, item: TokenStream) -> TokenStream {
+    value::attribute(value::Kind::Scalar, args.into(), item.into())
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }
 
-/// Derive macro for checked value newtypes.
+/// Declares a value enum with one canonical `WireValue` codec.
 ///
-/// Applied to a tuple struct with one field, it generates the same
-/// constructor, bounds, accessor and error contract as
-/// `grafton_visca::visca_range_type!`, because both expand through one
-/// generator:
-///
-/// - `MIN` and `MAX`, typed as `Self`;
-/// - `new(value) -> Result<Self, grafton_visca::Error>`, which checks the
-///   declared domain (a `const fn` for a `min`/`max` range);
-/// - `pub const fn value(self)`, returning the raw value;
-/// - `TryFrom<inner>` and `From<Self> for inner`;
-/// - `Display`, formatted by `display_format` and `display_prefix`.
-///
-/// It does not generate VISCA byte encoding or decoding APIs, and it does not
-/// add serde, schemars or ts-rs derives; add those on the struct as needed.
-///
-/// # Attributes
-///
-/// Each key may appear once across all `#[visca_value(...)]` attributes.
-///
-/// - `min` and `max`: the inclusive range, each written as an unsuffixed
-///   integer literal string. A value outside it is reported as
-///   `Error::ParameterOutOfRange`, whose bounds are `i32`, so the inner type
-///   must convert into `i32` without loss (`u8`, `u16`, `i8`, `i16` or
-///   `i32`), and `min` must not exceed `max`; both are checked at compile
-///   time.
-/// - `valid_values`: a non-empty array literal string, instead of `min` and
-///   `max`. A value outside it is reported as `Error::InvalidParameter`.
-/// - `display_format`: `"decimal"` (the default), `"hex"` (`0x05`, at least
-///   two digits) or `"binary"`.
-/// - `display_prefix`: text written before the value.
-///
-/// # Example
-///
-/// ```rust,ignore
-/// use grafton_visca_macros::ViscaValue;
-///
-/// #[derive(ViscaValue, Debug, Copy, Clone)]
-/// #[visca_value(min = "0x0000", max = "0x4000")]
-/// struct ZoomPosition(u16);
-/// ```
-#[proc_macro_derive(ViscaValue, attributes(visca_value))]
-pub fn derive_visca_value(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-    bounded::derive_visca_value(&input)
+/// Unit variants use explicit integer discriminants or `#[wire(code)]`.
+/// The wire type defaults to `u8`; use `wire = (u8, u8)` for tuple codes.
+/// One tuple variant may hold a checked value that supplies the remaining
+/// wire domain. `#[value(display = "label")]` sets a variant's display text.
+/// The attribute emits the standard derives, `Display`, helper derives and
+/// `WireValue`, without inherent wire-codec aliases or primitive conversions.
+#[proc_macro_attribute]
+pub fn value_enum(args: TokenStream, item: TokenStream) -> TokenStream {
+    value::attribute(value::Kind::Enum, args.into(), item.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+/// Expands a value after the main library has selected its helper features.
+#[doc(hidden)]
+#[proc_macro]
+pub fn __value(input: TokenStream) -> TokenStream {
+    value::expand(input.into())
         .unwrap_or_else(syn::Error::into_compile_error)
         .into()
 }
@@ -154,90 +130,4 @@ pub fn derive_visca_value(input: TokenStream) -> TokenStream {
 pub fn derive_visca_inquiry(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as DeriveInput);
     TokenStream::from(inquiry_command::derive_visca_inquiry_impl(input))
-}
-
-/// Derive macro for automatic enum/u8 conversions in VISCA protocol
-///
-/// This macro automatically generates `TryFrom<u8>` and `From<Enum> for u8`
-/// implementations for enums with explicit discriminants, eliminating boilerplate
-/// code for VISCA protocol value conversions.
-///
-/// # Requirements
-///
-/// - The enum must have unit variants only (no fields)
-/// - All variants must have explicit discriminant values
-/// - Discriminant values must be unique
-/// - Each discriminant is an unsuffixed integer literal in `0..=255`, in any
-///   radix (`0x0A`, `0o12`, `0b1010` and `10` are equivalent)
-///
-/// # Generated Implementations
-///
-/// The macro generates:
-/// - `TryFrom<u8>` - Converts u8 values to enum variants, returning an error for invalid values
-/// - `From<Enum> for u8` - Converts enum variants to their u8 discriminant values
-/// - `is_valid_discriminant(u8) -> bool` - Const function to check if a value is valid
-///
-/// # Basic Example
-///
-/// ```rust,ignore
-/// use grafton_visca_macros::ViscaEnum;
-///
-/// #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
-/// pub enum ExposureMode {
-///     Auto = 0x00,
-///     Manual = 0x03,
-///     Shutter = 0x0A,
-///     Iris = 0x0B,
-///     Bright = 0x0D,
-/// }
-///
-/// // The macro generates:
-/// // - impl TryFrom<u8> for ExposureMode { ... }
-/// // - impl From<ExposureMode> for u8 { ... }
-/// // - impl ExposureMode { pub const fn is_valid_discriminant(u8) -> bool { ... } }
-/// ```
-///
-/// # Advanced Attributes
-///
-/// The macro supports optional attributes for customization:
-///
-/// ```rust,ignore
-/// #[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
-/// #[visca_enum(error_type = MyError)]
-/// pub enum Mode {
-///     #[visca_enum(name = "Automatic Mode")]
-///     Auto = 0x00,
-///
-///     #[visca_enum(name = "Manual Control")]
-///     Manual = 0x03,
-///
-///     #[visca_enum(skip)]
-///     _Reserved = 0xFF,  // Not included in TryFrom<u8>
-/// }
-/// ```
-///
-/// Each key may appear once across all of an item's `#[visca_enum(...)]`
-/// attributes; a repeated key is a compile error naming both occurrences.
-///
-/// ## Enum-level attributes:
-/// - `error_type` - Custom error type for TryFrom (default: `grafton_visca::Error`)
-///
-/// ## Variant-level attributes:
-/// - `name` - Custom name to use in error messages
-/// - `skip` - Skip this variant in `TryFrom<u8>` (but include in `From<Enum>`)
-///
-/// # Error Handling
-///
-/// The generated `TryFrom<u8>` implementation returns an error with a descriptive
-/// message listing all valid values when an invalid u8 is provided.
-/// The default error and configured types whose final path segment is `Error`
-/// must provide `invalid_response(expected, actual)`: `expected` accepts a
-/// `Cow<'static, str>` (or `impl Into<Cow<'static, str>>`) and `actual` is
-/// `Vec<u8>`. Other configured error names keep
-/// the `From<String>` convention. This constructor convention permits the
-/// library's error payload to remain non-exhaustive.
-#[proc_macro_derive(ViscaEnum, attributes(visca_enum))]
-pub fn derive_visca_enum(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-    TokenStream::from(visca_enum::derive_visca_enum_impl(input))
 }

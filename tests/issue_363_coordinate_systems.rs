@@ -4,7 +4,7 @@
 use grafton_visca::{
     camera::{
         profiles::{GenericVisca, NearusBRC300, SonyBRC300},
-        PanTiltPosition,
+        PanTiltUnits,
     },
     capabilities::{CoordinateSystem, PanTilt, PanTiltWireCodec},
     command::{InquiryData, InquiryKind, Response},
@@ -71,20 +71,28 @@ fn sony_brc300_inquiry_endpoints_use_library_axis_polarity() {
     let (pan, tilt) = pan_tilt(parsed::<SonyBRC300>(&[
         0x00, 0x08, 0x0A, 0x05, 0x08, 0x04, 0x09, 0x03, 0x0D,
     ]));
-    let left_up = PanTiltPosition::new(pan, tilt).as_degrees_with_profile(&SonyBRC300);
-    assert!(left_up.pan.0 < 0.0);
-    assert!(left_up.tilt.0 > 0.0);
-    assert!((left_up.pan.0 + 0x08A58 as f32 / 208.0).abs() < f32::EPSILON);
-    assert!((left_up.tilt.0 - 0x493D as f32 / 208.0).abs() < f32::EPSILON);
+    let conversion = grafton_visca::ProfileSpec::from_compile_time::<SonyBRC300>()
+        .unwrap()
+        .pan_tilt_coordinates()
+        .unwrap();
+    let left_up = conversion
+        .to_degrees(PanTiltUnits::new(pan, tilt))
+        .expect("finite coordinates");
+    assert!(left_up.pan.value() < 0.0);
+    assert!(left_up.tilt.value() > 0.0);
+    assert!((left_up.pan.value() + 0x08A58 as f32 / 208.0).abs() < f32::EPSILON);
+    assert!((left_up.tilt.value() - 0x493D as f32 / 208.0).abs() < f32::EPSILON);
 
     let (pan, tilt) = pan_tilt(parsed::<SonyBRC300>(&[
         0x0F, 0x07, 0x05, 0x0A, 0x08, 0x0E, 0x07, 0x09, 0x06,
     ]));
-    let right_down = PanTiltPosition::new(pan, tilt).as_degrees_with_profile(&SonyBRC300);
-    assert!(right_down.pan.0 > 0.0);
-    assert!(right_down.tilt.0 < 0.0);
-    assert!((right_down.pan.0 - 0x08A58 as f32 / 208.0).abs() < f32::EPSILON);
-    assert!((right_down.tilt.0 + 0x186A as f32 / 208.0).abs() < f32::EPSILON);
+    let right_down = conversion
+        .to_degrees(PanTiltUnits::new(pan, tilt))
+        .expect("finite coordinates");
+    assert!(right_down.pan.value() > 0.0);
+    assert!(right_down.tilt.value() < 0.0);
+    assert!((right_down.pan.value() - 0x08A58 as f32 / 208.0).abs() < f32::EPSILON);
+    assert!((right_down.tilt.value() + 0x186A as f32 / 208.0).abs() < f32::EPSILON);
 }
 
 #[test]

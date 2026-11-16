@@ -351,7 +351,7 @@
 //! preparation enforces the selected model's range. FR7 pan/tilt speeds above
 //! 24 also require session-confirmed Extended speed-step mode.
 //! ```rust
-//! use grafton_visca::types::{PanSpeed, SpeedLevel, ZoomSpeed};
+//! use grafton_visca::types::{PanSpeed, Speed, SpeedLevel, ZoomSpeed};
 //!
 //! // All range types expose MIN/MAX constants for validation
 //! assert_eq!(PanSpeed::MIN.value(), 0);
@@ -363,9 +363,9 @@
 //! let error = PanSpeed::new(51).expect_err("51..=255 is outside the wire domain");
 //! println!("{error}");
 //!
-//! // Speed types work seamlessly with SpeedLevel enum
-//! let zoom = ZoomSpeed::from(SpeedLevel::Fast); // Automatic conversion
-//! assert_eq!(zoom.value(), 6); // Fast = 6 for zoom
+//! // A level is resolved against the selected profile during preparation.
+//! let zoom: Speed<ZoomSpeed> = SpeedLevel::Fast.into();
+//! assert_eq!(zoom, Speed::Level(SpeedLevel::Fast));
 //! ```
 //!
 //! ### Profile-Based Compile-Time Safety
@@ -373,11 +373,11 @@
 //! ```rust
 //! # #[cfg(feature = "blocking")]
 //! fn absolute_move() -> Result<(), grafton_visca::Error> {
-//!     use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2, units::Degrees, SpeedLevel};
+//!     use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2, types::{Degrees, SpeedLevel}};
 //!
 //!     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
 //!     let camera = session.camera();
-//!     camera.pan_tilt().absolute(Degrees(45.0), Degrees(10.0), SpeedLevel::Medium)?.settled()?;
+//!     camera.pan_tilt().absolute(Degrees::new(45.0)?, Degrees::new(10.0)?, SpeedLevel::Medium)?.settled()?;
 //!     session.close()
 //! }
 //! ```
@@ -388,12 +388,12 @@
 //! ```rust
 //! # #[cfg(feature = "blocking")]
 //! fn toggle_focus_lock() -> Result<(), grafton_visca::Error> {
-//!     use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2, command::FocusLock};
+//!     use grafton_visca::{blocking::Connect, camera::profiles::PtzOpticsG2};
 //!
 //!     let session = Connect::open_tcp::<PtzOpticsG2>("192.168.0.110")?;
 //!     let camera = session.camera();
-//!     camera.focus().set_lock(FocusLock::On)?;
-//!     camera.focus().set_lock(FocusLock::Off)?;
+//!     camera.focus().set_lock(true)?;
+//!     camera.focus().set_lock(false)?;
 //!     session.close()
 //! }
 //! ```
@@ -567,15 +567,14 @@
 //!     camera: &grafton_visca::blocking::Camera<grafton_visca::profiles::SonyFR7>,
 //! ) -> Result<(), grafton_visca::Error> {
 //!     use grafton_visca::{
-//!         command::{Fr7PresetSeparateMode, Fr7PresetSpeedSelection},
-//!         types::{Fr7PresetNumber, PresetDuration, WhiteKelvin},
+//!         types::{Kelvin, PresetNumber, PresetSeparateMode, PresetSpeedSelection},
 //!     };
 //!     camera.white_balance().preset()?;
-//!     camera.white_balance().set_preset_white(WhiteKelvin::new(5600)?)?;
-//!     let preset = Fr7PresetNumber::new(0)?;
-//!     camera.presets().select_speed(Fr7PresetSpeedSelection::Separate)?;
-//!     camera.presets().set_separate_mode(preset, Fr7PresetSeparateMode::Duration)?;
-//!     camera.presets().set_separate_duration(preset, PresetDuration::from_seconds(2.5)?)?;
+//!     camera.white_balance().set_preset_white(Kelvin::new(5600)?)?;
+//!     let preset = PresetNumber::new(0)?;
+//!     camera.presets().select_speed(PresetSpeedSelection::Separate)?;
+//!     camera.presets().set_separate_mode(preset, PresetSeparateMode::Duration)?;
+//!     camera.presets().set_separate_duration(preset, std::time::Duration::from_millis(2_500))?;
 //!     Ok(())
 //! }
 //! ```
@@ -780,19 +779,20 @@
 //!
 //! ## Position Units
 //!
-//! The Camera API supports multiple position unit types with automatic conversion:
+//! Typed pan/tilt input uses checked finite degrees. The selected profile
+//! supplies the conversion to its wire coordinates:
 //!
 //! ```rust
 //! # #[cfg(feature = "blocking")]
 //! fn position_units(
 //!     camera: &grafton_visca::blocking::Camera<grafton_visca::profiles::PtzOpticsG2>,
 //! ) -> Result<(), grafton_visca::Error> {
-//!     use grafton_visca::{units::Degrees, SpeedLevel};
+//!     use grafton_visca::types::{Degrees, SpeedLevel};
 //!
 //!     // Work in degrees (recommended)
 //!     camera
 //!         .pan_tilt()
-//!         .absolute(Degrees(45.0), Degrees(-15.0), SpeedLevel::Medium)?
+//!         .absolute(Degrees::new(45.0)?, Degrees::new(-15.0)?, SpeedLevel::Medium)?
 //!         .settled()?;
 //!
 //!     // Stop all movement
@@ -939,11 +939,13 @@
 //! async fn classify_errors(
 //!     camera: &grafton_visca::Camera<grafton_visca::profiles::PtzOpticsG2>,
 //! ) {
-//!     use grafton_visca::{units::Degrees, Error, SpeedLevel};
+//!     use grafton_visca::{types::{Degrees, SpeedLevel}, Error};
 //!
+//!     let pan = Degrees::new(180.0).expect("finite literal");
+//!     let tilt = Degrees::new(0.0).expect("finite literal");
 //!     let applied = match camera
 //!         .pan_tilt()
-//!         .absolute(Degrees(180.0), Degrees(0.0), SpeedLevel::Medium)
+//!         .absolute(pan, tilt, SpeedLevel::Medium)
 //!         .await
 //!     {
 //!         Ok(mut operation) => operation.applied().await,
@@ -964,9 +966,11 @@
 //! }
 //! ```
 
-pub use grafton_visca_macros::{ViscaEnum, ViscaInquiry, ViscaValue};
+extern crate self as grafton_visca;
 
-/// Implementation details used by `visca_range_type!` and the supported derives.
+pub use grafton_visca_macros::{value, value_enum, ViscaInquiry};
+
+/// Implementation details used by the value attributes and inquiry derive.
 ///
 /// This is not a supported public API. It exists so macro expansions can refer
 /// to optional dependencies through the defining crate even when a downstream
@@ -1000,13 +1004,15 @@ pub mod __macro_support {
     }
 
     #[doc(hidden)]
+    pub use crate::__grafton_visca_value_helpers as value_helpers;
+    #[doc(hidden)]
     pub use crate::command::bytes::constants::INQUIRY;
     #[doc(hidden)]
     pub use crate::command::bytes::{frame_len, write_frame};
     #[doc(hidden)]
-    pub use crate::macros::public::RangeInner;
+    pub use crate::macros::public::invalid_value;
     #[doc(hidden)]
-    pub use grafton_visca_macros::__grafton_visca_newtype;
+    pub use grafton_visca_macros::__value;
     #[cfg(feature = "schemars")]
     pub use schemars;
     #[cfg(feature = "serde")]
@@ -1018,12 +1024,12 @@ pub mod __macro_support {
 pub use crate::{
     camera_id::{CameraId, IndividualCameraId},
     command::{
-        AutoFocusSensitivity, AutoWhiteBalanceSensitivity, ExposureMode, FocusMode, MotionSyncMode,
-        MotionSyncPreset, NdFilterMode, NdFilterPosition, PanTiltDirection, PanTiltLimitCorner,
-        PictureEffectMode, PowerStatus, PresetNumber, WhiteBalanceMode,
+        AutoFocusSensitivity, AutoWhiteBalanceSensitivity, ExposureMode, FocusMode, NdFilterMode,
+        PanTiltDirection, PanTiltLimitCorner, PictureEffectMode, PowerStatus, PresetNumber,
+        WhiteBalanceMode,
     },
     error::{Certainty, Error, ErrorKind, FailureContext, FailureStage, Recovery, Result},
-    inquiry_conversions::{zoom_from_normalized, PanTiltPositionDeg, ZoomDomain},
+    inquiry_conversions::ZoomDomain,
     types::{FocusSpeed, MotionSyncSpeed, SpeedLevel, ZoomSpeed},
     units::UnitInterval,
     visca_socket::ViscaSocket,
@@ -1219,6 +1225,9 @@ pub mod types;
 
 /// Semantic unit types for intuitive API usage
 pub mod units;
+
+/// Wire-value codecs used by protocol encoders and decoders.
+pub mod wire;
 
 mod visca_socket;
 

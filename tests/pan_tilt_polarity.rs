@@ -149,8 +149,8 @@ fn positive_degrees_are_right_and_up_for_every_built_in_profile() {
             .expect("absolute pan/tilt conversion")
             .wire_codec();
         let request = PanTiltAbsolute::for_target(
-            Degrees(45.0),
-            Degrees(45.0),
+            Degrees::new(45.0).expect("valid degrees"),
+            Degrees::new(45.0).expect("valid degrees"),
             PanSpeed::new(1).expect("pan speed"),
             TiltSpeed::new(1).expect("tilt speed"),
             &grafton_visca::TargetRegistration::new(

@@ -3470,7 +3470,7 @@ fn applied_state_projection_is_target_qualified_and_emitted_only_on_applied() {
     let projection = AppliedStateProjection::set(crate::KnownState::PanTiltLimits(
         crate::PanTiltLimitUpdate::set(
             crate::command::PanTiltLimitCorner::UpRight,
-            crate::camera::PanTiltPosition::new(1, 2),
+            crate::camera::PanTiltUnits::new(1, 2),
         ),
     ));
     let mut engine = engine(EnvelopeKind::Raw, TransportKind::Datagram);
@@ -4430,7 +4430,7 @@ fn fixture_observation(
         return format!(
             "observer=engine outcome=ack:{}:target={}:socket={}",
             names.get(&id).unwrap(),
-            target.camera().id(),
+            target.camera().value(),
             socket.as_socket_number()
         );
     }

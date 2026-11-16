@@ -10,7 +10,7 @@
 //! - `ATW` (Auto Tracking White Balance) - Sony FR7 specific
 //! - `AWBSensitivity` - PtzOptics specific
 
-use grafton_visca_macros::ViscaEnum;
+use crate::wire::WireValue;
 
 use crate::{command::bytes::constants::white_balance, macros::consolidated::visca_command};
 
@@ -18,11 +18,7 @@ use crate::{command::bytes::constants::white_balance, macros::consolidated::visc
 ///
 /// Controls how the camera adjusts color temperature to ensure
 /// white objects appear white under different lighting conditions.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[crate::value_enum]
 pub enum WhiteBalanceMode {
     /// Automatic white balance adjustment.
     Auto = 0x00,
@@ -35,8 +31,7 @@ pub enum WhiteBalanceMode {
     /// Auto tracking white balance.
     ///
     /// **Vendor-Specific**: This mode is specific to Sony FR7 cameras.
-    #[cfg_attr(feature = "serde", serde(rename = "atw"))]
-    ATW = 0x04,
+    Atw = 0x04,
     /// Manual white balance control.
     Manual = 0x05,
     /// Preset white balance; Sony FR7 uses its preset-white Kelvin bank.
@@ -56,11 +51,7 @@ pub enum WhiteBalanceMode {
 /// - Low = 0x02
 ///
 /// Both commands and inquiry responses use the same byte values.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, ViscaEnum)]
-#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
-#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
-#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[crate::value_enum]
 pub enum AutoWhiteBalanceSensitivity {
     /// High sensitivity - faster adjustments to changing conditions.
     High = 0x00,
@@ -74,7 +65,7 @@ visca_command! {
     /// Command to set the white balance mode.
     pub struct WhiteBalanceCommand { mode: WhiteBalanceMode };
     prefix = white_balance::MODE;
-    param = u8::from(*mode);
+    param = (*mode).to_wire();
     max_param_size = 1;
 }
 
@@ -82,7 +73,7 @@ visca_command! {
     /// Command to set AWB sensitivity.
     pub struct AWBSensitivityCommand { sensitivity: AutoWhiteBalanceSensitivity };
     prefix = white_balance::AWB_SENSITIVITY;
-    param = u8::from(*sensitivity);
+    param = (*sensitivity).to_wire();
     max_param_size = 1;
 }
 
@@ -113,7 +104,7 @@ mod tests {
         assert_eq!(WhiteBalanceMode::Indoor as u8, 0x01);
         assert_eq!(WhiteBalanceMode::Outdoor as u8, 0x02);
         assert_eq!(WhiteBalanceMode::OnePush as u8, 0x03);
-        assert_eq!(WhiteBalanceMode::ATW as u8, 0x04);
+        assert_eq!(WhiteBalanceMode::Atw as u8, 0x04);
         assert_eq!(WhiteBalanceMode::Manual as u8, 0x05);
         assert_eq!(WhiteBalanceMode::ColorTemperature as u8, 0x20);
     }
@@ -158,7 +149,7 @@ mod tests {
         WhiteBalanceCommand,
         test_white_balance_command_atw,
         WhiteBalanceCommand {
-            mode: WhiteBalanceMode::ATW
+            mode: WhiteBalanceMode::Atw
         },
         &[0x81, 0x01, 0x04, 0x35, 0x04, VISCA_TERMINATOR]
     );
@@ -185,38 +176,38 @@ mod tests {
     fn test_white_balance_mode_try_from() {
         // Test valid conversions
         assert!(matches!(
-            WhiteBalanceMode::try_from(0x00),
+            WhiteBalanceMode::from_wire(0x00),
             Ok(WhiteBalanceMode::Auto)
         ));
         assert!(matches!(
-            WhiteBalanceMode::try_from(0x01),
+            WhiteBalanceMode::from_wire(0x01),
             Ok(WhiteBalanceMode::Indoor)
         ));
         assert!(matches!(
-            WhiteBalanceMode::try_from(0x02),
+            WhiteBalanceMode::from_wire(0x02),
             Ok(WhiteBalanceMode::Outdoor)
         ));
         assert!(matches!(
-            WhiteBalanceMode::try_from(0x03),
+            WhiteBalanceMode::from_wire(0x03),
             Ok(WhiteBalanceMode::OnePush)
         ));
         assert!(matches!(
-            WhiteBalanceMode::try_from(0x04),
-            Ok(WhiteBalanceMode::ATW)
+            WhiteBalanceMode::from_wire(0x04),
+            Ok(WhiteBalanceMode::Atw)
         ));
         assert!(matches!(
-            WhiteBalanceMode::try_from(0x05),
+            WhiteBalanceMode::from_wire(0x05),
             Ok(WhiteBalanceMode::Manual)
         ));
         assert!(matches!(
-            WhiteBalanceMode::try_from(0x20),
+            WhiteBalanceMode::from_wire(0x20),
             Ok(WhiteBalanceMode::ColorTemperature)
         ));
 
         // Test invalid conversions
-        assert!(WhiteBalanceMode::try_from(0x06).is_err());
-        assert!(WhiteBalanceMode::try_from(0x10).is_err());
-        assert!(WhiteBalanceMode::try_from(0xFF).is_err());
+        assert!(WhiteBalanceMode::from_wire(0x06).is_err());
+        assert!(WhiteBalanceMode::from_wire(0x10).is_err());
+        assert!(WhiteBalanceMode::from_wire(0xFF).is_err());
     }
 
     #[test]
@@ -265,7 +256,7 @@ mod tests {
             WhiteBalanceMode::Indoor,
             WhiteBalanceMode::Outdoor,
             WhiteBalanceMode::OnePush,
-            WhiteBalanceMode::ATW,
+            WhiteBalanceMode::Atw,
             WhiteBalanceMode::Manual,
             WhiteBalanceMode::ColorTemperature,
         ];

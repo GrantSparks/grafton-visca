@@ -1,40 +1,8 @@
-//! Consolidated module for all VISCA macros.
-//!
-//! This module provides a centralized location for all macros used in the grafton-visca crate,
-//! with clear separation between public API macros and internal implementation details.
-//!
-//! ## Module Organization
-//!
-//! - `public` - Macros that form part of the stable public API
-//! - `consolidated` - Main command implementation macros
-//! - `test_utils` - Test-specific utilities
-//!
-//! ## Public API Macros
-//!
-//! These macros are re-exported at the crate root and are considered stable:
-//!
-//! - `visca_range_type!` - Create validated newtype wrappers for numeric parameters
-//!
-//! ## Internal Macros
-//!
-//! These macros are used internally for implementing VISCA commands and are not part
-//! of the public API. They are crate-private and are not exported:
-//!
-//! - Consolidated command generator: `visca_command!`
-//! - Test utilities: `visca_test!`
+//! Command helpers and feature selection for the public value attributes.
 
-// Public API macros - these are exported at crate root
-pub mod public;
-
-// Consolidated macros module
+// The hidden selector is re-exported through __macro_support.
 pub(crate) mod consolidated;
-
-// Zero-allocation parameter handling
 pub(crate) mod param;
-
-// Test utilities
+pub(crate) mod public;
 #[cfg(test)]
 pub(crate) mod test_utils;
-
-// Public macros are available at crate root via #[macro_export]
-// No re-export needed here

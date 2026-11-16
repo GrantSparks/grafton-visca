@@ -7,7 +7,7 @@
 ))]
 
 use grafton_visca::{
-    command::VariableSpeedMode,
+    command::PanTiltSpeedMode,
     completion::AppliedOnly,
     profiles::SonyFR7,
     request::builtin::{PanTiltDrive, ZoomStop},
@@ -90,12 +90,12 @@ facade_matrix! {
         assert_eq!(metrics.write_failures, 0);
         assert_eq!(wire.peer.write_count(), initial_writes);
 
-        wait!(camera.advanced().set_variable_speed_mode(VariableSpeedMode::Fine50)).unwrap();
-        assert_eq!(camera.state_cache().variable_speed_mode(), Some(VariableSpeedMode::Fine50));
+        wait!(camera.advanced().set_variable_speed_mode(PanTiltSpeedMode::Fine50)).unwrap();
+        assert_eq!(camera.state_cache().variable_speed_mode(), Some(PanTiltSpeedMode::Fine50));
         let mut accepted = wait!(camera.submit::<AppliedOnly, _>(&fast_drive())).unwrap();
         wait!(accepted.applied()).unwrap();
 
-        wait!(camera.advanced().set_variable_speed_mode(VariableSpeedMode::Standard24)).unwrap();
+        wait!(camera.advanced().set_variable_speed_mode(PanTiltSpeedMode::Standard24)).unwrap();
         let before = wire.peer.write_count();
         let mut refused = wait!(camera.submit::<AppliedOnly, _>(&fast_drive())).unwrap();
         assert_unsent(&wait!(refused.applied()).unwrap_err());
@@ -109,8 +109,8 @@ facade_matrix! {
         let wire = Fr7::new(true);
         let session = open!(wire, SessionConfig::from_compile_time::<SonyFR7>().unwrap()).unwrap();
         let camera = session.camera::<SonyFR7>().unwrap();
-        wait!(camera.advanced().set_variable_speed_mode(VariableSpeedMode::Fine50)).unwrap();
-        let error = wait!(camera.advanced().set_variable_speed_mode(VariableSpeedMode::Standard24))
+        wait!(camera.advanced().set_variable_speed_mode(PanTiltSpeedMode::Fine50)).unwrap();
+        let error = wait!(camera.advanced().set_variable_speed_mode(PanTiltSpeedMode::Standard24))
             .unwrap_err();
         assert_eq!(error.failure_context().unwrap().certainty, Certainty::Unconfirmed);
         assert_eq!(camera.state_cache().variable_speed_mode(), None);

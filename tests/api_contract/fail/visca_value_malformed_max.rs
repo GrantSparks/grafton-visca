@@ -1,9 +1,8 @@
-use grafton_visca::ViscaValue;
+use grafton_visca::value;
 
-#[derive(ViscaValue)]
-#[visca_value(min = "0", max = "[")]
+#[value(min = 0, max = "[")]
 struct MalformedMax(u8);
 
 fn main() {}
 
-//~ "`max` must be an unsuffixed integer literal string"
+//~ "value bounds and wire codes must be unsuffixed integer literals"

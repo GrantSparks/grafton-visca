@@ -4,6 +4,7 @@
 //! `PtzOptics` G2 cameras support up to 128 presets (0-127).
 
 use crate::{
+    command::sony_fr7_presets::PresetSpeed,
     command::{
         bytes::{constants::preset, FrameWriter},
         encode::WireEncode,
@@ -17,7 +18,7 @@ use crate::{
 #[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
-pub enum PresetAction {
+pub(crate) enum PresetAction {
     /// Reset/clear the preset.
     Reset = 0x00,
     /// Store current position to preset.
@@ -26,33 +27,12 @@ pub enum PresetAction {
     Recall = 0x02,
 }
 
-crate::visca_range_type! {
-    /// Preset number with validation.
-    ///
-    /// Valid range: 0 to 255 (0x00 to 0xFF).
-    /// Note: Actual valid range depends on camera model:
-    /// - PtzOptics G2: 0-127
-    /// - PtzOptics G3: 0-127 for raw VISCA until values above 0x7F are target-tested
-    /// - Sony FR7: 0-255
-    /// - Sony EVI-H100: 0-5
-    /// Camera-specific validation is performed when sending commands.
-    PresetNumber: u8 {
-        min: 0,
-        max: 255
-    }
-}
-
-crate::visca_range_type! {
-    /// Preset recall speed.
-    ///
-    /// Valid range: 1 to 24 (0x01 to 0x18).
-    /// Controls the speed at which the camera moves when recalling a preset position.
-    /// **Vendor-Specific**: PTZOptics cameras only.
-    PresetRecallSpeed: u8 {
-        min: 1,
-        max: 24
-    }
-}
+/// Zero-based preset number over the union of supported profile domains.
+///
+/// Preparation validates the selected camera's limit: FR7 0..=99,
+/// PTZOptics 0..=127, and Sony EVI-H100 0..=5.
+#[crate::value(min = 0, max = 255, display = "Preset Number {}")]
+pub struct PresetNumber(u8);
 
 /// Command to set the preset recall movement speed.
 ///
@@ -61,12 +41,12 @@ crate::visca_range_type! {
 #[derive(Debug, Copy, Clone)]
 pub struct PresetRecallSpeedCommand {
     /// The recall speed to set.
-    pub speed: PresetRecallSpeed,
+    pub speed: PresetSpeed,
 }
 
 impl PresetRecallSpeedCommand {
     /// Create a command that sets the preset-recall speed.
-    pub const fn new(speed: PresetRecallSpeed) -> Self {
+    pub const fn new(speed: PresetSpeed) -> Self {
         Self { speed }
     }
 }
@@ -77,6 +57,14 @@ impl WireEncode for PresetRecallSpeedCommand {
         camera_id: crate::camera_id::CameraId,
         buffer: &mut [u8],
     ) -> Result<usize, Error> {
+        if self.speed.value() > 24 {
+            return Err(Error::parameter_out_of_range(
+                "preset_recall_speed",
+                i32::from(self.speed.value()),
+                1,
+                24,
+            ));
+        }
         FrameWriter::new(camera_id, buffer)
             .bytes(&preset::RECALL_SPEED)
             .byte(self.speed.value())
@@ -92,8 +80,6 @@ pub(crate) struct PresetCommand {
     /// The preset number to operate on.
     pub preset_number: PresetNumber,
 }
-
-impl PresetCommand {}
 
 impl WireEncode for PresetCommand {
     fn write_into(
@@ -237,17 +223,29 @@ mod tests {
 
     #[test]
     fn test_preset_recall_speed_valid_range() {
-        assert!(PresetRecallSpeed::new(1).is_ok());
-        assert!(PresetRecallSpeed::new(24).is_ok());
-        assert!(PresetRecallSpeed::new(0).is_err());
-        assert!(PresetRecallSpeed::new(25).is_err());
+        assert!(PresetSpeed::new(1).is_ok());
+        assert!(PresetSpeed::new(24).is_ok());
+        assert!(PresetSpeed::new(0).is_err());
+        assert!(PresetSpeed::new(50).is_ok());
+        assert!(PresetSpeed::new(51).is_err());
+    }
+
+    #[test]
+    fn ptzoptics_encoder_refuses_fr7_only_union_speeds() -> crate::Result<()> {
+        let command = PresetRecallSpeedCommand::new(PresetSpeed::new(25)?);
+        let mut buffer = [0; 6];
+        assert!(matches!(
+            command.write_into(crate::CameraId::CAMERA_1, &mut buffer),
+            Err(Error::ParameterOutOfRange { max: 24, .. })
+        ));
+        Ok(())
     }
 
     visca_test!(
         PresetRecallSpeedCommand,
         test_preset_recall_speed_min,
         PresetRecallSpeedCommand {
-            speed: PresetRecallSpeed::new(1).unwrap_or_else(|e| panic!("Valid speed: {e:?}")),
+            speed: PresetSpeed::new(1).unwrap_or_else(|e| panic!("Valid speed: {e:?}")),
         },
         &[0x81, 0x01, 0x06, 0x01, 0x01, VISCA_TERMINATOR]
     );
@@ -256,7 +254,7 @@ mod tests {
         PresetRecallSpeedCommand,
         test_preset_recall_speed_max,
         PresetRecallSpeedCommand {
-            speed: PresetRecallSpeed::new(24).unwrap_or_else(|e| panic!("Valid speed: {e:?}")),
+            speed: PresetSpeed::new(24).unwrap_or_else(|e| panic!("Valid speed: {e:?}")),
         },
         &[0x81, 0x01, 0x06, 0x01, 0x18, VISCA_TERMINATOR]
     );

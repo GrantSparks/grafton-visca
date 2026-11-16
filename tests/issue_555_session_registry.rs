@@ -239,7 +239,7 @@ mod async_registry {
         const CONTROL_CLASS: ControlClass = ControlClass::Normal;
 
         fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
-            out[..3].copy_from_slice(&[target.to_address_byte(), 0x01, 0xff]);
+            out[..3].copy_from_slice(&[(0x80 | target.value()), 0x01, 0xff]);
             Ok(3)
         }
     }
@@ -257,7 +257,7 @@ mod async_registry {
         const CONTROL_CLASS: ControlClass = ControlClass::Normal;
 
         fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
-            out[..4].copy_from_slice(&[target.to_address_byte(), 0x09, 0x04, 0xff]);
+            out[..4].copy_from_slice(&[(0x80 | target.value()), 0x09, 0x04, 0xff]);
             Ok(4)
         }
     }
@@ -335,10 +335,10 @@ mod async_registry {
         session.shutdown().expect("shutdown");
         assert_eq!(fake.write_count(), 4);
         let writes = fake.writes();
-        assert_eq!(writes[0][0], CameraId::CAMERA_1.to_address_byte());
-        assert_eq!(writes[1][0], CameraId::CAMERA_2.to_address_byte());
-        assert_eq!(writes[2][0], CameraId::CAMERA_1.to_address_byte());
-        assert_eq!(writes[3][0], CameraId::CAMERA_2.to_address_byte());
+        assert_eq!(writes[0][0], (0x80 | CameraId::CAMERA_1.value()));
+        assert_eq!(writes[1][0], (0x80 | CameraId::CAMERA_2.value()));
+        assert_eq!(writes[2][0], (0x80 | CameraId::CAMERA_1.value()));
+        assert_eq!(writes[3][0], (0x80 | CameraId::CAMERA_2.value()));
     }
 
     #[cfg(feature = "runtime-smol")]
@@ -567,7 +567,7 @@ mod blocking_registry {
         const CONTROL_CLASS: grafton_visca::ControlClass = grafton_visca::ControlClass::Normal;
 
         fn write_into(&self, target: CameraId, out: &mut [u8]) -> Result<usize, Error> {
-            out[..3].copy_from_slice(&[target.to_address_byte(), 0x01, 0xff]);
+            out[..3].copy_from_slice(&[(0x80 | target.value()), 0x01, 0xff]);
             Ok(3)
         }
     }
@@ -600,8 +600,8 @@ mod blocking_registry {
         session.shutdown().expect("shutdown");
         assert_eq!(fake.write_count(), 2);
         let writes = fake.writes();
-        assert_eq!(writes[0][0], CameraId::CAMERA_2.to_address_byte());
-        assert_eq!(writes[1][0], CameraId::CAMERA_1.to_address_byte());
+        assert_eq!(writes[0][0], (0x80 | CameraId::CAMERA_2.value()));
+        assert_eq!(writes[1][0], (0x80 | CameraId::CAMERA_1.value()));
     }
 
     #[test]

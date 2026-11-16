@@ -1,7 +1,7 @@
 use grafton_visca::{
     camera::MovementTolerance,
     capabilities::ValidationError,
-    command::{FlipState, InquiryData, InquiryKind, Response},
+    command::{ImageFlipMode, InquiryData, InquiryKind, Response},
     transport::{BufferConfig, FrameMeta, FrameSequence, TransportConfig},
     Certainty, Error, FailureStage, ViscaSocket,
 };
@@ -11,10 +11,21 @@ fn main() {
     config.buffer_config = BufferConfig::for_raw_ip();
     let mut tolerance = MovementTolerance::default();
     tolerance.zoom = 1;
-    let _ = (config, tolerance, FrameMeta::Sony { sequence: FrameSequence::Full32(1) });
+    let _ = (
+        config,
+        tolerance,
+        FrameMeta::Sony {
+            sequence: FrameSequence::Full32(1),
+        },
+    );
     let error = Error::invalid_parameter("zoom", "invalid", "outside range");
     match error {
-        Error::InvalidParameter { parameter, value, reason, .. } => {
+        Error::InvalidParameter {
+            parameter,
+            value,
+            reason,
+            ..
+        } => {
             assert_eq!(parameter, "zoom");
             assert_eq!(value, "invalid");
             assert_eq!(reason, "outside range");
@@ -34,21 +45,23 @@ fn main() {
     #[cfg(feature = "async")]
     {
         use grafton_visca::transport::ReceiveOutcome;
-    match ReceiveOutcome::complete(3) {
-        ReceiveOutcome::Complete { bytes, .. } => assert_eq!(bytes, 3),
-        _ => panic!("unexpected receive outcome"),
-    }
-    let _ = ReceiveOutcome::truncated(3);
-    let _ = ReceiveOutcome::possibly_truncated(3);
+        match ReceiveOutcome::complete(3) {
+            ReceiveOutcome::Complete { bytes, .. } => assert_eq!(bytes, 3),
+            _ => panic!("unexpected receive outcome"),
+        }
+        let _ = ReceiveOutcome::truncated(3);
+        let _ = ReceiveOutcome::possibly_truncated(3);
     }
     // Registry matches include a wildcard; fixed wire records retain literals.
     let _ = match InquiryKind::Power {
         InquiryKind::Power => true,
         _ => false,
     };
-    let _ = match (InquiryData::Power { status: grafton_visca::PowerStatus::On }) {
+    let _ = match (InquiryData::Power {
+        status: grafton_visca::PowerStatus::On,
+    }) {
         InquiryData::Power { status } => status.is_on(),
         _ => false,
     };
-    let _ = FlipState { horizontal: false, vertical: true };
+    let _ = ImageFlipMode::Vertical;
 }

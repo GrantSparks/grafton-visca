@@ -4,6 +4,8 @@
 //! changes only by up/down commands. Iris movement takes a relative step
 //! count; R7 documents auto-iris state, but no absolute iris-position inquiry.
 
+use crate::wire::WireValue;
+
 use crate::{
     command::{
         bytes::{
@@ -16,15 +18,12 @@ use crate::{
     CameraId, Error,
 };
 
-crate::__grafton_visca_newtype! {
-    /// FR7 AE level in quarter-EV steps, from -12 through +12 (R7 p. 21).
-    ///
-    /// `-12`, `0` and `12` represent -3.0 EV, neutral and +3.0 EV. Protocol
-    /// values `00`, `0C` and `18` encode those levels, respectively.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "-12", max = "12", display_prefix = "AE Level (quarter EV)")]
-    pub struct AeLevel(i8);
-}
+/// FR7 AE level in quarter-EV steps, from -12 through +12 (R7 p. 21).
+///
+/// `-12`, `0` and `12` represent -3.0 EV, neutral and +3.0 EV. Protocol
+/// values `00`, `0C` and `18` encode those levels, respectively.
+#[crate::value(min=-12, max=12, display="AE Level (quarter EV) {}", wire=biased(12,u8))]
+pub struct AeLevel(i8);
 
 impl AeLevel {
     /// Converts -3.0 through +3.0 EV to the nearest quarter-EV level.
@@ -46,25 +45,6 @@ impl AeLevel {
     #[must_use]
     pub fn to_ev(self) -> f64 {
         f64::from(self.value()) / 4.0
-    }
-
-    /// Decodes the biased `00..=18` protocol value (R7 p. 21).
-    pub const fn from_protocol_value(value: u8) -> Result<Self, Error> {
-        if value > 24 {
-            return Err(Error::parameter_out_of_range(
-                "ae_level_wire",
-                value as i32,
-                0,
-                24,
-            ));
-        }
-        Self::new(value as i8 - 12)
-    }
-
-    /// Returns the biased `00..=18` protocol value.
-    #[must_use]
-    pub const fn to_protocol_value(self) -> u8 {
-        (self.value() + 12) as u8
     }
 }
 
@@ -147,15 +127,12 @@ automatic_control! {
     Fr7AutoIris, sony_fr7_exposure::AUTO_IRIS
 }
 
-crate::__grafton_visca_newtype! {
-    /// Relative FR7 iris adjustment count, from 1 through 255 (R7 p. 14).
-    ///
-    /// Each step changes aperture by approximately 1/256 EV. The count does
-    /// not identify an absolute aperture position.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    #[visca_value(min = "1", max = "255", display_prefix = "Iris Step")]
-    pub struct IrisStep(u8);
-}
+/// Relative FR7 iris adjustment count, from 1 through 255 (R7 p. 14).
+///
+/// Each step changes aperture by approximately 1/256 EV. The count does
+/// not identify an absolute aperture position.
+#[crate::value(min = 1, max = 255, display = "Iris Step {}")]
+pub struct IrisStep(u8);
 
 macro_rules! iris_adjustment {
     ($(#[$doc:meta])* $name:ident, $direction:literal) => {
@@ -210,7 +187,7 @@ iris_adjustment! {
 }
 
 pub(crate) fn decode_ae_level(payload: Payload<'_>) -> Result<AeLevel, Error> {
-    AeLevel::from_protocol_value(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)
+    AeLevel::from_wire(Nibbles::<4>::try_from(payload)?.zero_extended_u8()?)
 }
 
 #[cfg(test)]
@@ -280,10 +257,10 @@ mod tests {
     #[test]
     fn ae_levels_round_trip_every_source_code_without_overflow_aliases() {
         for wire in 0..=u8::MAX {
-            let result = AeLevel::from_protocol_value(wire);
+            let result = AeLevel::from_wire(wire);
             if wire <= 24 {
                 let level = result.unwrap();
-                assert_eq!(level.to_protocol_value(), wire);
+                assert_eq!(level.to_wire(), wire);
                 assert_eq!(AeLevel::from_ev(level.to_ev()).unwrap(), level);
             } else {
                 assert!(result.is_err(), "AE level wire {wire:02x}");

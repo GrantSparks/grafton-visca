@@ -1,8 +1,8 @@
 use grafton_visca::{
     command::{ImageFreeze, Response, ResponseParser, VISCA_TERMINATOR},
     request::{Inquiry as InquiryClass, Plain as PlainClass},
-    CameraId, ControlClass, Error, Inquiry, PlainCommand, Request, ResponseDecoder,
-    RetryClass, TimeoutClass,
+    CameraId, ControlClass, Error, Inquiry, PlainCommand, Request, ResponseDecoder, RetryClass,
+    TimeoutClass,
 };
 
 struct CustomCommand;
@@ -21,7 +21,7 @@ impl Request for CustomCommand {
             return Err(Error::buffer_too_small(Self::MAX_SIZE, buffer.len()));
         }
 
-        buffer[0] = camera_id.to_address_byte();
+        buffer[0] = 0x80 | camera_id.value();
         buffer[1] = 0xFF;
         Ok(Self::MAX_SIZE)
     }
@@ -37,7 +37,7 @@ impl Request for VendorStatusInquiry {
 
     fn write_into(&self, camera_id: CameraId, buffer: &mut [u8]) -> Result<usize, Error> {
         let bytes = [
-            camera_id.to_address_byte(),
+            (0x80 | camera_id.value()),
             0x09,
             0x04,
             0x00,
@@ -53,7 +53,6 @@ impl Request for VendorStatusInquiry {
 
 impl Inquiry for VendorStatusInquiry {
     type Response = u8;
-
 
     fn decoder(&self) -> ResponseDecoder<Self::Response> {
         ResponseDecoder::from_fn(|payload| {

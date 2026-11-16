@@ -18,7 +18,8 @@ use grafton_visca::{
         HasNdFilter, HasPushAutoFocus, HasVariableSpeed, NdFilterMetadata, PanTilt, Presets,
         ProfileMetadata, WhiteBalance, Zoom,
     },
-    zoom_from_normalized, UnitInterval, ZoomDomain,
+    types::{GainLevel, Kelvin, UnitInterval},
+    wire::WireValue,
 };
 
 fn main() {
@@ -76,18 +77,20 @@ fn demonstrate_value_validation() {
     let sony = SonyFR7;
 
     println!("Validation");
-    match zoom_from_normalized(
-        UnitInterval::new(0.5).expect("literal is in range"),
-        ZoomDomain::Optical,
-        PtzOpticsG2::OPTICAL_ZOOM_MAX,
-        PtzOpticsG2::DIGITAL_ZOOM_MAX,
-    ) {
-        Ok(position) => println!(
-            "  PTZOptics G2 50% optical zoom: 0x{:04X}",
-            position.value()
-        ),
-        Err(error) => println!("  PTZOptics G2 zoom validation failed: {error}"),
-    }
+    let half = UnitInterval::new(0.5).expect("literal is in range");
+    println!("  Checked normalized value: {}", half.value());
+    println!(
+        "  Normalized domain: {}..={}",
+        UnitInterval::MIN.value(),
+        UnitInterval::MAX.value()
+    );
+
+    let gain = GainLevel::new(5).expect("literal is in range");
+    println!("  Gain wire value: 0x{:02X}", gain.to_wire());
+    let temperature = Kelvin::new(3_200).expect("literal is in range");
+    println!("  Color temperature: {} K", temperature.value());
+    // Value construction validates the union domain. The selected profile
+    // validates its narrower supported range during request preparation.
 
     match UnitInterval::new(1.25) {
         Ok(value) => println!("  Unexpected zoom validation success: {value:?}"),

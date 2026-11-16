@@ -12,7 +12,12 @@ use crate::error::Error;
 /// Represents a VISCA camera ID for addressing commands.
 ///
 /// Valid camera IDs are 1-7 for individual cameras, or 8 for broadcast.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[crate::value(
+    min = 1,
+    max = 8,
+    display = display_camera_id,
+    error = Error::InvalidCameraId { id: value }
+)]
 pub struct CameraId(u8);
 
 impl CameraId {
@@ -40,20 +45,6 @@ impl CameraId {
     /// Broadcast address for sending commands to all cameras.
     pub const BROADCAST: Self = CameraId(8);
 
-    /// Create a new camera ID with validation.
-    ///
-    /// # Arguments
-    /// * `id` - The camera ID (1-7 for individual cameras, 8 for broadcast)
-    ///
-    /// # Errors
-    /// Returns an error if the ID is not in the valid range (1-8).
-    pub fn new(id: u8) -> Result<Self, Error> {
-        match id {
-            1..=8 => Ok(CameraId(id)),
-            _ => Err(Error::InvalidCameraId { id }),
-        }
-    }
-
     /// Convert the camera ID to the VISCA address byte format.
     ///
     /// Camera IDs are encoded as 0x80 | id, resulting in:
@@ -63,14 +54,8 @@ impl CameraId {
     /// - Camera 7: 0x87
     /// - Broadcast: 0x88
     #[must_use]
-    pub fn to_address_byte(self) -> u8 {
+    pub(crate) const fn to_address_byte(self) -> u8 {
         0x80 | self.0
-    }
-
-    /// Get the raw ID value (1-8).
-    #[must_use]
-    pub fn id(self) -> u8 {
-        self.0
     }
 
     /// Decode the camera that sent a reply from the reply's address byte.
@@ -93,18 +78,16 @@ impl CameraId {
 
     /// Check if this is the broadcast address.
     #[must_use]
-    pub fn is_broadcast(self) -> bool {
+    pub const fn is_broadcast(self) -> bool {
         self.0 == 8
     }
 }
 
-impl fmt::Display for CameraId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.is_broadcast() {
-            write!(f, "Broadcast")
-        } else {
-            write!(f, "Camera {id}", id = self.0)
-        }
+fn display_camera_id(id: &CameraId, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+    if id.is_broadcast() {
+        write!(formatter, "Broadcast")
+    } else {
+        write!(formatter, "Camera {}", id.value())
     }
 }
 
@@ -115,17 +98,54 @@ impl Default for CameraId {
     }
 }
 
-impl TryFrom<u8> for CameraId {
-    type Error = Error;
-
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        CameraId::new(value)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::wire::WireValue;
+
+    #[test]
+    fn bounded_ids_share_checked_construction_and_wire_values() -> crate::Result<()> {
+        const INDIVIDUAL: crate::Result<IndividualCameraId> = IndividualCameraId::new(7);
+        assert_eq!(CameraId::MIN.value(), 1);
+        assert_eq!(CameraId::MAX.value(), 8);
+        assert_eq!(IndividualCameraId::MIN.value(), 1);
+        assert_eq!(IndividualCameraId::MAX.value(), 7);
+        assert_eq!(INDIVIDUAL?.value(), 7);
+        for value in 0..=u8::MAX {
+            assert_eq!(CameraId::new(value).is_ok(), (1..=8).contains(&value));
+            assert_eq!(
+                IndividualCameraId::new(value).is_ok(),
+                (1..=7).contains(&value)
+            );
+            if let Ok(id) = CameraId::new(value) {
+                assert_eq!(u8::from(id), value);
+                assert_eq!(id.to_wire(), value);
+                assert_eq!(CameraId::from_wire(id.to_wire())?, id);
+            }
+        }
+        assert!(IndividualCameraId::try_from(CameraId::BROADCAST).is_err());
+        Ok(())
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn ids_serialize_as_numbers_and_validate_deserialization(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        assert_eq!(serde_json::to_value(CameraId::BROADCAST)?, 8);
+        assert_eq!(
+            serde_json::from_value::<CameraId>(serde_json::json!(8))?,
+            CameraId::BROADCAST
+        );
+        for invalid in [0, 9, 255] {
+            assert!(serde_json::from_value::<CameraId>(serde_json::json!(invalid)).is_err());
+        }
+        for invalid in [0, 8, 255] {
+            assert!(
+                serde_json::from_value::<IndividualCameraId>(serde_json::json!(invalid)).is_err()
+            );
+        }
+        Ok(())
+    }
 
     #[test]
     fn test_camera_id_creation() {
@@ -207,71 +227,21 @@ mod tests {
 /// An individual VISCA camera address, excluding controller and broadcast.
 ///
 /// Profile defaults use this type so a default session target is always 1–7.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[cfg_attr(
-    feature = "serde",
-    derive(serde::Serialize, serde::Deserialize),
-    serde(try_from = "u8", into = "u8")
-)]
-#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[crate::value(min = 1, max = 7, display = "{}")]
 pub struct IndividualCameraId(u8);
 
 impl IndividualCameraId {
     /// Camera 1, the usual individual-camera default.
     pub const CAMERA_1: Self = Self(1);
-
-    /// Creates an individual address, refusing zero and broadcast.
-    #[must_use]
-    pub const fn new(value: u8) -> Option<Self> {
-        if value >= 1 && value <= 7 {
-            Some(Self(value))
-        } else {
-            None
-        }
-    }
-
-    /// Returns the individual address in `1..=7`.
-    #[must_use]
-    pub const fn value(self) -> u8 {
-        self.0
-    }
-}
-
-impl TryFrom<u8> for IndividualCameraId {
-    type Error = Error;
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Self::new(value).ok_or_else(|| {
-            Error::parameter_out_of_range("individual camera ID", i32::from(value), 1, 7)
-        })
-    }
 }
 impl TryFrom<CameraId> for IndividualCameraId {
     type Error = Error;
     fn try_from(value: CameraId) -> Result<Self, Self::Error> {
-        Self::try_from(value.id())
+        Self::try_from(value.value())
     }
 }
 impl From<IndividualCameraId> for CameraId {
     fn from(value: IndividualCameraId) -> Self {
         Self(value.0)
-    }
-}
-impl From<IndividualCameraId> for u8 {
-    fn from(value: IndividualCameraId) -> Self {
-        value.0
-    }
-}
-impl fmt::Display for IndividualCameraId {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(formatter)
-    }
-}
-#[cfg(feature = "schemars")]
-impl schemars::JsonSchema for IndividualCameraId {
-    fn schema_name() -> std::borrow::Cow<'static, str> {
-        "IndividualCameraId".into()
-    }
-    fn json_schema(_generator: &mut schemars::SchemaGenerator) -> schemars::Schema {
-        schemars::json_schema!({ "type": "integer", "minimum": 1, "maximum": 7 })
     }
 }

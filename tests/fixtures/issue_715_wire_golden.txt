@@ -150,10 +150,10 @@ Preset[Recall,127]	81 01 04 3F 02 7F FF
 Preset[Recall,128]	81 01 04 3F 02 80 FF
 Preset[Recall,254]	81 01 04 3F 02 FE FF
 Preset[Recall,255]	81 01 04 3F 02 FF FF
-PresetRecallSpeed[0]	CTOR_ERR(ParameterOutOfRange { parameter: "PresetRecallSpeed", value: 0, min: 1, max: 24 })
+PresetRecallSpeed[0]	CTOR_ERR(ParameterOutOfRange { parameter: "PresetSpeed", value: 0, min: 1, max: 50 })
 PresetRecallSpeed[1]	81 01 06 01 01 FF
 PresetRecallSpeed[24]	81 01 06 01 18 FF
-PresetRecallSpeed[25]	CTOR_ERR(ParameterOutOfRange { parameter: "PresetRecallSpeed", value: 25, min: 1, max: 24 })
+PresetRecallSpeed[25]	ERR(ParameterOutOfRange { parameter: "preset_recall_speed", value: 25, min: 1, max: 24 })
 ExposureMode[Auto]	81 01 04 39 00 FF
 ExposureMode[Manual]	81 01 04 39 03 FF
 ExposureMode[Shutter]	81 01 04 39 0A FF
@@ -176,7 +176,7 @@ DynamicRange[1]	81 01 04 25 00 00 00 01 FF
 DynamicRange[5]	81 01 04 25 00 00 00 05 FF
 DynamicRange[6]	81 01 04 25 00 00 00 06 FF
 DynamicRange[8]	81 01 04 25 00 00 00 08 FF
-DynamicRange[255]	CTOR_ERR(ParameterOutOfRange { parameter: "DynamicRangeLevel", value: 255, min: 0, max: 8 })
+DynamicRange[255]	CTOR_ERR(ParameterOutOfRange { parameter: "WideDynamicRangeLevel", value: 255, min: 0, max: 8 })
 Iris::Reset	81 01 04 0B 00 FF
 Iris::Up	81 01 04 0B 02 FF
 Iris::Down	81 01 04 0B 03 FF
@@ -204,7 +204,7 @@ Brightness::SetLevel[001B]	81 01 04 4D 00 00 01 0B FF
 Brightness::SetLevel[001F]	81 01 04 4D 00 00 01 0F FF
 Brightness::SetLevel[0020]	81 01 04 4D 00 00 02 00 FF
 Brightness::SetLevel[00FF]	81 01 04 4D 00 00 0F 0F FF
-Brightness::SetLevel[0100]	CTOR_ERR(ParameterOutOfRange { parameter: "brightness level", value: 256, min: 0, max: 255 })
+Brightness::SetLevel[0100]	CTOR_ERR(ParameterOutOfRange { parameter: "brightness_level", value: 256, min: 0, max: 255 })
 AntiFlicker[Off]	81 01 04 23 00 FF
 AntiFlicker[50]	81 01 04 23 01 FF
 AntiFlicker[60]	81 01 04 23 02 FF
@@ -236,8 +236,8 @@ AWBSensitivity[High]	81 01 04 A9 00 FF
 AWBSensitivity[Normal]	81 01 04 A9 01 FF
 AWBSensitivity[Low]	81 01 04 A9 02 FF
 OnePushTrigger	81 01 04 10 05 FF
-RedTuning[-11]	CTOR_ERR(ParameterOutOfRange { parameter: "RedTuning", value: -11, min: -10, max: 10 })
-BlueTuning[-11]	CTOR_ERR(ParameterOutOfRange { parameter: "BlueTuning", value: -11, min: -10, max: 10 })
+RedTuning[-11]	CTOR_ERR(ParameterOutOfRange { parameter: "RgbTuning", value: -11, min: -10, max: 10 })
+BlueTuning[-11]	CTOR_ERR(ParameterOutOfRange { parameter: "RgbTuning", value: -11, min: -10, max: 10 })
 RedTuning[-10]	81 01 04 43 00 00 00 00 FF
 BlueTuning[-10]	81 01 04 44 00 00 00 00 FF
 RedTuning[-5]	81 01 04 43 00 00 00 05 FF
@@ -252,8 +252,8 @@ RedTuning[5]	81 01 04 43 00 00 00 0F FF
 BlueTuning[5]	81 01 04 44 00 00 00 0F FF
 RedTuning[10]	81 01 04 43 00 00 00 14 FF
 BlueTuning[10]	81 01 04 44 00 00 00 14 FF
-RedTuning[11]	CTOR_ERR(ParameterOutOfRange { parameter: "RedTuning", value: 11, min: -10, max: 10 })
-BlueTuning[11]	CTOR_ERR(ParameterOutOfRange { parameter: "BlueTuning", value: 11, min: -10, max: 10 })
+RedTuning[11]	CTOR_ERR(ParameterOutOfRange { parameter: "RgbTuning", value: 11, min: -10, max: 10 })
+BlueTuning[11]	CTOR_ERR(ParameterOutOfRange { parameter: "RgbTuning", value: 11, min: -10, max: 10 })
 Saturation[00]	81 01 04 49 00 00 00 00 FF
 Hue[00]	81 01 04 4F 00 00 00 00 FF
 Luminance[00]	81 01 04 A1 00 00 00 00 FF
@@ -290,10 +290,10 @@ ColorTemperature::Down	81 01 04 20 03 FF
 ColorTemperature::Set[0000]	81 01 04 20 00 00 FF
 ColorTemperature::Set[0030]	81 01 04 20 03 00 FF
 ColorTemperature::Set[0037]	81 01 04 20 03 07 FF
-ColorTemperature::Set[0038]	CTOR_ERR(ParameterOutOfRange { parameter: "ColorTemp", value: 56, min: 0, max: 55 })
-ColorTemperature::Set[00FF]	CTOR_ERR(ParameterOutOfRange { parameter: "ColorTemp", value: 255, min: 0, max: 55 })
-ColorTemperature::Set[0100]	CTOR_ERR(ParameterOutOfRange { parameter: "ColorTemp", value: 256, min: 0, max: 55 })
-ColorTemperature::Set[FFFF]	CTOR_ERR(ParameterOutOfRange { parameter: "ColorTemp", value: 65535, min: 0, max: 55 })
+ColorTemperature::Set[0038]	CTOR_ERR(ParameterOutOfRange { parameter: "color_temperature_wire", value: 56, min: 0, max: 55 })
+ColorTemperature::Set[00FF]	CTOR_ERR(ParameterOutOfRange { parameter: "color_temperature_wire", value: 255, min: 0, max: 55 })
+ColorTemperature::Set[0100]	CTOR_ERR(ParameterOutOfRange { parameter: "color_temperature_wire", value: 256, min: 0, max: 55 })
+ColorTemperature::Set[FFFF]	CTOR_ERR(ParameterOutOfRange { parameter: "color_temperature_wire", value: 65535, min: 0, max: 55 })
 RedGain::Reset	81 01 04 03 00 FF
 RedGain::Up	81 01 04 03 02 FF
 RedGain::Down	81 01 04 03 03 FF
@@ -351,8 +351,8 @@ NdFilterMode[Variable]	81 01 7E 04 52 01 FF
 NdFilterValue[0000]	81 01 7E 04 42 00 00 00 00 FF
 NdFilterValue[0005]	81 01 7E 04 42 00 00 00 05 FF
 NdFilterValue[0014]	81 01 7E 04 42 00 00 01 04 FF
-NdFilterValue[0015]	CTOR_ERR(ParameterOutOfRange { parameter: "ND filter value", value: 21, min: 0, max: 20 })
-NdFilterValue[FFFF]	CTOR_ERR(ParameterOutOfRange { parameter: "ND filter value", value: 65535, min: 0, max: 20 })
+NdFilterValue[0015]	CTOR_ERR(ParameterOutOfRange { parameter: "NdFilterDensity", value: 21, min: 0, max: 20 })
+NdFilterValue[FFFF]	CTOR_ERR(ParameterOutOfRange { parameter: "NdFilterDensity", value: 65535, min: 0, max: 20 })
 NdFilterStep[Up]	81 01 7E 04 12 02 FF
 NdFilterStep[Down]	81 01 7E 04 12 03 FF
 AutoNd[on]	81 01 7E 04 53 02 FF
@@ -375,11 +375,11 @@ MenuNavigate[Right]	81 01 06 01 0E 0E 02 03 FF
 MenuAction[Select]	81 01 06 06 05 FF
 MenuAction[Cancel]	81 01 06 06 04 FF
 DirectMenu[00,01]	81 01 7E 04 72 00 01 FF
-DirectMenu[00,FF]	CTOR_ERR(InvalidResponse { expected: "0x00 (Release) or 0x01 (Press)", actual: [255] })
-DirectMenu[FF,00]	CTOR_ERR(InvalidResponse { expected: "0x00 (NdFilter), 0x01 (Iris), 0x02 (IsoGain), 0x03 (Shutter), 0x04 (AeLevelMode), or 0x7F (Exit)", actual: [255] })
-DirectMenu[FF,FF]	CTOR_ERR(InvalidResponse { expected: "0x00 (NdFilter), 0x01 (Iris), 0x02 (IsoGain), 0x03 (Shutter), 0x04 (AeLevelMode), or 0x7F (Exit)", actual: [255] })
-DirectMenu[FF,81]	CTOR_ERR(InvalidResponse { expected: "0x00 (NdFilter), 0x01 (Iris), 0x02 (IsoGain), 0x03 (Shutter), 0x04 (AeLevelMode), or 0x7F (Exit)", actual: [255] })
-DirectMenu[81,01]	CTOR_ERR(InvalidResponse { expected: "0x00 (NdFilter), 0x01 (Iris), 0x02 (IsoGain), 0x03 (Shutter), 0x04 (AeLevelMode), or 0x7F (Exit)", actual: [129] })
+DirectMenu[00,FF]	CTOR_ERR(InvalidParameter { parameter: "MenuButton", value: "255", reason: "unknown wire value" })
+DirectMenu[FF,00]	CTOR_ERR(InvalidParameter { parameter: "DirectMenuTarget", value: "255", reason: "unknown wire value" })
+DirectMenu[FF,FF]	CTOR_ERR(InvalidParameter { parameter: "DirectMenuTarget", value: "255", reason: "unknown wire value" })
+DirectMenu[FF,81]	CTOR_ERR(InvalidParameter { parameter: "DirectMenuTarget", value: "255", reason: "unknown wire value" })
+DirectMenu[81,01]	CTOR_ERR(InvalidParameter { parameter: "DirectMenuTarget", value: "129", reason: "unknown wire value" })
 Multicast::On	81 0B 01 23 01 FF
 Multicast::Off	81 0B 01 23 02 FF
 NdiQuality[High]	81 0B 01 01 01 FF
@@ -513,7 +513,6 @@ IrisInquiry	81 09 04 4B FF
 LuminanceInquiry	81 09 04 A1 FF
 MenuOpenCloseInquiry	81 09 06 06 FF
 MotionSyncModeInquiry	81 09 04 56 FF
-MotionSyncPresetInquiry	81 09 04 57 FF
 NdFilterInquiry	81 09 7E 04 42 FF
 NdFilterPresetInquiry	81 09 7E 01 53 FF
 NoiseReduction2DInquiry	81 09 04 53 FF

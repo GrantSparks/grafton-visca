@@ -1,42 +1,32 @@
 //! One contract for every macro-generated checked newtype and derive literal.
 //!
-//! `visca_range_type!` and `#[derive(ViscaValue)]` expand through one
+//! `#[value]` declarations expand through one
 //! generator, so a value outside a declared range is reported identically,
 //! `MIN`/`MAX` are typed as the newtype itself, and `value()` is a `const fn`
 //! taking `self`. The derive attribute parsers share one integer-literal
 //! parser, so every Rust radix is accepted for VISCA byte fields.
 
-use grafton_visca::{
-    command::VISCA_TERMINATOR, CameraId, Error, Request, ViscaInquiry, ViscaValue,
-};
+use grafton_visca::{command::VISCA_TERMINATOR, value, CameraId, Error, Request, ViscaInquiry};
 
-grafton_visca::visca_range_type! {
-    /// Range wrapper declared through the public declarative macro.
-    MacroRange: u8 {
-        min: 2,
-        max: 4
-    }
-}
+#[grafton_visca::value(min = 2, max = 4)]
+/// Range wrapper declared through the public value attribute.
+pub struct MacroRange(u8);
 
-/// Range wrapper declared through the derive.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[visca_value(min = "2", max = "4")]
+/// Range wrapper declared through the value attribute.
+
+#[value(min = 2, max = 4)]
 struct DerivedRange(u8);
 
-grafton_visca::visca_range_type! {
-    /// Signed range wrapper declared through the public declarative macro.
-    SignedMacroRange: i16 {
-        min: -300,
-        max: 300
-    }
-}
+#[grafton_visca::value(min = -300, max = 300)]
+/// Signed range wrapper declared through the public value attribute.
+pub struct SignedMacroRange(i16);
 
-/// Signed range wrapper declared through the derive.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[visca_value(min = "-300", max = "300")]
+/// Signed range wrapper declared through the value attribute.
+
+#[value(min = -300, max = 300)]
 struct SignedDerivedRange(i16);
 
-// Both generators expose `MIN`/`MAX` as `Self` and `value()` as a by-value
+// Both declarations expose `MIN`/`MAX` as `Self` and `value()` as a by-value
 // `const fn`; these items only compile when that holds for each of them.
 const MACRO_MIN: MacroRange = MacroRange::MIN;
 const MACRO_MAX: u8 = MacroRange::MAX.value();
@@ -63,7 +53,7 @@ fn assert_out_of_range(error: &Error, parameter: &str, value: i32, min: i32, max
 }
 
 #[test]
-fn both_newtype_generators_report_out_of_range_values_identically() {
+fn newtype_declarations_report_out_of_range_values_identically() {
     assert_out_of_range(
         &MacroRange::new(5).expect_err("above the macro range"),
         "MacroRange",
@@ -109,7 +99,7 @@ fn both_newtype_generators_report_out_of_range_values_identically() {
 }
 
 #[test]
-fn both_newtype_generators_share_bounds_constants_and_accessors() {
+fn newtype_declarations_share_bounds_constants_and_accessors() {
     assert_eq!(MACRO_MIN.value(), 2);
     assert_eq!(MACRO_MAX, 4);
     assert_eq!(DERIVED_MIN.value(), 2);
@@ -122,9 +112,9 @@ fn both_newtype_generators_share_bounds_constants_and_accessors() {
     assert_eq!(SignedDerivedRange::MIN.value(), -300);
 }
 
-/// Sparse wrapper declared through the derive.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[visca_value(valid_values = "[0x01, 0x03]")]
+/// Sparse wrapper declared through the value attribute.
+
+#[value(valid_values = [0x01, 0x03])]
 struct Sparse(u8);
 
 // The generator adds nothing to the type beyond its documented API, so a
@@ -173,14 +163,9 @@ fn out_of_range_display_names_an_inclusive_range() {
     );
 }
 
-/// Hex-formatted wrapper declared through the derive.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ViscaValue)]
-#[visca_value(
-    min = "0",
-    max = "0x1FF",
-    display_format = "hex",
-    display_prefix = "Code"
-)]
+/// Hex-formatted wrapper declared through the value attribute.
+
+#[value(min = 0, max = 0x1FF, display = "Code {:#04x}")]
 struct HexCode(u16);
 
 #[test]

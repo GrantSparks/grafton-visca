@@ -6,7 +6,7 @@ rust-version.workspace = true
 publish = false
 
 [features]
-# Exercises the optional derive implementations emitted by `visca_range_type!`
+# Exercises the optional derive implementations emitted by the `value` attribute
 # without making this base renamed-dependency fixture pull helper crates.
 range-helper-derives = [
     "visca_renamed/serde",
