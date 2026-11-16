@@ -2986,7 +2986,8 @@ mod tests {
 
         let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
             .expect("built-in profile");
-        let target = crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("target");
+        let target = crate::TargetRegistration::new(crate::IndividualCameraId::CAMERA_1, profile)
+            .expect("target");
         for retry in [
             RetryClass::Standard,
             RetryClass::Movement,

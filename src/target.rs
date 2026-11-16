@@ -2,7 +2,9 @@
 
 use std::ops::{Index, IndexMut};
 
-use crate::{CameraId, IndividualCameraId};
+#[cfg(any(feature = "blocking", feature = "async", test))]
+use crate::CameraId;
+use crate::IndividualCameraId;
 
 /// A validated individual camera, never the controller or broadcast address.
 ///
@@ -48,6 +50,7 @@ impl TargetSlot {
     pub(crate) const CAMERA_7: Self = Self::ALL[6];
 
     /// The corresponding wire camera address.
+    #[cfg(any(feature = "blocking", feature = "async", test))]
     pub(crate) const fn camera(self) -> CameraId {
         const CAMERAS: [CameraId; TargetSlot::COUNT] = [
             CameraId::CAMERA_1,

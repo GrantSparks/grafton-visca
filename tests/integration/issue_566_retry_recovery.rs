@@ -124,7 +124,7 @@ facade_matrix! {
             let camera = scripted(vec![vec![], vec![zoom_position_reply()]], Vec::new());
             let session = open!(camera, session_config()).expect("owner session");
             let view = session
-                .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+                .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::IndividualCameraId::CAMERA_1)
                 .expect("camera view");
             let inquiry = raw::InquiryRequest::from_fn(
                 ZOOM_POSITION_INQUIRY, decode_custom_inquiry, retry,

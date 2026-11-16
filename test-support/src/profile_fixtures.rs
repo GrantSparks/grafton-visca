@@ -536,7 +536,10 @@ mod tests {
         let config = two_camera_session_config();
         assert_eq!(
             config.targets().collect::<Vec<_>>(),
-            [CameraId::CAMERA_1, CameraId::CAMERA_2]
+            [
+                grafton_visca::types::IndividualCameraId::CAMERA_1,
+                grafton_visca::types::IndividualCameraId::CAMERA_2
+            ]
         );
         assert_eq!(
             config

@@ -18,10 +18,7 @@ use grafton_visca::{
 };
 
 #[cfg(any(feature = "blocking", feature = "runtime-tokio"))]
-use grafton_visca::{
-    state_cache::{StateCache, StateEntry, StateKey},
-    types::CameraId,
-};
+use grafton_visca::state_cache::{StateCache, StateEntry, StateKey};
 
 fn profile() -> ProfileSpec {
     ProfileSpec::from_compile_time::<grafton_visca::profiles::PtzOpticsG2>().expect("profile")
