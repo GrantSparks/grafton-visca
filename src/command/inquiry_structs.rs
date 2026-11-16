@@ -1106,7 +1106,7 @@ define_builtin_inquiries! {
             ExposureCompensationModeInquiry {
                 bytes: exposure_wire::COMPENSATION_SWITCH_INQUIRY,
                 source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-exposurecompensationmode-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-exposurecompensationmode-query"), (R1, [PtzOptics30x], "r1-ptzoptics30x-exposurecompensationmode-query"), (R8, [SonyEviH100], "r8-sonyevih100-exposurecompensationmode-query"), (R12, [SonyBrc300], "r12-sonybrc300-exposurecompensationmode-query"), (R21, [NearusBrc300], "r21-nearusbrc300-exposurecompensationmode-query"), (R8, [GenericVisca], "r8-genericvisca-exposurecompensationmode-query"), (R12, [GenericVisca], "r12-genericvisca-exposurecompensationmode-query"), (R21, [GenericVisca], "r21-genericvisca-exposurecompensationmode-query")]),
-                boolean: Some(BoolConvention::OnIs02),
+                boolean: Some(crate::command::exposure_wire::ExposureCompensation::CONVENTION),
                 typed: (bool, { on } => Ok(on)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: false,
@@ -1412,7 +1412,7 @@ define_builtin_inquiries! {
             BacklightInquiry {
                 bytes: image_wire::BACKLIGHT_INQUIRY,
                 source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-backlight-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-backlight-query"), (R1, [PtzOptics30x], "r1-ptzoptics30x-backlight-query"), (R7, [SonyFr7], "r7-sonyfr7-backlight-query"), (R11, [SonyBrcH900], "r11-sonybrch900-backlight-query"), (R8, [SonyEviH100], "r8-sonyevih100-backlight-query"), (R12, [SonyBrc300], "r12-sonybrc300-backlight-query"), (R21, [NearusBrc300], "r21-nearusbrc300-backlight-query"), (R8, [GenericVisca], "r8-genericvisca-backlight-query"), (R12, [GenericVisca], "r12-genericvisca-backlight-query"), (R21, [GenericVisca], "r21-genericvisca-backlight-query")]),
-                boolean: Some(BoolConvention::OnIs02),
+                boolean: Some(crate::command::image_wire::BacklightCommand::CONVENTION),
                 typed: (bool, { status } => Ok(status)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: false,
@@ -1433,7 +1433,7 @@ define_builtin_inquiries! {
             ImageFlipInquiry {
                 bytes: flip::VERTICAL_INQUIRY,
                 source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-imageflip-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-imageflip-query"), (R1, [PtzOptics30x], "r1-ptzoptics30x-imageflip-query"), (R12, [SonyBrc300], "r12-sonybrc300-imageflip-query"), (R21, [NearusBrc300], "r21-nearusbrc300-imageflip-query")]),
-                boolean: Some(BoolConvention::OnIs02),
+                boolean: Some(crate::command::flip::ImageFlip::CONVENTION),
                 typed: (bool, { state } => Ok(state)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: false,
@@ -1640,7 +1640,7 @@ define_builtin_inquiries! {
             MenuOpenCloseInquiry {
                 bytes: menu_wire::MENU_INQUIRY,
                 source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-menuopenclose-query"), (R14, [PtzOpticsG3], "r14-ptzopticsg3-menuopenclose-query"), (R1, [PtzOptics30x], "r1-ptzoptics30x-menuopenclose-query"), (R7, [SonyFr7], "r7-sonyfr7-menuopenclose-query"), (R11, [SonyBrcH900], "r11-sonybrch900-menuopenclose-query")]),
-                boolean: Some(BoolConvention::OnIs02),
+                boolean: Some(crate::command::menu_wire::SetMenuDisplay::CONVENTION),
                 typed: (bool, { is_open } => Ok(is_open)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
@@ -1831,7 +1831,7 @@ define_builtin_inquiries! {
             /// Current motion sync mode setting.
             mode: bool,
         } => |payload| Ok(InquiryData::MotionSyncMode {
-            mode: payload.parse_bool("motion sync mode", BoolConvention::OnIs02)?,
+            mode: payload.parse_bool("motion sync mode", crate::command::motion_sync_wire::SetMotionSyncMode::CONVENTION)?,
         });
         shape: crate::PayloadShape::Bytes(1);
         commands [
@@ -1860,7 +1860,7 @@ define_builtin_inquiries! {
             UsbAudioInquiry {
                 bytes: streaming_wire::USB_AUDIO,
                 source: source!([(R1, [PtzOpticsG2], "r1-ptzopticsg2-usbaudio-query"), (R1, [PtzOptics30x], "r1-ptzoptics30x-usbaudio-query")]),
-                boolean: Some(BoolConvention::OnIs02),
+                boolean: Some(crate::command::streaming_wire::UsbAudioCommand::CONVENTION),
                 typed: (bool, { on } => Ok(on)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
@@ -2030,7 +2030,7 @@ define_builtin_inquiries! {
             Fr7AutoGainInquiry {
                 bytes: sony_fr7_exposure::AUTO_GAIN_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7autogaininquiry"),
-                boolean: Some(BoolConvention::OnIs02),
+                boolean: Some(crate::command::sony_fr7_exposure::Fr7AutoGain::CONVENTION),
                 typed: (bool, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
@@ -2048,7 +2048,7 @@ define_builtin_inquiries! {
             Fr7AutoShutterInquiry {
                 bytes: sony_fr7_exposure::AUTO_SHUTTER_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7autoshutterinquiry"),
-                boolean: Some(BoolConvention::OnIs02),
+                boolean: Some(crate::command::sony_fr7_exposure::Fr7AutoShutter::CONVENTION),
                 typed: (bool, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
@@ -2066,7 +2066,7 @@ define_builtin_inquiries! {
             Fr7AutoIrisInquiry {
                 bytes: sony_fr7_exposure::AUTO_IRIS_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7autoirisinquiry"),
-                boolean: Some(BoolConvention::OnIs02),
+                boolean: Some(crate::command::sony_fr7_exposure::Fr7AutoIris::CONVENTION),
                 typed: (bool, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
@@ -2264,7 +2264,7 @@ define_builtin_inquiries! {
             Fr7DetailInquiry {
                 bytes: sony_fr7_image::DETAIL_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7detailinquiry"),
-                boolean: Some(BoolConvention::OnIs02),
+                boolean: Some(crate::command::sony_fr7_image::Fr7DetailSetting::CONVENTION),
                 typed: (bool, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
@@ -2282,7 +2282,7 @@ define_builtin_inquiries! {
             Fr7KneeInquiry {
                 bytes: sony_fr7_image::KNEE_INQUIRY,
                 source: source!(R7, [SonyFr7], "r7-fr7kneeinquiry"),
-                boolean: Some(BoolConvention::OnIs02),
+                boolean: Some(crate::command::sony_fr7_image::Fr7KneeSetting::CONVENTION),
                 typed: (bool, { value } => Ok(value)),
                 query: BuiltinInquiryQuery::Queryable,
                 vendor_specific: true,
