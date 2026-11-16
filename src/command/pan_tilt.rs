@@ -18,14 +18,14 @@
 //!     config::TargetRegistration,
 //!     profiles::{ProfileSpec, PtzOpticsG2},
 //!     request::Request,
-//!     types::CameraId,
+//!     types::{CameraId, IndividualCameraId},
 //! };
 //! use grafton_visca::{types::PanSpeed, types::TiltSpeed};
 //! use grafton_visca::{types::PanTiltDirection, types::PanTiltSpeed};
 //!
 //! // Move the camera diagonally up-right using a typed operation request.
 //! let target = TargetRegistration::new(
-//!     CameraId::CAMERA_1,
+//!     IndividualCameraId::CAMERA_1,
 //!     ProfileSpec::from_compile_time::<PtzOpticsG2>().unwrap(),
 //! )
 //! .unwrap();
