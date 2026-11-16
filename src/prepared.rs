@@ -1201,15 +1201,17 @@ mod tests {
                 RuntimeRequest::Inquiry { .. }
             ));
         }
-        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>().unwrap();
-        let registration = crate::TargetRegistration::new(CameraId::CAMERA_1, profile).unwrap();
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("valid built-in profile");
+        let registration = crate::TargetRegistration::new(CameraId::CAMERA_1, profile)
+            .expect("valid target registration");
         prepare_command(
             &crate::command::PowerOn,
             &registration,
             OperationalTuning::new(),
             ClassSelection::Request,
         )
-        .unwrap()
+        .expect("prepare the plain command lane")
         .admit_with(|request, _| command_lane(request));
         prepare_operation::<completion::AppliedOnly, _>(
             &ZoomStop,
@@ -1217,7 +1219,7 @@ mod tests {
             OperationalTuning::new(),
             ClassSelection::Request,
         )
-        .unwrap()
+        .expect("prepare the operation command lane")
         .admit_with(|request, _, _, _| command_lane(request));
         let inquiry = prepare_inquiry(
             &ZoomPositionInquiry,
@@ -1225,7 +1227,7 @@ mod tests {
             OperationalTuning::new(),
             ClassSelection::Request,
         )
-        .unwrap();
+        .expect("prepare the inquiry lane");
         inquiry
             .into_template()
             .instantiate()

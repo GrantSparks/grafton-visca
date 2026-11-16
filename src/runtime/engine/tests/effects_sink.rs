@@ -40,7 +40,7 @@ fn deadline_cause_insertion_preserves_the_sink_prefix_and_collecting_verdict() {
             send_ok(
                 engine,
                 &effects,
-                Some(7).filter(|_| envelope == EnvelopeKind::Sony),
+                (envelope == EnvelopeKind::Sony).then_some(7),
                 now,
             );
         }
