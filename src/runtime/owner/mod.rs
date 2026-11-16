@@ -1347,7 +1347,7 @@ pub(crate) struct StagedWrite {
 /// The engine token is intentionally opaque here so blocking and async owners
 /// cannot manufacture a different timestamp for recursive write completions.
 #[derive(Debug)]
-pub(crate) struct OwnerInputTurn(InputTurn, Instant);
+pub(crate) struct OwnerInputTurn(InputTurn);
 
 impl StagedWrite {
     fn framing(&self) -> &WriteFraming {
@@ -1456,7 +1456,6 @@ pub(crate) enum RawReleaseResolution {
 #[derive(Debug)]
 pub(crate) struct OwnerState {
     engine: ProtocolEngine,
-    observed_at: Instant,
     policy: OwnerPolicy,
     tuning: LiveTuning,
     permits: AdmissionPermitPool,
@@ -1500,7 +1499,6 @@ impl OwnerState {
         let tuning = LiveTuning::new(policy.tuning);
         Ok(Self {
             engine,
-            observed_at: now,
             policy,
             tuning,
             permits,
@@ -1730,20 +1728,19 @@ impl OwnerState {
                                 .into(),
                         });
                     }
-                    let _ = self.apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
+                    self.record_ignored(IgnoreReason::MalformedFrame);
                 }
             }
         }
     }
 
     pub(crate) fn input(&mut self, input: Input, now: Instant) -> VecDeque<Effect> {
-        self.observed_at = now;
         self.observe_input(&input);
         self.engine.handle(input, now).into()
     }
 
     pub(crate) fn begin_input_turn(&self, now: Instant) -> OwnerInputTurn {
-        OwnerInputTurn(self.engine.begin_input_turn(now), now)
+        OwnerInputTurn(self.engine.begin_input_turn(now))
     }
 
     /// Applies an input in an active decoded-input turn without running due
@@ -1754,7 +1751,6 @@ impl OwnerState {
         turn: &OwnerInputTurn,
         input: Input,
     ) -> VecDeque<Effect> {
-        self.observed_at = turn.1;
         self.observe_input(&input);
         self.engine.handle_in_turn(&turn.0, input).into()
     }
@@ -1764,7 +1760,6 @@ impl OwnerState {
         turn: OwnerInputTurn,
         engine_turn: EngineTurn,
     ) -> VecDeque<Effect> {
-        self.observed_at = turn.1;
         self.engine.finish_input_turn(turn.0, engine_turn).into()
     }
 
@@ -1789,7 +1784,6 @@ impl OwnerState {
     }
 
     pub(crate) fn advance(&mut self, now: Instant) -> VecDeque<Effect> {
-        self.observed_at = now;
         self.engine.advance(now).into()
     }
 
@@ -1809,7 +1803,6 @@ impl OwnerState {
         now: Instant,
         turn: EngineTurn,
     ) -> VecDeque<Effect> {
-        self.observed_at = now;
         self.observe_write(staged, &result);
         self.engine
             .handle_turn(
@@ -1832,7 +1825,6 @@ impl OwnerState {
         staged: &StagedWrite,
         result: WriteOutcome,
     ) -> VecDeque<Effect> {
-        self.observed_at = turn.1;
         self.observe_write(staged, &result);
         self.engine
             .handle_in_turn(
@@ -1873,7 +1865,6 @@ impl OwnerState {
         permit: AdmissionPermit,
         observer: impl Into<TerminalSlot>,
     ) -> Result<Admitted, Error> {
-        self.observed_at = turn.1;
         let summary = RequestSummary::new(&request);
         let context = *request.context();
         let slot = permit.slot();
@@ -1933,17 +1924,15 @@ impl OwnerState {
     /// that failed without ending the operation, which reaches the handle's
     /// cancellation observer. The operation's terminal slot is untouched
     /// either way (#777).
-    fn cancellation_failed(&mut self, id: RequestId, error: Error) {
+    fn cancellation_failed(&mut self, id: RequestId, error: Error, delivered_at: Instant) {
         let Some(active) = self.active.get_mut(&id) else {
             return;
         };
         match &active.cancellation {
             Some(CancellationIntent::Recorded(observer)) => {
                 if matches!(
-                    observer.resolve_at(
-                        Error::cancellation_observation_failed(error),
-                        self.observed_at
-                    ),
+                    observer
+                        .resolve_at(Error::cancellation_observation_failed(error), delivered_at),
                     ObserverResolution::ReceiverLost
                 ) {
                     self.metrics.dropped_observer_events =
@@ -1970,7 +1959,6 @@ impl OwnerState {
             return (VecDeque::new(), Ok(()));
         }
         active.cancellation = Some(CancellationIntent::Requested(request.observer));
-        self.observed_at = now;
         let turn = self.engine.begin_input_turn(now);
         let (mut effects, answer) = self.engine.cancel_in_turn(&turn, request.id);
         if answer.is_err() {
@@ -2113,7 +2101,7 @@ impl OwnerState {
     /// `Transmit` is returned to the caller and must be executed immediately;
     /// its exact `TransmissionFinished` effects are prepended before processing
     /// any previously queued effect or unrelated boundary input.
-    pub(crate) fn apply_effect(&mut self, effect: Effect) -> AppliedEffect {
+    pub(crate) fn apply_effect(&mut self, effect: Effect, delivered_at: Instant) -> AppliedEffect {
         match effect {
             // Admission effects are emitted only by test compatibility shims;
             // production admission installs its owner record synchronously.
@@ -2197,7 +2185,7 @@ impl OwnerState {
                     | CancellationObservation::Cancelled
                     | CancellationObservation::Completed => self.mark_cancellation_recorded(id),
                     CancellationObservation::Failed(error) => {
-                        self.cancellation_failed(id, error);
+                        self.cancellation_failed(id, error, delivered_at);
                     }
                 }
                 if let Some(target) = target {
@@ -2228,7 +2216,7 @@ impl OwnerState {
                 if let Some(active) = self.active.remove(&id) {
                     let target = active.summary.target;
                     if matches!(
-                        active.observer.resolve_at(outcome, self.observed_at),
+                        active.observer.resolve_at(outcome, delivered_at),
                         ObserverResolution::ReceiverLost
                     ) {
                         self.metrics.dropped_observer_events =
@@ -2253,28 +2241,33 @@ impl OwnerState {
                 AppliedEffect::SessionEnded(end.cause)
             }
             Effect::Ignored(reason) => {
-                if reason == IgnoreReason::UnmatchedSequencedFrame {
-                    self.metrics.ignored_unmatched_sequenced_replies = self
-                        .metrics
-                        .ignored_unmatched_sequenced_replies
-                        .saturating_add(1);
-                }
-                if reason == IgnoreReason::MalformedFrame {
-                    self.metrics.ignored_malformed_frames =
-                        self.metrics.ignored_malformed_frames.saturating_add(1);
-                }
-                if reason == IgnoreReason::ReplyShapeMismatch {
-                    self.metrics.ignored_reply_shape_mismatches = self
-                        .metrics
-                        .ignored_reply_shape_mismatches
-                        .saturating_add(1);
-                }
-                self.record(DiagnosticEvent::Ignored {
-                    reason: diagnostics::ignored(reason),
-                });
+                self.record_ignored(reason);
                 AppliedEffect::None
             }
         }
+    }
+
+    /// Record a discarded frame without selecting a terminal delivery instant.
+    pub(super) fn record_ignored(&mut self, reason: IgnoreReason) {
+        if reason == IgnoreReason::UnmatchedSequencedFrame {
+            self.metrics.ignored_unmatched_sequenced_replies = self
+                .metrics
+                .ignored_unmatched_sequenced_replies
+                .saturating_add(1);
+        }
+        if reason == IgnoreReason::MalformedFrame {
+            self.metrics.ignored_malformed_frames =
+                self.metrics.ignored_malformed_frames.saturating_add(1);
+        }
+        if reason == IgnoreReason::ReplyShapeMismatch {
+            self.metrics.ignored_reply_shape_mismatches = self
+                .metrics
+                .ignored_reply_shape_mismatches
+                .saturating_add(1);
+        }
+        self.record(DiagnosticEvent::Ignored {
+            reason: diagnostics::ignored(reason),
+        });
     }
 
     // Consumed only by the async actor's boundary drain (#636).

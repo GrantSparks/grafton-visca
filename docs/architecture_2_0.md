@@ -1486,6 +1486,7 @@ terminal outcome is known at or before the observer deadline it decides (`Applie
 failure is that error), whichever order the owner emitted the two slots in;
 only without an on-time terminal does an on-time cancellation-slot error answer.
 Delivery timestamps use the injected owner clock, not inferred wire arrival.
+The owner passes each delivery instant explicitly; owner state holds no current instant.
 Late outcomes remain cached for a subsequent borrowing wait. A `cancel` after the
 owner stopped still answers from an outcome delivered before it stopped.
 

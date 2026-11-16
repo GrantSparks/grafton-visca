@@ -359,7 +359,7 @@ impl OwnerShellCore {
             }
             OwnerEvent::Cancellation(CancellationBoundary::Halt(halt)) => {
                 match halt.validity.claim_for_admission(selected_at) {
-                    AdmissionClaim::Claimed => {
+                    AdmissionClaim::Claimed { remaining } => {
                         match self.lifecycle.fence_order(
                             &self.state.motion,
                             halt.prepared.target,
@@ -370,6 +370,7 @@ impl OwnerShellCore {
                                     halt.prepared,
                                     halt.validity.deadline(),
                                     cutoff,
+                                    remaining,
                                     selected_at,
                                 );
                                 let _ = halt.reply.try_send(Ok(receipt));
@@ -488,9 +489,8 @@ impl OwnerShellCore {
         effects: &mut VecDeque<Effect>,
         observed_at: Instant,
     ) -> Option<StagedWrite> {
-        self.state.observed_at = observed_at;
         while let Some(effect) = effects.pop_front() {
-            let applied = self.state.apply_effect(effect);
+            let applied = self.state.apply_effect(effect, observed_at);
             if let AppliedEffect::SessionEnded(cause) = applied {
                 self.lifecycle.publish_terminal(cause);
                 continue;
@@ -678,9 +678,7 @@ impl OwnerShellCore {
         // discarded frame so the discard stays observable; the session is
         // never poisoned for it.
         for _ in 0..self.state.buffers().take_discarded_malformed() {
-            let _ = self
-                .state
-                .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
+            self.state.record_ignored(IgnoreReason::MalformedFrame);
         }
         if let Err(error) = self.state.validate_frame_batch(&frames) {
             self.state.buffers().recycle_frames(frames);
@@ -816,9 +814,7 @@ impl OwnerShellCore {
     fn malformed_datagram(&mut self) -> TurnStep {
         self.faults.reset();
         self.idle_receives.reset();
-        let _ = self
-            .state
-            .apply_effect(Effect::Ignored(IgnoreReason::MalformedFrame));
+        self.state.record_ignored(IgnoreReason::MalformedFrame);
         TurnStep::Done(TurnOutcome::YieldBoundaries)
     }
 
@@ -891,7 +887,7 @@ impl OwnerShellCore {
         let target = admission.request.context().target;
         let lane = admission.request.lane();
         match validity.claim_for_admission(now) {
-            AdmissionClaim::Claimed => {
+            AdmissionClaim::Claimed { .. } => {
                 admission.claim = AdmissionBoundaryClaim::Claimed;
                 true
             }

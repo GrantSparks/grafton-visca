@@ -210,13 +210,6 @@ fn retuning_preserves_the_profile_baseline_and_updates_the_live_proof() {
 }
 
 #[test]
-fn owner_construction_retains_the_selected_clock_anchor() {
-    let selected = Instant::now() + Duration::from_secs(123);
-    let state = reconfigurable_owner_state_at(selected);
-    assert_eq!(state.observed_at, selected);
-}
-
-#[test]
 fn retune_checks_the_selected_clock_before_replacing_live_tuning() {
     let mut state = reconfigurable_owner_state_at(Instant::now());
     let live = state.live_tuning();
@@ -665,7 +658,7 @@ mod metrics {
         now: Instant,
     ) {
         while let Some(effect) = effects.pop_front() {
-            if let AppliedEffect::Transmit(staged) = state.apply_effect(effect) {
+            if let AppliedEffect::Transmit(staged) = state.apply_effect(effect, now) {
                 let produced = state.finish_write(
                     &staged,
                     WriteOutcome::Sent(sequence.map_or(TransmissionMeta::Raw, |sequence| {
@@ -1060,7 +1053,7 @@ mod metrics {
         };
         let turn = state.begin_input_turn(now);
         for effect in input.in_turn(state, &turn) {
-            let _ = state.apply_effect(effect);
+            let _ = state.apply_effect(effect, now);
         }
         let _ = state.finish_input_turn(turn, EngineTurn::InputOnly);
         let core = ReceiptCore::admitted(admitted.recv().unwrap().unwrap(), observer, ACK);
@@ -1070,6 +1063,86 @@ mod metrics {
     fn observation_fixture() -> (OperationObservation, Arc<ObserverCell<CommandOutcome>>) {
         let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), Instant::now()).unwrap();
         admit_observation(&mut state, command(retrying()), Instant::now())
+    }
+
+    #[test]
+    fn halt_supersession_uses_its_delivery_instant_after_an_earlier_turn() {
+        use crate::AffectedAxes;
+        let earlier = Instant::now();
+        let deadline = earlier + Duration::from_millis(1);
+        let delivered = earlier + Duration::from_millis(2);
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), earlier).unwrap();
+        let mut request = command(retrying());
+        request.context_mut().motion = Some(crate::runtime::engine::MotionEffect {
+            axes: AffectedAxes::PAN_TILT,
+            stop: false,
+        });
+        request.context_mut().submission_order = 1;
+        let (mut observation, _) = admit_observation(&mut state, request, earlier);
+        let halt_deadline = delivered + ACK;
+        let boundary::AdmissionClaim::Claimed { remaining } =
+            boundary::AdmissionValidity::until(halt_deadline).claim_for_admission(delivered)
+        else {
+            panic!("the halt has a positive admission budget");
+        };
+        let receipt = state.accept_halt(
+            crate::prepared::PreparedHalt {
+                target: TargetSlot::CAMERA_1,
+                axes: Some(AffectedAxes::PAN_TILT),
+                requests: [None, None, None],
+                budget: ACK,
+            },
+            halt_deadline,
+            2,
+            remaining,
+            delivered,
+        );
+        assert!(receipt.slots.iter().all(Option::is_none));
+        observation.poll();
+        let terminal = observation
+            .terminal
+            .clone()
+            .expect("halt superseded queued motion");
+        assert_eq!(terminal.at, delivered);
+        assert!(matches!(
+            terminal.value,
+            CommandOutcome::Failed(Error::MotionSuperseded { .. })
+        ));
+        assert!(matches!(
+            observation.core.conclude(terminal, deadline),
+            Err(Error::ObservationTimeout { .. })
+        ));
+    }
+
+    #[test]
+    fn cancellation_failure_uses_the_explicit_delivery_instant() {
+        let earlier = Instant::now();
+        let deadline = earlier + Duration::from_millis(1);
+        let delivered = earlier + Duration::from_millis(2);
+        let mut state = OwnerState::new(owner_policy(EnvelopeKind::Raw), earlier).unwrap();
+        let (mut observation, _) = admit_observation(&mut state, command(retrying()), earlier);
+        let cancellation = observation.cancellation_request();
+        state
+            .active
+            .get_mut(&observation.id())
+            .unwrap()
+            .cancellation = Some(CancellationIntent::Recorded(cancellation.observer));
+        state.apply_effect(
+            Effect::CancellationObservation {
+                id: observation.id(),
+                observation: CancellationObservation::Failed(Error::CancellationUnconfirmed),
+            },
+            delivered,
+        );
+        assert!(observation.cancellation(deadline).is_none());
+        assert_eq!(
+            observation.cancellation_failure.as_ref().unwrap().at,
+            delivered
+        );
+        assert!(matches!(
+            observation.cancellation(delivered),
+            Some(Err(Error::CancellationUnconfirmed))
+        ));
     }
 
     #[test]
@@ -1156,7 +1229,7 @@ mod metrics {
             "engine admission invalidates attribution before its Admitted effect drains"
         );
         for effect in effects {
-            let _ = state.apply_effect(effect);
+            let _ = state.apply_effect(effect, now);
         }
         let _ = state.finish_input_turn(admission_turn, EngineTurn::InputOnly);
         let later = OperationObservation::new(
@@ -1165,7 +1238,7 @@ mod metrics {
         );
         let turn = state.begin_input_turn(now);
         for effect in state.input_in_turn(&turn, Input::Cancel { id: later.id() }) {
-            let _ = state.apply_effect(effect);
+            let _ = state.apply_effect(effect, now);
         }
         let _ = state.finish_input_turn(turn, EngineTurn::InputOnly);
         assert!(matches!(
@@ -1484,6 +1557,7 @@ mod metrics {
             },
             now + ACK,
             1,
+            crate::runtime::engine::NonZeroDuration::new(ACK).unwrap(),
             now,
         );
         for slot in receipt.slots {
@@ -1640,7 +1714,7 @@ fn engine_terminal_cause_is_authoritative_before_effect_delivery() {
         expected.to_string()
     );
     for effect in effects {
-        state.apply_effect(effect);
+        state.apply_effect(effect, now);
     }
     state.input(Input::Shutdown(ShutdownReason::Explicit), now);
     assert_eq!(
@@ -2432,7 +2506,7 @@ mod lifecycle_trace {
                         self.record_admission_rejected(effect, out);
                     }
                     Effect::Transition { id, from, to, .. } => {
-                        self.state_mut().apply_effect(effect);
+                        self.apply_effect(effect);
                         out.push(format!(
                             "{} effect state id={} from={} to={}",
                             self.at,
@@ -2446,10 +2520,10 @@ mod lifecycle_trace {
                     }
                     Effect::DeadlineExpired { id, .. } => {
                         deadlines.insert(id);
-                        self.state_mut().apply_effect(effect);
+                        self.apply_effect(effect);
                     }
                     Effect::CancellationRecorded { id } => {
-                        self.state_mut().apply_effect(effect);
+                        self.apply_effect(effect);
                         let queued = matches!(
                             self.cancel_phase,
                             Some(Phase::Ready | Phase::Backoff { .. })
@@ -2488,11 +2562,10 @@ mod lifecycle_trace {
                                 id.get()
                             ),
                         ));
-                        self.state_mut().apply_effect(effect);
+                        self.apply_effect(effect);
                     }
                     Effect::AppliedState { effect: projection } => {
-                        self.state_mut()
-                            .apply_effect(Effect::AppliedState { effect: projection });
+                        self.apply_effect(Effect::AppliedState { effect: projection });
                         let entry = self.state().target_cache[projection.target]
                             .lock()
                             .unwrap()
@@ -2526,7 +2599,7 @@ mod lifecycle_trace {
                         };
                         let text = outcome_text(outcome);
                         let permits_before = self.state().permits().available();
-                        self.state_mut().apply_effect(effect.clone());
+                        self.apply_effect(effect.clone());
                         let removed = self.state().request_state(id).is_none();
                         let released = self.state().permits().available() == permits_before + 1;
                         out.push(format!(
@@ -2555,7 +2628,7 @@ mod lifecycle_trace {
                     Effect::SessionEnded(ref end) => {
                         let from = SessionState::Running;
                         let to = end.status.state();
-                        self.state_mut().apply_effect(effect);
+                        self.apply_effect(effect);
                         let detail = match to {
                             SessionState::Poisoned => {
                                 format!("cause={}", poison_cause(self.state()))
@@ -2583,9 +2656,14 @@ mod lifecycle_trace {
             }
         }
 
+        fn apply_effect(&mut self, effect: Effect) -> AppliedEffect {
+            let delivered_at = self.now;
+            self.state_mut().apply_effect(effect, delivered_at)
+        }
+
         fn record_admitted(&mut self, id: RequestId, effect: Effect, out: &mut Vec<String>) {
             let pending = self.pending.take().expect("a staged admission");
-            self.state_mut().apply_effect(effect);
+            self.apply_effect(effect);
             let target = self
                 .diagnostics
                 .as_ref()
@@ -2648,8 +2726,7 @@ mod lifecycle_trace {
 
         fn record_admission_rejected(&mut self, effect: Effect, out: &mut Vec<String>) {
             let pending = self.pending.take().expect("a staged admission");
-            let AppliedEffect::AdmissionRejected(error) = self.state_mut().apply_effect(effect)
-            else {
+            let AppliedEffect::AdmissionRejected(error) = self.apply_effect(effect) else {
                 panic!("a rejected admission did not report its error")
             };
             let capacity = match &error {
@@ -2711,7 +2788,7 @@ mod lifecycle_trace {
                     ));
                 }
             }
-            let AppliedEffect::Transmit(staged) = self.state_mut().apply_effect(effect) else {
+            let AppliedEffect::Transmit(staged) = self.apply_effect(effect) else {
                 panic!("a transmit effect did not stage a write")
             };
             let label = self.write_label.clone();

@@ -107,7 +107,7 @@ fn queued_mode_refusal(invalidate: bool) {
     let (input, observer, _admitted) = super::super::stage_admission(&mut state, request, permit);
     for effect in input.complete(&mut state, now) {
         assert!(
-            !matches!(state.apply_effect(effect), AppliedEffect::Transmit(_)),
+            !matches!(state.apply_effect(effect, now), AppliedEffect::Transmit(_)),
             "the executing mode setter occupies the only socket"
         );
     }
@@ -130,7 +130,7 @@ fn queued_mode_refusal(invalidate: bool) {
     };
     let mut staged = None;
     for effect in state.input(frame(Some(2), response), now) {
-        if let AppliedEffect::Transmit(write) = state.apply_effect(effect) {
+        if let AppliedEffect::Transmit(write) = state.apply_effect(effect, now) {
             staged = Some(write);
         }
     }
@@ -146,7 +146,7 @@ fn queued_mode_refusal(invalidate: bool) {
     let error = state.prepare_write(&staged).unwrap_err();
     assert!(matches!(error, Error::InvalidRequest { .. }));
     for effect in state.finish_write(&staged, WriteOutcome::NotSent(error), now) {
-        state.apply_effect(effect);
+        state.apply_effect(effect, now);
     }
     let RuntimeOutcome::Command(CommandOutcome::Failed(error)) = observer.try_recv().unwrap()
     else {
@@ -255,21 +255,21 @@ fn a_retry_refused_after_mode_invalidation_preserves_the_first_attempts_uncertai
 
     let expiry = now + ack_timeout;
     for effect in state.advance(expiry) {
-        state.apply_effect(effect);
+        state.apply_effect(effect, expiry);
     }
     let retry_at = state
         .next_wake(expiry)
         .expect("the retry has an engine-owned ready instant");
     let mut retry = None;
     for effect in state.advance(retry_at) {
-        if let AppliedEffect::Transmit(write) = state.apply_effect(effect) {
+        if let AppliedEffect::Transmit(write) = state.apply_effect(effect, retry_at) {
             retry = Some(write);
         }
     }
     let retry = retry.expect("the lost Sony ACK schedules a same-sequence retry");
     let error = state.prepare_write(&retry).unwrap_err();
     for effect in state.finish_write(&retry, WriteOutcome::NotSent(error), retry_at) {
-        state.apply_effect(effect);
+        state.apply_effect(effect, retry_at);
     }
     let RuntimeOutcome::Command(CommandOutcome::Failed(error)) = observer.try_recv().unwrap()
     else {

@@ -56,7 +56,9 @@ enum AdmissionValidityState {
 /// boundary.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum AdmissionClaim {
-    Claimed,
+    Claimed {
+        remaining: crate::runtime::engine::NonZeroDuration,
+    },
     /// This owner observed the deadline first and rejected the boundary.
     ExpiredHere,
     /// The caller had already rejected the boundary before this owner turn.
@@ -87,7 +89,11 @@ impl AdmissionValidity {
     /// its reply rather than turn that admitted work into a pre-admission
     /// timeout.
     pub(super) fn claim_for_admission(&self, now: Instant) -> AdmissionClaim {
-        if now >= self.deadline {
+        // Saturation is zero exactly when the sampled instant has reached
+        // the deadline. A successful claim carries this proved budget.
+        let Ok(remaining) = crate::runtime::engine::NonZeroDuration::new(
+            self.deadline.saturating_duration_since(now),
+        ) else {
             return if self
                 .state
                 .compare_exchange(
@@ -102,7 +108,7 @@ impl AdmissionValidity {
             } else {
                 AdmissionClaim::ExpiredElsewhere
             };
-        }
+        };
 
         if self
             .state
@@ -114,7 +120,7 @@ impl AdmissionValidity {
             )
             .is_ok()
         {
-            AdmissionClaim::Claimed
+            AdmissionClaim::Claimed { remaining }
         } else {
             AdmissionClaim::ExpiredElsewhere
         }
