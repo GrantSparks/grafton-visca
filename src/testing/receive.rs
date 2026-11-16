@@ -29,3 +29,14 @@ impl ReceiveProbe {
         self.inner.receive(chunk)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::ReceiveProbe;
+
+    #[test]
+    fn public_receive_probe_preserves_both_unwind_markers() {
+        fn assert_unwind_safe<T: std::panic::UnwindSafe + std::panic::RefUnwindSafe>() {}
+        assert_unwind_safe::<ReceiveProbe>();
+    }
+}

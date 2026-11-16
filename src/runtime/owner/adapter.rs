@@ -1838,6 +1838,16 @@ pub(crate) struct ReceiveProbe {
     buffers: OwnerBuffers,
 }
 
+// Receive-only methods mutate the same framing and byte storage this probe
+// held before effect buffering was added. Its shared OwnerBuffers also owns
+// effect queues, but those stay empty and cannot be accessed through the
+// receive-only API. Preserve the probe's existing unwind marker contract
+// without asserting anything about live owners or their effect storage.
+#[cfg(feature = "test-utils")]
+impl std::panic::UnwindSafe for ReceiveProbe {}
+#[cfg(feature = "test-utils")]
+impl std::panic::RefUnwindSafe for ReceiveProbe {}
+
 #[cfg(feature = "test-utils")]
 #[derive(Debug)]
 struct ProbeConfig(TransportConfig, SendSemantics);
