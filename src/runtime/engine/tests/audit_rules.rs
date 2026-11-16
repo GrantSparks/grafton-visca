@@ -10,7 +10,10 @@ fn ended_session_cannot_retain_work() {
         command(1, CancellationPolicy::Supported),
         Instant::now(),
     );
-    engine.state = SessionState::Closed;
+    engine.session = EngineSession::Ended(SessionEnd {
+        status: EndStatus::Closed,
+        cause: Error::ConnectionClosed { source: None },
+    });
     assert_eq!(
         engine.assert_invariants().unwrap_err().as_ref(),
         "ended session retains lifecycle or correlation work"

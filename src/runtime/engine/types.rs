@@ -993,6 +993,54 @@ pub(crate) enum SessionState {
     Poisoned,
 }
 
+/// A terminal session status cannot describe a running engine.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum EndStatus {
+    Closed,
+    Shutdown,
+    Poisoned,
+}
+
+impl EndStatus {
+    pub(crate) const fn state(self) -> SessionState {
+        match self {
+            Self::Closed => SessionState::Closed,
+            Self::Shutdown => SessionState::Shutdown,
+            Self::Poisoned => SessionState::Poisoned,
+        }
+    }
+}
+
+/// The engine's terminal verdict, retained and delivered as one complete value.
+#[derive(Debug, Clone)]
+pub(crate) struct SessionEnd {
+    pub(crate) status: EndStatus,
+    pub(crate) cause: Error,
+}
+
+/// A session either runs without a terminal cause or ends with one.
+#[derive(Debug)]
+pub(super) enum EngineSession {
+    Running,
+    Ended(SessionEnd),
+}
+
+impl EngineSession {
+    pub(super) const fn state(&self) -> SessionState {
+        match self {
+            Self::Running => SessionState::Running,
+            Self::Ended(end) => end.status.state(),
+        }
+    }
+
+    pub(super) const fn terminal_error(&self) -> Option<&Error> {
+        match self {
+            Self::Running => None,
+            Self::Ended(end) => Some(&end.cause),
+        }
+    }
+}
+
 /// Ordered boundary inputs to the pure state machine.
 // Admission owns the complete bounded request. Keep this synchronous engine
 // input inline instead of allocating every admitted request for enum size.
@@ -1155,10 +1203,7 @@ pub(crate) enum Effect {
         id: RequestId,
         outcome: RuntimeOutcome,
     },
-    SessionChanged {
-        from: SessionState,
-        to: SessionState,
-    },
+    SessionEnded(SessionEnd),
     Ignored(IgnoreReason),
 }
 

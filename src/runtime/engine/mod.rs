@@ -430,8 +430,7 @@ pub(crate) struct EngineCore {
     last_command_sent: Option<Instant>,
     last_inquiry_sent: Option<Instant>,
     inquiry_cooldown_until: Option<Instant>,
-    state: SessionState,
-    terminal_error: Option<Error>,
+    session: EngineSession,
 }
 
 impl std::ops::Deref for ProtocolEngine {
@@ -484,8 +483,7 @@ impl ProtocolEngine {
                 last_command_sent: None,
                 last_inquiry_sent: None,
                 inquiry_cooldown_until: None,
-                state: SessionState::Running,
-                terminal_error: None,
+                session: EngineSession::Running,
             },
         })
     }
@@ -509,11 +507,13 @@ impl ProtocolEngine {
     }
 
     pub(crate) const fn state(&self) -> SessionState {
-        self.core.state
+        self.core.session.state()
     }
 
-    pub(crate) fn terminal_error(&self) -> Option<Error> {
-        EngineMethods::terminal_error(self)
+    /// Project the retained cause from the engine's complete terminal verdict.
+    /// Terminal effects carry that same verdict directly to their consumers.
+    pub(crate) const fn terminal_error(&self) -> Option<&Error> {
+        self.core.session.terminal_error()
     }
 
     #[cfg(test)]
@@ -816,19 +816,6 @@ trait EngineMethods: EngineAccess {
         Ok(())
     }
 
-    /// The exact error the engine recorded when it left `Running`, if it has.
-    ///
-    /// Every terminal transition — an owner-supplied `Close`/`Poison`/`Shutdown`
-    /// and every engine-initiated verdict alike (deadline expiry, the strict
-    /// `strict_unconfirmed_poison` opt-in, a stream/framing self-poison) — is
-    /// funneled through [`Self::terminate_session`], which stamps this field
-    /// before emitting [`Effect::SessionChanged`]. Owners read this retained
-    /// cause directly, including engine-initiated poison, rather than deriving
-    /// a second verdict from the input boundary.
-    fn terminal_error(&self) -> Option<Error> {
-        self.terminal_error.clone()
-    }
-
     // Read-only inspection seams for engine and owner tests.
     #[cfg(test)]
     fn entry(&self, id: RequestId) -> Option<&Entry> {
@@ -1007,19 +994,19 @@ trait EngineMethods: EngineAccess {
             Input::ReceiveFault { error } => self.receive_fault(&error, now, effects),
             Input::Shutdown(reason) => match reason {
                 ShutdownReason::Explicit => self.terminate_session(
-                    SessionState::Shutdown,
+                    EndStatus::Shutdown,
                     Error::RuntimeShutdown,
                     now,
                     effects,
                 ),
                 ShutdownReason::TransportClosed { cause } => self.terminate_session(
-                    SessionState::Closed,
+                    EndStatus::Closed,
                     Error::connection_closed(cause),
                     now,
                     effects,
                 ),
                 ShutdownReason::FramingFailure { cause } => self.terminate_session(
-                    SessionState::Poisoned,
+                    EndStatus::Poisoned,
                     Error::stream_poisoned(cause),
                     now,
                     effects,
@@ -1224,11 +1211,8 @@ trait EngineMethods: EngineAccess {
         slot: AdmissionSlot,
         now: Instant,
     ) -> Result<RequestId, Error> {
-        if self.state != SessionState::Running {
-            return Err(self
-                .terminal_error
-                .clone()
-                .unwrap_or(Error::RuntimeShutdown));
+        if let EngineSession::Ended(end) = &self.session {
+            return Err(end.cause.clone());
         }
         let context = *request.context();
         context.validate_at(now)?;
@@ -1351,7 +1335,7 @@ trait EngineMethods: EngineAccess {
     }
 
     fn dispatch_one(&mut self, now: Instant, effects: &mut Decision) {
-        if self.state != SessionState::Running {
+        if !matches!(self.session, EngineSession::Running) {
             return;
         }
         if let Some(selected) = self.select_dispatch(now) {
@@ -1366,7 +1350,7 @@ trait EngineMethods: EngineAccess {
     /// profiles drain the complete urgent set; a positive spacing naturally
     /// stops the scan after the first write advances [`Self::last_request_sent`].
     fn drain_pending_cancellations(&mut self, now: Instant, effects: &mut Decision) {
-        if self.state != SessionState::Running {
+        if !matches!(self.session, EngineSession::Running) {
             return;
         }
         loop {
@@ -2356,7 +2340,7 @@ trait EngineMethods: EngineAccess {
     ) {
         if self.policy.transport == TransportKind::Stream {
             self.terminate_session(
-                SessionState::Poisoned,
+                EndStatus::Poisoned,
                 Error::stream_poisoned(error),
                 now,
                 effects,
@@ -2474,7 +2458,7 @@ trait EngineMethods: EngineAccess {
     /// and a request with cancellation in flight is left to its ambiguity deadline, because
     /// retrying it would abandon the quarantine that owns its socket.
     fn receive_fault(&mut self, error: &Error, now: Instant, effects: &mut Decision) {
-        if self.state != SessionState::Running {
+        if !matches!(self.session, EngineSession::Running) {
             effects.push(Effect::Ignored(IgnoreReason::SessionNotRunning));
             return;
         }
@@ -2559,7 +2543,7 @@ trait EngineMethods: EngineAccess {
     }
 
     fn frame(&mut self, frame: DecodedFrame, now: Instant, effects: &mut Decision) {
-        if self.state != SessionState::Running {
+        if !matches!(self.session, EngineSession::Running) {
             effects.push(Effect::Ignored(IgnoreReason::SessionNotRunning));
             return;
         }
@@ -4077,7 +4061,7 @@ trait EngineMethods: EngineAccess {
     /// Its recovery guidance covers a raw command whose completion is uncertain.
     fn poison_strict_unconfirmed(&mut self, now: Instant, effects: &mut Decision) {
         self.terminate_session(
-            SessionState::Poisoned,
+            EndStatus::Poisoned,
             Error::stream_poisoned(Error::UnsequencedCommandUnconfirmed),
             now,
             effects,
@@ -4558,7 +4542,7 @@ trait EngineMethods: EngineAccess {
 
     /// Earliest scheduler deadline, retry eligibility, pacing release, or cooldown.
     fn next_wake(&self, now: Instant) -> Option<Instant> {
-        if self.state != SessionState::Running {
+        if !matches!(self.session, EngineSession::Running) {
             return None;
         }
         let occupancy = Occupancy::build(&self.entries);
@@ -4725,18 +4709,22 @@ trait EngineMethods: EngineAccess {
 
     fn terminate_session(
         &mut self,
-        state: SessionState,
+        status: EndStatus,
         error: Error,
         now: Instant,
         effects: &mut Decision,
     ) {
-        if self.state != SessionState::Running {
-            return;
+        match &self.session {
+            EngineSession::Ended(_) => return,
+            EngineSession::Running => {
+                let end = SessionEnd {
+                    status,
+                    cause: error.clone(),
+                };
+                self.session = EngineSession::Ended(end.clone());
+                effects.push(Effect::SessionEnded(end));
+            }
         }
-        let from = self.state;
-        self.state = state;
-        self.terminal_error = Some(error.clone());
-        effects.push(Effect::SessionChanged { from, to: state });
         let mut active: Vec<_> = self
             .entries
             .iter()
@@ -4811,7 +4799,7 @@ trait EngineMethods: EngineAccess {
     /// Audits cross-domain safety rules that construction alone cannot prove.
     fn assert_invariants(&self) -> Result<(), Box<str>> {
         self.check_inquiry_shape_invariants()?;
-        if self.state != SessionState::Running
+        if !matches!(self.session, EngineSession::Running)
             && (!self.entries.is_empty()
                 || !self.mode().holds().is_empty()
                 || !self.mode().ledger().is_empty())

@@ -5,9 +5,9 @@
 //! Owner-supplied `Close`/`Poison`/`Shutdown` inputs always set the session
 //! error, but an engine-initiated terminal transition — here the strict
 //! `strict_unconfirmed_poison` opt-in reacting to a receive fault while a raw
-//! command is unacknowledged — reaches the owner only as a payload-free
-//! `SessionChanged` effect. The owner now learns the engine's terminal error on
-//! that transition and latches it, so a `shutdown()`/`close()` on the dead
+//! command is unacknowledged — reaches the owner through a `SessionEnded`
+//! effect carrying the complete verdict. The owner publishes that cause
+//! directly, so a `shutdown()`/`close()` on the dead
 //! session returns `StreamPoisoned` (which `requires_new_session()`), the
 //! `SessionChanged` diagnostic carries the real `ErrorKind`, and the documented
 //! supervisor recovery loop actually rebuilds.

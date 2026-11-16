@@ -571,6 +571,18 @@ impl OwnerLifecycle {
         self.lock_state().terminal()
     }
 
+    /// Preserve an owner's known stop reason when its engine never ended.
+    /// An accepted shutdown alone is no evidence that shutdown completed.
+    pub(super) fn conclusion_error(&self) -> Error {
+        match &*self.lock_state() {
+            LifecycleState::SignalFailed(error) | LifecycleState::Terminated { error, .. } => {
+                error.clone()
+            }
+            LifecycleState::ShutDown { .. } => Error::RuntimeShutdown,
+            LifecycleState::Open | LifecycleState::ShutdownAccepted => missing_terminal_error(),
+        }
+    }
+
     fn metrics(&self) -> Option<Result<crate::observability::MetricsSnapshot, Error>> {
         self.lock_state().metrics()
     }
@@ -600,7 +612,7 @@ impl OwnerLifecycle {
 
     /// Publish a terminal engine verdict at the lifecycle linearization point.
     ///
-    /// The owner calls this while the terminal `SessionChanged` effect is
+    /// The owner calls this while the terminal `SessionEnded` effect is
     /// being driven, rather than only once its loop has ended. A shutdown
     /// caller can otherwise enter the still-live one-slot lane after the
     /// engine has become terminal but before the loop's epilogue, and
@@ -1095,6 +1107,22 @@ mod tests {
             Some(FAILED),
             FAILED,
             Some(FAILED),
+        );
+    }
+
+    #[test]
+    fn conclusion_preserves_a_signal_failure_before_the_engine_ends() {
+        let lifecycle = OwnerLifecycle::new();
+        let error = Error::InvalidState {
+            reason: "shutdown signal failed".into(),
+        };
+        *lifecycle.lock_state() = LifecycleState::SignalFailed(error.clone());
+        let concluded = lifecycle.conclusion_error();
+        assert_eq!(format!("{concluded:?}"), format!("{error:?}"));
+        lifecycle.publish_terminal(concluded);
+        assert_eq!(
+            format!("{:?}", lifecycle.terminal().unwrap()),
+            format!("{error:?}")
         );
     }
 

@@ -29,6 +29,7 @@ mod prepared_retry;
 mod raw_evidence;
 mod raw_stream_model;
 mod retry_history;
+mod session_end;
 mod write_outcomes;
 
 fn extend_fixture_hold(
@@ -4925,10 +4926,10 @@ impl FuzzCoverage {
                 } => self.written += 1,
                 Effect::RetryScheduled { .. } => self.retried += 1,
                 Effect::Ignored(_) => self.ignored += 1,
-                Effect::SessionChanged {
-                    to: SessionState::Poisoned,
+                Effect::SessionEnded(SessionEnd {
+                    status: EndStatus::Poisoned,
                     ..
-                } if engine.policy.strict_unconfirmed_poison => self.strict_poisoned += 1,
+                }) if engine.policy.strict_unconfirmed_poison => self.strict_poisoned += 1,
                 _ => {}
             }
         }
@@ -7274,7 +7275,7 @@ fn completion_deadline_expiry_is_reported_as_a_completion_deadline() {
     // immediately, while an inert exact-socket hold protects the successor.
     assert!(!expired
         .iter()
-        .any(|effect| matches!(effect, Effect::SessionChanged { .. })));
+        .any(|effect| matches!(effect, Effect::SessionEnded(_))));
     assert!(matches!(
         terminal_failure(&expired, id),
         Some(Error::UnsequencedCommandUnconfirmed)
@@ -8425,10 +8426,10 @@ fn late_stream_write_failure_poisons_before_total_budget_for_raw_and_sony() {
         }
         assert!(poisoned.iter().any(|effect| matches!(
             effect,
-            Effect::SessionChanged {
-                to: SessionState::Poisoned,
+            Effect::SessionEnded(SessionEnd {
+                status: EndStatus::Poisoned,
                 ..
-            }
+            })
         )));
         assert_eq!(engine.state(), SessionState::Poisoned);
         let terminal = engine.terminal_error().expect("stream poison verdict");
@@ -8979,7 +8980,7 @@ fn raw_active_retry_budget_expiry_quarantines_and_fails_per_request() {
     ));
     assert!(!expired
         .iter()
-        .any(|effect| matches!(effect, Effect::SessionChanged { .. })));
+        .any(|effect| matches!(effect, Effect::SessionEnded(_))));
     assert_eq!(engine.state(), SessionState::Running);
     assert!(engine.entry(id).is_none());
     assert!(engine.raw_hold(camera(1), RawHoldScope::PreAck).is_some());
@@ -9038,10 +9039,10 @@ fn raw_active_retry_budget_expiry_poisons_under_strict_opt_in() {
     assert!(
         expired.iter().any(|effect| matches!(
             effect,
-            Effect::SessionChanged {
-                to: SessionState::Poisoned,
+            Effect::SessionEnded(SessionEnd {
+                status: EndStatus::Poisoned,
                 ..
-            }
+            })
         )),
         "strict mode must poison the session"
     );
@@ -9900,7 +9901,7 @@ fn completion_only_command_has_no_ack_timeout_and_does_not_poison_strict() {
     assert!(
         past_ack
             .iter()
-            .all(|effect| !matches!(effect, Effect::SessionChanged { .. })),
+            .all(|effect| !matches!(effect, Effect::SessionEnded(_))),
         "no ACK-timeout event fires for a completion-only command",
     );
     assert_eq!(engine.state(), SessionState::Running);
@@ -9914,10 +9915,10 @@ fn completion_only_command_has_no_ack_timeout_and_does_not_poison_strict() {
     assert!(
         past_completion.iter().any(|effect| matches!(
             effect,
-            Effect::SessionChanged {
-                to: SessionState::Poisoned,
+            Effect::SessionEnded(SessionEnd {
+                status: EndStatus::Poisoned,
                 ..
-            }
+            })
         )),
         "the completion deadline is what governs a completion-only command",
     );

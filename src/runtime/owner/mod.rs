@@ -1372,6 +1372,7 @@ pub(crate) enum AppliedEffect {
     #[cfg(test)]
     AdmissionRejected(Error),
     Transmit(StagedWrite),
+    SessionEnded(Error),
 }
 
 /// The owner's live operational tuning, shared with every handle that prepares
@@ -1581,7 +1582,7 @@ impl OwnerState {
     }
 
     pub(crate) fn boundary_error(&self) -> Option<Error> {
-        self.engine.terminal_error()
+        self.engine.terminal_error().cloned()
     }
 
     /// Whether `id` is still an active request: admitted, and its terminal
@@ -2243,20 +2244,13 @@ impl OwnerState {
                 self.metrics.terminal = self.metrics.terminal.saturating_add(1);
                 AppliedEffect::None
             }
-            Effect::SessionChanged { from, to } => {
-                // The engine records the exact cause before emitting this
-                // transition, including engine-initiated stream poison.
-                let reason = self
-                    .engine
-                    .terminal_error()
-                    .as_ref()
-                    .map_or(ErrorKind::Other, Error::kind);
+            Effect::SessionEnded(end) => {
                 self.record(DiagnosticEvent::SessionChanged {
-                    from: crate::observability::SessionStatus::from_engine(from),
-                    to: crate::observability::SessionStatus::from_engine(to),
-                    reason,
+                    from: crate::observability::SessionStatus::Running,
+                    to: crate::observability::SessionStatus::from_engine(end.status.state()),
+                    reason: end.cause.kind(),
                 });
-                AppliedEffect::None
+                AppliedEffect::SessionEnded(end.cause)
             }
             Effect::Ignored(reason) => {
                 if reason == IgnoreReason::UnmatchedSequencedFrame {

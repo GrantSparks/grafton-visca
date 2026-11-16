@@ -32,9 +32,9 @@ use super::WriteOutcome;
 use crate::Error;
 
 use super::boundary::{
-    missing_terminal_error, AdmissionBoundary, AdmissionBoundaryClaim, AdmissionClaim,
-    AdmissionRejectionIngress, BoundaryReceivers, CancellationBoundary, ControlBoundary, OwnerEnds,
-    OwnerLifecycle, OwnerSnapshot, PreAdmissionRejection, RetainedBoundary,
+    AdmissionBoundary, AdmissionBoundaryClaim, AdmissionClaim, AdmissionRejectionIngress,
+    BoundaryReceivers, CancellationBoundary, ControlBoundary, OwnerEnds, OwnerLifecycle,
+    OwnerSnapshot, PreAdmissionRejection, RetainedBoundary,
 };
 use super::turn::{Disposition, OwnerCoordinator, ReceiveClass, Selected, TurnOutcome, TurnPlan};
 use super::{
@@ -490,17 +490,10 @@ impl OwnerShellCore {
     ) -> Option<StagedWrite> {
         self.state.observed_at = observed_at;
         while let Some(effect) = effects.pop_front() {
-            let terminal_transition = matches!(
-                &effect,
-                Effect::SessionChanged { to, .. } if *to != SessionState::Running
-            );
             let applied = self.state.apply_effect(effect);
-            if terminal_transition {
-                let error = self
-                    .state
-                    .boundary_error()
-                    .unwrap_or_else(missing_terminal_error);
-                self.lifecycle.publish_terminal(error);
+            if let AppliedEffect::SessionEnded(cause) = applied {
+                self.lifecycle.publish_terminal(cause);
+                continue;
             }
             if let AppliedEffect::Transmit(staged) = applied {
                 if let Some(expired) = self.state.engine.expire_unwritten_halt(
@@ -572,10 +565,13 @@ impl OwnerShellCore {
     /// drops its driver before this core, so the liveness lane disconnects
     /// only after transport teardown.
     pub(super) fn conclude(&mut self) -> OwnerSnapshot {
-        let boundary_error = self
-            .state
-            .boundary_error()
-            .unwrap_or(Error::RuntimeShutdown);
+        // Normal loop exits have an engine verdict. If an owner is stopped
+        // before the engine ends, preserve its own published/signalling error;
+        // an unexplained stop must fail closed rather than imply shutdown.
+        let boundary_error = match self.state.boundary_error() {
+            Some(cause) => cause,
+            None => self.lifecycle.conclusion_error(),
+        };
         self.lifecycle.publish_terminal(boundary_error.clone());
         self.flush_pre_admission_rejections(true);
         if let Some(retained) = self.coordinator.take_retained() {
@@ -1206,6 +1202,72 @@ mod tests {
             step = core.resume(then, &mut Datagrams);
         }
         step
+    }
+
+    #[test]
+    fn terminal_effect_publishes_its_cause_without_reading_back_the_engine() {
+        use crate::runtime::engine::{EndStatus, SessionEnd};
+        for (status, cause) in [
+            (EndStatus::Shutdown, Error::RuntimeShutdown),
+            (EndStatus::Closed, Error::connection_closed(None)),
+            (
+                EndStatus::Poisoned,
+                Error::stream_poisoned(Arc::new(Error::OwnerTerminated)),
+            ),
+        ] {
+            let (handle, mut core) = owner();
+            let diagnostics = core
+                .state
+                .subscribe_diagnostics(4, Arc::clone(&core.lifecycle))
+                .unwrap();
+            // A deliberately undriven engine proves publication is derived
+            // from the effect itself, with no retained-cause read-back.
+            let mut effects = VecDeque::from([Effect::SessionEnded(SessionEnd {
+                status,
+                cause: cause.clone(),
+            })]);
+            assert!(core.next_transmit(&mut effects, Instant::now()).is_none());
+            assert_eq!(core.state.state(), SessionState::Running);
+            assert_eq!(
+                format!("{:?}", handle.disconnected_error()),
+                format!("{cause:?}")
+            );
+            assert!(matches!(
+                diagnostics.try_recv(),
+                Some(crate::observability::DiagnosticEvent::SessionChanged { from, to, reason })
+                    if from == crate::SessionStatus::Running
+                        && to == crate::SessionStatus::from_engine(status.state())
+                        && reason == cause.kind()
+            ));
+            assert!(diagnostics.try_recv().is_none());
+        }
+    }
+
+    #[test]
+    fn conclude_on_a_running_engine_preserves_the_owner_reason_or_fails_closed() {
+        for accepted_shutdown in [false, true] {
+            let (handle, mut core) = owner();
+            if accepted_shutdown {
+                handle.shutdown().unwrap();
+            }
+            core.conclude();
+            assert_eq!(core.state.state(), SessionState::Running);
+            assert!(matches!(
+                handle.closed_result(),
+                Err(Error::OwnerTerminated)
+            ));
+        }
+
+        let (handle, mut core) = owner();
+        let cause = Error::InvalidState {
+            reason: "owner stopped before the engine ended".into(),
+        };
+        core.lifecycle.publish_terminal(cause.clone());
+        core.conclude();
+        assert_eq!(
+            format!("{:?}", handle.closed_result().unwrap_err()),
+            format!("{cause:?}")
+        );
     }
 
     fn declared_request(stop: bool) -> crate::runtime::engine::RuntimeRequest {

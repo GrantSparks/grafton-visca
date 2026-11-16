@@ -1634,7 +1634,7 @@ fn engine_terminal_cause_is_authoritative_before_effect_delivery() {
         }),
         now,
     );
-    let expected = state.engine.terminal_error().unwrap();
+    let expected = state.engine.terminal_error().unwrap().clone();
     assert_eq!(
         state.boundary_error().unwrap().to_string(),
         expected.to_string()
@@ -2552,7 +2552,9 @@ mod lifecycle_trace {
                             !mine
                         });
                     }
-                    Effect::SessionChanged { from, to } => {
+                    Effect::SessionEnded(ref end) => {
+                        let from = SessionState::Running;
+                        let to = end.status.state();
                         self.state_mut().apply_effect(effect);
                         let detail = match to {
                             SessionState::Poisoned => {
@@ -2780,9 +2782,7 @@ mod lifecycle_trace {
             | Effect::RetryScheduled { id, .. } => Some(*id),
             Effect::AppliedState { effect } => Some(effect.request),
             Effect::Transmit { request, .. } => Some(*request),
-            Effect::AdmissionRejected { .. }
-            | Effect::SessionChanged { .. }
-            | Effect::Ignored(_) => None,
+            Effect::AdmissionRejected { .. } | Effect::SessionEnded(_) | Effect::Ignored(_) => None,
         }
     }
 
