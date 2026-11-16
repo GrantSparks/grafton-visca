@@ -225,6 +225,10 @@ fn tokens(source: &str) -> Vec<String> {
 /// Comments and literal contents cannot satisfy a documentation citation.
 /// Macro bodies with concrete function names remain visible; metavariables
 /// such as `fn $name` are not declarations of a concrete function.
+#[allow(
+    dead_code,
+    reason = "the standalone error-variant gate embeds this scanner but only uses its production projections"
+)]
 pub fn function_names(source: &str) -> Vec<String> {
     tokens(&clean(source))
         .windows(3)
