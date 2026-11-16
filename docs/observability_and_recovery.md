@@ -344,6 +344,7 @@ additional rows for context-dependent outcomes.
 | `InquiryCorrelationLost / lane latched` | `NotExecutable` | Terminal / NotAccepted | `Abandon` |
 | `CommandCorrelationLost / lane latched` | `NotExecutable` | Terminal / NotAccepted | `Abandon` |
 | `CommandFailedAfterAck` | `Unconfirmed` | Terminal / Unconfirmed | `Reconcile` |
+| `RequestUnconfirmed / later rejection after a lost ACK` | `Unconfirmed` | Terminal / Unconfirmed | `Reconcile` |
 | `RuntimeIdentityExhausted` | `Other` | — | `Abandon` |
 | `RuntimeQueueFull` | `BufferFull` | — | `Resubmit after 200ms` |
 | `StreamPoisoned` | `IoClosed` | — | `ReopenSession` |

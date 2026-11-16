@@ -581,3 +581,24 @@ fn flattened_pair_oracle_has_exactly_the_fifteen_documented_pairs() {
     }
     assert_eq!(legal, 15, "the documented pair set changed");
 }
+
+#[test]
+fn sony_lost_ack_backoff_cancel_is_an_unconfirmed_terminal() {
+    let now = Instant::now();
+    let mut engine = engine(EnvelopeKind::Sony, TransportKind::Datagram);
+    let mut request = command(1, CancellationPolicy::Supported);
+    request.context_mut().retry = retrying();
+    let (write, id) = admit(&mut engine, 1, request, now);
+    send_ok(&mut engine, &write, Some(0x1001), now);
+    engine.advance(now + Duration::from_millis(20));
+    assert!(matches!(phase_of(&engine, id), Some(Phase::Backoff { .. })));
+    let effects = engine.handle(Input::Cancel { id }, now + Duration::from_millis(20));
+    assert!(matches!(
+        terminal_failure(&effects, id),
+        Some(Error::CancellationUnconfirmed)
+    ));
+    assert!(!effects
+        .iter()
+        .any(|effect| matches!(effect, Effect::Transmit { .. })));
+    engine.assert_invariants().unwrap();
+}

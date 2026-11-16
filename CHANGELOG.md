@@ -557,6 +557,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Tokio and smol sessions. A socket-option failure tries the next resolved
   address within the same connection budget (#972).
 
+- Sony retry exhaustion, budget expiry and cancellation retain uncertainty from
+  an earlier lost ACK even after a later camera rejection. Terminal failures
+  preserve their exact cause in `RequestUnconfirmed` and require reconciliation;
+  cancelling during retry waiting never falsely confirms cancellation (#962).
+
 - Raw stream disputes retire individual members of merged STOP debt runs, and
   socketless disputed ACKs retain executing-socket evidence, preventing later
   replies from being assigned to unrelated requests (#950).

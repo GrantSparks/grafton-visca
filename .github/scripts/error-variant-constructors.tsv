@@ -52,3 +52,4 @@ WithContext	src/error.rs	Self::WithContext { context: context.into(), source: Bo
 TransmissionNotSent	src/error.rs	Self::TransmissionNotSent { source: Arc::new(source), context: FailureContext::new(FailureStage::Terminal, certainty), }
 InquiryFailed	src/error.rs	Self::InquiryFailed { source: Arc::new(source), }
 InquiryShapeCapacityExhausted	src/error.rs	Self::InquiryShapeCapacityExhausted { camera, capacity }
+RequestUnconfirmed	src/runtime/engine/mod.rs	Error::request_unconfirmed(cause)

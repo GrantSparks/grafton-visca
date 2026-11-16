@@ -240,6 +240,21 @@ impl Entry {
         self.prior.as_ref().map(|prior| &prior.cause)
     }
 
+    /// A later cause cannot erase an earlier possible camera effect.
+    fn terminal_error(&self, cause: Error, evidence: AttemptEvidence) -> Error {
+        if self.certainty(evidence) == Certainty::Unconfirmed
+            && cause.failure_context()
+                != Some(FailureContext::new(
+                    FailureStage::Terminal,
+                    Certainty::Unconfirmed,
+                ))
+        {
+            Error::request_unconfirmed(cause)
+        } else {
+            cause
+        }
+    }
+
     /// The request's successful Sony sequence is already authoritative in
     /// the bounded correlation history. Every retry replays that sequence,
     /// and cancellation has at most one separate record, so it cannot evict
@@ -2163,7 +2178,7 @@ trait EngineMethods: EngineAccess {
         now: Instant,
         effects: &mut Decision,
     ) -> bool {
-        let Some((deadline, raw_active_command, error)) =
+        let Some((deadline, raw_active_command)) =
             self.entries.get(&owner.request).and_then(|entry| {
                 entry.retry_budget_deadline().map(|deadline| {
                     (
@@ -2171,10 +2186,6 @@ trait EngineMethods: EngineAccess {
                         self.mode().is_raw()
                             && entry.reply_family() != SendingReply::Inquiry
                             && entry.lifecycle().is_sending(),
-                        entry
-                            .retry_cause()
-                            .cloned()
-                            .unwrap_or_else(|| terminal_timeout(entry)),
                     )
                 })
             })
@@ -2184,6 +2195,16 @@ trait EngineMethods: EngineAccess {
         if owner.write.kind() != CorrelationKind::Request || deadline >= now {
             return false;
         }
+        let Some(entry) = self.entries.get(&owner.request) else {
+            return false;
+        };
+        let error = entry.terminal_error(
+            entry
+                .retry_cause()
+                .cloned()
+                .unwrap_or_else(|| terminal_timeout(entry)),
+            AttemptEvidence::Written,
+        );
         if written {
             self.mark_stream_answer_written(owner.request, false);
         }
@@ -3575,12 +3596,15 @@ trait EngineMethods: EngineAccess {
         } else {
             AttemptEvidence::Lifecycle
         };
+        let possibly_applied = entry.certainty(evidence) == Certainty::Unconfirmed;
         // A raw inquiry error can race a late data reply. Retain the bounded
         // inquiry-only skew before a retry or terminal failure exposes another
         // inquiry to that stale frame class (#712).
         self.quarantine_raw_inquiry_correlation(id, now);
         if let Some(retry) = retry {
-            if cancellation_active {
+            if cancellation_active && possibly_applied {
+                self.finish_observed(id, Error::CancellationUnconfirmed, evidence, now, effects);
+            } else if cancellation_active {
                 self.finish_observed(
                     id,
                     CommandOutcome::Cancelled,
@@ -3599,7 +3623,7 @@ trait EngineMethods: EngineAccess {
                 );
             }
         } else {
-            self.finish_observed(id, error, evidence, now, effects);
+            self.finish_terminal_error(id, error, evidence, now, effects);
         }
     }
 
@@ -3676,11 +3700,21 @@ trait EngineMethods: EngineAccess {
         match decision {
             CancellationDecision::Local => {
                 effects.push(Effect::CancellationRecorded { id });
-                effects.push(Effect::CancellationObservation {
-                    id,
-                    observation: CancellationObservation::Cancelled,
-                });
-                self.finish(id, CommandOutcome::Cancelled, now, effects);
+                if entry.certainty(AttemptEvidence::Unwritten) == Certainty::Unconfirmed {
+                    effects.push(Effect::CancellationObservation {
+                        id,
+                        observation: CancellationObservation::Failed(
+                            Error::CancellationUnconfirmed,
+                        ),
+                    });
+                    self.finish(id, Error::CancellationUnconfirmed, now, effects);
+                } else {
+                    effects.push(Effect::CancellationObservation {
+                        id,
+                        observation: CancellationObservation::Cancelled,
+                    });
+                    self.finish(id, CommandOutcome::Cancelled, now, effects);
+                }
             }
             CancellationDecision::Refused(error) => {
                 effects.push(Effect::CancellationObservation {
@@ -3803,7 +3837,7 @@ trait EngineMethods: EngineAccess {
             return;
         };
         if cancellation {
-            self.finish_observed(id, error, evidence, now, effects);
+            self.finish_terminal_error(id, error, evidence, now, effects);
             return;
         }
         // Releasing a raw inquiry for a retry could let a delayed attempt-N
@@ -3819,7 +3853,7 @@ trait EngineMethods: EngineAccess {
             .total_budget
             .is_none_or(|budget| elapsed < budget.get());
         if next_retry_count > policy.max_retries || !within_duration {
-            self.finish_observed(id, error, evidence, now, effects);
+            self.finish_terminal_error(id, error, evidence, now, effects);
             return;
         }
         let delay = retry_delay(
@@ -3833,7 +3867,7 @@ trait EngineMethods: EngineAccess {
             .total_budget
             .is_some_and(|budget| ready_at >= add_duration(submitted_at, budget.get()))
         {
-            self.finish_observed(id, error, evidence, now, effects);
+            self.finish_terminal_error(id, error, evidence, now, effects);
             return;
         }
         self.retire_answers(id, now, effects);
@@ -4105,10 +4139,13 @@ trait EngineMethods: EngineAccess {
                 retirement,
                 certainty,
             } => {
-                let error = entry
-                    .retry_cause()
-                    .cloned()
-                    .unwrap_or_else(|| Error::timeout(FailureStage::Terminal, certainty));
+                let error = entry.terminal_error(
+                    entry
+                        .retry_cause()
+                        .cloned()
+                        .unwrap_or_else(|| Error::timeout(FailureStage::Terminal, certainty)),
+                    AttemptEvidence::Lifecycle,
+                );
                 match retirement {
                     BudgetRetirement::Command if self.mode().is_raw() => self
                         .terminate_unconfirmed_raw(id, UnconfirmedScope::Lifecycle, now, effects),
@@ -4300,10 +4337,13 @@ trait EngineMethods: EngineAccess {
                 certainty,
             } => {
                 if budget_at.is_some_and(|at| at <= now) {
-                    let error = entry
-                        .retry_cause()
-                        .cloned()
-                        .unwrap_or_else(|| Error::timeout(FailureStage::Terminal, certainty));
+                    let error = entry.terminal_error(
+                        entry
+                            .retry_cause()
+                            .cloned()
+                            .unwrap_or_else(|| Error::timeout(FailureStage::Terminal, certainty)),
+                        AttemptEvidence::Lifecycle,
+                    );
                     self.finish(id, error, now, effects);
                 } else {
                     self.promote_retry(id, previous_attempt, now, effects);
@@ -4589,6 +4629,21 @@ trait EngineMethods: EngineAccess {
         effects: &mut Decision,
     ) {
         self.finish_with_evidence(id, outcome, true, evidence, now, effects);
+    }
+
+    fn finish_terminal_error(
+        &mut self,
+        id: RequestId,
+        cause: Error,
+        evidence: AttemptEvidence,
+        now: Instant,
+        effects: &mut Decision,
+    ) {
+        let Some(entry) = self.entries.get(&id) else {
+            return;
+        };
+        let error = entry.terminal_error(cause, evidence);
+        self.finish_observed(id, error, evidence, now, effects);
     }
 
     fn finish_with_evidence(

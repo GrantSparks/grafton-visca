@@ -6298,8 +6298,8 @@ fn receive_fault_fails_only_unretryable_work_and_never_the_session() {
         effect,
         Effect::Terminal {
             id,
-            outcome: RuntimeOutcome::Command(CommandOutcome::Failed(Error::TransportError { .. })),
-        } if *id == command_id
+            outcome: RuntimeOutcome::Command(CommandOutcome::Failed(Error::RequestUnconfirmed { source, .. })),
+        } if *id == command_id && matches!(source.as_ref(), Error::TransportError { .. })
     )));
     assert!(
         matches!(
@@ -8377,7 +8377,7 @@ fn sony_write_results_respect_total_budget_before_correlation_mutation() {
         );
         assert!(matches!(
             terminal_failure(&late, id),
-            Some(Error::CommandBufferFull)
+            Some(Error::RequestUnconfirmed { source, .. }) if matches!(source.as_ref(), Error::CommandBufferFull)
         ));
         assert!(!late.iter().any(|effect| matches!(
             effect,
@@ -8800,7 +8800,7 @@ fn retry_budget_expires_while_awaiting_sony_ack() {
     let expired = engine.advance(budget_deadline);
     assert!(matches!(
         terminal_failure(&expired, id),
-        Some(Error::CommandBufferFull)
+        Some(Error::RequestUnconfirmed { source, .. }) if matches!(source.as_ref(), Error::CommandBufferFull)
     ));
     assert_eq!(engine.state(), SessionState::Running);
     assert!(
@@ -8865,7 +8865,7 @@ fn retry_budget_expires_while_executing_sony_command() {
     let expired = engine.advance(budget_deadline);
     assert!(matches!(
         terminal_failure(&expired, id),
-        Some(Error::CommandBufferFull)
+        Some(Error::RequestUnconfirmed { source, .. }) if matches!(source.as_ref(), Error::CommandBufferFull)
     ));
     assert_eq!(engine.state(), SessionState::Running);
     engine.assert_invariants().unwrap();
