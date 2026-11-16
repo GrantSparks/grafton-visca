@@ -99,6 +99,48 @@ pub enum RetryClass {
     Preset,
 }
 
+/// Retry families meaningful for an inquiry's reply-only lifecycle.
+///
+/// Raw inquiry policies accept only these families. Downstream inquiry
+/// implementations of [`Request`] still declare [`RetryClass`], and preparation
+/// rejects a command-only family before encoding or transport I/O.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(rename_all = "snake_case"))]
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
+#[non_exhaustive]
+pub enum InquiryRetryClass {
+    /// Never replay an inquiry automatically.
+    Never,
+    /// Retry transient inquiry failures, including bounded reply loss.
+    Inquiry,
+}
+
+impl InquiryRetryClass {
+    pub(crate) const fn retry_class(self) -> RetryClass {
+        match self {
+            Self::Never => RetryClass::Never,
+            Self::Inquiry => RetryClass::Inquiry,
+        }
+    }
+
+    #[cfg(any(feature = "blocking", feature = "async"))]
+    pub(crate) const fn of(class: RetryClass) -> Option<Self> {
+        match class {
+            RetryClass::Never => Some(Self::Never),
+            RetryClass::Inquiry => Some(Self::Inquiry),
+            RetryClass::Standard | RetryClass::Movement | RetryClass::Preset => None,
+        }
+    }
+}
+
+impl From<InquiryRetryClass> for RetryClass {
+    fn from(class: InquiryRetryClass) -> Self {
+        class.retry_class()
+    }
+}
+
 /// Intrinsic scheduling class of one request.
 ///
 /// Every request classifies itself through [`crate::request::Request::control_class`]. The
@@ -837,6 +879,10 @@ pub trait Request: Send + Sync {
     /// Deadline family for this request.
     const TIMEOUT_CLASS: TimeoutClass;
     /// Retry family for this request.
+    ///
+    /// An [`Inquiry`] accepts only [`RetryClass::Never`] or
+    /// [`RetryClass::Inquiry`]; preparation rejects command families before
+    /// encoding or owner admission.
     const RETRY_CLASS: RetryClass;
     /// Scheduling class for this request.
     ///
@@ -1342,6 +1388,32 @@ mod payload_shape_tests {
             UndeclaredInquiry.payload_shape_for_profile(&profile),
             PayloadShape::Unknown
         );
+        Ok(())
+    }
+}
+
+#[cfg(all(test, feature = "serde"))]
+mod inquiry_retry_tests {
+    use super::InquiryRetryClass;
+
+    #[test]
+    fn inquiry_retry_names_refuse_command_families() -> Result<(), serde_json::Error> {
+        for (class, name) in [
+            (InquiryRetryClass::Never, "never"),
+            (InquiryRetryClass::Inquiry, "inquiry"),
+        ] {
+            assert_eq!(serde_json::to_value(class)?, name);
+            assert_eq!(
+                serde_json::from_value::<InquiryRetryClass>(name.into())?,
+                class
+            );
+        }
+        for name in ["standard", "movement", "preset", "Never", "Inquiry"] {
+            assert!(
+                serde_json::from_value::<InquiryRetryClass>(name.into()).is_err(),
+                "{name}"
+            );
+        }
         Ok(())
     }
 }

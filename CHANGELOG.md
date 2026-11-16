@@ -107,6 +107,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Built-in `Response::parse_with_profile` uses constant registry framing without
   reconstructing an owned profile (#975).
 
+- **BREAKING** (#970): Raw inquiry policies and constructors take
+  `request::InquiryRetryClass::{Never, Inquiry}`. Persisted policies and
+  downstream inquiries reject command-only retry families before I/O, preserving
+  explicit reply-loss retry behavior.
+
 - Built-in typed camera views reuse their validated profile identity and grants
   without allocating; custom profiles retain complete fact comparison (#958).
 

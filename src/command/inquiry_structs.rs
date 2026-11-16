@@ -196,7 +196,7 @@ where
                         decoded: decoder.decode(payload).map(|value| format!("{value:?}")),
                     })
                 },
-                crate::RetryClass::Never,
+                crate::request::InquiryRetryClass::Never,
                 crate::SubmissionClass::Normal,
             )?
             .with_payload_shape(command.payload_shape_for_profile(target.profile()));

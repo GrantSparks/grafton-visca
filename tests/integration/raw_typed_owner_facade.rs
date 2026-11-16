@@ -87,7 +87,7 @@ fn raw_values() -> (
     let inquiry = raw::InquiryRequest::new(
         [0x81, 0x09, 0x01, 0xff],
         ResponseDecoder::from_fn(decode_first),
-        RetryClass::Inquiry,
+        grafton_visca::request::InquiryRetryClass::Inquiry,
         grafton_visca::request::SubmissionClass::Normal,
     )
     .expect("inquiry frame");

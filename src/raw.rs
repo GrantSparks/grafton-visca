@@ -33,9 +33,10 @@
 //! a [`PlainRequest`](crate::raw::PlainRequest) command's [`crate::profiles::CommandTimeoutClass`], retry and ordinary submission
 //! class; [`OperationPolicy`](crate::raw::OperationPolicy) supplies the same facts for [`TargetedRequest`](crate::raw::TargetedRequest) and
 //! [`AppliedOnlyRequest`](crate::raw::AppliedOnlyRequest). [`InquiryPolicy`](crate::raw::InquiryPolicy) carries only retry and submission class:
-//! its timeout is always [`crate::request::TimeoutClass::Inquiry`] and its reply protocol is
-//! fixed. Policy constructors are infallible; raw request constructors validate
-//! only the wire bytes. No byte-based lifecycle inference or caller-selected
+//! its retry family is [`crate::request::InquiryRetryClass`], its timeout is always
+//! [`crate::request::TimeoutClass::Inquiry`], and its reply protocol is fixed.
+//! Policy constructors are infallible; raw request constructors validate only
+//! the wire bytes. No byte-based lifecycle inference or caller-selected
 //! operation class exists.
 //!
 //! A plain command declares its [`RawReplyShape`](crate::raw::RawReplyShape) with
@@ -52,8 +53,8 @@ use smallvec::SmallVec;
 
 /// Policy and validation types used by the raw constructors.
 use crate::{
-    AffectedAxes, CommandTimeoutClass, ControlClass, ResponseDecoder, RetryClass, SubmissionClass,
-    TimeoutClass,
+    request::InquiryRetryClass, AffectedAxes, CommandTimeoutClass, ControlClass, ResponseDecoder,
+    RetryClass, SubmissionClass, TimeoutClass,
 };
 
 use crate::{
@@ -221,7 +222,9 @@ pub struct OperationPolicy {
 /// Explicit retry and ordinary submission classes for [`InquiryRequest`].
 ///
 /// InquiryRequest timeout and reply protocols are fixed by its request kind, so this
-/// policy stores neither a timeout class nor a command reply shape.
+/// policy stores neither a timeout class nor a command reply shape. Its
+/// [`InquiryRetryClass`] permits only `Never` or `Inquiry`, so command retry
+/// families cannot silently change reply-loss handling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(
@@ -231,7 +234,7 @@ pub struct OperationPolicy {
 #[cfg_attr(feature = "schemars", derive(schemars::JsonSchema), schemars(!try_from))]
 #[cfg_attr(feature = "ts-rs", derive(ts_rs::TS), ts(export))]
 pub struct InquiryPolicy {
-    retry: RetryClass,
+    retry: InquiryRetryClass,
     class: SubmissionClass,
 }
 
@@ -271,7 +274,7 @@ command_policy_data!(OperationPolicy, OperationPolicyData, OperationReplyShape);
 #[derive(serde::Deserialize)]
 #[serde(deny_unknown_fields)]
 struct InquiryPolicyData {
-    retry: RetryClass,
+    retry: InquiryRetryClass,
     class: SubmissionClass,
 }
 
@@ -286,12 +289,6 @@ impl TryFrom<InquiryPolicyData> for InquiryPolicy {
 
 macro_rules! ordinary_policy_accessors {
     () => {
-        /// Returns the selected retry class.
-        #[must_use]
-        pub const fn retry_class(self) -> RetryClass {
-            self.retry
-        }
-
         /// Returns the selected ordinary submission class.
         #[must_use]
         pub const fn submission_class(self) -> SubmissionClass {
@@ -339,6 +336,12 @@ macro_rules! command_policy {
                 self.timeout.timeout_class()
             }
 
+            /// Returns the selected retry class.
+            #[must_use]
+            pub const fn retry_class(self) -> RetryClass {
+                self.retry
+            }
+
             ordinary_policy_accessors!();
         }
     };
@@ -366,8 +369,14 @@ impl OperationPolicy {
 impl InquiryPolicy {
     /// Creates an inquiry policy in an ordinary submission lane.
     #[must_use]
-    pub const fn new(retry: RetryClass, class: SubmissionClass) -> Self {
+    pub const fn new(retry: InquiryRetryClass, class: SubmissionClass) -> Self {
         Self { retry, class }
+    }
+
+    /// Returns the inquiry retry family in the shared request vocabulary.
+    #[must_use]
+    pub const fn retry_class(self) -> RetryClass {
+        self.retry.retry_class()
     }
 
     ordinary_policy_accessors!();
@@ -785,7 +794,7 @@ impl<R> InquiryRequest<R> {
     pub fn new(
         bytes: impl AsRef<[u8]>,
         decoder: ResponseDecoder<R>,
-        retry: RetryClass,
+        retry: InquiryRetryClass,
         class: SubmissionClass,
     ) -> Result<Self> {
         Self::with_policy(bytes, decoder, InquiryPolicy::new(retry, class))
@@ -810,7 +819,7 @@ impl<R> InquiryRequest<R> {
     pub fn from_fn(
         bytes: impl AsRef<[u8]>,
         decoder: fn(&[u8]) -> Result<R>,
-        retry: RetryClass,
+        retry: InquiryRetryClass,
         class: SubmissionClass,
     ) -> Result<Self> {
         Self::with_policy(
@@ -826,7 +835,7 @@ impl<R> InquiryRequest<R> {
         bytes: impl AsRef<[u8]>,
         context: C,
         decoder: fn(&C, &[u8]) -> Result<R>,
-        retry: RetryClass,
+        retry: InquiryRetryClass,
         class: SubmissionClass,
     ) -> Result<Self>
     where
@@ -981,7 +990,7 @@ mod tests {
             SubmissionClass::User,
         )
         .with_reply_shape(OperationReplyShape::CompletionOnly);
-        let inquiry = InquiryPolicy::new(RetryClass::Inquiry, SubmissionClass::Normal);
+        let inquiry = InquiryPolicy::new(InquiryRetryClass::Inquiry, SubmissionClass::Normal);
         assert_eq!(
             serde_json::to_value(command).unwrap(),
             json!({
@@ -1033,6 +1042,18 @@ mod tests {
             "timeout":"quick", "retry":"never", "class":"normal", "reply_shape":"no_reply"
         }))
         .is_err());
+        for retry in ["standard", "movement", "preset"] {
+            let error = serde_json::from_value::<InquiryPolicy>(json!({
+                "retry": retry, "class": "normal"
+            }))
+            .expect_err("command retry family must not deserialize as inquiry policy");
+            let message = error.to_string();
+            assert!(message.contains(retry), "{message}");
+            assert!(
+                message.contains("never") && message.contains("inquiry"),
+                "{message}"
+            );
+        }
         assert!(serde_json::from_value::<InquiryPolicy>(json!({
             "retry":"inquiry", "class":"urgent"
         }))
@@ -1071,7 +1092,7 @@ mod tests {
             SubmissionClass::Normal,
         ));
         refuses_incomplete_or_unknown_fields(InquiryPolicy::new(
-            RetryClass::Inquiry,
+            InquiryRetryClass::Inquiry,
             SubmissionClass::Normal,
         ));
     }
@@ -1122,6 +1143,18 @@ mod tests {
         }
         assert!(!operation_schema.contains("no_reply"));
         assert!(!operation_declaration.contains("no_reply"));
+        let inquiry_schema = serde_json::to_value(schemars::schema_for!(InquiryPolicy))
+            .unwrap()
+            .to_string();
+        let inquiry_declaration = InquiryRetryClass::decl(&ts_rs::Config::default());
+        for tag in ["never", "inquiry"] {
+            assert!(inquiry_schema.contains(&format!("\"{tag}\"")));
+            assert!(inquiry_declaration.contains(&format!("\"{tag}\"")));
+        }
+        for tag in ["standard", "movement", "preset"] {
+            assert!(!inquiry_schema.contains(&format!("\"{tag}\"")));
+            assert!(!inquiry_declaration.contains(&format!("\"{tag}\"")));
+        }
     }
 
     fn decode_first(payload: &[u8]) -> Result<u8> {
@@ -1137,12 +1170,12 @@ mod tests {
     fn every_raw_inquiry_constructor_retains_its_optional_payload_shape() {
         use crate::PayloadShape;
         let bytes = [0x81, 0x09, 0x04, 0xFF];
-        let policy = InquiryPolicy::new(RetryClass::Never, SubmissionClass::Normal);
+        let policy = InquiryPolicy::new(InquiryRetryClass::Never, SubmissionClass::Normal);
         let queries = [
             InquiryRequest::new(
                 bytes,
                 ResponseDecoder::from_fn(decode_first),
-                RetryClass::Never,
+                InquiryRetryClass::Never,
                 SubmissionClass::Normal,
             )
             .expect("owned decoder"),
@@ -1151,7 +1184,7 @@ mod tests {
             InquiryRequest::from_fn(
                 bytes,
                 decode_first,
-                RetryClass::Never,
+                InquiryRetryClass::Never,
                 SubmissionClass::Normal,
             )
             .expect("function decoder"),
@@ -1159,7 +1192,7 @@ mod tests {
                 bytes,
                 0_u8,
                 |context, payload| decode_first(payload).map(|byte| byte + *context),
-                RetryClass::Never,
+                InquiryRetryClass::Never,
                 SubmissionClass::Normal,
             )
             .expect("context decoder"),
@@ -1226,7 +1259,7 @@ mod tests {
         let inquiry = InquiryRequest::new(
             [0x81, 0x09, 0x04, 0xff],
             ResponseDecoder::from_fn(decode_first),
-            RetryClass::Never,
+            InquiryRetryClass::Never,
             SubmissionClass::Normal,
         )
         .expect("valid raw inquiry");
@@ -1243,7 +1276,7 @@ mod tests {
                         reason: "empty test payload".into(),
                     })
             },
-            RetryClass::Inquiry,
+            InquiryRetryClass::Inquiry,
             SubmissionClass::Normal,
         )
         .expect("context decoder");
@@ -1366,7 +1399,7 @@ mod tests {
         let inquiry_error = InquiryRequest::new(
             frame(MAX_BYTES + 1),
             ResponseDecoder::from_fn(decode_first),
-            RetryClass::Inquiry,
+            InquiryRetryClass::Inquiry,
             SubmissionClass::Normal,
         )
         .expect_err("oversize inquiry frame");
@@ -1498,7 +1531,7 @@ mod tests {
         assert!(InquiryRequest::from_fn(
             [0x81, 0x21, 0xff],
             decode_first,
-            RetryClass::Never,
+            InquiryRetryClass::Never,
             SubmissionClass::Normal
         )
         .is_err());

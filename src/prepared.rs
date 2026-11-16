@@ -622,6 +622,11 @@ where
                 .into() });
     }
     validate_timeout_class(inquiry.timeout_class(), true)?;
+    if crate::request::InquiryRetryClass::of(inquiry.retry_class()).is_none() {
+        return Err(Error::InvalidRequest {
+            reason: "inquiry retry class must be RetryClass::Never or RetryClass::Inquiry".into(),
+        });
+    }
     if matches!(
         profile.capabilities().inquiry_support,
         crate::capabilities::InquirySupport::None
@@ -2148,7 +2153,7 @@ mod tests {
         let auto_iris = crate::raw::InquiryRequest::from_fn(
             [0x81, 0x09, 0x05, 0x34, VISCA_TERMINATOR],
             decode_raw,
-            RetryClass::Inquiry,
+            crate::request::InquiryRetryClass::Inquiry,
             crate::SubmissionClass::Normal,
         )
         .expect("valid raw FR7 auto-iris inquiry");
@@ -2952,6 +2957,56 @@ mod tests {
         .is_err());
     }
 
+    /// Downstream Request implementations cannot bypass raw policy's typed
+    /// inquiry-only retry subset by declaring a command family (#970).
+    #[test]
+    fn inquiry_command_retry_families_fail_before_encoding() {
+        struct CommandRetryInquiry(RetryClass);
+        impl Request for CommandRetryInquiry {
+            type Class = crate::request::InquiryClass;
+            const MAX_SIZE: usize = 5;
+            const TIMEOUT_CLASS: TimeoutClass = TimeoutClass::Inquiry;
+            const RETRY_CLASS: RetryClass = RetryClass::Movement;
+            const CONTROL_CLASS: ControlClass = ControlClass::Normal;
+
+            fn retry_class(&self) -> RetryClass {
+                self.0
+            }
+
+            fn write_into(&self, _target: CameraId, _buffer: &mut [u8]) -> Result<usize> {
+                panic!("invalid inquiry retry families must fail before encoding")
+            }
+        }
+        impl Inquiry for CommandRetryInquiry {
+            type Response = u8;
+            fn decoder(&self) -> ResponseDecoder<u8> {
+                ResponseDecoder::from_fn(|_: &[u8]| Ok(0))
+            }
+        }
+
+        let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
+            .expect("built-in profile");
+        let target = crate::TargetRegistration::new(CameraId::CAMERA_1, profile).expect("target");
+        for retry in [
+            RetryClass::Standard,
+            RetryClass::Movement,
+            RetryClass::Preset,
+        ] {
+            let error = prepare_inquiry(
+                &CommandRetryInquiry(retry),
+                &target,
+                OperationalTuning::new(),
+                ClassSelection::Request,
+            )
+            .expect_err("command retry family is not an inquiry policy");
+            assert!(
+                matches!(error, Error::InvalidRequest { reason }
+                if reason.contains("inquiry retry class")),
+                "{retry:?}"
+            );
+        }
+    }
+
     #[test]
     fn inquiry_syntax_retry_is_reserved_for_builtin_inquiries() {
         let profile = ProfileSpec::from_compile_time::<crate::profiles::GenericVisca>()
@@ -3609,7 +3664,7 @@ mod tests {
             let inquiry = crate::raw::InquiryRequest::from_fn(
                 [0x81, 0x09, 0x04, 0x00, 0xff],
                 |_payload: &[u8]| Ok(0_u8),
-                RetryClass::Inquiry,
+                crate::request::InquiryRetryClass::Inquiry,
                 crate::SubmissionClass::Normal,
             )
             .expect("raw inquiry");
@@ -4955,6 +5010,9 @@ mod tests {
                         );
                     }
                 }
+                let Some(inquiry_retry) = crate::request::InquiryRetryClass::of(retry) else {
+                    continue;
+                };
                 let reference = ReferencePolicy {
                     timeout: TimeoutClass::Inquiry,
                     retry,
@@ -4972,7 +5030,7 @@ mod tests {
                 let inquiry = crate::raw::InquiryRequest::with_policy(
                     wire,
                     ResponseDecoder::from_fn(|_: &[u8]| Ok(0_u8)),
-                    InquiryPolicy::new(retry, class),
+                    InquiryPolicy::new(inquiry_retry, class),
                 )
                 .expect("inquiry");
                 assert_eq!(

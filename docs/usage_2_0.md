@@ -322,8 +322,10 @@ pacing, framing, buffer, and bounded-owner validation. A runtime-neutral async
 executor must provide coherent spawn, sleep, timeout, and clock behavior from
 one runtime. `raw::InquiryRequest::new` selects its fixed inquiry timeout class and
 accepts no timeout argument; `from_fn`, `with_context`, and explicit inquiry
-policies validate that class. Raw commands and operations reject the inquiry
-class at construction (#854).
+policies select that class. Raw inquiry constructors take
+`request::InquiryRetryClass::Never` or `InquiryRetryClass::Inquiry`; the latter
+preserves bounded lost-reply recovery. Raw commands and operations reject the
+inquiry timeout class at construction (#854, #970).
 
 ### Sharing a blocking session
 

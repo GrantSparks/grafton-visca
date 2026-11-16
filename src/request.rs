@@ -40,6 +40,6 @@ pub(crate) mod builtin_contract;
 pub(crate) mod builtin_policy;
 
 pub use crate::requests::{
-    ControlClass, Inquiry, OperationCommand, PayloadShape, PlainCommand, Request, ResponseDecoder,
-    RetryClass, SubmissionClass, TimeoutClass,
+    ControlClass, Inquiry, InquiryRetryClass, OperationCommand, PayloadShape, PlainCommand,
+    Request, ResponseDecoder, RetryClass, SubmissionClass, TimeoutClass,
 };

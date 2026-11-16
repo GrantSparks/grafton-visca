@@ -37,7 +37,7 @@ use grafton_visca::{
     operation::AppliedOnly,
     profiles::{ProfileSpec, ProfileTiming, SonyFr7},
     raw,
-    request::RetryClass,
+    request::InquiryRetryClass,
     types::ZoomPosition,
     Error,
 };
@@ -76,7 +76,7 @@ fn custom_zoom_inquiry() -> raw::InquiryRequest<Vec<u8>> {
     raw::InquiryRequest::from_fn(
         ZOOM_POSITION_INQUIRY,
         decode_custom_inquiry,
-        RetryClass::Inquiry,
+        InquiryRetryClass::Inquiry,
         grafton_visca::request::SubmissionClass::Normal,
     )
     .expect("valid custom inquiry")
@@ -116,6 +116,35 @@ fn zoom_position_reply() -> Vec<u8> {
 
 facade_matrix! {
     paused:
+
+    /// #970: the two inquiry retry families preserve their reply-loss
+    /// behavior through raw datagram owners on every facade.
+    fn inquiry_retry_family_controls_lost_reply_replay() {
+        for retry in [InquiryRetryClass::Never, InquiryRetryClass::Inquiry] {
+            let camera = scripted(vec![vec![], vec![zoom_position_reply()]], Vec::new());
+            let session = open!(camera, session_config()).expect("owner session");
+            let view = session
+                .camera::<NonDefaultCompileTimeProfile>(grafton_visca::types::CameraId::CAMERA_1)
+                .expect("camera view");
+            let inquiry = raw::InquiryRequest::from_fn(
+                ZOOM_POSITION_INQUIRY, decode_custom_inquiry, retry,
+                grafton_visca::request::SubmissionClass::Normal,
+            ).expect("raw inquiry");
+            let result = wait!(view.inquire(&inquiry));
+            match retry {
+                InquiryRetryClass::Never => {
+                    assert!(result.is_err(), "Never cannot replay the lost reply");
+                    assert_eq!(camera.write_count(), 1);
+                }
+                InquiryRetryClass::Inquiry => {
+                    assert_eq!(result.expect("Inquiry replays the lost reply"), vec![1, 2, 3, 4]);
+                    assert_eq!(camera.write_count(), 2);
+                }
+                _ => unreachable!("the test selects only the two declared families"),
+            }
+            session.shutdown().expect("owner shutdown");
+        }
+    }
 
     /// Issue #566: `0x41` is retried for a movement-class request.
     fn a_refused_movement_command_is_replayed_and_then_succeeds() {

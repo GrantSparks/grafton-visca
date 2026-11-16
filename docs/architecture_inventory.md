@@ -189,8 +189,10 @@ for `raw::TargetedRequest` and `raw::AppliedOnlyRequest`, and `raw::InquiryPolic
 five variants exclude `Inquiry`; inquiry timing is fixed by the request kind.
 A plain command may select any `raw::RawReplyShape`, while an operation uses
 `raw::OperationReplyShape`, which has no `NoReply` variant. Inquiry policy
-stores only retry and submission classes. Policy constructors are infallible;
-raw request constructors validate wire bytes.
+stores only retry and submission classes; its retry family is the closed
+`request::InquiryRetryClass::{Never, Inquiry}` subset. Shared inquiry preparation
+also refuses command retry families from downstream `Request` implementations.
+Policy constructors are infallible; raw request constructors validate wire bytes.
 
 ## Allocation baselines
 

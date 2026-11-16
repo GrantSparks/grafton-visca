@@ -100,7 +100,7 @@ use grafton_visca::{
     capabilities::{Capabilities, ShutterSpeedEntry},
     profiles::{AnyProfile, ProfileSpec},
     raw,
-    request::{Request, RetryClass},
+    request::{InquiryRetryClass, Request},
     types::{
         AffectedAxes, CameraId, Degrees, ExposureMode, FocusZone, IdleWait, NoiseReduction2D,
         NoiseReduction2DMode, NoiseReduction3D, PanSpeed, PanTiltDirection, PanTiltUnits,
@@ -1213,7 +1213,7 @@ fn shutter_body(camera: &Camera<AnyProfile>, target: CameraId, hw: &Hw) -> Resul
         raw_inquiry: raw::InquiryRequest::from_fn(
             encode(&grafton_visca::command::exposure::ShutterInquiry, target)?,
             payload_bytes,
-            RetryClass::Inquiry,
+            InquiryRetryClass::Inquiry,
             grafton_visca::request::SubmissionClass::Normal,
         )?,
     };

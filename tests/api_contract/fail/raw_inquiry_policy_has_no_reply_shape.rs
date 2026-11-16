@@ -1,9 +1,9 @@
 use grafton_visca::{
-    raw::InquiryPolicy, raw::RawReplyShape, request::RetryClass, request::SubmissionClass,
+    raw::InquiryPolicy, raw::RawReplyShape, request::InquiryRetryClass, request::SubmissionClass,
 };
 
 fn main() {
-    let _ = InquiryPolicy::new(RetryClass::Inquiry, SubmissionClass::Normal)
+    let _ = InquiryPolicy::new(InquiryRetryClass::Inquiry, SubmissionClass::Normal)
         .with_reply_shape(RawReplyShape::NoReply);
 }
 

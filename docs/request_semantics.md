@@ -28,7 +28,13 @@ use `from_fn` or `with_context`, and operation values expose `bytes()` and
 `affected_axes()`. All inquiry convenience constructors select the `Inquiry`
 timeout category. Inquiry policies store neither timeout nor command reply
 shape. Command and operation policies take `CommandTimeoutClass`, which has no
-`Inquiry` variant; all policies take `SubmissionClass`, which has no urgent lane.
+`Inquiry` variant. Inquiry policies and convenience constructors take
+`request::InquiryRetryClass::{Never, Inquiry}`: `Never` disables automatic replay,
+and `Inquiry` enables bounded lost-reply recovery. `Standard`, `Movement` and
+`Preset` are command families and cannot be constructed or deserialized into an
+inquiry policy. Preparation rejects those families on downstream inquiry
+`Request` implementations before encoding or I/O. All policies take
+`SubmissionClass`, which has no urgent lane.
 Policy construction is infallible, and raw request construction validates only
 wire bytes.
 

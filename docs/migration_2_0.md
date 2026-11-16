@@ -549,7 +549,11 @@ When porting raw frames, use `raw::CommandPolicy` with `raw::PlainRequest`,
 `raw::InquiryPolicy` with `raw::InquiryRequest<R>`. Command and operation policies
 take `CommandTimeoutClass` (`Quick`, `Movement`, `Preset`, `LongRunning`, or
 `Network`), which cannot select the inquiry timeout. Inquiry policy stores
-neither a timeout category nor a command reply shape. Plain commands select
+neither a timeout category nor a command reply shape; its retry argument is
+`request::InquiryRetryClass::Never` or `InquiryRetryClass::Inquiry`, including
+`InquiryRequest` convenience constructors. When porting a custom 1.x inquiry,
+choose `Inquiry` for bounded reply-loss recovery or `Never` to disable replay;
+command retry families are refused before I/O. Plain commands select
 `raw::RawReplyShape`; operations select `raw::OperationReplyShape`, whose
 `AckThenCompletion` and `CompletionOnly` variants require camera evidence and
 exclude `NoReply`. All three policies take `SubmissionClass`, which cannot
